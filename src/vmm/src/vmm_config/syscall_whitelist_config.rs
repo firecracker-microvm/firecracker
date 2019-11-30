@@ -1,7 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-use serde::{de, Deserialize};
 use std::fmt;
 
 pub use error::{ErrorKind, VmmActionError};
@@ -40,14 +38,14 @@ pub struct SyscallWhitelistConfig {
     /// Architecture to whitelist syscalls for.
     #[serde(
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "validate_arch"
+        // deserialize_with = "validate_arch"
     )]
     pub arch: Option<String>,
 
     /// Toolchain to whitelist syscalls for.
     #[serde(
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "validate_toolchain"
+        // deserialize_with = "validate_toolchain"
     )]
     pub toolchain: Option<String>,
 
@@ -93,6 +91,7 @@ pub fn get_whitelist_config_for_toolchain(
             .as_ref()
             .map(|s| String::as_str(s))
             .unwrap();
+
         cfg_arch == arch && cfg_toolchain == toolchain
     });
 
@@ -107,40 +106,33 @@ pub fn get_whitelist_config_for_toolchain(
     }
 }
 
-fn validate_arch<'de, D>(d: D) -> std::result::Result<Option<String>, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let val = Option::<String>::deserialize(d)?;
+/// Validates a list of syscall whitelist configs so that user errors such as 
+/// configuring unsupported architectures do not fail silently.
+pub fn validate_whitelist_configs(configs: &[SyscallWhitelistConfig]) -> std::result::Result<(), VmmActionError> {
+    for config in configs.iter() {
+        let cfg_arch = config.arch.as_ref().map(|s| String::as_str(s)).unwrap();
+        let cfg_toolchain = config
+            .toolchain
+            .as_ref()
+            .map(|s| String::as_str(s))
+            .unwrap();
 
-    if let Some(ref value) = val {
-        if *value != "x86_64" && *value != "aarch64" {
-            return Err(de::Error::invalid_value(
-                de::Unexpected::Str(&val.unwrap()),
-                &"unknown architecture supplied, must be \"x86_64\" or \"aarch64\"",
-            ));
+        if cfg_arch != "x86_64" && cfg_arch != "aarch64" {
+            return Err(VmmActionError::SyscallWhitelist(
+                ErrorKind::User,
+                SyscallWhitelistConfigError::InvalidArchitecture
+            ))
+        }
+
+        if cfg_toolchain != "gnu" && cfg_toolchain != "musl" {
+            return Err(VmmActionError::SyscallWhitelist(
+                ErrorKind::User,
+                SyscallWhitelistConfigError::InvalidToolchain
+            ))
         }
     }
 
-    Ok(val)
-}
-
-fn validate_toolchain<'de, D>(d: D) -> std::result::Result<Option<String>, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let val = Option::<String>::deserialize(d)?;
-
-    if let Some(ref value) = val {
-        if *value != "musl" && *value != "gnu" {
-            return Err(de::Error::invalid_value(
-                de::Unexpected::Str(&val.unwrap()),
-                &"unknown architecture supplied, must be \"musl\" or \"gnu\"",
-            ));
-        }
-    }
-
-    Ok(val)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -175,6 +167,37 @@ mod tests {
         assert!(selected_config.is_ok());
         let empty_vec: Vec<i64> = vec![];
         assert_eq!(empty_vec, selected_config.unwrap());
+    }
+
+    #[test]
+    fn test_validate_whitelist_configs() {
+        let mut test_configs = vec![SyscallWhitelistConfig {
+            arch: Some(String::from("unknown")),
+            toolchain: Some(String::from("musl")),
+            syscalls: Some(vec![1,2,3])
+        }];
+
+        match validate_whitelist_configs(&test_configs) {
+            Err(VmmActionError::SyscallWhitelist(
+                ErrorKind::User,
+                SyscallWhitelistConfigError::InvalidArchitecture
+            )) => (),
+            _ => unreachable!()
+        }
+
+        test_configs = vec![SyscallWhitelistConfig {
+            arch: Some(String::from("x86_64")),
+            toolchain: Some(String::from("unknown")),
+            syscalls: Some(vec![1,2,3])
+        }];
+
+        match validate_whitelist_configs(&test_configs) {
+            Err(VmmActionError::SyscallWhitelist(
+                ErrorKind::User,
+                SyscallWhitelistConfigError::InvalidToolchain
+            )) => (),
+            _ => unreachable!()
+        }
     }
 
     #[test]

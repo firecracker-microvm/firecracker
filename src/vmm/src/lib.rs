@@ -97,7 +97,8 @@ use vmm_config::net::{
     NetworkInterfaceUpdateConfig,
 };
 use vmm_config::syscall_whitelist_config::{
-    get_whitelist_config_for_toolchain, SyscallWhitelistConfig, SyscallWhitelistConfigError,
+    get_whitelist_config_for_toolchain, validate_whitelist_configs, 
+    SyscallWhitelistConfig, SyscallWhitelistConfigError,
 };
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{KvmContext, Vcpu, Vm};
@@ -1473,7 +1474,7 @@ impl Vmm {
         }
     }
 
-    /// Set syscall whitelist for guest.
+    /// Validates and sets syscall whitelist for guest.
     pub fn set_syscall_whitelist(&mut self, configs: &[SyscallWhitelistConfig]) -> UserResult {
         if self.is_instance_initialized() {
             Err(VmmActionError::VsockConfig(
@@ -1481,6 +1482,9 @@ impl Vmm {
                 VsockError::UpdateNotAllowedPostBoot,
             ))
         } else {
+            validate_whitelist_configs(configs)?;
+            
+            // Choose config object matching build target env and toolchain.
             let whitelist = get_whitelist_config_for_toolchain(configs)?;
             self.syscall_whitelist = whitelist;
             Ok(())
@@ -3160,6 +3164,41 @@ mod tests {
             Err(VmmActionError::NetworkConfig(
                 ErrorKind::User,
                 NetworkInterfaceError::HostDeviceNameInUse { .. },
+            )) => (),
+            _ => unreachable!(),
+        }
+
+        // Invalid architecture supplied in syscall whitelist
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "syscall-whitelist": [
+                        {{
+                            "arch": "unknown",
+                            "toolchain": "gnu",
+                            "syscalls": [1,2,3]
+                        }}
+                    ]
+            }}"#,
+            kernel_file.path().to_str().unwrap(),
+            rootfs_file.path().to_str().unwrap()
+        );
+
+        match vmm.configure_from_json(json) {
+            Err(VmmActionError::SyscallWhitelist(
+                ErrorKind::User,
+                SyscallWhitelistConfigError::InvalidArchitecture,
             )) => (),
             _ => unreachable!(),
         }

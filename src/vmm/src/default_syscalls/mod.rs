@@ -194,6 +194,10 @@ mod tests {
 
     #[test]
     fn test_set_seccomp_level_and_whitelist() {
-        assert!(set_seccomp_level_and_whitelist(1, &EXTRA_SYSCALLS).is_ok());
+        thread::spawn(move || {
+            assert!(set_seccomp_level_and_whitelist(1, &EXTRA_SYSCALLS).is_ok());
+        })
+        .join()
+        .unwrap();
     }
 }
