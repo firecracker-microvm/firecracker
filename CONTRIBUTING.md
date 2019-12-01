@@ -1,6 +1,6 @@
 # Contributions Welcome
 
-Firecracker is already running production workloads within AWS, but it's still
+Firecracker is running serverless workloads at scale within AWS, but it's still
 day 1 on the journey guided by our [mission](CHARTER.md). There's a lot more to
 build and we welcome all contributions.
 
