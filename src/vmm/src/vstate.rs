@@ -556,7 +556,6 @@ mod tests {
 
     use super::super::devices;
     use super::*;
-    use vmm_config::machine_config::VmConfig;
 
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu() -> (Vm, Vcpu) {
@@ -700,7 +699,6 @@ mod tests {
         // Try it for when vcpu id is 0.
         let mut vcpu = Vcpu::new_aarch64(0, vm.fd(), super::super::TimestampUs::default()).unwrap();
 
-        let vm_config = VmConfig::default();
         assert!(vcpu
             .configure_aarch64(vm.fd(), vm_mem, GuestAddress(0))
             .is_ok());

@@ -78,8 +78,6 @@ use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
-#[cfg(target_arch = "aarch64")]
-use serde_json::Value;
 use utils::eventfd::EventFd;
 use utils::net::TapError;
 use utils::terminal::Terminal;
@@ -767,7 +765,7 @@ impl Vmm {
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn get_serial_device(&self) -> Option<&Arc<Mutex<RawIOHandler>>> {
+    fn get_serial_device(&self) -> Option<&Arc<Mutex<dyn RawIOHandler>>> {
         self.mmio_device_manager
             .as_ref()
             .unwrap()
@@ -2885,7 +2883,6 @@ mod tests {
         vmm.setup_interrupt_controller()
             .expect("Failed to setup interrupt controller");
         assert!(vmm.attach_legacy_devices().is_ok());
-        let kernel_config = vmm.kernel_config.as_mut();
 
         let dev_man = vmm.mmio_device_manager.as_ref().unwrap();
         // On aarch64, we are using first region of the memory
