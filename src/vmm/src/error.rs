@@ -809,6 +809,19 @@ mod tests {
     }
 
     #[test]
+    fn test_syscall_whitelist_config_error_conversion() {
+        // Test `SyscallWhitelistConfigError` conversion
+        assert_eq!(
+            error_kind(SyscallWhitelistConfigError::InvalidArchitecture),
+            ErrorKind::User
+        );
+        assert_eq!(
+            error_kind(SyscallWhitelistConfigError::InvalidToolchain),
+            ErrorKind::User
+        );
+    }
+
+    #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_error_messages() {
         // Enum `Error`
@@ -1000,6 +1013,26 @@ mod tests {
                 VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot)
             ),
             "The update operation is not allowed after boot."
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                VmmActionError::SyscallWhitelist(
+                    ErrorKind::User,
+                    SyscallWhitelistConfigError::InvalidArchitecture
+                )
+            ),
+            "SyscallWhitelist(User, InvalidArchitecture)"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                VmmActionError::SyscallWhitelist(
+                    ErrorKind::User,
+                    SyscallWhitelistConfigError::InvalidArchitecture
+                )
+            ),
+            SyscallWhitelistConfigError::InvalidArchitecture.to_string()
         );
     }
 }

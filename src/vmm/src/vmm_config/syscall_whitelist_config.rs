@@ -36,33 +36,24 @@ impl fmt::Display for SyscallWhitelistConfigError {
 #[serde(deny_unknown_fields)]
 pub struct SyscallWhitelistConfig {
     /// Architecture to whitelist syscalls for.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        // deserialize_with = "validate_arch"
-    )]
-    pub arch: Option<String>,
+    pub arch: String,
 
     /// Toolchain to whitelist syscalls for.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        // deserialize_with = "validate_toolchain"
-    )]
-    pub toolchain: Option<String>,
+    pub toolchain: String,
 
     /// List of syscall numbers for given architecture and toolchain.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub syscalls: Option<Vec<i64>>,
+    pub syscalls: Vec<i64>,
 }
 
 impl fmt::Display for SyscallWhitelistConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let arch = self.arch.clone().unwrap();
-        let toolchain = self.toolchain.clone().unwrap();
+        let arch = &self.arch;
+        let toolchain = &self.toolchain;
         let syscalls = &self.syscalls;
 
         write!(
             f,
-            "{{ \"arch\": {:?}, \"toolchain\": {:?},  \"syscalls\": {:?}",
+            "{{ \"arch\": {:?}, \"toolchain\": {:?},  \"syscalls\": {:?} }}",
             arch, toolchain, syscalls
         )
     }
@@ -85,24 +76,15 @@ pub fn get_whitelist_config_for_toolchain(
     let arch = "aarch64";
 
     let config = configs.iter().find(|&config| {
-        let cfg_arch = config.arch.as_ref().map(|s| String::as_str(s)).unwrap();
-        let cfg_toolchain = config
-            .toolchain
-            .as_ref()
-            .map(|s| String::as_str(s))
-            .unwrap();
+        let cfg_arch = &config.arch;
+        let cfg_toolchain = &config.toolchain;
 
         cfg_arch == arch && cfg_toolchain == toolchain
     });
 
-    let syscalls = match config {
-        Some(config) => &config.syscalls,
-        None => return Ok(vec![]), // default to empty list if we don't find a matching arch-toolchain tuple
-    };
-
-    match syscalls {
-        Some(syscalls) => Ok(syscalls.to_vec()),
-        None => Ok(vec![]),
+    match config {
+        Some(config) => Ok(config.syscalls.to_vec()),
+        None => Ok(vec![]), // default to empty list if we don't find a matching arch-toolchain tuple
     }
 }
 
@@ -112,12 +94,8 @@ pub fn validate_whitelist_configs(
     configs: &[SyscallWhitelistConfig],
 ) -> std::result::Result<(), VmmActionError> {
     for config in configs.iter() {
-        let cfg_arch = config.arch.as_ref().map(|s| String::as_str(s)).unwrap();
-        let cfg_toolchain = config
-            .toolchain
-            .as_ref()
-            .map(|s| String::as_str(s))
-            .unwrap();
+        let cfg_arch = &config.arch;
+        let cfg_toolchain = &config.toolchain;
 
         if cfg_arch != "x86_64" && cfg_arch != "aarch64" {
             return Err(VmmActionError::SyscallWhitelist(
@@ -154,9 +132,9 @@ mod tests {
         let arch = "aarch64";
 
         let mut test_configs = vec![SyscallWhitelistConfig {
-            arch: Some(String::from(arch)),
-            toolchain: Some(String::from(toolchain)),
-            syscalls: Some(vec![39, 40]),
+            arch: String::from(arch),
+            toolchain: String::from(toolchain),
+            syscalls: vec![39, 40],
         }];
 
         let mut selected_config = get_whitelist_config_for_toolchain(&test_configs);
@@ -174,9 +152,9 @@ mod tests {
     #[test]
     fn test_validate_whitelist_configs() {
         let mut test_configs = vec![SyscallWhitelistConfig {
-            arch: Some(String::from("unknown")),
-            toolchain: Some(String::from("musl")),
-            syscalls: Some(vec![1, 2, 3]),
+            arch: String::from("unknown"),
+            toolchain: String::from("musl"),
+            syscalls: vec![1, 2, 3],
         }];
 
         match validate_whitelist_configs(&test_configs) {
@@ -188,9 +166,9 @@ mod tests {
         }
 
         test_configs = vec![SyscallWhitelistConfig {
-            arch: Some(String::from("x86_64")),
-            toolchain: Some(String::from("unknown")),
-            syscalls: Some(vec![1, 2, 3]),
+            arch: String::from("x86_64"),
+            toolchain: String::from("unknown"),
+            syscalls: vec![1, 2, 3],
         }];
 
         match validate_whitelist_configs(&test_configs) {
@@ -217,5 +195,19 @@ mod tests {
             SyscallWhitelistConfigError::InvalidToolchain.to_string(),
             expected_str
         );
+    }
+
+    #[test]
+    fn test_display_syscall_whitelist_config() {
+        let expected_str =
+            "{ \"arch\": \"x86_64\", \"toolchain\": \"musl\",  \"syscalls\": [1, 2, 3] }";
+
+        let config = SyscallWhitelistConfig {
+            arch: String::from("x86_64"),
+            toolchain: String::from("musl"),
+            syscalls: vec![1, 2, 3],
+        };
+
+        assert_eq!(config.to_string(), expected_str);
     }
 }

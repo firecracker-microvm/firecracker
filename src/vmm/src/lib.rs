@@ -3168,7 +3168,7 @@ mod tests {
             _ => unreachable!(),
         }
 
-        // Invalid architecture supplied in syscall whitelist
+        // Invalid architecture supplied in syscall whitelist.
         json = format!(
             r#"{{
                     "boot-source": {{
