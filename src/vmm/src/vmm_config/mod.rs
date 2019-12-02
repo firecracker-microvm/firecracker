@@ -56,6 +56,7 @@ impl TokenBucketConfig {
 /// A public-facing, stateless structure, holding all the data we need to create a RateLimiter
 /// (live) object.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct RateLimiterConfig {
     /// Data used to initialize the RateLimiter::bandwidth bucket.
     pub bandwidth: Option<TokenBucketConfig>,
