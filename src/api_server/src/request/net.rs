@@ -145,4 +145,27 @@ mod tests {
         assert!(parse_put_net(&Body::new(body), Some(&"bar")).is_err());
         assert!(parse_patch_net(&Body::new(body), Some(&"bar")).is_err());
     }
+
+    #[test]
+    fn test_network_interface_body_error_handling() {
+        // Serde error for invalid field (bytes instead of bandwidth).
+        let body = r#"
+        {
+            "iface_id": "foo",
+            "rx_rate_limiter": {
+                "bytes": {
+                    "size": 62500,
+                    "refill_time": 1000
+                }
+            },
+            "tx_rate_limiter": {
+                "bytes": {
+                    "size": 62500,
+                    "refill_time": 1000
+                }
+            }
+        }"#;
+
+        assert!(parse_patch_net(&Body::new(body), Some(&"foo")).is_err());
+    }
 }
