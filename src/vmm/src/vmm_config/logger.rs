@@ -11,8 +11,6 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
-use logger::LogOption;
-
 type Result<T> = std::result::Result<T, std::io::Error>;
 
 /// Structure `LoggerWriter` used for writing to a FIFO.
@@ -96,14 +94,15 @@ pub struct LoggerConfig {
     /// Additional logging options.
     #[cfg(target_arch = "x86_64")]
     #[serde(default = "default_log_options")]
-    pub options: Vec<LogOption>,
+    pub options: Vec<logger::LogOption>,
 }
 
 fn default_level() -> LoggerLevel {
     LoggerLevel::Warning
 }
 
-fn default_log_options() -> Vec<LogOption> {
+#[cfg(target_arch = "x86_64")]
+fn default_log_options() -> Vec<logger::LogOption> {
     vec![]
 }
 
