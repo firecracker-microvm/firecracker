@@ -50,14 +50,15 @@ fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
     Ok(line)
 }
 
-// If we call inherit_from_parent_aux(.../A/B/C, file, condition), the following will happen:
-// 1) If .../A/B/C/file does not exist, or if .../A/B/file does not exist, return an error.
-// 2) If .../A/B/file is not empty, write the first line of .../A/B/file into .../A/B/C/file
-// and return.
-// 3) If ../A/B/file exists but it is empty, call inherit_from_parent_aux(.../A/B, file, false).
-// 4) If .../A/B/file is no longer empty, write the first line of .../A/B/file into
-// .../A/B/C/file, and return.
-// 5) Otherwise, return an error.
+// If we call inherit_from_parent_aux(.../A/B/C, file_name, true), the following will happen:
+// 1) If .../A/B/file_name is not empty, write the first line of .../A/B/file_name into .../A/B/C/file_name and return.
+// 2) If .../A/B/file_name is exist but empty then call inherit_from_parent_aux(.../A/B, file_name, false). 
+//    If still .../A/B/file_name is empty throw error or else write the first line of .../A/B/file_name into 
+//    .../A/B/C/file_name and return.
+
+// If we call inherit_from_parent_aux(.../A/B, file_name, false), the following will happen:
+// 1) If .../A/file_name is not empty, write the first line of .../A/file_name into .../A/B/file_name and return.
+// 2) If .../A/file_name is exist but empty then throw error.
 
 // How is this helpful? When creating cgroup folders for the jailer Firecracker instance, the jailer
 // will create a hierarchy that looks like <cgroup_base>/firecracker/<id>. Depending on each
