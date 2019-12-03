@@ -2,7 +2,6 @@
 
 ## About Firecracker
 
-
 ### What is Firecracker?
 
 Firecracker is an open source Virtual Machine Monitor (VMM) that
@@ -16,10 +15,13 @@ such as [AWS Lambda](https://aws.amazon.com/lambda/) and [AWS
 Fargate](https://aws.amazon.com/fargate/) to improve resource utilization and
 customer experience, while providing the security and isolation required of
 public cloud infrastructure. Firecracker started from Chromium OS's Virtual
-Machine Monitor (crosvm), an open source VMM written in Rust. Today, crosvm and
-Firecracker have diverged to serve very different customer needs. We plan to
-contribute bug fixes and tests for Rust crates that originated from crosvm, and
-any Firecracker functionality that's appealing for crosvm.
+Machine Monitor,
+[crosvm](https://chromium.googlesource.com/chromiumos/platform/crosvm/), an open
+source VMM written in Rust. Today, crosvm and Firecracker have diverged to
+serve very different customer needs. [Rust-vmm](https://github.com/rust-vmm) is
+an open source community where we collaborate with the crosvm maintainers and
+other groups and individuals to build and share quality Rust virtualization
+components.
 
 ### Why did you develop Firecracker?
 
@@ -34,43 +36,42 @@ to integrate with container ecosystems.
 
 ### What processors does Firecracker support?
 
-The Firecracker VMM is built to be processor agnostic. Today, it can run on
-Intel processors. AMD and ARM processors will be supported in the near future.
+The Firecracker VMM is built to be processor agnostic. Intel processors are
+supported for production workloads. Support for AMD and Arm processors is in
+developer preview.
 
-### Can Firecracker be used with Kata containers, Kubernetes or Docker today?
+### Can Firecracker be used within the container ecosystem?
 
-Since release
-[1.5.0](https://github.com/kata-containers/runtime/releases/tag/1.5.0)
-of Kata Containers, support for the Firecracker VMM has been included.
-Docker CLI and Kubernetes can be used with Firecracker when configured
-with Kata containers, but there are limitations with Kubernetes use cases.
-There is also a work in progress on
-[Firecracker-containerd](https://github.com/firecracker-microvm/firecracker-containerd)
-to enable containerd to manage containers as Firecracker microVMs. We hope
-that others in the communities that build open source container technology find
-it useful. We are working to make Firecracker integrate naturally with the
-container ecosystem, with the goal to provide seamless integration in the future
-to provide more choices in how container workloads are isolated.
+Yes. Firecracker is integrated with
+[Kata Containers](https://github.com/kata-containers/documentation/wiki/Initial-release-of-Kata-Containers-with-Firecracker-support),
+[Weave FireKube](https://www.weave.works/oss/firekube/) (via
+[Weave Ignite](https://github.com/weaveworks/ignite)), and containerd via
+[firecracker-containerd](https://github.com/firecracker-microvm/firecracker-containerd).
+We welcome contributions that enable Firecracker to integrate naturally with the
+container ecosystem and provide more choices in how container workloads are
+isolated.
 
-### What is the difference between Firecracker and Kata Containers and QEMU?
+### What is the difference between Firecracker and QEMU?
 
-Kata Containers is an OCI-compliant container runtime that executes containers
-within QEMU based virtual machines. Firecracker is a cloud-native alternative to
-QEMU that is purpose-built for running containers safely and efficiently, and
-nothing more. Firecracker provides a minimal required device model to the guest
-operating system while excluding non-essential functionality (there are only 4
-emulated devices: virtio-net, virtio-block, serial console, and a 1-button
-keyboard controller used only to stop the microVM). This, along with a
-streamlined kernel loading process enables a < 125 ms startup time and a reduced
-memory footprint. The Firecracker process also provides a RESTful control API,
-handles resource rate limiting for microVMs, and provides a microVM metadata
-service to enable the sharing of configuration data between the host and guest.
+Firecracker is an
+[alternative to QEMU](https://www.redhat.com/en/blog/all-you-need-know-about-kvm-userspace)
+that is purpose-built for running serverless functions and containers safely and
+efficiently, and nothing more. Firecracker is written in Rust, provides a
+minimal required device model to the guest operating system while excluding
+non-essential functionality (only 5 emulated devices are available: virtio-net,
+virtio-block, virtio-vsock, serial console, and a minimal keyboard controller
+used only to stop the microVM). This, along with a streamlined kernel loading
+process enables a < 125 ms startup time and a < 5 MiB memory footprint. The
+Firecracker process also provides a RESTful control API, handles resource rate
+limiting for microVMs, and provides a microVM metadata service to enable the
+sharing of configuration data between the host and guest.
 
 ### What operating systems are supported by Firecracker?
 
 Firecracker supports Linux host and guest operating systems with kernel versions
-4.14 and above. The long-term support plan is still under discussion. A leading
-option is to support Firecracker for the last two Linux stable branch releases.
+4.14 and above, as well as
+[OSv](http://blog.osv.io/blog/2019/04/19/making-OSv-run-on-firecraker/) guests.
+The long-term support plan is still under discussion.
 
 ### What is the open source license for Firecracker?
 
@@ -96,10 +97,6 @@ workspace](https://firecracker-microvm.slack.com).
 The Firecracker [team at Amazon Web Services](MAINTAINERS.md) owns project
 maintainer responsibilities, permissions to merge pull requests, and the ability
 to create new Firecracker releases.
-
-### Are there plans to make Firecracker an OpenStack or CNCF project?
-
-Not at the moment.
 
 ## Technical FAQ & Troubleshooting
 
