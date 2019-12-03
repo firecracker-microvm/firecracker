@@ -8,6 +8,9 @@
 - The backtrace are printed on `panic`, no longer causing a seccomp fault.
 - Fixed #1375 - Change logger options type from Value to Vec<LogOption> to
   prevent potential unwrap on None panics.
+- Raise interrupt for TX queue used descriptors - Github issue #1436
+- Fixed a bug that causes 100% cpu load when the net device rx is throttled 
+  by the ratelimiter - Github issue #1439
 
 ## [0.19.0]
 
