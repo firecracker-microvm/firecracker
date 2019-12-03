@@ -151,9 +151,6 @@ pub struct NetEpollHandler {
     acked_features: u64,
     mmds_ns: Option<MmdsNetworkStack>,
     guest_mac: Option<MacAddr>,
-    epoll_fd: RawFd,
-    rx_tap_listening: bool,
-    rx_tap_epoll_token: u64,
 
     #[cfg(test)]
     test_mutators: tests::TestMutators,
@@ -477,7 +474,7 @@ impl NetEpollHandler {
             self.tx.queue.add_used(&self.mem, head_index, 0);
             raise_irq = true;
         }
-        
+
         if raise_irq {
             self.signal_used_queue()?;
         }
@@ -506,28 +503,6 @@ impl NetEpollHandler {
     fn read_tap(&mut self) -> io::Result<usize> {
         self.tap.read(&mut self.rx.frame_buf)
     }
-
-    fn register_tap_rx_listener(&mut self) -> std::result::Result<(), std::io::Error> {
-        epoll::ctl(
-            self.epoll_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            self.tap.as_raw_fd(),
-            epoll::Event::new(epoll::Events::EPOLLIN, self.rx_tap_epoll_token),
-        )?;
-        self.rx_tap_listening = true;
-        Ok(())
-    }
-
-    fn unregister_tap_rx_listener(&mut self) -> std::result::Result<(), std::io::Error> {
-        epoll::ctl(
-            self.epoll_fd,
-            epoll::ControlOptions::EPOLL_CTL_DEL,
-            self.tap.as_raw_fd(),
-            epoll::Event::new(epoll::Events::EPOLLIN, self.rx_tap_epoll_token),
-        )?;
-        self.rx_tap_listening = false;
-        Ok(())
-    }
 }
 
 impl EpollHandler for NetEpollHandler {
@@ -547,10 +522,6 @@ impl EpollHandler for NetEpollHandler {
                         underlying: e,
                     })
                 } else {
-                    if !self.rx_tap_listening {
-                        self.register_tap_rx_listener()
-                            .map_err(DeviceError::IoError)?;
-                    }
                     // If the limiter is not blocked, resume the receiving of bytes.
                     if !self.rx.rate_limiter.is_blocked() {
                         // There should be a buffer available now to receive the frame into.
@@ -564,8 +535,6 @@ impl EpollHandler for NetEpollHandler {
                 METRICS.net.rx_tap_event_count.inc();
 
                 if self.rx.queue.is_empty(&self.mem) {
-                    self.unregister_tap_rx_listener()
-                        .map_err(DeviceError::IoError)?;
                     return Err(DeviceError::NoAvailBuffers);
                 }
 
@@ -827,6 +796,8 @@ impl VirtioDevice for Net {
             } else {
                 None
             };
+            let tap_fd = tap.as_raw_fd();
+
             let handler = NetEpollHandler {
                 rx: RxVirtio::new(
                     rx_queue,
@@ -845,9 +816,6 @@ impl VirtioDevice for Net {
                 acked_features: self.acked_features,
                 mmds_ns,
                 guest_mac: self.guest_mac(),
-                epoll_fd: self.epoll_config.epoll_raw_fd,
-                rx_tap_listening: false,
-                rx_tap_epoll_token: self.epoll_config.rx_tap_token,
 
                 #[cfg(test)]
                 test_mutators: tests::TestMutators::default(),
@@ -866,6 +834,20 @@ impl VirtioDevice for Net {
                 .expect("Failed to send through the channel");
 
             //TODO: barrier needed here maybe?
+
+            epoll::ctl(
+                self.epoll_config.epoll_raw_fd,
+                epoll::ControlOptions::EPOLL_CTL_ADD,
+                tap_fd,
+                epoll::Event::new(
+                    epoll::Events::EPOLLIN | epoll::Events::EPOLLET,
+                    self.epoll_config.rx_tap_token,
+                ),
+            )
+            .map_err(|e| {
+                METRICS.net.activate_fails.inc();
+                ActivateError::EpollCtl(e)
+            })?;
 
             epoll::ctl(
                 self.epoll_config.epoll_raw_fd,
@@ -1130,7 +1112,6 @@ mod tests {
         let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let rx_queue_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let tx_queue_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let epoll_fd = epoll::create(true).unwrap();
 
         (
             NetEpollHandler {
@@ -1144,9 +1125,6 @@ mod tests {
                 mmds_ns: Some(MmdsNetworkStack::new_with_defaults()),
                 test_mutators,
                 guest_mac: None,
-                epoll_fd,
-                rx_tap_epoll_token: 0,
-                rx_tap_listening: false,
             },
             txq,
             rxq,
@@ -1482,15 +1460,12 @@ mod tests {
         };
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _txq, rxq) = default_test_netepollhandler(&mem, test_mutators);
-        h.register_tap_rx_listener().unwrap();
 
         // The RX queue is empty.
         match h.handle_event(RX_TAP_EVENT, epoll::Events::EPOLLIN) {
             Err(DeviceError::NoAvailBuffers) => (),
             _ => panic!("invalid"),
         }
-        // Since the RX was empty, we shouldn't be listening for tap RX events.
-        assert!(!h.rx_tap_listening);
 
         // Fake an avail buffer; this time, tap reading should error out.
         rxq.avail.idx.set(1);
@@ -1711,8 +1686,8 @@ mod tests {
             }
 
             // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 50ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(150));
+            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(200));
 
             // following TX procedure should succeed because bandwidth should now be available
             {
@@ -1762,8 +1737,8 @@ mod tests {
             }
 
             // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 50ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(150));
+            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(200));
 
             // following RX procedure should succeed because bandwidth should now be available
             {
@@ -1819,8 +1794,8 @@ mod tests {
             }
 
             // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 50ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(150));
+            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(200));
 
             // following TX procedure should succeed because ops should now be available
             {
@@ -1874,8 +1849,8 @@ mod tests {
             }
 
             // wait for 100ms to give the rate-limiter timer a chance to replenish
-            // wait for an extra 50ms to make sure the timerfd event makes its way from the kernel
-            thread::sleep(Duration::from_millis(150));
+            // wait for an extra 100ms to make sure the timerfd event makes its way from the kernel
+            thread::sleep(Duration::from_millis(200));
 
             // following RX procedure should succeed because ops should now be available
             {
@@ -1923,5 +1898,29 @@ mod tests {
         compare_buckets(h.get_rx_rate_limiter().ops().unwrap(), &rx_ops);
         compare_buckets(h.get_tx_rate_limiter().bandwidth().unwrap(), &tx_bytes);
         compare_buckets(h.get_tx_rate_limiter().ops().unwrap(), &tx_ops);
+    }
+
+    #[test]
+    fn test_tx_queue_interrupt() {
+        // Regression test for https://github.com/firecracker-microvm/firecracker/issues/1436 .
+        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let (mut h, txq, _) = default_test_netepollhandler(&mem, TestMutators::default());
+
+        let daddr = 0x2000;
+        assert!(daddr > txq.end().0);
+
+        // Do some TX.
+        txq.avail.idx.set(1);
+        txq.avail.ring[0].set(0);
+        txq.dtable[0].set(daddr, 0x1000, 0, 0);
+
+        // trigger the TX handler
+        h.tx.queue_evt.write(1).unwrap();
+        h.handle_event(TX_QUEUE_EVENT, EPOLLIN).unwrap();
+
+        // Verify if TX queue was processed.
+        assert_eq!(txq.used.idx.get(), 1);
+        // Check if interrupt was triggered.
+        assert_eq!(h.interrupt_evt.read().unwrap(), 1);
     }
 }
