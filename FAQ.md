@@ -231,3 +231,13 @@ Passing an optional command line parameter, `--config-file`, to the Firecracker
 process allows this type of configuration. This parameter must be the path to a
 file that contains the JSON specification that will be used to configure and start
 the microVM. One example of such file can be found at `tests/framework/vm_config.json`.
+
+### Firecracker fails to start and returns an Out of Memory error
+
+If the Firecracker process exits with `12` exit code (`Out of memory` error), the root
+cause is that there is not enough memory on the host to be used by the Firecracker microVM.
+
+If the microVM was not configured in terms of memory size through an API request,
+the host needs to meet the minimum requirement in terms of free memory size,
+namely 128 MB of free memory which the microVM defaults to.
+
