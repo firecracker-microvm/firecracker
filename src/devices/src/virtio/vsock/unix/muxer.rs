@@ -847,7 +847,14 @@ mod tests {
             LocalListener::new(format!("{}_{}", self.muxer.host_sock_path, port))
         }
 
-        fn local_connect(&mut self, peer_port: u32) -> (UnixStream, u32) {
+        fn local_connect_maybe_upgrade_oprst(
+            &mut self,
+            peer_port: u32,
+            is_upgrade: bool,
+            is_oprst: bool,
+        ) -> (UnixStream, u32) {
+            assert!(!is_oprst || (is_oprst && is_upgrade));
+
             let (init_local_lsn_count, init_conn_lsn_count) = self.count_epoll_listeners();
 
             let mut stream = UnixStream::connect(self.muxer.host_sock_path.clone()).unwrap();
@@ -861,7 +868,11 @@ mod tests {
             let (local_lsn_count, _) = self.count_epoll_listeners();
             assert_eq!(local_lsn_count, init_local_lsn_count + 1);
 
-            let buf = format!("CONNECT {}\n", peer_port);
+            let buf = if is_upgrade {
+                format!("Upgrade {}\n", peer_port)
+            } else {
+                format!("CONNECT {}\n", peer_port)
+            };
             stream.write_all(buf.as_bytes()).unwrap();
             // The muxer would now get notified that data is available for reading from the locally
             // initiated connection.
@@ -890,10 +901,26 @@ mod tests {
             assert_eq!(self.pkt.dst_port(), peer_port);
             assert_eq!(self.pkt.src_port(), local_port);
 
-            self.init_pkt(local_port, peer_port, uapi::VSOCK_OP_RESPONSE);
+            self.init_pkt(
+                local_port,
+                peer_port,
+                if is_oprst {
+                    uapi::VSOCK_OP_RST
+                } else {
+                    uapi::VSOCK_OP_RESPONSE
+                },
+            );
             self.send();
 
             (stream, local_port)
+        }
+
+        fn local_connect(&mut self, peer_port: u32) -> (UnixStream, u32) {
+            self.local_connect_maybe_upgrade_oprst(peer_port, false, false)
+        }
+
+        fn local_connect_with_upgrade(&mut self, peer_port: u32) -> (UnixStream, u32) {
+            self.local_connect_maybe_upgrade_oprst(peer_port, true, false)
         }
     }
 
@@ -1072,12 +1099,99 @@ mod tests {
     }
 
     #[test]
+    fn test_local_connection_with_upgrade() {
+        let mut ctx = MuxerTestContext::new("local_connection_with_upgrade");
+        let peer_port = 1025;
+        let (mut stream, local_port) = ctx.local_connect_with_upgrade(peer_port);
+
+        // Test the handshake
+        let mut buf = vec![0; 4];
+        stream.read_exact(buf.as_mut_slice()).unwrap();
+        let buf = String::from_utf8(buf).unwrap();
+        assert_eq!(buf, "101\n".to_string());
+
+        // Test guest -> host data flow.
+        let data = [1, 2, 3, 4];
+        ctx.init_data_pkt(local_port, peer_port, &data);
+        ctx.send();
+
+        let mut buf = vec![0u8; data.len()];
+        stream.read_exact(buf.as_mut_slice()).unwrap();
+        assert_eq!(buf.as_slice(), &data);
+
+        // Test host -> guest data flow.
+        let data = [5, 6, 7, 8];
+        stream.write_all(&data).unwrap();
+        ctx.notify_muxer();
+
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
+        assert_eq!(ctx.pkt.src_port(), local_port);
+        assert_eq!(ctx.pkt.dst_port(), peer_port);
+        assert_eq!(ctx.pkt.buf().unwrap()[..data.len()], data);
+    }
+
+    #[test]
+    fn test_local_connection_with_upgrade_get_oprst() {
+        let mut ctx = MuxerTestContext::new("local_connection_with_upgrade_get_oprst");
+        let peer_port = 1025;
+        let (mut stream, _local_port) =
+            ctx.local_connect_maybe_upgrade_oprst(peer_port, true, true);
+
+        let mut buf = vec![0; 4];
+        stream.read_exact(buf.as_mut_slice()).unwrap();
+        let buf = String::from_utf8(buf).unwrap();
+        assert_eq!(buf, "503\n".to_string());
+    }
+
+    #[test]
     fn test_local_close() {
         let peer_port = 1025;
         let mut ctx = MuxerTestContext::new("local_close");
         let local_port;
         {
             let (_stream, local_port_) = ctx.local_connect(peer_port);
+            local_port = local_port_;
+        }
+        // Local var `_stream` was now dropped, thus closing the local stream. After the muxer gets
+        // notified via EPOLLIN, it should attempt to gracefully shutdown the connection, issuing a
+        // VSOCK_OP_SHUTDOWN with both no-more-send and no-more-recv indications set.
+        ctx.notify_muxer();
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_SHUTDOWN);
+        assert_ne!(ctx.pkt.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_SEND, 0);
+        assert_ne!(ctx.pkt.flags() & uapi::VSOCK_FLAGS_SHUTDOWN_RCV, 0);
+        assert_eq!(ctx.pkt.src_port(), local_port);
+        assert_eq!(ctx.pkt.dst_port(), peer_port);
+
+        // The connection should get removed (and its local port freed), after the peer replies
+        // with an RST.
+        ctx.init_pkt(local_port, peer_port, uapi::VSOCK_OP_RST);
+        ctx.send();
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        assert!(!ctx.muxer.conn_map.contains_key(&key));
+        assert!(!ctx.muxer.local_port_set.contains(&local_port));
+    }
+
+    #[test]
+    fn test_local_close_with_upgrade() {
+        let peer_port = 1025;
+        let mut ctx = MuxerTestContext::new("local_close_with_upgrade");
+        let local_port;
+        {
+            let (mut stream, local_port_) = ctx.local_connect_with_upgrade(peer_port);
+
+            // Test the handshake
+            let mut buf = vec![0; 4];
+            stream.read_exact(buf.as_mut_slice()).unwrap();
+            let buf = String::from_utf8(buf).unwrap();
+            assert_eq!(buf, "101\n".to_string());
+
             local_port = local_port_;
         }
         // Local var `_stream` was now dropped, thus closing the local stream. After the muxer gets

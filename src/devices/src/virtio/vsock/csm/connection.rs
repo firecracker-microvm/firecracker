@@ -764,7 +764,7 @@ mod tests {
             Self::new(ConnState::Established)
         }
 
-        fn new(conn_state: ConnState) -> Self {
+        fn new_maybe_need_reply(conn_state: ConnState, need_reply: bool) -> Self {
             let vsock_test_ctx = TestContext::new();
             let mut handler_ctx = vsock_test_ctx.create_epoll_handler_context();
             let stream = TestStream::new();
@@ -782,7 +782,7 @@ mod tests {
                     PEER_BUF_ALLOC,
                 ),
                 ConnState::LocalInit => VsockConnection::<TestStream>::new_local_init(
-                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT, false,
+                    stream, LOCAL_CID, PEER_CID, LOCAL_PORT, PEER_PORT, need_reply,
                 ),
                 ConnState::Established => {
                     let mut conn = VsockConnection::<TestStream>::new_peer_init(
@@ -806,6 +806,10 @@ mod tests {
                 pkt,
                 conn,
             }
+        }
+
+        fn new(conn_state: ConnState) -> Self {
+            Self::new_maybe_need_reply(conn_state, false)
         }
 
         fn set_stream(&mut self, stream: TestStream) {
@@ -852,6 +856,7 @@ mod tests {
     fn test_peer_request() {
         let mut ctx = CsmTestContext::new(ConnState::PeerInit);
         assert!(ctx.conn.has_pending_rx());
+        assert_eq!(ctx.conn.need_reply, false);
         ctx.recv();
         // For peer-initiated requests, our connection should always yield a vsock reponse packet,
         // in order to establish the connection.
@@ -870,6 +875,29 @@ mod tests {
     #[test]
     fn test_local_request() {
         let mut ctx = CsmTestContext::new(ConnState::LocalInit);
+        assert_eq!(ctx.conn.need_reply, false);
+        // Host-initiated connections should first yield a connection request packet.
+        assert!(ctx.conn.has_pending_rx());
+        // Before yielding the connection request packet, the timeout kill timer shouldn't be
+        // armed.
+        assert!(!ctx.conn.will_expire());
+        ctx.recv();
+        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_REQUEST);
+        // Since the request might time-out, the kill timer should now be armed.
+        assert!(ctx.conn.will_expire());
+        assert!(!ctx.conn.has_expired());
+        ctx.init_pkt(uapi::VSOCK_OP_RESPONSE, 0);
+        ctx.send();
+        // Upon receiving a connection response, the connection should have transitioned to the
+        // established state, and the kill timer should've been disarmed.
+        assert_eq!(ctx.conn.state, ConnState::Established);
+        assert!(!ctx.conn.will_expire());
+    }
+
+    #[test]
+    fn test_local_request_need_reply() {
+        let mut ctx = CsmTestContext::new_maybe_need_reply(ConnState::LocalInit, true);
+        assert_eq!(ctx.conn.need_reply, true);
         // Host-initiated connections should first yield a connection request packet.
         assert!(ctx.conn.has_pending_rx());
         // Before yielding the connection request packet, the timeout kill timer shouldn't be
@@ -891,6 +919,21 @@ mod tests {
     #[test]
     fn test_local_request_timeout() {
         let mut ctx = CsmTestContext::new(ConnState::LocalInit);
+        assert_eq!(ctx.conn.need_reply, false);
+        ctx.recv();
+        assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_REQUEST);
+        assert!(ctx.conn.will_expire());
+        assert!(!ctx.conn.has_expired());
+        std::thread::sleep(std::time::Duration::from_millis(
+            defs::CONN_REQUEST_TIMEOUT_MS,
+        ));
+        assert!(ctx.conn.has_expired());
+    }
+
+    #[test]
+    fn test_local_request_timeout_need_reply() {
+        let mut ctx = CsmTestContext::new_maybe_need_reply(ConnState::LocalInit, true);
+        assert_eq!(ctx.conn.need_reply, true);
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_REQUEST);
         assert!(ctx.conn.will_expire());
