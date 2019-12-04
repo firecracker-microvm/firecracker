@@ -217,9 +217,7 @@ impl Cgroup {
 
             // And now add "tasks" to get the path of the corresponding tasks file.
             path_buf.push("tasks");
-            if !tasks_files.contains(&path_buf) {
-                tasks_files.push(path_buf);
-            }
+            tasks_files.push(path_buf);
         }
 
         Ok(Cgroup { tasks_files })
