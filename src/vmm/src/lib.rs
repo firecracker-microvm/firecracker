@@ -914,6 +914,8 @@ impl Vmm {
             "The number of vCPU fds is corrupted!"
         );
 
+        Vcpu::register_kick_signal_handler();
+
         self.vcpus_handles.reserve(vcpu_count as usize);
 
         let vcpus_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
