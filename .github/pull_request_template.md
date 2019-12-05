@@ -13,12 +13,12 @@ the terms of the Apache 2.0 license.
 
 ## PR Checklist
 
-`[Author TODO: Meet these criteria. Where there are two options, keep one.]`  
+`[Author TODO: Meet these criteria. Where there are two options, keep one.]`
 `[Reviewer TODO: Verify that these criteria are met. Request changes if not]`
 
 - [ ] All commits in this PR are signed (`git commit -s`).
 - [ ] Either this PR is linked to an issue, or, the reason for this PR is
-      clearly provided. 
+      clearly provided.
 - [ ] The description of changes is clear and encompassing.
 - [ ] Either no docs need to be updated as part of this PR, or, the required
       doc changes are included in this PR. Docs in scope are all `*.md` files

@@ -1,5 +1,6 @@
 [build]
 target = "x86_64-unknown-linux-musl"
+target-dir = "build/cargo_target"
 
 [target.'cfg(any(target_arch="arm", target_arch="aarch64"))']
 # On aarch64 musl depends on some libgcc functions (i.e `__addtf3` and other `*tf3` functions) for logic that uses

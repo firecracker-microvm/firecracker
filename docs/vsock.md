@@ -22,7 +22,7 @@ The Firecracker vsock device aims to provide full virtio-vsock support to
 software running inside the guest VM, while bypassing vhost kernel code on the
 host. To that end, Firecracker implements the virtio-vsock device model, and
 mediates communication between AF_UNIX sockets (on the host end) and AF_VSOCK
-sockets (on the guest end). 
+sockets (on the guest end).
 
 In order to provide channel multiplexing, AF_VSOCK ports are translated into
 multiple AF_UNIX sockets (one Unix socket per vsock port). The virtio-vsock

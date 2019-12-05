@@ -58,4 +58,3 @@ enough RAM, etc.), customers can rely on the following:
 ³ No logs are currently produced in the span of time between the `jailer`
   process start-up and the logging system initialization in the `firecracker`
   process.
-
