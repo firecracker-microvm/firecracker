@@ -5,7 +5,7 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 
 [dependencies]
-vmm-sys-util = ">=0.2.0"
+vmm-sys-util = ">=0.2.1"
 libc = ">=0.2.39"
 serde = ">=1.0.27"
 net_gen = { path = "../net_gen" }

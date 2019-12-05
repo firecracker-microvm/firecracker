@@ -6,7 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use std::collections::HashMap;
-use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
 
@@ -36,9 +35,9 @@ pub enum Error {
     /// No more IRQs are available.
     IrqsExhausted,
     /// Registering an IO Event failed.
-    RegisterIoEvent(io::Error),
+    RegisterIoEvent(kvm_ioctls::Error),
     /// Registering an IRQ FD failed.
-    RegisterIrqFd(io::Error),
+    RegisterIrqFd(kvm_ioctls::Error),
     /// The device couldn't be found
     DeviceNotFound,
     /// Failed to update the mmio device.
@@ -126,12 +125,12 @@ impl MMIODeviceManager {
                 self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
             );
 
-            vm.register_ioevent(queue_evt.as_raw_fd(), &io_addr, i as u32)
+            vm.register_ioevent(queue_evt, &io_addr, i as u32)
                 .map_err(Error::RegisterIoEvent)?;
         }
 
         if let Some(interrupt_evt) = mmio_device.interrupt_evt() {
-            vm.register_irqfd(interrupt_evt.as_raw_fd(), self.irq)
+            vm.register_irqfd(interrupt_evt, self.irq)
                 .map_err(Error::RegisterIrqFd)?;
         }
 
@@ -189,7 +188,7 @@ impl MMIODeviceManager {
         let bus_device = Arc::new(Mutex::new(device));
         let raw_io_device = bus_device.clone();
 
-        vm.register_irqfd(com_evt.as_raw_fd(), self.irq)
+        vm.register_irqfd(&com_evt, self.irq)
             .map_err(Error::RegisterIrqFd)?;
 
         self.bus
@@ -232,7 +231,7 @@ impl MMIODeviceManager {
         // Attaching the RTC device.
         let rtc_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let device = devices::legacy::RTC::new(rtc_evt.try_clone().map_err(Error::EventFd)?);
-        vm.register_irqfd(rtc_evt.as_raw_fd(), self.irq)
+        vm.register_irqfd(&rtc_evt, self.irq)
             .map_err(Error::RegisterIrqFd)?;
 
         self.bus
@@ -337,6 +336,7 @@ mod tests {
     use memory_model::{GuestAddress, GuestMemory};
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, RwLock};
+    use utils::errno;
     use utils::eventfd::EventFd;
     const QUEUE_SIZES: &[u16] = &[64];
 
@@ -544,21 +544,12 @@ mod tests {
             "no more IRQs are available"
         );
         assert_eq!(
-            format!(
-                "{}",
-                Error::RegisterIoEvent(io::Error::from_raw_os_error(0))
-            ),
-            format!(
-                "failed to register IO event: {}",
-                io::Error::from_raw_os_error(0)
-            )
+            format!("{}", Error::RegisterIoEvent(errno::Error::new(0))),
+            format!("failed to register IO event: {}", errno::Error::new(0))
         );
         assert_eq!(
-            format!("{}", Error::RegisterIrqFd(io::Error::from_raw_os_error(0))),
-            format!(
-                "failed to register irqfd: {}",
-                io::Error::from_raw_os_error(0)
-            )
+            format!("{}", Error::RegisterIrqFd(errno::Error::new(0))),
+            format!("failed to register irqfd: {}", errno::Error::new(0))
         );
     }
 

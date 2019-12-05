@@ -209,7 +209,6 @@ mod tests {
         // Read and write to the LR register.
         let v = utils::time::get_time(utils::time::ClockType::Real);
         LittleEndian::write_u32(&mut data, (v / utils::time::NANOS_PER_SECOND) as u32);
-        let tick_offset_before = rtc.tick_offset;
         let previous_now_before = rtc.previous_now;
         rtc.write(RTCLR, &mut data);
 

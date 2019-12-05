@@ -15,7 +15,7 @@ use std::mem;
 
 use super::cmdline::Error as CmdlineError;
 use memory_model::{Address, GuestAddress, GuestMemory};
-use utils::structs::{read_struct, read_struct_slice};
+use utils::structs::read_struct;
 
 #[allow(non_camel_case_types)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -118,7 +118,7 @@ where
         .map_err(|_| Error::SeekProgramHeader)?;
     let phdrs: Vec<elf::Elf64_Phdr> = unsafe {
         // Reading the structs is safe for a slice of POD structs.
-        read_struct_slice(kernel_image, ehdr.e_phnum as usize)
+        utils::structs::read_struct_slice(kernel_image, ehdr.e_phnum as usize)
             .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF program header"))?
     };
 
