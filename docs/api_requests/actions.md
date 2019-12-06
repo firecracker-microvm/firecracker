@@ -4,7 +4,7 @@ Firecracker microVMs can execute actions that can be triggered via `PUT`
 requests on the `/actions` resource.
 
 Details about the required fields can be found in the
-[swagger definition](../../api_server/swagger/firecracker.yaml).
+[swagger definition](../../src/api_server/swagger/firecracker.yaml).
 
 ## BlockDeviceRescan
 
