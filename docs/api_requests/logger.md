@@ -21,7 +21,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
 ```
 
 Details about the required and optional fields can be found in the
-[swagger definition](../../api_server/swagger/firecracker.yaml).
+[swagger definition](../../src/api_server/swagger/firecracker.yaml).
 
 The `logs.fifo` file stores the human readable logs (i.e errors,
 warnings etc) while the `metrics.fifo` file stores the metrics

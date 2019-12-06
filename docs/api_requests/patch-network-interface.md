@@ -58,7 +58,7 @@ Accept: application/json
 ```
 
 The full specification of the data structures available for this call can be
-found in our [OpenAPI spec](../../api_server/swagger/firecracker.yaml).
+found in our [OpenAPI spec](../../src/api_server/swagger/firecracker.yaml).
 
 **Note**: The data provided for the update is merged with the existing data.
 In the above example, the RX rate limit is updated, but the TX rate limit

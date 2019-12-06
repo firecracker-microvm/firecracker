@@ -85,7 +85,7 @@ Firecracker's overall architecture is described in
 
 Firecracker consists of a single micro Virtual Machine Manager process that
 exposes an API endpoint to the host once started. The API is
-[specified in OpenAPI format](api_server/swagger/firecracker.yaml). Read more
+[specified in OpenAPI format](src/api_server/swagger/firecracker.yaml). Read more
 about it in the [API docs](docs/api_requests).
 
 The **API endpoint** can be used to:
