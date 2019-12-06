@@ -390,33 +390,36 @@ impl Logger {
     /// Creates the first portion (to the left of the separator)
     /// of the log statement based on the logger settings.
     fn create_prefix(&self, record: &Record) -> String {
-        let mut res = String::from(" [");
+        let ins_id = match self.instance_id.read() {
+            Ok(guard) => guard.to_string(),
+            Err(poisoned) => poisoned.into_inner().to_string(),
+        };
 
-        match self.instance_id.read() {
-            Ok(guard) => res.push_str(guard.as_ref()),
-            Err(poisoned) => res.push_str(poisoned.into_inner().as_ref()),
-        }
+        let level = if self.show_level() {
+            record.level().to_string()
+        } else {
+            "".to_string()
+        };
 
-        if self.show_level() {
-            res.push_str(IN_PREFIX_SEPARATOR);
-            res.push_str(record.level().to_string().as_str());
-        }
+        let pth = if self.show_file_path() {
+            record.file().unwrap_or("unknown").to_string()
+        } else {
+            "".to_string()
+        };
 
-        if self.show_file_path() {
-            let pth = record.file().unwrap_or("unknown");
-            res.push_str(IN_PREFIX_SEPARATOR);
-            res.push_str(pth);
-        }
-
-        if self.show_line_numbers() {
+        let line = if self.show_line_numbers() {
             if let Some(ln) = record.line() {
-                res.push_str(IN_PREFIX_SEPARATOR);
-                res.push_str(ln.to_string().as_ref());
+                ln.to_string()
+            } else {
+                "".to_string()
             }
-        }
+        } else {
+            "".to_string()
+        };
 
-        res.push_str("]");
-        res
+        let mut prefix: Vec<String> = vec![ins_id, level, pth, line];
+        prefix.retain(|i| !i.is_empty());
+        format!(" [{}]", prefix.join(IN_PREFIX_SEPARATOR))
     }
 
     fn log_buf_guard(&self) -> MutexGuard<Option<Box<dyn Write + Send>>> {
