@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1]
+
+### Fixed
+
+- Fixed a logical error in bounds checking performed on vsock virtio descriptors
+  (CVE-2019-18960).
+
 ## [0.19.0]
 
 ### Added
