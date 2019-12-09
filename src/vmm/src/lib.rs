@@ -13,6 +13,7 @@ extern crate epoll;
 extern crate kvm_bindings;
 extern crate kvm_ioctls;
 extern crate libc;
+extern crate polly;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -73,6 +74,7 @@ use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
+use polly::event_manager::EventManager;
 use utils::eventfd::EventFd;
 use utils::net::TapError;
 use utils::terminal::Terminal;
@@ -124,6 +126,8 @@ pub enum EpollDispatch {
     Exit,
     /// Stdin event.
     Stdin,
+    /// Cascaded polly event.
+    PollyEvent,
     /// Event has to be dispatch to an EpollHandler.
     DeviceHandler(usize, DeviceEventT),
     /// The event loop has to be temporarily suspended for an external action request.
@@ -421,6 +425,14 @@ impl VmmBuilder {
             .map_err(Error::TimerFd)
             .map_err(StartMicrovmError::Internal)?;
 
+        let event_manager = EventManager::new()
+            .map_err(Error::EventManager)
+            .map_err(StartMicrovmError::Internal)?;
+
+        epoll_context
+            .add_epollin_event(&event_manager, EpollDispatch::PollyEvent)
+            .expect("Cannot cascade EventManager from epoll_context");
+
         epoll_context
             .add_epollin_event(
                 // non-blocking & close on exec
@@ -464,6 +476,7 @@ impl VmmBuilder {
                 .map_err(StartMicrovmError::Internal)?,
             write_metrics_event_fd,
             seccomp_level: config.seccomp_level,
+            event_manager,
         };
 
         // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
@@ -584,6 +597,7 @@ pub struct Vmm {
     write_metrics_event_fd: TimerFd,
     // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
     seccomp_level: u32,
+    event_manager: EventManager,
 }
 
 impl Vmm {
@@ -998,6 +1012,11 @@ impl Vmm {
                         error!("Failed to log metrics: {}", e);
                     }
                 }
+                // Cascaded polly: We are doing this until all devices have been ported away
+                // from epoll_context to polly.
+                Some(EpollDispatch::PollyEvent) => {
+                    self.event_manager.run().map_err(Error::EventManager)?;
+                }
                 None => {
                     // Do nothing.
                 }
@@ -1060,6 +1079,8 @@ mod tests {
                 .add_epollin_event(control_fd, EpollDispatch::VmmActionRequest)
                 .expect("Cannot add vmm control_fd to epoll.");
 
+            let event_manager = EventManager::new().map_err(Error::EventManager)?;
+
             let write_metrics_event_fd =
                 TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
 
@@ -1106,6 +1127,7 @@ mod tests {
                     .map_err(Error::CreateLegacyDevice)?,
                 write_metrics_event_fd,
                 seccomp_level,
+                event_manager,
             })
         }
     }
