@@ -124,11 +124,32 @@ impl GuestMemory {
         false
     }
 
-    /// Returns the address plus the offset if it is in range.
+    /// Returns the address plus the offset if the result falls within a valid memory region. The
+    /// resulting address and base address may belong to different memory regions, and the base
+    /// might not even exist in a valid region.
     pub fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
         if let Some(addr) = base.checked_add(offset as u64) {
             for region in self.regions.iter() {
                 if addr >= region.guest_base && addr < region_end(region) {
+                    return Some(addr);
+                }
+            }
+        }
+        None
+    }
+
+    /// Returns the address plus the offset if base and the result belong to the same memory
+    /// region (Firecracker currently does not use adjacent memory regions, so distinct regions
+    /// always have a gap in-between).
+    pub fn checked_range_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
+        if let Some(addr) = base.checked_add(offset as u64) {
+            for region in self.regions.iter() {
+                let region_end = region_end(region);
+                if base >= region.guest_base
+                    && base < region_end
+                    && addr >= region.guest_base
+                    && addr < region_end
+                {
                     return Some(addr);
                 }
             }
@@ -374,10 +395,14 @@ impl GuestMemory {
     /// Converts a GuestAddress into a pointer in the address space of this
     /// process. This should only be necessary for giving addresses to the
     /// kernel, as with vhost ioctls. Normal reads/writes to guest memory should
-    /// be done through `write_from_memory`, `read_obj_from_addr`, etc.
+    /// be done through `write_from_memory`, `read_obj_from_addr`, etc. This method
+    /// also checks whether the provided GuestAddress and size define a valid range
+    /// in the guest memory region, which is helpful to ensure the operation that
+    /// uses the result does not access memory outside the guest memory mappings.
     ///
     /// # Arguments
     /// * `guest_addr` - Guest address to convert.
+    /// * `size` - The size of the range to validate starting at `guest_addr`.
     ///
     /// # Examples
     ///
@@ -386,13 +411,13 @@ impl GuestMemory {
     /// fn test_host_addr() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
-    ///     let addr = gm.get_host_address(GuestAddress(0x1200)).unwrap();
+    ///     let addr = gm.get_host_address(GuestAddress(0x1200), 1).unwrap();
     ///     println!("Host address is {:p}", addr);
     ///     Ok(())
     /// }
     /// ```
-    pub fn get_host_address(&self, guest_addr: GuestAddress) -> Result<*const u8> {
-        self.do_in_region(guest_addr, 1, |mapping, offset| {
+    pub fn get_host_address(&self, guest_addr: GuestAddress, size: usize) -> Result<*const u8> {
+        self.do_in_region(guest_addr, size, |mapping, offset| {
             // This is safe; `do_in_region` already checks that offset is in
             // bounds.
             Ok(unsafe { mapping.as_ptr().add(offset) } as *const u8)
@@ -503,9 +528,48 @@ mod tests {
         let end_addr = GuestAddress(0xc00);
         assert!(!guest_mem.address_in_range(end_addr));
         assert_eq!(guest_mem.end_addr(), end_addr);
-        assert!(guest_mem.checked_offset(start_addr1, 0x900).is_some());
+
+        // Begins and ends within first region.
+        assert_eq!(
+            guest_mem.checked_offset(start_addr1, 0x300),
+            Some(GuestAddress(0x300))
+        );
+        assert_eq!(
+            guest_mem.checked_range_offset(start_addr1, 0x300),
+            Some(GuestAddress(0x300))
+        );
+
+        // Begins in the first region, and ends in the second, crossing the gap.
+        assert_eq!(
+            guest_mem.checked_offset(start_addr1, 0x900),
+            Some(GuestAddress(0x900))
+        );
+        assert!(guest_mem.checked_range_offset(start_addr1, 0x900).is_none());
+
+        // Goes past the end of the first region, into the gap.
         assert!(guest_mem.checked_offset(start_addr1, 0x700).is_none());
+        assert!(guest_mem.checked_range_offset(start_addr1, 0x700).is_none());
+
+        // Starts in the second region, and goes past the end of it.
         assert!(guest_mem.checked_offset(start_addr2, 0xc00).is_none());
+        assert!(guest_mem.checked_range_offset(start_addr2, 0xc00).is_none());
+
+        // Exists entirely within the gap.
+        assert!(guest_mem
+            .checked_offset(GuestAddress(0x500), 0x100)
+            .is_none());
+        assert!(guest_mem
+            .checked_range_offset(GuestAddress(0x500), 0x100)
+            .is_none());
+
+        // Starts inside the gap, crosses into the second region.
+        assert_eq!(
+            guest_mem.checked_offset(GuestAddress(0x500), 0x400),
+            Some(GuestAddress(0x900))
+        );
+        assert!(guest_mem
+            .checked_range_offset(GuestAddress(0x500), 0x400)
+            .is_none());
     }
 
     #[test]
@@ -631,17 +695,41 @@ mod tests {
         let start_addr2 = GuestAddress(0x100);
         let mem = GuestMemory::new(&[(start_addr1, 0x100), (start_addr2, 0x400)]).unwrap();
 
+        assert!(mem.get_host_address(start_addr1, 0x100).is_ok());
+        // Error because we go past the end of the first region.
+        assert!(mem.get_host_address(start_addr1, 0x101).is_err());
+
+        assert!(mem
+            .get_host_address(start_addr2.checked_add(0x100).unwrap(), 0x300)
+            .is_ok());
+
+        // Error because we go past the end of the second region.
+        assert!(mem
+            .get_host_address(start_addr2.checked_add(0x100).unwrap(), 0x301)
+            .is_err());
+
+        // Error because we start in the gap between regions.
+        assert!(mem
+            .get_host_address(start_addr2.checked_sub(1).unwrap(), 0x100)
+            .is_err());
+
+        // Error because we start in the first region, but when also adding the size we end
+        // up in the second region.
+        assert!(mem
+            .get_host_address(start_addr1, (start_addr2.0 + 1) as usize)
+            .is_err());
+
         // Verify the host addresses match what we expect from the mappings.
         let addr1_base = get_mapping(&mem, start_addr1).unwrap();
         let addr2_base = get_mapping(&mem, start_addr2).unwrap();
-        let host_addr1 = mem.get_host_address(start_addr1).unwrap();
-        let host_addr2 = mem.get_host_address(start_addr2).unwrap();
+        let host_addr1 = mem.get_host_address(start_addr1, 1).unwrap();
+        let host_addr2 = mem.get_host_address(start_addr2, 1).unwrap();
         assert_eq!(host_addr1, addr1_base);
         assert_eq!(host_addr2, addr2_base);
 
         // Check that a bad address returns an error.
         let bad_addr = GuestAddress(0x12_3456);
-        assert!(mem.get_host_address(bad_addr).is_err());
+        assert!(mem.get_host_address(bad_addr, 1).is_err());
     }
 
     #[test]
