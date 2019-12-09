@@ -108,7 +108,7 @@ impl<'a> DescriptorChain<'a> {
     fn is_valid(&self) -> bool {
         !(self
             .mem
-            .checked_offset(self.addr, self.len as usize)
+            .checked_range_offset(self.addr, self.len as usize)
             .is_none()
             || (self.has_next() && self.next >= self.queue_size))
     }
