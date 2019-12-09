@@ -240,14 +240,21 @@ mod tests {
     }
     impl VsockChannel for TestBackend {
         fn recv_pkt(&mut self, _pkt: &mut VsockPacket) -> Result<()> {
+            let cool_buf = [0xDu8, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF];
             match self.rx_err.take() {
                 None => {
+                    if let Some(buf) = _pkt.buf_mut() {
+                        for i in 0..buf.len() {
+                            buf[i] = cool_buf[i % cool_buf.len()];
+                        }
+                    }
                     self.rx_ok_cnt += 1;
                     Ok(())
                 }
                 Some(e) => Err(e),
             }
         }
+
         fn send_pkt(&mut self, _pkt: &VsockPacket) -> Result<()> {
             match self.tx_err.take() {
                 None => {
@@ -257,6 +264,7 @@ mod tests {
                 Some(e) => Err(e),
             }
         }
+
         fn has_pending_rx(&self) -> bool {
             self.pending_rx
         }
@@ -321,6 +329,7 @@ mod tests {
                 1,
             );
             guest_rxvq.dtable[1].set(0x0040_1000, 4096, VIRTQ_DESC_F_WRITE, 0);
+
             guest_rxvq.avail.ring[0].set(0);
             guest_rxvq.avail.idx.set(1);
 
