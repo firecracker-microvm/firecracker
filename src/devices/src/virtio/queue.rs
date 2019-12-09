@@ -608,7 +608,8 @@ pub mod tests {
 
     #[test]
     fn test_checked_new_descriptor_chain() {
-        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000), (GuestAddress(0x20000), 0x2000)])
+            .unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         assert!(vq.end().0 < 0x1000);
@@ -622,6 +623,14 @@ pub mod tests {
         // the addr field of the descriptor is way off
         vq.dtable[0].addr.set(0x0fff_ffff_ffff);
         assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
+
+        // The following configuration is invalid because the addr + len crosses over the gap
+        // between the two memory regions we configured.
+        {
+            vq.dtable[0].addr.set(0x1000);
+            vq.dtable[0].len.set(0x20000);
+            assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
+        }
 
         // let's create some invalid chains
 

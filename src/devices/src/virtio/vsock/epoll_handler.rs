@@ -222,6 +222,7 @@ mod tests {
     use super::super::*;
     use super::*;
     use crate::virtio::vsock::defs::{BACKEND_EVENT, EVQ_EVENT, RXQ_EVENT, TXQ_EVENT};
+    use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
 
     #[test]
     fn test_irq() {
@@ -454,5 +455,107 @@ mod tests {
             Err(DeviceError::UnknownEvent { .. }) => (),
             other => panic!("{:?}", other),
         }
+    }
+
+    // Creates an epoll handler context and attempts to assemble a VsockPkt from the descriptor
+    // chains available on the rx and tx virtqueues, but first it will set the addr and len
+    // of the descriptor specified by desc_idx to the provided values. We are only using this
+    // function for testing error cases, so the asserts always expect is_err() to be true. When
+    // desc_idx = 0 we are altering the header (first descriptor in the chain), and when
+    // desc_idx = 1 we are altering the packet buffer.
+    fn vsock_bof_helper(test_ctx: &mut TestContext, desc_idx: usize, addr: u64, len: u32) {
+        use memory_model::GuestAddress;
+
+        assert!(desc_idx <= 1);
+
+        {
+            let mut ctx = test_ctx.create_epoll_handler_context();
+            ctx.guest_rxvq.dtable[desc_idx].addr.set(addr);
+            ctx.guest_rxvq.dtable[desc_idx].len.set(len);
+            // If the descriptor chain is already declared invalid, there's no reason to assemble
+            // a packet.
+            if let Some(rx_desc) = ctx.handler.rxvq.pop(&test_ctx.mem) {
+                assert!(VsockPacket::from_rx_virtq_head(&rx_desc).is_err());
+            }
+        }
+
+        {
+            let mut ctx = test_ctx.create_epoll_handler_context();
+
+            // When modifiyng the buffer descriptor, make sure the len field is altered in the
+            // vsock packet header descriptor as well.
+            if desc_idx == 1 {
+                // The vsock packet len field has offset 24 in the header.
+                let hdr_len_addr = GuestAddress(ctx.guest_txvq.dtable[0].addr.get() + 24);
+                test_ctx
+                    .mem
+                    .write_obj_at_addr(len.to_le_bytes(), hdr_len_addr)
+                    .unwrap();
+            }
+
+            ctx.guest_txvq.dtable[desc_idx].addr.set(addr);
+            ctx.guest_txvq.dtable[desc_idx].len.set(len);
+
+            if let Some(tx_desc) = ctx.handler.txvq.pop(&test_ctx.mem) {
+                assert!(VsockPacket::from_tx_virtq_head(&tx_desc).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn test_vsock_bof() {
+        use memory_model::GuestAddress;
+
+        const GAP_SIZE: usize = 768 << 20;
+        const FIRST_AFTER_GAP: usize = 1 << 32;
+        const GAP_START_ADDR: usize = FIRST_AFTER_GAP - GAP_SIZE;
+        const MIB: usize = 1 << 20;
+
+        let mut test_ctx = TestContext::new();
+        test_ctx.mem = GuestMemory::new(&[
+            (GuestAddress(0), 8 * MIB),
+            (GuestAddress((GAP_START_ADDR - MIB) as u64), MIB),
+            (GuestAddress(FIRST_AFTER_GAP as u64), MIB),
+        ])
+        .unwrap();
+
+        // The default configured descriptor chains are valid.
+        {
+            let mut ctx = test_ctx.create_epoll_handler_context();
+            let rx_desc = ctx.handler.rxvq.pop(&test_ctx.mem).unwrap();
+            assert!(VsockPacket::from_rx_virtq_head(&rx_desc).is_ok());
+        }
+
+        {
+            let mut ctx = test_ctx.create_epoll_handler_context();
+            let tx_desc = ctx.handler.txvq.pop(&test_ctx.mem).unwrap();
+            assert!(VsockPacket::from_tx_virtq_head(&tx_desc).is_ok());
+        }
+
+        // Let's check what happens when the header descriptor is right before the gap.
+        vsock_bof_helper(
+            &mut test_ctx,
+            0,
+            GAP_START_ADDR as u64 - 1,
+            VSOCK_PKT_HDR_SIZE as u32,
+        );
+
+        // Let's check what happens when the buffer descriptor crosses into the gap, but does
+        // not go past its right edge.
+        vsock_bof_helper(
+            &mut test_ctx,
+            1,
+            GAP_START_ADDR as u64 - 4,
+            GAP_SIZE as u32 + 4,
+        );
+
+        // Let's modify the buffer descriptor addr and len such that it crosses over the MMIO gap,
+        // and check we cannot assemble the VsockPkts.
+        vsock_bof_helper(
+            &mut test_ctx,
+            1,
+            GAP_START_ADDR as u64 - 4,
+            GAP_SIZE as u32 + 100,
+        );
     }
 }
