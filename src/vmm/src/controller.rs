@@ -1,4 +1,5 @@
-use std::fs::{metadata, File, OpenOptions};
+use std::fs::{File, OpenOptions};
+use std::io::{Seek, SeekFrom};
 use std::path::PathBuf;
 use std::process;
 use std::result;
@@ -610,9 +611,10 @@ impl VmmController {
                     continue;
                 }
 
-                let metadata = metadata(&drive_config.path_on_host)
+                // Use seek() instead of stat() (std::fs::Metadata) to support block devices.
+                let new_size = File::open(&drive_config.path_on_host)
+                    .and_then(|mut f| f.seek(SeekFrom::End(0)))
                     .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                let new_size = metadata.len();
                 if new_size % virtio::block::SECTOR_SIZE != 0 {
                     warn!(
                         "Disk size {} is not a multiple of sector size {}; \
