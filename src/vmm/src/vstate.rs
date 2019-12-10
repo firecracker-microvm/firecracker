@@ -10,7 +10,8 @@ use std::cell::Cell;
 use std::io;
 use std::result;
 use std::sync::atomic::{fence, Ordering};
-use std::sync::{Arc, Barrier};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::thread;
 
 use super::TimestampUs;
 use arch;
@@ -26,7 +27,8 @@ use kvm_ioctls::*;
 use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{Address, GuestAddress, GuestMemory, GuestMemoryError};
 use utils::eventfd::EventFd;
-use utils::signal::{register_signal_handler, SignalHandler};
+use utils::signal::{register_signal_handler, Killable, SignalHandler};
+use utils::sm::StateMachine;
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 
@@ -38,6 +40,7 @@ const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x03f0;
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x40000000;
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 
+/// Signal number (SIGRTMIN) used to kick Vcpus.
 pub(crate) const VCPU_RTSIG_OFFSET: i32 = 0;
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -90,9 +93,11 @@ pub enum Error {
     FPUConfiguration(arch::x86_64::regs::Error),
     /// Cannot configure the IRQ.
     Irq(kvm_ioctls::Error),
+    /// Failed to signal Vcpu.
+    SignalVcpu(utils::errno::Error),
     /// Cannot spawn a new vCPU thread.
     VcpuSpawn(io::Error),
-    /// Cannot clean init vcpu TLS.
+    /// Cannot cleanly initialize vcpu TLS.
     VcpuTlsInit,
     /// Vcpu not present in TLS.
     VcpuTlsNotPresent,
@@ -282,16 +287,29 @@ type VcpuCell = Cell<Option<*const Vcpu>>;
 
 /// A wrapper around creating and using a kvm-based VCPU.
 pub struct Vcpu {
-    #[cfg(target_arch = "x86_64")]
-    cpuid: CpuId,
     fd: VcpuFd,
     id: u8,
+    create_ts: TimestampUs,
+    mmio_bus: Option<devices::Bus>,
+
     #[cfg(target_arch = "x86_64")]
     io_bus: devices::Bus,
-    mmio_bus: Option<devices::Bus>,
-    create_ts: TimestampUs,
+    #[cfg(target_arch = "x86_64")]
+    cpuid: CpuId,
+    #[cfg(target_arch = "x86_64")]
+    exit_evt: EventFd,
+
     #[cfg(target_arch = "aarch64")]
     mpidr: u64,
+
+    // The receiving end of events channel owned by the vcpu side.
+    event_receiver: Receiver<VcpuEvent>,
+    // The transmitting end of the events channel which will be given to the handler.
+    event_sender: Option<Sender<VcpuEvent>>,
+    // The receiving end of the responses channel which will be given to the handler.
+    response_receiver: Option<Receiver<VcpuResponse>>,
+    // The transmitting end of the responses channel owned by the vcpu side.
+    response_sender: Sender<VcpuResponse>,
 }
 
 impl Vcpu {
@@ -392,6 +410,7 @@ impl Vcpu {
     /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
     /// * `cpuid` - The `CpuId` listing the supported capabilities of this vcpu.
     /// * `io_bus` - The io-bus used to access port-io devices.
+    /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
     /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
     #[cfg(target_arch = "x86_64")]
     pub fn new_x86_64(
@@ -399,18 +418,26 @@ impl Vcpu {
         vm_fd: &VmFd,
         cpuid: CpuId,
         io_bus: devices::Bus,
+        exit_evt: EventFd,
         create_ts: TimestampUs,
     ) -> Result<Self> {
         let kvm_vcpu = vm_fd.create_vcpu(id).map_err(Error::VcpuFd)?;
+        let (event_sender, event_receiver) = channel();
+        let (response_sender, response_receiver) = channel();
 
         // Initially the cpuid per vCPU is the one supported by this VM.
         Ok(Vcpu {
-            cpuid,
             fd: kvm_vcpu,
             id,
-            io_bus,
-            mmio_bus: None,
             create_ts,
+            mmio_bus: None,
+            io_bus,
+            cpuid,
+            exit_evt,
+            event_receiver,
+            event_sender: Some(event_sender),
+            response_receiver: Some(response_receiver),
+            response_sender,
         })
     }
 
@@ -424,13 +451,25 @@ impl Vcpu {
     #[cfg(target_arch = "aarch64")]
     pub fn new_aarch64(id: u8, vm_fd: &VmFd, create_ts: TimestampUs) -> Result<Self> {
         let kvm_vcpu = vm_fd.create_vcpu(id).map_err(Error::VcpuFd)?;
+        let (event_sender, event_receiver) = channel();
+        let (response_sender, response_receiver) = channel();
+
         Ok(Vcpu {
             fd: kvm_vcpu,
             id,
-            mmio_bus: None,
             create_ts,
+            mmio_bus: None,
             mpidr: 0,
+            event_receiver,
+            event_sender: Some(event_sender),
+            response_receiver: Some(response_receiver),
+            response_sender,
         })
+    }
+
+    /// Returns the cpu index as seen by the guest OS.
+    pub fn cpu_index(&self) -> u8 {
+        self.id
     }
 
     /// Gets the MPIDR register value.
@@ -533,6 +572,28 @@ impl Vcpu {
         Ok(())
     }
 
+    /// Moves the vcpu to its own thread and constructs a VcpuHandle.
+    /// The handle can be used to control the remote vcpu.
+    pub fn start_threaded(mut self, seccomp_level: u32) -> Result<VcpuHandle> {
+        let event_sender = self.event_sender.take().unwrap();
+        let response_receiver = self.response_receiver.take().unwrap();
+        let vcpu_thread = thread::Builder::new()
+            .name(format!("fc_vcpu {}", self.cpu_index()))
+            .spawn(move || {
+                self.init_thread_local_data()
+                    .expect("Cannot cleanly initialize vcpu TLS.");
+
+                self.run(seccomp_level);
+            })
+            .map_err(Error::VcpuSpawn)?;
+
+        Ok(VcpuHandle {
+            event_sender,
+            response_receiver,
+            vcpu_thread,
+        })
+    }
+
     fn check_boot_complete_signal(&self, addr: u64, data: &[u8]) {
         if addr == MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE
             && data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE
@@ -631,15 +692,7 @@ impl Vcpu {
     /// Runs the vCPU in KVM context in a loop. Handles KVM_EXITs then goes back in.
     /// Note that the state of the VCPU and associated VM must be setup first for this to do
     /// anything useful.
-    pub fn run(
-        &mut self,
-        thread_barrier: Arc<Barrier>,
-        seccomp_level: u32,
-        vcpu_exit_evt: EventFd,
-    ) {
-        self.init_thread_local_data()
-            .expect("Cannot cleanly initialize vcpu TLS.");
-
+    pub fn run(&mut self, seccomp_level: u32) {
         // Load seccomp filters for this vCPU thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
@@ -650,15 +703,157 @@ impl Vcpu {
             );
         }
 
-        thread_barrier.wait();
+        // Start running the machine state in the `Paused` state.
+        StateMachine::run(self, Self::paused);
+    }
 
-        while self.run_emulation().is_ok() {}
-
-        // Nothing we need do for the success case.
-        if let Err(e) = vcpu_exit_evt.write(1) {
-            METRICS.vcpu.failures.inc();
-            error!("Failed signaling vcpu exit event: {}", e);
+    // This is the main loop of the `Running` state.
+    fn running(&mut self) -> StateMachine<Self> {
+        // This loop is here just for optimizing the emulation path.
+        // No point in ticking the state machine if there are no external events.
+        loop {
+            match self.run_emulation() {
+                // Emulation ran successfully, continue.
+                Ok(VcpuEmulation::Handled) => (),
+                // Emulation was interrupted, check external events.
+                Ok(VcpuEmulation::Interrupted) => break,
+                // Emulation errors lead to vCPU exit.
+                Err(_) => return StateMachine::next(Self::exited),
+            }
         }
+
+        // By default don't change state.
+        let mut state = StateMachine::next(Self::running);
+
+        // Break this emulation loop on any transition request/external event.
+        match self.event_receiver.try_recv() {
+            // Running ---- Exit ----> Exited
+            Ok(VcpuEvent::Exit) => {
+                // Move to 'exited' state.
+                state = StateMachine::next(Self::exited);
+            }
+            // Running ---- Pause ----> Paused
+            Ok(VcpuEvent::Pause) => {
+                // Nothing special to do.
+                self.response_sender
+                    .send(VcpuResponse::Paused)
+                    .expect("failed to send pause status");
+
+                // TODO: we should call `KVM_KVMCLOCK_CTRL` here to make sure
+                // TODO continued: the guest soft lockup watchdog does not panic on Resume.
+
+                // Move to 'paused' state.
+                state = StateMachine::next(Self::paused);
+            }
+            Ok(VcpuEvent::Resume) => {
+                self.response_sender
+                    .send(VcpuResponse::Resumed)
+                    .expect("failed to send resume status");
+            }
+            // Unhandled exit of the other end.
+            Err(TryRecvError::Disconnected) => {
+                // Move to 'exited' state.
+                state = StateMachine::next(Self::exited);
+            }
+            // All other events or lack thereof have no effect on current 'running' state.
+            Err(TryRecvError::Empty) => (),
+        }
+
+        state
+    }
+
+    // This is the main loop of the `Paused` state.
+    fn paused(&mut self) -> StateMachine<Self> {
+        match self.event_receiver.recv() {
+            // Paused ---- Exit ----> Exited
+            #[cfg(target_arch = "x86_64")]
+            Ok(VcpuEvent::Exit) => {
+                // Move to 'exited' state.
+                StateMachine::next(Self::exited)
+            }
+            // Paused ---- Resume ----> Running
+            Ok(VcpuEvent::Resume) => {
+                // Nothing special to do.
+                self.response_sender
+                    .send(VcpuResponse::Resumed)
+                    .expect("failed to send resume status");
+                // Move to 'running' state.
+                StateMachine::next(Self::running)
+            }
+            // All other events have no effect on current 'paused' state.
+            Ok(_) => StateMachine::next(Self::paused),
+            // Unhandled exit of the other end.
+            Err(_) => {
+                // Move to 'exited' state.
+                StateMachine::next(Self::exited)
+            }
+        }
+    }
+
+    // This is the main loop of the `Exited` state.
+    fn exited(&mut self) -> StateMachine<Self> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if let Err(e) = self.exit_evt.write(1) {
+                METRICS.vcpu.failures.inc();
+                error!("Failed signaling vcpu exit event: {}", e);
+            }
+        }
+        // State machine reached its end.
+        StateMachine::finish(Self::exited)
+    }
+}
+
+// Allow currently unused Pause and Exit events. These will be used by the vmm later on.
+#[allow(unused)]
+#[derive(Debug)]
+/// List of events that the Vcpu can receive.
+pub enum VcpuEvent {
+    /// Kill the Vcpu.
+    Exit,
+    /// Pause the Vcpu.
+    Pause,
+    /// Event that should resume the Vcpu.
+    Resume,
+    // Serialize and Deserialize to follow after we get the support from kvm-ioctls.
+}
+
+#[derive(Debug, PartialEq)]
+/// List of responses that the Vcpu reports.
+pub enum VcpuResponse {
+    /// Vcpu is paused.
+    Paused,
+    /// Vcpu is resumed.
+    Resumed,
+}
+
+/// Wrapper over Vcpu that hides the underlying interactions with the Vcpu thread.
+pub struct VcpuHandle {
+    event_sender: Sender<VcpuEvent>,
+    response_receiver: Receiver<VcpuResponse>,
+    vcpu_thread: thread::JoinHandle<()>,
+}
+
+impl VcpuHandle {
+    pub fn send_event(&self, event: VcpuEvent) -> Result<()> {
+        // Use expect() to crash if the other thread closed this channel.
+        self.event_sender
+            .send(event)
+            .expect("event sender channel closed on vcpu end.");
+        // Kick the vcpu so it picks up the message.
+        self.vcpu_thread
+            .kill(VCPU_RTSIG_OFFSET)
+            .map_err(Error::SignalVcpu)?;
+        Ok(())
+    }
+
+    pub fn response_receiver(&self) -> &Receiver<VcpuResponse> {
+        &self.response_receiver
+    }
+
+    #[allow(dead_code)]
+    pub fn join_vcpu_thread(self) -> thread::Result<()> {
+        self.vcpu_thread.join()
     }
 }
 
@@ -676,15 +871,20 @@ enum VcpuEmulation {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
+    use std::path::PathBuf;
+    use std::sync::{mpsc, Arc, Barrier};
+    use std::time::Duration;
 
     use super::super::devices;
     use super::*;
-    use utils::signal::Killable;
+
+    use kernel::cmdline as kernel_cmdline;
+    use kernel::loader as kernel_loader;
 
     // Auxiliary function being used throughout the tests.
-    fn setup_vcpu() -> (Vm, Vcpu) {
+    fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu) {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemory::new(&[(GuestAddress(0), mem_size)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(gm, &kvm).is_ok());
 
@@ -697,6 +897,7 @@ mod tests {
                 vm.fd(),
                 vm.supported_cpuid().clone(),
                 devices::Bus::new(),
+                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                 super::super::TimestampUs::default(),
             )
             .unwrap();
@@ -712,7 +913,7 @@ mod tests {
 
     #[test]
     fn test_set_mmio_bus() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu) = setup_vcpu(0x1000);
         assert!(vcpu.mmio_bus.is_none());
         vcpu.set_mmio_bus(devices::Bus::new());
         assert!(vcpu.mmio_bus.is_some());
@@ -764,6 +965,7 @@ mod tests {
             vm.fd(),
             vm.supported_cpuid().clone(),
             devices::Bus::new(),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
             super::super::TimestampUs::default(),
         )
         .unwrap();
@@ -788,7 +990,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_configure_vcpu() {
-        let (vm, mut vcpu) = setup_vcpu();
+        let (vm, mut vcpu) = setup_vcpu(0x10000);
 
         let vm_config = VmConfig::default();
         let vm_mem = vm.memory().unwrap();
@@ -838,13 +1040,9 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_vcpu_run_failed() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu) = setup_vcpu(0x1000);
         // Setting an invalid seccomp level should panic.
-        vcpu.run(
-            Arc::new(Barrier::new(1)),
-            seccomp::SECCOMP_LEVEL_ADVANCED + 10,
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        );
+        vcpu.run(seccomp::SECCOMP_LEVEL_ADVANCED + 10);
     }
 
     #[test]
@@ -867,7 +1065,7 @@ mod tests {
 
     #[test]
     fn test_vcpu_tls() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu) = setup_vcpu(0x1000);
 
         // Running on the TLS vcpu should fail before we actually initialize it.
         unsafe {
@@ -898,7 +1096,7 @@ mod tests {
 
     #[test]
     fn test_invalid_tls() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu) = setup_vcpu(0x1000);
         // Initialize vcpu TLS.
         vcpu.init_thread_local_data().unwrap();
         // Trying to initialize non-empty TLS should error.
@@ -908,7 +1106,7 @@ mod tests {
     #[test]
     fn test_vcpu_kick() {
         Vcpu::register_kick_signal_handler();
-        let (vm, mut vcpu) = setup_vcpu();
+        let (vm, mut vcpu) = setup_vcpu(0x1000);
 
         let kvm_run =
             KvmRunWrapper::mmap_from_fd(&vcpu.fd, vm.fd.run_size()).expect("cannot mmap kvm-run");
@@ -944,5 +1142,127 @@ mod tests {
         handle.join().expect("failed to join thread");
         // Verify that the Vcpu saw its kvm immediate-exit as set.
         assert!(success.load(Ordering::Acquire));
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn load_good_kernel(vm: &Vm) -> GuestAddress {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let parent = path.parent().unwrap();
+
+        let kernel_path: PathBuf = [parent.to_str().unwrap(), "kernel/src/loader/test_elf.bin"]
+            .iter()
+            .collect();
+
+        let vm_memory = vm.memory().expect("vm memory not initialized");
+
+        let mut kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
+        let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
+        assert!(cmdline
+            .insert_str(super::super::DEFAULT_KERNEL_CMDLINE)
+            .is_ok());
+        let cmdline_addr = GuestAddress(arch::x86_64::layout::CMDLINE_START);
+
+        let entry_addr = kernel_loader::load_kernel(
+            vm_memory,
+            &mut kernel_file,
+            arch::x86_64::layout::HIMEM_START,
+        )
+        .expect("failed to load kernel");
+
+        kernel_loader::load_cmdline(
+            vm_memory,
+            cmdline_addr,
+            &cmdline.as_cstring().expect("failed to convert to cstring"),
+        )
+        .expect("failed to load cmdline");
+
+        entry_addr
+    }
+
+    // Sends an event to a vcpu and expects a particular response.
+    fn queue_event_expect_response(handle: &VcpuHandle, event: VcpuEvent, response: VcpuResponse) {
+        handle
+            .send_event(event)
+            .expect("failed to send event to vcpu");
+        assert_eq!(
+            handle
+                .response_receiver()
+                .recv_timeout(Duration::from_millis(100))
+                .expect("did not receive event response from vcpu"),
+            response
+        );
+    }
+
+    // Sends an event to a vcpu and expects no response.
+    fn queue_event_expect_timeout(handle: &VcpuHandle, event: VcpuEvent) {
+        handle
+            .send_event(event)
+            .expect("failed to send event to vcpu");
+        assert_eq!(
+            handle
+                .response_receiver()
+                .recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        );
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn vcpu_pause_resume() {
+        Vcpu::register_kick_signal_handler();
+        // Need enough mem to boot linux.
+        let mem_size = 64 << 20;
+        let (vm, mut vcpu) = setup_vcpu(mem_size);
+
+        let vcpu_exit_evt = vcpu.exit_evt.try_clone().unwrap();
+
+        // Needs a kernel since we'll actually run this vcpu.
+        let entry_addr = load_good_kernel(&vm);
+
+        let vm_config = VmConfig::default();
+        let vm_mem = vm.memory().unwrap();
+        vcpu.configure_x86_64(&vm_config, vm_mem, entry_addr)
+            .expect("failed to configure vcpu");
+
+        let seccomp_level = 0;
+        let vcpu_handle = vcpu
+            .start_threaded(seccomp_level)
+            .expect("failed to start vcpu");
+
+        // Queue a Resume event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Queue a Pause event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
+
+        // Validate vcpu handled the EINTR gracefully and didn't exit.
+        let err = vcpu_exit_evt.read().unwrap_err();
+        assert_eq!(err.raw_os_error().unwrap(), libc::EAGAIN);
+
+        // Queue another Pause event, expect no answer.
+        queue_event_expect_timeout(&vcpu_handle, VcpuEvent::Pause);
+
+        // Queue a Resume event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Queue another Resume event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Queue another Pause event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
+
+        // Queue a Resume event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Stop it by sending exit.
+        assert!(vcpu_handle.send_event(VcpuEvent::Exit).is_ok());
+
+        // Validate vCPU thread ends execution.
+        vcpu_handle
+            .join_vcpu_thread()
+            .expect("failed to join thread");
+
+        // Validate that the vCPU signaled its exit.
+        assert_eq!(vcpu_exit_evt.read().unwrap(), 1);
     }
 }

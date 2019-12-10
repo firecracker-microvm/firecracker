@@ -51,8 +51,7 @@ use std::path::PathBuf;
 use std::process;
 use std::result;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Barrier, Mutex, RwLock};
-use std::thread;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
@@ -95,7 +94,7 @@ use vmm_config::net::{
     NetworkInterfaceUpdateConfig,
 };
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
-use vstate::{KvmContext, Vcpu, Vm};
+use vstate::{KvmContext, Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
 pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
 
@@ -389,7 +388,7 @@ pub struct Vmm {
 
     // Guest VM core resources.
     kernel_config: Option<KernelConfig>,
-    vcpus_handles: Vec<thread::JoinHandle<()>>,
+    vcpus_handles: Vec<VcpuHandle>,
     exit_evt: Option<EventFd>,
     vm: Vm,
 
@@ -875,11 +874,19 @@ impl Vmm {
             let mut vcpu;
             #[cfg(target_arch = "x86_64")]
             {
+                let vcpu_exit_evt = self
+                    .pio_device_manager
+                    .i8042
+                    .lock()
+                    .expect("Failed to start VCPUs due to poisoned i8042 lock")
+                    .get_reset_evt_clone()
+                    .map_err(|_| StartMicrovmError::EventFd)?;
                 vcpu = Vcpu::new_x86_64(
                     cpu_index,
                     self.vm.fd(),
                     self.vm.supported_cpuid().clone(),
                     self.pio_device_manager.io_bus.clone(),
+                    vcpu_exit_evt,
                     request_ts.clone(),
                 )
                 .map_err(StartMicrovmError::Vcpu)?;
@@ -918,45 +925,15 @@ impl Vmm {
 
         self.vcpus_handles.reserve(vcpu_count as usize);
 
-        let vcpus_thread_barrier = Arc::new(Barrier::new((vcpu_count + 1) as usize));
-
-        // We're going in reverse so we can `.pop()` on the vec and still maintain order.
-        for cpu_id in (0..vcpu_count).rev() {
-            let vcpu_thread_barrier = vcpus_thread_barrier.clone();
-
-            // On x86_64 we support i8042. Get a clone of its reset event.
-            // If the lock is poisoned, it's OK to panic.
-            #[cfg(target_arch = "x86_64")]
-            let vcpu_exit_evt = self
-                .pio_device_manager
-                .i8042
-                .lock()
-                .expect("Failed to start VCPUs due to poisoned i8042 lock")
-                .get_reset_evt_clone()
-                .map_err(|_| StartMicrovmError::EventFd)?;
-
-            // On aarch64 we don't support i8042. Use a dummy event nobody touches until
-            // we get i8042 support.
-            #[cfg(target_arch = "aarch64")]
-            let vcpu_exit_evt =
-                EventFd::new(libc::EFD_NONBLOCK).map_err(|_| StartMicrovmError::EventFd)?;
-
-            // `unwrap` is safe since we are asserting that the `vcpu_count` is equal to the number
-            // of items of `vcpus` vector.
-            let mut vcpu = vcpus.pop().unwrap();
-
+        let seccomp_level = self.seccomp_level;
+        for mut vcpu in vcpus.drain(..) {
             if let Some(ref mmio_device_manager) = self.mmio_device_manager {
                 vcpu.set_mmio_bus(mmio_device_manager.bus.clone());
             }
 
-            let seccomp_level = self.seccomp_level;
             self.vcpus_handles.push(
-                thread::Builder::new()
-                    .name(format!("fc_vcpu{}", cpu_id))
-                    .spawn(move || {
-                        vcpu.run(vcpu_thread_barrier, seccomp_level, vcpu_exit_evt);
-                    })
-                    .map_err(StartMicrovmError::VcpuSpawn)?,
+                vcpu.start_threaded(seccomp_level)
+                    .map_err(StartMicrovmError::VcpuHandle)?,
             );
         }
 
@@ -966,8 +943,27 @@ impl Vmm {
         default_syscalls::set_seccomp_level(self.seccomp_level)
             .map_err(StartMicrovmError::SeccompFilters)?;
 
-        vcpus_thread_barrier.wait();
+        // The vcpus start off in the `Paused` state, let them run.
+        self.resume_vcpus()?;
 
+        Ok(())
+    }
+
+    fn resume_vcpus(&mut self) -> std::result::Result<(), StartMicrovmError> {
+        for handle in self.vcpus_handles.iter() {
+            handle
+                .send_event(VcpuEvent::Resume)
+                .map_err(StartMicrovmError::VcpuEvent)?;
+        }
+        for handle in self.vcpus_handles.iter() {
+            match handle
+                .response_receiver()
+                .recv_timeout(Duration::from_millis(100))
+            {
+                Ok(VcpuResponse::Resumed) => (),
+                _ => return Err(StartMicrovmError::VcpuResume),
+            }
+        }
         Ok(())
     }
 
