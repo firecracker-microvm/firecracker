@@ -7,5 +7,5 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 libc = ">=0.2.39"
 timerfd = ">=1.0"
 
-utils = { path = "../utils" }
 logger = { path = "../logger" }
+utils = { path = "../utils" }

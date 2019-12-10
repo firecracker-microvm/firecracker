@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use crate::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 use libc;
 use net_gen;
 use std::fs::File;
@@ -13,6 +12,7 @@ use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::net::UdpSocket;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
