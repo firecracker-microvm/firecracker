@@ -436,8 +436,6 @@ dependencies = [
  "dumbo",
  "libc",
  "net_gen",
- "serde",
- "serde_json",
  "vmm-sys-util",
 ]
 

@@ -5,11 +5,10 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 
 [dependencies]
-vmm-sys-util = ">=0.2.1"
 libc = ">=0.2.39"
-serde = ">=1.0.27"
+vmm-sys-util = ">=0.2.1"
+
 net_gen = { path = "../net_gen" }
 
 [dev-dependencies]
 dumbo = { path = "../dumbo" }
-serde_json = ">=1.0.9"
