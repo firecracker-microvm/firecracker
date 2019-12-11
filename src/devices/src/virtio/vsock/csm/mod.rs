@@ -36,7 +36,7 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 /// A vsock connection state.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ConnState {
     /// The connection has been initiated by the host end, but is yet to be confirmed by the guest.
     LocalInit,

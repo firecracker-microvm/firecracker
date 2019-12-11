@@ -541,7 +541,7 @@ where
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
-    fn send_bytes(&mut self, buf: &[u8]) -> Result<()> {
+    pub fn send_bytes(&mut self, buf: &[u8]) -> Result<()> {
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
         // events on the underlying stream. Therefore, there's no point in attempting a write
         // at this point. `self.notify()` will get called when EPOLLOUT arrives, and it will
@@ -574,6 +574,11 @@ where
         }
 
         Ok(())
+    }
+
+    /// Return the connections state.
+    pub fn state(&self) -> ConnState {
+        self.state
     }
 
     /// Check if the credit information the peer has last received from us is outdated.
