@@ -35,6 +35,7 @@ use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
+use super::super::csm::ConnState;
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
 use super::super::{
@@ -625,8 +626,19 @@ impl VsockMuxer {
         if let Some(conn) = self.conn_map.get_mut(&key) {
             let had_rx = conn.has_pending_rx();
             let was_expiring = conn.will_expire();
+            let prev_state = conn.state();
 
             mut_fn(conn);
+
+            // If this is a host-initiated connection that has just become established, we'll have
+            // to send an ack message to the host end.
+            if prev_state == ConnState::LocalInit && conn.state() == ConnState::Established {
+                conn.send_bytes(format!("OK {}\n", key.local_port).as_bytes())
+                    .unwrap_or_else(|err| {
+                        conn.kill();
+                        warn!("vsock: unable to ack host connection: {:?}", err);
+                    });
+            }
 
             // If the connection wasn't previously scheduled for RX, add it to our RX queue.
             if !had_rx && conn.has_pending_rx() {
@@ -884,6 +896,10 @@ mod tests {
 
             self.init_pkt(local_port, peer_port, uapi::VSOCK_OP_RESPONSE);
             self.send();
+
+            let mut buf = vec![0u8; 32];
+            let len = stream.read(&mut buf[..]).unwrap();
+            assert_eq!(&buf[..len], format!("OK {}\n", local_port).as_bytes());
 
             (stream, local_port)
         }

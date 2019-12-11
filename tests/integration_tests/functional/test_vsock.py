@@ -19,6 +19,7 @@ import os.path
 from select import select
 from socket import socket, AF_UNIX, SOCK_STREAM
 from threading import Thread, Event
+import re
 
 from host_tools.network import SSHConnection
 
@@ -305,5 +306,8 @@ def _vsock_connect_to_guest(uds_path, port):
 
     buf = bytearray("CONNECT {}\n".format(port).encode("utf-8"))
     sock.send(buf)
+
+    ack_buf = sock.recv(32)
+    assert re.match("^OK [0-9]+\n$", ack_buf.decode('utf-8')) is not None
 
     return sock
