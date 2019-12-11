@@ -87,6 +87,19 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             ),
             #[cfg(target_arch = "x86_64")]
             allow_syscall(libc::SYS_stat),
+            allow_syscall_if(
+                libc::SYS_tkill,
+                or![and![Cond::new(
+                    1,
+                    ArgLen::DWORD,
+                    Eq,
+                    utils::signal::validate_signal_num(
+                        super::super::vstate::VCPU_RTSIG_OFFSET,
+                        true
+                    )
+                    .map_err(|_| Error::InvalidArgumentNumber)? as u64,
+                )?]],
+            ),
             allow_syscall(libc::SYS_timerfd_create),
             allow_syscall(libc::SYS_timerfd_settime),
             allow_syscall(libc::SYS_write),

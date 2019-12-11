@@ -8,6 +8,7 @@ pub use vmm_sys_util::{errno, eventfd, ioctl, signal, terminal};
 
 pub mod net;
 pub mod rand;
+pub mod sm;
 pub mod structs;
 pub mod syscall;
 pub mod time;
