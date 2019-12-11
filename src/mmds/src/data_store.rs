@@ -54,18 +54,18 @@ impl Mmds {
     /// an UnsupportedValueType error if the data contain any value type other than
     /// Strings, arrays and dictionaries.
     pub fn check_data_valid(data: &Value) -> Result<(), Error> {
-        if let Some(map) = data.as_object() {
-            for key in map.keys() {
-                Mmds::check_data_valid(&map[key])?;
-            }
+        if data.is_string() {
+            Ok(())
+        } else if let Some(map) = data.as_object() {
+            map.values()
+                .try_for_each(|value| Mmds::check_data_valid(value))
         } else if let Some(array) = data.as_array() {
-            for obj in array {
-                Mmds::check_data_valid(&obj)?;
-            }
-        } else if !data.is_string() {
-            return Err(Error::UnsupportedValueType);
+            array
+                .iter()
+                .try_for_each(|value| Mmds::check_data_valid(value))
+        } else {
+            Err(Error::UnsupportedValueType)
         }
-        Ok(())
     }
 
     pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
