@@ -238,47 +238,47 @@ impl Cgroup {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
-
-    use self::tempfile::{tempdir, tempdir_in, NamedTempFile};
-    use super::*;
     use std::io::Write;
     use std::path::PathBuf;
+
+    use super::*;
+    use utils::tempdir::TempDir;
+    use utils::tempfile::TempFile;
 
     #[test]
     fn test_inherit_from_parent() {
         // 1. If parent file does not exist, return an error.
 
         // This is /A/B/ .
-        let dir = tempdir().expect("Cannot create temporary directory.");
+        let dir = TempDir::new().expect("Cannot create temporary directory.");
         // This is /A/B/C .
-        let dir2 = tempdir_in(dir.path()).expect("Cannot create temporary directory.");
-        let mut path2 = PathBuf::from(dir2.path());
+        let dir2 = TempDir::new_in(dir.as_path()).expect("Cannot create temporary directory.");
+        let mut path2 = PathBuf::from(dir2.as_path());
         let result = inherit_from_parent(&mut PathBuf::from(&path2), "inexistent");
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("ReadToString"));
 
         // 2. If parent file exists and is empty, will go one level up, and return error because
         // the grandparent file does not exist.
-        let mut named_file = NamedTempFile::new_in(dir.path()).expect("Cannot create named file.");
+        let named_file = TempFile::new_in(dir.as_path()).expect("Cannot create named file.");
         let result = inherit_from_parent(
             &mut path2.clone(),
-            named_file.path().file_name().unwrap().to_str().unwrap(),
+            named_file.as_path().file_name().unwrap().to_str().unwrap(),
         );
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("CgroupInheritFromParent"));
 
         let child_file = dir2
-            .path()
-            .join(named_file.path().file_name().unwrap().to_str().unwrap());
+            .as_path()
+            .join(named_file.as_path().file_name().unwrap().to_str().unwrap());
 
         // 3. If parent file exists and is not empty, will return ok and child file will have its
         // contents.
         let some_line = "Parent line";
-        writeln!(named_file, "{}", some_line).expect("Cannot write to file.");
+        writeln!(named_file.as_file(), "{}", some_line).expect("Cannot write to file.");
         let result = inherit_from_parent(
             &mut path2,
-            named_file.path().file_name().unwrap().to_str().unwrap(),
+            named_file.as_path().file_name().unwrap().to_str().unwrap(),
         );
         assert!(result.is_ok());
         let res = readln_special(&child_file).expect("Cannot read from file.");

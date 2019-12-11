@@ -654,20 +654,20 @@ impl VirtioDevice for Block {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
+    extern crate utils;
 
-    use self::tempfile::{tempfile, NamedTempFile};
-    use super::*;
-
-    use libc;
-    use memory_model::Address;
     use std::fs::{metadata, OpenOptions};
     use std::sync::mpsc::Receiver;
     use std::thread;
     use std::time::Duration;
     use std::u32;
 
+    use libc;
+
+    use super::*;
     use crate::virtio::queue::tests::*;
+    use memory_model::Address;
+    use utils::tempfile::TempFile;
 
     const EPOLLIN: epoll::Events = epoll::Events::EPOLLIN;
 
@@ -707,13 +707,23 @@ mod tests {
 
             let epoll_config = EpollConfig::new(0, epoll_raw_fd, sender);
 
-            let f: File = tempfile().unwrap();
-            f.set_len(0x1000).unwrap();
+            let tmp_f = TempFile::new().unwrap();
+            tmp_f.as_file().set_len(0x1000).unwrap();
+
+            let mut perm = tmp_f.as_file().metadata().unwrap().permissions();
+            perm.set_readonly(!is_disk_read_only);
+            tmp_f.as_file().set_permissions(perm).unwrap();
 
             // Rate limiting is enabled but with a high operation rate (10 million ops/s).
             let rate_limiter = RateLimiter::new(0, None, 0, 100_000, None, 10).unwrap();
             DummyBlock {
-                block: Block::new(f, is_disk_read_only, epoll_config, Some(rate_limiter)).unwrap(),
+                block: Block::new(
+                    tmp_f.as_file().try_clone().unwrap(),
+                    is_disk_read_only,
+                    epoll_config,
+                    Some(rate_limiter),
+                )
+                .unwrap(),
                 epoll_raw_fd,
                 _receiver,
             }
@@ -1513,8 +1523,8 @@ mod tests {
 
         // test block device update handler
         {
-            let f = NamedTempFile::new().unwrap();
-            let path = f.path().to_path_buf();
+            let f = TempFile::new().unwrap();
+            let path = f.as_path();
             let mdata = metadata(&path).unwrap();
             let mut id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
             let str_id = format!("{}{}{}", mdata.st_dev(), mdata.st_rdev(), mdata.st_ino());

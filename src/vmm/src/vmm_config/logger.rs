@@ -127,15 +127,15 @@ impl Display for LoggerConfigError {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
-    use self::tempfile::NamedTempFile;
+
     use super::*;
+    use utils::tempfile::TempFile;
 
     #[test]
     fn test_log_writer() {
         let log_file_temp =
-            NamedTempFile::new().expect("Failed to create temporary output logging file.");
-        let good_file = String::from(log_file_temp.path().to_path_buf().to_str().unwrap());
+            TempFile::new().expect("Failed to create temporary output logging file.");
+        let good_file = String::from(log_file_temp.as_path().to_path_buf().to_str().unwrap());
         let res = LoggerWriter::new(&good_file);
         assert!(res.is_ok());
 

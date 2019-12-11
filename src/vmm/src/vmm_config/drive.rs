@@ -228,10 +228,9 @@ impl BlockDeviceConfigs {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempfile;
 
-    use self::tempfile::NamedTempFile;
     use super::*;
+    use utils::tempfile::TempFile;
 
     // This implementation is used only in tests.
     // We cannot directly derive clone because RateLimiter does not implement clone.
@@ -257,8 +256,8 @@ mod tests {
 
     #[test]
     fn test_add_non_root_block_device() {
-        let dummy_file = NamedTempFile::new().unwrap();
-        let dummy_path = dummy_file.path().to_path_buf();
+        let dummy_file = TempFile::new().unwrap();
+        let dummy_path = dummy_file.as_path().to_path_buf();
         let dummy_id = String::from("1");
         let dummy_block_device = BlockDeviceConfig {
             path_on_host: dummy_path.clone(),
@@ -289,8 +288,8 @@ mod tests {
 
     #[test]
     fn test_add_one_root_block_device() {
-        let dummy_file = NamedTempFile::new().unwrap();
-        let dummy_path = dummy_file.path().to_path_buf();
+        let dummy_file = TempFile::new().unwrap();
+        let dummy_path = dummy_file.as_path().to_path_buf();
 
         let dummy_block_device = BlockDeviceConfig {
             path_on_host: dummy_path,
@@ -315,8 +314,8 @@ mod tests {
 
     #[test]
     fn test_add_two_root_block_devices_configs() {
-        let dummy_file_1 = NamedTempFile::new().unwrap();
-        let dummy_path_1 = dummy_file_1.path().to_path_buf();
+        let dummy_file_1 = TempFile::new().unwrap();
+        let dummy_path_1 = dummy_file_1.as_path().to_path_buf();
         let root_block_device_1 = BlockDeviceConfig {
             path_on_host: dummy_path_1,
             is_root_device: true,
@@ -326,8 +325,8 @@ mod tests {
             rate_limiter: None,
         };
 
-        let dummy_file_2 = NamedTempFile::new().unwrap();
-        let dummy_path_2 = dummy_file_2.path().to_path_buf();
+        let dummy_file_2 = TempFile::new().unwrap();
+        let dummy_path_2 = dummy_file_2.as_path().to_path_buf();
         let root_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: true,
@@ -350,8 +349,8 @@ mod tests {
     #[test]
     // Test BlockDevicesConfigs::add when you first add the root device and then the other devices.
     fn test_add_root_block_device_first() {
-        let dummy_file_1 = NamedTempFile::new().unwrap();
-        let dummy_path_1 = dummy_file_1.path().to_path_buf();
+        let dummy_file_1 = TempFile::new().unwrap();
+        let dummy_path_1 = dummy_file_1.as_path().to_path_buf();
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1,
             is_root_device: true,
@@ -361,8 +360,8 @@ mod tests {
             rate_limiter: None,
         };
 
-        let dummy_file_2 = NamedTempFile::new().unwrap();
-        let dummy_path_2 = dummy_file_2.path().to_path_buf();
+        let dummy_file_2 = TempFile::new().unwrap();
+        let dummy_path_2 = dummy_file_2.as_path().to_path_buf();
         let dummy_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: false,
@@ -372,8 +371,8 @@ mod tests {
             rate_limiter: None,
         };
 
-        let dummy_file_3 = NamedTempFile::new().unwrap();
-        let dummy_path_3 = dummy_file_3.path().to_path_buf();
+        let dummy_file_3 = TempFile::new().unwrap();
+        let dummy_path_3 = dummy_file_3.as_path().to_path_buf();
         let dummy_block_device_3 = BlockDeviceConfig {
             path_on_host: dummy_path_3,
             is_root_device: false,
@@ -407,8 +406,8 @@ mod tests {
     #[test]
     // Test BlockDevicesConfigs::add when you add other devices first and then the root device.
     fn test_root_block_device_add_last() {
-        let dummy_file_1 = NamedTempFile::new().unwrap();
-        let dummy_path_1 = dummy_file_1.path().to_path_buf();
+        let dummy_file_1 = TempFile::new().unwrap();
+        let dummy_path_1 = dummy_file_1.as_path().to_path_buf();
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1.clone(),
             is_root_device: true,
@@ -418,8 +417,8 @@ mod tests {
             rate_limiter: None,
         };
 
-        let dummy_file_2 = NamedTempFile::new().unwrap();
-        let dummy_path_2 = dummy_file_2.path().to_path_buf();
+        let dummy_file_2 = TempFile::new().unwrap();
+        let dummy_path_2 = dummy_file_2.as_path().to_path_buf();
         let dummy_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: false,
@@ -429,8 +428,8 @@ mod tests {
             rate_limiter: None,
         };
 
-        let dummy_file_3 = NamedTempFile::new().unwrap();
-        let dummy_path_3 = dummy_file_3.path().to_path_buf();
+        let dummy_file_3 = TempFile::new().unwrap();
+        let dummy_path_3 = dummy_file_3.as_path().to_path_buf();
         let dummy_block_device_3 = BlockDeviceConfig {
             path_on_host: dummy_path_3,
             is_root_device: false,
@@ -465,8 +464,8 @@ mod tests {
 
     #[test]
     fn test_update() {
-        let dummy_file_1 = NamedTempFile::new().unwrap();
-        let dummy_path_1 = dummy_file_1.path().to_path_buf();
+        let dummy_file_1 = TempFile::new().unwrap();
+        let dummy_path_1 = dummy_file_1.as_path().to_path_buf();
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1.clone(),
             is_root_device: true,
@@ -476,8 +475,8 @@ mod tests {
             rate_limiter: None,
         };
 
-        let dummy_file_2 = NamedTempFile::new().unwrap();
-        let dummy_path_2 = dummy_file_2.path().to_path_buf();
+        let dummy_file_2 = TempFile::new().unwrap();
+        let dummy_path_2 = dummy_file_2.as_path().to_path_buf();
         let mut dummy_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2.clone(),
             is_root_device: false,
