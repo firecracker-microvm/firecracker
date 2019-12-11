@@ -39,6 +39,12 @@
   appear to support multiple vsock devices. Any subsequent calls to this API
   endpoint will override the previous vsock device configuration.
 - Removed unused 'Halting' and 'Halted' instance states.
+- Vsock host-initiated connections now implement a trivial handshake protocol.
+  See the [vsock doc](docs/vsock.md#host-initiated-connections) for details.
+  Related to:
+  [#1253](https://github.com/firecracker-microvm/firecracker/issues/1253),
+  [#1432](https://github.com/firecracker-microvm/firecracker/issues/1432),
+  [#1443](https://github.com/firecracker-microvm/firecracker/pull/1443)
 
 ### Fixed
 

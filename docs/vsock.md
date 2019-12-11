@@ -39,7 +39,10 @@ send a connect command, in text form, specifying the destination AF_VSOCK port:
 "CONNECT PORT\n". Where PORT is the decimal port number, and "\n" is EOL (ASCII
 0x0A). Following that, the same connection will be forwarded by Firecracker to
 the guest software listening on that port, thus establishing the requested
-channel. If no one is listening, Firecracker will terminate the host
+channel. If the connection has been established, Firecracker will send an
+acknowledgement message to the connecting end (host-side), in the form
+"OK PORT\n", where `PORT` is the vsock port number assigned to
+the host end. If no one is listening, Firecracker will terminate the host
 connection.
 
 1. Host: At VM configuration time, add a virtio-vsock device, with some path
@@ -48,6 +51,7 @@ connection.
 3. Host: `connect()` to AF_UNIX at `uds_path`.
 4. Host: `send()` "CONNECT <port_num>\n".
 5. Guest: `accept()` the new connection.
+6. Host: `read()` "OK <assigned_hostside_port>\n".
 
 The channel is established between the sockets obtained at steps 3 (host)
 and 5 (guest).
@@ -126,7 +130,12 @@ port:
 ```bash
 $ socat - UNIX-CONNECT:./v.sock
 CONNECT 52
+```
 
+`socat` will display the connection acknowledgement message:
+
+```
+OK 1073741824
 ```
 
 The connection should now be established (in the above example, between
