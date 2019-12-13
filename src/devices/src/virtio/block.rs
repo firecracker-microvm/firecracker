@@ -18,7 +18,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 
 use logger::{Metric, METRICS};
-use memory_model::{DataInit, GuestAddress, GuestMemory, GuestMemoryError};
+use memory_model::{ByteValued, GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
@@ -155,7 +155,7 @@ struct Request {
 ///
 /// The header simplifies reading the request from memory as all request follow
 /// the same memory layout.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 #[repr(C)]
 struct RequestHeader {
     request_type: u32,
@@ -164,7 +164,7 @@ struct RequestHeader {
 }
 
 // Safe because RequestHeader only contains plain data.
-unsafe impl DataInit for RequestHeader {}
+unsafe impl ByteValued for RequestHeader {}
 
 impl RequestHeader {
     /// Reads the request header from GuestMemory starting at `addr`.

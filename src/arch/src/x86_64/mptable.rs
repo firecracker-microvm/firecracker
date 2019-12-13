@@ -13,36 +13,36 @@ use std::slice;
 use libc::c_char;
 
 use arch_gen::x86::mpspec;
-use memory_model::{Address, DataInit, GuestAddress, GuestMemory};
+use memory_model::{Address, ByteValued, GuestAddress, GuestMemory};
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
-// trait (in this case `DataInit`) where:
+// trait (in this case `ByteValued`) where:
 // *    the type that is implementing the trait is foreign or
 // *    all of the parameters being passed to the trait (if there are any) are also foreign
 // is prohibited.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct MpcBusWrapper(mpspec::mpc_bus);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct MpcCpuWrapper(mpspec::mpc_cpu);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct MpcIntsrcWrapper(mpspec::mpc_intsrc);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct MpcIoapicWrapper(mpspec::mpc_ioapic);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct MpcTableWrapper(mpspec::mpc_table);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct MpcLintsrcWrapper(mpspec::mpc_lintsrc);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct MpfIntelWrapper(mpspec::mpf_intel);
 
 // These `mpspec` wrapper types are only data, reading them from data is a safe initialization.
-unsafe impl DataInit for MpcBusWrapper {}
-unsafe impl DataInit for MpcCpuWrapper {}
-unsafe impl DataInit for MpcIntsrcWrapper {}
-unsafe impl DataInit for MpcIoapicWrapper {}
-unsafe impl DataInit for MpcTableWrapper {}
-unsafe impl DataInit for MpcLintsrcWrapper {}
-unsafe impl DataInit for MpfIntelWrapper {}
+unsafe impl ByteValued for MpcBusWrapper {}
+unsafe impl ByteValued for MpcCpuWrapper {}
+unsafe impl ByteValued for MpcIntsrcWrapper {}
+unsafe impl ByteValued for MpcIoapicWrapper {}
+unsafe impl ByteValued for MpcTableWrapper {}
+unsafe impl ByteValued for MpcLintsrcWrapper {}
+unsafe impl ByteValued for MpfIntelWrapper {}
 
 // MPTABLE, describing VCPUS.
 const MPTABLE_START: u64 = 0x9fc00;
