@@ -17,18 +17,18 @@ pub mod regs;
 use std::mem;
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
-use memory_model::{Address, DataInit, GuestAddress, GuestMemory};
+use memory_model::{Address, ByteValued, GuestAddress, GuestMemory};
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
-// trait (in this case `DataInit`) where:
+// trait (in this case `ByteValued`) where:
 // *    the type that is implementing the trait is foreign or
 // *    all of the parameters being passed to the trait (if there are any) are also foreign
 // is prohibited.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct BootParamsWrapper(boot_params);
 
 // It is safe to initialize BootParamsWrap which is a wrapper over `boot_params` (a series of ints).
-unsafe impl DataInit for BootParamsWrapper {}
+unsafe impl ByteValued for BootParamsWrapper {}
 
 /// Errors thrown while configuring x86_64 system.
 #[derive(Debug, PartialEq)]

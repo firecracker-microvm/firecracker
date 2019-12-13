@@ -14,7 +14,7 @@ use std::ptr::null_mut;
 
 use libc;
 
-use DataInit;
+use ByteValued;
 
 /// Errors associated with memory mapping.
 #[derive(Debug)]
@@ -154,7 +154,7 @@ impl MemoryMapping {
     /// let res = mem_map.write_obj(55u64, 16);
     /// assert!(res.is_ok());
     /// ```
-    pub fn write_obj<T: DataInit>(&self, val: T, offset: usize) -> Result<()> {
+    pub fn write_obj<T: ByteValued>(&self, val: T, offset: usize) -> Result<()> {
         unsafe {
             // Guest memory can't strictly be modeled as a slice because it is
             // volatile.  Writing to it with what compiles down to a memcpy
@@ -184,7 +184,7 @@ impl MemoryMapping {
     /// let num: u64 = mem_map.read_obj(32).unwrap();
     /// assert_eq!(55, num);
     /// ```
-    pub fn read_obj<T: DataInit>(&self, offset: usize) -> Result<T> {
+    pub fn read_obj<T: ByteValued>(&self, offset: usize) -> Result<T> {
         let (end, fail) = offset.overflowing_add(std::mem::size_of::<T>());
         if fail || end > self.size() {
             return Err(Error::InvalidAddress);
