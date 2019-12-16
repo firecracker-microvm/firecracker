@@ -278,7 +278,7 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 mod tests {
     use super::*;
     use kvm_ioctls::Kvm;
-    use memory_model::{GuestAddress, GuestMemory};
+    use memory_model::{Bytes, GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {
         GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap()
@@ -286,7 +286,7 @@ mod tests {
 
     fn read_u64(gm: &GuestMemory, offset: u64) -> u64 {
         let read_addr = GuestAddress(offset as u64);
-        gm.read_obj_from_addr(read_addr).unwrap()
+        gm.read_obj(read_addr).unwrap()
     }
 
     fn validate_segments_and_sregs(gm: &GuestMemory, sregs: &kvm_sregs) {

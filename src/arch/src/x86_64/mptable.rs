@@ -286,6 +286,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use memory_model::Bytes;
 
     fn table_entry_size(type_: u8) -> usize {
         match u32::from(type_) {
@@ -324,8 +325,7 @@ mod tests {
 
         setup_mptable(&mem, num_cpus).unwrap();
 
-        let mpf_intel: MpfIntelWrapper =
-            mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+        let mpf_intel: MpfIntelWrapper = mem.read_obj(GuestAddress(MPTABLE_START)).unwrap();
 
         assert_eq!(
             mpf_intel_compute_checksum(&mpf_intel.0),
@@ -341,10 +341,9 @@ mod tests {
 
         setup_mptable(&mem, num_cpus).unwrap();
 
-        let mpf_intel: MpfIntelWrapper =
-            mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+        let mpf_intel: MpfIntelWrapper = mem.read_obj(GuestAddress(MPTABLE_START)).unwrap();
         let mpc_offset = GuestAddress(u64::from(mpf_intel.0.physptr));
-        let mpc_table: MpcTableWrapper = mem.read_obj_from_addr(mpc_offset).unwrap();
+        let mpc_table: MpcTableWrapper = mem.read_obj(mpc_offset).unwrap();
 
         struct Sum(u8);
         impl io::Write for Sum {
@@ -376,10 +375,9 @@ mod tests {
         for i in 0..MAX_SUPPORTED_CPUS as u8 {
             setup_mptable(&mem, i).unwrap();
 
-            let mpf_intel: MpfIntelWrapper =
-                mem.read_obj_from_addr(GuestAddress(MPTABLE_START)).unwrap();
+            let mpf_intel: MpfIntelWrapper = mem.read_obj(GuestAddress(MPTABLE_START)).unwrap();
             let mpc_offset = GuestAddress(u64::from(mpf_intel.0.physptr));
-            let mpc_table: MpcTableWrapper = mem.read_obj_from_addr(mpc_offset).unwrap();
+            let mpc_table: MpcTableWrapper = mem.read_obj(mpc_offset).unwrap();
             let mpc_end = mpc_offset
                 .checked_add(u64::from(mpc_table.0.length))
                 .unwrap();
@@ -389,7 +387,7 @@ mod tests {
                 .unwrap();
             let mut cpu_count = 0;
             while entry_offset < mpc_end {
-                let entry_type: u8 = mem.read_obj_from_addr(entry_offset).unwrap();
+                let entry_type: u8 = mem.read_obj(entry_offset).unwrap();
                 entry_offset = entry_offset
                     .checked_add(table_entry_size(entry_type) as u64)
                     .unwrap();
