@@ -273,7 +273,7 @@ impl Request {
                 return Ok(self.data_len);
             }
             RequestType::Out => {
-                mem.write_from_memory(self.data_addr, disk, self.data_len as usize)
+                mem.write_to(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Write)?;
                 METRICS.block.write_bytes.add(self.data_len as usize);
                 METRICS.block.write_count.inc();

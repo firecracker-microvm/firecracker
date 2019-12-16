@@ -9,7 +9,7 @@
 
 //! Define the ByteValued trait to mark that it is safe to instantiate the struct with random data.
 
-use std::io::Read;
+use std::io::{Read, Write};
 
 /// Types for which it is safe to initialize from raw data.
 ///
@@ -97,4 +97,14 @@ pub trait Bytes<A> {
     fn read_from<F>(&self, addr: A, src: &mut F, count: usize) -> Result<(), Self::E>
     where
         F: Read;
+
+    /// Writes data from the container to a writable object.
+    ///
+    /// # Arguments
+    /// * `addr` - Begin reading from this addr.
+    /// * `dst` - Copy from the container to `dst`.
+    /// * `count` - Copy `count` bytes from the container to `dst`.
+    fn write_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<(), Self::E>
+    where
+        F: Write;
 }
