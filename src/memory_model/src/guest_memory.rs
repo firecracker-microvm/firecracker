@@ -13,7 +13,7 @@ use std::{mem, result};
 
 use guest_address::{Address, GuestAddress};
 use mmap::{self, MemoryMapping};
-use ByteValued;
+use {ByteValued, Bytes};
 
 /// Errors associated with handling guest memory regions.
 #[derive(Debug)]
@@ -510,6 +510,10 @@ impl GuestMemory {
         }
         Err(Error::InvalidGuestAddress(guest_addr))
     }
+}
+
+impl Bytes<GuestAddress> for GuestMemory {
+    type E = Error;
 }
 
 #[cfg(test)]

@@ -9,6 +9,8 @@
 
 //! Define the ByteValued trait to mark that it is safe to instantiate the struct with random data.
 
+use std::io::{Read, Write};
+
 /// Types for which it is safe to initialize from raw data.
 ///
 /// A type `T` is `ByteValued` if and only if it can be initialized by reading its contents from a
@@ -48,3 +50,13 @@ byte_valued_type!(i16);
 byte_valued_type!(i32);
 byte_valued_type!(i64);
 byte_valued_type!(isize);
+
+/// A container to host a range of bytes and access its content.
+///
+/// Candidates which may implement this trait include:
+/// - anonymous memory mappings
+/// - memory mapped files
+pub trait Bytes<A> {
+    /// Associated error codes
+    type E;
+}
