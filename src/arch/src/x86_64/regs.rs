@@ -11,7 +11,7 @@ use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 use arch_gen::x86::msr_index;
 use kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_regs, kvm_sregs, Msrs};
 use kvm_ioctls::VcpuFd;
-use memory_model::{Address, GuestAddress, GuestMemory};
+use memory_model::{Address, Bytes, GuestAddress, GuestMemory};
 
 // Initial pagetables.
 const PML4_START: u64 = 0x9000;
@@ -140,7 +140,7 @@ fn write_gdt_table(table: &[u64], guest_mem: &GuestMemory) -> Result<()> {
             .checked_offset(boot_gdt_addr, index * mem::size_of::<u64>())
             .ok_or(Error::WriteGDT)?;
         guest_mem
-            .write_obj_at_addr(*entry, addr)
+            .write_obj(*entry, addr)
             .map_err(|_| Error::WriteGDT)?;
     }
     Ok(())
@@ -149,7 +149,7 @@ fn write_gdt_table(table: &[u64], guest_mem: &GuestMemory) -> Result<()> {
 fn write_idt_value(val: u64, guest_mem: &GuestMemory) -> Result<()> {
     let boot_idt_addr = GuestAddress(BOOT_IDT_OFFSET);
     guest_mem
-        .write_obj_at_addr(val, boot_idt_addr)
+        .write_obj(val, boot_idt_addr)
         .map_err(|_| Error::WriteIDT)
 }
 
@@ -196,16 +196,16 @@ fn setup_page_tables(mem: &GuestMemory, sregs: &mut kvm_sregs) -> Result<()> {
     let boot_pde_addr = GuestAddress(PDE_START);
 
     // Entry covering VA [0..512GB)
-    mem.write_obj_at_addr(boot_pdpte_addr.raw_value() as u64 | 0x03, boot_pml4_addr)
+    mem.write_obj(boot_pdpte_addr.raw_value() as u64 | 0x03, boot_pml4_addr)
         .map_err(|_| Error::WritePML4Address)?;
 
     // Entry covering VA [0..1GB)
-    mem.write_obj_at_addr(boot_pde_addr.raw_value() as u64 | 0x03, boot_pdpte_addr)
+    mem.write_obj(boot_pde_addr.raw_value() as u64 | 0x03, boot_pdpte_addr)
         .map_err(|_| Error::WritePDPTEAddress)?;
     // 512 2MB entries together covering VA [0..1GB). Note we are assuming
     // CPU supports 2MB pages (/proc/cpuinfo has 'pse'). All modern CPUs do.
     for i in 0..512 {
-        mem.write_obj_at_addr((i << 21) + 0x83u64, boot_pde_addr.unchecked_add(i * 8))
+        mem.write_obj((i << 21) + 0x83u64, boot_pde_addr.unchecked_add(i * 8))
             .map_err(|_| Error::WritePDEAddress)?;
     }
 

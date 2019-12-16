@@ -17,7 +17,7 @@ pub mod regs;
 use std::mem;
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
-use memory_model::{Address, ByteValued, GuestAddress, GuestMemory};
+use memory_model::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
 use InitrdConfig;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
@@ -167,7 +167,7 @@ pub fn configure_system(
         .checked_offset(zero_page_addr, mem::size_of::<boot_params>())
         .ok_or(Error::ZeroPagePastRamEnd)?;
     guest_mem
-        .write_obj_at_addr(params, zero_page_addr)
+        .write_obj(params, zero_page_addr)
         .map_err(|_| Error::ZeroPageSetup)?;
 
     Ok(())

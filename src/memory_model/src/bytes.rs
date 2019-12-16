@@ -72,6 +72,10 @@ pub trait Bytes<A> {
     /// container.
     fn read_slice(&self, buf: &mut [u8], addr: A) -> Result<usize, Self::E>;
 
+    /// Writes an object into the container at the specified address.
+    /// Returns Ok(()) if the object fits, or Err if it extends past the end.
+    fn write_obj<T: ByteValued>(&self, val: T, addr: A) -> Result<(), Self::E>;
+
     /// Reads an object from the container at the given address.
     ///
     /// Reading from a volatile area isn't strictly safe as it could change mid-read.

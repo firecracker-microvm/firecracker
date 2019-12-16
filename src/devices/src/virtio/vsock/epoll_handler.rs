@@ -223,6 +223,7 @@ mod tests {
     use super::*;
     use crate::virtio::vsock::defs::{BACKEND_EVENT, EVQ_EVENT, RXQ_EVENT, TXQ_EVENT};
     use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
+    use memory_model::Bytes;
 
     #[test]
     fn test_irq() {
@@ -489,7 +490,7 @@ mod tests {
                 let hdr_len_addr = GuestAddress(ctx.guest_txvq.dtable[0].addr.get() + 24);
                 test_ctx
                     .mem
-                    .write_obj_at_addr(len.to_le_bytes(), hdr_len_addr)
+                    .write_obj(len.to_le_bytes(), hdr_len_addr)
                     .unwrap();
             }
 

@@ -365,9 +365,7 @@ impl BlockEpollHandler {
                     };
                     // We use unwrap because the request parsing process already checked that the
                     // status_addr was valid.
-                    self.mem
-                        .write_obj_at_addr(status, request.status_addr)
-                        .unwrap();
+                    self.mem.write_obj(status, request.status_addr).unwrap();
                 }
                 Err(e) => {
                     error!("Failed to parse available descriptor chain: {:?}", e);
@@ -815,8 +813,8 @@ mod tests {
     fn write_request_header(mem: &GuestMemory, request_type: u32, sector: u64) {
         let addr = GuestAddress(0);
 
-        mem.write_obj_at_addr::<u32>(request_type, addr).unwrap();
-        mem.write_obj_at_addr::<u64>(sector, addr.checked_add(8).unwrap())
+        mem.write_obj::<u32>(request_type, addr).unwrap();
+        mem.write_obj::<u64>(sector, addr.checked_add(8).unwrap())
             .unwrap();
     }
 
@@ -873,10 +871,9 @@ mod tests {
             let mut q = vq.create_queue();
             // write only request type descriptor
             vq.dtable[0].set(0x1000, 0x1000, VIRTQ_DESC_F_WRITE, 1);
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
                 .unwrap();
-            m.write_obj_at_addr::<u64>(114, GuestAddress(0x1000 + 8))
-                .unwrap();
+            m.write_obj::<u64>(114, GuestAddress(0x1000 + 8)).unwrap();
             assert!(match Request::parse(&q.pop(m).unwrap(), m) {
                 Err(Error::UnexpectedWriteOnlyDescriptor) => true,
                 _ => false,
@@ -920,7 +917,7 @@ mod tests {
         {
             let mut q = vq.create_queue();
             // read only data for IN
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
                 .unwrap();
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             assert!(match Request::parse(&q.pop(m).unwrap(), m) {
@@ -1137,7 +1134,7 @@ mod tests {
             vq.dtable[0]
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
                 .unwrap();
 
             invoke_handler_for_queue_event(&mut h);
@@ -1158,9 +1155,9 @@ mod tests {
             vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             // let's generate a seek execute error caused by a very large sector number
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
                 .unwrap();
-            m.write_obj_at_addr::<u64>(0x000f_ffff_ffff, GuestAddress(0x1000 + 8))
+            m.write_obj::<u64>(0x000f_ffff_ffff, GuestAddress(0x1000 + 8))
                 .unwrap();
 
             invoke_handler_for_queue_event(&mut h);
@@ -1179,10 +1176,9 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             // set sector to a valid number but large enough that the full 0x1000 read will fail
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
                 .unwrap();
-            m.write_obj_at_addr::<u64>(10, GuestAddress(0x1000 + 8))
-                .unwrap();
+            m.write_obj::<u64>(10, GuestAddress(0x1000 + 8)).unwrap();
 
             invoke_handler_for_queue_event(&mut h);
 
@@ -1200,11 +1196,9 @@ mod tests {
             h.set_queue(0, vq.create_queue());
 
             // set sector to 0
-            m.write_obj_at_addr::<u64>(0, GuestAddress(0x1000 + 8))
-                .unwrap();
+            m.write_obj::<u64>(0, GuestAddress(0x1000 + 8)).unwrap();
             // ... but generate an unsupported request
-            m.write_obj_at_addr::<u32>(16, GuestAddress(0x1000))
-                .unwrap();
+            m.write_obj::<u32>(16, GuestAddress(0x1000)).unwrap();
 
             invoke_handler_for_queue_event(&mut h);
 
@@ -1222,12 +1216,12 @@ mod tests {
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
 
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
                 .unwrap();
             // make data read only, 8 bytes in len, and set the actual value to be written
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(8);
-            m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
+            m.write_obj::<u64>(123_456_789, data_addr).unwrap();
 
             check_metric_after_block!(
                 &METRICS.block.write_count,
@@ -1247,7 +1241,7 @@ mod tests {
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
 
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
                 .unwrap();
             vq.dtable[1]
                 .flags
@@ -1273,7 +1267,7 @@ mod tests {
             vq.used.idx.set(0);
             h.set_queue(0, vq.create_queue());
 
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_FLUSH, GuestAddress(0x1000))
                 .unwrap();
 
             invoke_handler_for_queue_event(&mut h);
@@ -1291,7 +1285,7 @@ mod tests {
             h.set_queue(0, vq.create_queue());
             vq.dtable[0].next.set(2);
 
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_FLUSH, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_FLUSH, GuestAddress(0x1000))
                 .unwrap();
 
             invoke_handler_for_queue_event(&mut h);
@@ -1310,7 +1304,7 @@ mod tests {
             h.set_queue(0, vq.create_queue());
             vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES);
 
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
                 .unwrap();
 
             invoke_handler_for_queue_event(&mut h);
@@ -1348,7 +1342,7 @@ mod tests {
             h.set_queue(0, vq.create_queue());
             vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES - 1);
 
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
                 .unwrap();
 
             invoke_handler_for_queue_event(&mut h);
@@ -1369,12 +1363,12 @@ mod tests {
             h.set_queue(0, vq.create_queue());
             h.set_rate_limiter(rl);
 
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
                 .unwrap();
             // make data read only, 8 bytes in len, and set the actual value to be written
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(8);
-            m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
+            m.write_obj::<u64>(123_456_789, data_addr).unwrap();
 
             // following write procedure should fail because of bandwidth rate limiting
             {
@@ -1425,12 +1419,12 @@ mod tests {
             h.set_queue(0, vq.create_queue());
             h.set_rate_limiter(rl);
 
-            m.write_obj_at_addr::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
+            m.write_obj::<u32>(VIRTIO_BLK_T_OUT, GuestAddress(0x1000))
                 .unwrap();
             // make data read only, 8 bytes in len, and set the actual value to be written
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
             vq.dtable[1].len.set(8);
-            m.write_obj_at_addr::<u64>(123_456_789, data_addr).unwrap();
+            m.write_obj::<u64>(123_456_789, data_addr).unwrap();
 
             // following write procedure should fail because of ops rate limiting
             {

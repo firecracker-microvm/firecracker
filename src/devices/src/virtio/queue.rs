@@ -330,9 +330,8 @@ impl Queue {
         let used_elem = used_ring.unchecked_add(4 + next_used * 8);
 
         // These writes can't fail as we are guaranteed to be within the descriptor ring.
-        mem.write_obj_at_addr(u32::from(desc_index), used_elem)
-            .unwrap();
-        mem.write_obj_at_addr(len as u32, used_elem.unchecked_add(4))
+        mem.write_obj(u32::from(desc_index), used_elem).unwrap();
+        mem.write_obj(len as u32, used_elem.unchecked_add(4))
             .unwrap();
 
         self.next_used += Wrapping(1);
@@ -340,7 +339,7 @@ impl Queue {
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);
 
-        mem.write_obj_at_addr(self.next_used.0 as u16, used_ring.unchecked_add(2))
+        mem.write_obj(self.next_used.0 as u16, used_ring.unchecked_add(2))
             .unwrap();
     }
 
@@ -402,7 +401,7 @@ pub mod tests {
 
         // Writes to the actual memory location.
         pub fn set(&self, val: T) {
-            self.mem.write_obj_at_addr(val, self.location).unwrap()
+            self.mem.write_obj(val, self.location).unwrap()
         }
 
         // This function returns a place in memory which holds a value of type U, and starts
