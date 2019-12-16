@@ -442,7 +442,7 @@ impl NetEpollHandler {
             for (desc_addr, desc_len) in self.tx.iovec.drain(..) {
                 let limit = cmp::min((read_count + desc_len) as usize, self.tx.frame_buf.len());
 
-                let read_result = self.mem.read_slice_at_addr(
+                let read_result = self.mem.read_slice(
                     &mut self.tx.frame_buf[read_count..limit as usize],
                     desc_addr,
                 );

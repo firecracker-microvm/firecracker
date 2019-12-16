@@ -203,35 +203,6 @@ impl GuestMemory {
         Ok(())
     }
 
-    /// Reads to a slice from guest memory at the specified guest address.
-    /// Returns the number of bytes read.  The number of bytes read can
-    /// be less than the length of the slice if there isn't enough room in the
-    /// memory region.
-    ///
-    /// # Examples
-    /// * Read a slice of length 16 at guestaddress 0x200.
-    ///
-    /// ```
-    /// use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
-    /// fn test_write_u64() -> Result<(), ()> {
-    ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
-    ///     let buf = &mut [0u8; 16];
-    ///     let res = gm
-    ///         .read_slice_at_addr(buf, GuestAddress(0x200))
-    ///         .map_err(|_| ())?;
-    ///     assert_eq!(16, res);
-    ///     Ok(())
-    /// }
-    /// ```
-    pub fn read_slice_at_addr(&self, buf: &mut [u8], guest_addr: GuestAddress) -> Result<usize> {
-        self.do_in_region_partial(guest_addr, move |mapping, offset| {
-            mapping
-                .read_slice(buf, offset)
-                .map_err(|e| Error::MemoryAccess(guest_addr, e))
-        })
-    }
-
     /// Reads an object from guest memory at the given guest address.
     /// Reading from a volatile area isn't strictly safe as it could change
     /// mid-read.  However, as long as the type T is plain old data and can
@@ -509,6 +480,34 @@ impl Bytes<GuestAddress> for GuestMemory {
                 .map_err(|e| Error::MemoryAccess(addr, e))
         })
     }
+
+    /// # Examples
+    /// * Read a slice of length 16 at guestaddress 0x200.
+    ///
+    /// ```
+    /// use memory_model::{Bytes, GuestAddress, GuestMemory, MemoryMapping};
+    /// fn test_write_u64() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let buf = &mut [0u8; 16];
+    ///     let res = gm
+    ///         .read_slice(buf, GuestAddress(0x200))
+    ///         .map_err(|_| ())?;
+    ///     assert_eq!(16, res);
+    ///     Ok(())
+    /// }
+    /// ```
+    fn read_slice(
+        &self,
+        buf: &mut [u8],
+        addr: GuestAddress,
+    ) -> std::result::Result<usize, Self::E> {
+        self.do_in_region_partial(addr, move |mapping, offset| {
+            mapping
+                .read_slice(buf, offset)
+                .map_err(|e| Error::MemoryAccess(addr, e))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -637,12 +636,12 @@ mod tests {
         assert_eq!(gm.write_slice(sample_buf, start_addr).unwrap(), 5);
 
         let buf = &mut [0u8; 5];
-        assert_eq!(gm.read_slice_at_addr(buf, start_addr).unwrap(), 5);
+        assert_eq!(gm.read_slice(buf, start_addr).unwrap(), 5);
         assert_eq!(buf, sample_buf);
 
         start_addr = GuestAddress(0x13ff);
         assert_eq!(gm.write_slice(sample_buf, start_addr).unwrap(), 1);
-        assert_eq!(gm.read_slice_at_addr(buf, start_addr).unwrap(), 1);
+        assert_eq!(gm.read_slice(buf, start_addr).unwrap(), 1);
         assert_eq!(buf[0], sample_buf[0]);
     }
 
