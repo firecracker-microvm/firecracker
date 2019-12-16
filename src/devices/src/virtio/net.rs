@@ -21,7 +21,7 @@ use std::vec::Vec;
 
 use dumbo::{ns::MmdsNetworkStack, EthernetFrame, MacAddr, MAC_ADDR_LEN};
 use logger::{Metric, METRICS};
-use memory_model::{GuestAddress, GuestMemory};
+use memory_model::{Bytes, GuestAddress, GuestMemory};
 use net_gen;
 use rate_limiter::{RateLimiter, TokenBucket, TokenType};
 use utils::eventfd::EventFd;
@@ -226,7 +226,7 @@ impl NetEpollHandler {
                     }
                     let limit = cmp::min(write_count + desc.len as usize, self.rx.bytes_read);
                     let source_slice = &self.rx.frame_buf[write_count..limit];
-                    let write_result = self.mem.write_slice_at_addr(source_slice, desc.addr);
+                    let write_result = self.mem.write_slice(source_slice, desc.addr);
 
                     match write_result {
                         Ok(sz) => {

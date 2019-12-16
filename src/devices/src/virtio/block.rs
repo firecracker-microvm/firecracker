@@ -18,7 +18,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 
 use logger::{Metric, METRICS};
-use memory_model::{ByteValued, GuestAddress, GuestMemory, GuestMemoryError};
+use memory_model::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
@@ -291,7 +291,7 @@ impl Request {
                 if (self.data_len as usize) < disk_id.len() {
                     return Err(ExecuteError::BadRequest(Error::InvalidOffset));
                 }
-                mem.write_slice_at_addr(disk_id, self.data_addr)
+                mem.write_slice(disk_id, self.data_addr)
                     .map_err(ExecuteError::Write)?;
             }
             RequestType::Unsupported(t) => return Err(ExecuteError::Unsupported(t)),

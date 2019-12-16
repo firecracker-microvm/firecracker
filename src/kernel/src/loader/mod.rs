@@ -14,7 +14,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
 use super::cmdline::Error as CmdlineError;
-use memory_model::{Address, GuestAddress, GuestMemory};
+use memory_model::{Address, Bytes, GuestAddress, GuestMemory};
 use utils::structs::read_struct;
 
 #[allow(non_camel_case_types)]
@@ -252,7 +252,7 @@ pub fn load_cmdline(
     }
 
     guest_mem
-        .write_slice_at_addr(raw_cmdline, guest_addr)
+        .write_slice(raw_cmdline, guest_addr)
         .map_err(|_| CmdlineError::CommandLineCopy)?;
 
     Ok(())
