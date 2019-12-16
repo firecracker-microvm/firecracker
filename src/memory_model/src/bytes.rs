@@ -64,4 +64,11 @@ pub trait Bytes<A> {
     /// be less than the length of the slice if there isn't enough room in the
     /// container.
     fn write_slice(&self, buf: &[u8], addr: A) -> Result<usize, Self::E>;
+
+    /// Reads from the container at the specified address into a buffer.
+    ///
+    /// Returns the number of bytes read.  The number of bytes read can
+    /// be less than the length of the slice if there isn't enough room in the
+    /// container.
+    fn read_slice(&self, buf: &mut [u8], addr: A) -> Result<usize, Self::E>;
 }
