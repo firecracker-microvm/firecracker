@@ -359,7 +359,7 @@ mod tests {
         }
 
         let mut sum = Sum(0);
-        mem.write_from_memory(mpc_offset, &mut sum, mpc_table.0.length as usize)
+        mem.write_to(mpc_offset, &mut sum, mpc_table.0.length as usize)
             .unwrap();
         assert_eq!(sum.0, 0);
     }

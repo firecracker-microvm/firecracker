@@ -203,46 +203,6 @@ impl GuestMemory {
         Ok(())
     }
 
-    /// Writes data from memory to a writable object.
-    ///
-    /// # Arguments
-    /// * `guest_addr` - Begin reading memory from this offset.
-    /// * `dst` - Write from memory to `dst`.
-    /// * `count` - Read `count` bytes from memory to `src`.
-    ///
-    /// # Examples
-    ///
-    /// * Write 128 bytes to /dev/null
-    ///
-    /// ```
-    /// use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
-    /// use std::fs::File;
-    /// use std::path::Path;
-    /// fn test_write_null() -> Result<(), ()> {
-    ///     let start_addr = GuestAddress(0x1000);
-    ///     let gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
-    ///     let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
-    ///     let addr = GuestAddress(0x1010);
-    ///     gm.write_from_memory(addr, &mut file, 128).map_err(|_| ())?;
-    ///     Ok(())
-    /// }
-    /// ```
-    pub fn write_from_memory<F>(
-        &self,
-        guest_addr: GuestAddress,
-        dst: &mut F,
-        count: usize,
-    ) -> Result<()>
-    where
-        F: Write,
-    {
-        self.do_in_region(guest_addr, count, move |mapping, offset| {
-            mapping
-                .write_from_memory(offset, dst, count)
-                .map_err(|e| Error::MemoryAccess(guest_addr, e))
-        })
-    }
-
     /// Converts a GuestAddress into a pointer in the address space of this
     /// process. This should only be necessary for giving addresses to the
     /// kernel, as with vhost ioctls. Normal reads/writes to guest memory should
@@ -491,6 +451,39 @@ impl Bytes<GuestAddress> for GuestMemory {
                 .map_err(|e| Error::MemoryAccess(addr, e))
         })
     }
+
+    /// # Examples
+    ///
+    /// * Write 128 bytes to /dev/null
+    ///
+    /// ```
+    /// use memory_model::{Bytes, GuestAddress, GuestMemory, MemoryMapping};
+    /// use std::fs::File;
+    /// use std::path::Path;
+    /// fn test_write_null() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
+    ///     let addr = GuestAddress(0x1010);
+    ///     gm.write_to(addr, &mut file, 128).map_err(|_| ())?;
+    ///     Ok(())
+    /// }
+    /// ```
+    fn write_to<F>(
+        &self,
+        addr: GuestAddress,
+        dst: &mut F,
+        count: usize,
+    ) -> std::result::Result<(), Self::E>
+    where
+        F: Write,
+    {
+        self.do_in_region(addr, count, move |mapping, offset| {
+            mapping
+                .write_from_memory(offset, dst, count)
+                .map_err(|e| Error::MemoryAccess(addr, e))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -642,8 +635,7 @@ mod tests {
         assert_eq!(value, 0);
 
         let mut sink = Vec::new();
-        gm.write_from_memory(addr, &mut sink, mem::size_of::<u32>())
-            .unwrap();
+        gm.write_to(addr, &mut sink, mem::size_of::<u32>()).unwrap();
         assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
     }
 
