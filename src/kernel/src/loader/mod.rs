@@ -138,7 +138,7 @@ where
         }
 
         guest_mem
-            .read_to_memory(mem_offset, kernel_image, phdr.p_filesz as usize)
+            .read_from(mem_offset, kernel_image, phdr.p_filesz as usize)
             .map_err(|_| Error::ReadKernelImage)?;
     }
 
@@ -217,7 +217,7 @@ where
 
     kernel_load_offset = kernel_load_offset + start_address;
     guest_mem
-        .read_to_memory(
+        .read_from(
             GuestAddress(kernel_load_offset),
             kernel_image,
             kernel_size as usize,

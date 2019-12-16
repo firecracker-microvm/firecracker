@@ -203,48 +203,6 @@ impl GuestMemory {
         Ok(())
     }
 
-    /// Reads data from a readable object like a File and writes it to guest memory.
-    ///
-    /// # Arguments
-    /// * `guest_addr` - Begin writing memory at this offset.
-    /// * `src` - Read from `src` to memory.
-    /// * `count` - Read `count` bytes from `src` to memory.
-    ///
-    /// # Examples
-    ///
-    /// * Read bytes from /dev/urandom
-    ///
-    /// ```
-    /// use memory_model::{Address, Bytes, GuestAddress, GuestMemory, MemoryMapping};
-    /// use std::fs::File;
-    /// use std::path::Path;
-    /// fn test_read_random() -> Result<u32, ()> {
-    ///     let start_addr = GuestAddress(0x1000);
-    ///     let gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
-    ///     let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
-    ///     let addr = GuestAddress(0x1010);
-    ///     gm.read_to_memory(addr, &mut file, 128).map_err(|_| ())?;
-    ///     let read_addr = addr.checked_add(8).ok_or(())?;
-    ///     let rand_val: u32 = gm.read_obj(read_addr).map_err(|_| ())?;
-    ///     Ok(rand_val)
-    /// }
-    /// ```
-    pub fn read_to_memory<F>(
-        &self,
-        guest_addr: GuestAddress,
-        src: &mut F,
-        count: usize,
-    ) -> Result<()>
-    where
-        F: Read,
-    {
-        self.do_in_region(guest_addr, count, move |mapping, offset| {
-            mapping
-                .read_to_memory(offset, src, count)
-                .map_err(|e| Error::MemoryAccess(guest_addr, e))
-        })
-    }
-
     /// Writes data from memory to a writable object.
     ///
     /// # Arguments
@@ -498,6 +456,41 @@ impl Bytes<GuestAddress> for GuestMemory {
                 .map_err(|e| Error::MemoryAccess(addr, e))
         })
     }
+
+    /// # Examples
+    ///
+    /// * Read bytes from /dev/urandom
+    ///
+    /// ```
+    /// use memory_model::{Address, Bytes, GuestAddress, GuestMemory, MemoryMapping};
+    /// use std::fs::File;
+    /// use std::path::Path;
+    /// fn test_read_random() -> Result<u32, ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
+    ///     let addr = GuestAddress(0x1010);
+    ///     gm.read_from(addr, &mut file, 128).map_err(|_| ())?;
+    ///     let read_addr = addr.checked_add(8).ok_or(())?;
+    ///     let rand_val: u32 = gm.read_obj(read_addr).map_err(|_| ())?;
+    ///     Ok(rand_val)
+    /// }
+    /// ```
+    fn read_from<F>(
+        &self,
+        addr: GuestAddress,
+        src: &mut F,
+        count: usize,
+    ) -> std::result::Result<(), Self::E>
+    where
+        F: Read,
+    {
+        self.do_in_region(addr, count, move |mapping, offset| {
+            mapping
+                .read_to_memory(offset, src, count)
+                .map_err(|e| Error::MemoryAccess(addr, e))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -639,7 +632,7 @@ mod tests {
         let gm = GuestMemory::new(&[(GuestAddress(0x1000), 0x400)]).unwrap();
         let addr = GuestAddress(0x1010);
         gm.write_obj(!0u32, addr).unwrap();
-        gm.read_to_memory(
+        gm.read_from(
             addr,
             &mut File::open(Path::new("/dev/zero")).unwrap(),
             mem::size_of::<u32>(),

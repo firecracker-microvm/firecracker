@@ -148,7 +148,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
         return Err(Error::AddressOverflow);
     }
 
-    mem.read_to_memory(base_mp, &mut io::repeat(0), mp_size)
+    mem.read_from(base_mp, &mut io::repeat(0), mp_size)
         .map_err(|_| Error::Clear)?;
 
     {
