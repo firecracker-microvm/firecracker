@@ -203,39 +203,6 @@ impl GuestMemory {
         Ok(())
     }
 
-    /// Reads an object from guest memory at the given guest address.
-    /// Reading from a volatile area isn't strictly safe as it could change
-    /// mid-read.  However, as long as the type T is plain old data and can
-    /// handle random initialization, everything will be OK.
-    ///
-    /// Caller needs to guarantee that the object does not cross MemoryRegion
-    /// boundary, otherwise it fails.
-    ///
-    /// # Examples
-    /// * Read a u64 from two areas of guest memory backed by separate mappings.
-    ///
-    /// ```
-    /// use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
-    /// fn test_read_u64() -> Result<u64, ()> {
-    ///     let start_addr1 = GuestAddress(0x0);
-    ///     let start_addr2 = GuestAddress(0x400);
-    ///     let mut gm =
-    ///         GuestMemory::new(&vec![(start_addr1, 0x400), (start_addr2, 0x400)]).map_err(|_| ())?;
-    ///     let num1: u64 = gm.read_obj_from_addr(GuestAddress(32)).map_err(|_| ())?;
-    ///     let num2: u64 = gm
-    ///         .read_obj_from_addr(GuestAddress(0x400 + 32))
-    ///         .map_err(|_| ())?;
-    ///     Ok(num1 + num2)
-    /// }
-    /// ```
-    pub fn read_obj_from_addr<T: ByteValued>(&self, guest_addr: GuestAddress) -> Result<T> {
-        self.do_in_region(guest_addr, mem::size_of::<T>(), |mapping, offset| {
-            mapping
-                .read_obj(offset)
-                .map_err(|e| Error::MemoryAccess(guest_addr, e))
-        })
-    }
-
     /// Writes an object to the memory region at the specified guest address.
     /// Returns Ok(()) if the object fits, or Err if it extends past the end.
     ///
@@ -274,7 +241,7 @@ impl GuestMemory {
     /// * Read bytes from /dev/urandom
     ///
     /// ```
-    /// use memory_model::{Address, GuestAddress, GuestMemory, MemoryMapping};
+    /// use memory_model::{Address, Bytes, GuestAddress, GuestMemory, MemoryMapping};
     /// use std::fs::File;
     /// use std::path::Path;
     /// fn test_read_random() -> Result<u32, ()> {
@@ -284,7 +251,7 @@ impl GuestMemory {
     ///     let addr = GuestAddress(0x1010);
     ///     gm.read_to_memory(addr, &mut file, 128).map_err(|_| ())?;
     ///     let read_addr = addr.checked_add(8).ok_or(())?;
-    ///     let rand_val: u32 = gm.read_obj_from_addr(read_addr).map_err(|_| ())?;
+    ///     let rand_val: u32 = gm.read_obj(read_addr).map_err(|_| ())?;
     ///     Ok(rand_val)
     /// }
     /// ```
@@ -508,6 +475,31 @@ impl Bytes<GuestAddress> for GuestMemory {
                 .map_err(|e| Error::MemoryAccess(addr, e))
         })
     }
+
+    /// # Examples
+    /// * Read a u64 from two areas of guest memory backed by separate mappings.
+    ///
+    /// ```
+    /// use memory_model::{Bytes, GuestAddress, GuestMemory, MemoryMapping};
+    /// fn test_read_u64() -> Result<u64, ()> {
+    ///     let start_addr1 = GuestAddress(0x0);
+    ///     let start_addr2 = GuestAddress(0x400);
+    ///     let mut gm =
+    ///         GuestMemory::new(&vec![(start_addr1, 0x400), (start_addr2, 0x400)]).map_err(|_| ())?;
+    ///     let num1: u64 = gm.read_obj(GuestAddress(32)).map_err(|_| ())?;
+    ///     let num2: u64 = gm
+    ///         .read_obj(GuestAddress(0x400 + 32))
+    ///         .map_err(|_| ())?;
+    ///     Ok(num1 + num2)
+    /// }
+    /// ```
+    fn read_obj<T: ByteValued>(&self, addr: GuestAddress) -> std::result::Result<T, Self::E> {
+        self.do_in_region(addr, mem::size_of::<T>(), |mapping, offset| {
+            mapping
+                .read_obj(offset)
+                .map_err(|e| Error::MemoryAccess(addr, e))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -621,8 +613,8 @@ mod tests {
         gm.write_obj_at_addr(val1, GuestAddress(0x500)).unwrap();
         gm.write_obj_at_addr(val2, GuestAddress(0x1000 + 32))
             .unwrap();
-        let num1: u64 = gm.read_obj_from_addr(GuestAddress(0x500)).unwrap();
-        let num2: u64 = gm.read_obj_from_addr(GuestAddress(0x1000 + 32)).unwrap();
+        let num1: u64 = gm.read_obj(GuestAddress(0x500)).unwrap();
+        let num2: u64 = gm.read_obj(GuestAddress(0x1000 + 32)).unwrap();
         assert_eq!(val1, num1);
         assert_eq!(val2, num2);
     }
@@ -656,7 +648,7 @@ mod tests {
             mem::size_of::<u32>(),
         )
         .unwrap();
-        let value: u32 = gm.read_obj_from_addr(addr).unwrap();
+        let value: u32 = gm.read_obj(addr).unwrap();
         assert_eq!(value, 0);
 
         let mut sink = Vec::new();

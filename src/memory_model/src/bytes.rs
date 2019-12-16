@@ -71,4 +71,14 @@ pub trait Bytes<A> {
     /// be less than the length of the slice if there isn't enough room in the
     /// container.
     fn read_slice(&self, buf: &mut [u8], addr: A) -> Result<usize, Self::E>;
+
+    /// Reads an object from the container at the given address.
+    ///
+    /// Reading from a volatile area isn't strictly safe as it could change mid-read.
+    /// However, as long as the type T is plain old data and can handle random initialization,
+    /// everything will be OK.
+    ///
+    /// Caller needs to guarantee that the object does not cross the container
+    /// boundary, otherwise it fails.
+    fn read_obj<T: ByteValued>(&self, addr: A) -> Result<T, Self::E>;
 }

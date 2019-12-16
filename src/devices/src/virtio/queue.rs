@@ -9,7 +9,7 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use memory_model::{Address, ByteValued, GuestAddress, GuestMemory};
+use memory_model::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -78,7 +78,7 @@ impl<'a> DescriptorChain<'a> {
         mem.checked_offset(desc_head, 16)?;
 
         // These reads can't fail unless Guest memory is hopelessly broken.
-        let desc = match mem.read_obj_from_addr::<Descriptor>(desc_head) {
+        let desc = match mem.read_obj::<Descriptor>(desc_head) {
             Ok(ret) => ret,
             Err(_) => {
                 // TODO log address
@@ -298,7 +298,7 @@ impl Queue {
         // and virtq rings, so it's safe to unwrap guest memory reads and to use unchecked
         // offsets.
         let desc_index: u16 = mem
-            .read_obj_from_addr(self.avail_ring.unchecked_add(u64::from(index_offset)))
+            .read_obj(self.avail_ring.unchecked_add(u64::from(index_offset)))
             .unwrap();
 
         DescriptorChain::checked_new(mem, self.desc_table, self.actual_size(), desc_index).map(
@@ -361,7 +361,7 @@ impl Queue {
         //       after device activation, so we can be certain that no change has occured since
         //       the last `self.is_valid()` check.
         let addr = self.avail_ring.unchecked_add(2);
-        Wrapping(mem.read_obj_from_addr::<u16>(addr).unwrap())
+        Wrapping(mem.read_obj::<u16>(addr).unwrap())
     }
 }
 
@@ -397,7 +397,7 @@ pub mod tests {
 
         // Reads from the actual memory location.
         pub fn get(&self) -> T {
-            self.mem.read_obj_from_addr(self.location).unwrap()
+            self.mem.read_obj(self.location).unwrap()
         }
 
         // Writes to the actual memory location.

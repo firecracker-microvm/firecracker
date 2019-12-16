@@ -405,19 +405,19 @@ mod tests {
         cmdline.insert_str("1234").unwrap();
         let cmdline = cmdline.as_cstring().unwrap();
         assert_eq!(Ok(()), load_cmdline(&gm, cmdline_address, &cmdline));
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, b'1');
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, b'2');
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, b'3');
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, b'4');
         cmdline_address = cmdline_address.unchecked_add(1);
-        let val: u8 = gm.read_obj_from_addr(cmdline_address).unwrap();
+        let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, b'\0');
     }
 }

@@ -176,9 +176,7 @@ impl RequestHeader {
     /// for explicit little endian reads is required.
     #[cfg(target_endian = "little")]
     fn read_from(memory: &GuestMemory, addr: GuestAddress) -> result::Result<Self, Error> {
-        let request_header: RequestHeader = memory
-            .read_obj_from_addr(addr)
-            .map_err(Error::GuestMemory)?;
+        let request_header: RequestHeader = memory.read_obj(addr).map_err(Error::GuestMemory)?;
         Ok(request_header)
     }
 }
@@ -1170,10 +1168,7 @@ mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_IOERR);
         }
 
         {
@@ -1194,10 +1189,7 @@ mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_IOERR);
         }
 
         // test unsupported block commands
@@ -1219,10 +1211,7 @@ mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_UNSUPP
-            );
+            assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_UNSUPP);
         }
 
         // now let's write something and read it back
@@ -1249,10 +1238,7 @@ mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
-            assert_eq!(
-                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_OK
-            );
+            assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
         }
 
         {
@@ -1276,11 +1262,8 @@ mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get());
-            assert_eq!(
-                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_OK
-            );
-            assert_eq!(m.read_obj_from_addr::<u64>(data_addr).unwrap(), 123_456_789);
+            assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+            assert_eq!(m.read_obj::<u64>(data_addr).unwrap(), 123_456_789);
         }
 
         {
@@ -1297,10 +1280,7 @@ mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
-            assert_eq!(
-                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_OK
-            );
+            assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
         }
 
         {
@@ -1318,10 +1298,7 @@ mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
-            assert_eq!(
-                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_OK
-            );
+            assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
 
             vq.dtable[0].next.set(1);
         }
@@ -1340,10 +1317,7 @@ mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
-            assert_eq!(
-                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_OK
-            );
+            assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
 
             assert!(blk_metadata.is_ok());
             let blk_meta = blk_metadata.unwrap();
@@ -1381,10 +1355,7 @@ mod tests {
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_IOERR);
         }
 
         // test the bandwidth rate limiter
@@ -1439,10 +1410,7 @@ mod tests {
                 assert_eq!(vq.used.idx.get(), 1);
                 assert_eq!(vq.used.ring[0].get().id, 0);
                 assert_eq!(vq.used.ring[0].get().len, 0);
-                assert_eq!(
-                    m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                    VIRTIO_BLK_S_OK
-                );
+                assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
             }
         }
 
@@ -1514,10 +1482,7 @@ mod tests {
                 assert_eq!(vq.used.idx.get(), 1);
                 assert_eq!(vq.used.ring[0].get().id, 0);
                 assert_eq!(vq.used.ring[0].get().len, 0);
-                assert_eq!(
-                    m.read_obj_from_addr::<u32>(status_addr).unwrap(),
-                    VIRTIO_BLK_S_OK
-                );
+                assert_eq!(m.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
             }
         }
 
