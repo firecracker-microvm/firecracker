@@ -203,32 +203,6 @@ impl GuestMemory {
         Ok(())
     }
 
-    /// Writes an object to the memory region at the specified guest address.
-    /// Returns Ok(()) if the object fits, or Err if it extends past the end.
-    ///
-    /// Caller needs to guarantee that the object does not cross MemoryRegion
-    /// boundary, otherwise it fails.
-    ///
-    /// # Examples
-    /// * Write a u64 at guest address 0x1100.
-    ///
-    /// ```
-    /// use memory_model::{GuestAddress, GuestMemory, MemoryMapping};
-    /// fn test_write_u64() -> Result<(), ()> {
-    ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
-    ///     gm.write_obj_at_addr(55u64, GuestAddress(0x1100))
-    ///         .map_err(|_| ())
-    /// }
-    /// ```
-    pub fn write_obj_at_addr<T: ByteValued>(&self, val: T, guest_addr: GuestAddress) -> Result<()> {
-        self.do_in_region(guest_addr, mem::size_of::<T>(), move |mapping, offset| {
-            mapping
-                .write_obj(val, offset)
-                .map_err(|e| Error::MemoryAccess(guest_addr, e))
-        })
-    }
-
     /// Reads data from a readable object like a File and writes it to guest memory.
     ///
     /// # Arguments
@@ -477,6 +451,30 @@ impl Bytes<GuestAddress> for GuestMemory {
     }
 
     /// # Examples
+    /// * Write a u64 at guest address 0x1100.
+    ///
+    /// ```
+    /// use memory_model::{Bytes, GuestAddress, GuestMemory, MemoryMapping};
+    /// fn test_write_u64() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm = GuestMemory::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     gm.write_obj(55u64, GuestAddress(0x1100))
+    ///         .map_err(|_| ())
+    /// }
+    /// ```
+    fn write_obj<T: ByteValued>(
+        &self,
+        val: T,
+        addr: GuestAddress,
+    ) -> std::result::Result<(), Self::E> {
+        self.do_in_region(addr, mem::size_of::<T>(), move |mapping, offset| {
+            mapping
+                .write_obj(val, offset)
+                .map_err(|e| Error::MemoryAccess(addr, e))
+        })
+    }
+
+    /// # Examples
     /// * Read a u64 from two areas of guest memory backed by separate mappings.
     ///
     /// ```
@@ -594,7 +592,7 @@ mod tests {
         let val1: u64 = 0xaa55_aa55_aa55_aa55;
         let val2: u64 = 0x55aa_55aa_55aa_55aa;
         assert_eq!(
-            format!("{:?}", gm.write_obj_at_addr(val1, bad_addr).err().unwrap()),
+            format!("{:?}", gm.write_obj(val1, bad_addr).err().unwrap()),
             format!(
                 "InvalidGuestAddressRange({:?}, {:?})",
                 bad_addr,
@@ -602,7 +600,7 @@ mod tests {
             )
         );
         assert_eq!(
-            format!("{:?}", gm.write_obj_at_addr(val1, bad_addr2).err().unwrap()),
+            format!("{:?}", gm.write_obj(val1, bad_addr2).err().unwrap()),
             format!(
                 "InvalidGuestAddressRange({:?}, {:?})",
                 bad_addr2,
@@ -610,9 +608,8 @@ mod tests {
             )
         );
 
-        gm.write_obj_at_addr(val1, GuestAddress(0x500)).unwrap();
-        gm.write_obj_at_addr(val2, GuestAddress(0x1000 + 32))
-            .unwrap();
+        gm.write_obj(val1, GuestAddress(0x500)).unwrap();
+        gm.write_obj(val2, GuestAddress(0x1000 + 32)).unwrap();
         let num1: u64 = gm.read_obj(GuestAddress(0x500)).unwrap();
         let num2: u64 = gm.read_obj(GuestAddress(0x1000 + 32)).unwrap();
         assert_eq!(val1, num1);
@@ -641,7 +638,7 @@ mod tests {
     fn read_to_and_write_from_mem() {
         let gm = GuestMemory::new(&[(GuestAddress(0x1000), 0x400)]).unwrap();
         let addr = GuestAddress(0x1010);
-        gm.write_obj_at_addr(!0u32, addr).unwrap();
+        gm.write_obj(!0u32, addr).unwrap();
         gm.read_to_memory(
             addr,
             &mut File::open(Path::new("/dev/zero")).unwrap(),

@@ -13,7 +13,7 @@ use std::slice;
 use libc::c_char;
 
 use arch_gen::x86::mpspec;
-use memory_model::{Address, ByteValued, GuestAddress, GuestMemory};
+use memory_model::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `ByteValued`) where:
@@ -159,7 +159,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
         mpf_intel.0.specification = 4;
         mpf_intel.0.physptr = (base_mp.raw_value() + size) as u32;
         mpf_intel.0.checksum = mpf_intel_compute_checksum(&mpf_intel.0);
-        mem.write_obj_at_addr(mpf_intel, base_mp)
+        mem.write_obj(mpf_intel, base_mp)
             .map_err(|_| Error::WriteMpfIntel)?;
         base_mp = base_mp.unchecked_add(size);
     }
@@ -184,7 +184,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
                 };
             mpc_cpu.0.cpufeature = CPU_STEPPING;
             mpc_cpu.0.featureflag = CPU_FEATURE_APIC | CPU_FEATURE_FPU;
-            mem.write_obj_at_addr(mpc_cpu, base_mp)
+            mem.write_obj(mpc_cpu, base_mp)
                 .map_err(|_| Error::WriteMpcCpu)?;
             base_mp = base_mp.unchecked_add(size);
             checksum = checksum.wrapping_add(compute_checksum(&mpc_cpu.0));
@@ -196,7 +196,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
         mpc_bus.0.type_ = mpspec::MP_BUS as u8;
         mpc_bus.0.busid = 0;
         mpc_bus.0.bustype = BUS_TYPE_ISA;
-        mem.write_obj_at_addr(mpc_bus, base_mp)
+        mem.write_obj(mpc_bus, base_mp)
             .map_err(|_| Error::WriteMpcBus)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_bus.0));
@@ -209,7 +209,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
         mpc_ioapic.0.apicver = APIC_VERSION;
         mpc_ioapic.0.flags = mpspec::MPC_APIC_USABLE as u8;
         mpc_ioapic.0.apicaddr = IO_APIC_DEFAULT_PHYS_BASE;
-        mem.write_obj_at_addr(mpc_ioapic, base_mp)
+        mem.write_obj(mpc_ioapic, base_mp)
             .map_err(|_| Error::WriteMpcIoapic)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_ioapic.0));
@@ -225,7 +225,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
         mpc_intsrc.0.srcbusirq = i;
         mpc_intsrc.0.dstapic = ioapicid;
         mpc_intsrc.0.dstirq = i;
-        mem.write_obj_at_addr(mpc_intsrc, base_mp)
+        mem.write_obj(mpc_intsrc, base_mp)
             .map_err(|_| Error::WriteMpcIntsrc)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_intsrc.0));
@@ -240,7 +240,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
         mpc_lintsrc.0.srcbusirq = 0;
         mpc_lintsrc.0.destapic = 0;
         mpc_lintsrc.0.destapiclint = 0;
-        mem.write_obj_at_addr(mpc_lintsrc, base_mp)
+        mem.write_obj(mpc_lintsrc, base_mp)
             .map_err(|_| Error::WriteMpcLintsrc)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_lintsrc.0));
@@ -255,7 +255,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
         mpc_lintsrc.0.srcbusirq = 0;
         mpc_lintsrc.0.destapic = 0xFF; /* to all local APICs */
         mpc_lintsrc.0.destapiclint = 1;
-        mem.write_obj_at_addr(mpc_lintsrc, base_mp)
+        mem.write_obj(mpc_lintsrc, base_mp)
             .map_err(|_| Error::WriteMpcLintsrc)?;
         base_mp = base_mp.unchecked_add(size);
         checksum = checksum.wrapping_add(compute_checksum(&mpc_lintsrc.0));
@@ -276,7 +276,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
         mpc_table.0.lapic = APIC_DEFAULT_PHYS_BASE;
         checksum = checksum.wrapping_add(compute_checksum(&mpc_table.0));
         mpc_table.0.checksum = (!checksum).wrapping_add(1) as i8;
-        mem.write_obj_at_addr(mpc_table, table_base)
+        mem.write_obj(mpc_table, table_base)
             .map_err(|_| Error::WriteMpcTable)?;
     }
 
