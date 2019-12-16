@@ -77,7 +77,7 @@ use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
-use memory_model::{GuestAddress, GuestMemory};
+use memory_model::{Bytes, GuestAddress, GuestMemory};
 use seccomp::SeccompFilter;
 use utils::eventfd::EventFd;
 use utils::net::TapError;
@@ -1035,7 +1035,7 @@ impl Vmm {
 
         // Load the image into memory
         vm_memory
-            .read_to_memory(GuestAddress(address), image, size)
+            .read_from(GuestAddress(address), image, size)
             .map_err(|_| LoadInitrd)?;
 
         Ok(InitrdConfig {

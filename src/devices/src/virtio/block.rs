@@ -266,7 +266,7 @@ impl Request {
 
         match self.request_type {
             RequestType::In => {
-                mem.read_to_memory(self.data_addr, disk, self.data_len as usize)
+                mem.read_from(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Read)?;
                 METRICS.block.read_bytes.add(self.data_len as usize);
                 METRICS.block.read_count.inc();
