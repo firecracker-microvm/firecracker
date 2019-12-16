@@ -16,7 +16,7 @@ mod guest_address;
 mod guest_memory;
 mod mmap;
 
-pub use bytes::ByteValued;
+pub use bytes::{ByteValued, Bytes};
 pub use guest_address::Address;
 pub use guest_address::GuestAddress;
 pub use guest_memory::Error as GuestMemoryError;
