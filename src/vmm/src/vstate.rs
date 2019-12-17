@@ -245,7 +245,7 @@ impl KvmContext {
     }
 
     /// Get the maximum number of memory slots reported by this KVM context.
-    fn max_memslots(&self) -> usize {
+    pub fn max_memslots(&self) -> usize {
         self.max_memslots
     }
 }
@@ -253,6 +253,7 @@ impl KvmContext {
 /// A wrapper around creating and using a VM.
 pub struct Vm {
     fd: VmFd,
+    // TODO: remove the Option, keep a single reference instead of both Vmm and Vm.
     guest_mem: Option<GuestMemoryMmap>,
 
     // X86 specific fields.
@@ -309,9 +310,9 @@ impl Vm {
     pub fn memory_init(
         &mut self,
         guest_mem: GuestMemoryMmap,
-        kvm_context: &KvmContext,
+        kvm_max_memslots: usize,
     ) -> Result<()> {
-        if guest_mem.num_regions() > kvm_context.max_memslots() {
+        if guest_mem.num_regions() > kvm_max_memslots {
             return Err(Error::NotEnoughMemorySlots);
         }
         guest_mem
@@ -1199,7 +1200,7 @@ mod tests {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), mem_size)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-        assert!(vm.memory_init(gm, &kvm).is_ok());
+        assert!(vm.memory_init(gm, kvm.max_memslots()).is_ok());
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
@@ -1255,7 +1256,7 @@ mod tests {
 
         // Create valid memory region and test that the initialization is successful.
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        assert!(vm.memory_init(gm, &kvm_context).is_ok());
+        assert!(vm.memory_init(gm, kvm_context.max_memslots()).is_ok());
 
         // Set the maximum number of memory slots to 1 in KvmContext to check the error
         // path of memory_init. Create 2 non-overlapping memory slots.
@@ -1265,7 +1266,7 @@ mod tests {
             (GuestAddress(0x1001), 0x2000),
         ])
         .unwrap();
-        assert!(vm.memory_init(gm, &kvm_context).is_err());
+        assert!(vm.memory_init(gm, kvm_context.max_memslots()).is_err());
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1350,7 +1351,7 @@ mod tests {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
-        assert!(vm.memory_init(gm, &kvm).is_ok());
+        assert!(vm.memory_init(gm, kvm.max_memslots()).is_ok());
         let vm_mem = vm.memory().unwrap();
 
         // Try it for when vcpu id is 0.

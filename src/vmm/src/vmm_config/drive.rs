@@ -11,10 +11,10 @@ use super::RateLimiterConfig;
 type Result<T> = result::Result<T, DriveError>;
 
 /// Errors associated with the operations allowed on a drive.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum DriveError {
     /// Cannot open block device due to invalid permissions or path.
-    CannotOpenBlockDevice,
+    CannotOpenBlockDevice(std::io::Error),
     /// The block device ID is invalid.
     InvalidBlockDeviceID,
     /// The block device path is invalid.
@@ -36,23 +36,26 @@ pub enum DriveError {
 impl Display for DriveError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::DriveError::*;
-        write!(
-            f,
-            "{}",
-            match *self {
-                CannotOpenBlockDevice => "Cannot open block device. Invalid permission/path.",
-                InvalidBlockDeviceID => "Invalid block device ID!",
-                InvalidBlockDevicePath => "Invalid block device path!",
-                BlockDevicePathAlreadyExists => {
-                    "The block device path was already added to a different drive!"
-                }
-                EpollHandlerNotFound => "Error retrieving device epoll handler!",
-                BlockDeviceUpdateFailed => "The update operation failed!",
-                OperationNotAllowedPreBoot => "Operation not allowed pre-boot!",
-                RootBlockDeviceAlreadyAdded => "A root block device already exists!",
-                UpdateNotAllowedPostBoot => "The update operation is not allowed after boot.",
+        match *self {
+            CannotOpenBlockDevice(ref e) => write!(
+                f,
+                "Cannot open block device. Invalid permission/path: {}",
+                e
+            ),
+            InvalidBlockDeviceID => write!(f, "Invalid block device ID!"),
+            InvalidBlockDevicePath => write!(f, "Invalid block device path!"),
+            BlockDevicePathAlreadyExists => write!(
+                f,
+                "The block device path was already added to a different drive!"
+            ),
+            EpollHandlerNotFound => write!(f, "Error retrieving device epoll handler!"),
+            BlockDeviceUpdateFailed => write!(f, "The update operation failed!"),
+            OperationNotAllowedPreBoot => write!(f, "Operation not allowed pre-boot!"),
+            RootBlockDeviceAlreadyAdded => write!(f, "A root block device already exists!"),
+            UpdateNotAllowedPostBoot => {
+                write!(f, "The update operation is not allowed after boot.")
             }
-        )
+        }
     }
 }
 
@@ -231,6 +234,12 @@ mod tests {
 
     use super::*;
     use utils::tempfile::TempFile;
+
+    impl PartialEq for DriveError {
+        fn eq(&self, other: &DriveError) -> bool {
+            self.to_string() == other.to_string()
+        }
+    }
 
     // This implementation is used only in tests.
     // We cannot directly derive clone because RateLimiter does not implement clone.

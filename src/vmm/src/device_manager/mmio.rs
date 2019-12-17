@@ -106,7 +106,7 @@ impl MMIODeviceManager {
         }
     }
 
-    /// Register am already created MMIO device to be used via MMIO transport.
+    /// Register an already created MMIO device to be used via MMIO transport.
     pub fn register_mmio_device(
         &mut self,
         vm: &VmFd,

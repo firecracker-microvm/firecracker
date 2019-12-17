@@ -662,7 +662,7 @@ def _drive_patch(test_microvm):
         path_on_host='foo.bar'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Cannot open block device. Invalid permission/path." \
+    assert "Cannot open block device. Invalid permission/path" \
            in response.text
 
     fs = drive_tools.FilesystemFile(
