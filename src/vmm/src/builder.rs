@@ -69,6 +69,9 @@ impl VmmBuilder {
         for drive_config in vmm_config.block_devices.into_iter() {
             builder.with_block_device(drive_config)?;
         }
+        for net_config in vmm_config.net_devices.into_iter() {
+            builder.with_net_device(net_config)?;
+        }
         Ok(builder)
     }
 
@@ -118,5 +121,13 @@ impl VmmBuilder {
             .block
             .insert(block_device_config)
             .map_err(VmmActionError::from)
+    }
+
+    /// Inserts a network device to be attached when the VM starts.
+    pub fn with_net_device(&mut self, body: NetworkInterfaceConfig) -> UserResult {
+        self.device_configs
+            .network_interface
+            .insert(body)
+            .map_err(|e| VmmActionError::NetworkConfig(ErrorKind::User, e))
     }
 }

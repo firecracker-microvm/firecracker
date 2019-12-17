@@ -57,17 +57,6 @@ impl VmmController {
             .started
     }
 
-    /// Inserts a network device to be attached when the VM starts.
-    pub fn insert_net_device(&mut self, body: NetworkInterfaceConfig) -> UserResult {
-        if self.is_instance_initialized() {
-            return Err(NetworkInterfaceError::UpdateNotAllowedPostBoot.into());
-        }
-        self.device_configs
-            .network_interface
-            .insert(body)
-            .map_err(|e| VmmActionError::NetworkConfig(ErrorKind::User, e))
-    }
-
     /// Sets a vsock device to be attached when the VM starts.
     pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> UserResult {
         if self.is_instance_initialized() {
@@ -316,9 +305,6 @@ impl VmmController {
                 error!("Invalid json: {}", e);
                 process::exit(i32::from(FC_EXIT_CODE_INVALID_JSON));
             });
-        for net_config in vmm_config.net_devices.into_iter() {
-            self.insert_net_device(net_config)?;
-        }
         if let Some(machine_config) = vmm_config.machine_config {
             self.set_vm_configuration(machine_config)?;
         }
