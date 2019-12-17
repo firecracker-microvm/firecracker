@@ -33,12 +33,16 @@ extern crate seccomp;
 extern crate utils;
 extern crate vm_memory;
 
-/// Handles setup, initialization, and runtime configuration of a `Vmm` object.
+/// Handles setup and initialization a `Vmm` object.
+pub mod builder;
+/// Handles runtime configuration of a `Vmm` object.
 pub mod controller;
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
 pub(crate) mod device_manager;
 pub mod error;
+/// Resource store for configured microVM resources.
+pub mod resources;
 /// Signal handling utilities.
 pub mod signal_handler;
 /// Wrappers over structures used to configure the VMM.
@@ -53,7 +57,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use timerfd::TimerFd;
 
 use arch::DeviceType;
 use arch::InitrdConfig;
@@ -63,32 +67,22 @@ use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio::EpollConfigConstructor;
-use devices::virtio::MmioDevice;
 use devices::{BusDevice, DeviceEventT, EpollHandler, RawIOHandler};
 use error::{Error, Result, UserResult};
 use kernel::cmdline::Cmdline as KernelCmdline;
-#[cfg(target_arch = "x86_64")]
-use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
 use logger::{Metric, LOGGER, METRICS};
 use polly::event_manager::EventManager;
-use seccomp::{BpfProgram, SeccompFilter};
+use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
 use utils::eventfd::EventFd;
-use utils::net::TapError;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
-use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
-use vmm_config::drive::{BlockDeviceConfig, DriveError};
-use vmm_config::logger::{LoggerConfig, LoggerConfigError};
-use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
-use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceError};
-use vmm_config::vsock::VsockDeviceConfig;
-use vstate::{KvmContext, Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
+use vmm_config::logger::LoggerConfigError;
+use vmm_config::machine_config::CpuFeaturesTemplate;
+use vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
 pub use error::{ErrorKind, LoadInitrdError, StartMicrovmError, VmmActionError};
-
-const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
 /// Success exit code.
 pub const FC_EXIT_CODE_OK: u8 = 0;
@@ -102,12 +96,10 @@ pub const FC_EXIT_CODE_BAD_SYSCALL: u8 = 148;
 pub const FC_EXIT_CODE_SIGBUS: u8 = 149;
 /// Firecracker was shut down after intercepting `SIGSEGV`.
 pub const FC_EXIT_CODE_SIGSEGV: u8 = 150;
-/// Invalid json passed to the Firecracker process for configuring microvm.
-pub const FC_EXIT_CODE_INVALID_JSON: u8 = 151;
 /// Bad configuration for microvm's resources, when using a single json.
-pub const FC_EXIT_CODE_BAD_CONFIGURATION: u8 = 152;
+pub const FC_EXIT_CODE_BAD_CONFIGURATION: u8 = 151;
 /// Command line arguments parsing error.
-pub const FC_EXIT_CODE_ARG_PARSING: u8 = 153;
+pub const FC_EXIT_CODE_ARG_PARSING: u8 = 152;
 
 /// Describes all possible reasons which may cause the event loop to return to the caller in
 /// the absence of errors.
@@ -369,63 +361,6 @@ impl Drop for EpollContext {
     }
 }
 
-/// Used for configuring a vmm from one single json passed to the Firecracker process.
-#[derive(Deserialize)]
-pub struct VmmConfig {
-    #[serde(rename = "boot-source")]
-    boot_source: BootSourceConfig,
-    #[serde(rename = "drives")]
-    block_devices: Vec<BlockDeviceConfig>,
-    #[serde(rename = "network-interfaces", default)]
-    net_devices: Vec<NetworkInterfaceConfig>,
-    #[serde(rename = "logger")]
-    logger: Option<LoggerConfig>,
-    #[serde(rename = "machine-config")]
-    machine_config: Option<VmConfig>,
-    #[serde(rename = "vsock")]
-    vsock_device: Option<VsockDeviceConfig>,
-}
-
-// /// Contains the state and associated methods required for the Firecracker VMM.
-//pub struct Vmm {
-//    kvm: KvmContext,
-//
-//    vm_config: VmConfig,
-//    shared_info: Arc<RwLock<InstanceInfo>>,
-//
-//    stdin_handle: io::Stdin,
-//
-//    // Guest VM core resources.
-//    kernel_config: Option<KernelConfig>,
-//    vcpus_handles: Vec<VcpuHandle>,
-//    exit_evt: EventFd,
-//    vm: Vm,
-//
-//    // Guest VM devices.
-//    mmio_device_manager: Option<MMIODeviceManager>,
-//    #[cfg(target_arch = "x86_64")]
-//    pio_device_manager: PortIODeviceManager,
-//
-//    // Device configurations.
-//    device_configs: DeviceConfigs,
-//
-//    epoll_context: EpollContext,
-//
-//    write_metrics_event_fd: TimerFd,
-//}
-//
-//impl Vmm {
-//    /// Creates a new VMM object.
-//    pub fn new(shared_info: Arc<RwLock<InstanceInfo>>, control_fd: &dyn AsRawFd) -> Result<Self> {
-//        let mut epoll_context = EpollContext::new()?;
-//        // If this fails, it's fatal; using expect() to crash.
-//        epoll_context
-//            .add_epollin_event(control_fd, EpollDispatch::VmmActionRequest)
-//            .expect("Cannot add vmm control_fd to epoll.");
-//
-//        let write_metrics_event_fd =
-//            TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
-
 /// Encapsulates configuration parameters for the guest vCPUS.
 pub struct VcpuConfig {
     /// Number of guest VCPUs.
@@ -434,216 +369,6 @@ pub struct VcpuConfig {
     pub ht_enabled: bool,
     /// CPUID template to use.
     pub cpu_template: Option<CpuFeaturesTemplate>,
-}
-
-/// Encapsulates configuration parameters for a `VmmBuilder`.
-pub struct VmmBuilderConfig {
-    /// The guest memory object for this VM.
-    pub guest_memory: GuestMemoryMmap,
-    /// The guest physical address of the execution entry point.
-    pub entry_addr: GuestAddress,
-    /// Base kernel command line contents.
-    pub kernel_cmdline: KernelCmdline,
-    /// Initrd configuration.
-    pub initrd: Option<InitrdConfig>,
-    /// vCPU configuration paramters.
-    pub vcpu_config: VcpuConfig,
-    vmm_seccomp_filter: BpfProgram,
-    vcpu_seccomp_filter: BpfProgram,
-}
-
-/// Helps build a Vmm.
-pub struct VmmBuilder {
-    vmm: Vmm,
-    vcpus: Vec<Vcpu>,
-    initrd: Option<InitrdConfig>,
-    vmm_seccomp_filter: BpfProgram,
-    vcpu_seccomp_filter: BpfProgram,
-}
-
-impl VmmBuilder {
-    /// Create a new VmmBuilder.
-    pub fn new(
-        epoll_context: &mut EpollContext,
-        config: VmmBuilderConfig,
-    ) -> std::result::Result<Self, VmmActionError> {
-        let write_metrics_event_fd = TimerFd::new_custom(ClockId::Monotonic, true, true)
-            .map_err(Error::TimerFd)
-            .map_err(StartMicrovmError::Internal)?;
-
-        let event_manager = EventManager::new()
-            .map_err(Error::EventManager)
-            .map_err(StartMicrovmError::Internal)?;
-
-        epoll_context
-            .add_epollin_event(&event_manager, EpollDispatch::PollyEvent)
-            .expect("Cannot cascade EventManager from epoll_context");
-
-        epoll_context
-            .add_epollin_event(
-                // non-blocking & close on exec
-                &write_metrics_event_fd,
-                EpollDispatch::WriteMetrics,
-            )
-            .expect("Cannot add write metrics TimerFd to epoll.");
-
-        let kvm = KvmContext::new()
-            .map_err(Error::KvmContext)
-            .map_err(StartMicrovmError::Internal)?;
-
-        let mut vm = Vm::new(kvm.fd())
-            .map_err(Error::Vm)
-            .map_err(StartMicrovmError::Internal)?;
-
-        vm.memory_init(config.guest_memory.clone(), &kvm)
-            .map_err(StartMicrovmError::ConfigureVm)?;
-
-        // Instantiate the MMIO device manager.
-        // 'mmio_base' address has to be an address which is protected by the kernel
-        // and is architectural specific.
-        let mmio_device_manager = MMIODeviceManager::new(
-            config.guest_memory.clone(),
-            &mut (arch::MMIO_MEM_START as u64),
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        );
-
-        #[cfg(target_arch = "x86_64")]
-        let pio_device_manager = PortIODeviceManager::new()
-            .map_err(Error::CreateLegacyDevice)
-            .map_err(StartMicrovmError::Internal)?;
-        #[cfg(target_arch = "x86_64")]
-        let exit_evt = pio_device_manager
-            .i8042
-            .lock()
-            .expect("Failed to start VCPUs due to poisoned i8042 lock")
-            .get_reset_evt_clone()
-            .map_err(|_| StartMicrovmError::EventFd)?;
-        #[cfg(target_arch = "aarch64")]
-        let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-
-        let mut vmm = Vmm {
-            stdin_handle: io::stdin(),
-            guest_memory: config.guest_memory,
-            vcpu_config: config.vcpu_config,
-            kernel_cmdline: config.kernel_cmdline,
-            vcpus_handles: Vec::new(),
-            exit_evt,
-            vm,
-            mmio_device_manager,
-            #[cfg(target_arch = "x86_64")]
-            pio_device_manager,
-            write_metrics_event_fd,
-            event_manager,
-        };
-
-        // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
-        // while on aarch64 we need to do it the other way around.
-        #[cfg(target_arch = "x86_64")]
-        {
-            vmm.setup_interrupt_controller()?;
-            // This call has to be here after setting up the irqchip, because
-            // we set up some irqfd inside for some reason.
-            vmm.attach_legacy_devices()?;
-        }
-
-        let initrd = config.initrd.clone();
-        let vmm_seccomp_filter = config.vmm_seccomp_filter.clone();
-        let vcpu_seccomp_filter = config.vcpu_seccomp_filter.clone();
-        // This was supposed to be the timestamp when the start command is recevied. Having this
-        // here just to create the vcpu; going forward the req timestamp will prob be somehow
-        // decoupled from the creation. At this point it's still fine because we create the
-        // builder and run the Vmm when the StartMicrovm request is received by the controller.
-        let request_ts = TimestampUs::default();
-        let vcpus = vmm.create_vcpus(config.entry_addr, request_ts)?;
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            vmm.setup_interrupt_controller()?;
-            vmm.attach_legacy_devices()?;
-        }
-
-        Ok(VmmBuilder {
-            vmm,
-            vcpus,
-            initrd,
-            vmm_seccomp_filter,
-            vcpu_seccomp_filter,
-        })
-    }
-
-    /// Return a reference to the guest memory object used by the builder.
-    pub fn guest_memory(&self) -> &GuestMemoryMmap {
-        self.vmm.guest_memory()
-    }
-
-    /// Returns a mutable reference to the guest kernel cmdline.
-    pub fn kernel_cmdline_mut(&mut self) -> &mut KernelCmdline {
-        &mut self.vmm.kernel_cmdline
-    }
-
-    /// Adds a MmioDevice.
-    pub fn attach_device(
-        &mut self,
-        id: String,
-        device: MmioDevice,
-    ) -> result::Result<(), StartMicrovmError> {
-        // TODO: we currently map into StartMicrovmError::RegisterBlockDevice for all
-        // devices at the end of device_manager.register_mmio_device.
-        let type_id = device.device().device_type();
-        let cmdline = &mut self.vmm.kernel_cmdline;
-
-        self.vmm
-            .mmio_device_manager
-            .register_mmio_device(self.vmm.vm.fd(), device, cmdline, type_id, id.as_str())
-            .map_err(StartMicrovmError::RegisterBlockDevice)?;
-
-        Ok(())
-    }
-
-    /// Start running and return the Vmm.
-    pub fn run(mut self, epoll_context: &mut EpollContext) -> result::Result<Vmm, VmmActionError> {
-        // Write the kernel command line to guest memory. This is x86_64 specific, since on
-        // aarch64 the command line will be specified through the FDT.
-        #[cfg(target_arch = "x86_64")]
-        kernel_loader::load_cmdline(
-            self.vmm.guest_memory(),
-            GuestAddress(arch::x86_64::layout::CMDLINE_START),
-            &self
-                .vmm
-                .kernel_cmdline
-                .as_cstring()
-                .map_err(StartMicrovmError::LoadCommandline)?,
-        )
-        .map_err(StartMicrovmError::LoadCommandline)?;
-
-        self.vmm
-            .configure_system(self.vcpus.as_slice(), &self.initrd)?;
-
-        self.vmm.register_events(epoll_context)?;
-
-        self.vmm.start_vcpus(
-            self.vcpus,
-            self.vmm_seccomp_filter,
-            self.vcpu_seccomp_filter,
-        )?;
-
-        // Arm the log write timer.
-        // TODO: the timer does not stop on InstanceStop.
-        let timer_state = TimerState::Periodic {
-            current: Duration::from_secs(WRITE_METRICS_PERIOD_SECONDS),
-            interval: Duration::from_secs(WRITE_METRICS_PERIOD_SECONDS),
-        };
-        self.vmm
-            .write_metrics_event_fd
-            .set_state(timer_state, SetTimeFlags::Default);
-
-        // Log the metrics straight away to check the process startup time.
-        if LOGGER.log_metrics().is_err() {
-            METRICS.logger.missed_metrics_count.inc();
-        }
-
-        Ok(self.vmm)
-    }
 }
 
 /// Contains the state and associated methods required for the Firecracker VMM.
@@ -665,6 +390,7 @@ pub struct Vmm {
     #[cfg(target_arch = "x86_64")]
     pio_device_manager: PortIODeviceManager,
 
+    // TODO: maybe move this out of Vmm once we switch it to Polly.
     write_metrics_event_fd: TimerFd,
     event_manager: EventManager,
 }
@@ -831,7 +557,7 @@ impl Vmm {
         &mut self,
         mut vcpus: Vec<Vcpu>,
         vmm_seccomp_filter: BpfProgram,
-        vcpu_seccomp_filter: BpfProgram,
+        vcpu_seccomp_filter: BpfProgramRef,
     ) -> std::result::Result<(), StartMicrovmError> {
         let vcpu_count = vcpus.len();
 
@@ -843,7 +569,7 @@ impl Vmm {
             vcpu.set_mmio_bus(self.mmio_device_manager.bus.clone());
 
             self.vcpus_handles.push(
-                vcpu.start_threaded(vcpu_seccomp_filter.clone())
+                vcpu.start_threaded(vcpu_seccomp_filter.to_vec())
                     .map_err(StartMicrovmError::VcpuHandle)?,
             );
         }
@@ -1113,6 +839,7 @@ mod tests {
     use vm_memory::GuestMemoryMmap;
 
     use super::*;
+    use vstate::KvmContext;
 
     impl Vmm {
         // Left around here because it's called by tests::create_vmm_object in the device_manager
@@ -1128,7 +855,8 @@ mod tests {
             let event_manager = EventManager::new().map_err(Error::EventManager)?;
 
             let write_metrics_event_fd =
-                TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
+                TimerFd::new_custom(timerfd::ClockId::Monotonic, true, true)
+                    .map_err(Error::TimerFd)?;
 
             epoll_context
                 .add_epollin_event(

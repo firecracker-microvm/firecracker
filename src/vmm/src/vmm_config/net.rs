@@ -146,6 +146,11 @@ impl NetworkInterfaceConfigs {
         }
     }
 
+    /// Returns a immutable iterator over the network interfaces.
+    pub fn iter(&self) -> ::std::slice::Iter<NetworkInterfaceConfig> {
+        self.if_list.iter()
+    }
+
     /// Returns a mutable iterator over the network interfaces.
     pub fn iter_mut(&mut self) -> ::std::slice::IterMut<NetworkInterfaceConfig> {
         self.if_list.iter_mut()
