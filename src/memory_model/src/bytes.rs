@@ -62,17 +62,15 @@ pub trait Bytes<A> {
 
     /// Writes a slice into the container at the specified address.
     ///
-    /// Returns the number of bytes written. The number of bytes written can
-    /// be less than the length of the slice if there isn't enough room in the
-    /// container.
-    fn write_slice(&self, buf: &[u8], addr: A) -> Result<usize, Self::E>;
+    /// Returns an error if there isn't enough room within the container to complete the entire
+    /// write. Part of the data may have been written nevertheless.
+    fn write_slice(&self, buf: &[u8], addr: A) -> Result<(), Self::E>;
 
     /// Reads from the container at the specified address into a buffer.
     ///
-    /// Returns the number of bytes read.  The number of bytes read can
-    /// be less than the length of the slice if there isn't enough room in the
-    /// container.
-    fn read_slice(&self, buf: &mut [u8], addr: A) -> Result<usize, Self::E>;
+    /// Returns an error if there isn't enough room within the container to fill the entire buffer.
+    /// Part of the buffer may have been filled nevertheless.
+    fn read_slice(&self, buf: &mut [u8], addr: A) -> Result<(), Self::E>;
 
     /// Writes an object into the container at the specified address.
     /// Returns Ok(()) if the object fits, or Err if it extends past the end.

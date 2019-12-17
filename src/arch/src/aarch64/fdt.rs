@@ -76,8 +76,6 @@ pub enum Error {
     CstringFDTTransform(NulError),
     /// Failure in calling syscall for terminating this FDT.
     FinishFDTReserveMap(io::Error),
-    /// FDT was partially written to memory.
-    IncompleteFDTMemoryWrite,
     /// Failure in writing FDT in memory.
     WriteFDTToMemory(GuestMemoryError),
 }
@@ -129,12 +127,9 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
 
     // Write FDT to memory.
     let fdt_address = GuestAddress(get_fdt_addr(&guest_mem));
-    let written = guest_mem
+    guest_mem
         .write_slice(fdt_final.as_slice(), fdt_address)
         .map_err(Error::WriteFDTToMemory)?;
-    if written < FDT_MAX_SIZE {
-        return Err(Error::IncompleteFDTMemoryWrite);
-    }
     Ok(fdt_final)
 }
 

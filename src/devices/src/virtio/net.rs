@@ -21,7 +21,7 @@ use std::vec::Vec;
 
 use dumbo::{ns::MmdsNetworkStack, EthernetFrame, MacAddr, MAC_ADDR_LEN};
 use logger::{Metric, METRICS};
-use memory_model::{Bytes, GuestAddress, GuestMemory};
+use memory_model::{Bytes, GuestAddress, GuestMemory, GuestMemoryError, MemoryMappingError};
 use net_gen;
 use rate_limiter::{RateLimiter, TokenBucket, TokenType};
 use utils::eventfd::EventFd;
@@ -229,13 +229,22 @@ impl NetEpollHandler {
                     let write_result = self.mem.write_slice(source_slice, desc.addr);
 
                     match write_result {
-                        Ok(sz) => {
+                        Ok(()) => {
                             METRICS.net.rx_count.inc();
-                            write_count += sz;
+                            write_count += source_slice.len();
                         }
                         Err(e) => {
                             error!("Failed to write slice: {:?}", e);
                             METRICS.net.rx_fails.inc();
+
+                            if let GuestMemoryError::MemoryAccess(
+                                _addr,
+                                MemoryMappingError::PartialBuffer { completed, .. },
+                            ) = e
+                            {
+                                write_count += completed;
+                            }
+
                             break;
                         }
                     };
@@ -447,13 +456,22 @@ impl NetEpollHandler {
                     desc_addr,
                 );
                 match read_result {
-                    Ok(sz) => {
-                        read_count += sz;
+                    Ok(()) => {
+                        read_count += limit - read_count;
                         METRICS.net.tx_count.inc();
                     }
                     Err(e) => {
                         error!("Failed to read slice: {:?}", e);
                         METRICS.net.tx_fails.inc();
+
+                        if let GuestMemoryError::MemoryAccess(
+                            _addr,
+                            MemoryMappingError::PartialBuffer { completed, .. },
+                        ) = e
+                        {
+                            read_count += completed;
+                        }
+
                         break;
                     }
                 }
