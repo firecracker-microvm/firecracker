@@ -102,7 +102,7 @@ pub trait Bytes<A> {
     /// * `addr` - Begin reading from this addr.
     /// * `dst` - Copy from the container to `dst`.
     /// * `count` - Copy `count` bytes from the container to `dst`.
-    fn write_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<(), Self::E>
+    fn write_to<F>(&self, addr: A, dst: &mut F, count: usize) -> Result<usize, Self::E>
     where
         F: Write;
 }
