@@ -34,6 +34,7 @@ use utils::validators::validate_instance_id;
 use vmm::controller::VmmController;
 use vmm::default_syscalls::get_seccomp_filter;
 use vmm::signal_handler::register_signal_handlers;
+use vmm::vmm_config;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::EventLoopExitReason;
 
@@ -335,6 +336,9 @@ fn vmm_control_event(
     vmm_seccomp_filter: &BpfInstructionSlice,
     vcpu_seccomp_filter: &BpfInstructionSlice,
 ) -> Result<(), u8> {
+    use vmm::{ErrorKind, VmmActionError};
+    use vmm_config::logger::LoggerConfigError;
+
     api_event_fd.read().map_err(|e| {
         error!("VMM: Failed to read the API event_fd: {}", e);
         vmm::FC_EXIT_CODE_GENERIC_ERROR
@@ -348,9 +352,12 @@ fn vmm_control_event(
                 ConfigureBootSource(boot_source_body) => vmm
                     .configure_boot_source(boot_source_body)
                     .map(|_| api_server::VmmData::Empty),
-                ConfigureLogger(logger_description) => vmm
-                    .init_logger(logger_description)
-                    .map(|_| api_server::VmmData::Empty),
+                ConfigureLogger(_) => Err(VmmActionError::Logger(
+                    ErrorKind::User,
+                    LoggerConfigError::InitializationFailure(
+                        "Cannot initialize logger after boot.".to_string(),
+                    ),
+                )),
                 FlushMetrics => vmm.flush_metrics().map(|_| api_server::VmmData::Empty),
                 GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
                     vmm.vm_config().clone(),

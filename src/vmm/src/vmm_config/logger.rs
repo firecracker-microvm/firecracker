@@ -3,6 +3,8 @@
 
 //! Auxiliary module for configuring the logger.
 
+extern crate logger as logger_crate;
+
 use libc::O_NONBLOCK;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
@@ -10,6 +12,8 @@ use std::io::{LineWriter, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+
+use self::logger_crate::{AppInfo, Level, LOGGER};
 
 type Result<T> = std::result::Result<T, std::io::Error>;
 
@@ -114,6 +118,36 @@ impl Display for LoggerConfigError {
             FlushMetrics(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
         }
     }
+}
+
+/// Configures the logger as described in `logger_cfg`.
+pub fn init_logger(
+    logger_cfg: LoggerConfig,
+    firecracker_version: String,
+) -> std::result::Result<(), LoggerConfigError> {
+    LOGGER.set_level(match logger_cfg.level {
+        LoggerLevel::Error => Level::Error,
+        LoggerLevel::Warning => Level::Warn,
+        LoggerLevel::Info => Level::Info,
+        LoggerLevel::Debug => Level::Debug,
+    });
+
+    LOGGER.set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin);
+    LOGGER.set_include_level(logger_cfg.show_level);
+
+    LOGGER
+        .init(
+            &AppInfo::new("Firecracker", &firecracker_version),
+            Box::new(
+                LoggerWriter::new(&logger_cfg.log_fifo)
+                    .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
+            ),
+            Box::new(
+                LoggerWriter::new(&logger_cfg.metrics_fifo)
+                    .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
+            ),
+        )
+        .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))
 }
 
 #[cfg(test)]
