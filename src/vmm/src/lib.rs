@@ -33,7 +33,9 @@ extern crate rate_limiter;
 extern crate seccomp;
 extern crate utils;
 
-/// Handles setup, initialization, and runtime configuration of a `Vmm` object.
+/// Handles setup and initialization a `Vmm` object.
+pub mod builder;
+/// Handles runtime configuration of a `Vmm` object.
 pub mod controller;
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;

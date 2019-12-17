@@ -21,7 +21,7 @@ use std::io;
 use std::panic;
 use std::path::PathBuf;
 use std::process;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
@@ -31,6 +31,7 @@ use mmds::MMDS;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
+use vmm::builder::VmmBuilder;
 use vmm::controller::VmmController;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config;
@@ -259,9 +260,24 @@ fn start_vmm(
     seccomp_level: u32,
     config_json: Option<String>,
 ) {
+    use vmm::{ErrorKind, VmmActionError};
+
     // If this fails, consider it fatal. Use expect().
     let mut vmm = VmmController::new(api_shared_info, &api_event_fd, seccomp_level)
         .expect("Cannot create VMM");
+
+    // If this fails, consider it fatal. Use expect().
+    let mut vmm_builder = match config_json {
+        Some(ref json) => VmmBuilder::from_json(json, seccomp_level, crate_version!().to_string())
+            .unwrap_or_else(|err| {
+                error!(
+                    "Setting configuration for VMM from one single json failed: {}",
+                    err
+                );
+                process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
+            }),
+        None => VmmBuilder::new(seccomp_level).expect("Cannot create VmmBuilder"),
+    };
 
     if let Some(json) = config_json {
         vmm.configure_from_json(json).unwrap_or_else(|err| {
@@ -280,6 +296,35 @@ fn start_vmm(
         });
         info!("Successfully started microvm that was configured from one single json");
     }
+
+    match from_api.recv() {
+        Ok(vmm_request) => {
+            use api_server::VmmAction::*;
+            let action_request = *vmm_request;
+            let response = match action_request {
+                ConfigureBootSource(boot_source_body) => vmm_builder
+                    .with_boot_source(boot_source_body)
+                    .map(|_| api_server::VmmData::Empty),
+                ConfigureLogger(logger_description) => vmm_config::logger::init_logger(
+                    logger_description,
+                    crate_version!().to_string(),
+                )
+                .map(|_| api_server::VmmData::Empty)
+                .map_err(|e| VmmActionError::Logger(ErrorKind::User, e)),
+
+                // Work in progress.
+                _ => unimplemented!(),
+            };
+            // Run the requested action and send back the result.
+            to_api
+                .send(Box::new(response))
+                .map_err(|_| ())
+                .expect("one-shot channel closed");
+        }
+        Err(RecvError) => {
+            panic!("The channel's sending half was disconnected. Cannot receive data.");
+        }
+    };
 
     let exit_code = loop {
         match vmm.run_event_loop() {
@@ -316,7 +361,6 @@ fn vmm_control_event(
     to_api: &Sender<VmmResponse>,
 ) -> Result<(), u8> {
     use vmm::{ErrorKind, VmmActionError};
-    use vmm_config::logger::LoggerConfigError;
 
     api_event_fd.read().map_err(|e| {
         error!("VMM: Failed to read the API event_fd: {}", e);
@@ -328,12 +372,13 @@ fn vmm_control_event(
             use api_server::VmmAction::*;
             let action_request = *vmm_request;
             let response = match action_request {
-                ConfigureBootSource(boot_source_body) => vmm
-                    .configure_boot_source(boot_source_body)
-                    .map(|_| api_server::VmmData::Empty),
+                ConfigureBootSource(_) => Err(VmmActionError::BootSource(
+                    ErrorKind::User,
+                    vmm_config::boot_source::BootSourceConfigError::UpdateNotAllowedPostBoot,
+                )),
                 ConfigureLogger(_) => Err(VmmActionError::Logger(
                     ErrorKind::User,
-                    LoggerConfigError::InitializationFailure(
+                    vmm_config::logger::LoggerConfigError::InitializationFailure(
                         "Cannot initialize logger after boot.".to_string(),
                     ),
                 )),

@@ -276,43 +276,6 @@ impl VmmController {
         Ok(GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?)
     }
 
-    fn set_kernel_config(&mut self, kernel_config: KernelConfig) {
-        self.kernel_config = Some(kernel_config);
-    }
-
-    /// Set the guest boot source configuration.
-    pub fn configure_boot_source(&mut self, boot_source_cfg: BootSourceConfig) -> UserResult {
-        use BootSourceConfigError::{
-            InvalidKernelCommandLine, InvalidKernelPath, UpdateNotAllowedPostBoot,
-        };
-        use ErrorKind::User;
-        use VmmActionError::BootSource;
-
-        if self.is_instance_initialized() {
-            return Err(BootSource(User, UpdateNotAllowedPostBoot));
-        }
-
-        let kernel_file = File::open(boot_source_cfg.kernel_image_path)
-            .map_err(|e| BootSource(User, InvalidKernelPath(e)))?;
-
-        let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-        cmdline
-            .insert_str(
-                boot_source_cfg
-                    .boot_args
-                    .unwrap_or_else(|| String::from(DEFAULT_KERNEL_CMDLINE)),
-            )
-            .map_err(|e| BootSource(User, InvalidKernelCommandLine(e.to_string())))?;
-
-        let kernel_config = KernelConfig {
-            kernel_file,
-            cmdline,
-        };
-        self.set_kernel_config(kernel_config);
-
-        Ok(())
-    }
-
     /// Set the machine configuration of the microVM.
     pub fn set_vm_configuration(&mut self, machine_config: VmConfig) -> UserResult {
         if self.is_instance_initialized() {
@@ -366,18 +329,6 @@ impl VmmController {
                 error!("Invalid json: {}", e);
                 process::exit(i32::from(FC_EXIT_CODE_INVALID_JSON));
             });
-
-        if let Some(logger) = vmm_config.logger {
-            let firecracker_version;
-            {
-                let guard = self.shared_info.read().unwrap();
-                LOGGER.set_instance_id(guard.id.clone());
-                firecracker_version = guard.vmm_version.clone();
-            }
-            vmm_config::logger::init_logger(logger, firecracker_version)
-                .map_err(|e| VmmActionError::Logger(ErrorKind::User, e))?;
-        }
-        self.configure_boot_source(vmm_config.boot_source)?;
         for drive_config in vmm_config.block_devices.into_iter() {
             self.insert_block_device(drive_config)?;
         }
