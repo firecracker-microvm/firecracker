@@ -31,6 +31,13 @@ pub enum Error {
     WriteToMemory(io::Error),
     /// Reading from memory failed
     ReadFromMemory(io::Error),
+    /// Incomplete read or write
+    PartialBuffer {
+        /// expected number of read/written bytes
+        expected: usize,
+        /// actual number of read/written bytes
+        completed: usize,
+    },
 }
 type Result<T> = std::result::Result<T, Error>;
 
@@ -98,9 +105,8 @@ impl MemoryMapping {
     /// let mut mem_map = MemoryMapping::new(1024).unwrap();
     /// let res = mem_map.write_slice(&[1, 2, 3, 4, 5], 256);
     /// assert!(res.is_ok());
-    /// assert_eq!(res.unwrap(), 5);
     /// ```
-    pub fn write_slice(&self, buf: &[u8], offset: usize) -> Result<usize> {
+    pub fn write_slice(&self, buf: &[u8], offset: usize) -> Result<()> {
         if offset >= self.size {
             return Err(Error::InvalidAddress);
         }
@@ -109,7 +115,14 @@ impl MemoryMapping {
             // volatile.  Writing to it with what compiles down to a memcpy
             // won't hurt anything as long as we get the bounds checks right.
             let mut slice: &mut [u8] = &mut self.as_mut_slice()[offset..];
-            Ok(slice.write(buf).map_err(Error::WriteToMemory)?)
+            let len = slice.write(buf).map_err(Error::WriteToMemory)?;
+            if len != buf.len() {
+                return Err(Error::PartialBuffer {
+                    expected: buf.len(),
+                    completed: len,
+                });
+            }
+            Ok(())
         }
     }
 
@@ -127,9 +140,8 @@ impl MemoryMapping {
     /// let buf = &mut [0u8; 16];
     /// let res = mem_map.read_slice(buf, 256);
     /// assert!(res.is_ok());
-    /// assert_eq!(res.unwrap(), 16);
     /// ```
-    pub fn read_slice(&self, mut buf: &mut [u8], offset: usize) -> Result<usize> {
+    pub fn read_slice(&self, mut buf: &mut [u8], offset: usize) -> Result<()> {
         if offset >= self.size {
             return Err(Error::InvalidAddress);
         }
@@ -138,7 +150,14 @@ impl MemoryMapping {
             // volatile.  Writing to it with what compiles down to a memcpy
             // won't hurt anything as long as we get the bounds checks right.
             let slice: &[u8] = &self.as_slice()[offset..];
-            Ok(buf.write(slice).map_err(Error::ReadFromMemory)?)
+            let len = buf.write(slice).map_err(Error::ReadFromMemory)?;
+            if !buf.is_empty() {
+                return Err(Error::PartialBuffer {
+                    expected: buf.len(),
+                    completed: len,
+                });
+            }
+            Ok(())
         }
     }
 
@@ -341,8 +360,7 @@ mod tests {
     fn test_write_past_end() {
         let m = MemoryMapping::new(5).unwrap();
         let res = m.write_slice(&[1, 2, 3, 4, 5, 6], 0);
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap(), 5);
+        assert!(res.is_err());
     }
 
     #[test]

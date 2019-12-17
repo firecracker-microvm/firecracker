@@ -295,9 +295,9 @@ impl GuestMemory {
     }
 
     /// Read the whole or partial content from a single MemoryRegion
-    fn do_in_region_partial<F>(&self, guest_addr: GuestAddress, cb: F) -> Result<usize>
+    fn do_in_region_partial<F>(&self, guest_addr: GuestAddress, cb: F) -> Result<()>
     where
-        F: FnOnce(&MemoryMapping, usize) -> Result<usize>,
+        F: FnOnce(&MemoryMapping, usize) -> Result<()>,
     {
         for region in self.regions.iter() {
             if guest_addr >= region.guest_base && guest_addr < region_end(region) {
@@ -328,11 +328,10 @@ impl Bytes<GuestAddress> for GuestMemory {
     ///     let res = gm
     ///         .write_slice(&[1, 2, 3, 4, 5], GuestAddress(0x200))
     ///         .map_err(|_| ())?;
-    ///     assert_eq!(5, res);
     ///     Ok(())
     /// }
     /// ```
-    fn write_slice(&self, buf: &[u8], addr: GuestAddress) -> std::result::Result<usize, Self::E> {
+    fn write_slice(&self, buf: &[u8], addr: GuestAddress) -> std::result::Result<(), Self::E> {
         self.do_in_region_partial(addr, move |mapping, offset| {
             mapping
                 .write_slice(buf, offset)
@@ -352,15 +351,10 @@ impl Bytes<GuestAddress> for GuestMemory {
     ///     let res = gm
     ///         .read_slice(buf, GuestAddress(0x200))
     ///         .map_err(|_| ())?;
-    ///     assert_eq!(16, res);
     ///     Ok(())
     /// }
     /// ```
-    fn read_slice(
-        &self,
-        buf: &mut [u8],
-        addr: GuestAddress,
-    ) -> std::result::Result<usize, Self::E> {
+    fn read_slice(&self, buf: &mut [u8], addr: GuestAddress) -> std::result::Result<(), Self::E> {
         self.do_in_region_partial(addr, move |mapping, offset| {
             mapping
                 .read_slice(buf, offset)
@@ -608,15 +602,15 @@ mod tests {
         let gm = GuestMemory::new(&[(start_addr, 0x400)]).unwrap();
         let sample_buf = &[1, 2, 3, 4, 5];
 
-        assert_eq!(gm.write_slice(sample_buf, start_addr).unwrap(), 5);
+        assert!(gm.write_slice(sample_buf, start_addr).is_ok());
 
         let buf = &mut [0u8; 5];
-        assert_eq!(gm.read_slice(buf, start_addr).unwrap(), 5);
+        assert!(gm.read_slice(buf, start_addr).is_ok());
         assert_eq!(buf, sample_buf);
 
         start_addr = GuestAddress(0x13ff);
-        assert_eq!(gm.write_slice(sample_buf, start_addr).unwrap(), 1);
-        assert_eq!(gm.read_slice(buf, start_addr).unwrap(), 1);
+        assert!(gm.write_slice(sample_buf, start_addr).is_err());
+        assert!(gm.read_slice(buf, start_addr).is_err());
         assert_eq!(buf[0], sample_buf[0]);
     }
 

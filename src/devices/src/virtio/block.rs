@@ -1323,10 +1323,7 @@ mod tests {
             );
 
             let mut buf = [0; VIRTIO_BLK_ID_BYTES as usize];
-            assert_eq!(
-                m.read_slice(&mut buf, data_addr).unwrap(),
-                VIRTIO_BLK_ID_BYTES as usize
-            );
+            assert!(m.read_slice(&mut buf, data_addr).is_ok());
             let chars_to_trim: &[char] = &['\u{0}'];
             let received_device_id = String::from_utf8(buf.to_ascii_lowercase())
                 .unwrap()
