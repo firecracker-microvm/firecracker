@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed #1469 - Broken GitHub location for Firecracker release binary.
+
 ## [0.20.0]
 
 ### Added

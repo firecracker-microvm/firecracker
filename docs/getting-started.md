@@ -73,13 +73,13 @@ latest=$(basename $(curl -fsSLI -o /dev/null -w  %{url_effective}  https://githu
 ```
 
 ```
-curl -LOJ https://github.com/firecracker-microvm/firecracker/releases/download/${latest}/firecracker-${latest}
+curl -LOJ https://github.com/firecracker-microvm/firecracker/releases/download/${latest}/firecracker-${latest}-$(uname -m)
 ```
 
 Rename the binary to "firecracker":
 
 ```
-mv firecracker-${latest} firecracker
+mv firecracker-${latest}-$(uname -m) firecracker
 ```
 
 Make the binary executable:
