@@ -395,8 +395,8 @@ pub struct VcpuConfig {
     pub cpu_template: Option<CpuFeaturesTemplate>,
 }
 
-/// Encapsulates configuration parameters for a `VmmBuilder`.
-pub struct VmmBuilderConfig {
+/// Encapsulates configuration parameters for a `VmmBuilderz`.
+pub struct VmmBuilderzConfig {
     /// The guest memory object for this VM.
     pub guest_memory: GuestMemory,
     /// The guest physical address of the execution entry point.
@@ -410,16 +410,16 @@ pub struct VmmBuilderConfig {
 }
 
 /// Helps build a Vmm.
-pub struct VmmBuilder {
+pub struct VmmBuilderz {
     vmm: Vmm,
     vcpus: Vec<Vcpu>,
 }
 
-impl VmmBuilder {
-    /// Create a new VmmBuilder.
+impl VmmBuilderz {
+    /// Create a new VmmBuilderz.
     pub fn new(
         epoll_context: &mut EpollContext,
-        config: VmmBuilderConfig,
+        config: VmmBuilderzConfig,
     ) -> std::result::Result<Self, VmmActionError> {
         let write_metrics_event_fd = TimerFd::new_custom(ClockId::Monotonic, true, true)
             .map_err(Error::TimerFd)
@@ -502,7 +502,7 @@ impl VmmBuilder {
             vmm.attach_legacy_devices()?;
         }
 
-        Ok(VmmBuilder { vmm, vcpus })
+        Ok(VmmBuilderz { vmm, vcpus })
     }
 
     /// Return a reference to the guest memory object used by the builder.

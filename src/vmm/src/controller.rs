@@ -1,3 +1,6 @@
+// Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::path::PathBuf;
@@ -7,7 +10,7 @@ use std::sync::{Arc, RwLock};
 
 use super::{
     EpollContext, EpollDispatch, ErrorKind, EventLoopExitReason, Result, UserResult, VcpuConfig,
-    Vmm, VmmActionError, VmmBuilder, VmmBuilderConfig, VmmConfig, FC_EXIT_CODE_INVALID_JSON,
+    Vmm, VmmActionError, VmmBuilderz, VmmBuilderzConfig, VmmConfig, FC_EXIT_CODE_INVALID_JSON,
 };
 
 use arch::DeviceType;
@@ -93,7 +96,7 @@ impl VmmController {
 
     fn attach_block_devices(
         &mut self,
-        builder: &mut VmmBuilder,
+        builder: &mut VmmBuilderz,
     ) -> result::Result<(), StartMicrovmError> {
         use StartMicrovmError::*;
 
@@ -175,7 +178,7 @@ impl VmmController {
 
     fn attach_net_devices(
         &mut self,
-        builder: &mut VmmBuilder,
+        builder: &mut VmmBuilderz,
     ) -> result::Result<(), StartMicrovmError> {
         use StartMicrovmError::*;
 
@@ -227,7 +230,7 @@ impl VmmController {
 
     fn attach_vsock_device(
         &mut self,
-        builder: &mut VmmBuilder,
+        builder: &mut VmmBuilderz,
     ) -> result::Result<(), StartMicrovmError> {
         if let Some(cfg) = &self.device_configs.vsock {
             let backend = devices::virtio::vsock::VsockUnixBackend::new(
@@ -510,7 +513,7 @@ impl VmmController {
             cpu_template: self.vm_config.cpu_template,
         };
 
-        let builder_config = VmmBuilderConfig {
+        let builder_config = VmmBuilderzConfig {
             guest_memory,
             entry_addr: kernel_entry_addr,
             kernel_cmdline: kernel_config.cmdline,
@@ -518,7 +521,7 @@ impl VmmController {
             seccomp_level: self.seccomp_level,
         };
 
-        let mut builder = VmmBuilder::new(&mut self.epoll_context, builder_config)?;
+        let mut builder = VmmBuilderz::new(&mut self.epoll_context, builder_config)?;
 
         self.attach_block_devices(&mut builder)?;
         self.attach_net_devices(&mut builder)?;
