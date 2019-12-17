@@ -21,7 +21,7 @@ use std::io;
 use std::panic;
 use std::path::PathBuf;
 use std::process;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
@@ -32,6 +32,7 @@ use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::controller::VmmController;
+use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config;
 use vmm::vmm_config::instance_info::InstanceInfo;
@@ -175,6 +176,7 @@ fn main() {
 
     let no_api = cmd_arguments.is_present("no-api");
 
+    LOGGER.set_instance_id(instance_id.clone());
     let api_shared_info = Arc::new(RwLock::new(InstanceInfo {
         id: instance_id,
         started: false,
@@ -229,7 +231,7 @@ fn main() {
             .expect("API thread spawn failed.");
     }
 
-    start_vmm(
+    run(
         api_shared_info,
         request_event_fd,
         from_api,
@@ -239,7 +241,7 @@ fn main() {
     );
 }
 
-/// Creates and starts a vmm.
+/// Creates, starts then controls a vmm.
 ///
 /// # Arguments
 ///
@@ -251,7 +253,7 @@ fn main() {
 ///                     number) or 2 (filter by syscall number and argument values).
 /// * `config_json` - Optional parameter that can be used to configure the guest machine without
 ///                   using the API socket.
-fn start_vmm(
+fn run(
     api_shared_info: Arc<RwLock<InstanceInfo>>,
     api_event_fd: EventFd,
     from_api: Receiver<VmmRequest>,
@@ -259,30 +261,32 @@ fn start_vmm(
     seccomp_level: u32,
     config_json: Option<String>,
 ) {
-    // If this fails, consider it fatal. Use expect().
-    let mut vmm = VmmController::new(api_shared_info, &api_event_fd, seccomp_level)
-        .expect("Cannot create VMM");
+    // The driving epoll engine.
+    let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
+    epoll_context
+        .add_epollin_event(&api_event_fd, vmm::EpollDispatch::VmmActionRequest)
+        .expect("Cannot add vmm control_fd to epoll.");
 
-    if let Some(json) = config_json {
-        vmm.configure_from_json(json).unwrap_or_else(|err| {
-            error!(
-                "Setting configuration for VMM from one single json failed: {}",
-                err
-            );
-            process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
-        });
-        vmm.start_microvm().unwrap_or_else(|err| {
-            error!(
-                "Starting microvm that was configured from one single json failed: {}",
-                err
-            );
-            process::exit(i32::from(vmm::FC_EXIT_CODE_UNEXPECTED_ERROR));
-        });
-        info!("Successfully started microvm that was configured from one single json");
-    }
+    // These will be populated from JSON or API.
+    let mut vm_resources = VmResources::default();
+
+    // Build and start the microVM.
+    let vmm = configure_and_build_microvm(
+        &api_event_fd,
+        &from_api,
+        &to_api,
+        seccomp_level,
+        config_json,
+        &mut epoll_context,
+        &mut vm_resources,
+    );
+
+    api_shared_info.write().unwrap().started = true;
+
+    let mut vm_controller: VmmController = VmmController::new(epoll_context, vm_resources, vmm);
 
     let exit_code = loop {
-        match vmm.run_event_loop() {
+        match vm_controller.run_event_loop() {
             Err(e) => {
                 error!("Abruptly exited VMM control loop: {:?}", e);
                 break vmm::FC_EXIT_CODE_GENERIC_ERROR;
@@ -294,7 +298,7 @@ fn start_vmm(
                 }
                 EventLoopExitReason::ControlAction => {
                     if let Err(exit_code) =
-                        vmm_control_event(&mut vmm, &api_event_fd, &from_api, &to_api)
+                        vmm_control_event(&mut vm_controller, &api_event_fd, &from_api, &to_api)
                     {
                         break exit_code;
                     }
@@ -303,20 +307,155 @@ fn start_vmm(
         };
     };
 
-    vmm.stop(i32::from(exit_code));
+    vm_controller.stop(i32::from(exit_code));
+}
+
+/// Builds and starts a microVM. It either uses a config json or receives API requests to
+/// get the microVM configuration.
+///
+/// Returns a running `Vmm` object.
+fn configure_and_build_microvm(
+    api_event_fd: &EventFd,
+    from_api: &Receiver<VmmRequest>,
+    to_api: &Sender<VmmResponse>,
+    seccomp_level: u32,
+    config_json: Option<String>,
+    // FIXME: epoll context can be polluted by failing boot attempts
+    epoll_context: &mut vmm::EpollContext,
+    vm_resources: &mut VmResources,
+) -> vmm::Vmm {
+    use vmm::{ErrorKind, VmmActionError};
+
+    // Start a microVm configured from command-line JSON.
+    if let Some(ref json) = config_json {
+        *vm_resources =
+            VmResources::from_json(json, crate_version!().to_string()).unwrap_or_else(|err| {
+                error!(
+                    "Setting configuration for VMM from one single json failed: {:?}",
+                    err
+                );
+                process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
+            });
+        match vmm::builder::build_microvm(&vm_resources, epoll_context, seccomp_level) {
+            Ok(vmm) => {
+                info!("Successfully started microvm that was configured from one single json");
+                return vmm;
+            }
+            Err(err) => {
+                error!(
+                    "Building VMM configured from cmdline json failed: {:?}",
+                    err
+                );
+                process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
+            }
+        };
+    }
+
+    // Configure and start microVM through successive API calls.
+    // Iterate through API calls to configure microVm.
+    // The loop breaks when a microVM is successfully started, and returns a running Vmm.
+    loop {
+        let mut built_vmm = None;
+        match from_api.recv() {
+            Ok(vmm_request) => {
+                use api_server::VmmAction::*;
+                let action_request = *vmm_request;
+
+                // Also consume the API event. This is safe since communication
+                // between this thread and the API thread is synchronous.
+                let _ = api_event_fd.read().map_err(|e| {
+                    error!("VMM: Failed to read the API event_fd: {}", e);
+                    process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+                });
+
+                let response = match action_request {
+                    /////////////////////////////////////////
+                    // Supported operations allowed pre-boot.
+                    ConfigureBootSource(boot_source_body) => vm_resources
+                        .set_boot_source(boot_source_body)
+                        .map(|_| api_server::VmmData::Empty)
+                        .map_err(|e| VmmActionError::BootSource(ErrorKind::User, e)),
+                    ConfigureLogger(logger_description) => vmm_config::logger::init_logger(
+                        logger_description,
+                        crate_version!().to_string(),
+                    )
+                    .map(|_| api_server::VmmData::Empty)
+                    .map_err(|e| VmmActionError::Logger(ErrorKind::User, e)),
+                    GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
+                        vm_resources.vm_config().clone(),
+                    )),
+                    InsertBlockDevice(block_device_config) => vm_resources
+                        .set_block_device(block_device_config)
+                        .map(|_| api_server::VmmData::Empty)
+                        .map_err(|e| e.into()),
+                    InsertNetworkDevice(netif_body) => vm_resources
+                        .set_net_device(netif_body)
+                        .map(|_| api_server::VmmData::Empty)
+                        .map_err(|e| e.into()),
+                    SetVsockDevice(vsock_cfg) => {
+                        vm_resources.set_vsock_device(vsock_cfg);
+                        Ok(api_server::VmmData::Empty)
+                    }
+                    SetVmConfiguration(machine_config_body) => vm_resources
+                        .set_vm_config(machine_config_body)
+                        .map(|_| api_server::VmmData::Empty)
+                        .map_err(|e| e.into()),
+                    UpdateBlockDevicePath(drive_id, path_on_host) => vm_resources
+                        .update_block_device_path(drive_id, path_on_host)
+                        .map(|_| api_server::VmmData::Empty)
+                        .map_err(|e| e.into()),
+                    UpdateNetworkInterface(netif_update) => vm_resources
+                        .update_net_rate_limiters(netif_update)
+                        .map(|_| api_server::VmmData::Empty)
+                        .map_err(|e| e.into()),
+                    StartMicroVm => {
+                        vmm::builder::build_microvm(&vm_resources, epoll_context, seccomp_level)
+                            .map(|vmm| {
+                                built_vmm = Some(vmm);
+                                api_server::VmmData::Empty
+                            })
+                    }
+
+                    ///////////////////////////////////
+                    // Operations not allowed pre-boot.
+                    FlushMetrics => Err(VmmActionError::Logger(
+                        ErrorKind::User,
+                        vmm_config::logger::LoggerConfigError::FlushMetrics(
+                            "Cannot flush metrics before starting microVM.".to_string(),
+                        ),
+                    )),
+                    RescanBlockDevice(_) => {
+                        Err(vmm_config::drive::DriveError::OperationNotAllowedPreBoot.into())
+                    }
+                    SendCtrlAltDel => Err(vmm::error::VmmActionError::OperationNotSupportedPreBoot),
+                };
+                // Send back the result.
+                to_api
+                    .send(Box::new(response))
+                    .map_err(|_| ())
+                    .expect("one-shot channel closed");
+                // If microVM was successfully started, return the Vmm.
+                if let Some(vmm) = built_vmm {
+                    break vmm;
+                }
+            }
+            Err(RecvError) => {
+                panic!("The channel's sending half was disconnected. Cannot receive data.");
+            }
+        };
+    }
 }
 
 /// Handles the control event.
 /// Receives and runs the Vmm action and sends back a response.
 /// Provides program exit codes on errors.
 fn vmm_control_event(
-    vmm: &mut VmmController,
+    controller: &mut VmmController,
     api_event_fd: &EventFd,
     from_api: &Receiver<VmmRequest>,
     to_api: &Sender<VmmResponse>,
 ) -> Result<(), u8> {
     use vmm::{ErrorKind, VmmActionError};
-    use vmm_config::logger::LoggerConfigError;
 
     api_event_fd.read().map_err(|e| {
         error!("VMM: Failed to read the API event_fd: {}", e);
@@ -328,45 +467,57 @@ fn vmm_control_event(
             use api_server::VmmAction::*;
             let action_request = *vmm_request;
             let response = match action_request {
-                ConfigureBootSource(boot_source_body) => vmm
-                    .configure_boot_source(boot_source_body)
+                ///////////////////////////////////
+                // Supported operations allowed post-boot.
+                FlushMetrics => controller
+                    .flush_metrics()
                     .map(|_| api_server::VmmData::Empty),
+                GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
+                    controller.vm_config().clone(),
+                )),
+                RescanBlockDevice(drive_id) => controller
+                    .rescan_block_device(&drive_id)
+                    .map(|_| api_server::VmmData::Empty),
+                #[cfg(target_arch = "x86_64")]
+                SendCtrlAltDel => controller
+                    .send_ctrl_alt_del()
+                    .map(|_| api_server::VmmData::Empty),
+                UpdateBlockDevicePath(drive_id, path_on_host) => controller
+                    .update_block_device_path(drive_id, path_on_host)
+                    .map(|_| api_server::VmmData::Empty),
+                UpdateNetworkInterface(netif_update) => controller
+                    .update_net_rate_limiters(netif_update)
+                    .map(|_| api_server::VmmData::Empty),
+
+                ///////////////////////////////////
+                // Operations not allowed post-boot.
+                ConfigureBootSource(_) => Err(VmmActionError::BootSource(
+                    ErrorKind::User,
+                    vmm_config::boot_source::BootSourceConfigError::UpdateNotAllowedPostBoot,
+                )),
                 ConfigureLogger(_) => Err(VmmActionError::Logger(
                     ErrorKind::User,
-                    LoggerConfigError::InitializationFailure(
+                    vmm_config::logger::LoggerConfigError::InitializationFailure(
                         "Cannot initialize logger after boot.".to_string(),
                     ),
                 )),
-                FlushMetrics => vmm.flush_metrics().map(|_| api_server::VmmData::Empty),
-                GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
-                    vmm.vm_config().clone(),
+                InsertBlockDevice(_) => {
+                    Err(vmm_config::drive::DriveError::UpdateNotAllowedPostBoot.into())
+                }
+                InsertNetworkDevice(_) => {
+                    Err(vmm_config::net::NetworkInterfaceError::UpdateNotAllowedPostBoot.into())
+                }
+                SetVsockDevice(_) => Err(VmmActionError::VsockConfig(
+                    ErrorKind::User,
+                    vmm_config::vsock::VsockError::UpdateNotAllowedPostBoot,
                 )),
-                InsertBlockDevice(block_device_config) => vmm
-                    .insert_block_device(block_device_config)
-                    .map(|_| api_server::VmmData::Empty),
-                InsertNetworkDevice(netif_body) => vmm
-                    .insert_net_device(netif_body)
-                    .map(|_| api_server::VmmData::Empty),
-                SetVsockDevice(vsock_cfg) => vmm
-                    .set_vsock_device(vsock_cfg)
-                    .map(|_| api_server::VmmData::Empty),
-                RescanBlockDevice(drive_id) => vmm
-                    .rescan_block_device(&drive_id)
-                    .map(|_| api_server::VmmData::Empty),
-                StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
-                #[cfg(target_arch = "x86_64")]
-                SendCtrlAltDel => vmm.send_ctrl_alt_del().map(|_| api_server::VmmData::Empty),
-                SetVmConfiguration(machine_config_body) => vmm
-                    .set_vm_configuration(machine_config_body)
-                    .map(|_| api_server::VmmData::Empty),
-                UpdateBlockDevicePath(drive_id, path_on_host) => vmm
-                    .set_block_device_path(drive_id, path_on_host)
-                    .map(|_| api_server::VmmData::Empty),
-                UpdateNetworkInterface(netif_update) => vmm
-                    .update_net_device(netif_update)
-                    .map(|_| api_server::VmmData::Empty),
+                SetVmConfiguration(_) => {
+                    Err(vmm_config::machine_config::VmConfigError::UpdateNotAllowedPostBoot.into())
+                }
+
+                StartMicroVm => Err(vmm::error::StartMicrovmError::MicroVMAlreadyRunning.into()),
             };
-            // Run the requested action and send back the result.
+            // Send back the result.
             to_api
                 .send(Box::new(response))
                 .map_err(|_| ())

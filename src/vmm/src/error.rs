@@ -327,6 +327,10 @@ pub enum VmmActionError {
     /// The action `InsertNetworkDevice` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     NetworkConfig(ErrorKind, NetworkInterfaceError),
+    /// The requested operation is not supported after starting the microVM.
+    OperationNotSupportedPostBoot,
+    /// The requested operation is not supported before starting the microVM.
+    OperationNotSupportedPreBoot,
     /// The action `StartMicroVm` failed either because of bad user input (`ErrorKind::User`) or
     /// an internal error (`ErrorKind::Internal`).
     StartMicrovm(ErrorKind, StartMicrovmError),
@@ -341,7 +345,7 @@ pub enum VmmActionError {
 // It's convenient to turn DriveErrors into VmmActionErrors directly.
 impl std::convert::From<DriveError> for VmmActionError {
     fn from(e: DriveError) -> Self {
-        use DriveError::*;
+        use vmm_config::drive::DriveError::*;
 
         // This match is used to force developers who add new types of
         // `DriveError`s to explicitly consider what kind they should
@@ -349,7 +353,7 @@ impl std::convert::From<DriveError> for VmmActionError {
         // something other than `ErrorKind::User` is added.
         let kind = match e {
             // User errors.
-            CannotOpenBlockDevice
+            CannotOpenBlockDevice(_)
             | InvalidBlockDeviceID
             | InvalidBlockDevicePath
             | BlockDevicePathAlreadyExists
@@ -367,7 +371,7 @@ impl std::convert::From<DriveError> for VmmActionError {
 // It's convenient to turn VmConfigErrors into VmmActionErrors directly.
 impl std::convert::From<VmConfigError> for VmmActionError {
     fn from(e: VmConfigError) -> Self {
-        use VmConfigError::*;
+        use vmm_config::machine_config::VmConfigError::*;
 
         // This match is used to force developers who add new types of
         // `VmConfigError`s to explicitly consider what kind they should
@@ -385,8 +389,8 @@ impl std::convert::From<VmConfigError> for VmmActionError {
 // It's convenient to turn NetworkInterfaceErrors into VmmActionErrors directly.
 impl std::convert::From<NetworkInterfaceError> for VmmActionError {
     fn from(e: NetworkInterfaceError) -> Self {
-        use NetworkInterfaceError::*;
-        use TapError::*;
+        use utils::net::TapError::*;
+        use vmm_config::net::NetworkInterfaceError::*;
 
         let kind = match e {
             // User errors.
@@ -467,6 +471,7 @@ impl VmmActionError {
             Logger(ref kind, _) => kind,
             MachineConfig(ref kind, _) => kind,
             NetworkConfig(ref kind, _) => kind,
+            OperationNotSupportedPostBoot | OperationNotSupportedPreBoot => &ErrorKind::User,
             StartMicrovm(ref kind, _) => kind,
             SendCtrlAltDel(ref kind, _) => kind,
             VsockConfig(ref kind, _) => kind,
@@ -478,18 +483,26 @@ impl Display for VmmActionError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::VmmActionError::*;
 
-        let error = match *self {
-            BootSource(_, ref err) => err as &dyn ToString,
-            DriveConfig(_, ref err) => err,
-            Logger(_, ref err) => err,
-            MachineConfig(_, ref err) => err,
-            NetworkConfig(_, ref err) => err,
-            StartMicrovm(_, ref err) => err,
-            SendCtrlAltDel(_, ref err) => err,
-            VsockConfig(_, ref err) => err,
-        };
-
-        write!(f, "{}", error.to_string())
+        write!(
+            f,
+            "{}",
+            match *self {
+                BootSource(_, ref err) => err.to_string(),
+                DriveConfig(_, ref err) => err.to_string(),
+                Logger(_, ref err) => err.to_string(),
+                MachineConfig(_, ref err) => err.to_string(),
+                NetworkConfig(_, ref err) => err.to_string(),
+                OperationNotSupportedPostBoot =>
+                    "The requested operation is not supported after starting the microVM."
+                        .to_string(),
+                OperationNotSupportedPreBoot =>
+                    "The requested operation is not supported before starting the microVM."
+                        .to_string(),
+                StartMicrovm(_, ref err) => err.to_string(),
+                SendCtrlAltDel(_, ref err) => err.to_string(),
+                VsockConfig(_, ref err) => err.to_string(),
+            }
+        )
     }
 }
 
@@ -515,7 +528,9 @@ mod tests {
     fn test_drive_error_conversion() {
         // Test `DriveError` conversion
         assert_eq!(
-            error_kind(DriveError::CannotOpenBlockDevice),
+            error_kind(DriveError::CannotOpenBlockDevice(
+                io::Error::from_raw_os_error(0)
+            )),
             ErrorKind::User
         );
         assert_eq!(
