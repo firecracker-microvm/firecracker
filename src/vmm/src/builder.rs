@@ -69,6 +69,11 @@ impl VmmBuilder {
         Ok(builder)
     }
 
+    /// Returns the VmConfig.
+    pub fn vm_config(&self) -> &VmConfig {
+        &self.vm_config
+    }
+
     fn with_kernel_config(&mut self, kernel_config: KernelConfig) {
         self.kernel_config = Some(kernel_config);
     }

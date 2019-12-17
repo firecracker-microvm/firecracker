@@ -311,6 +311,17 @@ fn start_vmm(
                 )
                 .map(|_| api_server::VmmData::Empty)
                 .map_err(|e| VmmActionError::Logger(ErrorKind::User, e)),
+                GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
+                    vmm_builder.vm_config().clone(),
+                )),
+
+                // Operations not allowed pre-boot.
+                FlushMetrics => Err(VmmActionError::Logger(
+                    ErrorKind::User,
+                    vmm_config::logger::LoggerConfigError::FlushMetrics(
+                        "Cannot flush metrics before starting microVM.".to_string(),
+                    ),
+                )),
 
                 // Work in progress.
                 _ => unimplemented!(),
@@ -372,20 +383,11 @@ fn vmm_control_event(
             use api_server::VmmAction::*;
             let action_request = *vmm_request;
             let response = match action_request {
-                ConfigureBootSource(_) => Err(VmmActionError::BootSource(
-                    ErrorKind::User,
-                    vmm_config::boot_source::BootSourceConfigError::UpdateNotAllowedPostBoot,
-                )),
-                ConfigureLogger(_) => Err(VmmActionError::Logger(
-                    ErrorKind::User,
-                    vmm_config::logger::LoggerConfigError::InitializationFailure(
-                        "Cannot initialize logger after boot.".to_string(),
-                    ),
-                )),
                 FlushMetrics => vmm.flush_metrics().map(|_| api_server::VmmData::Empty),
                 GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
                     vmm.vm_config().clone(),
                 )),
+
                 InsertBlockDevice(block_device_config) => vmm
                     .insert_block_device(block_device_config)
                     .map(|_| api_server::VmmData::Empty),
@@ -410,6 +412,18 @@ fn vmm_control_event(
                 UpdateNetworkInterface(netif_update) => vmm
                     .update_net_device(netif_update)
                     .map(|_| api_server::VmmData::Empty),
+
+                // Operations not allowed post boot.
+                ConfigureBootSource(_) => Err(VmmActionError::BootSource(
+                    ErrorKind::User,
+                    vmm_config::boot_source::BootSourceConfigError::UpdateNotAllowedPostBoot,
+                )),
+                ConfigureLogger(_) => Err(VmmActionError::Logger(
+                    ErrorKind::User,
+                    vmm_config::logger::LoggerConfigError::InitializationFailure(
+                        "Cannot initialize logger after boot.".to_string(),
+                    ),
+                )),
             };
             // Run the requested action and send back the result.
             to_api

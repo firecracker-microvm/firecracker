@@ -353,18 +353,8 @@ impl VmmController {
     /// simply exposes functionality like getting the dirty pages, and then we'll have the
     /// metrics flushing logic entirely on the outside.
     pub fn flush_metrics(&mut self) -> UserResult {
-        if let Some(vmm) = self.vmm.as_mut() {
-            vmm.flush_metrics()
-        } else {
-            // Copied from Vmm.
-            LOGGER.log_metrics().map(|_| ()).map_err(|e| {
-                let (kind, error_contents) = match e {
-                    LoggerError::NeverInitialized(s) => (ErrorKind::User, s),
-                    _ => (ErrorKind::Internal, e.to_string()),
-                };
-                VmmActionError::Logger(kind, LoggerConfigError::FlushMetrics(error_contents))
-            })
-        }
+        // Will change from Option in later commit, just unwrap for now.
+        self.vmm.as_mut().unwrap().flush_metrics()
     }
 
     /// Injects CTRL+ALT+DEL keystroke combo to the inner Vmm (if present).
