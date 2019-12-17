@@ -22,7 +22,7 @@ use devices::virtio::{
 use error::{LoadInitrdError, StartMicrovmError};
 use kernel::{cmdline as kernel_cmdline, loader as kernel_loader};
 use logger::error::LoggerError;
-use logger::{AppInfo, Level, LOGGER};
+use logger::LOGGER;
 use seccomp::BpfProgram;
 use utils::eventfd::EventFd;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
@@ -31,7 +31,7 @@ use vmm_config::boot_source::{BootSourceConfig, KernelConfig, DEFAULT_KERNEL_CMD
 use vmm_config::device_config::DeviceConfigs;
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
 use vmm_config::instance_info::InstanceInfo;
-use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel, LoggerWriter};
+use vmm_config::logger::LoggerConfigError;
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
@@ -367,58 +367,6 @@ impl VmmController {
         Ok(())
     }
 
-    /// Configures the logger as described in `logger_cfg`.
-    pub fn init_logger(&self, logger_cfg: LoggerConfig) -> UserResult {
-        if self.is_instance_initialized() {
-            return Err(VmmActionError::Logger(
-                ErrorKind::User,
-                LoggerConfigError::InitializationFailure(
-                    "Cannot initialize logger after boot.".to_string(),
-                ),
-            ));
-        }
-
-        let firecracker_version;
-        {
-            let guard = self.shared_info.read().unwrap();
-            LOGGER.set_instance_id(guard.id.clone());
-            firecracker_version = guard.vmm_version.clone();
-        }
-
-        LOGGER.set_level(match logger_cfg.level {
-            LoggerLevel::Error => Level::Error,
-            LoggerLevel::Warning => Level::Warn,
-            LoggerLevel::Info => Level::Info,
-            LoggerLevel::Debug => Level::Debug,
-        });
-
-        LOGGER.set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin);
-        LOGGER.set_include_level(logger_cfg.show_level);
-
-        LOGGER
-            .init(
-                &AppInfo::new("Firecracker", &firecracker_version),
-                Box::new(LoggerWriter::new(&logger_cfg.log_fifo).map_err(|e| {
-                    VmmActionError::Logger(
-                        ErrorKind::User,
-                        LoggerConfigError::InitializationFailure(e.to_string()),
-                    )
-                })?),
-                Box::new(LoggerWriter::new(&logger_cfg.metrics_fifo).map_err(|e| {
-                    VmmActionError::Logger(
-                        ErrorKind::User,
-                        LoggerConfigError::InitializationFailure(e.to_string()),
-                    )
-                })?),
-            )
-            .map_err(|e| {
-                VmmActionError::Logger(
-                    ErrorKind::User,
-                    LoggerConfigError::InitializationFailure(e.to_string()),
-                )
-            })
-    }
-
     /// Configures Vmm resources as described by the `config_json` param.
     pub fn configure_from_json(
         &mut self,
@@ -431,7 +379,14 @@ impl VmmController {
             });
 
         if let Some(logger) = vmm_config.logger {
-            self.init_logger(logger)?;
+            let firecracker_version;
+            {
+                let guard = self.shared_info.read().unwrap();
+                LOGGER.set_instance_id(guard.id.clone());
+                firecracker_version = guard.vmm_version.clone();
+            }
+            vmm_config::logger::init_logger(logger, firecracker_version)
+                .map_err(|e| VmmActionError::Logger(ErrorKind::User, e))?;
         }
         self.configure_boot_source(vmm_config.boot_source)?;
         for drive_config in vmm_config.block_devices.into_iter() {
