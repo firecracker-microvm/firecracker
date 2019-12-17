@@ -435,14 +435,15 @@ impl Bytes<GuestAddress> for GuestMemory {
         addr: GuestAddress,
         src: &mut F,
         count: usize,
-    ) -> std::result::Result<(), Self::E>
+    ) -> std::result::Result<usize, Self::E>
     where
         F: Read,
     {
         self.do_in_region(addr, count, move |mapping, offset| {
             mapping
                 .read_to_memory(offset, src, count)
-                .map_err(|e| Error::MemoryAccess(addr, e))
+                .map_err(|e| Error::MemoryAccess(addr, e))?;
+            Ok(count)
         })
     }
 

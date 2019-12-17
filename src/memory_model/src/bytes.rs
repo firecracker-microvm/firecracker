@@ -92,7 +92,7 @@ pub trait Bytes<A> {
     /// * `addr` - Begin writing at this address.
     /// * `src` - Copy from `src` into the container.
     /// * `count` - Copy `count` bytes from `src` into the container.
-    fn read_from<F>(&self, addr: A, src: &mut F, count: usize) -> Result<(), Self::E>
+    fn read_from<F>(&self, addr: A, src: &mut F, count: usize) -> Result<usize, Self::E>
     where
         F: Read;
 
