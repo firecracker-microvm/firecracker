@@ -314,6 +314,9 @@ fn start_vmm(
                 GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
                     vmm_builder.vm_config().clone(),
                 )),
+                InsertBlockDevice(block_device_config) => vmm_builder
+                    .with_block_device(block_device_config)
+                    .map(|_| api_server::VmmData::Empty),
 
                 // Operations not allowed pre-boot.
                 FlushMetrics => Err(VmmActionError::Logger(
@@ -388,9 +391,6 @@ fn vmm_control_event(
                     vmm.vm_config().clone(),
                 )),
 
-                InsertBlockDevice(block_device_config) => vmm
-                    .insert_block_device(block_device_config)
-                    .map(|_| api_server::VmmData::Empty),
                 InsertNetworkDevice(netif_body) => vmm
                     .insert_net_device(netif_body)
                     .map(|_| api_server::VmmData::Empty),
@@ -424,6 +424,9 @@ fn vmm_control_event(
                         "Cannot initialize logger after boot.".to_string(),
                     ),
                 )),
+                InsertBlockDevice(_) => {
+                    Err(vmm_config::drive::DriveError::UpdateNotAllowedPostBoot.into())
+                }
             };
             // Run the requested action and send back the result.
             to_api

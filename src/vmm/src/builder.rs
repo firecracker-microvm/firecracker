@@ -66,6 +66,9 @@ impl VmmBuilder {
                 .map_err(|e| VmmActionError::Logger(ErrorKind::User, e))?;
         }
         builder.with_boot_source(vmm_config.boot_source)?;
+        for drive_config in vmm_config.block_devices.into_iter() {
+            builder.with_block_device(drive_config)?;
+        }
         Ok(builder)
     }
 
@@ -105,5 +108,15 @@ impl VmmBuilder {
         self.with_kernel_config(kernel_config);
 
         Ok(())
+    }
+
+    /// Inserts a block to be attached when the VM starts.
+    // Only call this function as part of user configuration.
+    // If the drive_id does not exist, a new Block Device Config is added to the list.
+    pub fn with_block_device(&mut self, block_device_config: BlockDeviceConfig) -> UserResult {
+        self.device_configs
+            .block
+            .insert(block_device_config)
+            .map_err(VmmActionError::from)
     }
 }

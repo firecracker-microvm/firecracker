@@ -57,19 +57,6 @@ impl VmmController {
             .started
     }
 
-    /// Inserts a block to be attached when the VM starts.
-    // Only call this function as part of user configuration.
-    // If the drive_id does not exist, a new Block Device Config is added to the list.
-    pub fn insert_block_device(&mut self, block_device_config: BlockDeviceConfig) -> UserResult {
-        if self.is_instance_initialized() {
-            return Err(DriveError::UpdateNotAllowedPostBoot.into());
-        }
-        self.device_configs
-            .block
-            .insert(block_device_config)
-            .map_err(VmmActionError::from)
-    }
-
     /// Inserts a network device to be attached when the VM starts.
     pub fn insert_net_device(&mut self, body: NetworkInterfaceConfig) -> UserResult {
         if self.is_instance_initialized() {
@@ -329,9 +316,6 @@ impl VmmController {
                 error!("Invalid json: {}", e);
                 process::exit(i32::from(FC_EXIT_CODE_INVALID_JSON));
             });
-        for drive_config in vmm_config.block_devices.into_iter() {
-            self.insert_block_device(drive_config)?;
-        }
         for net_config in vmm_config.net_devices.into_iter() {
             self.insert_net_device(net_config)?;
         }
