@@ -320,6 +320,9 @@ fn start_vmm(
                 InsertNetworkDevice(netif_body) => vmm_builder
                     .with_net_device(netif_body)
                     .map(|_| api_server::VmmData::Empty),
+                SetVsockDevice(vsock_cfg) => vmm_builder
+                    .with_vsock_device(vsock_cfg)
+                    .map(|_| api_server::VmmData::Empty),
 
                 // Operations not allowed pre-boot.
                 FlushMetrics => Err(VmmActionError::Logger(
@@ -394,9 +397,6 @@ fn vmm_control_event(
                     vmm.vm_config().clone(),
                 )),
 
-                SetVsockDevice(vsock_cfg) => vmm
-                    .set_vsock_device(vsock_cfg)
-                    .map(|_| api_server::VmmData::Empty),
                 RescanBlockDevice(drive_id) => vmm
                     .rescan_block_device(&drive_id)
                     .map(|_| api_server::VmmData::Empty),
@@ -430,6 +430,10 @@ fn vmm_control_event(
                 InsertNetworkDevice(_) => {
                     Err(vmm_config::net::NetworkInterfaceError::UpdateNotAllowedPostBoot.into())
                 }
+                SetVsockDevice(_) => Err(VmmActionError::VsockConfig(
+                    ErrorKind::User,
+                    vmm_config::vsock::VsockError::UpdateNotAllowedPostBoot,
+                )),
             };
             // Run the requested action and send back the result.
             to_api

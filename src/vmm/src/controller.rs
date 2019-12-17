@@ -57,19 +57,6 @@ impl VmmController {
             .started
     }
 
-    /// Sets a vsock device to be attached when the VM starts.
-    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> UserResult {
-        if self.is_instance_initialized() {
-            Err(VmmActionError::VsockConfig(
-                ErrorKind::User,
-                VsockError::UpdateNotAllowedPostBoot,
-            ))
-        } else {
-            self.device_configs.vsock = Some(config);
-            Ok(())
-        }
-    }
-
     fn attach_block_devices(
         &mut self,
         builder: &mut VmmBuilderz,
@@ -307,9 +294,6 @@ impl VmmController {
             });
         if let Some(machine_config) = vmm_config.machine_config {
             self.set_vm_configuration(machine_config)?;
-        }
-        if let Some(vsock_config) = vmm_config.vsock_device {
-            self.set_vsock_device(vsock_config)?;
         }
         Ok(())
     }

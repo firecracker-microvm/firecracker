@@ -72,6 +72,9 @@ impl VmmBuilder {
         for net_config in vmm_config.net_devices.into_iter() {
             builder.with_net_device(net_config)?;
         }
+        if let Some(vsock_config) = vmm_config.vsock_device {
+            builder.with_vsock_device(vsock_config)?;
+        }
         Ok(builder)
     }
 
@@ -129,5 +132,11 @@ impl VmmBuilder {
             .network_interface
             .insert(body)
             .map_err(|e| VmmActionError::NetworkConfig(ErrorKind::User, e))
+    }
+
+    /// Sets a vsock device to be attached when the VM starts.
+    pub fn with_vsock_device(&mut self, config: VsockDeviceConfig) -> UserResult {
+        self.device_configs.vsock = Some(config);
+        Ok(())
     }
 }
