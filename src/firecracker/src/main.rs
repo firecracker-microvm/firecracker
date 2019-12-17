@@ -331,6 +331,9 @@ fn start_vmm(
                         "Cannot flush metrics before starting microVM.".to_string(),
                     ),
                 )),
+                RescanBlockDevice(_) => {
+                    Err(vmm_config::drive::DriveError::OperationNotAllowedPreBoot.into())
+                }
 
                 // Work in progress.
                 _ => unimplemented!(),
@@ -396,13 +399,13 @@ fn vmm_control_event(
                 GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
                     vmm.vm_config().clone(),
                 )),
-
                 RescanBlockDevice(drive_id) => vmm
                     .rescan_block_device(&drive_id)
                     .map(|_| api_server::VmmData::Empty),
-                StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
                 #[cfg(target_arch = "x86_64")]
                 SendCtrlAltDel => vmm.send_ctrl_alt_del().map(|_| api_server::VmmData::Empty),
+
+                StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
                 SetVmConfiguration(machine_config_body) => vmm
                     .set_vm_configuration(machine_config_body)
                     .map(|_| api_server::VmmData::Empty),

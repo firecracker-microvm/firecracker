@@ -314,12 +314,7 @@ impl VmmController {
     /// Injects CTRL+ALT+DEL keystroke combo to the inner Vmm (if present).
     #[cfg(target_arch = "x86_64")]
     pub fn send_ctrl_alt_del(&mut self) -> UserResult {
-        if let Some(vmm) = self.vmm.as_mut() {
-            vmm.send_ctrl_alt_del()
-        } else {
-            // TODO: An error would prob be more informative.
-            Ok(())
-        }
+        self.vmm.as_mut().unwrap().send_ctrl_alt_del()
     }
 
     /// Stops the inner Vmm (if present) and exits the process with the provided exit_code.
@@ -445,42 +440,39 @@ impl VmmController {
     /// Triggers a rescan of the host file backing the emulated block device with id `drive_id`.
     pub fn rescan_block_device(&mut self, drive_id: &str) -> UserResult {
         // Rescan can only happen after the guest is booted.
-        if let Some(vmm) = self.vmm.as_mut() {
-            for drive_config in self.device_configs.block.config_list.iter() {
-                if drive_config.drive_id != *drive_id {
-                    continue;
-                }
-
-                // Use seek() instead of stat() (std::fs::Metadata) to support block devices.
-                let new_size = File::open(&drive_config.path_on_host)
-                    .and_then(|mut f| f.seek(SeekFrom::End(0)))
-                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                if new_size % virtio::block::SECTOR_SIZE != 0 {
-                    warn!(
-                        "Disk size {} is not a multiple of sector size {}; \
-                         the remainder will not be visible to the guest.",
-                        new_size,
-                        virtio::block::SECTOR_SIZE
-                    );
-                }
-
-                return match vmm.get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id) {
-                    Some(device) => {
-                        let data = devices::virtio::build_config_space(new_size);
-                        let mut busdev = device.lock().map_err(|_| {
-                            VmmActionError::from(DriveError::BlockDeviceUpdateFailed)
-                        })?;
-
-                        busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
-                        busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);
-
-                        Ok(())
-                    }
-                    None => Err(VmmActionError::from(DriveError::BlockDeviceUpdateFailed)),
-                };
+        let vmm = self.vmm.as_mut().unwrap();
+        for drive_config in self.device_configs.block.config_list.iter() {
+            if drive_config.drive_id != *drive_id {
+                continue;
             }
-        } else {
-            return Err(DriveError::OperationNotAllowedPreBoot.into());
+
+            // Use seek() instead of stat() (std::fs::Metadata) to support block devices.
+            let new_size = File::open(&drive_config.path_on_host)
+                .and_then(|mut f| f.seek(SeekFrom::End(0)))
+                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+            if new_size % virtio::block::SECTOR_SIZE != 0 {
+                warn!(
+                    "Disk size {} is not a multiple of sector size {}; \
+                     the remainder will not be visible to the guest.",
+                    new_size,
+                    virtio::block::SECTOR_SIZE
+                );
+            }
+
+            return match vmm.get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id) {
+                Some(device) => {
+                    let data = devices::virtio::build_config_space(new_size);
+                    let mut busdev = device
+                        .lock()
+                        .map_err(|_| VmmActionError::from(DriveError::BlockDeviceUpdateFailed))?;
+
+                    busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
+                    busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);
+
+                    Ok(())
+                }
+                None => Err(VmmActionError::from(DriveError::BlockDeviceUpdateFailed)),
+            };
         }
 
         Err(VmmActionError::from(DriveError::InvalidBlockDeviceID))
