@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::{File, OpenOptions};
+use std::process;
 
-use super::{VmmConfig, FC_EXIT_CODE_INVALID_JSON};
+use super::{serde_json, VmmConfig, FC_EXIT_CODE_INVALID_JSON};
 
 use error::{ErrorKind, Result, UserResult, VmmActionError};
 
@@ -54,16 +55,19 @@ impl VmmBuilder {
         seccomp_level: u32,
         firecracker_version: String,
     ) -> std::result::Result<Self, VmmActionError> {
-        let mut builder = Self::new(seccomp_level).expect("Cannot create VmmBuilder");
-        let vmm_config = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
+        let mut builder: Self = Self::new(seccomp_level).expect("Cannot create VmmBuilder");
+        let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
             .unwrap_or_else(|e| {
                 error!("Invalid json: {}", e);
-                std::process::exit(i32::from(FC_EXIT_CODE_INVALID_JSON));
+                process::exit(i32::from(FC_EXIT_CODE_INVALID_JSON));
             });
 
         if let Some(logger) = vmm_config.logger {
             vmm_config::logger::init_logger(logger, firecracker_version)
                 .map_err(|e| VmmActionError::Logger(ErrorKind::User, e))?;
+        }
+        if let Some(machine_config) = vmm_config.machine_config {
+            builder.with_vm_config(machine_config)?;
         }
         builder.with_boot_source(vmm_config.boot_source)?;
         for drive_config in vmm_config.block_devices.into_iter() {
@@ -81,6 +85,45 @@ impl VmmBuilder {
     /// Returns the VmConfig.
     pub fn vm_config(&self) -> &VmConfig {
         &self.vm_config
+    }
+
+    /// Set the machine configuration of the microVM.
+    pub fn with_vm_config(&mut self, machine_config: VmConfig) -> UserResult {
+        if machine_config.vcpu_count == Some(0) {
+            return Err(VmConfigError::InvalidVcpuCount.into());
+        }
+
+        if machine_config.mem_size_mib == Some(0) {
+            return Err(VmConfigError::InvalidMemorySize.into());
+        }
+
+        let ht_enabled = machine_config
+            .ht_enabled
+            .unwrap_or_else(|| self.vm_config.ht_enabled.unwrap());
+
+        let vcpu_count_value = machine_config
+            .vcpu_count
+            .unwrap_or_else(|| self.vm_config.vcpu_count.unwrap());
+
+        // If hyperthreading is enabled or is to be enabled in this call
+        // only allow vcpu count to be 1 or even.
+        if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
+            return Err(VmConfigError::InvalidVcpuCount.into());
+        }
+
+        // Update all the fields that have a new value.
+        self.vm_config.vcpu_count = Some(vcpu_count_value);
+        self.vm_config.ht_enabled = Some(ht_enabled);
+
+        if machine_config.mem_size_mib.is_some() {
+            self.vm_config.mem_size_mib = machine_config.mem_size_mib;
+        }
+
+        if machine_config.cpu_template.is_some() {
+            self.vm_config.cpu_template = machine_config.cpu_template;
+        }
+
+        Ok(())
     }
 
     fn with_kernel_config(&mut self, kernel_config: KernelConfig) {

@@ -263,11 +263,11 @@ fn start_vmm(
     use vmm::{ErrorKind, VmmActionError};
 
     // If this fails, consider it fatal. Use expect().
-    let mut vmm = VmmController::new(api_shared_info, &api_event_fd, seccomp_level)
+    let mut vmm: VmmController = VmmController::new(api_shared_info, &api_event_fd, seccomp_level)
         .expect("Cannot create VMM");
 
     // If this fails, consider it fatal. Use expect().
-    let mut vmm_builder = match config_json {
+    let mut vmm_builder: VmmBuilder = match config_json {
         Some(ref json) => VmmBuilder::from_json(json, seccomp_level, crate_version!().to_string())
             .unwrap_or_else(|err| {
                 error!(
@@ -280,13 +280,6 @@ fn start_vmm(
     };
 
     if let Some(json) = config_json {
-        vmm.configure_from_json(json).unwrap_or_else(|err| {
-            error!(
-                "Setting configuration for VMM from one single json failed: {}",
-                err
-            );
-            process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
-        });
         vmm.start_microvm().unwrap_or_else(|err| {
             error!(
                 "Starting microvm that was configured from one single json failed: {}",
@@ -322,6 +315,9 @@ fn start_vmm(
                     .map(|_| api_server::VmmData::Empty),
                 SetVsockDevice(vsock_cfg) => vmm_builder
                     .with_vsock_device(vsock_cfg)
+                    .map(|_| api_server::VmmData::Empty),
+                SetVmConfiguration(machine_config_body) => vmm_builder
+                    .with_vm_config(machine_config_body)
                     .map(|_| api_server::VmmData::Empty),
 
                 // Operations not allowed pre-boot.
@@ -406,9 +402,6 @@ fn vmm_control_event(
                 SendCtrlAltDel => vmm.send_ctrl_alt_del().map(|_| api_server::VmmData::Empty),
 
                 StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
-                SetVmConfiguration(machine_config_body) => vmm
-                    .set_vm_configuration(machine_config_body)
-                    .map(|_| api_server::VmmData::Empty),
                 UpdateBlockDevicePath(drive_id, path_on_host) => vmm
                     .set_block_device_path(drive_id, path_on_host)
                     .map(|_| api_server::VmmData::Empty),
@@ -437,6 +430,9 @@ fn vmm_control_event(
                     ErrorKind::User,
                     vmm_config::vsock::VsockError::UpdateNotAllowedPostBoot,
                 )),
+                SetVmConfiguration(_) => {
+                    Err(vmm_config::machine_config::VmConfigError::UpdateNotAllowedPostBoot.into())
+                }
             };
             // Run the requested action and send back the result.
             to_api

@@ -239,65 +239,6 @@ impl VmmController {
         Ok(GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?)
     }
 
-    /// Set the machine configuration of the microVM.
-    pub fn set_vm_configuration(&mut self, machine_config: VmConfig) -> UserResult {
-        if self.is_instance_initialized() {
-            return Err(VmConfigError::UpdateNotAllowedPostBoot.into());
-        }
-
-        if machine_config.vcpu_count == Some(0) {
-            return Err(VmConfigError::InvalidVcpuCount.into());
-        }
-
-        if machine_config.mem_size_mib == Some(0) {
-            return Err(VmConfigError::InvalidMemorySize.into());
-        }
-
-        let ht_enabled = machine_config
-            .ht_enabled
-            .unwrap_or_else(|| self.vm_config.ht_enabled.unwrap());
-
-        let vcpu_count_value = machine_config
-            .vcpu_count
-            .unwrap_or_else(|| self.vm_config.vcpu_count.unwrap());
-
-        // If hyperthreading is enabled or is to be enabled in this call
-        // only allow vcpu count to be 1 or even.
-        if ht_enabled && vcpu_count_value > 1 && vcpu_count_value % 2 == 1 {
-            return Err(VmConfigError::InvalidVcpuCount.into());
-        }
-
-        // Update all the fields that have a new value.
-        self.vm_config.vcpu_count = Some(vcpu_count_value);
-        self.vm_config.ht_enabled = Some(ht_enabled);
-
-        if machine_config.mem_size_mib.is_some() {
-            self.vm_config.mem_size_mib = machine_config.mem_size_mib;
-        }
-
-        if machine_config.cpu_template.is_some() {
-            self.vm_config.cpu_template = machine_config.cpu_template;
-        }
-
-        Ok(())
-    }
-
-    /// Configures Vmm resources as described by the `config_json` param.
-    pub fn configure_from_json(
-        &mut self,
-        config_json: String,
-    ) -> result::Result<(), VmmActionError> {
-        let vmm_config = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
-            .unwrap_or_else(|e| {
-                error!("Invalid json: {}", e);
-                process::exit(i32::from(FC_EXIT_CODE_INVALID_JSON));
-            });
-        if let Some(machine_config) = vmm_config.machine_config {
-            self.set_vm_configuration(machine_config)?;
-        }
-        Ok(())
-    }
-
     /// Returns the VmConfig.
     pub fn vm_config(&self) -> &VmConfig {
         &self.vm_config
