@@ -342,9 +342,7 @@ fn start_vmm(
                 RescanBlockDevice(_) => {
                     Err(vmm_config::drive::DriveError::OperationNotAllowedPreBoot.into())
                 }
-
-                // Work in progress.
-                _ => unimplemented!(),
+                SendCtrlAltDel => Err(vmm::error::VmmActionError::OperationNotSupportedPreBoot),
             };
             // Run the requested action and send back the result.
             to_api

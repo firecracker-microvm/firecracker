@@ -327,6 +327,10 @@ pub enum VmmActionError {
     /// The action `InsertNetworkDevice` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     NetworkConfig(ErrorKind, NetworkInterfaceError),
+    /// The requested operation is not supported after starting the microVM.
+    OperationNotSupportedPostBoot,
+    /// The requested operation is not supported before starting the microVM.
+    OperationNotSupportedPreBoot,
     /// The action `StartMicroVm` failed either because of bad user input (`ErrorKind::User`) or
     /// an internal error (`ErrorKind::Internal`).
     StartMicrovm(ErrorKind, StartMicrovmError),
@@ -467,6 +471,7 @@ impl VmmActionError {
             Logger(ref kind, _) => kind,
             MachineConfig(ref kind, _) => kind,
             NetworkConfig(ref kind, _) => kind,
+            OperationNotSupportedPostBoot | OperationNotSupportedPreBoot => &ErrorKind::User,
             StartMicrovm(ref kind, _) => kind,
             SendCtrlAltDel(ref kind, _) => kind,
             VsockConfig(ref kind, _) => kind,
@@ -478,18 +483,26 @@ impl Display for VmmActionError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::VmmActionError::*;
 
-        let error = match *self {
-            BootSource(_, ref err) => err as &dyn ToString,
-            DriveConfig(_, ref err) => err,
-            Logger(_, ref err) => err,
-            MachineConfig(_, ref err) => err,
-            NetworkConfig(_, ref err) => err,
-            StartMicrovm(_, ref err) => err,
-            SendCtrlAltDel(_, ref err) => err,
-            VsockConfig(_, ref err) => err,
-        };
-
-        write!(f, "{}", error.to_string())
+        write!(
+            f,
+            "{}",
+            match *self {
+                BootSource(_, ref err) => err.to_string(),
+                DriveConfig(_, ref err) => err.to_string(),
+                Logger(_, ref err) => err.to_string(),
+                MachineConfig(_, ref err) => err.to_string(),
+                NetworkConfig(_, ref err) => err.to_string(),
+                OperationNotSupportedPostBoot =>
+                    "The requested operation is not supported after starting the microVM."
+                        .to_string(),
+                OperationNotSupportedPreBoot =>
+                    "The requested operation is not supported before starting the microVM."
+                        .to_string(),
+                StartMicrovm(_, ref err) => err.to_string(),
+                SendCtrlAltDel(_, ref err) => err.to_string(),
+                VsockConfig(_, ref err) => err.to_string(),
+            }
+        )
     }
 }
 
