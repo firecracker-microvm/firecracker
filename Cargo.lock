@@ -24,6 +24,7 @@ dependencies = [
  "micro_http",
  "mmds",
  "rate_limiter",
+ "seccomp",
  "serde",
  "serde_derive",
  "serde_json",
