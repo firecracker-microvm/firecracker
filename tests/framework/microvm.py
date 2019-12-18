@@ -47,7 +47,6 @@ class Microvm:
         fc_binary_path,
         jailer_binary_path,
         microvm_id,
-        build_feature='',
         monitor_memory=True,
         bin_cloner_path=None,
         config_file=None,
@@ -56,8 +55,6 @@ class Microvm:
         """Set up microVM attributes, paths, and data structures."""
         # Unique identifier for this machine.
         self._microvm_id = microvm_id
-
-        self.build_feature = build_feature
 
         # Compose the paths to the resources specific to this microvm.
         self._path = os.path.join(resource_path, microvm_id)
