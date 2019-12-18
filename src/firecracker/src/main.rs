@@ -262,39 +262,42 @@ fn start_vmm(
 ) {
     use vmm::{ErrorKind, VmmActionError};
 
-    // If this fails, consider it fatal. Use expect().
-    let mut vmm: VmmController = VmmController::new(api_shared_info, &api_event_fd, seccomp_level)
-        .expect("Cannot create VMM");
+    // The driving epoll engine.
+    let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
+    epoll_context
+        .add_epollin_event(&api_event_fd, vmm::EpollDispatch::VmmActionRequest)
+        .expect("Cannot add vmm control_fd to epoll.");
 
     // If this fails, consider it fatal. Use expect().
     let mut vmm_builder: VmmBuilder = match config_json {
-        Some(ref json) => VmmBuilder::from_json(json, seccomp_level, crate_version!().to_string())
-            .unwrap_or_else(|err| {
-                error!(
-                    "Setting configuration for VMM from one single json failed: {}",
-                    err
-                );
-                process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
-            }),
+        Some(ref json) => {
+            VmmBuilder::from_json(json, seccomp_level, crate_version!().to_string()).unwrap_or_else(
+                |err| {
+                    error!(
+                        "Setting configuration for VMM from one single json failed: {}",
+                        err
+                    );
+                    process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
+                },
+            )
+            //vmm.start_microvm().unwrap_or_else(|err| {
+            //    error!(
+            //        "Starting microvm that was configured from one single json failed: {}",
+            //        err
+            //    );
+            //    process::exit(i32::from(vmm::FC_EXIT_CODE_UNEXPECTED_ERROR));
+            //});
+            //info!("Successfully started microvm that was configured from one single json");
+        }
         None => VmmBuilder::new(seccomp_level).expect("Cannot create VmmBuilder"),
     };
-
-    if let Some(json) = config_json {
-        vmm.start_microvm().unwrap_or_else(|err| {
-            error!(
-                "Starting microvm that was configured from one single json failed: {}",
-                err
-            );
-            process::exit(i32::from(vmm::FC_EXIT_CODE_UNEXPECTED_ERROR));
-        });
-        info!("Successfully started microvm that was configured from one single json");
-    }
 
     match from_api.recv() {
         Ok(vmm_request) => {
             use api_server::VmmAction::*;
             let action_request = *vmm_request;
             let response = match action_request {
+                // Supported operations allowed pre-boot.
                 ConfigureBootSource(boot_source_body) => vmm_builder
                     .with_boot_source(boot_source_body)
                     .map(|_| api_server::VmmData::Empty),
@@ -325,7 +328,9 @@ fn start_vmm(
                 UpdateNetworkInterface(netif_update) => vmm_builder
                     .update_net_rate_limiters(netif_update)
                     .map(|_| api_server::VmmData::Empty),
-
+                StartMicroVm => vmm_builder
+                    .build_microvm(&mut epoll_context)
+                    .map(|_| api_server::VmmData::Empty),
 
                 // Operations not allowed pre-boot.
                 FlushMetrics => Err(VmmActionError::Logger(
@@ -337,7 +342,6 @@ fn start_vmm(
                 RescanBlockDevice(_) => {
                     Err(vmm_config::drive::DriveError::OperationNotAllowedPreBoot.into())
                 }
-
 
                 // Work in progress.
                 _ => unimplemented!(),
@@ -352,6 +356,11 @@ fn start_vmm(
             panic!("The channel's sending half was disconnected. Cannot receive data.");
         }
     };
+
+    // If this fails, consider it fatal. Use expect().
+    let mut vmm: VmmController =
+        VmmController::new(api_shared_info, &api_event_fd, seccomp_level, epoll_context)
+            .expect("Cannot create VMM");
 
     let exit_code = loop {
         match vmm.run_event_loop() {
@@ -399,6 +408,7 @@ fn vmm_control_event(
             use api_server::VmmAction::*;
             let action_request = *vmm_request;
             let response = match action_request {
+                // Supported operations allowed post-boot.
                 FlushMetrics => vmm.flush_metrics().map(|_| api_server::VmmData::Empty),
                 GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
                     vmm.vm_config().clone(),
@@ -415,11 +425,7 @@ fn vmm_control_event(
                     .update_net_rate_limiters(netif_update)
                     .map(|_| api_server::VmmData::Empty),
 
-
-                StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
-
-
-                // Operations not allowed post boot.
+                // Operations not allowed post-boot.
                 ConfigureBootSource(_) => Err(VmmActionError::BootSource(
                     ErrorKind::User,
                     vmm_config::boot_source::BootSourceConfigError::UpdateNotAllowedPostBoot,
@@ -443,6 +449,8 @@ fn vmm_control_event(
                 SetVmConfiguration(_) => {
                     Err(vmm_config::machine_config::VmConfigError::UpdateNotAllowedPostBoot.into())
                 }
+
+                StartMicroVm => Err(vmm::error::StartMicrovmError::MicroVMAlreadyRunning.into()),
             };
             // Run the requested action and send back the result.
             to_api
