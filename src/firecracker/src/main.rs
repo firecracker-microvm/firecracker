@@ -319,6 +319,10 @@ fn start_vmm(
                 SetVmConfiguration(machine_config_body) => vmm_builder
                     .with_vm_config(machine_config_body)
                     .map(|_| api_server::VmmData::Empty),
+                UpdateBlockDevicePath(drive_id, path_on_host) => vmm_builder
+                    .update_block_device_path(drive_id, path_on_host)
+                    .map(|_| api_server::VmmData::Empty),
+
 
                 // Operations not allowed pre-boot.
                 FlushMetrics => Err(VmmActionError::Logger(
@@ -330,6 +334,7 @@ fn start_vmm(
                 RescanBlockDevice(_) => {
                     Err(vmm_config::drive::DriveError::OperationNotAllowedPreBoot.into())
                 }
+
 
                 // Work in progress.
                 _ => unimplemented!(),
@@ -400,14 +405,16 @@ fn vmm_control_event(
                     .map(|_| api_server::VmmData::Empty),
                 #[cfg(target_arch = "x86_64")]
                 SendCtrlAltDel => vmm.send_ctrl_alt_del().map(|_| api_server::VmmData::Empty),
+                UpdateBlockDevicePath(drive_id, path_on_host) => vmm
+                    .update_block_device_path(drive_id, path_on_host)
+                    .map(|_| api_server::VmmData::Empty),
+
 
                 StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
-                UpdateBlockDevicePath(drive_id, path_on_host) => vmm
-                    .set_block_device_path(drive_id, path_on_host)
-                    .map(|_| api_server::VmmData::Empty),
                 UpdateNetworkInterface(netif_update) => vmm
                     .update_net_device(netif_update)
                     .map(|_| api_server::VmmData::Empty),
+
 
                 // Operations not allowed post boot.
                 ConfigureBootSource(_) => Err(VmmActionError::BootSource(

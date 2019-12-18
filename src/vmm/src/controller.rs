@@ -436,7 +436,7 @@ impl VmmController {
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
-    pub fn set_block_device_path(&mut self, drive_id: String, path_on_host: String) -> UserResult {
+    pub fn update_block_device_path(&mut self, drive_id: String, path_on_host: String) -> UserResult {
         // Get the block device configuration specified by drive_id.
         let block_device_index = self
             .device_configs
@@ -457,10 +457,8 @@ impl VmmController {
 
         // When the microvm is running, we also need to update the drive handler and send a
         // rescan command to the drive.
-        if self.is_instance_initialized() {
-            self.update_drive_handler(&drive_id, disk_file)?;
-            self.rescan_block_device(&drive_id)?;
-        }
+        self.update_drive_handler(&drive_id, disk_file)?;
+        self.rescan_block_device(&drive_id)?;
         Ok(())
     }
 
@@ -750,18 +748,18 @@ mod tests {
             let new_block = NamedTempFile::new().unwrap();
             let path = String::from(new_block.path().to_path_buf().to_str().unwrap());
             assert!(ctrl
-                .set_block_device_path("not_root".to_string(), path)
+                .update_block_device_path("not_root".to_string(), path)
                 .is_ok());
 
             // Test partial update of block device fails due to invalid file.
             assert!(ctrl
-                .set_block_device_path("not_root".to_string(), String::from("dummy_path"))
+                .update_block_device_path("not_root".to_string(), String::from("dummy_path"))
                 .is_err());
 
 //            vmm.set_instance_state(InstanceState::Running);
 //            // Test updating the block device path, after instance start.
 //            let path = String::from(new_block.path().to_path_buf().to_str().unwrap());
-//            match vmm.set_block_device_path("not_root".to_string(), path) {
+//            match vmm.update_block_device_path("not_root".to_string(), path) {
 //                Err(VmmActionError::DriveConfig(ErrorKind::User, DriveError::EpollHandlerNotFound)) => {}
 //                Err(e) => panic!("Unexpected error: {:?}", e),
 //                Ok(_) => {

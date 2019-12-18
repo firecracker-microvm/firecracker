@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::{File, OpenOptions};
+use std::path::PathBuf;
 use std::process;
 
 use super::{serde_json, VmmConfig, FC_EXIT_CODE_INVALID_JSON};
@@ -167,6 +168,29 @@ impl VmmBuilder {
             .block
             .insert(block_device_config)
             .map_err(VmmActionError::from)
+    }
+
+    /// Updates the path of the host file backing the emulated block device with id `drive_id`.
+    pub fn update_block_device_path(&mut self, drive_id: String, path_on_host: String) -> UserResult {
+        // Get the block device configuration specified by drive_id.
+        let block_device_index = self
+            .device_configs
+            .block
+            .get_index_of_drive_id(&drive_id)
+            .ok_or(DriveError::InvalidBlockDeviceID)?;
+
+        let file_path = PathBuf::from(path_on_host);
+        // Try to open the file specified by path_on_host using the permissions of the block_device.
+        let _ = OpenOptions::new()
+            .read(true)
+            .write(!self.device_configs.block.config_list[block_device_index].is_read_only())
+            .open(&file_path)
+            .map_err(|_| DriveError::CannotOpenBlockDevice)?;
+
+        // Update the path of the block device with the specified path_on_host.
+        self.device_configs.block.config_list[block_device_index].path_on_host = file_path;
+
+        Ok(())
     }
 
     /// Inserts a network device to be attached when the VM starts.
