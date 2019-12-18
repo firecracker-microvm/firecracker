@@ -436,7 +436,11 @@ impl VmmController {
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
-    pub fn update_block_device_path(&mut self, drive_id: String, path_on_host: String) -> UserResult {
+    pub fn update_block_device_path(
+        &mut self,
+        drive_id: String,
+        path_on_host: String,
+    ) -> UserResult {
         // Get the block device configuration specified by drive_id.
         let block_device_index = self
             .device_configs
@@ -463,65 +467,33 @@ impl VmmController {
     }
 
     /// Updates configuration for an emulated net device as described in `new_cfg`.
-    pub fn update_net_device(&mut self, new_cfg: NetworkInterfaceUpdateConfig) -> UserResult {
-        if !self.is_instance_initialized() {
-            // VM not started yet, so we only need to update the device configs, not the actual
-            // live device.
-            let old_cfg = self
-                .device_configs
-                .network_interface
-                .iter_mut()
-                .find(|&&mut ref c| c.iface_id == new_cfg.iface_id)
-                .ok_or(NetworkInterfaceError::DeviceIdNotFound)?;
+    pub fn update_net_rate_limiters(
+        &mut self,
+        new_cfg: NetworkInterfaceUpdateConfig,
+    ) -> UserResult {
+        let handler = self
+            .epoll_context
+            .get_device_handler_by_device_id::<virtio::NetEpollHandler>(TYPE_NET, &new_cfg.iface_id)
+            .map_err(NetworkInterfaceError::EpollHandlerNotFound)?;
 
-            macro_rules! update_rate_limiter {
-                ($rate_limiter: ident) => {{
-                    if let Some(new_rlim_cfg) = new_cfg.$rate_limiter {
-                        if let Some(ref mut old_rlim_cfg) = old_cfg.$rate_limiter {
-                            // We already have an RX rate limiter set, so we'll update it.
-                            old_rlim_cfg.update(&new_rlim_cfg);
-                        } else {
-                            // No old RX rate limiter; create one now.
-                            old_cfg.$rate_limiter = Some(new_rlim_cfg);
-                        }
-                    }
-                }};
-            }
-
-            update_rate_limiter!(rx_rate_limiter);
-            update_rate_limiter!(tx_rate_limiter);
-        } else {
-            // If we got to here, the VM is running, so the unwrap is safe. We need to update the
-            // live device.
-
-            let handler = self
-                .epoll_context
-                .get_device_handler_by_device_id::<virtio::NetEpollHandler>(
-                    TYPE_NET,
-                    &new_cfg.iface_id,
-                )
-                .map_err(NetworkInterfaceError::EpollHandlerNotFound)?;
-
-            macro_rules! get_handler_arg {
-                ($rate_limiter: ident, $metric: ident) => {{
-                    new_cfg
-                        .$rate_limiter
-                        .map(|rl| {
-                            rl.$metric
-                                .map(vmm_config::TokenBucketConfig::into_token_bucket)
-                        })
-                        .unwrap_or(None)
-                }};
-            }
-
-            handler.patch_rate_limiters(
-                get_handler_arg!(rx_rate_limiter, bandwidth),
-                get_handler_arg!(rx_rate_limiter, ops),
-                get_handler_arg!(tx_rate_limiter, bandwidth),
-                get_handler_arg!(tx_rate_limiter, ops),
-            );
+        macro_rules! get_handler_arg {
+            ($rate_limiter: ident, $metric: ident) => {{
+                new_cfg
+                    .$rate_limiter
+                    .map(|rl| {
+                        rl.$metric
+                            .map(vmm_config::TokenBucketConfig::into_token_bucket)
+                    })
+                    .unwrap_or(None)
+            }};
         }
 
+        handler.patch_rate_limiters(
+            get_handler_arg!(rx_rate_limiter, bandwidth),
+            get_handler_arg!(rx_rate_limiter, ops),
+            get_handler_arg!(tx_rate_limiter, bandwidth),
+            get_handler_arg!(tx_rate_limiter, ops),
+        );
         Ok(())
     }
 }

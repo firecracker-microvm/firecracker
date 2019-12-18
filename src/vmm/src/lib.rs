@@ -1404,7 +1404,7 @@ mod tests {
         })
         .unwrap();
 
-        vmm.update_net_device(NetworkInterfaceUpdateConfig {
+        vmm.update_net_rate_limiters(NetworkInterfaceUpdateConfig {
             iface_id: "1".to_string(),
             rx_rate_limiter: Some(RateLimiterConfig {
                 bandwidth: None,
@@ -1444,7 +1444,7 @@ mod tests {
 
         // The update should fail before device activation.
         assert!(vmm
-            .update_net_device(NetworkInterfaceUpdateConfig {
+            .update_net_rate_limiters(NetworkInterfaceUpdateConfig {
                 iface_id: "1".to_string(),
                 rx_rate_limiter: None,
                 tx_rate_limiter: None,
@@ -1479,7 +1479,7 @@ mod tests {
         }
 
         // the update should succeed after the device activation
-        vmm.update_net_device(NetworkInterfaceUpdateConfig {
+        vmm.update_net_rate_limiters(NetworkInterfaceUpdateConfig {
             iface_id: "1".to_string(),
             rx_rate_limiter: Some(RateLimiterConfig {
                 bandwidth: Some(tbc_2mtps),

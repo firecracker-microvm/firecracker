@@ -171,7 +171,11 @@ impl VmmBuilder {
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
-    pub fn update_block_device_path(&mut self, drive_id: String, path_on_host: String) -> UserResult {
+    pub fn update_block_device_path(
+        &mut self,
+        drive_id: String,
+        path_on_host: String,
+    ) -> UserResult {
         // Get the block device configuration specified by drive_id.
         let block_device_index = self
             .device_configs
@@ -199,6 +203,37 @@ impl VmmBuilder {
             .network_interface
             .insert(body)
             .map_err(|e| VmmActionError::NetworkConfig(ErrorKind::User, e))
+    }
+
+    /// Updates configuration for an emulated net device as described in `new_cfg`.
+    pub fn update_net_rate_limiters(
+        &mut self,
+        new_cfg: NetworkInterfaceUpdateConfig,
+    ) -> UserResult {
+        let old_cfg = self
+            .device_configs
+            .network_interface
+            .iter_mut()
+            .find(|&&mut ref c| c.iface_id == new_cfg.iface_id)
+            .ok_or(NetworkInterfaceError::DeviceIdNotFound)?;
+
+        macro_rules! update_rate_limiter {
+            ($rate_limiter: ident) => {{
+                if let Some(new_rlim_cfg) = new_cfg.$rate_limiter {
+                    if let Some(ref mut old_rlim_cfg) = old_cfg.$rate_limiter {
+                        // We already have an RX rate limiter set, so we'll update it.
+                        old_rlim_cfg.update(&new_rlim_cfg);
+                    } else {
+                        // No old RX rate limiter; create one now.
+                        old_cfg.$rate_limiter = Some(new_rlim_cfg);
+                    }
+                }
+            }};
+        }
+
+        update_rate_limiter!(rx_rate_limiter);
+        update_rate_limiter!(tx_rate_limiter);
+        Ok(())
     }
 
     /// Sets a vsock device to be attached when the VM starts.

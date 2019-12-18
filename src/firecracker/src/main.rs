@@ -322,6 +322,9 @@ fn start_vmm(
                 UpdateBlockDevicePath(drive_id, path_on_host) => vmm_builder
                     .update_block_device_path(drive_id, path_on_host)
                     .map(|_| api_server::VmmData::Empty),
+                UpdateNetworkInterface(netif_update) => vmm_builder
+                    .update_net_rate_limiters(netif_update)
+                    .map(|_| api_server::VmmData::Empty),
 
 
                 // Operations not allowed pre-boot.
@@ -408,12 +411,12 @@ fn vmm_control_event(
                 UpdateBlockDevicePath(drive_id, path_on_host) => vmm
                     .update_block_device_path(drive_id, path_on_host)
                     .map(|_| api_server::VmmData::Empty),
+                UpdateNetworkInterface(netif_update) => vmm
+                    .update_net_rate_limiters(netif_update)
+                    .map(|_| api_server::VmmData::Empty),
 
 
                 StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
-                UpdateNetworkInterface(netif_update) => vmm
-                    .update_net_device(netif_update)
-                    .map(|_| api_server::VmmData::Empty),
 
 
                 // Operations not allowed post boot.
