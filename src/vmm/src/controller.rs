@@ -4,58 +4,30 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::path::PathBuf;
-use std::process;
 use std::result;
-use std::sync::{Arc, RwLock};
 
-use super::{
-    EpollContext, EpollDispatch, ErrorKind, EventLoopExitReason, Result, UserResult, VcpuConfig,
-    Vmm, VmmActionError, VmmConfig, FC_EXIT_CODE_INVALID_JSON,
-};
+use super::{EpollContext, EventLoopExitReason, Result, UserResult, Vmm, VmmActionError};
 
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
-use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
-use devices::virtio::{
-    self, MmioDevice, BLOCK_EVENTS_COUNT, NET_EVENTS_COUNT, TYPE_BLOCK, TYPE_NET,
-};
-use error::StartMicrovmError;
-use kernel::{cmdline as kernel_cmdline, loader as kernel_loader};
-use logger::error::LoggerError;
-use logger::LOGGER;
-use utils::eventfd::EventFd;
+use devices::virtio::{self, TYPE_BLOCK, TYPE_NET};
 use vmm_config;
-use vmm_config::boot_source::{BootSourceConfig, KernelConfig, DEFAULT_KERNEL_CMDLINE};
 use vmm_config::device_config::DeviceConfigs;
-use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
-use vmm_config::instance_info::InstanceInfo;
-use vmm_config::logger::LoggerConfigError;
-use vmm_config::machine_config::{VmConfig, VmConfigError};
+use vmm_config::drive::{BlockDeviceConfigs, DriveError};
+use vmm_config::machine_config::VmConfig;
 use vmm_config::net::{
-    NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
-    NetworkInterfaceUpdateConfig,
+    NetworkInterfaceConfigs, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
-use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 
 /// Enables pre-boot setup, instantiation and real time configuration of a Firecracker VMM.
 pub struct VmmController {
     device_configs: DeviceConfigs,
     epoll_context: EpollContext,
-    kernel_config: Option<KernelConfig>,
     vm_config: VmConfig,
-    shared_info: Arc<RwLock<InstanceInfo>>,
-    vmm: Option<Vmm>,
-    seccomp_level: u32,
+    vmm: Vmm,
 }
 
 impl VmmController {
-    fn is_instance_initialized(&self) -> bool {
-        self.shared_info
-            .read()
-            .expect("poisoned shared_info")
-            .started
-    }
-
     /// Returns the VmConfig.
     pub fn vm_config(&self) -> &VmConfig {
         &self.vm_config
@@ -66,61 +38,44 @@ impl VmmController {
     /// metrics flushing logic entirely on the outside.
     pub fn flush_metrics(&mut self) -> UserResult {
         // Will change from Option in later commit, just unwrap for now.
-        self.vmm.as_mut().unwrap().flush_metrics()
+        self.vmm.flush_metrics()
     }
 
     /// Injects CTRL+ALT+DEL keystroke combo to the inner Vmm (if present).
     #[cfg(target_arch = "x86_64")]
     pub fn send_ctrl_alt_del(&mut self) -> UserResult {
-        self.vmm.as_mut().unwrap().send_ctrl_alt_del()
+        self.vmm.send_ctrl_alt_del()
     }
 
     /// Stops the inner Vmm (if present) and exits the process with the provided exit_code.
     pub fn stop(&mut self, exit_code: i32) {
-        if let Some(vmm) = self.vmm.as_mut() {
-            // This currently exits the process.
-            vmm.stop(exit_code)
-        } else {
-            process::exit(exit_code)
-        }
+        self.vmm.stop(exit_code)
     }
 
     /// Creates a new `VmmController`.
-    pub fn new(
-        api_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_event_fd: &EventFd,
-        seccomp_level: u32,
-        epoll_context: EpollContext,
-    ) -> Result<Self> {
+    pub fn new(epoll_context: EpollContext, vmm: Vmm) -> Self {
         let device_configs = DeviceConfigs::new(
             BlockDeviceConfigs::new(),
             NetworkInterfaceConfigs::new(),
             None,
         );
 
-        Ok(VmmController {
+        VmmController {
             device_configs,
             epoll_context,
-            kernel_config: None,
             vm_config: VmConfig::default(),
-            shared_info: api_shared_info,
-            vmm: None,
-            seccomp_level,
-        })
+            vmm,
+        }
     }
 
     /// Wait for and dispatch events. Will defer to the inner Vmm loop after it's started.
     pub fn run_event_loop(&mut self) -> Result<EventLoopExitReason> {
-        self.vmm
-            .as_mut()
-            .unwrap()
-            .run_event_loop(&mut self.epoll_context)
+        self.vmm.run_event_loop(&mut self.epoll_context)
     }
 
     /// Triggers a rescan of the host file backing the emulated block device with id `drive_id`.
     pub fn rescan_block_device(&mut self, drive_id: &str) -> UserResult {
         // Rescan can only happen after the guest is booted.
-        let vmm = self.vmm.as_mut().unwrap();
         for drive_config in self.device_configs.block.config_list.iter() {
             if drive_config.drive_id != *drive_id {
                 continue;
@@ -139,7 +94,10 @@ impl VmmController {
                 );
             }
 
-            return match vmm.get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id) {
+            return match self
+                .vmm
+                .get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id)
+            {
                 Some(device) => {
                     let data = devices::virtio::build_config_space(new_size);
                     let mut busdev = device

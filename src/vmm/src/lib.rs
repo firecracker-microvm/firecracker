@@ -54,9 +54,8 @@ use std::result;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
-use std::time::Duration;
 
-use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use timerfd::TimerFd;
 
 use arch::DeviceType;
 #[cfg(target_arch = "x86_64")]
@@ -65,12 +64,9 @@ use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio::EpollConfigConstructor;
-use devices::virtio::MmioDevice;
 use devices::{BusDevice, DeviceEventT, EpollHandler, RawIOHandler};
 use error::{Error, Result, UserResult};
 use kernel::cmdline::Cmdline as KernelCmdline;
-#[cfg(target_arch = "x86_64")]
-use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
 #[cfg(target_arch = "x86_64")]
 use logger::LogOption;

@@ -9,16 +9,12 @@ use std::process;
 use std::time::Duration;
 
 use super::{
-    serde_json, EpollContext, EpollDispatch, EventLoopExitReason, KvmContext, MMIODeviceManager,
-    PortIODeviceManager, Vcpu, VcpuConfig, Vm, Vmm, VmmConfig, FC_EXIT_CODE_INVALID_JSON,
+    serde_json, EpollContext, EpollDispatch, KvmContext, MMIODeviceManager, PortIODeviceManager,
+    Vcpu, VcpuConfig, Vm, Vmm, VmmConfig, FC_EXIT_CODE_INVALID_JSON,
 };
 
-use arch::DeviceType;
-use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
-use devices::virtio::{
-    self, MmioDevice, BLOCK_EVENTS_COUNT, NET_EVENTS_COUNT, TYPE_BLOCK, TYPE_NET,
-};
+use devices::virtio::{MmioDevice, BLOCK_EVENTS_COUNT, NET_EVENTS_COUNT, TYPE_BLOCK, TYPE_NET};
 use error::*;
 
 use kernel::{cmdline as kernel_cmdline, loader as kernel_loader};
@@ -30,14 +26,12 @@ use vmm_config;
 use vmm_config::boot_source::{BootSourceConfig, KernelConfig, DEFAULT_KERNEL_CMDLINE};
 use vmm_config::device_config::DeviceConfigs;
 use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
-use vmm_config::instance_info::InstanceInfo;
-use vmm_config::logger::{LoggerConfig, LoggerConfigError, LoggerLevel, LoggerWriter};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
     NetworkInterfaceUpdateConfig,
 };
-use vmm_config::vsock::{VsockDeviceConfig, VsockError};
+use vmm_config::vsock::VsockDeviceConfig;
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
@@ -71,9 +65,10 @@ impl VmmBuilder {
     /// Configures Vmm resources as described by the `config_json` param.
     pub fn from_json(
         config_json: &String,
+        epoll_context: &mut EpollContext,
         seccomp_level: u32,
         firecracker_version: String,
-    ) -> std::result::Result<Self, VmmActionError> {
+    ) -> std::result::Result<Vmm, VmmActionError> {
         let mut builder: Self = Self::new(seccomp_level).expect("Cannot create VmmBuilder");
         let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
             .unwrap_or_else(|e| {
@@ -98,7 +93,8 @@ impl VmmBuilder {
         if let Some(vsock_config) = vmm_config.vsock_device {
             builder.with_vsock_device(vsock_config)?;
         }
-        Ok(builder)
+
+        builder.build_microvm(epoll_context)
     }
 
     /// Returns the VmConfig.
@@ -151,9 +147,7 @@ impl VmmBuilder {
 
     /// Set the guest boot source configuration.
     pub fn with_boot_source(&mut self, boot_source_cfg: BootSourceConfig) -> UserResult {
-        use BootSourceConfigError::{
-            InvalidKernelCommandLine, InvalidKernelPath, UpdateNotAllowedPostBoot,
-        };
+        use BootSourceConfigError::{InvalidKernelCommandLine, InvalidKernelPath};
         use ErrorKind::User;
         use VmmActionError::BootSource;
 
@@ -260,9 +254,10 @@ impl VmmBuilder {
         Ok(())
     }
 
+    // TODO: make this consume self, but also be resilient to errors.
     /// Builds and starts a microVM based on the current configuration.
     pub fn build_microvm(
-        mut self,
+        &mut self,
         epoll_context: &mut EpollContext,
     ) -> std::result::Result<Vmm, VmmActionError> {
         let guest_memory = self.create_guest_memory()?;
