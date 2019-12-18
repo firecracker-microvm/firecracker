@@ -3,7 +3,7 @@
 
 use seccomp::{
     Error, SeccompAction, SeccompCmpArgLen as ArgLen, SeccompCmpOp::Eq, SeccompCondition as Cond,
-    SeccompRule, SECCOMP_LEVEL_ADVANCED, SECCOMP_LEVEL_BASIC, SECCOMP_LEVEL_NONE,
+    SeccompRule,
 };
 
 #[macro_use]
@@ -11,19 +11,6 @@ mod macros;
 mod filters;
 
 pub use self::filters::default_filter;
-
-/// Applies the configured level of seccomp filtering to the current thread.
-pub fn set_seccomp_level(seccomp_level: u32) -> Result<(), Error> {
-    // Load seccomp filters before executing guest code.
-    // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
-    // altogether is the desired behaviour.
-    match seccomp_level {
-        SECCOMP_LEVEL_ADVANCED => default_filter()?.apply(),
-        SECCOMP_LEVEL_BASIC => default_filter()?.allow_all().apply(),
-        SECCOMP_LEVEL_NONE => Ok(()),
-        _ => Err(Error::InvalidLevel),
-    }
-}
 
 // See include/uapi/asm-generic/fcntl.h in the kernel code.
 const FCNTL_FD_CLOEXEC: u64 = 1;
