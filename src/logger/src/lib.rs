@@ -135,7 +135,6 @@ extern crate utils;
 pub mod error;
 pub mod metrics;
 
-use std::error::Error;
 use std::io::Write;
 use std::ops::Deref;
 use std::result;
@@ -605,7 +604,7 @@ impl Logger {
                 }
                 Err(e) => {
                     METRICS.logger.metrics_fails.inc();
-                    return Err(LoggerError::LogMetricFailure(e.description().to_string()));
+                    return Err(LoggerError::LogMetricFailure(e.to_string()));
                 }
             }
         }
