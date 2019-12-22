@@ -4,7 +4,6 @@
 //! Enumeration of errors returned by the logger.
 
 use std;
-use std::error::Error;
 use std::fmt;
 
 /// Describes the errors which may occur while handling logging scenarios.
@@ -44,12 +43,8 @@ impl fmt::Display for LoggerError {
                 "Reinitialization of logger not allowed.".to_string()
             }
             LoggerError::InvalidLogOption(ref s) => format!("Invalid log option: {}", s),
-            LoggerError::LogWrite(ref e) => {
-                format!("Failed to write logs. Error: {}", e.description())
-            }
-            LoggerError::LogFlush(ref e) => {
-                format!("Failed to flush logs. Error: {}", e.description())
-            }
+            LoggerError::LogWrite(ref e) => format!("Failed to write logs. Error: {}", e),
+            LoggerError::LogFlush(ref e) => format!("Failed to flush logs. Error: {}", e),
             LoggerError::LogMetricFailure(ref e) => e.to_string(),
         };
         write!(f, "{}", printable)
