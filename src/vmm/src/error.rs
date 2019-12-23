@@ -345,7 +345,7 @@ pub enum VmmActionError {
 // It's convenient to turn DriveErrors into VmmActionErrors directly.
 impl std::convert::From<DriveError> for VmmActionError {
     fn from(e: DriveError) -> Self {
-        use DriveError::*;
+        use vmm_config::drive::DriveError::*;
 
         // This match is used to force developers who add new types of
         // `DriveError`s to explicitly consider what kind they should
@@ -353,7 +353,7 @@ impl std::convert::From<DriveError> for VmmActionError {
         // something other than `ErrorKind::User` is added.
         let kind = match e {
             // User errors.
-            CannotOpenBlockDevice
+            CannotOpenBlockDevice(_)
             | InvalidBlockDeviceID
             | InvalidBlockDevicePath
             | BlockDevicePathAlreadyExists
@@ -371,7 +371,7 @@ impl std::convert::From<DriveError> for VmmActionError {
 // It's convenient to turn VmConfigErrors into VmmActionErrors directly.
 impl std::convert::From<VmConfigError> for VmmActionError {
     fn from(e: VmConfigError) -> Self {
-        use VmConfigError::*;
+        use vmm_config::machine_config::VmConfigError::*;
 
         // This match is used to force developers who add new types of
         // `VmConfigError`s to explicitly consider what kind they should
@@ -389,8 +389,8 @@ impl std::convert::From<VmConfigError> for VmmActionError {
 // It's convenient to turn NetworkInterfaceErrors into VmmActionErrors directly.
 impl std::convert::From<NetworkInterfaceError> for VmmActionError {
     fn from(e: NetworkInterfaceError) -> Self {
-        use NetworkInterfaceError::*;
-        use TapError::*;
+        use utils::net::TapError::*;
+        use vmm_config::net::NetworkInterfaceError::*;
 
         let kind = match e {
             // User errors.
@@ -528,7 +528,9 @@ mod tests {
     fn test_drive_error_conversion() {
         // Test `DriveError` conversion
         assert_eq!(
-            error_kind(DriveError::CannotOpenBlockDevice),
+            error_kind(DriveError::CannotOpenBlockDevice(
+                io::Error::from_raw_os_error(0)
+            )),
             ErrorKind::User
         );
         assert_eq!(

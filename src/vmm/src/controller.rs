@@ -11,26 +11,23 @@ use super::{EpollContext, EventLoopExitReason, Result, UserResult, Vmm, VmmActio
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{self, TYPE_BLOCK, TYPE_NET};
+use resources::VmResources;
 use vmm_config;
-use vmm_config::device_config::DeviceConfigs;
-use vmm_config::drive::{BlockDeviceConfigs, DriveError};
+use vmm_config::drive::DriveError;
 use vmm_config::machine_config::VmConfig;
-use vmm_config::net::{
-    NetworkInterfaceConfigs, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
-};
+use vmm_config::net::{NetworkInterfaceError, NetworkInterfaceUpdateConfig};
 
 /// Enables pre-boot setup, instantiation and real time configuration of a Firecracker VMM.
 pub struct VmmController {
-    device_configs: DeviceConfigs,
     epoll_context: EpollContext,
-    vm_config: VmConfig,
+    vm_resources: VmResources,
     vmm: Vmm,
 }
 
 impl VmmController {
     /// Returns the VmConfig.
     pub fn vm_config(&self) -> &VmConfig {
-        &self.vm_config
+        self.vm_resources.vm_config()
     }
 
     /// Flush metrics. Defer to inner Vmm if present. We'll move to a variant where the Vmm
@@ -53,17 +50,10 @@ impl VmmController {
     }
 
     /// Creates a new `VmmController`.
-    pub fn new(epoll_context: EpollContext, vmm: Vmm) -> Self {
-        let device_configs = DeviceConfigs::new(
-            BlockDeviceConfigs::new(),
-            NetworkInterfaceConfigs::new(),
-            None,
-        );
-
+    pub fn new(epoll_context: EpollContext, vm_resources: VmResources, vmm: Vmm) -> Self {
         VmmController {
-            device_configs,
             epoll_context,
-            vm_config: VmConfig::default(),
+            vm_resources,
             vmm,
         }
     }
@@ -76,7 +66,7 @@ impl VmmController {
     /// Triggers a rescan of the host file backing the emulated block device with id `drive_id`.
     pub fn rescan_block_device(&mut self, drive_id: &str) -> UserResult {
         // Rescan can only happen after the guest is booted.
-        for drive_config in self.device_configs.block.config_list.iter() {
+        for drive_config in self.vm_resources.block.config_list.iter() {
             if drive_config.drive_id != *drive_id {
                 continue;
             }
@@ -140,7 +130,7 @@ impl VmmController {
     ) -> UserResult {
         // Get the block device configuration specified by drive_id.
         let block_device_index = self
-            .device_configs
+            .vm_resources
             .block
             .get_index_of_drive_id(&drive_id)
             .ok_or(DriveError::InvalidBlockDeviceID)?;
@@ -149,12 +139,12 @@ impl VmmController {
         // Try to open the file specified by path_on_host using the permissions of the block_device.
         let disk_file = OpenOptions::new()
             .read(true)
-            .write(!self.device_configs.block.config_list[block_device_index].is_read_only())
+            .write(!self.vm_resources.block.config_list[block_device_index].is_read_only())
             .open(&file_path)
-            .map_err(|_| DriveError::CannotOpenBlockDevice)?;
+            .map_err(DriveError::CannotOpenBlockDevice)?;
 
         // Update the path of the block device with the specified path_on_host.
-        self.device_configs.block.config_list[block_device_index].path_on_host = file_path;
+        self.vm_resources.block.config_list[block_device_index].path_on_host = file_path;
 
         // When the microvm is running, we also need to update the drive handler and send a
         // rescan command to the drive.
@@ -272,7 +262,7 @@ mod tests {
         };
         assert!(ctrl.insert_block_device(root_block_device.clone()).is_ok());
         assert!(ctrl
-            .device_configs
+            .vm_resources
             .block
             .config_list
             .contains(&root_block_device));
@@ -288,7 +278,7 @@ mod tests {
         };
         assert!(ctrl.insert_block_device(root_block_device.clone()).is_ok());
         assert!(ctrl
-            .device_configs
+            .vm_resources
             .block
             .config_list
             .contains(&root_block_device));

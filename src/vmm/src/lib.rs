@@ -41,6 +41,8 @@ pub mod controller;
 pub mod default_syscalls;
 pub(crate) mod device_manager;
 pub mod error;
+/// Resource store for configured microVM resources.
+pub mod resources;
 /// Signal handling utilities.
 pub mod signal_handler;
 /// Wrappers over structures used to configure the VMM.
@@ -74,15 +76,10 @@ use logger::{Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
 use polly::event_manager::EventManager;
 use utils::eventfd::EventFd;
-use utils::net::TapError;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
-use vmm_config::drive::{BlockDeviceConfig, DriveError};
-use vmm_config::logger::{LoggerConfig, LoggerConfigError};
-use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
-use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceError};
-use vmm_config::vsock::VsockDeviceConfig;
+use vmm_config::logger::LoggerConfigError;
+use vmm_config::machine_config::CpuFeaturesTemplate;
 use vstate::{KvmContext, Vcpu, Vm};
 
 pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
@@ -99,10 +96,8 @@ pub const FC_EXIT_CODE_BAD_SYSCALL: u8 = 148;
 pub const FC_EXIT_CODE_SIGBUS: u8 = 149;
 /// Firecracker was shut down after intercepting `SIGSEGV`.
 pub const FC_EXIT_CODE_SIGSEGV: u8 = 150;
-/// Invalid json passed to the Firecracker process for configuring microvm.
-pub const FC_EXIT_CODE_INVALID_JSON: u8 = 151;
 /// Bad configuration for microvm's resources, when using a single json.
-pub const FC_EXIT_CODE_BAD_CONFIGURATION: u8 = 152;
+pub const FC_EXIT_CODE_BAD_CONFIGURATION: u8 = 151;
 
 /// Describes all possible reasons which may cause the event loop to return to the caller in
 /// the absence of errors.
@@ -362,23 +357,6 @@ impl Drop for EpollContext {
             warn!("Cannot close epoll.");
         }
     }
-}
-
-/// Used for configuring a vmm from one single json passed to the Firecracker process.
-#[derive(Deserialize)]
-pub struct VmmConfig {
-    #[serde(rename = "boot-source")]
-    boot_source: BootSourceConfig,
-    #[serde(rename = "drives")]
-    block_devices: Vec<BlockDeviceConfig>,
-    #[serde(rename = "network-interfaces", default)]
-    net_devices: Vec<NetworkInterfaceConfig>,
-    #[serde(rename = "logger")]
-    logger: Option<LoggerConfig>,
-    #[serde(rename = "machine-config")]
-    machine_config: Option<VmConfig>,
-    #[serde(rename = "vsock")]
-    vsock_device: Option<VsockDeviceConfig>,
 }
 
 /// Encapsulates configuration parameters for the guest vCPUS.
@@ -898,7 +876,8 @@ mod tests {
             let event_manager = EventManager::new().map_err(Error::EventManager)?;
 
             let write_metrics_event_fd =
-                TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(Error::TimerFd)?;
+                TimerFd::new_custom(timerfd::ClockId::Monotonic, true, true)
+                    .map_err(Error::TimerFd)?;
 
             epoll_context
                 .add_epollin_event(

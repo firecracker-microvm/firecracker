@@ -18,6 +18,7 @@ use std::io;
 pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0 \
                                           i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd";
 
+// TODO: remove this
 /// Holds the kernel configuration.
 pub struct KernelConfig {
     /// The commandline validated against correctness.
