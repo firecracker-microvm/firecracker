@@ -78,7 +78,6 @@ be run on every microvm image in the bucket, each as a separate test case.
   by the MicrovmImageFetcher, but not by the fixture template.
 """
 
-import threading
 import os
 import platform
 import shutil
@@ -94,6 +93,7 @@ import host_tools.network as net_tools
 
 from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
+from framework.scheduler import PytestScheduler
 
 
 SPEC_S3_BUCKET = 'spec.ccfc.min'
@@ -108,22 +108,6 @@ ENV_TEST_IMAGES_S3_BUCKET = 'TEST_MICROVM_IMAGES_S3_BUCKET'
 If variable exists in `os.environ`, its value will be used as the s3 bucket
 for microvm test images.
 """
-
-ENV_TMPDIR_VAR = 'TR_TMPDIR'
-"""Environment variable for configuring temporary directory.
-
-If variable exists in `os.environ`, its value it will be used for the test
-session root and temporary directories.
-"""
-
-ENV_KEEP_TEST_SESSION = 'KEEP_TEST_SESSION'
-""" Enviroment variable to override the deletion of the test session root
-directory at the end of the test."""
-
-DEFAULT_ROOT_TESTSESSION_PATH = '/tmp/firecracker_test_session/'
-"""If ENV_TMPDIR_VAR is not set, this path will be used instead."""
-
-IP4_GENERATOR_CREATE_LOCK = threading.Lock()
 
 
 # This codebase uses Python features available in Python 3.6 or above
@@ -165,33 +149,39 @@ def init_microvm(root_path, bin_cloner_path):
     return vm
 
 
+def pytest_configure(config):
+    """Pytest hook - initialization.
+
+    Initialize the test scheduler and IPC services.
+    """
+    PytestScheduler.instance().register_mp_singleton(
+        net_tools.UniqueIPv4Generator.instance()
+    )
+    config.pluginmanager.register(PytestScheduler.instance())
+
+
+def pytest_addoption(parser):
+    """Pytest hook. Add concurrency command line option.
+
+    For some reason, pytest doesn't properly pick up this hook in our plugin
+    class, so we need to call it from here.
+    """
+    return PytestScheduler.instance().do_pytest_addoption(parser)
+
+
 @pytest.fixture(autouse=True, scope='session')
 def test_session_root_path():
     """Ensure and yield the testrun root directory.
 
-    If created here, it is also destroyed during teardown. The root directory
-    is created per test session.
+    Created at session initialization time, this directory will be
+    session-unique. This is important, since the scheduler will run
+    multiple pytest sessions concurrently.
     """
-    created_test_session_root_path = False
-
-    try:
-        root_path = os.environ[ENV_TMPDIR_VAR]
-    except KeyError:
-        root_path = DEFAULT_ROOT_TESTSESSION_PATH
-
-    try:
-        delete_test_session = (len(os.environ[ENV_KEEP_TEST_SESSION]) == 0)
-    except KeyError:
-        delete_test_session = True
-
-    if not os.path.exists(root_path):
-        os.makedirs(root_path)
-        created_test_session_root_path = True
+    root_path = tempfile.mkdtemp(prefix="fctest-")
 
     yield root_path
 
-    if delete_test_session and created_test_session_root_path:
-        shutil.rmtree(root_path)
+    shutil.rmtree(root_path)
 
 
 @pytest.fixture
@@ -331,9 +321,7 @@ def microvm(test_session_root_path, bin_cloner_path):
 @pytest.fixture
 def network_config():
     """Yield a UniqueIPv4Generator."""
-    with IP4_GENERATOR_CREATE_LOCK:
-        ipv4_generator = net_tools.UniqueIPv4Generator.get_instance()
-    yield ipv4_generator
+    yield net_tools.UniqueIPv4Generator.instance()
 
 
 @pytest.fixture(
@@ -400,6 +388,7 @@ def test_multiple_microvms(
         microvms.append(vm)
 
     yield microvms
+
     for i in range(how_many):
         microvms[i].kill()
         shutil.rmtree(os.path.join(test_session_root_path, microvms[i].id))

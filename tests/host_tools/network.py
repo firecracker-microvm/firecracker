@@ -5,13 +5,14 @@
 import os
 import socket
 import struct
-import threading
 
 from io import BytesIO
 from subprocess import run, PIPE
 
 from nsenter import Namespace
 from retry import retry
+
+import framework.mpsing as mpsing
 
 
 class SSHConnection:
@@ -117,45 +118,32 @@ class InvalidIPCount(Exception):
     """No implementation required."""
 
 
-class SingletonReinitializationError(Exception):
-    """No implementation required."""
+class UniqueIPv4Generator(mpsing.MultiprocessSingleton):
+    """Singleton implementation.
 
+    Each microVM needs to have a unique IP on the host network.
 
-class UniqueIPv4Generator:
-    """Each microVM needs to have a unique IP on the host network."""
+    This class should be instantiated once per test session. All the
+    microvms will have to use the same netmask length for
+    the generator to work.
 
-    __instance = None
+    This class will only generate IP addresses from the ranges
+    192.168.0.0 - 192.168.255.255 and 172.16.0.0 - 172.31.255.255 which
+    are the private IPs sub-networks.
 
-    @staticmethod
-    def get_instance():
-        """Singleton implementation.
-
-        This class should be instantiated once per test session. All the
-        microvms will have to use the same netmask length for
-        the generator to work.
-
-        This class will only generate IP addresses from the ranges
-        192.168.0.0 - 192.168.255.255 and 172.16.0.0 - 172.31.255.255 which
-        are the private IPs sub-networks.
-
-        For a network mask of 30 bits, the UniqueIPv4Generator can generate up
-        to 16320 sub-networks, each with 2 valid IPs from the
-        192.168.0.0 - 192.168.255.255 range and 244800 sub-networks from the
-        172.16.0.0 - 172.31.255.255 range.
-        """
-        if not UniqueIPv4Generator.__instance:
-            return UniqueIPv4Generator()
-
-        return UniqueIPv4Generator.__instance
+    For a network mask of 30 bits, the UniqueIPv4Generator can generate up
+    to 16320 sub-networks, each with 2 valid IPs from the
+    192.168.0.0 - 192.168.255.255 range and 244800 sub-networks from the
+    172.16.0.0 - 172.31.255.255 range.
+    """
 
     @staticmethod
     def __ip_to_int(ip: str):
         return int.from_bytes(socket.inet_aton(ip), 'big')
 
     def __init__(self):
-        """Don't call directly. Use get_instance instead."""
-        if self.__instance:
-            raise SingletonReinitializationError
+        """Don't call directly. Use cls.instance() instead."""
+        super().__init__()
 
         # For the IPv4 address range 192.168.0.0 - 192.168.255.255, the mask
         # length is 16 bits. This means that the netmask_len used to
@@ -184,10 +172,6 @@ class UniqueIPv4Generator:
         # subnet is issued.
         self.subnet_max_ip_count = (1 << 32 - self.netmask_len)
 
-        self.lock = threading.Lock()
-
-        UniqueIPv4Generator.__instance = self
-
     def __ensure_next_subnet(self):
         """Raise an exception if there are no subnets available."""
         max_ip_as_int = self.__ip_to_int(
@@ -214,6 +198,7 @@ class UniqueIPv4Generator:
         """Return the network mask length."""
         return self.netmask_len
 
+    @mpsing.ipcmethod
     def get_next_available_subnet_range(self):
         """Return a pair of IPS encompassing an unused subnet.
 
@@ -221,24 +206,24 @@ class UniqueIPv4Generator:
          The mask used is the one defined when instantiating the
          UniqueIPv4Generator class.
         """
-        with self.lock:
-            self.__ensure_next_subnet()
-            next_available_subnet = (
-                socket.inet_ntoa(
-                    struct.pack('!L', self.next_valid_subnet_id)
-                ),
-                socket.inet_ntoa(
-                    struct.pack(
-                        '!L',
-                        self.next_valid_subnet_id +
-                        (self.subnet_max_ip_count - 1)
-                    )
+        self.__ensure_next_subnet()
+        next_available_subnet = (
+            socket.inet_ntoa(
+                struct.pack('!L', self.next_valid_subnet_id)
+            ),
+            socket.inet_ntoa(
+                struct.pack(
+                    '!L',
+                    self.next_valid_subnet_id +
+                    (self.subnet_max_ip_count - 1)
                 )
             )
+        )
 
-            self.next_valid_subnet_id += self.subnet_max_ip_count
-            return next_available_subnet
+        self.next_valid_subnet_id += self.subnet_max_ip_count
+        return next_available_subnet
 
+    @mpsing.ipcmethod
     def get_next_available_ips(self, count):
         """Return a count of unique IPs.
 
@@ -253,19 +238,18 @@ class UniqueIPv4Generator:
         if count > self.subnet_max_ip_count - 2:
             raise InvalidIPCount
 
-        with self.lock:
-            self.__ensure_next_subnet()
-            # The first IP in a subnet is the subnet identifier.
-            next_available_ip = self.next_valid_subnet_id + 1
-            ip_list = []
-            for _ in range(count):
-                ip_as_string = socket.inet_ntoa(
-                    struct.pack('!L', next_available_ip)
-                )
-                ip_list.append(ip_as_string)
-                next_available_ip += 1
-            self.next_valid_subnet_id += self.subnet_max_ip_count
-            return ip_list
+        self.__ensure_next_subnet()
+        # The first IP in a subnet is the subnet identifier.
+        next_available_ip = self.next_valid_subnet_id + 1
+        ip_list = []
+        for _ in range(count):
+            ip_as_string = socket.inet_ntoa(
+                struct.pack('!L', next_available_ip)
+            )
+            ip_list.append(ip_as_string)
+            next_available_ip += 1
+        self.next_valid_subnet_id += self.subnet_max_ip_count
+        return ip_list
 
 
 def mac_from_ip(ip_address):
