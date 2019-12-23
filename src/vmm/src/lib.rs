@@ -80,7 +80,7 @@ use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use vmm_config::logger::LoggerConfigError;
 use vmm_config::machine_config::CpuFeaturesTemplate;
-use vstate::{KvmContext, Vcpu, Vm};
+use vstate::{Vcpu, Vm};
 
 pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
 
@@ -388,6 +388,7 @@ pub struct Vmm {
     #[cfg(target_arch = "x86_64")]
     pio_device_manager: PortIODeviceManager,
 
+    // TODO: maybe move this out of Vmm once we switch it to Polly.
     write_metrics_event_fd: TimerFd,
     // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
     seccomp_level: u32,
@@ -861,6 +862,7 @@ impl Vmm {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vstate::KvmContext;
 
     impl Vmm {
         // Left around here because it's called by tests::create_vmm_object in the device_manager

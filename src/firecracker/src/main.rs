@@ -31,7 +31,6 @@ use mmds::MMDS;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
-use vmm::builder::VmmBuilder;
 use vmm::controller::VmmController;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
@@ -242,6 +241,75 @@ fn main() {
     );
 }
 
+/// Creates, starts then controls a vmm.
+///
+/// # Arguments
+///
+/// * `api_shared_info` - A parameter for storing information on the VMM (e.g the current state).
+/// * `api_event_fd` - An event fd used for receiving API associated events.
+/// * `from_api` - The receiver end point of the communication channel.
+/// * `seccomp_level` - The level of seccomp filtering used. Filters are loaded before executing
+///                     guest code. Can be one of 0 (seccomp disabled), 1 (filter by syscall
+///                     number) or 2 (filter by syscall number and argument values).
+/// * `config_json` - Optional parameter that can be used to configure the guest machine without
+///                   using the API socket.
+fn run(
+    api_shared_info: Arc<RwLock<InstanceInfo>>,
+    api_event_fd: EventFd,
+    from_api: Receiver<VmmRequest>,
+    to_api: Sender<VmmResponse>,
+    seccomp_level: u32,
+    config_json: Option<String>,
+) {
+    // The driving epoll engine.
+    let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
+    epoll_context
+        .add_epollin_event(&api_event_fd, vmm::EpollDispatch::VmmActionRequest)
+        .expect("Cannot add vmm control_fd to epoll.");
+
+    // These will be populated from JSON or API.
+    let mut vm_resources = VmResources::default();
+
+    // Build and start the microVM.
+    let vmm = configure_and_build_microvm(
+        &api_event_fd,
+        &from_api,
+        &to_api,
+        seccomp_level,
+        config_json,
+        &mut epoll_context,
+        &mut vm_resources,
+    );
+
+    api_shared_info.write().unwrap().started = true;
+
+    let mut vm_controller: VmmController = VmmController::new(epoll_context, vm_resources, vmm);
+
+    let exit_code = loop {
+        match vm_controller.run_event_loop() {
+            Err(e) => {
+                error!("Abruptly exited VMM control loop: {:?}", e);
+                break vmm::FC_EXIT_CODE_GENERIC_ERROR;
+            }
+            Ok(exit_reason) => match exit_reason {
+                EventLoopExitReason::Break => {
+                    info!("Gracefully terminated VMM control loop");
+                    break vmm::FC_EXIT_CODE_OK;
+                }
+                EventLoopExitReason::ControlAction => {
+                    if let Err(exit_code) =
+                        vmm_control_event(&mut vm_controller, &api_event_fd, &from_api, &to_api)
+                    {
+                        break exit_code;
+                    }
+                }
+            },
+        };
+    };
+
+    vm_controller.stop(i32::from(exit_code));
+}
+
 /// Builds and starts a microVM. It either uses a config json or receives API requests to
 /// get the microVM configuration.
 ///
@@ -268,8 +336,7 @@ fn configure_and_build_microvm(
                 );
                 process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
             });
-        let vmm_builder: VmmBuilder = VmmBuilder::new(&vm_resources, seccomp_level);
-        match vmm_builder.build_microvm(epoll_context) {
+        match vmm::builder::build_microvm(&vm_resources, epoll_context, seccomp_level) {
             Ok(vmm) => {
                 info!("Successfully started microvm that was configured from one single json");
                 return vmm;
@@ -342,11 +409,11 @@ fn configure_and_build_microvm(
                         .map(|_| api_server::VmmData::Empty)
                         .map_err(|e| e.into()),
                     StartMicroVm => {
-                        let vmm_builder: VmmBuilder = VmmBuilder::new(&vm_resources, seccomp_level);
-                        vmm_builder.build_microvm(epoll_context).map(|vmm| {
-                            built_vmm = Some(vmm);
-                            api_server::VmmData::Empty
-                        })
+                        vmm::builder::build_microvm(&vm_resources, epoll_context, seccomp_level)
+                            .map(|vmm| {
+                                built_vmm = Some(vmm);
+                                api_server::VmmData::Empty
+                            })
                     }
 
                     ///////////////////////////////////
@@ -377,75 +444,6 @@ fn configure_and_build_microvm(
             }
         };
     }
-}
-
-/// Creates, starts then controls a vmm.
-///
-/// # Arguments
-///
-/// * `api_shared_info` - A parameter for storing information on the VMM (e.g the current state).
-/// * `api_event_fd` - An event fd used for receiving API associated events.
-/// * `from_api` - The receiver end point of the communication channel.
-/// * `seccomp_level` - The level of seccomp filtering used. Filters are loaded before executing
-///                     guest code. Can be one of 0 (seccomp disabled), 1 (filter by syscall
-///                     number) or 2 (filter by syscall number and argument values).
-/// * `config_json` - Optional parameter that can be used to configure the guest machine without
-///                   using the API socket.
-fn run(
-    api_shared_info: Arc<RwLock<InstanceInfo>>,
-    api_event_fd: EventFd,
-    from_api: Receiver<VmmRequest>,
-    to_api: Sender<VmmResponse>,
-    seccomp_level: u32,
-    config_json: Option<String>,
-) {
-    // The driving epoll engine.
-    let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
-    epoll_context
-        .add_epollin_event(&api_event_fd, vmm::EpollDispatch::VmmActionRequest)
-        .expect("Cannot add vmm control_fd to epoll.");
-
-    // These will be populated from JSON or API.
-    let mut vm_resources = VmResources::default();
-
-    // Build and start the microVM.
-    let vmm = configure_and_build_microvm(
-        &api_event_fd,
-        &from_api,
-        &to_api,
-        seccomp_level,
-        config_json,
-        &mut epoll_context,
-        &mut vm_resources,
-    );
-
-    api_shared_info.write().unwrap().started = true;
-
-    let mut vm_controller: VmmController = VmmController::new(epoll_context, vm_resources, vmm);
-
-    let exit_code = loop {
-        match vm_controller.run_event_loop() {
-            Err(e) => {
-                error!("Abruptly exited VMM control loop: {:?}", e);
-                break vmm::FC_EXIT_CODE_GENERIC_ERROR;
-            }
-            Ok(exit_reason) => match exit_reason {
-                EventLoopExitReason::Break => {
-                    info!("Gracefully terminated VMM control loop");
-                    break vmm::FC_EXIT_CODE_OK;
-                }
-                EventLoopExitReason::ControlAction => {
-                    if let Err(exit_code) =
-                        vmm_control_event(&mut vm_controller, &api_event_fd, &from_api, &to_api)
-                    {
-                        break exit_code;
-                    }
-                }
-            },
-        };
-    };
-
-    vm_controller.stop(i32::from(exit_code));
 }
 
 /// Handles the control event.
