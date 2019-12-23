@@ -4,11 +4,12 @@
 
 import json
 import os
+import platform
 import time
 
 import host_tools.logging as log_tools
 
-MAX_STARTUP_TIME_CPU_US = 8000
+MAX_STARTUP_TIME_CPU_US = {'x86_64': 8000, 'aarch64': 12000}
 """ The maximum acceptable startup time in CPU us. """
 # TODO: Keep a `current` startup time in S3 and validate we don't regress
 
@@ -46,4 +47,4 @@ def test_startup_time(test_microvm_with_api):
           .format(startup_time_us, cpu_startup_time_us))
 
     assert cpu_startup_time_us > 0
-    assert cpu_startup_time_us <= MAX_STARTUP_TIME_CPU_US
+    assert cpu_startup_time_us <= MAX_STARTUP_TIME_CPU_US[platform.machine()]
