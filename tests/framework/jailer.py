@@ -170,7 +170,8 @@ class JailerContext:
     def cleanup(self):
         """Clean up this jailer context."""
         # pylint: disable=subprocess-run-check
-        shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
+        if self.jailer_id:
+            shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
         if self.netns:
             _ = run(
