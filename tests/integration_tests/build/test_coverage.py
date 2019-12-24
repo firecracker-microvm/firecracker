@@ -19,16 +19,13 @@ import pytest
 
 import host_tools.cargo_build as host  # pylint: disable=import-error
 
-COVERAGE_TARGET_PCT = 84.9
-COVERAGE_MAX_DELTA = 0.01
+COVERAGE_TARGET_PCT = 84.90
+COVERAGE_MAX_DELTA = 0.05
 
 CARGO_KCOV_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, 'kcov')
 
 KCOV_COVERAGE_FILE = 'index.js'
 """kcov will aggregate coverage data in this file."""
-
-KCOV_COVERAGE_REGEX = r'"covered":"(\d+\.\d)"'
-"""Regex for extracting coverage data from a kcov output file."""
 
 KCOV_COVERED_LINES_REGEX = r'"covered_lines":"(\d+)"'
 """Regex for extracting number of total covered lines found by kcov."""
@@ -81,19 +78,20 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
     coverage_file = os.path.join(test_session_tmp_path, KCOV_COVERAGE_FILE)
     with open(coverage_file) as cov_output:
         contents = cov_output.read()
-        coverage = float(re.findall(KCOV_COVERAGE_REGEX, contents)[0])
         covered_lines = int(re.findall(KCOV_COVERED_LINES_REGEX, contents)[0])
         total_lines = int(re.findall(KCOV_TOTAL_LINES_REGEX, contents)[0])
-    print("Number of executable lines: " + str(total_lines))
-    print("Number of covered lines: " + str(covered_lines))
-    print("Thus, coverage is: " + str(coverage))
+        coverage = covered_lines / total_lines * 100
+    print("Number of executable lines: {}".format(total_lines))
+    print("Number of covered lines: {}".format(covered_lines))
+    print("Thus, coverage is: {:.2f}%".format(coverage))
 
     coverage_low_msg = (
-        'Current code coverage ({}%) is below the target ({}%).'
+        'Current code coverage ({:.2f}%) is below the target ({}%).'
         .format(coverage, COVERAGE_TARGET_PCT)
     )
 
-    assert coverage >= COVERAGE_TARGET_PCT, coverage_low_msg
+    min_coverage = COVERAGE_TARGET_PCT - COVERAGE_MAX_DELTA
+    assert coverage >= min_coverage, coverage_low_msg
 
     # Get the name of the variable that needs updating.
     namespace = globals()
@@ -101,7 +99,7 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
                        is COVERAGE_TARGET_PCT][0]
 
     coverage_high_msg = (
-        'Current code coverage ({}%) is above the target ({}%).\n'
+        'Current code coverage ({:.2f}%) is above the target ({}%).\n'
         'Please update the value of {}.'
         .format(coverage, COVERAGE_TARGET_PCT, cov_target_name)
     )
