@@ -10,6 +10,7 @@ extern crate epoll;
 extern crate logger;
 extern crate micro_http;
 extern crate mmds;
+extern crate seccomp;
 extern crate utils;
 extern crate vmm;
 
@@ -28,8 +29,8 @@ pub use micro_http::{
 use mmds::data_store;
 use mmds::data_store::Mmds;
 use parsed_request::ParsedRequest;
+use seccomp::SeccompFilter;
 use utils::eventfd::EventFd;
-use vmm::default_syscalls;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
 use vmm::vmm_config::instance_info::InstanceInfo;
@@ -159,7 +160,7 @@ impl ApiServer {
         path: PathBuf,
         start_time_us: Option<u64>,
         start_time_cpu_us: Option<u64>,
-        seccomp_level: u32,
+        seccomp_filter: SeccompFilter,
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap();
 
@@ -184,7 +185,7 @@ impl ApiServer {
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = default_syscalls::set_seccomp_level(seccomp_level) {
+        if let Err(e) = seccomp_filter.apply() {
             panic!(
                 "Failed to set the requested seccomp filters on the API thread: Error: {:?}",
                 e
@@ -644,7 +645,7 @@ mod tests {
                     PathBuf::from(path_to_socket.to_string()),
                     Some(1),
                     Some(1),
-                    0,
+                    SeccompFilter::empty(),
                 )
                 .unwrap();
             })
@@ -663,38 +664,5 @@ mod tests {
         assert!(sock.write_all(b"OPTIONS / HTTP/1.1\r\n\r\n").is_ok());
         let mut buf: [u8; 100] = [0; 100];
         assert!(sock.read(&mut buf[..]).unwrap() > 0);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_invalid_seccomp() {
-        let path_to_socket = "/tmp/api_server_test_socket2.sock";
-        fs::remove_file(path_to_socket).unwrap_or_default();
-        let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
-            state: InstanceState::Uninitialized,
-            id: "test_handle_request".to_string(),
-            vmm_version: "version 0.1.0".to_string(),
-        }));
-
-        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let (api_request_sender, _from_api) = channel();
-        let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
-
-        ApiServer::new(
-            mmds_info,
-            vmm_shared_info,
-            api_request_sender,
-            vmm_response_receiver,
-            to_vmm_fd,
-        )
-        .expect("Cannot create API server")
-        .bind_and_run(
-            PathBuf::from(path_to_socket.to_string()),
-            Some(1),
-            Some(1),
-            89,
-        )
-        .unwrap();
     }
 }

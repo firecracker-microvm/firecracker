@@ -245,13 +245,6 @@ extern crate libc;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
-/// Level of filtering that causes syscall numbers and parameters to be examined.
-pub const SECCOMP_LEVEL_ADVANCED: u32 = 2;
-/// Level of filtering that causes only syscall numbers to be examined.
-pub const SECCOMP_LEVEL_BASIC: u32 = 1;
-/// Seccomp filtering disabled.
-pub const SECCOMP_LEVEL_NONE: u32 = 0;
-
 /// Maximum number of instructions that a BPF program can have.
 const BPF_MAX_LEN: usize = 4096;
 
@@ -335,8 +328,6 @@ pub enum Error {
     IntoBpf,
     /// Argument number that exceeds the maximum value.
     InvalidArgumentNumber,
-    /// Invalid Seccomp level requested.
-    InvalidLevel,
     /// Failed to load seccomp rules into the kernel.
     Load(i32),
 }
@@ -352,7 +343,6 @@ impl Display for Error {
             InvalidArgumentNumber => {
                 write!(f, "The seccomp rule contains an invalid argument number.")
             }
-            InvalidLevel => write!(f, "The requested seccomp level is invalid."),
             Load(err) => write!(
                 f,
                 "Failed to load seccomp rules into the kernel with error {}.",
@@ -406,7 +396,7 @@ pub struct SeccompCondition {
 }
 
 /// Actions that `seccomp` can apply to process calling a syscall.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum SeccompAction {
     /// Allows syscall.
     Allow,
@@ -454,6 +444,7 @@ pub fn allow_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> Syscall
 }
 
 /// Filter containing rules assigned to syscall numbers.
+#[derive(Clone)]
 pub struct SeccompFilter {
     /// Map of syscall numbers and corresponding rule chains.
     rules: BTreeMap<i64, Vec<SeccompRule>>,
@@ -918,6 +909,10 @@ impl SeccompFilter {
     ///
     /// * `level` - Filtering level.
     pub fn apply(self) -> Result<()> {
+        // This filter allows everything, there's no reason to compile and apply it.
+        if self.rules.is_empty() && self.default_action == SeccompAction::Allow {
+            return Ok(());
+        }
         let mut bpf_filter = Vec::new();
         bpf_filter.extend(VALIDATE_ARCHITECTURE());
         bpf_filter.extend(self.into_bpf().map_err(|_| Error::Load(libc::EINVAL))?);
@@ -1049,6 +1044,14 @@ impl SeccompFilter {
             );
         }
         self
+    }
+
+    /// Creates an empty `SeccompFilter` which allows everything.
+    pub fn empty() -> SeccompFilter {
+        Self {
+            rules: BTreeMap::new(),
+            default_action: SeccompAction::Allow,
+        }
     }
 }
 
@@ -1927,10 +1930,6 @@ mod tests {
             "The seccomp rule contains an invalid argument number."
         );
         assert_eq!(
-            format!("{}", Error::InvalidLevel),
-            "The requested seccomp level is invalid."
-        );
-        assert_eq!(
             format!("{}", Error::Load(42)),
             "Failed to load seccomp rules into the kernel with error 42."
         );
@@ -1944,5 +1943,14 @@ mod tests {
         assert_eq!(0x7ffc_0000, u32::from(SeccompAction::Log));
         assert_eq!(0x7ff0_002a, u32::from(SeccompAction::Trace(42)));
         assert_eq!(0x0003_0000, u32::from(SeccompAction::Trap));
+    }
+
+    #[test]
+    fn test_seccomp_empty() {
+        let rc1 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
+        assert_eq!(rc1, 0);
+        SeccompFilter::empty().apply().unwrap();
+        let rc2 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
+        assert_eq!(rc2, 0);
     }
 }

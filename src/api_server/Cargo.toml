@@ -13,6 +13,7 @@ libc = ">=0.2.39"
 logger = { path = "../logger" }
 micro_http = { path = "../micro_http" }
 mmds = { path = "../mmds" }
+seccomp = { path = "../seccomp" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 

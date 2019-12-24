@@ -417,7 +417,6 @@ mod tests {
         Vmm::new(
             shared_info,
             &EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD"),
-            0,
         )
         .expect("Cannot Create VMM")
     }

@@ -19,13 +19,13 @@ use arch;
 use arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "x86_64")]
 use cpuid::{c3, filter_cpuid, t2, VmSpec};
-use default_syscalls;
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{kvm_pit_config, CpuId, KVM_MAX_CPUID_ENTRIES, KVM_PIT_SPEAKER_DUMMY};
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{Address, GuestAddress, GuestMemory, GuestMemoryError};
+use seccomp::SeccompFilter;
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
@@ -567,7 +567,7 @@ impl Vcpu {
 
     /// Moves the vcpu to its own thread and constructs a VcpuHandle.
     /// The handle can be used to control the remote vcpu.
-    pub fn start_threaded(mut self, seccomp_level: u32) -> Result<VcpuHandle> {
+    pub fn start_threaded(mut self, seccomp_filter: SeccompFilter) -> Result<VcpuHandle> {
         let event_sender = self.event_sender.take().unwrap();
         let response_receiver = self.response_receiver.take().unwrap();
         let vcpu_thread = thread::Builder::new()
@@ -576,7 +576,7 @@ impl Vcpu {
                 self.init_thread_local_data()
                     .expect("Cannot cleanly initialize vcpu TLS.");
 
-                self.run(seccomp_level);
+                self.run(seccomp_filter);
             })
             .map_err(Error::VcpuSpawn)?;
 
@@ -685,11 +685,11 @@ impl Vcpu {
     /// Runs the vCPU in KVM context in a loop. Handles KVM_EXITs then goes back in.
     /// Note that the state of the VCPU and associated VM must be setup first for this to do
     /// anything useful.
-    pub fn run(&mut self, seccomp_level: u32) {
+    pub fn run(&mut self, seccomp_filter: SeccompFilter) {
         // Load seccomp filters for this vCPU thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = default_syscalls::set_seccomp_level(seccomp_level) {
+        if let Err(e) = seccomp_filter.apply() {
             panic!(
                 "Failed to set the requested seccomp filters on vCPU {}: Error: {}",
                 self.id, e
@@ -1032,14 +1032,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_vcpu_run_failed() {
-        let (_, mut vcpu) = setup_vcpu(0x1000);
-        // Setting an invalid seccomp level should panic.
-        vcpu.run(seccomp::SECCOMP_LEVEL_ADVANCED + 10);
-    }
-
-    #[test]
     fn test_kvm_context() {
         use std::os::unix::fs::MetadataExt;
         use std::os::unix::io::{AsRawFd, FromRawFd};
@@ -1218,9 +1210,9 @@ mod tests {
         vcpu.configure_x86_64(&vm_config, vm_mem, entry_addr)
             .expect("failed to configure vcpu");
 
-        let seccomp_level = 0;
+        let seccomp_filter = seccomp::SeccompFilter::empty();
         let vcpu_handle = vcpu
-            .start_threaded(seccomp_level)
+            .start_threaded(seccomp_filter)
             .expect("failed to start vcpu");
 
         // Queue a Resume event, expect a response.

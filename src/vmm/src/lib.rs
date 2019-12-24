@@ -78,6 +78,7 @@ use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
+use seccomp::SeccompFilter;
 use utils::eventfd::EventFd;
 use utils::net::TapError;
 use utils::terminal::Terminal;
@@ -404,18 +405,11 @@ pub struct Vmm {
     epoll_context: EpollContext,
 
     write_metrics_event_fd: TimerFd,
-
-    // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
-    seccomp_level: u32,
 }
 
 impl Vmm {
     /// Creates a new VMM object.
-    pub fn new(
-        shared_info: Arc<RwLock<InstanceInfo>>,
-        control_fd: &dyn AsRawFd,
-        seccomp_level: u32,
-    ) -> Result<Self> {
+    pub fn new(shared_info: Arc<RwLock<InstanceInfo>>, control_fd: &dyn AsRawFd) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
         epoll_context
@@ -457,7 +451,6 @@ impl Vmm {
             device_configs,
             epoll_context,
             write_metrics_event_fd,
-            seccomp_level,
         })
     }
 
@@ -909,7 +902,12 @@ impl Vmm {
         Ok(vcpus)
     }
 
-    fn start_vcpus(&mut self, mut vcpus: Vec<Vcpu>) -> std::result::Result<(), StartMicrovmError> {
+    fn start_vcpus(
+        &mut self,
+        mut vcpus: Vec<Vcpu>,
+        vmm_seccomp_filter: SeccompFilter,
+        vcpu_seccomp_filter: SeccompFilter,
+    ) -> std::result::Result<(), StartMicrovmError> {
         // vm_config has a default value for vcpu_count.
         let vcpu_count = self
             .vm_config
@@ -926,14 +924,13 @@ impl Vmm {
 
         self.vcpus_handles.reserve(vcpu_count as usize);
 
-        let seccomp_level = self.seccomp_level;
         for mut vcpu in vcpus.drain(..) {
             if let Some(ref mmio_device_manager) = self.mmio_device_manager {
                 vcpu.set_mmio_bus(mmio_device_manager.bus.clone());
             }
 
             self.vcpus_handles.push(
-                vcpu.start_threaded(seccomp_level)
+                vcpu.start_threaded(vcpu_seccomp_filter.clone())
                     .map_err(StartMicrovmError::VcpuHandle)?,
             );
         }
@@ -941,7 +938,8 @@ impl Vmm {
         // Load seccomp filters for the VMM thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        default_syscalls::set_seccomp_level(self.seccomp_level)
+        vmm_seccomp_filter
+            .apply()
             .map_err(StartMicrovmError::SeccompFilters)?;
 
         // The vcpus start off in the `Paused` state, let them run.
@@ -1134,7 +1132,11 @@ impl Vmm {
     }
 
     /// Set up the initial microVM state and start the vCPU threads.
-    pub fn start_microvm(&mut self) -> UserResult {
+    pub fn start_microvm(
+        &mut self,
+        vmm_seccomp_filter: SeccompFilter,
+        vcpu_seccomp_filter: SeccompFilter,
+    ) -> UserResult {
         info!("VMM received instance start command");
         if self.is_instance_initialized() {
             return Err(StartMicrovmError::MicroVMAlreadyRunning.into());
@@ -1179,7 +1181,7 @@ impl Vmm {
 
         self.register_events()?;
 
-        self.start_vcpus(vcpus)?;
+        self.start_vcpus(vcpus, vmm_seccomp_filter, vcpu_seccomp_filter)?;
 
         // Use expect() to crash if the other thread poisoned this lock.
         self.shared_info
@@ -1891,7 +1893,6 @@ mod tests {
         Vmm::new(
             shared_info,
             &EventFd::new(libc::EFD_NONBLOCK).expect("Cannot create eventFD"),
-            seccomp::SECCOMP_LEVEL_NONE,
         )
         .expect("Cannot Create VMM")
     }

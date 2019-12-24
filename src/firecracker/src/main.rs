@@ -28,15 +28,48 @@ use std::thread;
 use api_server::{ApiServer, Error, VmmRequest, VmmResponse};
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
+use seccomp::SeccompFilter;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
+use vmm::default_syscalls::default_filter;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 use vmm::{EventLoopExitReason, Vmm};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
+
+/// Level of filtering that causes syscall numbers and parameters to be examined.
+const SECCOMP_LEVEL_ADVANCED: u32 = 2;
+/// Level of filtering that causes only syscall numbers to be examined.
+const SECCOMP_LEVEL_BASIC: u32 = 1;
+/// Seccomp filtering disabled.
+const SECCOMP_LEVEL_NONE: u32 = 0;
+
+/// Possible errors that could be encountered while processing seccomp levels from CLI
+#[derive(Debug)]
+enum SeccompFilterError {
+    Seccomp(seccomp::Error),
+    Parse(std::num::ParseIntError),
+    Level(String),
+}
+
+/// Parse seccomp level and generate a SeccompFilter based on it.
+fn get_seccomp_filter(val: &str) -> Result<SeccompFilter, SeccompFilterError> {
+    match val.parse::<u32>() {
+        Ok(SECCOMP_LEVEL_NONE) => Ok(SeccompFilter::empty()),
+        Ok(SECCOMP_LEVEL_BASIC) => Ok(default_filter()
+            .map_err(SeccompFilterError::Seccomp)?
+            .allow_all()),
+        Ok(SECCOMP_LEVEL_ADVANCED) => default_filter().map_err(SeccompFilterError::Seccomp),
+        Ok(level) => Err(SeccompFilterError::Level(format!(
+            "Invalid value for seccomp level: {}",
+            level
+        ))),
+        Err(err) => Err(SeccompFilterError::Parse(err)),
+    }
+}
 
 fn main() {
     LOGGER
@@ -150,11 +183,9 @@ fn main() {
 
     // It's safe to unwrap here because clap's been provided with a default value,
     // and allowed values are guaranteed to parse to u32.
-    let seccomp_level = cmd_arguments
-        .value_of("seccomp-level")
-        .unwrap()
-        .parse::<u32>()
-        .unwrap();
+    let seccomp_level = cmd_arguments.value_of("seccomp-level").unwrap();
+    let seccomp_filter =
+        get_seccomp_filter(seccomp_level).expect("Could not create seccomp filter");
 
     let start_time_us = cmd_arguments.value_of("start-time-us").map(|s| {
         s.parse::<u64>()
@@ -191,6 +222,7 @@ fn main() {
         let mmds_info = MMDS.clone();
         let vmm_shared_info = api_shared_info.clone();
         let to_vmm_event_fd = request_event_fd.try_clone().unwrap();
+        let api_server_filter = seccomp_filter.clone();
 
         thread::Builder::new()
             .name("fc_api".to_owned())
@@ -207,7 +239,7 @@ fn main() {
                     bind_path,
                     start_time_us,
                     start_time_cpu_us,
-                    seccomp_level,
+                    api_server_filter,
                 ) {
                     Ok(_) => (),
                     Err(Error::Io(inner)) => match inner.kind() {
@@ -232,7 +264,7 @@ fn main() {
         request_event_fd,
         from_api,
         to_api,
-        seccomp_level,
+        seccomp_filter,
         vmm_config_json,
     );
 }
@@ -244,9 +276,8 @@ fn main() {
 /// * `api_shared_info` - A parameter for storing information on the VMM (e.g the current state).
 /// * `api_event_fd` - An event fd used for receiving API associated events.
 /// * `from_api` - The receiver end point of the communication channel.
-/// * `seccomp_level` - The level of seccomp filtering used. Filters are loaded before executing
-///                     guest code. Can be one of 0 (seccomp disabled), 1 (filter by syscall
-///                     number) or 2 (filter by syscall number and argument values).
+/// * `seccomp_filter` - The seccomp filter used. Filters are loaded before executing
+///                     guest code. The caller is responsible for providing a correct filter.
 /// * `config_json` - Optional parameter that can be used to configure the guest machine without
 ///                   using the API socket.
 fn start_vmm(
@@ -254,12 +285,13 @@ fn start_vmm(
     api_event_fd: EventFd,
     from_api: Receiver<VmmRequest>,
     to_api: Sender<VmmResponse>,
-    seccomp_level: u32,
+    seccomp_filter: SeccompFilter,
     config_json: Option<String>,
 ) {
     // If this fails, consider it fatal. Use expect().
-    let mut vmm =
-        Vmm::new(api_shared_info, &api_event_fd, seccomp_level).expect("Cannot create VMM");
+    let mut vmm = Vmm::new(api_shared_info, &api_event_fd).expect("Cannot create VMM");
+    let vmm_seccomp_filter = seccomp_filter.clone();
+    let vcpu_seccomp_filter = seccomp_filter.clone();
 
     if let Some(json) = config_json {
         vmm.configure_from_json(json).unwrap_or_else(|err| {
@@ -269,13 +301,14 @@ fn start_vmm(
             );
             process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
         });
-        vmm.start_microvm().unwrap_or_else(|err| {
-            error!(
-                "Starting microvm that was configured from one single json failed: {}",
-                err
-            );
-            process::exit(i32::from(vmm::FC_EXIT_CODE_UNEXPECTED_ERROR));
-        });
+        vmm.start_microvm(vmm_seccomp_filter.clone(), vcpu_seccomp_filter.clone())
+            .unwrap_or_else(|err| {
+                error!(
+                    "Starting microvm that was configured from one single json failed: {}",
+                    err
+                );
+                process::exit(i32::from(vmm::FC_EXIT_CODE_UNEXPECTED_ERROR));
+            });
         info!("Successfully started microvm that was configured from one single json");
     }
 
@@ -291,9 +324,14 @@ fn start_vmm(
                     break vmm::FC_EXIT_CODE_OK;
                 }
                 EventLoopExitReason::ControlAction => {
-                    if let Err(exit_code) =
-                        vmm_control_event(&mut vmm, &api_event_fd, &from_api, &to_api)
-                    {
+                    if let Err(exit_code) = vmm_control_event(
+                        &mut vmm,
+                        &api_event_fd,
+                        &from_api,
+                        &to_api,
+                        &vmm_seccomp_filter,
+                        &vcpu_seccomp_filter,
+                    ) {
                         break exit_code;
                     }
                 }
@@ -312,6 +350,8 @@ fn vmm_control_event(
     api_event_fd: &EventFd,
     from_api: &Receiver<VmmRequest>,
     to_api: &Sender<VmmResponse>,
+    vmm_seccomp_filter: &SeccompFilter,
+    vcpu_seccomp_filter: &SeccompFilter,
 ) -> Result<(), u8> {
     api_event_fd.read().map_err(|e| {
         error!("VMM: Failed to read the API event_fd: {}", e);
@@ -345,7 +385,9 @@ fn vmm_control_event(
                 RescanBlockDevice(drive_id) => vmm
                     .rescan_block_device(&drive_id)
                     .map(|_| api_server::VmmData::Empty),
-                StartMicroVm => vmm.start_microvm().map(|_| api_server::VmmData::Empty),
+                StartMicroVm => vmm
+                    .start_microvm(vmm_seccomp_filter.clone(), vcpu_seccomp_filter.clone())
+                    .map(|_| api_server::VmmData::Empty),
                 #[cfg(target_arch = "x86_64")]
                 SendCtrlAltDel => vmm.send_ctrl_alt_del().map(|_| api_server::VmmData::Empty),
                 SetVmConfiguration(machine_config_body) => vmm
@@ -372,4 +414,33 @@ fn vmm_control_event(
         }
     };
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_seccomp_filter;
+    use super::SeccompFilterError;
+
+    #[test]
+    fn test_parse_seccomp_ok() {
+        assert!(get_seccomp_filter("0").is_ok());
+        assert!(get_seccomp_filter("1").is_ok());
+        assert!(get_seccomp_filter("2").is_ok());
+    }
+
+    #[test]
+    fn test_parse_seccomp_err_str() {
+        match get_seccomp_filter("whatever") {
+            Err(SeccompFilterError::Parse(_)) => (),
+            _ => panic!("Unexpected result"),
+        }
+    }
+
+    #[test]
+    fn test_parse_seccomp_err_u32() {
+        match get_seccomp_filter("3") {
+            Err(SeccompFilterError::Level(_)) => (),
+            _ => panic!("Unexpected result"),
+        }
+    }
 }
