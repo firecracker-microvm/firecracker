@@ -68,7 +68,7 @@ pub struct VmResources {
 impl VmResources {
     /// Configures Vmm resources as described by the `config_json` param.
     pub fn from_json(
-        config_json: &String,
+        config_json: &str,
         firecracker_version: String,
     ) -> std::result::Result<Self, Error> {
         let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
