@@ -59,7 +59,7 @@ impl ApiAdapter {
                     });
 
                     let (response, maybe_vmm) = self.handle_preboot_request(
-                        vmm_request,
+                        *vmm_request,
                         &mut vm_resources,
                         seccomp_level,
                         epoll_context,
@@ -85,7 +85,7 @@ impl ApiAdapter {
     /// Returns a built/running `Vmm` if handling a successful `StartMicroVm` request.
     fn handle_preboot_request(
         &self,
-        action_request: VmmRequest,
+        action_request: api_server::VmmAction,
         vm_resources: &mut VmResources,
         seccomp_level: u32,
         epoll_context: &mut vmm::EpollContext,
@@ -94,7 +94,7 @@ impl ApiAdapter {
         use vmm::{ErrorKind, VmmActionError};
 
         let mut maybe_vmm = None;
-        let response = match *action_request {
+        let response = match action_request {
             /////////////////////////////////////////
             // Supported operations allowed pre-boot.
             ConfigureBootSource(boot_source_body) => vm_resources

@@ -157,38 +157,37 @@ fn main() {
 
     LOGGER.set_instance_id(instance_id.clone());
 
-    match api_enabled {
-        false => run_without_api(seccomp_level, vmm_config_json),
-        true => {
-            let bind_path = cmd_arguments
-                .value_of("api_sock")
-                .map(PathBuf::from)
-                .expect("Missing argument: api_sock");
+    if api_enabled {
+        let bind_path = cmd_arguments
+            .value_of("api_sock")
+            .map(PathBuf::from)
+            .expect("Missing argument: api_sock");
 
-            let start_time_us = cmd_arguments.value_of("start-time-us").map(|s| {
-                s.parse::<u64>()
-                    .expect("'start-time-us' parameter expected to be of 'u64' type.")
-            });
+        let start_time_us = cmd_arguments.value_of("start-time-us").map(|s| {
+            s.parse::<u64>()
+                .expect("'start-time-us' parameter expected to be of 'u64' type.")
+        });
 
-            let start_time_cpu_us = cmd_arguments.value_of("start-time-cpu-us").map(|s| {
-                s.parse::<u64>()
-                    .expect("'start-time-cpu_us' parameter expected to be of 'u64' type.")
-            });
-            let instance_info = InstanceInfo {
-                id: instance_id,
-                started: false,
-                vmm_version: crate_version!().to_string(),
-            };
-            api_server_adapter::run_with_api(
-                seccomp_level,
-                vmm_config_json,
-                bind_path,
-                instance_info,
-                start_time_us,
-                start_time_cpu_us,
-            )
-        }
-    };
+        let start_time_cpu_us = cmd_arguments.value_of("start-time-cpu-us").map(|s| {
+            s.parse::<u64>()
+                .expect("'start-time-cpu_us' parameter expected to be of 'u64' type.")
+        });
+        let instance_info = InstanceInfo {
+            id: instance_id,
+            started: false,
+            vmm_version: crate_version!().to_string(),
+        };
+        api_server_adapter::run_with_api(
+            seccomp_level,
+            vmm_config_json,
+            bind_path,
+            instance_info,
+            start_time_us,
+            start_time_cpu_us,
+        );
+    } else {
+        run_without_api(seccomp_level, vmm_config_json);
+    }
 }
 
 // Configure and start a microVM as described by the command-line JSON.
