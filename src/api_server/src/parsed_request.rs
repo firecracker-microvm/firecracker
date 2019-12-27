@@ -3,6 +3,7 @@
 
 use serde_json::Value;
 
+use super::VmmData;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use request::actions::parse_put_actions;
 use request::boot_source::parse_put_boot_source;
@@ -15,7 +16,9 @@ use request::machine_configuration::{
 use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use request::net::{parse_patch_net, parse_put_net};
 use request::vsock::parse_put_vsock;
-use {ApiServer, VmmAction, VmmData};
+use ApiServer;
+
+use vmm::controller::{VmmAction, VmmActionError};
 
 #[allow(clippy::large_enum_variant)]
 pub enum ParsedRequest {
@@ -71,7 +74,7 @@ impl ParsedRequest {
     }
 
     pub fn convert_to_response(
-        request_outcome: std::result::Result<VmmData, vmm::VmmActionError>,
+        request_outcome: std::result::Result<VmmData, VmmActionError>,
     ) -> Response {
         match request_outcome {
             Ok(vmm_data) => match vmm_data {
@@ -224,8 +227,9 @@ mod tests {
     use std::str::FromStr;
 
     use micro_http::HttpConnection;
+    use vmm::builder::StartMicrovmError;
+    use vmm::controller::VmmActionError;
     use vmm::vmm_config::machine_config::VmConfig;
-    use vmm::{StartMicrovmError, VmmActionError};
 
     impl PartialEq for ParsedRequest {
         fn eq(&self, other: &ParsedRequest) -> bool {
@@ -467,11 +471,11 @@ mod tests {
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Error.
-        let error = VmmActionError::from(StartMicrovmError::EventFd);
-        let mut buf: [u8; 185] = [0; 185];
+        let error = VmmActionError::from(StartMicrovmError::MissingKernelConfig);
+        let mut buf: [u8; 193] = [0; 193];
         let json = ApiServer::json_fault_message(error.to_string());
         let response = ParsedRequest::convert_to_response(Err(error));
-        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        response.write_all(&mut buf.as_mut()).unwrap();
 
         let expected_response = format!(
             "HTTP/1.1 400 \r\n\

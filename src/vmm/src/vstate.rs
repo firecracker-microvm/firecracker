@@ -7,6 +7,7 @@
 
 use libc::{c_int, c_void, siginfo_t};
 use std::cell::Cell;
+use std::fmt::{Display, Formatter};
 use std::io;
 use std::result;
 use std::sync::atomic::{fence, Ordering};
@@ -127,7 +128,7 @@ pub enum Error {
     /// Failed to get KVM vcpu sregs.
     VcpuGetSregs(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to get KVM vcpu evenct.
+    /// Failed to get KVM vcpu event.
     VcpuGetVcpuEvents(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to get KVM vcpu xcrs.
@@ -135,7 +136,6 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// Failed to get KVM vcpu xsave.
     VcpuGetXsave(kvm_ioctls::Error),
-    #[cfg(target_arch = "x86_64")]
     /// Cannot run the VCPUs.
     VcpuRun(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
@@ -160,7 +160,7 @@ pub enum Error {
     /// Failed to set KVM vcpu sregs.
     VcpuSetSregs(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to set KVM vcpu evenct.
+    /// Failed to set KVM vcpu event.
     VcpuSetVcpuEvents(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to set KVM vcpu xcrs.
@@ -199,6 +199,130 @@ pub enum Error {
     /// Cannot configure the microvm.
     VmSetup(kvm_ioctls::Error),
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::Error::*;
+
+        match self {
+            #[cfg(target_arch = "x86_64")]
+            CpuId(e) => write!(f, "Cpuid error: {:?}", e),
+            GuestMemoryMmap(e) => write!(f, "Guest memory error: {:?}", e),
+            #[cfg(target_arch = "x86_64")]
+            GuestMSRs(e) => write!(f, "Retrieving supported guest MSRs fails: {:?}", e),
+            HTNotInitialized => write!(f, "Hyperthreading flag is not initialized"),
+            KvmApiVersion(v) => write!(
+                f,
+                "The host kernel reports an invalid KVM API version: {}",
+                v
+            ),
+            KvmCap(cap) => write!(f, "Missing KVM capabilities: {:?}", cap),
+            VcpuCountNotInitialized => write!(f, "vCPU count is not initialized"),
+            VmFd(e) => write!(f, "Cannot open the VM file descriptor: {}", e),
+            VcpuFd(e) => write!(f, "Cannot open the VCPU file descriptor: {}", e),
+            VmSetup(e) => write!(f, "Cannot configure the microvm: {}", e),
+            VcpuRun(e) => write!(f, "Cannot run the VCPUs: {}", e),
+            NotEnoughMemorySlots => write!(
+                f,
+                "The number of configured slots is bigger than the maximum reported by KVM"
+            ),
+            #[cfg(target_arch = "x86_64")]
+            LocalIntConfiguration(e) => write!(
+                f,
+                "Cannot set the local interruption due to bad configuration: {:?}",
+                e
+            ),
+            SetUserMemoryRegion(e) => write!(f, "Cannot set the memory regions: {}", e),
+            SignalVcpu(e) => write!(f, "Failed to signal Vcpu: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            MSRSConfiguration(e) => write!(f, "Error configuring the MSR registers: {:?}", e),
+            #[cfg(target_arch = "aarch64")]
+            REGSConfiguration(e) => write!(
+                f,
+                "Error configuring the general purpose aarch64 registers: {}",
+                e
+            ),
+            #[cfg(target_arch = "x86_64")]
+            REGSConfiguration(e) => write!(
+                f,
+                "Error configuring the general purpose registers: {:?}",
+                e
+            ),
+            #[cfg(target_arch = "x86_64")]
+            SREGSConfiguration(e) => write!(f, "Error configuring the special registers: {:?}", e),
+            #[cfg(target_arch = "x86_64")]
+            FPUConfiguration(e) => write!(
+                f,
+                "Error configuring the floating point related registers: {:?}",
+                e
+            ),
+            Irq(e) => write!(f, "Cannot configure the IRQ: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetDebugRegs(e) => write!(f, "Failed to get KVM vcpu debug regs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetLapic(e) => write!(f, "Failed to get KVM vcpu lapic: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetMpState(e) => write!(f, "Failed to get KVM vcpu mp state: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetMsrs(e) => write!(f, "Failed to get KVM vcpu msrs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetRegs(e) => write!(f, "Failed to get KVM vcpu regs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetSregs(e) => write!(f, "Failed to get KVM vcpu sregs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetVcpuEvents(e) => write!(f, "Failed to get KVM vcpu event: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetXcrs(e) => write!(f, "Failed to get KVM vcpu xcrs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetXsave(e) => write!(f, "Failed to get KVM vcpu xsave: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetCpuid(e) => write!(f, "Failed to set KVM vcpu cpuid: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetDebugRegs(e) => write!(f, "Failed to set KVM vcpu debug regs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetLapic(e) => write!(f, "Failed to set KVM vcpu lapic: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetMpState(e) => write!(f, "Failed to set KVM vcpu mp state: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetMsrs(e) => write!(f, "Failed to set KVM vcpu msrs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetRegs(e) => write!(f, "Failed to set KVM vcpu regs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetSregs(e) => write!(f, "Failed to set KVM vcpu sregs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetVcpuEvents(e) => write!(f, "Failed to set KVM vcpu event: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetXcrs(e) => write!(f, "Failed to set KVM vcpu xcrs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetXsave(e) => write!(f, "Failed to set KVM vcpu xsave: {}", e),
+            VcpuSpawn(e) => write!(f, "Cannot spawn a new vCPU thread: {}", e),
+            VcpuTlsInit => write!(f, "Cannot clean init vcpu TLS"),
+            VcpuTlsNotPresent => write!(f, "Vcpu not present in TLS"),
+            VcpuUnhandledKvmExit => write!(f, "Unexpected KVM_RUN exit reason"),
+            #[cfg(target_arch = "x86_64")]
+            VmGetPit2(e) => write!(f, "Failed to get KVM vm pit state: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VmGetClock(e) => write!(f, "Failed to get KVM vm clock: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VmGetIrqChip(e) => write!(f, "Failed to get KVM vm irqchip: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VmSetPit2(e) => write!(f, "Failed to set KVM vm pit state: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VmSetClock(e) => write!(f, "Failed to set KVM vm clock: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VmSetIrqChip(e) => write!(f, "Failed to set KVM vm irqchip: {}", e),
+            #[cfg(target_arch = "aarch64")]
+            SetupGIC(e) => write!(f, "Error setting up the global interrupt controller: {}", e),
+            #[cfg(target_arch = "aarch64")]
+            VcpuArmPreferredTarget(e) => {
+                write!(f, "Error getting the Vcpu preferred target on Arm: {}", e)
+            }
+            #[cfg(target_arch = "aarch64")]
+            VcpuArmInit(e) => write!(f, "Error doing Vcpu Init on Arm: {}", e),
+        }
+    }
+}
+
 pub type Result<T> = result::Result<T, Error>;
 
 /// Describes a KVM context that gets attached to the microVM.

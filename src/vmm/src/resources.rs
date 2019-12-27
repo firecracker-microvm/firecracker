@@ -6,7 +6,9 @@
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 
-use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE};
+use vmm_config::boot_source::{
+    BootConfig, BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE,
+};
 use vmm_config::drive::*;
 use vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
@@ -56,7 +58,7 @@ pub struct VmResources {
     /// The vCpu and memory configuration for this microVM.
     vm_config: VmConfig,
     /// The boot configuration for this microVM.
-    boot_config: Option<BootSourceConfig>,
+    boot_config: Option<BootConfig>,
     /// The configurations for block devices.
     pub block: BlockDeviceConfigs,
     /// The configurations for network interface devices.
@@ -73,10 +75,6 @@ impl VmResources {
     ) -> std::result::Result<Self, Error> {
         let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
             .map_err(|_| Error::InvalidJson)?;
-        //.unwrap_or_else(|e| {
-        //    error!("Invalid json: {}", e);
-        //    process::exit(i32::from(FC_EXIT_CODE_INVALID_JSON));
-        //});
 
         if let Some(logger) = vmm_config.logger {
             init_logger(logger, firecracker_version).map_err(Error::Logger)?;
@@ -152,7 +150,7 @@ impl VmResources {
     }
 
     /// Gets a reference to the boot source configuration.
-    pub fn boot_source(&self) -> Option<&BootSourceConfig> {
+    pub fn boot_source(&self) -> Option<&BootConfig> {
         self.boot_config.as_ref()
     }
 
@@ -161,10 +159,17 @@ impl VmResources {
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<BootSourceConfigError> {
-        use self::BootSourceConfigError::{InvalidKernelCommandLine, InvalidKernelPath};
+        use self::BootSourceConfigError::{
+            InvalidInitrdPath, InvalidKernelCommandLine, InvalidKernelPath,
+        };
 
         // Validate boot source config.
-        let _ = File::open(&boot_source_cfg.kernel_image_path).map_err(InvalidKernelPath)?;
+        let kernel_file =
+            File::open(&boot_source_cfg.kernel_image_path).map_err(InvalidKernelPath)?;
+        let initrd_file: Option<File> = match &boot_source_cfg.initrd_path {
+            Some(path) => Some(File::open(path).map_err(InvalidInitrdPath)?),
+            None => None,
+        };
         let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
         let boot_args = match boot_source_cfg.boot_args.as_ref() {
             None => DEFAULT_KERNEL_CMDLINE,
@@ -174,7 +179,11 @@ impl VmResources {
             .insert_str(boot_args)
             .map_err(|e| InvalidKernelCommandLine(e.to_string()))?;
 
-        self.boot_config = Some(boot_source_cfg);
+        self.boot_config = Some(BootConfig {
+            cmdline,
+            kernel_file,
+            initrd_file,
+        });
         Ok(())
     }
 
