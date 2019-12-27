@@ -6,11 +6,11 @@ use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use api_server::{ApiServer, VmmRequest, VmmResponse};
+use api_server::{ApiRequest, ApiResponse, ApiServer};
 use mmds::MMDS;
 use seccomp::{BpfProgram, BpfProgramRef};
 use utils::eventfd::EventFd;
-use vmm::controller::VmmController;
+use vmm::controller::{ErrorKind, VmmAction, VmmActionError, VmmController, VmmData};
 use vmm::resources::VmResources;
 use vmm::vmm_config;
 use vmm::vmm_config::instance_info::InstanceInfo;
@@ -19,15 +19,15 @@ use super::FIRECRACKER_VERSION;
 
 struct ApiAdapter {
     api_event_fd: EventFd,
-    from_api: Receiver<VmmRequest>,
-    to_api: Sender<VmmResponse>,
+    from_api: Receiver<ApiRequest>,
+    to_api: Sender<ApiResponse>,
 }
 
 impl ApiAdapter {
     pub fn new(
         api_event_fd: EventFd,
-        from_api: Receiver<VmmRequest>,
-        to_api: Sender<VmmResponse>,
+        from_api: Receiver<ApiRequest>,
+        to_api: Sender<ApiResponse>,
     ) -> Self {
         ApiAdapter {
             api_event_fd,
@@ -85,16 +85,15 @@ impl ApiAdapter {
     }
 
     /// Handles the incoming request and provides a response for it.
-    /// Returns a built/running `Vmm` if handling a successful `StartMicroVm` request.
+    /// Returns a built/running `Vmm` after handling a successful `StartMicroVm` request.
     fn handle_preboot_request(
         &self,
-        action_request: api_server::VmmAction,
+        action_request: VmmAction,
         vm_resources: &mut VmResources,
         seccomp_filter: BpfProgramRef,
         epoll_context: &mut vmm::EpollContext,
-    ) -> (VmmResponse, Option<vmm::Vmm>) {
-        use api_server::VmmAction::*;
-        use vmm::{ErrorKind, VmmActionError};
+    ) -> (ApiResponse, Option<vmm::Vmm>) {
+        use vmm::controller::VmmAction::*;
 
         let mut maybe_vmm = None;
         let response = match action_request {
@@ -102,45 +101,45 @@ impl ApiAdapter {
             // Supported operations allowed pre-boot.
             ConfigureBootSource(boot_source_body) => vm_resources
                 .set_boot_source(boot_source_body)
-                .map(|_| api_server::VmmData::Empty)
+                .map(|_| VmmData::Empty)
                 .map_err(|e| VmmActionError::BootSource(ErrorKind::User, e)),
             ConfigureLogger(logger_description) => {
                 vmm_config::logger::init_logger(logger_description, FIRECRACKER_VERSION.to_string())
-                    .map(|_| api_server::VmmData::Empty)
+                    .map(|_| VmmData::Empty)
                     .map_err(|e| VmmActionError::Logger(ErrorKind::User, e))
             }
-            GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
+            GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                 vm_resources.vm_config().clone(),
             )),
             InsertBlockDevice(block_device_config) => vm_resources
                 .set_block_device(block_device_config)
-                .map(|_| api_server::VmmData::Empty)
+                .map(|_| VmmData::Empty)
                 .map_err(|e| e.into()),
             InsertNetworkDevice(netif_body) => vm_resources
                 .set_net_device(netif_body)
-                .map(|_| api_server::VmmData::Empty)
+                .map(|_| VmmData::Empty)
                 .map_err(|e| e.into()),
             SetVsockDevice(vsock_cfg) => {
                 vm_resources.set_vsock_device(vsock_cfg);
-                Ok(api_server::VmmData::Empty)
+                Ok(VmmData::Empty)
             }
             SetVmConfiguration(machine_config_body) => vm_resources
                 .set_vm_config(machine_config_body)
-                .map(|_| api_server::VmmData::Empty)
+                .map(|_| VmmData::Empty)
                 .map_err(|e| e.into()),
             UpdateBlockDevicePath(drive_id, path_on_host) => vm_resources
                 .update_block_device_path(drive_id, path_on_host)
-                .map(|_| api_server::VmmData::Empty)
+                .map(|_| VmmData::Empty)
                 .map_err(|e| e.into()),
             UpdateNetworkInterface(netif_update) => vm_resources
                 .update_net_rate_limiters(netif_update)
-                .map(|_| api_server::VmmData::Empty)
+                .map(|_| VmmData::Empty)
                 .map_err(|e| e.into()),
             StartMicroVm => {
                 vmm::builder::build_microvm(&vm_resources, epoll_context, seccomp_filter).map(
                     |vmm| {
                         maybe_vmm = Some(vmm);
-                        api_server::VmmData::Empty
+                        VmmData::Empty
                     },
                 )
             }
@@ -153,7 +152,7 @@ impl ApiAdapter {
                     "Cannot flush metrics before starting microVM.".to_string(),
                 ),
             )),
-            SendCtrlAltDel => Err(vmm::error::VmmActionError::OperationNotSupportedPreBoot),
+            SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         };
 
         (Box::new(response), maybe_vmm)
@@ -165,7 +164,7 @@ impl vmm::controller::ControlEventHandler for ApiAdapter {
     /// Receives and runs the Vmm action and sends back a response.
     /// Provides program exit codes on errors.
     fn handle_control_event(&self, controller: &mut VmmController) -> Result<(), u8> {
-        use vmm::{ErrorKind, VmmActionError};
+        use vmm::controller::VmmAction::*;
 
         self.api_event_fd.read().map_err(|e| {
             error!("VMM: Failed to read the API event_fd: {}", e);
@@ -174,27 +173,22 @@ impl vmm::controller::ControlEventHandler for ApiAdapter {
 
         match self.from_api.try_recv() {
             Ok(vmm_request) => {
-                use api_server::VmmAction::*;
                 let action_request = *vmm_request;
                 let response = match action_request {
                     ///////////////////////////////////
                     // Supported operations allowed post-boot.
-                    FlushMetrics => controller
-                        .flush_metrics()
-                        .map(|_| api_server::VmmData::Empty),
-                    GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(
+                    FlushMetrics => controller.flush_metrics().map(|_| VmmData::Empty),
+                    GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                         controller.vm_config().clone(),
                     )),
                     #[cfg(target_arch = "x86_64")]
-                    SendCtrlAltDel => controller
-                        .send_ctrl_alt_del()
-                        .map(|_| api_server::VmmData::Empty),
+                    SendCtrlAltDel => controller.send_ctrl_alt_del().map(|_| VmmData::Empty),
                     UpdateBlockDevicePath(drive_id, path_on_host) => controller
                         .update_block_device_path(drive_id, path_on_host)
-                        .map(|_| api_server::VmmData::Empty),
+                        .map(|_| VmmData::Empty),
                     UpdateNetworkInterface(netif_update) => controller
                         .update_net_rate_limiters(netif_update)
-                        .map(|_| api_server::VmmData::Empty),
+                        .map(|_| VmmData::Empty),
 
                     ///////////////////////////////////
                     // Operations not allowed post-boot.
@@ -223,7 +217,7 @@ impl vmm::controller::ControlEventHandler for ApiAdapter {
                     ),
 
                     StartMicroVm => {
-                        Err(vmm::error::StartMicrovmError::MicroVMAlreadyRunning.into())
+                        Err(vmm::builder::StartMicrovmError::MicroVMAlreadyRunning.into())
                     }
                 };
                 // Send back the result.

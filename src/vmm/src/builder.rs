@@ -6,13 +6,17 @@
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use std::convert::TryInto;
-use std::fs::{File, OpenOptions};
+use std::fmt::{Display, Formatter};
+use std::fs::OpenOptions;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::time::Duration;
 
 use super::{EpollContext, EpollDispatch, VcpuConfig, Vmm};
 
 use arch::InitrdConfig;
+use controller::UserResult;
+use controller::VmmActionError;
+use device_manager;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -26,12 +30,170 @@ use seccomp::BpfProgramRef;
 #[cfg(target_arch = "aarch64")]
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
-use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 use vmm_config;
-use vmm_config::boot_source::{BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
-use vstate::{KvmContext, Vm};
+use vmm_config::boot_source::BootConfig;
+use vstate::{self, KvmContext, Vm};
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
+
+/// Errors associated with starting the instance.
+// TODO: add error kind to these variants because not all these errors are user or internal.
+#[derive(Debug)]
+pub enum StartMicrovmError {
+    /// Cannot configure the VM.
+    ConfigureVm(vstate::Error),
+    /// Unable to seek the block device backing file due to invalid permissions or
+    /// the file was deleted/corrupted.
+    CreateBlockDevice(std::io::Error),
+    /// Split this at some point.
+    /// Internal errors are due to resource exhaustion.
+    /// Users errors are due to invalid permissions.
+    CreateNetDevice(devices::virtio::Error),
+    /// Failed to create a `RateLimiter` object.
+    CreateRateLimiter(std::io::Error),
+    /// Failed to create the backend for the vsock device.
+    CreateVsockBackend(devices::virtio::vsock::VsockUnixBackendError),
+    /// Failed to create the vsock device.
+    CreateVsockDevice(devices::virtio::vsock::VsockError),
+    /// Memory regions are overlapping or mmap fails.
+    GuestMemoryMmap(GuestMemoryError),
+    /// Cannot load initrd due to an invalid memory configuration.
+    InitrdLoad,
+    /// Cannot load initrd due to an invalid image.
+    InitrdRead(io::Error),
+    // Temporarily added for mixing calls that may return an Error with others that may return a
+    // StartMicrovmError within the same function.
+    /// Internal error encountered while starting a microVM.
+    Internal(Error),
+    /// The kernel command line is invalid.
+    KernelCmdline(String),
+    /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
+    KernelLoader(kernel::loader::Error),
+    /// Cannot load command line string.
+    LoadCommandline(kernel::cmdline::Error),
+    /// The start command was issued more than once.
+    MicroVMAlreadyRunning,
+    /// Cannot start the VM because the kernel was not configured.
+    MissingKernelConfig,
+    /// The net device configuration is missing the tap device.
+    NetDeviceNotConfigured,
+    /// Cannot open the block device backing file.
+    OpenBlockDevice(std::io::Error),
+    /// Cannot initialize a MMIO Block Device or add a device to the MMIO Bus.
+    RegisterBlockDevice(device_manager::mmio::Error),
+    /// Cannot initialize a MMIO Network Device or add a device to the MMIO Bus.
+    RegisterNetDevice(device_manager::mmio::Error),
+    /// Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus.
+    RegisterVsockDevice(device_manager::mmio::Error),
+}
+
+/// It's convenient to automatically convert `kernel::cmdline::Error`s
+/// to `StartMicrovmError`s.
+impl std::convert::From<kernel::cmdline::Error> for StartMicrovmError {
+    fn from(e: kernel::cmdline::Error) -> StartMicrovmError {
+        StartMicrovmError::KernelCmdline(e.to_string())
+    }
+}
+
+impl Display for StartMicrovmError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::StartMicrovmError::*;
+        match *self {
+            ConfigureVm(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot configure virtual machine. {}", err_msg)
+            }
+            CreateBlockDevice(ref err) => write!(
+                f,
+                "Unable to seek the block device backing file due to invalid permissions or \
+                 the file was deleted/corrupted. Error number: {}",
+                err
+            ),
+            CreateRateLimiter(ref err) => write!(f, "Cannot create RateLimiter: {}", err),
+            CreateVsockBackend(ref err) => {
+                write!(f, "Cannot create backend for vsock device: {:?}", err)
+            }
+            CreateVsockDevice(ref err) => write!(f, "Cannot create vsock device: {:?}", err),
+            CreateNetDevice(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot create network device. {}", err_msg)
+            }
+            GuestMemoryMmap(ref err) => {
+                // Remove imbricated quotes from error message.
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(f, "Invalid Memory Configuration: {}", err_msg)
+            }
+            InitrdLoad => write!(
+                f,
+                "Cannot load initrd due to an invalid memory configuration."
+            ),
+            InitrdRead(ref err) => write!(f, "Cannot load initrd due to an invalid image: {}", err),
+            Internal(ref err) => write!(f, "Internal error while starting microVM: {:?}", err),
+            KernelCmdline(ref err) => write!(f, "Invalid kernel command line: {}", err),
+            KernelLoader(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(
+                    f,
+                    "Cannot load kernel due to invalid memory configuration or invalid kernel \
+                     image. {}",
+                    err_msg
+                )
+            }
+            LoadCommandline(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(f, "Cannot load command line string. {}", err_msg)
+            }
+            MicroVMAlreadyRunning => write!(f, "Microvm already running."),
+            MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),
+            NetDeviceNotConfigured => {
+                write!(f, "The net device configuration is missing the tap device.")
+            }
+            OpenBlockDevice(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot open the block device backing file. {}", err_msg)
+            }
+            RegisterBlockDevice(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(
+                    f,
+                    "Cannot initialize a MMIO Block Device or add a device to the MMIO Bus. {}",
+                    err_msg
+                )
+            }
+            RegisterNetDevice(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(
+                    f,
+                    "Cannot initialize a MMIO Network Device or add a device to the MMIO Bus. {}",
+                    err_msg
+                )
+            }
+            RegisterVsockDevice(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(
+                    f,
+                    "Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus. {}",
+                    err_msg
+                )
+            }
+        }
+    }
+}
 
 /// Builds and starts a microVM based on the current configuration.
 pub fn build_microvm(
@@ -39,7 +201,7 @@ pub fn build_microvm(
     epoll_context: &mut EpollContext,
     seccomp_filter: BpfProgramRef,
 ) -> std::result::Result<Vmm, VmmActionError> {
-    let boot_src_cfg = vm_resources
+    let boot_config = vm_resources
         .boot_source()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
@@ -48,9 +210,10 @@ pub fn build_microvm(
 
     let guest_memory = create_guest_memory(vm_resources)?;
     let vcpu_config = vcpu_config(vm_resources);
-    let entry_addr = load_kernel(boot_src_cfg, &guest_memory)?;
-    let initrd = load_initrd_from_config(boot_src_cfg, &guest_memory)?;
-    let kernel_cmdline = setup_cmdline(boot_src_cfg)?;
+    let entry_addr = load_kernel(boot_config, &guest_memory)?;
+    let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
+    // Clone the command-line so that a failed boot doesn't pollute the original.
+    let kernel_cmdline = boot_config.cmdline.clone();
     let write_metrics_event_fd = setup_metrics(epoll_context)?;
     let event_manager = setup_event_manager(epoll_context)?;
     let vm = setup_kvm_vm(guest_memory.clone())?;
@@ -59,13 +222,14 @@ pub fn build_microvm(
     let pio_device_manager = PortIODeviceManager::new()
         .map_err(Error::CreateLegacyDevice)
         .map_err(StartMicrovmError::Internal)?;
+    // TODO: remove unwrap() below.
     #[cfg(target_arch = "x86_64")]
     let exit_evt = pio_device_manager
         .i8042
         .lock()
         .expect("Failed to start VCPUs due to poisoned i8042 lock")
         .get_reset_evt_clone()
-        .map_err(|_| StartMicrovmError::EventFd)?;
+        .unwrap();
     #[cfg(target_arch = "aarch64")]
     let exit_evt = EventFd::new(libc::EFD_NONBLOCK)
         .map_err(Error::EventFd)
@@ -102,18 +266,24 @@ pub fn build_microvm(
     // while on aarch64 we need to do it the other way around.
     #[cfg(target_arch = "x86_64")]
     {
-        vmm.setup_interrupt_controller()?;
+        vmm.setup_interrupt_controller()
+            .map_err(StartMicrovmError::Internal)?;
         // This call has to be here after setting up the irqchip, because
         // we set up some irqfd inside for some reason.
-        vmm.attach_legacy_devices()?;
+        vmm.attach_legacy_devices()
+            .map_err(StartMicrovmError::Internal)?;
     }
 
-    let vcpus = vmm.create_vcpus(entry_addr, request_ts)?;
+    let vcpus = vmm
+        .create_vcpus(entry_addr, request_ts)
+        .map_err(StartMicrovmError::Internal)?;
 
     #[cfg(target_arch = "aarch64")]
     {
-        vmm.setup_interrupt_controller()?;
-        vmm.attach_legacy_devices()?;
+        vmm.setup_interrupt_controller()
+            .map_err(StartMicrovmError::Internal)?;
+        vmm.attach_legacy_devices()
+            .map_err(StartMicrovmError::Internal)?;
     }
 
     attach_block_devices(&mut vmm, vm_resources, epoll_context)?;
@@ -125,11 +295,13 @@ pub fn build_microvm(
     #[cfg(target_arch = "x86_64")]
     load_cmdline(&vmm)?;
 
-    vmm.configure_system(vcpus.as_slice(), &initrd)?;
-    vmm.register_events(epoll_context)?;
-
+    vmm.configure_system(vcpus.as_slice(), &initrd)
+        .map_err(StartMicrovmError::Internal)?;
+    vmm.register_events(epoll_context)
+        .map_err(StartMicrovmError::Internal)?;
     // Firecracker uses the same seccomp filter for all threads.
-    vmm.start_vcpus(vcpus, seccomp_filter.to_vec(), seccomp_filter)?;
+    vmm.start_vcpus(vcpus, seccomp_filter.to_vec(), seccomp_filter)
+        .map_err(StartMicrovmError::Internal)?;
 
     arm_logger_and_metrics(&mut vmm);
 
@@ -164,12 +336,13 @@ fn vcpu_config(vm_resources: &VmResources) -> VcpuConfig {
 }
 
 fn load_kernel(
-    boot_src_cfg: &BootSourceConfig,
+    boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
 ) -> std::result::Result<GuestAddress, StartMicrovmError> {
-    // FIXME: use the right error here.
-    let mut kernel_file = File::open(&boot_src_cfg.kernel_image_path)
-        .map_err(|_| StartMicrovmError::MissingKernelConfig)?;
+    let mut kernel_file = boot_config
+        .kernel_file
+        .try_clone()
+        .map_err(|e| StartMicrovmError::Internal(Error::KernelFile(e)))?;
 
     let entry_addr =
         kernel::loader::load_kernel(guest_memory, &mut kernel_file, arch::get_kernel_start())
@@ -179,28 +352,16 @@ fn load_kernel(
 }
 
 fn load_initrd_from_config(
-    boot_src_cfg: &BootSourceConfig,
+    boot_cfg: &BootConfig,
     vm_memory: &GuestMemoryMmap,
 ) -> std::result::Result<Option<InitrdConfig>, StartMicrovmError> {
-    use StartMicrovmError::*;
+    use self::StartMicrovmError::InitrdRead;
 
-    // TODO: use the right error in case of open() failure.
-    let initrd_file = match &boot_src_cfg.initrd_path {
-        None => None,
-        Some(path) => Some({ File::open(path).map_err(|_| MissingKernelConfig)? }),
-    };
-
-    Ok(match initrd_file {
-        Some(f) => {
-            let initrd_file = f.try_clone();
-            if initrd_file.is_err() {
-                return Err(InitrdLoader(LoadInitrdError::ReadInitrd(io::Error::from(
-                    io::ErrorKind::InvalidData,
-                ))));
-            }
-            let res = load_initrd(vm_memory, &mut initrd_file.unwrap())?;
-            Some(res)
-        }
+    Ok(match &boot_cfg.initrd_file {
+        Some(f) => Some(load_initrd(
+            vm_memory,
+            &mut f.try_clone().map_err(InitrdRead)?,
+        )?),
         None => None,
     })
 }
@@ -214,18 +375,18 @@ fn load_initrd_from_config(
 fn load_initrd<F>(
     vm_memory: &GuestMemoryMmap,
     image: &mut F,
-) -> std::result::Result<InitrdConfig, LoadInitrdError>
+) -> std::result::Result<InitrdConfig, StartMicrovmError>
 where
     F: Read + Seek,
 {
-    use LoadInitrdError::*;
+    use self::StartMicrovmError::{InitrdLoad, InitrdRead};
 
     let size: usize;
     // Get the image size
     match image.seek(SeekFrom::End(0)) {
-        Err(e) => return Err(ReadInitrd(e)),
+        Err(e) => return Err(InitrdRead(e)),
         Ok(0) => {
-            return Err(ReadInitrd(io::Error::new(
+            return Err(InitrdRead(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Initrd image seek returned a size of zero",
             )))
@@ -233,34 +394,20 @@ where
         Ok(s) => size = s as usize,
     };
     // Go back to the image start
-    image.seek(SeekFrom::Start(0)).map_err(ReadInitrd)?;
+    image.seek(SeekFrom::Start(0)).map_err(InitrdRead)?;
 
     // Get the target address
-    let address = arch::initrd_load_addr(vm_memory, size).map_err(|_| LoadInitrd)?;
+    let address = arch::initrd_load_addr(vm_memory, size).map_err(|_| InitrdLoad)?;
 
     // Load the image into memory
     vm_memory
         .read_from(GuestAddress(address), image, size)
-        .map_err(|_| LoadInitrd)?;
+        .map_err(|_| InitrdLoad)?;
 
     Ok(InitrdConfig {
         address: GuestAddress(address),
         size,
     })
-}
-
-fn setup_cmdline(
-    boot_src_cfg: &BootSourceConfig,
-) -> std::result::Result<kernel::cmdline::Cmdline, StartMicrovmError> {
-    let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-    let boot_args = match boot_src_cfg.boot_args.as_ref() {
-        None => DEFAULT_KERNEL_CMDLINE,
-        Some(str) => str.as_str(),
-    };
-    cmdline
-        .insert_str(boot_args)
-        .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
-    Ok(cmdline)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -340,7 +487,7 @@ fn attach_block_devices(
     vm_resources: &VmResources,
     epoll_context: &mut EpollContext,
 ) -> std::result::Result<(), StartMicrovmError> {
-    use StartMicrovmError::*;
+    use self::StartMicrovmError::*;
 
     // If no PARTUUID was specified for the root device, try with the /dev/vda.
     if vm_resources.block.has_root_block_device() && !vm_resources.block.has_partuuid_root() {
@@ -409,7 +556,7 @@ fn attach_block_devices(
             vmm,
             drive_config.drive_id.clone(),
             MmioDevice::new(vmm.guest_memory().clone(), block_box).map_err(|e| {
-                RegisterMMIODevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
+                RegisterBlockDevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
             })?,
         )?;
     }
@@ -422,7 +569,7 @@ fn attach_net_devices(
     vm_resources: &VmResources,
     epoll_context: &mut EpollContext,
 ) -> UserResult {
-    use StartMicrovmError::*;
+    use self::StartMicrovmError::*;
 
     for cfg in vm_resources.network_interface.iter() {
         let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
@@ -463,7 +610,7 @@ fn attach_net_devices(
             vmm,
             cfg.iface_id.clone(),
             MmioDevice::new(vmm.guest_memory().clone(), net_box).map_err(|e| {
-                RegisterMMIODevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
+                RegisterNetDevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
             })?,
         )?;
     }
@@ -498,7 +645,7 @@ fn attach_vsock_device(
             vmm,
             cfg.vsock_id.clone(),
             MmioDevice::new(vmm.guest_memory().clone(), vsock_box).map_err(|e| {
-                StartMicrovmError::RegisterMMIODevice(
+                StartMicrovmError::RegisterVsockDevice(
                     super::device_manager::mmio::Error::CreateMmioDevice(e),
                 )
             })?,
