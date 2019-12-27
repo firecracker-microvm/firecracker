@@ -67,7 +67,7 @@ use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio::EpollConfigConstructor;
 use devices::{BusDevice, DeviceEventT, EpollHandler, RawIOHandler};
-use error::{Error, Result, UserResult};
+use error::{Error, Result};
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::error::LoggerError;
 #[cfg(target_arch = "x86_64")]
@@ -78,11 +78,8 @@ use polly::event_manager::EventManager;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vmm_config::logger::LoggerConfigError;
 use vmm_config::machine_config::CpuFeaturesTemplate;
 use vstate::{Vcpu, Vm};
-
-pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
 
 /// Success exit code.
 pub const FC_EXIT_CODE_OK: u8 = 0;
@@ -405,17 +402,6 @@ impl Vmm {
         self.mmio_device_manager.get_device(device_type, device_id)
     }
 
-    /// Force writes metrics.
-    pub fn flush_metrics(&mut self) -> UserResult {
-        self.write_metrics().map_err(|e| {
-            let (kind, error_contents) = match e {
-                LoggerError::NeverInitialized(s) => (ErrorKind::User, s),
-                _ => (ErrorKind::Internal, e.to_string()),
-            };
-            VmmActionError::Logger(kind, LoggerConfigError::FlushMetrics(error_contents))
-        })
-    }
-
     #[cfg(target_arch = "x86_64")]
     fn log_dirty_pages(&mut self) {
         // If we're logging dirty pages, post the metrics on how many dirty pages there are.
@@ -424,10 +410,12 @@ impl Vmm {
         }
     }
 
+    /// Force writes metrics.
     fn write_metrics(&mut self) -> result::Result<(), LoggerError> {
         // The dirty pages are only available on x86_64.
         #[cfg(target_arch = "x86_64")]
         self.log_dirty_pages();
+        // FIXME: we're losing the bool saying whether metrics were actually written.
         LOGGER.log_metrics().map(|_| ())
     }
 
@@ -448,24 +436,20 @@ impl Vmm {
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn setup_interrupt_controller(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        self.vm
-            .setup_irqchip()
-            .map_err(StartMicrovmError::ConfigureVm)
+    fn setup_interrupt_controller(&mut self) -> Result<()> {
+        self.vm.setup_irqchip().map_err(Error::Vm)
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn setup_interrupt_controller(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        self.vm
-            .setup_irqchip(self.vcpu_config.vcpu_count)
-            .map_err(StartMicrovmError::ConfigureVm)
+    fn setup_interrupt_controller(&mut self) -> Result<()> {
+        self.vm.setup_irqchip(self.vcpu_config.vcpu_count)
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn attach_legacy_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
+    fn attach_legacy_devices(&mut self) -> Result<()> {
         self.pio_device_manager
             .register_devices()
-            .map_err(StartMicrovmError::LegacyIOBus)?;
+            .map_err(Error::LegacyIOBus)?;
 
         macro_rules! register_irqfd_evt {
             ($evt: ident, $index: expr) => {{
@@ -473,7 +457,7 @@ impl Vmm {
                     .fd()
                     .register_irqfd(&self.pio_device_manager.$evt, $index)
                     .map_err(|e| {
-                        StartMicrovmError::LegacyIOBus(device_manager::legacy::Error::EventFd(
+                        Error::LegacyIOBus(device_manager::legacy::Error::EventFd(
                             io::Error::from_raw_os_error(e.errno()),
                         ))
                     })?;
@@ -487,18 +471,16 @@ impl Vmm {
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn attach_legacy_devices(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        use StartMicrovmError::*;
-
+    fn attach_legacy_devices(&mut self) -> Result<()> {
         if self.kernel_cmdline.as_str().contains("console=") {
             self.mmio_device_manager
                 .register_mmio_serial(self.vm.fd(), &mut self.kernel_cmdline)
-                .map_err(RegisterMMIODevice)?;
+                .map_err(Error::RegisterMMIODevice)?;
         }
 
         self.mmio_device_manager
             .register_mmio_rtc(self.vm.fd())
-            .map_err(RegisterMMIODevice)?;
+            .map_err(Error::RegisterMMIODevice)?;
 
         Ok(())
     }
@@ -511,7 +493,7 @@ impl Vmm {
         &mut self,
         entry_addr: GuestAddress,
         request_ts: TimestampUs,
-    ) -> std::result::Result<Vec<Vcpu>, StartMicrovmError> {
+    ) -> Result<Vec<Vcpu>> {
         let vcpu_count = self.vcpu_config.vcpu_count;
 
         let vm_memory = self
@@ -532,18 +514,18 @@ impl Vmm {
                     self.pio_device_manager.io_bus.clone(),
                     request_ts.clone(),
                 )
-                .map_err(StartMicrovmError::Vcpu)?;
+                .map_err(Error::Vcpu)?;
 
                 vcpu.configure_x86_64(vm_memory, entry_addr, &self.vcpu_config)
-                    .map_err(StartMicrovmError::VcpuConfigure)?;
+                    .map_err(Error::Vcpu)?;
             }
             #[cfg(target_arch = "aarch64")]
             {
                 vcpu = Vcpu::new_aarch64(cpu_index, self.vm.fd(), request_ts.clone())
-                    .map_err(StartMicrovmError::Vcpu)?;
+                    .map_err(Error::Vcpu)?;
 
                 vcpu.configure_aarch64(self.vm.fd(), vm_memory, entry_addr)
-                    .map_err(StartMicrovmError::VcpuConfigure)?;
+                    .map_err(Error::Vcpu)?;
             }
 
             vcpus.push(vcpu);
@@ -551,7 +533,7 @@ impl Vmm {
         Ok(vcpus)
     }
 
-    fn start_vcpus(&mut self, mut vcpus: Vec<Vcpu>) -> std::result::Result<(), StartMicrovmError> {
+    fn start_vcpus(&mut self, mut vcpus: Vec<Vcpu>) -> Result<()> {
         let vcpu_count = vcpus.len();
 
         Vcpu::register_kick_signal_handler();
@@ -573,13 +555,12 @@ impl Vmm {
                 .lock()
                 .expect("Failed to start VCPUs due to poisoned i8042 lock")
                 .get_reset_evt_clone()
-                .map_err(|_| StartMicrovmError::EventFd)?;
+                .map_err(Error::I8042Error)?;
 
             // On aarch64 we don't support i8042. Use a dummy event nobody touches until
             // we get i8042 support.
             #[cfg(target_arch = "aarch64")]
-            let vcpu_exit_evt =
-                EventFd::new(libc::EFD_NONBLOCK).map_err(|_| StartMicrovmError::EventFd)?;
+            let vcpu_exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
 
             // `unwrap` is safe since we are asserting that the `vcpu_count` is equal to the number
             // of items of `vcpus` vector.
@@ -594,15 +575,14 @@ impl Vmm {
                     .spawn(move || {
                         vcpu.run(vcpu_thread_barrier, seccomp_level, vcpu_exit_evt);
                     })
-                    .map_err(StartMicrovmError::VcpuSpawn)?,
+                    .map_err(Error::VcpuSpawn)?,
             );
         }
 
         // Load seccomp filters for the VMM thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        default_syscalls::set_seccomp_level(self.seccomp_level)
-            .map_err(StartMicrovmError::SeccompFilters)?;
+        default_syscalls::set_seccomp_level(self.seccomp_level).map_err(Error::SeccompFilters)?;
 
         vcpus_thread_barrier.wait();
 
@@ -610,48 +590,40 @@ impl Vmm {
     }
 
     #[allow(unused_variables)]
-    fn configure_system(&self, vcpus: &[Vcpu]) -> std::result::Result<(), StartMicrovmError> {
-        use StartMicrovmError::*;
-
-        let vm_memory = self
-            .vm
-            .memory()
-            .expect("Cannot configure registers prior to allocating memory!");
-
+    fn configure_system(&self, vcpus: &[Vcpu]) -> Result<()> {
         let vcpu_count = vcpus.len() as u8;
 
         #[cfg(target_arch = "x86_64")]
         arch::x86_64::configure_system(
-            vm_memory,
+            &self.guest_memory,
             GuestAddress(arch::x86_64::layout::CMDLINE_START),
             self.kernel_cmdline.len() + 1,
             vcpu_count,
         )
-        .map_err(ConfigureSystem)?;
+        .map_err(Error::ConfigureSystem)?;
 
         #[cfg(target_arch = "aarch64")]
         {
             let vcpu_mpidr = vcpus.into_iter().map(|cpu| cpu.get_mpidr()).collect();
             arch::aarch64::configure_system(
-                vm_memory,
-                &self.kernel_cmdline.as_cstring().map_err(LoadCommandline)?,
+                &self.guest_memory,
+                &self
+                    .kernel_cmdline
+                    .as_cstring()
+                    .map_err(Error::LoadCommandline)?,
                 vcpu_mpidr,
                 self.get_mmio_device_info(),
                 self.vm.get_irqchip(),
             )
-            .map_err(ConfigureSystem)?;
+            .map_err(Error::ConfigureSystem)?;
         }
 
         self.configure_stdin()
     }
 
-    fn register_events(
-        &mut self,
-        epoll_context: &mut EpollContext,
-    ) -> std::result::Result<(), StartMicrovmError> {
+    fn register_events(&mut self, epoll_context: &mut EpollContext) -> Result<()> {
         #[cfg(target_arch = "x86_64")]
         {
-            use StartMicrovmError::*;
             // If the lock is poisoned, it's OK to panic.
             let exit_poll_evt_fd = self
                 .pio_device_manager
@@ -659,11 +631,9 @@ impl Vmm {
                 .lock()
                 .expect("Failed to register events on the event fd due to poisoned lock")
                 .get_reset_evt_clone()
-                .map_err(|_| EventFd)?;
+                .map_err(Error::I8042Error)?;
 
-            epoll_context
-                .add_epollin_event(&exit_poll_evt_fd, EpollDispatch::Exit)
-                .map_err(|_| RegisterEvent)?;
+            epoll_context.add_epollin_event(&exit_poll_evt_fd, EpollDispatch::Exit)?;
 
             self.exit_evt = Some(exit_poll_evt_fd);
         }
@@ -673,12 +643,12 @@ impl Vmm {
         Ok(())
     }
 
-    fn configure_stdin(&self) -> std::result::Result<(), StartMicrovmError> {
+    fn configure_stdin(&self) -> Result<()> {
         // Set raw mode for stdin.
         self.stdin_handle
             .lock()
             .set_raw_mode()
-            .map_err(StartMicrovmError::StdinHandle)?;
+            .map_err(Error::StdinHandle)?;
 
         Ok(())
     }
@@ -690,13 +660,13 @@ impl Vmm {
 
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
     #[cfg(target_arch = "x86_64")]
-    pub fn send_ctrl_alt_del(&mut self) -> UserResult {
+    pub fn send_ctrl_alt_del(&mut self) -> Result<()> {
         self.pio_device_manager
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
             .trigger_ctrl_alt_del()
-            .map_err(|e| VmmActionError::SendCtrlAltDel(ErrorKind::Internal, e))
+            .map_err(Error::I8042Error)
     }
 
     /// Waits for all vCPUs to exit and terminates the Firecracker process.

@@ -7,6 +7,7 @@
 
 use libc::{c_int, c_void, siginfo_t};
 use std::cell::Cell;
+use std::fmt::{Display, Formatter};
 use std::io;
 use std::result;
 use std::sync::atomic::{fence, Ordering};
@@ -110,6 +111,78 @@ pub enum Error {
     /// Error doing Vcpu Init on Arm.
     VcpuArmInit(kvm_ioctls::Error),
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::Error::*;
+
+        match self {
+            #[cfg(target_arch = "x86_64")]
+            CpuId(e) => write!(f, "Cpuid error: {:?}", e),
+            GuestMemory(e) => write!(f, "Guest memory error: {:?}", e),
+            HTNotInitialized => write!(f, "Hyperthreading flag is not initialized"),
+            KvmApiVersion(v) => write!(
+                f,
+                "The host kernel reports an invalid KVM API version: {}",
+                v
+            ),
+            KvmCap(cap) => write!(f, "Missing KVM capabilities: {:?}", cap),
+            VcpuCountNotInitialized => write!(f, "vCPU count is not initialized"),
+            VmFd(e) => write!(f, "Cannot open the VM file descriptor: {}", e),
+            VcpuFd(e) => write!(f, "Cannot open the VCPU file descriptor: {}", e),
+            VmSetup(e) => write!(f, "Cannot configure the microvm: {}", e),
+            VcpuRun(e) => write!(f, "Cannot run the VCPUs: {}", e),
+            SetSupportedCpusFailed(e) => write!(f, "The call to KVM_SET_CPUID2 failed: {}", e),
+            NotEnoughMemorySlots => write!(
+                f,
+                "The number of configured slots is bigger than the maximum reported by KVM"
+            ),
+            #[cfg(target_arch = "x86_64")]
+            LocalIntConfiguration(e) => write!(
+                f,
+                "Cannot set the local interruption due to bad configuration: {:?}",
+                e
+            ),
+            SetUserMemoryRegion(e) => write!(f, "Cannot set the memory regions: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            MSRSConfiguration(e) => write!(f, "Error configuring the MSR registers: {:?}", e),
+            #[cfg(target_arch = "aarch64")]
+            REGSConfiguration(e) => write!(
+                f,
+                "Error configuring the general purpose aarch64 registers: {}",
+                e
+            ),
+            #[cfg(target_arch = "x86_64")]
+            REGSConfiguration(e) => write!(
+                f,
+                "Error configuring the general purpose registers: {:?}",
+                e
+            ),
+            #[cfg(target_arch = "x86_64")]
+            SREGSConfiguration(e) => write!(f, "Error configuring the special registers: {:?}", e),
+            #[cfg(target_arch = "x86_64")]
+            FPUConfiguration(e) => write!(
+                f,
+                "Error configuring the floating point related registers: {:?}",
+                e
+            ),
+            Irq(e) => write!(f, "Cannot configure the IRQ: {}", e),
+            VcpuSpawn(e) => write!(f, "Cannot spawn a new vCPU thread: {}", e),
+            VcpuTlsInit => write!(f, "Cannot clean init vcpu TLS"),
+            VcpuTlsNotPresent => write!(f, "Vcpu not present in TLS"),
+            VcpuUnhandledKvmExit => write!(f, "Unexpected KVM_RUN exit reason"),
+            #[cfg(target_arch = "aarch64")]
+            SetupGIC(e) => write!(f, "Error setting up the global interrupt controller: {}", e),
+            #[cfg(target_arch = "aarch64")]
+            VcpuArmPreferredTarget(e) => {
+                write!(f, "Error getting the Vcpu preferred target on Arm: {}", e)
+            }
+            #[cfg(target_arch = "aarch64")]
+            VcpuArmInit(e) => write!(f, "Error doing Vcpu Init on Arm: {}", e),
+        }
+    }
+}
+
 pub type Result<T> = result::Result<T, Error>;
 
 /// Describes a KVM context that gets attached to the microVM.

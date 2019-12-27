@@ -55,3 +55,11 @@ impl Display for BootSourceConfigError {
         }
     }
 }
+
+/// Holds the kernel configuration.
+pub struct BootConfig {
+    /// The commandline validated against correctness.
+    pub cmdline: kernel::cmdline::Cmdline,
+    /// The descriptor to the kernel file.
+    pub kernel_file: std::fs::File,
+}
