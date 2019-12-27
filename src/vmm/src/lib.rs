@@ -67,7 +67,7 @@ use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio::EpollConfigConstructor;
 use devices::{BusDevice, DeviceEventT, EpollHandler, RawIOHandler};
-use error::{Error, Result, UserResult};
+use error::{Error, I8042Error, Result};
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::error::LoggerError;
 #[cfg(target_arch = "x86_64")]
@@ -78,11 +78,10 @@ use polly::event_manager::EventManager;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vmm_config::logger::LoggerConfigError;
 use vmm_config::machine_config::CpuFeaturesTemplate;
 use vstate::{Vcpu, Vm};
 
-pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
+use error::StartMicrovmError;
 
 /// Success exit code.
 pub const FC_EXIT_CODE_OK: u8 = 0;
@@ -405,17 +404,6 @@ impl Vmm {
         self.mmio_device_manager.get_device(device_type, device_id)
     }
 
-    /// Force writes metrics.
-    pub fn flush_metrics(&mut self) -> UserResult {
-        self.write_metrics().map_err(|e| {
-            let (kind, error_contents) = match e {
-                LoggerError::NeverInitialized(s) => (ErrorKind::User, s),
-                _ => (ErrorKind::Internal, e.to_string()),
-            };
-            VmmActionError::Logger(kind, LoggerConfigError::FlushMetrics(error_contents))
-        })
-    }
-
     #[cfg(target_arch = "x86_64")]
     fn log_dirty_pages(&mut self) {
         // If we're logging dirty pages, post the metrics on how many dirty pages there are.
@@ -424,10 +412,12 @@ impl Vmm {
         }
     }
 
+    /// Force writes metrics.
     fn write_metrics(&mut self) -> result::Result<(), LoggerError> {
         // The dirty pages are only available on x86_64.
         #[cfg(target_arch = "x86_64")]
         self.log_dirty_pages();
+        // FIXME: we're losing the bool saying whether metrics were actually written.
         LOGGER.log_metrics().map(|_| ())
     }
 
@@ -690,13 +680,13 @@ impl Vmm {
 
     /// Injects CTRL+ALT+DEL keystroke combo in the i8042 device.
     #[cfg(target_arch = "x86_64")]
-    pub fn send_ctrl_alt_del(&mut self) -> UserResult {
+    pub fn send_ctrl_alt_del(&mut self) -> std::result::Result<(), I8042Error> {
         self.pio_device_manager
             .i8042
             .lock()
             .expect("i8042 lock was poisoned")
             .trigger_ctrl_alt_del()
-            .map_err(|e| VmmActionError::SendCtrlAltDel(ErrorKind::Internal, e))
+            .map_err(|e| e.into())
     }
 
     /// Waits for all vCPUs to exit and terminates the Firecracker process.

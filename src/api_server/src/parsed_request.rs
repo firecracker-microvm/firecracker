@@ -15,7 +15,9 @@ use request::machine_configuration::{
 use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use request::net::{parse_patch_net, parse_put_net};
 use request::vsock::parse_put_vsock;
-use {ApiServer, VmmAction, VmmData};
+use ApiServer;
+
+use vmm::controller::{VmmAction, VmmActionError, VmmData};
 
 #[allow(clippy::large_enum_variant)]
 pub enum ParsedRequest {
@@ -71,7 +73,7 @@ impl ParsedRequest {
     }
 
     pub fn convert_to_response(
-        request_outcome: std::result::Result<VmmData, vmm::VmmActionError>,
+        request_outcome: std::result::Result<VmmData, VmmActionError>,
     ) -> Response {
         match request_outcome {
             Ok(vmm_data) => match vmm_data {

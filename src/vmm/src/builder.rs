@@ -10,6 +10,8 @@ use std::time::Duration;
 
 use super::{EpollContext, EpollDispatch, VcpuConfig, Vmm};
 
+use controller::UserResult;
+use controller::VmmActionError;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;

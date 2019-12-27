@@ -7,9 +7,8 @@ use std::fmt::{Display, Formatter};
 use std::io;
 
 use super::{
-    device_manager, vmm_config::boot_source::BootSourceConfigError, vmm_config::drive::DriveError,
-    vmm_config::logger::LoggerConfigError, vmm_config::machine_config::VmConfigError,
-    vmm_config::net::NetworkInterfaceError, vmm_config::vsock::VsockError, vstate,
+    device_manager, vmm_config::drive::DriveError, vmm_config::machine_config::VmConfigError,
+    vmm_config::net::NetworkInterfaceError, vstate,
 };
 use devices::legacy::I8042DeviceError;
 use kernel::loader as kernel_loader;
@@ -298,49 +297,17 @@ impl Display for StartMicrovmError {
     }
 }
 
-/// Types of errors associated with vmm actions.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ErrorKind {
-    /// User Errors describe bad configuration (user input).
-    User,
-    /// Internal Errors are unrelated to the user and usually refer to logical errors
-    /// or bad management of resources (memory, file descriptors & others).
-    Internal,
+/// Wrapper over the device-specific error. Users of the VMM API should not have to
+/// take dependencies on devices crate.
+#[derive(Debug)]
+pub struct I8042Error(I8042DeviceError);
+impl std::convert::From<I8042DeviceError> for I8042Error {
+    fn from(e: I8042DeviceError) -> I8042Error {
+        I8042Error(e)
+    }
 }
 
-/// Wrapper for all errors associated with VMM actions.
-#[derive(Debug)]
-pub enum VmmActionError {
-    /// The action `ConfigureBootSource` failed either because of bad user input (`ErrorKind::User`)
-    /// or an internal error (`ErrorKind::Internal`).
-    BootSource(ErrorKind, BootSourceConfigError),
-    /// One of the actions `InsertBlockDevice`, `RescanBlockDevice` or `UpdateBlockDevicePath`
-    /// failed either because of bad user input (`ErrorKind::User`) or an
-    /// internal error (`ErrorKind::Internal`).
-    DriveConfig(ErrorKind, DriveError),
-    /// The action `ConfigureLogger` failed either because of bad user input (`ErrorKind::User`) or
-    /// an internal error (`ErrorKind::Internal`).
-    Logger(ErrorKind, LoggerConfigError),
-    /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed either because of bad
-    /// input (`ErrorKind::User`) or an internal error (`ErrorKind::Internal`).
-    MachineConfig(ErrorKind, VmConfigError),
-    /// The action `InsertNetworkDevice` failed either because of bad user input (`ErrorKind::User`)
-    /// or an internal error (`ErrorKind::Internal`).
-    NetworkConfig(ErrorKind, NetworkInterfaceError),
-    /// The requested operation is not supported after starting the microVM.
-    OperationNotSupportedPostBoot,
-    /// The requested operation is not supported before starting the microVM.
-    OperationNotSupportedPreBoot,
-    /// The action `StartMicroVm` failed either because of bad user input (`ErrorKind::User`) or
-    /// an internal error (`ErrorKind::Internal`).
-    StartMicrovm(ErrorKind, StartMicrovmError),
-    /// The action `SendCtrlAltDel` failed. Details are provided by the device-specific error
-    /// `I8042DeviceError`.
-    SendCtrlAltDel(ErrorKind, I8042DeviceError),
-    /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
-    /// or an internal error (`ErrorKind::Internal`).
-    VsockConfig(ErrorKind, VsockError),
-}
+use controller::{ErrorKind, VmmActionError};
 
 // It's convenient to turn DriveErrors into VmmActionErrors directly.
 impl std::convert::From<DriveError> for VmmActionError {
@@ -499,15 +466,12 @@ impl Display for VmmActionError {
                     "The requested operation is not supported before starting the microVM."
                         .to_string(),
                 StartMicrovm(_, ref err) => err.to_string(),
-                SendCtrlAltDel(_, ref err) => err.to_string(),
+                SendCtrlAltDel(_, ref err) => err.0.to_string(),
                 VsockConfig(_, ref err) => err.to_string(),
             }
         )
     }
 }
-
-/// Shorthand result type for external VMM commands.
-pub type UserResult = std::result::Result<(), VmmActionError>;
 
 /// Shorthand result type for internal VMM commands.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -973,7 +937,7 @@ mod tests {
                 "{:?}",
                 VmmActionError::SendCtrlAltDel(
                     ErrorKind::User,
-                    I8042DeviceError::InternalBufferFull
+                    I8042Error(I8042DeviceError::InternalBufferFull)
                 )
             ),
             "SendCtrlAltDel(User, InternalBufferFull)"
@@ -983,14 +947,17 @@ mod tests {
                 "{}",
                 VmmActionError::SendCtrlAltDel(
                     ErrorKind::User,
-                    I8042DeviceError::InternalBufferFull
+                    I8042Error(I8042DeviceError::InternalBufferFull)
                 )
             ),
             I8042DeviceError::InternalBufferFull.to_string()
         );
         assert_eq!(
-            VmmActionError::SendCtrlAltDel(ErrorKind::User, I8042DeviceError::InternalBufferFull)
-                .kind(),
+            VmmActionError::SendCtrlAltDel(
+                ErrorKind::User,
+                I8042Error(I8042DeviceError::InternalBufferFull)
+            )
+            .kind(),
             &ErrorKind::User
         );
         assert_eq!(

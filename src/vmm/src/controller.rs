@@ -6,16 +6,131 @@ use std::io::{Seek, SeekFrom};
 use std::path::PathBuf;
 use std::result;
 
-use super::{EpollContext, EventLoopExitReason, Result, UserResult, Vmm, VmmActionError};
+use super::{EpollContext, EventLoopExitReason, Vmm};
 
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{self, TYPE_BLOCK, TYPE_NET};
+use error::Result;
+use error::{I8042Error, StartMicrovmError};
 use resources::VmResources;
 use vmm_config;
-use vmm_config::drive::DriveError;
-use vmm_config::machine_config::VmConfig;
-use vmm_config::net::{NetworkInterfaceError, NetworkInterfaceUpdateConfig};
+use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
+use vmm_config::drive::{BlockDeviceConfig, DriveError};
+use vmm_config::logger::{LoggerConfig, LoggerConfigError};
+use vmm_config::machine_config::{VmConfig, VmConfigError};
+use vmm_config::net::{
+    NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
+};
+use vmm_config::vsock::{VsockDeviceConfig, VsockError};
+
+/// This enum represents the public interface of the VMM. Each action contains various
+/// bits of information (ids, paths, etc.).
+#[derive(PartialEq)]
+pub enum VmmAction {
+    /// Configure the boot source of the microVM using as input the `ConfigureBootSource`. This
+    /// action can only be called before the microVM has booted.
+    ConfigureBootSource(BootSourceConfig),
+    /// Configure the logger using as input the `LoggerConfig`. This action can only be called
+    /// before the microVM has booted.
+    ConfigureLogger(LoggerConfig),
+    /// Get the configuration of the microVM.
+    GetVmConfiguration,
+    /// Flush the metrics. This action can only be called after the logger has been configured.
+    FlushMetrics,
+    /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
+    /// input. This action can only be called before the microVM has booted.
+    InsertBlockDevice(BlockDeviceConfig),
+    /// Add a new network interface config or update one that already exists using the
+    /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
+    /// booted.
+    InsertNetworkDevice(NetworkInterfaceConfig),
+    /// Set the vsock device or update the one that already exists using the
+    /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
+    /// booted.
+    SetVsockDevice(VsockDeviceConfig),
+    /// Update the size of an existing block device specified by an ID. The ID is the first data
+    /// associated with this enum variant. This action can only be called after the microVM is
+    /// started.
+    RescanBlockDevice(String),
+    /// Set the microVM configuration (memory & vcpu) using `VmConfig` as input. This
+    /// action can only be called before the microVM has booted.
+    SetVmConfiguration(VmConfig),
+    /// Launch the microVM. This action can only be called before the microVM has booted.
+    StartMicroVm,
+    /// Send CTRL+ALT+DEL to the microVM, using the i8042 keyboard function. If an AT-keyboard
+    /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
+    #[cfg(target_arch = "x86_64")]
+    SendCtrlAltDel,
+    /// Update the path of an existing block device. The data associated with this variant
+    /// represents the `drive_id` and the `path_on_host`.
+    UpdateBlockDevicePath(String, String),
+    /// Update a network interface, after microVM start. Currently, the only updatable properties
+    /// are the RX and TX rate limiters.
+    UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
+}
+
+/// Types of errors associated with vmm actions.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ErrorKind {
+    /// User Errors describe bad configuration (user input).
+    User,
+    /// Internal Errors are unrelated to the user and usually refer to logical errors
+    /// or bad management of resources (memory, file descriptors & others).
+    Internal,
+}
+
+/// Wrapper for all errors associated with VMM actions.
+#[derive(Debug)]
+pub enum VmmActionError {
+    /// The action `ConfigureBootSource` failed either because of bad user input (`ErrorKind::User`)
+    /// or an internal error (`ErrorKind::Internal`).
+    BootSource(ErrorKind, BootSourceConfigError),
+    /// One of the actions `InsertBlockDevice`, `RescanBlockDevice` or `UpdateBlockDevicePath`
+    /// failed either because of bad user input (`ErrorKind::User`) or an
+    /// internal error (`ErrorKind::Internal`).
+    DriveConfig(ErrorKind, DriveError),
+    /// The action `ConfigureLogger` failed either because of bad user input (`ErrorKind::User`) or
+    /// an internal error (`ErrorKind::Internal`).
+    Logger(ErrorKind, LoggerConfigError),
+    /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed either because of bad
+    /// input (`ErrorKind::User`) or an internal error (`ErrorKind::Internal`).
+    MachineConfig(ErrorKind, VmConfigError),
+    /// The action `InsertNetworkDevice` failed either because of bad user input (`ErrorKind::User`)
+    /// or an internal error (`ErrorKind::Internal`).
+    NetworkConfig(ErrorKind, NetworkInterfaceError),
+    /// The requested operation is not supported after starting the microVM.
+    OperationNotSupportedPostBoot,
+    /// The requested operation is not supported before starting the microVM.
+    OperationNotSupportedPreBoot,
+    /// The action `StartMicroVm` failed either because of bad user input (`ErrorKind::User`) or
+    /// an internal error (`ErrorKind::Internal`).
+    StartMicrovm(ErrorKind, StartMicrovmError),
+    /// The action `SendCtrlAltDel` failed. Details are provided by the device-specific error
+    /// `I8042DeviceError`.
+    SendCtrlAltDel(ErrorKind, I8042Error),
+    /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
+    /// or an internal error (`ErrorKind::Internal`).
+    VsockConfig(ErrorKind, VsockError),
+}
+
+/// The enum represents the response sent by the VMM in case of success. The response is either
+/// empty, when no data needs to be sent, or an internal VMM structure.
+#[derive(Debug)]
+pub enum VmmData {
+    /// No data is sent on the channel.
+    Empty,
+    /// The microVM configuration represented by `VmConfig`.
+    MachineConfiguration(VmConfig),
+}
+
+/// Shorthand type for a request containing a boxed VmmAction.
+pub type VmmRequest = Box<VmmAction>;
+/// Shorthand type for a response containing a boxed Result.
+pub type VmmResponse = Box<std::result::Result<VmmData, VmmActionError>>;
+
+/// Shorthand result type for external VMM commands.
+pub type UserResult = std::result::Result<(), VmmActionError>;
 
 /// Simple trait to be implemented by users of the `VmmController`.
 pub trait ControlEventHandler {
@@ -40,14 +155,20 @@ impl VmmController {
     /// simply exposes functionality like getting the dirty pages, and then we'll have the
     /// metrics flushing logic entirely on the outside.
     pub fn flush_metrics(&mut self) -> UserResult {
-        // Will change from Option in later commit, just unwrap for now.
-        self.vmm.flush_metrics()
+        self.vmm.write_metrics().map_err(|e| {
+            VmmActionError::Logger(
+                ErrorKind::Internal,
+                LoggerConfigError::FlushMetrics(e.to_string()),
+            )
+        })
     }
 
     /// Injects CTRL+ALT+DEL keystroke combo to the inner Vmm (if present).
     #[cfg(target_arch = "x86_64")]
     pub fn send_ctrl_alt_del(&mut self) -> UserResult {
-        self.vmm.send_ctrl_alt_del()
+        self.vmm
+            .send_ctrl_alt_del()
+            .map_err(|e| VmmActionError::SendCtrlAltDel(ErrorKind::Internal, e.into()))
     }
 
     /// Stops the inner Vmm and exits the process with the provided exit_code.
