@@ -13,11 +13,21 @@ use response::{Response, StatusCode};
 
 const BUFFER_SIZE: usize = 1024;
 
+fn parse_chunk_length(len_as_bytes: &[u8]) -> Result<u32, ConnectionError> {
+    let len_as_str = std::str::from_utf8(len_as_bytes)
+        .map_err(|_| ConnectionError::ParseError(RequestError::InvalidRequest))?;
+    Ok(u32::from_str_radix(len_as_str, 16)
+        .map_err(|_| ConnectionError::ParseError(RequestError::InvalidRequest))?)
+}
+
 /// Describes the state machine of an HTTP connection.
 pub enum ConnectionState {
     AwaitingRequestLine,
     AwaitingHeaders,
     AwaitingBody,
+    AwaitingChunkLength,
+    AwaitingChunkData,
+    AwaitingLastChunk,
     RequestReady,
 }
 
@@ -39,6 +49,8 @@ pub struct HttpConnection<T> {
     /// Contains all bytes pertaining to the body of the request that
     /// is currently being processed.
     body_vec: Vec<u8>,
+    /// The number of bytes left to parse from the current chunk.
+    chunk_len: i32,
     /// Represents how many bytes from the body of the request are still
     /// to be read.
     body_bytes_to_be_read: i32,
@@ -61,6 +73,7 @@ impl<T: Read + Write> HttpConnection<T> {
             buffer: [0; BUFFER_SIZE],
             read_cursor: 0,
             body_vec: vec![],
+            chunk_len: 0,
             body_bytes_to_be_read: 0,
             parsed_requests: VecDeque::new(),
             response_queue: VecDeque::new(),
@@ -97,6 +110,21 @@ impl<T: Read + Write> HttpConnection<T> {
                 }
                 ConnectionState::AwaitingBody => {
                     if !self.parse_body(&mut line_start_index, end_cursor)? {
+                        return Ok(());
+                    }
+                }
+                ConnectionState::AwaitingChunkLength => {
+                    if !self.parse_chunk_length(&mut line_start_index, end_cursor)? {
+                        return Ok(());
+                    }
+                }
+                ConnectionState::AwaitingChunkData => {
+                    if !self.parse_chunk_data(&mut line_start_index, end_cursor)? {
+                        return Ok(());
+                    }
+                }
+                ConnectionState::AwaitingLastChunk => {
+                    if !self.parse_last_chunk(&mut line_start_index, end_cursor)? {
                         return Ok(());
                     }
                 }
@@ -188,7 +216,7 @@ impl<T: Read + Write> HttpConnection<T> {
                 // If our current state is `AwaitingHeaders`, it means that we already have
                 // a valid request formed from a request line, so it's safe to unwrap.
                 let request = self.pending_request.as_mut().unwrap();
-                if request.headers.content_length() == 0 {
+                if request.headers.content_length() == 0 && !request.headers.chunked() {
                     self.state = ConnectionState::RequestReady;
                 } else {
                     if request.headers.expect() {
@@ -198,9 +226,14 @@ impl<T: Read + Write> HttpConnection<T> {
                         self.response_queue.push_back(expect_response);
                     }
 
-                    self.body_bytes_to_be_read = request.headers.content_length();
                     request.body = Some(Body::new(vec![]));
-                    self.state = ConnectionState::AwaitingBody;
+                    if request.headers.content_length() != 0 {
+                        self.body_bytes_to_be_read = request.headers.content_length();
+                        self.state = ConnectionState::AwaitingBody;
+                    } else {
+                        self.chunk_len = 0;
+                        self.state = ConnectionState::AwaitingChunkLength;
+                    }
                 }
 
                 // Update the index for the next header.
@@ -293,6 +326,142 @@ impl<T: Read + Write> HttpConnection<T> {
 
         self.state = ConnectionState::RequestReady;
         Ok(true)
+    }
+
+    /// Parses bytes in `buffer` to determine the current chunk's length.
+    ///
+    /// The chunk length is the number of bytes in the chunk data section,
+    /// excluding the trailing [CR, LF] sequence. The chunk length is at the
+    /// beginning of the chunk and is represented in hexadecimal, followed
+    /// by a [CR, LF] sequence and the chunk data section.
+    ///
+    /// The chunk length part can also have extensions, usually used in
+    /// encodings with compression or encryption. The extensions, if present,
+    /// will appear after the hex number followed by a semicolon and end at
+    /// the next [CR, LF] sequence. This crate does not support either.
+    /// As per the RFC, we will ignore all unknown or unsupported extensions.
+    ///
+    /// Returns `false` if there are no more bytes to be parsed in the buffer.
+    fn parse_chunk_length(
+        &mut self,
+        start: &mut usize,
+        end: usize,
+    ) -> Result<bool, ConnectionError> {
+        match find(&self.buffer[*start..end], &[CR, LF]) {
+            // If we have an incomplete chunk length.
+            None => {
+                // Move the bytes to the beginning of the buffer and wait for
+                // the chunked length to arrive.
+                self.shift_buffer_left(*start, end);
+                Ok(false)
+            }
+            // We have found the end of the chunk length.
+            Some(line_end) => {
+                // If we find a semicolon in the chunk length, there are extensions.
+                if let Some(chunk_len_end_cursor) =
+                    find(&self.buffer[*start..(*start + line_end)], b";")
+                {
+                    // We ignore the extensions and parse the hex representation of
+                    // the chunk length, to which we add `CRLF_LEN`.
+                    self.chunk_len =
+                        (parse_chunk_length(&self.buffer[*start..(*start + chunk_len_end_cursor)])?
+                            + CRLF_LEN as u32) as i32;
+                } else {
+                    // Parse the hex representation of
+                    // the chunk length, to which we add `CRLF_LEN`.
+                    self.chunk_len =
+                        (parse_chunk_length(&self.buffer[*start..(*start + line_end)])?
+                            + CRLF_LEN as u32) as i32;
+                }
+                // If there are no bytes of data, this is the last chunk.
+                if self.chunk_len as usize == CRLF_LEN {
+                    self.state = ConnectionState::AwaitingLastChunk;
+                } else {
+                    self.state = ConnectionState::AwaitingChunkData;
+                }
+                *start = *start + line_end + CRLF_LEN;
+                Ok(true)
+            }
+        }
+    }
+
+    /// Parses bytes in `buffer` to determine the current chunk's data section end.
+    ///
+    /// The data section of the chunk is `chunk_len` bytes, of which `chunk_len - CRLF_LEN`
+    /// are data and `CRLF_LEN` are the [CR, LF] sequence, marking the end of this chunk.
+    ///
+    /// Returns `false` if there are no more bytes to be parsed in the buffer.
+    fn parse_chunk_data(&mut self, start: &mut usize, end: usize) -> Result<bool, ConnectionError> {
+        // If we need to parse more bytes than we have in the buffer.
+        if self.chunk_len as usize > (end - *start) {
+            // Add everything to the body.
+            self.body_vec.extend_from_slice(&self.buffer[*start..end]);
+            self.chunk_len -= (end - *start) as i32;
+            *start += end - *start;
+
+            // Clear the buffer and reset the starting index.
+            for i in 0..BUFFER_SIZE {
+                self.buffer[i] = 0;
+            }
+            self.read_cursor = 0;
+            Ok(false)
+        } else {
+            // Add the relevant bytes to the body, including the last `CRLF_LEN` bytes,
+            // which must be the [CR, LF] sequence.
+            self.body_vec
+                .extend_from_slice(&self.buffer[*start..(*start + self.chunk_len as usize)]);
+            *start += self.chunk_len as usize;
+            self.chunk_len = 0;
+            // We are waiting for the next chunk as this was not the last one.
+            self.state = ConnectionState::AwaitingChunkLength;
+            // We remove the last 'CRLF_LEN' bytes from the body and check if they
+            // are in fact CR and LF.
+            if self.body_vec.pop().unwrap() != LF || self.body_vec.pop().unwrap() != CR {
+                return Err(ConnectionError::ParseError(RequestError::InvalidRequest));
+            }
+            Ok(true)
+        }
+    }
+
+    /// Parses bytes in `buffer` to determine the current request chunked body end.
+    ///
+    /// The last chunk in a request is the sequence [0, CR, LF, CR, LF].
+    ///
+    /// Returns `false` if there are no more bytes to be parsed in the buffer.
+    fn parse_last_chunk(&mut self, start: &mut usize, end: usize) -> Result<bool, ConnectionError> {
+        // This function essentially validates the last chunk data section,
+        // which should be only the [CR, LF] sequence. Any more or any less
+        // bytes make the request invalid.
+        match find(&self.buffer[*start..end], &[CR, LF]) {
+            // If we have not found the end of the chunk.
+            None => {
+                if end - *start < CRLF_LEN {
+                    self.shift_buffer_left(*start, end);
+                    Ok(false)
+                } else {
+                    // If there are more bytes in the data section than the
+                    // expected [CR, LF] sequence, this request is invalid.
+                    Err(ConnectionError::ParseError(RequestError::InvalidRequest))
+                }
+            }
+            // If we have found the [CR, LF] sequence immediately after the
+            // chunk length part of this chunk.
+            Some(0) => {
+                self.chunk_len = 0;
+                *start += CRLF_LEN;
+                let request = self.pending_request.as_mut().unwrap();
+
+                // There are no more bytes to be read for this request.
+                // Assign the body of the request.
+                let placeholder: Vec<_> = self.body_vec.drain(..).collect();
+                request.body = Some(Body::new(placeholder));
+                self.state = ConnectionState::RequestReady;
+                Ok(true)
+            }
+            // If there are more bytes in the data section than the
+            // expected [CR, LF] sequence.
+            Some(_) => Err(ConnectionError::ParseError(RequestError::InvalidRequest)),
+        }
     }
 
     /// Tries to write the first available response to the provided stream.
@@ -400,10 +569,9 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n\
-                                 Expect: 100-continue\r\n\
-                                 Content-Length: 26\r\n\
-                                 Transfer-Encoding: chunked\r\n\r\n",
+                b"PATCH http://localhost/home HTTP/1.1\r\n \
+                                 Expect: 100-continue\r\n \
+                                 Content-Length: 26\r\n\r\n",
             )
             .unwrap();
         assert!(conn.try_read().is_ok());
@@ -414,7 +582,7 @@ mod tests {
 
         let expected_request = Request {
             request_line: RequestLine::new(Method::Patch, "http://localhost/home", Version::Http11),
-            headers: Headers::new(26, true, true),
+            headers: Headers::new(26, true, false),
             body: Some(Body::new(b"this is not\n\r\na json \nbody".to_vec())),
         };
 
@@ -429,9 +597,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n\
-                                 Expect: 100-continue\r\n\
-                                 Transfer-Encoding: chunked\r\n",
+                b"PATCH http://localhost/home HTTP/1.1\r\n \
+                                 Expect: 100-continue\r\n",
             )
             .unwrap();
 
@@ -450,7 +617,7 @@ mod tests {
 
         let expected_request = Request {
             request_line: RequestLine::new(Method::Patch, "http://localhost/home", Version::Http11),
-            headers: Headers::new(26, true, true),
+            headers: Headers::new(26, true, false),
             body: Some(Body::new(b"this is not\n\r\na json \nbody".to_vec())),
         };
         assert_eq!(request, expected_request);
@@ -464,9 +631,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n\
-                                 Expect: 100-continue\r\n\
-                                 Transfer-Encoding: chunked\r\n",
+                b"PATCH http://localhost/home HTTP/1.1\r\n \
+                                 Expect: 100-continue\r\n",
             )
             .unwrap();
 
@@ -479,11 +645,10 @@ mod tests {
             .write_all(b"Head: aaaaa\r\nContent-Length: 26\r\n\r\nthis is not\n\r\na json \nbody")
             .unwrap();
         assert!(conn.try_read().is_ok());
-        conn.try_read().unwrap();
         let request = conn.pop_parsed_request().unwrap();
         let expected_request = Request {
             request_line: RequestLine::new(Method::Patch, "http://localhost/home", Version::Http11),
-            headers: Headers::new(26, true, true),
+            headers: Headers::new(26, true, false),
             body: Some(Body::new(b"this is not\n\r\na json \nbody".to_vec())),
         };
         assert_eq!(request, expected_request);
@@ -497,9 +662,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n\
-                                 Expect: 100-continue\r\n\
-                                 Transfer-Encoding: chunked\r\n",
+                b"PATCH http://localhost/home HTTP/1.1\r\n \
+                                 Expect: 100-continue\r\n",
             )
             .unwrap();
 
@@ -527,9 +691,8 @@ mod tests {
         let mut conn = HttpConnection::new(receiver);
         sender
             .write_all(
-                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                b"PATCH http://localhost/home HTTP/1.1\r\n \
                                  Expect: 100-continue\r\n\
-                                 Transfer-Encoding: chunked\r\n\
                                  Content-Length: 1400\r\n\r\n",
             )
             .unwrap();
@@ -544,7 +707,7 @@ mod tests {
         let request = conn.pop_parsed_request().unwrap();
         let expected_request = Request {
             request_line: RequestLine::new(Method::Patch, "http://localhost/home", Version::Http11),
-            headers: Headers::new(1400, true, true),
+            headers: Headers::new(1400, true, false),
             body: Some(Body::new(request_body)),
         };
         assert_eq!(request, expected_request);
@@ -601,18 +764,229 @@ mod tests {
         sender
             .write_all(
                 b"PATCH http://localhost/home HTTP/1.1\r\n\
-                                 Expect: 100-continue\r\n\
-                                 Transfer-Encoding: chunked\r\n\r\n",
+                                 Expect: 100-continue\r\n\r\n",
             )
             .unwrap();
         conn.try_read().unwrap();
         let request = conn.pop_parsed_request().unwrap();
         let expected_request = Request {
             request_line: RequestLine::new(Method::Patch, "http://localhost/home", Version::Http11),
-            headers: Headers::new(0, true, true),
+            headers: Headers::new(0, true, false),
             body: None,
         };
         assert_eq!(request, expected_request);
+    }
+
+    #[test]
+    fn test_try_read_chunked_request() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        receiver.set_nonblocking(true).expect("Can't modify socket");
+        let mut conn = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Transfer-Encoding: chunked\r\n\r\n\
+                                 7\r\n\
+                                 Mozilla\r\n\
+                                 9;useless=extension\r\n\
+                                 Developer\r\n\
+                                 7\r\n\
+                                 Network\r\n\
+                                 0\r\n\
+                                 \r\n",
+            )
+            .unwrap();
+        conn.try_read().unwrap();
+        let request = conn.pop_parsed_request().unwrap();
+        let expected_request = Request {
+            request_line: RequestLine::new(Method::Patch, "http://localhost/home", Version::Http11),
+            headers: Headers::new(0, false, true),
+            body: Some(Body::new(b"MozillaDeveloperNetwork".to_vec())),
+        };
+        assert_eq!(request, expected_request);
+        assert_eq!(
+            request.body.unwrap().body.as_slice(),
+            b"MozillaDeveloperNetwork"
+        );
+    }
+
+    #[test]
+    fn test_try_read_segmented_chunked_request() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        receiver.set_nonblocking(true).expect("Can't modify socket");
+        let mut conn = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                     Transfer-Encoding: chunked\r\n\r\n\
+                     1\r\n\
+                     M\r\n",
+            )
+            .unwrap();
+        conn.try_read().unwrap();
+        sender
+            .write_all(
+                b"6\r\n\
+                     ozilla\r\n\
+                     9\r\n\
+                     Developer\r\n\
+                     7\r\n\
+                     Network\r\n\
+                     0\r\n\
+                     \r\n",
+            )
+            .unwrap();
+        conn.try_read().unwrap();
+        let request = conn.pop_parsed_request().unwrap();
+        let expected_request = Request {
+            request_line: RequestLine::new(Method::Patch, "http://localhost/home", Version::Http11),
+            headers: Headers::new(0, false, true),
+            body: Some(Body::new(b"MozillaDeveloperNetwork".to_vec())),
+        };
+        assert_eq!(request, expected_request);
+        assert_eq!(
+            request.body.unwrap().body.as_slice(),
+            b"MozillaDeveloperNetwork"
+        );
+
+        sender
+            .write_all(
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                     Transfer-Encoding: chunked\r\n\r\n\
+                     1\r",
+            )
+            .unwrap();
+        conn.try_read().unwrap();
+        sender.write_all(b"\nM").unwrap();
+        conn.try_read().unwrap();
+        sender
+            .write_all(
+                b"\r\n6\r\n\
+                     ozilla\r\n\
+                     9\r\n\
+                     Developer\r\n\
+                     7\r\n\
+                     Network\r\n\
+                     0\r\n\
+                     \r\n",
+            )
+            .unwrap();
+        conn.try_read().unwrap();
+        let request = conn.pop_parsed_request().unwrap();
+        assert_eq!(request, expected_request);
+        assert_eq!(
+            request.body.unwrap().body.as_slice(),
+            b"MozillaDeveloperNetwork"
+        );
+    }
+
+    #[test]
+    fn test_try_read_invalid_chunked_request() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        receiver.set_nonblocking(true).expect("Can't modify socket");
+        let mut conn = HttpConnection::new(receiver);
+
+        // Invalid chunk length.
+        sender
+            .write_all(
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                     Transfer-Encoding: chunked\r\n\r\n\
+                     1\r\n\
+                     Mozilla\r\n0\r\n\r\n",
+            )
+            .unwrap();
+        assert_eq!(
+            conn.try_read().unwrap_err(),
+            ConnectionError::ParseError(RequestError::InvalidRequest)
+        );
+
+        // Invalid trailer.
+        sender
+            .write_all(
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                     Transfer-Encoding: chunked\r\n\r\n\
+                     7\r\n\
+                     Mozilla\r\n0\r\nInvalid\r\n",
+            )
+            .unwrap();
+        assert_eq!(
+            conn.try_read().unwrap_err(),
+            ConnectionError::ParseError(RequestError::InvalidRequest)
+        );
+    }
+
+    #[test]
+    fn test_try_read_slow_chunk() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        receiver.set_nonblocking(true).expect("Can't modify socket");
+        let mut conn = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                     Transfer-Encoding: chunked\r\n\r\n\
+                     1",
+            )
+            .unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"\r").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"\n").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"M").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"\r").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"\n").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"2").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"\r").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"\n").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"o").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"z").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"\r").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"\n").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"4").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"\r\n").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"illa\r\n").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"0\r\n\r").unwrap();
+        conn.try_read().unwrap();
+        assert!(conn.response_queue.is_empty());
+        sender.write_all(b"\n").unwrap();
+        conn.try_read().unwrap();
+        let request = conn.pop_parsed_request().unwrap();
+        let expected_request = Request {
+            request_line: RequestLine::new(Method::Patch, "http://localhost/home", Version::Http11),
+            headers: Headers::new(0, false, true),
+            body: Some(Body::new(b"Mozilla".to_vec())),
+        };
+        assert_eq!(request, expected_request);
+        assert_eq!(request.body.unwrap().body.as_slice(), b"Mozilla");
     }
 
     #[test]
@@ -691,7 +1065,6 @@ mod tests {
         sender
             .write_all(
                 b"PATCH http://localhost/home HTTP/1.1\r\n\
-                                 Transfer-Encoding: chunked\r\n\
                                  Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody",
             )
             .unwrap();
@@ -703,7 +1076,7 @@ mod tests {
 
         let expected_request_first = Request {
             request_line: RequestLine::new(Method::Patch, "http://localhost/home", Version::Http11),
-            headers: Headers::new(26, false, true),
+            headers: Headers::new(26, false, false),
             body: Some(Body::new(b"this is not\n\r\na json \nbody".to_vec())),
         };
 
@@ -729,7 +1102,6 @@ mod tests {
         sender
             .write_all(
                 b"PATCH http://localhost/home HTTP/1.1\r\n\
-                                 Transfer-Encoding: chunked\r\n\
                                  Content-Len",
             )
             .unwrap();

@@ -7,8 +7,7 @@
 //! HTTP/1.1 has a mandatory header **Host**, but as this crate is only used
 //! for parsing API requests, this header (if present) is ignored.
 //!
-//! This HTTP implementation is stateless thus it does not support chunking or
-//! compression.
+//! This HTTP implementation is stateless thus it does not support compression.
 //!
 //! ## Supported Headers
 //! The **micro_http** crate has support for parsing the following **Request**
