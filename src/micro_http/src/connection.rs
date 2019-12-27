@@ -15,9 +15,9 @@ const BUFFER_SIZE: usize = 1024;
 
 /// Describes the state machine of an HTTP connection.
 pub enum ConnectionState {
-    WaitingForRequestLine,
-    WaitingForHeaders,
-    WaitingForBody,
+    AwaitingRequestLine,
+    AwaitingHeaders,
+    AwaitingBody,
     RequestReady,
 }
 
@@ -57,7 +57,7 @@ impl<T: Read + Write> HttpConnection<T> {
         HttpConnection {
             pending_request: None,
             stream,
-            state: ConnectionState::WaitingForRequestLine,
+            state: ConnectionState::AwaitingRequestLine,
             buffer: [0; BUFFER_SIZE],
             read_cursor: 0,
             body_vec: vec![],
@@ -85,17 +85,17 @@ impl<T: Read + Write> HttpConnection<T> {
         let mut line_start_index = 0;
         loop {
             match self.state {
-                ConnectionState::WaitingForRequestLine => {
+                ConnectionState::AwaitingRequestLine => {
                     if !self.parse_request_line(&mut line_start_index, end_cursor)? {
                         return Ok(());
                     }
                 }
-                ConnectionState::WaitingForHeaders => {
+                ConnectionState::AwaitingHeaders => {
                     if !self.parse_headers(&mut line_start_index, end_cursor)? {
                         return Ok(());
                     }
                 }
-                ConnectionState::WaitingForBody => {
+                ConnectionState::AwaitingBody => {
                     if !self.parse_body(&mut line_start_index, end_cursor)? {
                         return Ok(());
                     }
@@ -104,7 +104,7 @@ impl<T: Read + Write> HttpConnection<T> {
                     // This request is ready to be passed for handling.
                     // Update the state machine to expect a new request and push this request into
                     // the `parsed_requests` queue.
-                    self.state = ConnectionState::WaitingForRequestLine;
+                    self.state = ConnectionState::AwaitingRequestLine;
                     self.body_bytes_to_be_read = 0;
                     self.parsed_requests
                         .push_back(self.pending_request.take().unwrap());
@@ -152,7 +152,7 @@ impl<T: Read + Write> HttpConnection<T> {
                     headers: Headers::default(),
                     body: None,
                 });
-                self.state = ConnectionState::WaitingForHeaders;
+                self.state = ConnectionState::AwaitingHeaders;
                 Ok(true)
             }
             None => {
@@ -185,7 +185,7 @@ impl<T: Read + Write> HttpConnection<T> {
             // they are, in fact, a CR LF CR LF sequence, which marks the end of the header
             // fields, per HTTP specification.
             Some(0) => {
-                // If our current state is `WaitingForHeaders`, it means that we already have
+                // If our current state is `AwaitingHeaders`, it means that we already have
                 // a valid request formed from a request line, so it's safe to unwrap.
                 let request = self.pending_request.as_mut().unwrap();
                 if request.headers.content_length() == 0 {
@@ -200,7 +200,7 @@ impl<T: Read + Write> HttpConnection<T> {
 
                     self.body_bytes_to_be_read = request.headers.content_length();
                     request.body = Some(Body::new(vec![]));
-                    self.state = ConnectionState::WaitingForBody;
+                    self.state = ConnectionState::AwaitingBody;
                 }
 
                 // Update the index for the next header.
