@@ -17,6 +17,12 @@ use vmm_config::drive::DriveError;
 use vmm_config::machine_config::VmConfig;
 use vmm_config::net::{NetworkInterfaceError, NetworkInterfaceUpdateConfig};
 
+/// Simple trait to be implemented by users of the `VmmController`.
+pub trait ControlEventHandler {
+    /// Function called when the `vmm` in the controller has a pending control event.
+    fn handle_control_event(&self, controller: &mut VmmController) -> result::Result<(), u8>;
+}
+
 /// Enables pre-boot setup, instantiation and real time configuration of a Firecracker VMM.
 pub struct VmmController {
     epoll_context: EpollContext,
@@ -30,7 +36,7 @@ impl VmmController {
         self.vm_resources.vm_config()
     }
 
-    /// Flush metrics. Defer to inner Vmm if present. We'll move to a variant where the Vmm
+    /// Flush metrics. Defer to inner Vmm. We'll move to a variant where the Vmm
     /// simply exposes functionality like getting the dirty pages, and then we'll have the
     /// metrics flushing logic entirely on the outside.
     pub fn flush_metrics(&mut self) -> UserResult {
@@ -44,7 +50,7 @@ impl VmmController {
         self.vmm.send_ctrl_alt_del()
     }
 
-    /// Stops the inner Vmm (if present) and exits the process with the provided exit_code.
+    /// Stops the inner Vmm and exits the process with the provided exit_code.
     pub fn stop(&mut self, exit_code: i32) {
         self.vmm.stop(exit_code)
     }
@@ -61,6 +67,30 @@ impl VmmController {
     /// Wait for and dispatch events. Will defer to the inner Vmm loop after it's started.
     pub fn run_event_loop(&mut self) -> Result<EventLoopExitReason> {
         self.vmm.run_event_loop(&mut self.epoll_context)
+    }
+
+    /// Runs the vmm to completion, any control events are deferred to the `ControlActionHandler`.
+    pub fn run(mut self, external_handler: &dyn ControlEventHandler) {
+        let exit_code = loop {
+            match self.run_event_loop() {
+                Err(e) => {
+                    error!("Abruptly exited VMM control loop: {:?}", e);
+                    break super::FC_EXIT_CODE_GENERIC_ERROR;
+                }
+                Ok(exit_reason) => match exit_reason {
+                    EventLoopExitReason::Break => {
+                        info!("Gracefully terminated VMM control loop");
+                        break super::FC_EXIT_CODE_OK;
+                    }
+                    EventLoopExitReason::ControlAction => {
+                        if let Err(exit_code) = external_handler.handle_control_event(&mut self) {
+                            break exit_code;
+                        }
+                    }
+                },
+            };
+        };
+        self.stop(i32::from(exit_code));
     }
 
     /// Triggers a rescan of the host file backing the emulated block device with id `drive_id`.

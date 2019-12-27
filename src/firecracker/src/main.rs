@@ -31,7 +31,6 @@ use vmm::controller::VmmController;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::InstanceInfo;
-use vmm::EventLoopExitReason;
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
@@ -230,23 +229,15 @@ fn run_without_api(seccomp_level: u32, config_json: Option<String>) {
         &mut epoll_context,
     );
 
-    let mut vm_controller: VmmController = VmmController::new(epoll_context, vm_resources, vmm);
-    let exit_code = loop {
-        match vm_controller.run_event_loop() {
-            Err(e) => {
-                error!("Abruptly exited VMM control loop: {:?}", e);
-                break vmm::FC_EXIT_CODE_GENERIC_ERROR;
-            }
-            Ok(exit_reason) => match exit_reason {
-                EventLoopExitReason::Break => {
-                    info!("Gracefully terminated VMM control loop");
-                    break vmm::FC_EXIT_CODE_OK;
-                }
-                EventLoopExitReason::ControlAction => {
-                    warn!("Spurious control event");
-                }
-            },
-        };
-    };
-    vm_controller.stop(i32::from(exit_code));
+    struct NoopHandler {};
+    impl vmm::controller::ControlEventHandler for NoopHandler {
+        fn handle_control_event(&self, _: &mut VmmController) -> std::result::Result<(), u8> {
+            warn!("Spurious control event");
+            Ok(())
+        }
+    }
+    let noop_handler = NoopHandler {};
+
+    let vm_controller: VmmController = VmmController::new(epoll_context, vm_resources, vmm);
+    vm_controller.run(&noop_handler);
 }
