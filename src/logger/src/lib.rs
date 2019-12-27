@@ -591,11 +591,11 @@ impl Logger {
                 Ok(msg) => {
                     if let Some(guard) = self.metrics_buf_guard().as_mut() {
                         write_to_destination(msg, guard)
+                            .map(|()| true)
                             .map_err(|e| {
                                 METRICS.logger.missed_metrics_count.inc();
                                 e
-                            })
-                            .map(|()| true)?;
+                            })?;
                     } else {
                         panic!("Failed to write to the provided metrics destination due to poisoned lock");
                     }
