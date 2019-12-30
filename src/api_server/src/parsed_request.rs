@@ -3,6 +3,7 @@
 
 use serde_json::Value;
 
+use super::VmmData;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use request::actions::parse_put_actions;
 use request::boot_source::parse_put_boot_source;
@@ -17,7 +18,7 @@ use request::net::{parse_patch_net, parse_put_net};
 use request::vsock::parse_put_vsock;
 use ApiServer;
 
-use vmm::controller::{VmmAction, VmmActionError, VmmData};
+use vmm::controller::{VmmAction, VmmActionError};
 
 #[allow(clippy::large_enum_variant)]
 pub enum ParsedRequest {

@@ -29,10 +29,16 @@ use mmds::data_store;
 use mmds::data_store::Mmds;
 use parsed_request::ParsedRequest;
 use utils::eventfd::EventFd;
+use vmm::controller::{VmmActionError, VmmData};
 use vmm::default_syscalls;
 use vmm::vmm_config::instance_info::InstanceInfo;
 
-use vmm::controller::{VmmAction, VmmRequest, VmmResponse};
+use vmm::controller::VmmAction;
+
+/// Shorthand type for a request containing a boxed VmmAction.
+pub type ApiRequest = Box<VmmAction>;
+/// Shorthand type for a response containing a boxed Result.
+pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 
 pub enum Error {
     Io(io::Error),
@@ -65,9 +71,9 @@ pub struct ApiServer {
     /// VMM instance info directly accessible from the API thread.
     vmm_shared_info: Arc<RwLock<InstanceInfo>>,
     /// Sender which allows passing messages to the VMM.
-    api_request_sender: mpsc::Sender<VmmRequest>,
+    api_request_sender: mpsc::Sender<ApiRequest>,
     /// Receiver which collects messages from the VMM.
-    vmm_response_receiver: mpsc::Receiver<VmmResponse>,
+    vmm_response_receiver: mpsc::Receiver<ApiResponse>,
     /// FD on which we notify the VMM that we have sent at least one
     /// `VmmRequest`.
     to_vmm_fd: EventFd,
@@ -77,8 +83,8 @@ impl ApiServer {
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
         vmm_shared_info: Arc<RwLock<InstanceInfo>>,
-        api_request_sender: mpsc::Sender<VmmRequest>,
-        vmm_response_receiver: mpsc::Receiver<VmmResponse>,
+        api_request_sender: mpsc::Sender<ApiRequest>,
+        vmm_response_receiver: mpsc::Receiver<ApiResponse>,
         to_vmm_fd: EventFd,
     ) -> Result<Self> {
         Ok(ApiServer {

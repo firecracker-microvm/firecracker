@@ -6,10 +6,6 @@
 use std::fmt::{Display, Formatter};
 use std::io;
 
-use super::{
-    vmm_config::drive::DriveError, vmm_config::machine_config::VmConfigError,
-    vmm_config::net::NetworkInterfaceError,
-};
 use device_manager;
 use polly::event_manager;
 use vstate;
@@ -67,7 +63,7 @@ pub enum Error {
     EventManager(event_manager::Error),
 }
 
-impl std::fmt::Display for Error {
+impl Display for Error {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::Error::*;
 
@@ -102,124 +98,6 @@ impl std::fmt::Display for Error {
             Vm(e) => write!(f, "Vm error: {}", e),
             EventManager(e) => write!(f, "Event manager error: {:?}", e),
         }
-    }
-}
-
-use controller::{ErrorKind, VmmActionError};
-
-// It's convenient to turn DriveErrors into VmmActionErrors directly.
-impl std::convert::From<DriveError> for VmmActionError {
-    fn from(e: DriveError) -> Self {
-        use vmm_config::drive::DriveError::*;
-
-        // This match is used to force developers who add new types of
-        // `DriveError`s to explicitly consider what kind they should
-        // have. Remove this comment when a match arm that yields
-        // something other than `ErrorKind::User` is added.
-        let kind = match e {
-            // User errors.
-            CannotOpenBlockDevice(_)
-            | InvalidBlockDeviceID
-            | InvalidBlockDevicePath
-            | BlockDevicePathAlreadyExists
-            | EpollHandlerNotFound
-            | BlockDeviceUpdateFailed
-            | OperationNotAllowedPreBoot
-            | UpdateNotAllowedPostBoot
-            | RootBlockDeviceAlreadyAdded => ErrorKind::User,
-        };
-
-        VmmActionError::DriveConfig(kind, e)
-    }
-}
-
-// It's convenient to turn VmConfigErrors into VmmActionErrors directly.
-impl std::convert::From<VmConfigError> for VmmActionError {
-    fn from(e: VmConfigError) -> Self {
-        use vmm_config::machine_config::VmConfigError::*;
-
-        // This match is used to force developers who add new types of
-        // `VmConfigError`s to explicitly consider what kind they should
-        // have. Remove this comment when a match arm that yields
-        // something other than `ErrorKind::User` is added.
-        let kind = match e {
-            // User errors.
-            InvalidVcpuCount | InvalidMemorySize | UpdateNotAllowedPostBoot => ErrorKind::User,
-        };
-
-        VmmActionError::MachineConfig(kind, e)
-    }
-}
-
-// It's convenient to turn NetworkInterfaceErrors into VmmActionErrors directly.
-impl std::convert::From<NetworkInterfaceError> for VmmActionError {
-    fn from(e: NetworkInterfaceError) -> Self {
-        use utils::net::TapError::*;
-        use vmm_config::net::NetworkInterfaceError::*;
-
-        let kind = match e {
-            // User errors.
-            GuestMacAddressInUse(_)
-            | HostDeviceNameInUse(_)
-            | DeviceIdNotFound
-            | UpdateNotAllowedPostBoot => ErrorKind::User,
-            // Internal errors.
-            EpollHandlerNotFound(_) | RateLimiterUpdateFailed(_) => ErrorKind::Internal,
-            OpenTap(ref te) => match te {
-                // User errors.
-                OpenTun(_) | CreateTap(_) | InvalidIfname => ErrorKind::User,
-                // Internal errors.
-                IoctlError(_) | CreateSocket(_) => ErrorKind::Internal,
-            },
-        };
-
-        VmmActionError::NetworkConfig(kind, e)
-    }
-}
-
-impl VmmActionError {
-    /// Returns the error type.
-    pub fn kind(&self) -> &ErrorKind {
-        use self::VmmActionError::*;
-
-        match *self {
-            BootSource(ref kind, _) => kind,
-            DriveConfig(ref kind, _) => kind,
-            Logger(ref kind, _) => kind,
-            MachineConfig(ref kind, _) => kind,
-            NetworkConfig(ref kind, _) => kind,
-            OperationNotSupportedPostBoot | OperationNotSupportedPreBoot => &ErrorKind::User,
-            StartMicrovm(ref kind, _) => kind,
-            SendCtrlAltDel(ref kind, _) => kind,
-            VsockConfig(ref kind, _) => kind,
-        }
-    }
-}
-
-impl Display for VmmActionError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::VmmActionError::*;
-
-        write!(
-            f,
-            "{}",
-            match self {
-                BootSource(_, err) => err.to_string(),
-                DriveConfig(_, err) => err.to_string(),
-                Logger(_, err) => err.to_string(),
-                MachineConfig(_, err) => err.to_string(),
-                NetworkConfig(_, err) => err.to_string(),
-                OperationNotSupportedPostBoot =>
-                    "The requested operation is not supported after starting the microVM."
-                        .to_string(),
-                OperationNotSupportedPreBoot =>
-                    "The requested operation is not supported before starting the microVM."
-                        .to_string(),
-                StartMicrovm(_, err) => err.to_string(),
-                SendCtrlAltDel(_, err) => err.to_string(),
-                VsockConfig(_, err) => err.to_string(),
-            }
-        )
     }
 }
 

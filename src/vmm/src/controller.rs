@@ -1,6 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::path::PathBuf;
@@ -149,6 +150,122 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
     }
 }
 
+// It's convenient to turn DriveErrors into VmmActionErrors directly.
+impl std::convert::From<DriveError> for VmmActionError {
+    fn from(e: DriveError) -> Self {
+        use vmm_config::drive::DriveError::*;
+
+        // This match is used to force developers who add new types of
+        // `DriveError`s to explicitly consider what kind they should
+        // have. Remove this comment when a match arm that yields
+        // something other than `ErrorKind::User` is added.
+        let kind = match e {
+            // User errors.
+            CannotOpenBlockDevice(_)
+            | InvalidBlockDeviceID
+            | InvalidBlockDevicePath
+            | BlockDevicePathAlreadyExists
+            | EpollHandlerNotFound
+            | BlockDeviceUpdateFailed
+            | OperationNotAllowedPreBoot
+            | UpdateNotAllowedPostBoot
+            | RootBlockDeviceAlreadyAdded => ErrorKind::User,
+        };
+
+        VmmActionError::DriveConfig(kind, e)
+    }
+}
+
+// It's convenient to turn VmConfigErrors into VmmActionErrors directly.
+impl std::convert::From<VmConfigError> for VmmActionError {
+    fn from(e: VmConfigError) -> Self {
+        use vmm_config::machine_config::VmConfigError::*;
+
+        // This match is used to force developers who add new types of
+        // `VmConfigError`s to explicitly consider what kind they should
+        // have. Remove this comment when a match arm that yields
+        // something other than `ErrorKind::User` is added.
+        let kind = match e {
+            // User errors.
+            InvalidVcpuCount | InvalidMemorySize | UpdateNotAllowedPostBoot => ErrorKind::User,
+        };
+
+        VmmActionError::MachineConfig(kind, e)
+    }
+}
+
+// It's convenient to turn NetworkInterfaceErrors into VmmActionErrors directly.
+impl std::convert::From<NetworkInterfaceError> for VmmActionError {
+    fn from(e: NetworkInterfaceError) -> Self {
+        use utils::net::TapError::*;
+        use vmm_config::net::NetworkInterfaceError::*;
+
+        let kind = match e {
+            // User errors.
+            GuestMacAddressInUse(_)
+            | HostDeviceNameInUse(_)
+            | DeviceIdNotFound
+            | UpdateNotAllowedPostBoot => ErrorKind::User,
+            // Internal errors.
+            EpollHandlerNotFound(_) | RateLimiterUpdateFailed(_) => ErrorKind::Internal,
+            OpenTap(ref te) => match te {
+                // User errors.
+                OpenTun(_) | CreateTap(_) | InvalidIfname => ErrorKind::User,
+                // Internal errors.
+                IoctlError(_) | CreateSocket(_) => ErrorKind::Internal,
+            },
+        };
+
+        VmmActionError::NetworkConfig(kind, e)
+    }
+}
+
+impl VmmActionError {
+    /// Returns the error type.
+    pub fn kind(&self) -> &ErrorKind {
+        use self::VmmActionError::*;
+
+        match *self {
+            BootSource(ref kind, _) => kind,
+            DriveConfig(ref kind, _) => kind,
+            Logger(ref kind, _) => kind,
+            MachineConfig(ref kind, _) => kind,
+            NetworkConfig(ref kind, _) => kind,
+            OperationNotSupportedPostBoot | OperationNotSupportedPreBoot => &ErrorKind::User,
+            StartMicrovm(ref kind, _) => kind,
+            SendCtrlAltDel(ref kind, _) => kind,
+            VsockConfig(ref kind, _) => kind,
+        }
+    }
+}
+
+impl Display for VmmActionError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::VmmActionError::*;
+
+        write!(
+            f,
+            "{}",
+            match self {
+                BootSource(_, err) => err.to_string(),
+                DriveConfig(_, err) => err.to_string(),
+                Logger(_, err) => err.to_string(),
+                MachineConfig(_, err) => err.to_string(),
+                NetworkConfig(_, err) => err.to_string(),
+                OperationNotSupportedPostBoot =>
+                    "The requested operation is not supported after starting the microVM."
+                        .to_string(),
+                OperationNotSupportedPreBoot =>
+                    "The requested operation is not supported before starting the microVM."
+                        .to_string(),
+                StartMicrovm(_, err) => err.to_string(),
+                SendCtrlAltDel(_, err) => err.to_string(),
+                VsockConfig(_, err) => err.to_string(),
+            }
+        )
+    }
+}
+
 /// The enum represents the response sent by the VMM in case of success. The response is either
 /// empty, when no data needs to be sent, or an internal VMM structure.
 #[derive(Debug)]
@@ -158,11 +275,6 @@ pub enum VmmData {
     /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(VmConfig),
 }
-
-/// Shorthand type for a request containing a boxed VmmAction.
-pub type VmmRequest = Box<VmmAction>;
-/// Shorthand type for a response containing a boxed Result.
-pub type VmmResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 
 /// Shorthand result type for external VMM commands.
 pub type UserResult = std::result::Result<(), VmmActionError>;

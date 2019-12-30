@@ -6,27 +6,25 @@ use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use api_server::ApiServer;
+use api_server::{ApiRequest, ApiResponse, ApiServer};
 use mmds::MMDS;
 use utils::eventfd::EventFd;
-use vmm::controller::{
-    ErrorKind, VmmAction, VmmActionError, VmmController, VmmData, VmmRequest, VmmResponse,
-};
+use vmm::controller::{ErrorKind, VmmAction, VmmActionError, VmmController, VmmData};
 use vmm::resources::VmResources;
 use vmm::vmm_config;
 use vmm::vmm_config::instance_info::InstanceInfo;
 
 struct ApiAdapter {
     api_event_fd: EventFd,
-    from_api: Receiver<VmmRequest>,
-    to_api: Sender<VmmResponse>,
+    from_api: Receiver<ApiRequest>,
+    to_api: Sender<ApiResponse>,
 }
 
 impl ApiAdapter {
     pub fn new(
         api_event_fd: EventFd,
-        from_api: Receiver<VmmRequest>,
-        to_api: Sender<VmmResponse>,
+        from_api: Receiver<ApiRequest>,
+        to_api: Sender<ApiResponse>,
     ) -> Self {
         ApiAdapter {
             api_event_fd,
@@ -91,7 +89,7 @@ impl ApiAdapter {
         vm_resources: &mut VmResources,
         seccomp_level: u32,
         epoll_context: &mut vmm::EpollContext,
-    ) -> (VmmResponse, Option<vmm::Vmm>) {
+    ) -> (ApiResponse, Option<vmm::Vmm>) {
         use vmm::controller::VmmAction::*;
 
         let mut maybe_vmm = None;
