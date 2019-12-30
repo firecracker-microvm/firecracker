@@ -14,8 +14,7 @@ use std::time::Duration;
 use super::{EpollContext, EpollDispatch, VcpuConfig, Vmm};
 
 use arch::InitrdConfig;
-use controller::UserResult;
-use controller::VmmActionError;
+use controller::ActionResult;
 use device_manager;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
@@ -26,6 +25,7 @@ use error::*;
 use logger::{Metric, LOGGER, METRICS};
 use polly::event_manager::EventManager;
 use resources::VmResources;
+use rpc_interface::VmmActionError;
 use seccomp::BpfProgramRef;
 #[cfg(target_arch = "aarch64")]
 use utils::eventfd::EventFd;
@@ -568,7 +568,7 @@ fn attach_net_devices(
     vmm: &mut Vmm,
     vm_resources: &VmResources,
     epoll_context: &mut EpollContext,
-) -> UserResult {
+) -> ActionResult {
     use self::StartMicrovmError::*;
 
     for cfg in vm_resources.network_interface.iter() {
@@ -622,7 +622,7 @@ fn attach_vsock_device(
     vmm: &mut Vmm,
     vm_resources: &VmResources,
     epoll_context: &mut EpollContext,
-) -> UserResult {
+) -> ActionResult {
     if let Some(cfg) = vm_resources.vsock.as_ref() {
         let backend = devices::virtio::vsock::VsockUnixBackend::new(
             u64::from(cfg.guest_cid),

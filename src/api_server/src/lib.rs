@@ -31,10 +31,8 @@ use mmds::data_store::Mmds;
 use parsed_request::ParsedRequest;
 use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
-use vmm::controller::{VmmActionError, VmmData};
+use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::instance_info::InstanceInfo;
-
-use vmm::controller::VmmAction;
 
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
@@ -284,7 +282,7 @@ mod tests {
     use micro_http::HttpConnection;
     use mmds::MMDS;
     use vmm::builder::StartMicrovmError;
-    use vmm::controller::{ErrorKind, VmmActionError};
+    use vmm::rpc_interface::{ErrorKind, VmmActionError};
     use vmm::vmm_config::instance_info::InstanceInfo;
 
     #[test]

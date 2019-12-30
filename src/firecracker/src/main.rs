@@ -205,11 +205,11 @@ fn main() {
 // Configure and start a microVM as described by the command-line JSON.
 fn build_microvm_from_json(
     seccomp_filter: BpfProgram,
-    config_json: String,
     epoll_context: &mut vmm::EpollContext,
+    config_json: String,
 ) -> (VmResources, vmm::Vmm) {
-    let vm_resources = VmResources::from_json(&config_json, FIRECRACKER_VERSION.to_string())
-        .unwrap_or_else(|err| {
+    let vm_resources =
+        VmResources::from_json(&config_json, FIRECRACKER_VERSION).unwrap_or_else(|err| {
             error!(
                 "Configuration for VMM from one single json failed: {:?}",
                 err
@@ -230,25 +230,28 @@ fn build_microvm_from_json(
 }
 
 fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
+    use vmm::rpc_interface::{RuntimeApiAdapter, RuntimeApiController};
     // The driving epoll engine.
     let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
 
     let (vm_resources, vmm) = build_microvm_from_json(
         seccomp_filter,
+        &mut epoll_context,
         // Safe to unwrap since no-api requires this to be set.
         config_json.unwrap(),
-        &mut epoll_context,
     );
 
     struct NoopHandler {};
-    impl vmm::controller::ControlEventHandler for NoopHandler {
-        fn handle_control_event(&self, _: &mut VmmController) -> std::result::Result<(), u8> {
+    impl RuntimeApiAdapter for NoopHandler {
+        fn runtime_request_injector(
+            &self,
+            _: &mut RuntimeApiController,
+        ) -> std::result::Result<(), u8> {
             warn!("Spurious control event");
             Ok(())
         }
     }
     let noop_handler = NoopHandler {};
 
-    let vm_controller: VmmController = VmmController::new(epoll_context, vm_resources, vmm);
-    vm_controller.run(&noop_handler);
+    noop_handler.run(VmmController::new(epoll_context, vm_resources, vmm));
 }
