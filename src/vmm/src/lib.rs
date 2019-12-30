@@ -43,6 +43,8 @@ pub(crate) mod device_manager;
 pub mod error;
 /// Resource store for configured microVM resources.
 pub mod resources;
+/// microVM RPC API adapters.
+pub mod rpc_interface;
 /// Signal handling utilities.
 pub mod signal_handler;
 /// Wrappers over structures used to configure the VMM.
