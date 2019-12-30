@@ -9,9 +9,10 @@ use std::result;
 use super::{EpollContext, EventLoopExitReason, Vmm};
 
 use arch::DeviceType;
+use builder::StartMicrovmError;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{self, TYPE_BLOCK, TYPE_NET};
-use error::{Error as VmmError, Result, StartMicrovmError};
+use error::{Error as VmmError, Result};
 use resources::VmResources;
 use vmm_config;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
@@ -111,6 +112,41 @@ pub enum VmmActionError {
     /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     VsockConfig(ErrorKind, VsockError),
+}
+
+// It's convenient to turn StartMicrovmErrors into VmmActionErrors directly.
+impl std::convert::From<StartMicrovmError> for VmmActionError {
+    fn from(e: StartMicrovmError) -> Self {
+        use self::StartMicrovmError::*;
+
+        let kind = match e {
+            // User errors.
+            CreateVsockBackend(_)
+            | CreateBlockDevice(_)
+            | CreateNetDevice(_)
+            | KernelCmdline(_)
+            | KernelLoader(_)
+            | MicroVMAlreadyRunning
+            | MissingKernelConfig
+            | NetDeviceNotConfigured
+            | OpenBlockDevice(_) => ErrorKind::User,
+            // Internal errors.
+            ConfigureVm(_)
+            | CreateRateLimiter(_)
+            | CreateVsockDevice(_)
+            | GuestMemory(_)
+            | Internal(_)
+            | RegisterBlockDevice(_)
+            | RegisterNetDevice(_)
+            | RegisterVsockDevice(_) => ErrorKind::Internal,
+            // The only user `LoadCommandline` error is `CommandLineOverflow`.
+            LoadCommandline(ref cle) => match cle {
+                kernel::cmdline::Error::CommandLineOverflow => ErrorKind::User,
+                _ => ErrorKind::Internal,
+            },
+        };
+        VmmActionError::StartMicrovm(kind, e)
+    }
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either

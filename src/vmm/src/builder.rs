@@ -5,6 +5,7 @@
 
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
+use std::fmt::{Display, Formatter};
 use std::fs::OpenOptions;
 use std::time::Duration;
 
@@ -12,6 +13,7 @@ use super::{EpollContext, EpollDispatch, VcpuConfig, Vmm};
 
 use controller::UserResult;
 use controller::VmmActionError;
+use device_manager;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -19,15 +21,164 @@ use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
 use devices::virtio::{MmioDevice, BLOCK_EVENTS_COUNT, NET_EVENTS_COUNT, TYPE_BLOCK, TYPE_NET};
 use error::*;
 use logger::{Metric, LOGGER, METRICS};
-use memory_model::{GuestAddress, GuestMemory};
+use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use polly::event_manager::EventManager;
 use resources::VmResources;
 use utils::time::TimestampUs;
 use vmm_config;
 use vmm_config::boot_source::BootConfig;
-use vstate::{KvmContext, Vm};
+use vstate::{self, KvmContext, Vm};
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
+
+/// Errors associated with starting the instance.
+// TODO: add error kind to these variants because not all these errors are user or internal.
+#[derive(Debug)]
+pub enum StartMicrovmError {
+    /// Cannot configure the VM.
+    ConfigureVm(vstate::Error),
+    /// Unable to seek the block device backing file due to invalid permissions or
+    /// the file was deleted/corrupted.
+    CreateBlockDevice(std::io::Error),
+    /// Split this at some point.
+    /// Internal errors are due to resource exhaustion.
+    /// Users errors are due to invalid permissions.
+    CreateNetDevice(devices::virtio::Error),
+    /// Failed to create a `RateLimiter` object.
+    CreateRateLimiter(std::io::Error),
+    /// Failed to create the backend for the vsock device.
+    CreateVsockBackend(devices::virtio::vsock::VsockUnixBackendError),
+    /// Failed to create the vsock device.
+    CreateVsockDevice(devices::virtio::vsock::VsockError),
+    /// Memory regions are overlapping or mmap fails.
+    GuestMemory(GuestMemoryError),
+    // Temporarily added for mixing calls that may return an Error with others that may return a
+    // StartMicrovmError within the same function.
+    /// Internal error encountered while starting a microVM.
+    Internal(Error),
+    /// The kernel command line is invalid.
+    KernelCmdline(String),
+    /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
+    KernelLoader(kernel::loader::Error),
+    /// Cannot load command line string.
+    LoadCommandline(kernel::cmdline::Error),
+    /// The start command was issued more than once.
+    MicroVMAlreadyRunning,
+    /// Cannot start the VM because the kernel was not configured.
+    MissingKernelConfig,
+    /// The net device configuration is missing the tap device.
+    NetDeviceNotConfigured,
+    /// Cannot open the block device backing file.
+    OpenBlockDevice(std::io::Error),
+    /// Cannot initialize a MMIO Block Device or add a device to the MMIO Bus.
+    RegisterBlockDevice(device_manager::mmio::Error),
+    /// Cannot initialize a MMIO Network Device or add a device to the MMIO Bus.
+    RegisterNetDevice(device_manager::mmio::Error),
+    /// Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus.
+    RegisterVsockDevice(device_manager::mmio::Error),
+}
+
+/// It's convenient to automatically convert `kernel::cmdline::Error`s
+/// to `StartMicrovmError`s.
+impl std::convert::From<kernel::cmdline::Error> for StartMicrovmError {
+    fn from(e: kernel::cmdline::Error) -> StartMicrovmError {
+        StartMicrovmError::KernelCmdline(e.to_string())
+    }
+}
+
+impl Display for StartMicrovmError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::StartMicrovmError::*;
+        match *self {
+            ConfigureVm(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot configure virtual machine. {}", err_msg)
+            }
+            CreateBlockDevice(ref err) => write!(
+                f,
+                "Unable to seek the block device backing file due to invalid permissions or \
+                 the file was deleted/corrupted. Error number: {}",
+                err
+            ),
+            CreateRateLimiter(ref err) => write!(f, "Cannot create RateLimiter: {}", err),
+            CreateVsockBackend(ref err) => {
+                write!(f, "Cannot create backend for vsock device: {:?}", err)
+            }
+            CreateVsockDevice(ref err) => write!(f, "Cannot create vsock device: {:?}", err),
+            CreateNetDevice(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot create network device. {}", err_msg)
+            }
+            GuestMemory(ref err) => {
+                // Remove imbricated quotes from error message.
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(f, "Invalid Memory Configuration: {}", err_msg)
+            }
+            Internal(ref err) => write!(f, "Internal error while starting microVM: {:?}", err),
+            KernelCmdline(ref err) => write!(f, "Invalid kernel command line: {}", err),
+            KernelLoader(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(
+                    f,
+                    "Cannot load kernel due to invalid memory configuration or invalid kernel \
+                     image. {}",
+                    err_msg
+                )
+            }
+            LoadCommandline(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(f, "Cannot load command line string. {}", err_msg)
+            }
+            MicroVMAlreadyRunning => write!(f, "Microvm already running."),
+            MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),
+            NetDeviceNotConfigured => {
+                write!(f, "The net device configuration is missing the tap device.")
+            }
+            OpenBlockDevice(ref err) => {
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(f, "Cannot open the block device backing file. {}", err_msg)
+            }
+            RegisterBlockDevice(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(
+                    f,
+                    "Cannot initialize a MMIO Block Device or add a device to the MMIO Bus. {}",
+                    err_msg
+                )
+            }
+            RegisterNetDevice(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(
+                    f,
+                    "Cannot initialize a MMIO Network Device or add a device to the MMIO Bus. {}",
+                    err_msg
+                )
+            }
+            RegisterVsockDevice(ref err) => {
+                let mut err_msg = format!("{}", err);
+                err_msg = err_msg.replace("\"", "");
+
+                write!(
+                    f,
+                    "Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus. {}",
+                    err_msg
+                )
+            }
+        }
+    }
+}
 
 /// Builds and starts a microVM based on the current configuration.
 pub fn build_microvm(

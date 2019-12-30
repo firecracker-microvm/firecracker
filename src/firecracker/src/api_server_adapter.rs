@@ -222,7 +222,7 @@ impl vmm::controller::ControlEventHandler for ApiAdapter {
                     ),
 
                     StartMicroVm => {
-                        Err(vmm::error::StartMicrovmError::MicroVMAlreadyRunning.into())
+                        Err(vmm::builder::StartMicrovmError::MicroVMAlreadyRunning.into())
                     }
                 };
                 // Send back the result.
