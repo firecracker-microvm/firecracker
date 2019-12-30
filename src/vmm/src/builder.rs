@@ -5,7 +5,7 @@
 
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::time::Duration;
 
 use super::{EpollContext, EpollDispatch, VcpuConfig, Vmm};
@@ -24,7 +24,7 @@ use polly::event_manager::EventManager;
 use resources::VmResources;
 use utils::time::TimestampUs;
 use vmm_config;
-use vmm_config::boot_source::{BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
+use vmm_config::boot_source::BootConfig;
 use vstate::{KvmContext, Vm};
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
@@ -35,7 +35,7 @@ pub fn build_microvm(
     epoll_context: &mut EpollContext,
     seccomp_level: u32,
 ) -> std::result::Result<Vmm, VmmActionError> {
-    let boot_src_cfg = vm_resources
+    let boot_config = vm_resources
         .boot_source()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
 
@@ -44,8 +44,9 @@ pub fn build_microvm(
 
     let guest_memory = create_guest_memory(vm_resources)?;
     let vcpu_config = vcpu_config(vm_resources);
-    let entry_addr = load_kernel(boot_src_cfg, &guest_memory)?;
-    let kernel_cmdline = setup_cmdline(boot_src_cfg)?;
+    let entry_addr = load_kernel(boot_config, &guest_memory)?;
+    // Clone the command-line so that a failed boot doesn't pollute the original.
+    let kernel_cmdline = boot_config.cmdline.clone();
     let write_metrics_event_fd = setup_metrics(epoll_context)?;
     let event_manager = setup_event_manager(epoll_context)?;
     let vm = setup_kvm_vm(guest_memory.clone())?;
@@ -84,18 +85,24 @@ pub fn build_microvm(
     // while on aarch64 we need to do it the other way around.
     #[cfg(target_arch = "x86_64")]
     {
-        vmm.setup_interrupt_controller()?;
+        vmm.setup_interrupt_controller()
+            .map_err(StartMicrovmError::Internal)?;
         // This call has to be here after setting up the irqchip, because
         // we set up some irqfd inside for some reason.
-        vmm.attach_legacy_devices()?;
+        vmm.attach_legacy_devices()
+            .map_err(StartMicrovmError::Internal)?;
     }
 
-    let vcpus = vmm.create_vcpus(entry_addr, request_ts)?;
+    let vcpus = vmm
+        .create_vcpus(entry_addr, request_ts)
+        .map_err(StartMicrovmError::Internal)?;
 
     #[cfg(target_arch = "aarch64")]
     {
-        vmm.setup_interrupt_controller()?;
-        vmm.attach_legacy_devices()?;
+        vmm.setup_interrupt_controller()
+            .map_err(StartMicrovmError::Internal)?;
+        vmm.attach_legacy_devices()
+            .map_err(StartMicrovmError::Internal)?;
     }
 
     attach_block_devices(&mut vmm, vm_resources, epoll_context)?;
@@ -107,9 +114,12 @@ pub fn build_microvm(
     #[cfg(target_arch = "x86_64")]
     load_cmdline(&vmm)?;
 
-    vmm.configure_system(vcpus.as_slice())?;
-    vmm.register_events(epoll_context)?;
-    vmm.start_vcpus(vcpus)?;
+    vmm.configure_system(vcpus.as_slice())
+        .map_err(StartMicrovmError::Internal)?;
+    vmm.register_events(epoll_context)
+        .map_err(StartMicrovmError::Internal)?;
+    vmm.start_vcpus(vcpus)
+        .map_err(StartMicrovmError::Internal)?;
 
     arm_logger_and_metrics(&mut vmm);
 
@@ -142,32 +152,19 @@ fn vcpu_config(vm_resources: &VmResources) -> VcpuConfig {
 }
 
 fn load_kernel(
-    boot_src_cfg: &BootSourceConfig,
+    boot_config: &BootConfig,
     guest_memory: &GuestMemory,
 ) -> std::result::Result<GuestAddress, StartMicrovmError> {
-    // FIXME: use the right error here.
-    let mut kernel_file =
-        File::open(&boot_src_cfg.kernel_image_path).map_err(StartMicrovmError::VcpuSpawn)?;
+    let mut kernel_file = boot_config
+        .kernel_file
+        .try_clone()
+        .map_err(|e| StartMicrovmError::Internal(Error::KernelFile(e)))?;
 
     let entry_addr =
         kernel::loader::load_kernel(guest_memory, &mut kernel_file, arch::get_kernel_start())
             .map_err(StartMicrovmError::KernelLoader)?;
 
     Ok(entry_addr)
-}
-
-fn setup_cmdline(
-    boot_src_cfg: &BootSourceConfig,
-) -> std::result::Result<kernel::cmdline::Cmdline, StartMicrovmError> {
-    let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-    let boot_args = match boot_src_cfg.boot_args.as_ref() {
-        None => DEFAULT_KERNEL_CMDLINE,
-        Some(str) => str.as_str(),
-    };
-    cmdline
-        .insert_str(boot_args)
-        .map_err(|e| StartMicrovmError::KernelCmdline(e.to_string()))?;
-    Ok(cmdline)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -247,7 +244,7 @@ fn attach_block_devices(
     vm_resources: &VmResources,
     epoll_context: &mut EpollContext,
 ) -> std::result::Result<(), StartMicrovmError> {
-    use StartMicrovmError::*;
+    use self::StartMicrovmError::*;
 
     // If no PARTUUID was specified for the root device, try with the /dev/vda.
     if vm_resources.block.has_root_block_device() && !vm_resources.block.has_partuuid_root() {
@@ -316,7 +313,7 @@ fn attach_block_devices(
             vmm,
             drive_config.drive_id.clone(),
             MmioDevice::new(vmm.guest_memory().clone(), block_box).map_err(|e| {
-                RegisterMMIODevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
+                RegisterBlockDevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
             })?,
         )?;
     }
@@ -329,7 +326,7 @@ fn attach_net_devices(
     vm_resources: &VmResources,
     epoll_context: &mut EpollContext,
 ) -> UserResult {
-    use StartMicrovmError::*;
+    use self::StartMicrovmError::*;
 
     for cfg in vm_resources.network_interface.iter() {
         let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
@@ -370,7 +367,7 @@ fn attach_net_devices(
             vmm,
             cfg.iface_id.clone(),
             MmioDevice::new(vmm.guest_memory().clone(), net_box).map_err(|e| {
-                RegisterMMIODevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
+                RegisterNetDevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
             })?,
         )?;
     }
@@ -405,7 +402,7 @@ fn attach_vsock_device(
             vmm,
             cfg.vsock_id.clone(),
             MmioDevice::new(vmm.guest_memory().clone(), vsock_box).map_err(|e| {
-                StartMicrovmError::RegisterMMIODevice(
+                StartMicrovmError::RegisterVsockDevice(
                     super::device_manager::mmio::Error::CreateMmioDevice(e),
                 )
             })?,

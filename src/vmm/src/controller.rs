@@ -11,8 +11,7 @@ use super::{EpollContext, EventLoopExitReason, Vmm};
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{self, TYPE_BLOCK, TYPE_NET};
-use error::Result;
-use error::{I8042Error, StartMicrovmError};
+use error::{Error as VmmError, Result, StartMicrovmError};
 use resources::VmResources;
 use vmm_config;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
@@ -108,7 +107,7 @@ pub enum VmmActionError {
     StartMicrovm(ErrorKind, StartMicrovmError),
     /// The action `SendCtrlAltDel` failed. Details are provided by the device-specific error
     /// `I8042DeviceError`.
-    SendCtrlAltDel(ErrorKind, I8042Error),
+    SendCtrlAltDel(ErrorKind, VmmError),
     /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     VsockConfig(ErrorKind, VsockError),
