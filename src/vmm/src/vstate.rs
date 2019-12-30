@@ -239,7 +239,7 @@ impl Display for Error {
             #[cfg(target_arch = "aarch64")]
             REGSConfiguration(e) => write!(
                 f,
-                "Error configuring the general purpose aarch64 registers: {}",
+                "Error configuring the general purpose aarch64 registers: {:?}",
                 e
             ),
             #[cfg(target_arch = "x86_64")]
@@ -312,7 +312,11 @@ impl Display for Error {
             #[cfg(target_arch = "x86_64")]
             VmSetIrqChip(e) => write!(f, "Failed to set KVM vm irqchip: {}", e),
             #[cfg(target_arch = "aarch64")]
-            SetupGIC(e) => write!(f, "Error setting up the global interrupt controller: {}", e),
+            SetupGIC(e) => write!(
+                f,
+                "Error setting up the global interrupt controller: {:?}",
+                e
+            ),
             #[cfg(target_arch = "aarch64")]
             VcpuArmPreferredTarget(e) => {
                 write!(f, "Error getting the Vcpu preferred target on Arm: {}", e)

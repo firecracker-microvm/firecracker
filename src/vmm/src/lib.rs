@@ -43,6 +43,8 @@ pub(crate) mod device_manager;
 pub mod error;
 /// Resource store for configured microVM resources.
 pub mod resources;
+/// microVM RPC API adapters.
+pub mod rpc_interface;
 /// Signal handling utilities.
 pub mod signal_handler;
 /// Wrappers over structures used to configure the VMM.
@@ -431,7 +433,9 @@ impl Vmm {
 
     #[cfg(target_arch = "aarch64")]
     fn setup_interrupt_controller(&mut self) -> Result<()> {
-        self.vm.setup_irqchip(self.vcpu_config.vcpu_count)
+        self.vm
+            .setup_irqchip(self.vcpu_config.vcpu_count)
+            .map_err(Error::Vm)
     }
 
     #[cfg(target_arch = "x86_64")]

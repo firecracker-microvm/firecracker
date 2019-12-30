@@ -123,7 +123,7 @@ impl Display for LoggerConfigError {
 /// Configures the logger as described in `logger_cfg`.
 pub fn init_logger(
     logger_cfg: LoggerConfig,
-    firecracker_version: String,
+    firecracker_version: &str,
 ) -> std::result::Result<(), LoggerConfigError> {
     LOGGER.set_level(match logger_cfg.level {
         LoggerLevel::Error => Level::Error,
@@ -137,7 +137,7 @@ pub fn init_logger(
 
     LOGGER
         .init(
-            &AppInfo::new("Firecracker", &firecracker_version),
+            &AppInfo::new("Firecracker", firecracker_version),
             Box::new(
                 LoggerWriter::new(&logger_cfg.log_fifo)
                     .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
