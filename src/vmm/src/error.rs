@@ -104,6 +104,7 @@ impl Display for Error {
 /// Shorthand result type for internal VMM commands.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -541,3 +542,4 @@ mod tests {
         );
     }
 }
+*/

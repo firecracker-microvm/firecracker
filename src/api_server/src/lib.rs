@@ -280,8 +280,9 @@ mod tests {
     use micro_http::HttpConnection;
     use mmds::MMDS;
     use std::time::Duration;
+    use vmm::builder::StartMicrovmError;
+    use vmm::controller::{ErrorKind, VmmActionError};
     use vmm::vmm_config::instance_info::InstanceInfo;
-    use vmm::{ErrorKind, StartMicrovmError, VmmActionError};
 
     #[test]
     fn test_error_messages() {
@@ -336,7 +337,7 @@ mod tests {
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
                 ErrorKind::User,
-                StartMicrovmError::EventFd,
+                StartMicrovmError::MicroVMAlreadyRunning,
             ))))
             .unwrap();
         let response = api_server.serve_vmm_action_request(VmmAction::StartMicroVm);
@@ -480,7 +481,7 @@ mod tests {
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
                 ErrorKind::User,
-                StartMicrovmError::EventFd,
+                StartMicrovmError::MicroVMAlreadyRunning,
             ))))
             .unwrap();
 

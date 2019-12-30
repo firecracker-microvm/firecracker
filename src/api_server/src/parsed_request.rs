@@ -225,8 +225,9 @@ mod tests {
     use std::str::FromStr;
 
     use micro_http::HttpConnection;
+    use vmm::builder::StartMicrovmError;
+    use vmm::controller::VmmActionError;
     use vmm::vmm_config::machine_config::VmConfig;
-    use vmm::{StartMicrovmError, VmmActionError};
 
     impl PartialEq for ParsedRequest {
         fn eq(&self, other: &ParsedRequest) -> bool {
@@ -468,9 +469,9 @@ mod tests {
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Error.
-        let mut buf: [u8; 160] = [0; 160];
+        let mut buf: [u8; 142] = [0; 142];
         let response = ParsedRequest::convert_to_response(Err(VmmActionError::from(
-            StartMicrovmError::EventFd,
+            StartMicrovmError::MicroVMAlreadyRunning,
         )));
         assert!(response.write_all(&mut buf.as_mut()).is_ok());
         let expected_response = format!(
@@ -478,8 +479,8 @@ mod tests {
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 42\r\n\r\n{}",
-            VmmActionError::from(StartMicrovmError::EventFd).to_string()
+             Content-Length: 24\r\n\r\n{}",
+            VmmActionError::from(StartMicrovmError::MicroVMAlreadyRunning).to_string()
         );
         assert_eq!(&buf[..], expected_response.as_bytes());
     }
