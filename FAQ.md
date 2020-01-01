@@ -241,3 +241,10 @@ If the microVM was not configured in terms of memory size through an API request
 the host needs to meet the minimum requirement in terms of free memory size,
 namely 128 MB of free memory which the microVM defaults to.
 
+### Firecracker fails to start and returns "Resource busy" error
+
+If another hypervisor like VMware or VirtualBox is running on the host and locks `/dev/kvm`,
+Firecracker process will fail to start with "Resource busy" error.
+
+This issue can be resolved by terminating the other hypervisor running on the host,
+and allowing Firecracker to start.
