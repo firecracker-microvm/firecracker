@@ -4,7 +4,7 @@
 use std::fmt::{Display, Formatter, Result};
 use std::result;
 
-use super::super::error::Error as VmmInternalError;
+use super::super::Error as VmmInternalError;
 use super::RateLimiterConfig;
 use devices;
 use dumbo::MacAddr;
@@ -89,8 +89,6 @@ pub enum NetworkInterfaceError {
     OpenTap(TapError),
     /// Error updating (patching) the rate limiters.
     RateLimiterUpdateFailed(devices::Error),
-    /// The update is not allowed after booting the microvm.
-    UpdateNotAllowedPostBoot,
 }
 
 impl Display for NetworkInterfaceError {
@@ -125,9 +123,6 @@ impl Display for NetworkInterfaceError {
                 )
             }
             RateLimiterUpdateFailed(ref e) => write!(f, "Unable to update rate limiter: {:?}", e),
-            UpdateNotAllowedPostBoot => {
-                write!(f, "The update operation is not allowed after boot.",)
-            }
         }
     }
 }
@@ -442,11 +437,6 @@ mod tests {
             NetworkInterfaceError::RateLimiterUpdateFailed(devices::Error::IoError(
                 io::Error::last_os_error()
             ))
-        );
-        let _ = format!(
-            "{}{:?}",
-            NetworkInterfaceError::UpdateNotAllowedPostBoot,
-            NetworkInterfaceError::UpdateNotAllowedPostBoot
         );
     }
 }

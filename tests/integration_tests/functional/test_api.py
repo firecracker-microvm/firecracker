@@ -245,6 +245,9 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 
     test_microvm.start()
 
+    expected_err = "The requested operation is not supported " \
+                   "after starting the microVM"
+
     # Valid updates to `kernel_image_path` are not allowed after boot.
     response = test_microvm.boot.put(
         kernel_image_path=test_microvm.get_jailed_resource(
@@ -252,14 +255,14 @@ def test_api_put_update_post_boot(test_microvm_with_api):
         )
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "The update operation is not allowed after boot" in response.text
+    assert expected_err in response.text
 
     # Valid updates to the machine configuration are not allowed after boot.
     response = test_microvm.machine_cfg.patch(
         vcpu_count=4
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "The update operation is not allowed after boot" in response.text
+    assert expected_err in response.text
 
     response = test_microvm.machine_cfg.put(
         vcpu_count=4,
@@ -267,7 +270,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
         mem_size_mib=128
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "The update operation is not allowed after boot" in response.text
+    assert expected_err in response.text
 
     # Network interface update is not allowed after boot.
     response = test_microvm.network.put(
@@ -276,7 +279,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
         guest_mac='06:00:00:00:00:02'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "The update operation is not allowed after boot" in response.text
+    assert expected_err in response.text
 
     # Block device update is not allowed after boot.
     response = test_microvm.drive.put(
@@ -286,7 +289,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
         is_root_device=True
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "The update operation is not allowed after boot" in response.text
+    assert expected_err in response.text
 
 
 def test_rate_limiters_api_config(test_microvm_with_api):
@@ -545,9 +548,11 @@ def test_api_patch_post_boot(test_microvm_with_api):
     assert "Invalid request method" in response.text
 
     # Partial updates to the machine configuration are not allowed after boot.
+    expected_err = "The requested operation is not supported " \
+                   "after starting the microVM"
     response = test_microvm.machine_cfg.patch(vcpu_count=4)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "The update operation is not allowed after boot." in response.text
+    assert expected_err in response.text
 
     # Partial updates to the logger configuration are not allowed.
     response = test_microvm.logger.patch(level='Error')
