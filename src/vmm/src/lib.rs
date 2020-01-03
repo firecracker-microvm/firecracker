@@ -78,7 +78,6 @@ use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
-use vmm_config::machine_config::CpuFeaturesTemplate;
 use vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
 /// Success exit code.
@@ -464,23 +463,12 @@ impl Display for Error {
 /// Shorthand result type for internal VMM commands.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Encapsulates configuration parameters for the guest vCPUS.
-pub struct VcpuConfig {
-    /// Number of guest VCPUs.
-    pub vcpu_count: u8,
-    /// Enable hyperthreading in the CPUID configuration.
-    pub ht_enabled: bool,
-    /// CPUID template to use.
-    pub cpu_template: Option<CpuFeaturesTemplate>,
-}
-
 /// Contains the state and associated methods required for the Firecracker VMM.
 pub struct Vmm {
     stdin_handle: io::Stdin,
 
     // Guest VM core resources.
     guest_memory: GuestMemoryMmap,
-    vcpu_config: VcpuConfig,
 
     kernel_cmdline: KernelCmdline,
 
@@ -528,109 +516,6 @@ impl Vmm {
     #[cfg(target_arch = "aarch64")]
     fn get_mmio_device_info(&self) -> Option<&HashMap<(DeviceType, String), MMIODeviceInfo>> {
         Some(self.mmio_device_manager.get_device_info())
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    fn setup_interrupt_controller(&mut self) -> Result<()> {
-        self.vm.setup_irqchip().map_err(Error::Vm)
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    fn setup_interrupt_controller(&mut self) -> Result<()> {
-        self.vm
-            .setup_irqchip(self.vcpu_config.vcpu_count)
-            .map_err(Error::Vm)
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    fn attach_legacy_devices(&mut self) -> Result<()> {
-        self.pio_device_manager
-            .register_devices()
-            .map_err(Error::LegacyIOBus)?;
-
-        macro_rules! register_irqfd_evt {
-            ($evt: ident, $index: expr) => {{
-                self.vm
-                    .fd()
-                    .register_irqfd(&self.pio_device_manager.$evt, $index)
-                    .map_err(|e| {
-                        Error::LegacyIOBus(device_manager::legacy::Error::EventFd(
-                            io::Error::from_raw_os_error(e.errno()),
-                        ))
-                    })?;
-            }};
-        }
-
-        register_irqfd_evt!(com_evt_1_3, 4);
-        register_irqfd_evt!(com_evt_2_4, 3);
-        register_irqfd_evt!(kbd_evt, 1);
-        Ok(())
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    fn attach_legacy_devices(&mut self) -> Result<()> {
-        if self.kernel_cmdline.as_str().contains("console=") {
-            self.mmio_device_manager
-                .register_mmio_serial(self.vm.fd(), &mut self.kernel_cmdline)
-                .map_err(Error::RegisterMMIODevice)?;
-        }
-
-        self.mmio_device_manager
-            .register_mmio_rtc(self.vm.fd())
-            .map_err(Error::RegisterMMIODevice)?;
-
-        Ok(())
-    }
-
-    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) and configured before
-    // setting up the IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
-    // was already initialized.
-    // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
-    fn create_vcpus(
-        &mut self,
-        entry_addr: GuestAddress,
-        request_ts: TimestampUs,
-    ) -> Result<Vec<Vcpu>> {
-        let vcpu_count = self.vcpu_config.vcpu_count;
-
-        let vm_memory = self
-            .vm
-            .memory()
-            .expect("Cannot create vCPUs before guest memory initialization!");
-
-        let mut vcpus = Vec::with_capacity(vcpu_count as usize);
-
-        for cpu_index in 0..vcpu_count {
-            let mut vcpu;
-            let exit_evt = self.exit_evt.try_clone().map_err(Error::EventFd)?;
-            #[cfg(target_arch = "x86_64")]
-            {
-                vcpu = Vcpu::new_x86_64(
-                    cpu_index,
-                    self.vm.fd(),
-                    self.vm.supported_cpuid().clone(),
-                    self.vm.supported_msrs().clone(),
-                    self.pio_device_manager.io_bus.clone(),
-                    exit_evt,
-                    request_ts.clone(),
-                )
-                .map_err(Error::Vcpu)?;
-
-                vcpu.configure_x86_64(vm_memory, entry_addr, &self.vcpu_config)
-                    .map_err(Error::Vcpu)?;
-            }
-            #[cfg(target_arch = "aarch64")]
-            {
-                vcpu = Vcpu::new_aarch64(cpu_index, self.vm.fd(), exit_evt, request_ts.clone())
-                    .map_err(Error::Vcpu)?;
-
-                vcpu.configure_aarch64(self.vm.fd(), vm_memory, entry_addr)
-                    .map_err(Error::Vcpu)?;
-            }
-
-            vcpus.push(vcpu);
-        }
-        Ok(vcpus)
     }
 
     fn start_vcpus(
@@ -901,73 +786,4 @@ impl Vmm {
 }
 
 #[cfg(test)]
-mod tests {
-    use vm_memory::GuestMemoryMmap;
-
-    use super::*;
-    use vstate::KvmContext;
-
-    impl Vmm {
-        // Left around here because it's called by tests::create_vmm_object in the device_manager
-        // mmio module.
-        /// Creates a new VMM object.
-        pub fn new(control_fd: &dyn AsRawFd) -> Result<Self> {
-            let mut epoll_context = EpollContext::new()?;
-            // If this fails, it's fatal; using expect() to crash.
-            epoll_context
-                .add_epollin_event(control_fd, EpollDispatch::VmmActionRequest)
-                .expect("Cannot add vmm control_fd to epoll.");
-
-            let event_manager = EventManager::new().map_err(Error::EventManager)?;
-
-            let write_metrics_event_fd =
-                TimerFd::new_custom(timerfd::ClockId::Monotonic, true, true)
-                    .map_err(Error::TimerFd)?;
-
-            epoll_context
-                .add_epollin_event(
-                    // non-blocking & close on exec
-                    &write_metrics_event_fd,
-                    EpollDispatch::WriteMetrics,
-                )
-                .expect("Cannot add write metrics TimerFd to epoll.");
-
-            let kvm = KvmContext::new().map_err(Error::KvmContext)?;
-            let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
-
-            let guest_memory = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)])
-                .expect("Could not create guest memory object");
-
-            let vcpu_config = VcpuConfig {
-                vcpu_count: 1,
-                ht_enabled: false,
-                cpu_template: None,
-            };
-
-            // Instantiate the MMIO device manager.
-            // 'mmio_base' address has to be an address which is protected by the kernel
-            // and is architectural specific.
-            let mmio_device_manager = MMIODeviceManager::new(
-                guest_memory.clone(),
-                &mut (arch::MMIO_MEM_START as u64),
-                (arch::IRQ_BASE, arch::IRQ_MAX),
-            );
-
-            Ok(Vmm {
-                stdin_handle: io::stdin(),
-                guest_memory,
-                vcpu_config,
-                kernel_cmdline: KernelCmdline::new(1000),
-                vcpus_handles: vec![],
-                exit_evt: EventFd::new(libc::EFD_NONBLOCK).expect("Cannot create eventFD"),
-                vm,
-                mmio_device_manager,
-                #[cfg(target_arch = "x86_64")]
-                pio_device_manager: PortIODeviceManager::new()
-                    .map_err(Error::CreateLegacyDevice)?,
-                write_metrics_event_fd,
-                event_manager,
-            })
-        }
-    }
-}
+mod tests {}
