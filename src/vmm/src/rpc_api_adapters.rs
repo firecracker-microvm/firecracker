@@ -6,9 +6,9 @@ use std::result;
 
 use super::{EpollContext, EventLoopExitReason, Vmm};
 
+use super::Error as VmmError;
 use builder::StartMicrovmError;
 use controller::VmmController;
-use error::Error as VmmError;
 use resources::VmResources;
 use vmm_config;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
@@ -204,7 +204,6 @@ impl<'a> PrebootApiController<'a> {
 
         let mut maybe_vmm = None;
         let response = match request {
-            /////////////////////////////////////////
             // Supported operations allowed pre-boot.
             ConfigureBootSource(boot_source_body) => self
                 .vm_resources
@@ -259,14 +258,11 @@ impl<'a> PrebootApiController<'a> {
             })
             .map_err(VmmActionError::StartMicrovm),
 
-            ///////////////////////////////////
             // Operations not allowed pre-boot.
-            FlushMetrics => Err(VmmActionError::Logger(
-                vmm_config::logger::LoggerConfigError::FlushMetrics(
-                    "Cannot flush metrics before starting microVM.".to_string(),
-                ),
-            )),
-            RescanBlockDevice(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
+            FlushMetrics | RescanBlockDevice(_) => {
+                Err(VmmActionError::OperationNotSupportedPreBoot)
+            }
+            #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         };
 
@@ -289,7 +285,6 @@ impl RuntimeApiController {
     ) -> std::result::Result<VmmData, VmmActionError> {
         use self::VmmAction::*;
         match request {
-            ///////////////////////////////////
             // Supported operations allowed post-boot.
             FlushMetrics => self.0.flush_metrics().map(|_| VmmData::Empty),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.0.vm_config().clone())),
@@ -308,23 +303,13 @@ impl RuntimeApiController {
                 .update_net_rate_limiters(netif_update)
                 .map(|_| VmmData::Empty),
 
-            ///////////////////////////////////
             // Operations not allowed post-boot.
-            ConfigureBootSource(_) => Err(VmmActionError::BootSource(
-                vmm_config::boot_source::BootSourceConfigError::UpdateNotAllowedPostBoot,
-            )),
-            ConfigureLogger(_) => Err(VmmActionError::Logger(
-                vmm_config::logger::LoggerConfigError::InitializationFailure(
-                    "Cannot initialize logger after boot.".to_string(),
-                ),
-            )),
-            InsertBlockDevice(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
-            InsertNetworkDevice(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
-            SetVsockDevice(_) => Err(VmmActionError::VsockConfig(
-                vmm_config::vsock::VsockError::UpdateNotAllowedPostBoot,
-            )),
-            SetVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
-
+            ConfigureBootSource(_)
+            | ConfigureLogger(_)
+            | InsertBlockDevice(_)
+            | InsertNetworkDevice(_)
+            | SetVsockDevice(_)
+            | SetVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
             StartMicroVm => Err(VmmActionError::StartMicrovm(
                 StartMicrovmError::MicroVMAlreadyRunning,
             )),

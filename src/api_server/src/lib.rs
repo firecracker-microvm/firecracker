@@ -279,7 +279,7 @@ mod tests {
     use mmds::MMDS;
     use std::time::Duration;
     use vmm::builder::StartMicrovmError;
-    use vmm::rpc_api_adapters::{ErrorKind, VmmActionError};
+    use vmm::rpc_api_adapters::VmmActionError;
     use vmm::vmm_config::instance_info::InstanceInfo;
 
     #[test]
@@ -334,7 +334,6 @@ mod tests {
 
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
-                ErrorKind::User,
                 StartMicrovmError::MicroVMAlreadyRunning,
             ))))
             .unwrap();
@@ -478,7 +477,6 @@ mod tests {
         .unwrap();
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
-                ErrorKind::User,
                 StartMicrovmError::MicroVMAlreadyRunning,
             ))))
             .unwrap();

@@ -149,7 +149,7 @@ impl Display for Error {
             #[cfg(target_arch = "aarch64")]
             REGSConfiguration(e) => write!(
                 f,
-                "Error configuring the general purpose aarch64 registers: {}",
+                "Error configuring the general purpose aarch64 registers: {:?}",
                 e
             ),
             #[cfg(target_arch = "x86_64")]
@@ -172,7 +172,11 @@ impl Display for Error {
             VcpuTlsNotPresent => write!(f, "Vcpu not present in TLS"),
             VcpuUnhandledKvmExit => write!(f, "Unexpected KVM_RUN exit reason"),
             #[cfg(target_arch = "aarch64")]
-            SetupGIC(e) => write!(f, "Error setting up the global interrupt controller: {}", e),
+            SetupGIC(e) => write!(
+                f,
+                "Error setting up the global interrupt controller: {:?}",
+                e
+            ),
             #[cfg(target_arch = "aarch64")]
             VcpuArmPreferredTarget(e) => {
                 write!(f, "Error getting the Vcpu preferred target on Arm: {}", e)

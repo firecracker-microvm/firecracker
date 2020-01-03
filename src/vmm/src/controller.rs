@@ -8,10 +8,10 @@ use std::result;
 
 use super::{EpollContext, EventLoopExitReason, Vmm};
 
+use super::Result;
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{self, TYPE_BLOCK, TYPE_NET};
-use error::Result;
 use resources::VmResources;
 use rpc_api_adapters::VmmActionError;
 use vmm_config;

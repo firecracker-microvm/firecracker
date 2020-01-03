@@ -11,13 +11,13 @@ use std::time::Duration;
 
 use super::{EpollContext, EpollDispatch, VcpuConfig, Vmm};
 
+use super::Error;
 use device_manager;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
 use devices::virtio::{MmioDevice, BLOCK_EVENTS_COUNT, NET_EVENTS_COUNT, TYPE_BLOCK, TYPE_NET};
-use error::*;
 use logger::{Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use polly::event_manager::EventManager;
@@ -370,15 +370,17 @@ fn attach_mmio_device(
     vmm: &mut Vmm,
     id: String,
     device: MmioDevice,
-) -> std::result::Result<(), StartMicrovmError> {
-    // TODO: we currently map into StartMicrovmError::RegisterBlockDevice for all
-    // devices at the end of device_manager.register_mmio_device.
+) -> std::result::Result<(), device_manager::mmio::Error> {
     let type_id = device.device().device_type();
     let cmdline = &mut vmm.kernel_cmdline;
 
-    vmm.mmio_device_manager
-        .register_mmio_device(vmm.vm.fd(), device, cmdline, type_id, id.as_str())
-        .map_err(StartMicrovmError::RegisterBlockDevice)?;
+    vmm.mmio_device_manager.register_mmio_device(
+        vmm.vm.fd(),
+        device,
+        cmdline,
+        type_id,
+        id.as_str(),
+    )?;
 
     Ok(())
 }
@@ -456,10 +458,11 @@ fn attach_block_devices(
         attach_mmio_device(
             vmm,
             drive_config.drive_id.clone(),
-            MmioDevice::new(vmm.guest_memory().clone(), block_box).map_err(|e| {
-                RegisterBlockDevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
-            })?,
-        )?;
+            MmioDevice::new(vmm.guest_memory().clone(), block_box)
+                .map_err(device_manager::mmio::Error::CreateMmioDevice)
+                .map_err(RegisterBlockDevice)?,
+        )
+        .map_err(RegisterBlockDevice)?;
     }
 
     Ok(())
@@ -510,10 +513,11 @@ fn attach_net_devices(
         attach_mmio_device(
             vmm,
             cfg.iface_id.clone(),
-            MmioDevice::new(vmm.guest_memory().clone(), net_box).map_err(|e| {
-                RegisterNetDevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
-            })?,
-        )?;
+            MmioDevice::new(vmm.guest_memory().clone(), net_box)
+                .map_err(device_manager::mmio::Error::CreateMmioDevice)
+                .map_err(RegisterNetDevice)?,
+        )
+        .map_err(RegisterNetDevice)?;
     }
 
     Ok(())
@@ -524,12 +528,13 @@ fn attach_vsock_device(
     vm_resources: &VmResources,
     epoll_context: &mut EpollContext,
 ) -> std::result::Result<(), StartMicrovmError> {
+    use self::StartMicrovmError::*;
     if let Some(cfg) = vm_resources.vsock.as_ref() {
         let backend = devices::virtio::vsock::VsockUnixBackend::new(
             u64::from(cfg.guest_cid),
             cfg.uds_path.clone(),
         )
-        .map_err(StartMicrovmError::CreateVsockBackend)?;
+        .map_err(CreateVsockBackend)?;
 
         let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
             TYPE_VSOCK,
@@ -539,18 +544,17 @@ fn attach_vsock_device(
 
         let vsock_box = Box::new(
             devices::virtio::Vsock::new(u64::from(cfg.guest_cid), epoll_config, backend)
-                .map_err(StartMicrovmError::CreateVsockDevice)?,
+                .map_err(CreateVsockDevice)?,
         );
 
         attach_mmio_device(
             vmm,
             cfg.vsock_id.clone(),
-            MmioDevice::new(vmm.guest_memory().clone(), vsock_box).map_err(|e| {
-                StartMicrovmError::RegisterVsockDevice(
-                    super::device_manager::mmio::Error::CreateMmioDevice(e),
-                )
-            })?,
-        )?;
+            MmioDevice::new(vmm.guest_memory().clone(), vsock_box)
+                .map_err(device_manager::mmio::Error::CreateMmioDevice)
+                .map_err(RegisterVsockDevice)?,
+        )
+        .map_err(RegisterVsockDevice)?;
     }
 
     Ok(())

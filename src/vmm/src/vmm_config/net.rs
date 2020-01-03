@@ -4,7 +4,7 @@
 use std::fmt::{Display, Formatter, Result};
 use std::result;
 
-use super::super::error::Error as VmmInternalError;
+use super::super::Error as VmmInternalError;
 use super::RateLimiterConfig;
 use devices;
 use dumbo::MacAddr;
