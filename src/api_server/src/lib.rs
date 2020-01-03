@@ -162,7 +162,7 @@ impl ApiServer {
         start_time_cpu_us: Option<u64>,
         seccomp_filter: SeccompFilter,
     ) -> Result<()> {
-        let mut server = HttpServer::new(path).unwrap();
+        let mut server = HttpServer::new(path).expect("Error creating the HTTP server");
 
         if let Some(start_time) = start_time_us {
             let delta_us =
