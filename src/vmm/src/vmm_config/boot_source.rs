@@ -24,6 +24,8 @@ pub struct KernelConfig {
     pub cmdline: kernel::cmdline::Cmdline,
     /// The descriptor to the kernel file.
     pub kernel_file: File,
+    /// The descriptor to the initrd file, if there is one
+    pub initrd_file: Option<File>,
 }
 
 /// Strongly typed data structure used to configure the boot source of the
@@ -33,6 +35,8 @@ pub struct KernelConfig {
 pub struct BootSourceConfig {
     /// Path of the kernel image.
     pub kernel_image_path: String,
+    /// Path of the initrd, if there is one.
+    pub initrd_path: Option<String>,
     /// The boot arguments to pass to the kernel. If this field is uninitialized, the default
     /// kernel command line is used: `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -44,6 +48,8 @@ pub struct BootSourceConfig {
 pub enum BootSourceConfigError {
     /// The kernel file cannot be opened.
     InvalidKernelPath(io::Error),
+    /// The initrd file cannot be opened.
+    InvalidInitrdPath,
     /// The kernel command line is invalid.
     InvalidKernelCommandLine(String),
     /// The boot source cannot be update post boot.
@@ -55,6 +61,11 @@ impl Display for BootSourceConfigError {
         use self::BootSourceConfigError::*;
         match *self {
             InvalidKernelPath(ref e) => write!(f, "The kernel file cannot be opened: {}", e),
+            InvalidInitrdPath => write!(
+                f,
+                "The initrd file cannot be opened due to invalid path or \
+                 invalid permissions.",
+            ),
             InvalidKernelCommandLine(ref e) => {
                 write!(f, "The kernel command line is invalid: {}", e.as_str())
             }

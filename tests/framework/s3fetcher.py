@@ -28,6 +28,7 @@ class MicrovmImageS3Fetcher:
             kernel/
                 <optional_kernel_name>vmlinux.bin
             fsfiles/
+                <optional_initrd_name>initrd.img
                 <rootfs_file_name>rootfs.ext4
                 <other_fsfile_n>
                 ...
@@ -55,6 +56,7 @@ class MicrovmImageS3Fetcher:
     MICROVM_IMAGE_KERNEL_RELPATH = 'kernel/'
     MICROVM_IMAGE_BLOCKDEV_RELPATH = 'fsfiles/'
     MICROVM_IMAGE_KERNEL_FILE_SUFFIX = r'vmlinux.bin'
+    MICROVM_IMAGE_INITRD_FILE_SUFFIX = r'initrd.img'
     MICROVM_IMAGE_ROOTFS_FILE_SUFFIX = r'rootfs.ext4'
     MICROVM_IMAGE_SSH_KEY_SUFFIX = r'.id_rsa'
 
@@ -149,6 +151,9 @@ class MicrovmImageS3Fetcher:
             if resource_key.endswith(self.MICROVM_IMAGE_ROOTFS_FILE_SUFFIX):
                 microvm.rootfs_file = microvm_dest_path
 
+            if resource_key.endswith(self.MICROVM_IMAGE_INITRD_FILE_SUFFIX):
+                microvm.initrd_file = microvm_dest_path
+
             if resource_key.endswith(self.MICROVM_IMAGE_SSH_KEY_SUFFIX):
                 # Add the key path to the config dictionary and set
                 # permissions.
@@ -192,6 +197,9 @@ class MicrovmImageS3Fetcher:
 
             if resource_key.endswith(self.MICROVM_IMAGE_ROOTFS_FILE_SUFFIX):
                 to_microvm.rootfs_file = microvm_dest_path
+
+            if resource_key.endswith(self.MICROVM_IMAGE_INITRD_FILE_SUFFIX):
+                to_microvm.initrd_file = microvm_dest_path
 
             if resource_key.endswith(self.MICROVM_IMAGE_SSH_KEY_SUFFIX):
                 # Add the key path to the config dictionary and set

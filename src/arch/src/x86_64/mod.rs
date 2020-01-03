@@ -18,6 +18,7 @@ use std::mem;
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
 use memory_model::{Address, ByteValued, GuestAddress, GuestMemory};
+use InitrdConfig;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `ByteValued`) where:
@@ -41,6 +42,8 @@ pub enum Error {
     ZeroPagePastRamEnd,
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
+    /// Failed to compute initrd address.
+    InitrdAddress,
 }
 
 // Where BIOS/VGA magic would live on a real PC.
@@ -73,6 +76,18 @@ pub fn get_kernel_start() -> u64 {
     layout::HIMEM_START
 }
 
+/// Returns the memory address where the initrd could be loaded.
+pub fn initrd_load_addr(guest_mem: &GuestMemory, initrd_size: usize) -> super::Result<u64> {
+    let lowmem_size: usize = guest_mem.region_size(0).map_err(|_| Error::InitrdAddress)?;
+
+    if lowmem_size < initrd_size {
+        return Err(Error::InitrdAddress);
+    }
+
+    let align_to_pagesize = |address| address & !(super::PAGE_SIZE - 1);
+    Ok(align_to_pagesize(lowmem_size - initrd_size) as u64)
+}
+
 /// Configures the system and should be called once per vm before starting vcpu threads.
 ///
 /// # Arguments
@@ -80,11 +95,13 @@ pub fn get_kernel_start() -> u64 {
 /// * `guest_mem` - The memory to be used by the guest.
 /// * `cmdline_addr` - Address in `guest_mem` where the kernel command line was loaded.
 /// * `cmdline_size` - Size of the kernel command line in bytes including the null terminator.
+/// * `initrd` - Information about where the ramdisk image was loaded in the `guest_mem`.
 /// * `num_cpus` - Number of virtual CPUs the guest will have.
 pub fn configure_system(
     guest_mem: &GuestMemory,
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
+    initrd: &Option<InitrdConfig>,
     num_cpus: u8,
 ) -> super::Result<()> {
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
@@ -107,6 +124,10 @@ pub fn configure_system(
     params.0.hdr.cmd_line_ptr = cmdline_addr.raw_value() as u32;
     params.0.hdr.cmdline_size = cmdline_size as u32;
     params.0.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
+    if let Some(initrd_config) = initrd {
+        params.0.hdr.ramdisk_image = initrd_config.address.raw_value() as u32;
+        params.0.hdr.ramdisk_size = initrd_config.size as u32;
+    }
 
     add_e820_entry(&mut params.0, 0, EBDA_START, E820_RAM)?;
 
@@ -197,7 +218,7 @@ mod tests {
     fn test_system_configuration() {
         let no_vcpus = 4;
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let config_err = configure_system(&gm, GuestAddress(0), 0, 1);
+        let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
         assert!(config_err.is_err());
         assert_eq!(
             config_err.unwrap_err(),
@@ -208,19 +229,19 @@ mod tests {
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemory::new(&arch_mem_regions).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemory::new(&arch_mem_regions).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemory::new(&arch_mem_regions).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, no_vcpus).unwrap();
+        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
     }
 
     #[test]

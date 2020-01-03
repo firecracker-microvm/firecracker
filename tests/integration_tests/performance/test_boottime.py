@@ -10,12 +10,17 @@ For boot time testing the serial console is not enabled.
 import os
 import re
 import time
+import platform
 
 from framework import decorators
 import host_tools.logging as log_tools
 
 # The maximum acceptable boot time in us.
 MAX_BOOT_TIME_US = 150000
+# NOTE: for aarch64 most of the boot time is spent by the kernel to unpack the
+# initramfs in RAM. This time is influenced by the size and the compression
+# method of the used initrd image.
+INITRD_BOOT_TIME_US = 160000 if platform.machine() == "x86_64" else 500000
 # TODO: Keep a `current` boot time in S3 and validate we don't regress
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
@@ -81,7 +86,17 @@ def test_single_microvm_boottime_with_network(
     print("Boot time with network configured is: " + str(boottime_us) + " us")
 
 
-def _test_microvm_boottime(log_fifo):
+def test_single_microvm_initrd_boottime(
+        test_microvm_with_initrd):
+    """Check guest boottime of microvm with initrd."""
+    log_fifo, _tap = _configure_vm(test_microvm_with_initrd, initrd=True)
+    time.sleep(0.8)
+    boottime_us = _test_microvm_boottime(
+        log_fifo, max_time_us=INITRD_BOOT_TIME_US)
+    print("Boot time with initrd is: " + str(boottime_us) + " us")
+
+
+def _test_microvm_boottime(log_fifo, max_time_us=MAX_BOOT_TIME_US):
     """Assert that we meet the minimum boot time.
 
     TODO: Should use a microVM with the `boottime` capability.
@@ -95,19 +110,26 @@ def _test_microvm_boottime(log_fifo):
             boot_time_us = int(timestamps[0])
 
     assert boot_time_us > 0
-    assert boot_time_us < MAX_BOOT_TIME_US
+    assert boot_time_us < max_time_us
     return boot_time_us
 
 
-def _configure_vm(microvm, network_info=None):
+def _configure_vm(microvm, network_info=None, initrd=False):
     """Auxiliary function for preparing microvm before measuring boottime."""
     microvm.spawn()
 
     # Machine configuration specified in the SLA.
-    microvm.basic_config(
-        vcpu_count=1,
-        mem_size_mib=128
-    )
+    config = {
+        'vcpu_count': 1,
+        'mem_size_mib': 128
+    }
+
+    if initrd:
+        config['add_root_device'] = False
+        config['use_initrd'] = True
+
+    microvm.basic_config(**config)
+
     if network_info:
         _tap, _, _ = microvm.ssh_network_config(
             network_info["config"],

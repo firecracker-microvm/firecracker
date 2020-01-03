@@ -13,6 +13,8 @@ destroy microvms.
 import os
 from queue import Queue
 import re
+import select
+import time
 from subprocess import run, PIPE
 
 from retry import retry
@@ -36,6 +38,8 @@ class Microvm:
     methods, `spawn()` and `kill()` can be used to start/end the microvm
     process.
     """
+
+    SCREEN_LOGFILE = "/tmp/screen.log"
 
     def __init__(
         self,
@@ -61,6 +65,7 @@ class Microvm:
         self._fsfiles_path = os.path.join(self._path, MICROVM_FSFILES_RELPATH)
         self._kernel_file = ''
         self._rootfs_file = ''
+        self._initrd_file = ''
 
         # The binaries this microvm will use to start.
         self._fc_binary_path = fc_binary_path
@@ -181,6 +186,16 @@ class Microvm:
         self._kernel_file = path
 
     @property
+    def initrd_file(self):
+        """Return the name of the initrd file used by this microVM to boot."""
+        return self._initrd_file
+
+    @initrd_file.setter
+    def initrd_file(self, path):
+        """Set the path to the initrd file."""
+        self._initrd_file = path
+
+    @property
     def rootfs_file(self):
         """Return the path to the image this microVM can boot into."""
         return self._rootfs_file
@@ -242,6 +257,7 @@ class Microvm:
                      ....
                  fsfiles/
                      <fsfile_n>
+                     <initrd_file_n>
                      <ssh_key_n>
                      <other fsfiles>
                      ...
@@ -288,7 +304,7 @@ class Microvm:
             if self.bin_cloner_path:
                 cmd = [self.bin_cloner_path] + \
                       [self._jailer_binary_path] + \
-                      jailer_param_list
+                    jailer_param_list
                 _p = run(cmd, stdout=PIPE, stderr=PIPE, check=True)
                 # Terrible hack to make the tests fail when starting the
                 # jailer fails with a panic. This is needed because we can't
@@ -314,14 +330,15 @@ class Microvm:
         else:
             # Delete old screen log if any.
             try:
-                os.unlink('/tmp/screen.log')
+                os.unlink(self.SCREEN_LOGFILE)
             except OSError:
                 pass
-            # Log screen output to /tmp/screen.log.
+            # Log screen output to SCREEN_LOGFILE
             # This file will collect any output from 'screen'ed Firecracker.
-            start_cmd = 'screen -L -Logfile /tmp/screen.log '\
+            start_cmd = 'screen -L -Logfile {logfile} '\
                         '-dmS {session} {binary} {params}'
             start_cmd = start_cmd.format(
+                logfile=self.SCREEN_LOGFILE,
                 session=self._session_name,
                 binary=self._jailer_binary_path,
                 params=' '.join(jailer_param_list)
@@ -369,6 +386,7 @@ class Microvm:
         mem_size_mib: int = 256,
         add_root_device: bool = True,
         boot_args: str = None,
+        use_initrd: bool = False
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -395,14 +413,19 @@ class Microvm:
                 self._memory_events_queue
             )
 
-        # Add a kernel to start booting from.
-        response = self.boot.put(
-            kernel_image_path=self.create_jailed_resource(self.kernel_file),
-            boot_args=boot_args
-        )
+        boot_source_args = {
+            'kernel_image_path': self.create_jailed_resource(self.kernel_file),
+            'boot_args': boot_args
+        }
+
+        if use_initrd and self.initrd_file != '':
+            boot_source_args.update(
+                initrd_path=self.create_jailed_resource(self.initrd_file))
+
+        response = self.boot.put(**boot_source_args)
         assert self._api_session.is_status_no_content(response.status_code)
 
-        if add_root_device:
+        if add_root_device and self.rootfs_file != '':
             # Add the root file system with rw permissions.
             response = self.drive.put(
                 drive_id='rootfs',
@@ -468,3 +491,63 @@ class Microvm:
         """
         response = self.actions.put(action_type='InstanceStart')
         assert self._api_session.is_status_no_content(response.status_code)
+
+
+class Serial:
+    """Class for serial console communication with a Microvm."""
+
+    RX_TIMEOUT_S = 5
+
+    def __init__(self, vm):
+        """Initialize a new Serial object."""
+        self._poller = None
+        self._vm = vm
+
+    def open(self):
+        """Open a serial connection."""
+        # Open the screen log file.
+        if self._poller is not None:
+            # serial already opened
+            return
+
+        screen_log_fd = os.open(Microvm.SCREEN_LOGFILE, os.O_RDONLY)
+        self._poller = select.poll()
+        self._poller.register(screen_log_fd,
+                              select.POLLIN | select.POLLHUP)
+
+    def tx(self, input_string, end='\n'):
+        # pylint: disable=invalid-name
+        # No need to have a snake_case naming style for a single word.
+        r"""Send a string terminated by an end token (defaulting to "\n")."""
+        self._vm.serial_input(input_string + end)
+
+    def rx_char(self):
+        """Read a single character."""
+        result = self._poller.poll(0.1)
+
+        for fd, flag in result:
+            if flag & select.POLLHUP:
+                assert False, "Oh! The console vanished before test completed."
+
+            if flag & select.POLLIN:
+                output_char = str(os.read(fd, 1),
+                                  encoding='utf-8',
+                                  errors='ignore')
+                return output_char
+
+        return ''
+
+    def rx(self, token="\n"):
+        # pylint: disable=invalid-name
+        # No need to have a snake_case naming style for a single word.
+        r"""Read a string delimited by an end token (defaults to "\n")."""
+        rx_str = ''
+        start = time.time()
+        while True:
+            rx_str += self.rx_char()
+            if rx_str.endswith(token):
+                break
+            if (time.time() - start) >= self.RX_TIMEOUT_S:
+                assert False
+
+        return rx_str

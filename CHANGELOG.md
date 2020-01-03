@@ -50,6 +50,9 @@
   all parameters specified after `--` are forwarded verbatim to Firecracker.
 - Added `KVM_PTP` support to the recommended guest kernel config.
 - Added entry in FAQ.md for Firecracker Guest timekeeping.
+- Support for booting with an initial RAM disk image. This image can be
+  specified through the new `initrd_path` field of the `/boot-source` API
+  request.
 
 ### Changed
 

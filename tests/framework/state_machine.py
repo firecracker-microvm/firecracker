@@ -46,7 +46,7 @@ class TestState(MatchStaticString):
         MatchStaticString.__init__(self, match_string)
         print('\n*** Current test state: ', str(self), end='')
 
-    def handle_input(self, microvm, input_char):
+    def handle_input(self, serial, input_char):
         """Handle input event and return next state."""
 
     def __repr__(self):

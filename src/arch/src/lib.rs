@@ -20,8 +20,8 @@ pub mod aarch64;
 
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
-    arch_memory_regions, configure_system, get_kernel_start, layout::CMDLINE_MAX_SIZE,
-    layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_START,
+    arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
+    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_START,
 };
 
 /// Module for x86_64 related functionality.
@@ -30,8 +30,8 @@ pub mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::{
-    arch_memory_regions, configure_system, get_kernel_start, layout::CMDLINE_MAX_SIZE,
-    layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_START,
+    arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
+    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_START,
 };
 
 /// Type for returning public functions outcome.
@@ -49,6 +49,17 @@ pub enum DeviceType {
     #[cfg(target_arch = "aarch64")]
     RTC,
 }
+
+/// Type for passing information about the initrd in the guest memory.
+pub struct InitrdConfig {
+    /// Load address of initrd in guest memory
+    pub address: memory_model::GuestAddress,
+    /// Size of initrd in guest memory
+    pub size: usize,
+}
+
+/// Default (smallest) memory page size for the supported architectures.
+pub const PAGE_SIZE: usize = 4096;
 
 impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

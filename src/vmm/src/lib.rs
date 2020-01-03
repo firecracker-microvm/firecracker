@@ -45,7 +45,7 @@ mod vstate;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::io::{Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::process;
@@ -58,6 +58,7 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
+use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 #[cfg(target_arch = "aarch64")]
@@ -77,6 +78,7 @@ use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
+use seccomp::SeccompFilter;
 use utils::eventfd::EventFd;
 use utils::net::TapError;
 use utils::terminal::Terminal;
@@ -96,7 +98,7 @@ use vmm_config::net::{
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{KvmContext, Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
-pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
+pub use error::{ErrorKind, LoadInitrdError, StartMicrovmError, VmmActionError};
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
@@ -403,18 +405,11 @@ pub struct Vmm {
     epoll_context: EpollContext,
 
     write_metrics_event_fd: TimerFd,
-
-    // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
-    seccomp_level: u32,
 }
 
 impl Vmm {
     /// Creates a new VMM object.
-    pub fn new(
-        shared_info: Arc<RwLock<InstanceInfo>>,
-        control_fd: &dyn AsRawFd,
-        seccomp_level: u32,
-    ) -> Result<Self> {
+    pub fn new(shared_info: Arc<RwLock<InstanceInfo>>, control_fd: &dyn AsRawFd) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
         epoll_context
@@ -456,7 +451,6 @@ impl Vmm {
             device_configs,
             epoll_context,
             write_metrics_event_fd,
-            seccomp_level,
         })
     }
 
@@ -908,7 +902,12 @@ impl Vmm {
         Ok(vcpus)
     }
 
-    fn start_vcpus(&mut self, mut vcpus: Vec<Vcpu>) -> std::result::Result<(), StartMicrovmError> {
+    fn start_vcpus(
+        &mut self,
+        mut vcpus: Vec<Vcpu>,
+        vmm_seccomp_filter: SeccompFilter,
+        vcpu_seccomp_filter: SeccompFilter,
+    ) -> std::result::Result<(), StartMicrovmError> {
         // vm_config has a default value for vcpu_count.
         let vcpu_count = self
             .vm_config
@@ -925,14 +924,13 @@ impl Vmm {
 
         self.vcpus_handles.reserve(vcpu_count as usize);
 
-        let seccomp_level = self.seccomp_level;
         for mut vcpu in vcpus.drain(..) {
             if let Some(ref mmio_device_manager) = self.mmio_device_manager {
                 vcpu.set_mmio_bus(mmio_device_manager.bus.clone());
             }
 
             self.vcpus_handles.push(
-                vcpu.start_threaded(seccomp_level)
+                vcpu.start_threaded(vcpu_seccomp_filter.clone())
                     .map_err(StartMicrovmError::VcpuHandle)?,
             );
         }
@@ -940,7 +938,8 @@ impl Vmm {
         // Load seccomp filters for the VMM thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        default_syscalls::set_seccomp_level(self.seccomp_level)
+        vmm_seccomp_filter
+            .apply()
             .map_err(StartMicrovmError::SeccompFilters)?;
 
         // The vcpus start off in the `Paused` state, let them run.
@@ -1001,6 +1000,50 @@ impl Vmm {
         Ok(entry_addr)
     }
 
+    /// Loads the initrd from a file into the given memory slice.
+    ///
+    /// * `vm_memory` - The guest memory the initrd is written to.
+    /// * `image` - The initrd image.
+    ///
+    /// Returns the result of initrd loading
+    fn load_initrd<F>(
+        vm_memory: &GuestMemory,
+        image: &mut F,
+    ) -> std::result::Result<InitrdConfig, LoadInitrdError>
+    where
+        F: Read + Seek,
+    {
+        use LoadInitrdError::*;
+
+        let size: usize;
+        // Get the image size
+        match image.seek(SeekFrom::End(0)) {
+            Err(e) => return Err(ReadInitrd(e)),
+            Ok(0) => {
+                return Err(ReadInitrd(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Initrd image seek returned a size of zero",
+                )))
+            }
+            Ok(s) => size = s as usize,
+        };
+        // Go back to the image start
+        image.seek(SeekFrom::Start(0)).map_err(ReadInitrd)?;
+
+        // Get the target address
+        let address = arch::initrd_load_addr(vm_memory, size).map_err(|_| LoadInitrd)?;
+
+        // Load the image into memory
+        vm_memory
+            .read_to_memory(GuestAddress(address), image, size)
+            .map_err(|_| LoadInitrd)?;
+
+        Ok(InitrdConfig {
+            address: GuestAddress(address),
+            size,
+        })
+    }
+
     fn configure_system(&self, vcpus: &[Vcpu]) -> std::result::Result<(), StartMicrovmError> {
         use StartMicrovmError::*;
 
@@ -1011,11 +1054,26 @@ impl Vmm {
 
         let kernel_config = self.kernel_config.as_ref().ok_or(MissingKernelConfig)?;
 
+        let initrd: Option<InitrdConfig> = match &kernel_config.initrd_file {
+            Some(f) => {
+                let initrd_file = f.try_clone();
+                if initrd_file.is_err() {
+                    return Err(InitrdLoader(LoadInitrdError::ReadInitrd(io::Error::from(
+                        io::ErrorKind::InvalidData,
+                    ))));
+                }
+                let res = Vmm::load_initrd(vm_memory, &mut initrd_file.unwrap())?;
+                Some(res)
+            }
+            None => None,
+        };
+
         #[cfg(target_arch = "x86_64")]
         arch::x86_64::configure_system(
             vm_memory,
             GuestAddress(arch::x86_64::layout::CMDLINE_START),
             kernel_config.cmdline.len() + 1,
+            &initrd,
             vcpus.len() as u8,
         )
         .map_err(ConfigureSystem)?;
@@ -1032,6 +1090,7 @@ impl Vmm {
                 vcpu_mpidr,
                 self.get_mmio_device_info(),
                 self.vm.get_irqchip(),
+                &initrd,
             )
             .map_err(ConfigureSystem)?;
         }
@@ -1073,7 +1132,11 @@ impl Vmm {
     }
 
     /// Set up the initial microVM state and start the vCPU threads.
-    pub fn start_microvm(&mut self) -> UserResult {
+    pub fn start_microvm(
+        &mut self,
+        vmm_seccomp_filter: SeccompFilter,
+        vcpu_seccomp_filter: SeccompFilter,
+    ) -> UserResult {
         info!("VMM received instance start command");
         if self.is_instance_initialized() {
             return Err(StartMicrovmError::MicroVMAlreadyRunning.into());
@@ -1118,7 +1181,7 @@ impl Vmm {
 
         self.register_events()?;
 
-        self.start_vcpus(vcpus)?;
+        self.start_vcpus(vcpus, vmm_seccomp_filter, vcpu_seccomp_filter)?;
 
         // Use expect() to crash if the other thread poisoned this lock.
         self.shared_info
@@ -1311,6 +1374,18 @@ impl Vmm {
         let kernel_file = File::open(boot_source_cfg.kernel_image_path)
             .map_err(|e| BootSource(User, InvalidKernelPath(e)))?;
 
+        let initrd_file = match boot_source_cfg.initrd_path {
+            None => None,
+            Some(path) => Some({
+                File::open(path).map_err(|_| {
+                    VmmActionError::BootSource(
+                        ErrorKind::User,
+                        BootSourceConfigError::InvalidInitrdPath,
+                    )
+                })?
+            }),
+        };
+
         let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
         cmdline
             .insert_str(
@@ -1322,6 +1397,7 @@ impl Vmm {
 
         let kernel_config = KernelConfig {
             kernel_file,
+            initrd_file,
             cmdline,
         };
         self.set_kernel_config(kernel_config);
@@ -1657,6 +1733,8 @@ mod tests {
     use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;
+    use std::io::Cursor;
+    use std::io::Write;
     use std::sync::atomic::AtomicUsize;
 
     use super::*;
@@ -1711,6 +1789,7 @@ mod tests {
             let kernel_cfg = KernelConfig {
                 cmdline,
                 kernel_file,
+                initrd_file: None,
             };
             self.set_kernel_config(kernel_cfg);
         }
@@ -1814,7 +1893,6 @@ mod tests {
         Vmm::new(
             shared_info,
             &EventFd::new(libc::EFD_NONBLOCK).expect("Cannot create eventFD"),
-            seccomp::SECCOMP_LEVEL_NONE,
         )
         .expect("Cannot Create VMM")
     }
@@ -2240,6 +2318,7 @@ mod tests {
         vmm.set_kernel_config(KernelConfig {
             cmdline: kernel_cmdline::Cmdline::new(10),
             kernel_file: File::open(kernel_file_temp.as_path()).unwrap(),
+            initrd_file: None,
         });
         assert!(vmm.check_health().is_ok());
     }
@@ -2442,6 +2521,7 @@ mod tests {
         assert!(vmm
             .configure_boot_source(BootSourceConfig {
                 kernel_image_path: String::from("dummy-path"),
+                initrd_path: None,
                 boot_args: None
             })
             .is_err());
@@ -2449,10 +2529,13 @@ mod tests {
         // Test valid kernel path and invalid cmdline.
         let kernel_file = TempFile::new().expect("Failed to create temporary kernel file.");
         let kernel_path = String::from(kernel_file.as_path().to_path_buf().to_str().unwrap());
+        let initrd_file = TempFile::new().expect("Failed to create temporary initrd file.");
+        let initrd_path = String::from(initrd_file.as_path().to_path_buf().to_str().unwrap());
         let invalid_cmdline = String::from_utf8(vec![b'X'; arch::CMDLINE_MAX_SIZE + 1]).unwrap();
         assert!(vmm
             .configure_boot_source(BootSourceConfig {
                 kernel_image_path: kernel_path.clone(),
+                initrd_path: None,
                 boot_args: Some(invalid_cmdline)
             })
             .is_err());
@@ -2461,12 +2544,39 @@ mod tests {
         assert!(vmm
             .configure_boot_source(BootSourceConfig {
                 kernel_image_path: kernel_path.clone(),
+                initrd_path: None,
                 boot_args: None
             })
             .is_ok());
         assert!(vmm
             .configure_boot_source(BootSourceConfig {
                 kernel_image_path: kernel_path.clone(),
+                initrd_path: None,
+                boot_args: Some(String::from("reboot=k"))
+            })
+            .is_ok());
+
+        // Test invalid initrd path
+        assert!(vmm
+            .configure_boot_source(BootSourceConfig {
+                kernel_image_path: kernel_path.clone(),
+                initrd_path: Some(String::from("dummy-path")),
+                boot_args: None
+            })
+            .is_err());
+
+        // Test valid configuration + initrd.
+        assert!(vmm
+            .configure_boot_source(BootSourceConfig {
+                kernel_image_path: kernel_path.clone(),
+                initrd_path: Some(initrd_path.clone()),
+                boot_args: None
+            })
+            .is_ok());
+        assert!(vmm
+            .configure_boot_source(BootSourceConfig {
+                kernel_image_path: kernel_path.clone(),
+                initrd_path: Some(initrd_path.clone()),
                 boot_args: Some(String::from("reboot=k"))
             })
             .is_ok());
@@ -2476,6 +2586,7 @@ mod tests {
         assert!(vmm
             .configure_boot_source(BootSourceConfig {
                 kernel_image_path: kernel_path.clone(),
+                initrd_path: None,
                 boot_args: None
             })
             .is_err());
@@ -2738,7 +2849,7 @@ mod tests {
         assert!(vmm.vm.memory().is_some());
 
         #[cfg(target_arch = "x86_64")]
-        // `KVM_CREATE_VCPU` fails if the irqchip is not created beforehand. This is x86_64 speciifc.
+        // `KVM_CREATE_VCPU` fails if the irqchip is not created beforehand. This is x86_64 specific.
         vmm.vm
             .setup_irqchip()
             .expect("Cannot create IRQCHIP or PIT");
@@ -2784,6 +2895,67 @@ mod tests {
         assert!(vmm.load_kernel().is_ok());
     }
 
+    fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemory {
+        GuestMemory::new(&[(at, size)]).unwrap()
+    }
+
+    fn create_guest_mem_with_size(size: usize) -> GuestMemory {
+        const MEM_START: GuestAddress = GuestAddress(0x0);
+
+        GuestMemory::new(&[(MEM_START, size)]).unwrap()
+    }
+
+    fn make_test_bin() -> Vec<u8> {
+        let mut fake_bin = Vec::new();
+        fake_bin.resize(1_000_000, 0xAA);
+        fake_bin
+    }
+
+    #[test]
+    // Test that loading the initrd is successful on different archs.
+    fn test_load_initrd() {
+        let image = make_test_bin();
+
+        let mem_size: usize = image.len() * 2 + arch::PAGE_SIZE;
+
+        #[cfg(target_arch = "x86_64")]
+        let gm = create_guest_mem_with_size(mem_size);
+
+        #[cfg(target_arch = "aarch64")]
+        let gm = create_guest_mem_with_size(mem_size + arch::aarch64::layout::FDT_MAX_SIZE);
+
+        let res = Vmm::load_initrd(&gm, &mut Cursor::new(&image));
+        assert!(res.is_ok());
+        let initrd = res.unwrap();
+        assert!(gm.address_in_range(initrd.address));
+        assert_eq!(initrd.size, image.len());
+    }
+
+    #[test]
+    fn test_load_initrd_no_memory() {
+        let gm = create_guest_mem_with_size(79);
+        let image = make_test_bin();
+        let res = Vmm::load_initrd(&gm, &mut Cursor::new(&image));
+        assert!(res.is_err());
+        assert_eq!(
+            LoadInitrdError::LoadInitrd.to_string(),
+            res.err().unwrap().to_string()
+        );
+    }
+
+    #[test]
+    fn test_load_initrd_unaligned() {
+        let image = vec![1, 2, 3, 4];
+        let gm = create_guest_mem_at(GuestAddress(arch::PAGE_SIZE as u64 + 1), image.len() * 2);
+
+        let res = Vmm::load_initrd(&gm, &mut Cursor::new(&image));
+        assert!(res.is_err());
+        assert_eq!(
+            LoadInitrdError::LoadInitrd.to_string(),
+            res.err().unwrap().to_string()
+        );
+    }
+
     #[test]
     #[should_panic(expected = "Cannot configure registers prior to allocating memory!")]
     fn test_configure_system_no_mem() {
@@ -2815,6 +2987,67 @@ mod tests {
         assert!(vmm.configure_system(&Vec::new()).is_ok());
 
         vmm.stdin_handle.lock().set_canon_mode().unwrap();
+    }
+
+    #[test]
+    fn test_configure_system_with_initrd() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.default_kernel_config(None);
+
+        let initrd_temp_file = TempFile::new().expect("Failed to create temporary initrd file.");
+        initrd_temp_file
+            .as_file()
+            .write_all(b"This is a nice initrd")
+            .expect("Cannot write temporary initrd file");
+        let initrd_path = String::from(initrd_temp_file.as_path().to_path_buf().to_str().unwrap());
+        let initrd_file = File::open(initrd_path).expect("Cannot open initrd file");
+
+        vmm.kernel_config = {
+            let cfg = vmm.kernel_config.unwrap();
+            Some(KernelConfig {
+                kernel_file: cfg.kernel_file,
+                initrd_file: Some(initrd_file),
+                cmdline: cfg.cmdline,
+            })
+        };
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.vm.memory().is_some());
+
+        // We need this so that configure_system finds a properly setup GIC device
+        #[cfg(target_arch = "aarch64")]
+        assert!(vmm.vm.setup_irqchip(1).is_ok());
+
+        assert!(vmm.configure_system(&Vec::new()).is_ok());
+        vmm.stdin_handle.lock().set_canon_mode().unwrap();
+    }
+
+    #[test]
+    fn test_configure_system_with_empty_initrd() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+        vmm.default_kernel_config(None);
+
+        let initrd_temp_file = TempFile::new().expect("Failed to create temporary initrd file.");
+        let initrd_path = String::from(initrd_temp_file.as_path().to_path_buf().to_str().unwrap());
+        let initrd_file = File::open(initrd_path).expect("Cannot open initrd file");
+
+        vmm.kernel_config = {
+            let cfg = vmm.kernel_config.unwrap();
+            Some(KernelConfig {
+                kernel_file: cfg.kernel_file,
+                initrd_file: Some(initrd_file),
+                cmdline: cfg.cmdline,
+            })
+        };
+
+        assert!(vmm.init_guest_memory().is_ok());
+        assert!(vmm.vm.memory().is_some());
+
+        // We need this so that configure_system finds a properly setup GIC device
+        #[cfg(target_arch = "aarch64")]
+        assert!(vmm.vm.setup_irqchip(1).is_ok());
+
+        assert!(vmm.configure_system(&Vec::new()).is_err());
     }
 
     #[test]
