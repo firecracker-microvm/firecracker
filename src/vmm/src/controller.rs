@@ -8,17 +8,16 @@ use std::result;
 
 use super::{EpollContext, EventLoopExitReason, Vmm};
 
+use super::Result;
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{self, TYPE_BLOCK, TYPE_NET};
-use error::Result;
 use resources::VmResources;
-use rpc_interface::{ErrorKind, VmmActionError};
+use rpc_interface::VmmActionError;
 use vmm_config;
 use vmm_config::drive::DriveError;
-use vmm_config::logger::LoggerConfigError;
 use vmm_config::machine_config::VmConfig;
-use vmm_config::net::{NetworkInterfaceError, NetworkInterfaceUpdateConfig};
+use vmm_config::net::NetworkInterfaceUpdateConfig;
 
 /// Shorthand result type for external VMM commands.
 pub type ActionResult = std::result::Result<(), VmmActionError>;
@@ -40,12 +39,9 @@ impl VmmController {
     /// simply exposes functionality like getting the dirty pages, and then we'll have the
     /// metrics flushing logic entirely on the outside.
     pub fn flush_metrics(&mut self) -> ActionResult {
-        self.vmm.write_metrics().map_err(|e| {
-            VmmActionError::Logger(
-                ErrorKind::Internal,
-                LoggerConfigError::FlushMetrics(e.to_string()),
-            )
-        })
+        self.vmm
+            .write_metrics()
+            .map_err(VmmActionError::InternalVmm)
     }
 
     /// Injects CTRL+ALT+DEL keystroke combo to the inner Vmm (if present).
@@ -53,7 +49,7 @@ impl VmmController {
     pub fn send_ctrl_alt_del(&mut self) -> ActionResult {
         self.vmm
             .send_ctrl_alt_del()
-            .map_err(|e| VmmActionError::SendCtrlAltDel(ErrorKind::Internal, e))
+            .map_err(VmmActionError::InternalVmm)
     }
 
     /// Stops the inner Vmm and exits the process with the provided exit_code.
@@ -85,7 +81,8 @@ impl VmmController {
             // Use seek() instead of stat() (std::fs::Metadata) to support block devices.
             let new_size = File::open(&drive_config.path_on_host)
                 .and_then(|mut f| f.seek(SeekFrom::End(0)))
-                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                .map_err(|_| DriveError::BlockDeviceUpdateFailed)
+                .map_err(VmmActionError::DriveConfig)?;
             if new_size % virtio::block::SECTOR_SIZE != 0 {
                 warn!(
                     "Disk size {} is not a multiple of sector size {}; \
@@ -103,18 +100,23 @@ impl VmmController {
                     let data = devices::virtio::build_config_space(new_size);
                     let mut busdev = device
                         .lock()
-                        .map_err(|_| VmmActionError::from(DriveError::BlockDeviceUpdateFailed))?;
+                        .map_err(|_| DriveError::BlockDeviceUpdateFailed)
+                        .map_err(VmmActionError::DriveConfig)?;
 
                     busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
                     busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);
 
                     Ok(())
                 }
-                None => Err(VmmActionError::from(DriveError::BlockDeviceUpdateFailed)),
+                None => Err(VmmActionError::DriveConfig(
+                    DriveError::BlockDeviceUpdateFailed,
+                )),
             };
         }
 
-        Err(VmmActionError::from(DriveError::InvalidBlockDeviceID))
+        Err(VmmActionError::DriveConfig(
+            DriveError::InvalidBlockDeviceID,
+        ))
     }
 
     fn update_drive_handler(
@@ -143,7 +145,9 @@ impl VmmController {
             .vm_resources
             .block
             .get_index_of_drive_id(&drive_id)
-            .ok_or(DriveError::InvalidBlockDeviceID)?;
+            .ok_or(VmmActionError::DriveConfig(
+                DriveError::InvalidBlockDeviceID,
+            ))?;
 
         let file_path = PathBuf::from(path_on_host);
         // Try to open the file specified by path_on_host using the permissions of the block_device.
@@ -151,14 +155,16 @@ impl VmmController {
             .read(true)
             .write(!self.vm_resources.block.config_list[block_device_index].is_read_only())
             .open(&file_path)
-            .map_err(DriveError::CannotOpenBlockDevice)?;
+            .map_err(DriveError::CannotOpenBlockDevice)
+            .map_err(VmmActionError::DriveConfig)?;
 
         // Update the path of the block device with the specified path_on_host.
         self.vm_resources.block.config_list[block_device_index].path_on_host = file_path;
 
         // When the microvm is running, we also need to update the drive handler and send a
         // rescan command to the drive.
-        self.update_drive_handler(&drive_id, disk_file)?;
+        self.update_drive_handler(&drive_id, disk_file)
+            .map_err(VmmActionError::DriveConfig)?;
         self.rescan_block_device(&drive_id)?;
         Ok(())
     }
@@ -171,7 +177,7 @@ impl VmmController {
         let handler = self
             .epoll_context
             .get_device_handler_by_device_id::<virtio::NetEpollHandler>(TYPE_NET, &new_cfg.iface_id)
-            .map_err(NetworkInterfaceError::EpollHandlerNotFound)?;
+            .map_err(VmmActionError::InternalVmm)?;
 
         macro_rules! get_handler_arg {
             ($rate_limiter: ident, $metric: ident) => {{

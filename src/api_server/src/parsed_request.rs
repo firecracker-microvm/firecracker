@@ -471,7 +471,7 @@ mod tests {
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Error.
-        let error = VmmActionError::from(StartMicrovmError::MissingKernelConfig);
+        let error = VmmActionError::StartMicrovm(StartMicrovmError::MissingKernelConfig);
         let mut buf: [u8; 193] = [0; 193];
         let json = ApiServer::json_fault_message(error.to_string());
         let response = ParsedRequest::convert_to_response(Err(error));

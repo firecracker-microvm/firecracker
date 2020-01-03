@@ -282,7 +282,7 @@ mod tests {
     use micro_http::HttpConnection;
     use mmds::MMDS;
     use vmm::builder::StartMicrovmError;
-    use vmm::rpc_interface::{ErrorKind, VmmActionError};
+    use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::instance_info::InstanceInfo;
 
     #[test]
@@ -337,7 +337,6 @@ mod tests {
 
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
-                ErrorKind::User,
                 StartMicrovmError::MicroVMAlreadyRunning,
             ))))
             .unwrap();
@@ -481,7 +480,6 @@ mod tests {
         .unwrap();
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
-                ErrorKind::User,
                 StartMicrovmError::MicroVMAlreadyRunning,
             ))))
             .unwrap();
