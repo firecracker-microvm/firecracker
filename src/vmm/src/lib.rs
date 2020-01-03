@@ -54,7 +54,6 @@ mod vstate;
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::result;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
@@ -71,7 +70,6 @@ use devices::virtio::EpollConfigConstructor;
 use devices::{BusDevice, DeviceEventT, EpollHandler, RawIOHandler};
 use error::{Error, Result};
 use kernel::cmdline::Cmdline as KernelCmdline;
-use logger::error::LoggerError;
 #[cfg(target_arch = "x86_64")]
 use logger::LogOption;
 use logger::{Metric, LOGGER, METRICS};
@@ -413,12 +411,12 @@ impl Vmm {
     }
 
     /// Force writes metrics.
-    fn write_metrics(&mut self) -> result::Result<(), LoggerError> {
+    fn write_metrics(&mut self) -> Result<()> {
         // The dirty pages are only available on x86_64.
         #[cfg(target_arch = "x86_64")]
         self.log_dirty_pages();
         // FIXME: we're losing the bool saying whether metrics were actually written.
-        LOGGER.log_metrics().map(|_| ())
+        LOGGER.log_metrics().map(|_| ()).map_err(Error::Logger)
     }
 
     #[cfg(target_arch = "x86_64")]

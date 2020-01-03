@@ -66,172 +66,30 @@ pub enum VmmAction {
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
 }
 
-/// Types of errors associated with vmm actions.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ErrorKind {
-    /// User Errors describe bad configuration (user input).
-    User,
-    /// Internal Errors are unrelated to the user and usually refer to logical errors
-    /// or bad management of resources (memory, file descriptors & others).
-    Internal,
-}
-
 /// Wrapper for all errors associated with VMM actions.
 #[derive(Debug)]
 pub enum VmmActionError {
-    /// The action `ConfigureBootSource` failed either because of bad user input (`ErrorKind::User`)
-    /// or an internal error (`ErrorKind::Internal`).
-    BootSource(ErrorKind, BootSourceConfigError),
+    /// The action `ConfigureBootSource` failed either because of bad user input.
+    BootSource(BootSourceConfigError),
     /// One of the actions `InsertBlockDevice`, `RescanBlockDevice` or `UpdateBlockDevicePath`
-    /// failed either because of bad user input (`ErrorKind::User`) or an
-    /// internal error (`ErrorKind::Internal`).
-    DriveConfig(ErrorKind, DriveError),
-    /// The action `ConfigureLogger` failed either because of bad user input (`ErrorKind::User`) or
-    /// an internal error (`ErrorKind::Internal`).
-    Logger(ErrorKind, LoggerConfigError),
-    /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed either because of bad
-    /// input (`ErrorKind::User`) or an internal error (`ErrorKind::Internal`).
-    MachineConfig(ErrorKind, VmConfigError),
-    /// The action `InsertNetworkDevice` failed either because of bad user input (`ErrorKind::User`)
-    /// or an internal error (`ErrorKind::Internal`).
-    NetworkConfig(ErrorKind, NetworkInterfaceError),
+    /// failed because of bad user input.
+    DriveConfig(DriveError),
+    /// Internal Vmm error.
+    InternalVmm(VmmError),
+    /// The action `ConfigureLogger` failed either because of bad user input.
+    Logger(LoggerConfigError),
+    /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed because of bad input.
+    MachineConfig(VmConfigError),
+    /// The action `InsertNetworkDevice` failed because of bad user input.
+    NetworkConfig(NetworkInterfaceError),
     /// The requested operation is not supported after starting the microVM.
     OperationNotSupportedPostBoot,
     /// The requested operation is not supported before starting the microVM.
     OperationNotSupportedPreBoot,
-    /// The action `StartMicroVm` failed either because of bad user input (`ErrorKind::User`) or
-    /// an internal error (`ErrorKind::Internal`).
-    StartMicrovm(ErrorKind, StartMicrovmError),
-    /// The action `SendCtrlAltDel` failed. Details are provided by the device-specific error
-    /// `I8042DeviceError`.
-    SendCtrlAltDel(ErrorKind, VmmError),
-    /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
-    /// or an internal error (`ErrorKind::Internal`).
-    VsockConfig(ErrorKind, VsockError),
-}
-
-// It's convenient to turn StartMicrovmErrors into VmmActionErrors directly.
-impl std::convert::From<StartMicrovmError> for VmmActionError {
-    fn from(e: StartMicrovmError) -> Self {
-        use self::StartMicrovmError::*;
-
-        let kind = match e {
-            // User errors.
-            CreateVsockBackend(_)
-            | CreateBlockDevice(_)
-            | CreateNetDevice(_)
-            | KernelCmdline(_)
-            | KernelLoader(_)
-            | MicroVMAlreadyRunning
-            | MissingKernelConfig
-            | NetDeviceNotConfigured
-            | OpenBlockDevice(_) => ErrorKind::User,
-            // Internal errors.
-            ConfigureVm(_)
-            | CreateRateLimiter(_)
-            | CreateVsockDevice(_)
-            | GuestMemory(_)
-            | Internal(_)
-            | RegisterBlockDevice(_)
-            | RegisterNetDevice(_)
-            | RegisterVsockDevice(_) => ErrorKind::Internal,
-            // The only user `LoadCommandline` error is `CommandLineOverflow`.
-            LoadCommandline(ref cle) => match cle {
-                kernel::cmdline::Error::CommandLineOverflow => ErrorKind::User,
-                _ => ErrorKind::Internal,
-            },
-        };
-        VmmActionError::StartMicrovm(kind, e)
-    }
-}
-
-// It's convenient to turn DriveErrors into VmmActionErrors directly.
-impl std::convert::From<DriveError> for VmmActionError {
-    fn from(e: DriveError) -> Self {
-        use vmm_config::drive::DriveError::*;
-
-        // This match is used to force developers who add new types of
-        // `DriveError`s to explicitly consider what kind they should
-        // have. Remove this comment when a match arm that yields
-        // something other than `ErrorKind::User` is added.
-        let kind = match e {
-            // User errors.
-            CannotOpenBlockDevice(_)
-            | InvalidBlockDeviceID
-            | InvalidBlockDevicePath
-            | BlockDevicePathAlreadyExists
-            | EpollHandlerNotFound
-            | BlockDeviceUpdateFailed
-            | OperationNotAllowedPreBoot
-            | UpdateNotAllowedPostBoot
-            | RootBlockDeviceAlreadyAdded => ErrorKind::User,
-        };
-
-        VmmActionError::DriveConfig(kind, e)
-    }
-}
-
-// It's convenient to turn VmConfigErrors into VmmActionErrors directly.
-impl std::convert::From<VmConfigError> for VmmActionError {
-    fn from(e: VmConfigError) -> Self {
-        use vmm_config::machine_config::VmConfigError::*;
-
-        // This match is used to force developers who add new types of
-        // `VmConfigError`s to explicitly consider what kind they should
-        // have. Remove this comment when a match arm that yields
-        // something other than `ErrorKind::User` is added.
-        let kind = match e {
-            // User errors.
-            InvalidVcpuCount | InvalidMemorySize | UpdateNotAllowedPostBoot => ErrorKind::User,
-        };
-
-        VmmActionError::MachineConfig(kind, e)
-    }
-}
-
-// It's convenient to turn NetworkInterfaceErrors into VmmActionErrors directly.
-impl std::convert::From<NetworkInterfaceError> for VmmActionError {
-    fn from(e: NetworkInterfaceError) -> Self {
-        use utils::net::TapError::*;
-        use vmm_config::net::NetworkInterfaceError::*;
-
-        let kind = match e {
-            // User errors.
-            GuestMacAddressInUse(_)
-            | HostDeviceNameInUse(_)
-            | DeviceIdNotFound
-            | UpdateNotAllowedPostBoot => ErrorKind::User,
-            // Internal errors.
-            EpollHandlerNotFound(_) | RateLimiterUpdateFailed(_) => ErrorKind::Internal,
-            OpenTap(ref te) => match te {
-                // User errors.
-                OpenTun(_) | CreateTap(_) | InvalidIfname => ErrorKind::User,
-                // Internal errors.
-                IoctlError(_) | CreateSocket(_) => ErrorKind::Internal,
-            },
-        };
-
-        VmmActionError::NetworkConfig(kind, e)
-    }
-}
-
-impl VmmActionError {
-    /// Returns the error type.
-    pub fn kind(&self) -> &ErrorKind {
-        use self::VmmActionError::*;
-
-        match *self {
-            BootSource(ref kind, _) => kind,
-            DriveConfig(ref kind, _) => kind,
-            Logger(ref kind, _) => kind,
-            MachineConfig(ref kind, _) => kind,
-            NetworkConfig(ref kind, _) => kind,
-            OperationNotSupportedPostBoot | OperationNotSupportedPreBoot => &ErrorKind::User,
-            StartMicrovm(ref kind, _) => kind,
-            SendCtrlAltDel(ref kind, _) => kind,
-            VsockConfig(ref kind, _) => kind,
-        }
-    }
+    /// The action `StartMicroVm` failed because of an internal error.
+    StartMicrovm(StartMicrovmError),
+    /// The action `set_vsock_device` failed because of bad user input.
+    VsockConfig(VsockError),
 }
 
 impl Display for VmmActionError {
@@ -242,20 +100,20 @@ impl Display for VmmActionError {
             f,
             "{}",
             match self {
-                BootSource(_, err) => err.to_string(),
-                DriveConfig(_, err) => err.to_string(),
-                Logger(_, err) => err.to_string(),
-                MachineConfig(_, err) => err.to_string(),
-                NetworkConfig(_, err) => err.to_string(),
+                BootSource(err) => err.to_string(),
+                DriveConfig(err) => err.to_string(),
+                InternalVmm(err) => format!("Internal Vmm error: {}", err),
+                Logger(err) => err.to_string(),
+                MachineConfig(err) => err.to_string(),
+                NetworkConfig(err) => err.to_string(),
                 OperationNotSupportedPostBoot =>
                     "The requested operation is not supported after starting the microVM."
                         .to_string(),
                 OperationNotSupportedPreBoot =>
                     "The requested operation is not supported before starting the microVM."
                         .to_string(),
-                StartMicrovm(_, err) => err.to_string(),
-                SendCtrlAltDel(_, err) => err.to_string(),
-                VsockConfig(_, err) => err.to_string(),
+                StartMicrovm(err) => err.to_string(),
+                VsockConfig(err) => err.to_string(),
             }
         )
     }
@@ -352,11 +210,11 @@ impl<'a> PrebootApiController<'a> {
                 .vm_resources
                 .set_boot_source(boot_source_body)
                 .map(|_| VmmData::Empty)
-                .map_err(|e| VmmActionError::BootSource(ErrorKind::User, e)),
+                .map_err(VmmActionError::BootSource),
             ConfigureLogger(logger_description) => {
                 vmm_config::logger::init_logger(logger_description, &self.firecracker_version)
                     .map(|_| VmmData::Empty)
-                    .map_err(|e| VmmActionError::Logger(ErrorKind::User, e))
+                    .map_err(VmmActionError::Logger)
             }
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
@@ -365,12 +223,12 @@ impl<'a> PrebootApiController<'a> {
                 .vm_resources
                 .set_block_device(block_device_config)
                 .map(|_| VmmData::Empty)
-                .map_err(|e| e.into()),
+                .map_err(VmmActionError::DriveConfig),
             InsertNetworkDevice(netif_body) => self
                 .vm_resources
                 .set_net_device(netif_body)
                 .map(|_| VmmData::Empty)
-                .map_err(|e| e.into()),
+                .map_err(VmmActionError::NetworkConfig),
             SetVsockDevice(vsock_cfg) => {
                 self.vm_resources.set_vsock_device(vsock_cfg);
                 Ok(VmmData::Empty)
@@ -379,17 +237,17 @@ impl<'a> PrebootApiController<'a> {
                 .vm_resources
                 .set_vm_config(machine_config_body)
                 .map(|_| VmmData::Empty)
-                .map_err(|e| e.into()),
+                .map_err(VmmActionError::MachineConfig),
             UpdateBlockDevicePath(drive_id, path_on_host) => self
                 .vm_resources
                 .update_block_device_path(drive_id, path_on_host)
                 .map(|_| VmmData::Empty)
-                .map_err(|e| e.into()),
+                .map_err(VmmActionError::DriveConfig),
             UpdateNetworkInterface(netif_update) => self
                 .vm_resources
                 .update_net_rate_limiters(netif_update)
                 .map(|_| VmmData::Empty)
-                .map_err(|e| e.into()),
+                .map_err(VmmActionError::NetworkConfig),
             StartMicroVm => super::builder::build_microvm(
                 &self.vm_resources,
                 &mut self.epoll_context,
@@ -398,19 +256,17 @@ impl<'a> PrebootApiController<'a> {
             .map(|vmm| {
                 maybe_vmm = Some(vmm);
                 VmmData::Empty
-            }),
+            })
+            .map_err(VmmActionError::StartMicrovm),
 
             ///////////////////////////////////
             // Operations not allowed pre-boot.
             FlushMetrics => Err(VmmActionError::Logger(
-                ErrorKind::User,
                 vmm_config::logger::LoggerConfigError::FlushMetrics(
                     "Cannot flush metrics before starting microVM.".to_string(),
                 ),
             )),
-            RescanBlockDevice(_) => {
-                Err(vmm_config::drive::DriveError::OperationNotAllowedPreBoot.into())
-            }
+            RescanBlockDevice(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         };
 
@@ -455,30 +311,23 @@ impl RuntimeApiController {
             ///////////////////////////////////
             // Operations not allowed post-boot.
             ConfigureBootSource(_) => Err(VmmActionError::BootSource(
-                ErrorKind::User,
                 vmm_config::boot_source::BootSourceConfigError::UpdateNotAllowedPostBoot,
             )),
             ConfigureLogger(_) => Err(VmmActionError::Logger(
-                ErrorKind::User,
                 vmm_config::logger::LoggerConfigError::InitializationFailure(
                     "Cannot initialize logger after boot.".to_string(),
                 ),
             )),
-            InsertBlockDevice(_) => {
-                Err(vmm_config::drive::DriveError::UpdateNotAllowedPostBoot.into())
-            }
-            InsertNetworkDevice(_) => {
-                Err(vmm_config::net::NetworkInterfaceError::UpdateNotAllowedPostBoot.into())
-            }
+            InsertBlockDevice(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
+            InsertNetworkDevice(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
             SetVsockDevice(_) => Err(VmmActionError::VsockConfig(
-                ErrorKind::User,
                 vmm_config::vsock::VsockError::UpdateNotAllowedPostBoot,
             )),
-            SetVmConfiguration(_) => {
-                Err(vmm_config::machine_config::VmConfigError::UpdateNotAllowedPostBoot.into())
-            }
+            SetVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
 
-            StartMicroVm => Err(super::builder::StartMicrovmError::MicroVMAlreadyRunning.into()),
+            StartMicroVm => Err(VmmActionError::StartMicrovm(
+                StartMicrovmError::MicroVMAlreadyRunning,
+            )),
         }
     }
 }

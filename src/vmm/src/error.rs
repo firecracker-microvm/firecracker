@@ -7,6 +7,7 @@ use std::fmt::{Display, Formatter};
 use std::io;
 
 use device_manager;
+use logger::error::LoggerError;
 use polly::event_manager;
 use vstate;
 
@@ -39,6 +40,8 @@ pub enum Error {
     LegacyIOBus(device_manager::legacy::Error),
     /// Cannot load command line.
     LoadCommandline(kernel::cmdline::Error),
+    /// Internal logger error.
+    Logger(LoggerError),
     /// I8042 Error.
     I8042Error(devices::legacy::I8042DeviceError),
     /// Epoll wait failed.
@@ -86,6 +89,7 @@ impl Display for Error {
             #[cfg(target_arch = "x86_64")]
             LegacyIOBus(e) => write!(f, "Cannot add devices to the legacy I/O Bus. {}", e),
             LoadCommandline(e) => write!(f, "Cannot load command line: {}", e),
+            Logger(e) => write!(f, "Logger error: {}", e),
             I8042Error(e) => write!(f, "I8042 error: {}", e),
             Poll(e) => write!(f, "Epoll wait failed: {}", e),
             RegisterMMIODevice(e) => write!(f, "Cannot add a device to the MMIO Bus. {}", e),

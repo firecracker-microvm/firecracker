@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use super::{EpollContext, EpollDispatch, VcpuConfig, Vmm};
 
-use controller::ActionResult;
 use device_manager;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
@@ -23,7 +22,6 @@ use logger::{Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use polly::event_manager::EventManager;
 use resources::VmResources;
-use rpc_api_adapters::VmmActionError;
 use utils::time::TimestampUs;
 use vmm_config;
 use vmm_config::boot_source::BootConfig;
@@ -32,7 +30,6 @@ use vstate::{self, KvmContext, Vm};
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
 /// Errors associated with starting the instance.
-// TODO: add error kind to these variants because not all these errors are user or internal.
 #[derive(Debug)]
 pub enum StartMicrovmError {
     /// Cannot configure the VM.
@@ -40,9 +37,7 @@ pub enum StartMicrovmError {
     /// Unable to seek the block device backing file due to invalid permissions or
     /// the file was deleted/corrupted.
     CreateBlockDevice(std::io::Error),
-    /// Split this at some point.
     /// Internal errors are due to resource exhaustion.
-    /// Users errors are due to invalid permissions.
     CreateNetDevice(devices::virtio::Error),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(std::io::Error),
@@ -52,8 +47,6 @@ pub enum StartMicrovmError {
     CreateVsockDevice(devices::virtio::vsock::VsockError),
     /// Memory regions are overlapping or mmap fails.
     GuestMemory(GuestMemoryError),
-    // Temporarily added for mixing calls that may return an Error with others that may return a
-    // StartMicrovmError within the same function.
     /// Internal error encountered while starting a microVM.
     Internal(Error),
     /// The kernel command line is invalid.
@@ -185,7 +178,7 @@ pub fn build_microvm(
     vm_resources: &VmResources,
     epoll_context: &mut EpollContext,
     seccomp_level: u32,
-) -> std::result::Result<Vmm, VmmActionError> {
+) -> std::result::Result<Vmm, StartMicrovmError> {
     let boot_config = vm_resources
         .boot_source()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
@@ -349,7 +342,7 @@ fn setup_metrics(
 
 fn setup_event_manager(
     epoll_context: &mut EpollContext,
-) -> std::result::Result<EventManager, VmmActionError> {
+) -> std::result::Result<EventManager, StartMicrovmError> {
     let event_manager = EventManager::new()
         .map_err(Error::EventManager)
         .map_err(StartMicrovmError::Internal)?;
@@ -360,7 +353,7 @@ fn setup_event_manager(
     Ok(event_manager)
 }
 
-fn setup_kvm_vm(guest_memory: GuestMemory) -> std::result::Result<Vm, VmmActionError> {
+fn setup_kvm_vm(guest_memory: GuestMemory) -> std::result::Result<Vm, StartMicrovmError> {
     let kvm = KvmContext::new()
         .map_err(Error::KvmContext)
         .map_err(StartMicrovmError::Internal)?;
@@ -476,7 +469,7 @@ fn attach_net_devices(
     vmm: &mut Vmm,
     vm_resources: &VmResources,
     epoll_context: &mut EpollContext,
-) -> ActionResult {
+) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     for cfg in vm_resources.network_interface.iter() {
@@ -530,7 +523,7 @@ fn attach_vsock_device(
     vmm: &mut Vmm,
     vm_resources: &VmResources,
     epoll_context: &mut EpollContext,
-) -> ActionResult {
+) -> std::result::Result<(), StartMicrovmError> {
     if let Some(cfg) = vm_resources.vsock.as_ref() {
         let backend = devices::virtio::vsock::VsockUnixBackend::new(
             u64::from(cfg.guest_cid),
