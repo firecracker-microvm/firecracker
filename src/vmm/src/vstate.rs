@@ -15,9 +15,8 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 
 use super::TimestampUs;
-#[cfg(target_arch = "x86_64")]
-use super::VcpuConfig;
 use super::{FC_EXIT_CODE_GENERIC_ERROR, FC_EXIT_CODE_OK};
+
 use arch;
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
@@ -41,7 +40,6 @@ use utils::sm::StateMachine;
 use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
 };
-#[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::CpuFeaturesTemplate;
 
 #[cfg(target_arch = "x86_64")]
@@ -577,6 +575,16 @@ pub struct VmState {
     pic_master: kvm_irqchip,
     pic_slave: kvm_irqchip,
     ioapic: kvm_irqchip,
+}
+
+/// Encapsulates configuration parameters for the guest vCPUS.
+pub struct VcpuConfig {
+    /// Number of guest VCPUs.
+    pub vcpu_count: u8,
+    /// Enable hyperthreading in the CPUID configuration.
+    pub ht_enabled: bool,
+    /// CPUID template to use.
+    pub cpu_template: Option<CpuFeaturesTemplate>,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
