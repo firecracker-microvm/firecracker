@@ -9,6 +9,10 @@ A minimal logger configuration example is the following:
 mkfifo logs.fifo
 mkfifo metrics.fifo
 
+# The logger also works with usual files.
+touch logs.fifo
+touch metrics.fifo
+
 # Configure the Logger.
 curl --unix-socket /tmp/firecracker.socket -i \
     -X PUT "http://localhost/logger" \
@@ -29,6 +33,30 @@ in JSON format. The metrics get flushed in two ways:
 
 * without user intervention every 60 seconds
 * upon user demand by issuing a [FlushMetrics][1] request.
+
+If the paths provided are named pipes, you can use the script below to
+read from them:
+
+```shell script
+logs=logs.fifo
+
+while true
+do
+    if read line <$logs; then
+        echo $line
+    fi
+done
+
+echo "Reader exiting"
+
+```
+
+otherwise, if the paths point to normal files, you can simply do:
+
+```shell script
+cat logs.fifo
+cat metrics.fifo
+```
 
 ## LogDirtyPages Option
 
@@ -69,5 +97,5 @@ $ grep -Eo "\"dirty_pages\":[[:digit:]]+" metrics.fifo
 "dirty_pages":1126
 ```
 
-[1]: https://github.com/firecracker-microvm/firecracker/blob/master/docs/api_requests/actions.md
+[1]: https://github.com/firecracker-microvm/firecracker/blob/master/docs/api_requests/actions.md#flushmetrics
 [2]: https://www.kernel.org/doc/Documentation/virtual/kvm/api.txt
