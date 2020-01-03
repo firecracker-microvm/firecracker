@@ -54,6 +54,7 @@ pub enum Error {
     MountBind(io::Error),
     MountPropagationSlave(io::Error),
     NotAFile(PathBuf),
+    NotADirectory(PathBuf),
     NumaNode(String),
     OpenDevNull(io::Error),
     OsStringParsing(PathBuf, OsString),
@@ -164,6 +165,11 @@ impl fmt::Display for Error {
                 f,
                 "{}",
                 format!("{:?} is not a file", path).replace("\"", "")
+            ),
+            NotADirectory(ref path) => write!(
+                f,
+                "{}",
+                format!("{:?} is not a directory", path).replace("\"", "")
             ),
             NumaNode(ref node) => write!(f, "Invalid numa node: {}", node),
             OpenDevNull(ref err) => write!(f, "Failed to open /dev/null: {}", err),
@@ -545,6 +551,10 @@ mod tests {
         assert_eq!(
             format!("{}", Error::NotAFile(file_path.clone())),
             "/foo/bar is not a file",
+        );
+        assert_eq!(
+            format!("{}", Error::NotADirectory(file_path.clone())),
+            "/foo/bar is not a directory",
         );
         assert_eq!(
             format!("{}", Error::NumaNode(id.to_string())),

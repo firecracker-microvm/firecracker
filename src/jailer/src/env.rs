@@ -81,6 +81,10 @@ impl Env {
         let mut chroot_dir = canonicalize(chroot_base)
             .map_err(|e| Error::Canonicalize(PathBuf::from(chroot_base), e))?;
 
+        if !chroot_dir.is_dir() {
+            return Err(Error::NotADirectory(chroot_dir));
+        }
+
         chroot_dir.push(
             exec_file_path
                 .file_name()
