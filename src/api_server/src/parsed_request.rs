@@ -470,7 +470,7 @@ mod tests {
 
         // Error.
         let mut buf: [u8; 142] = [0; 142];
-        let response = ParsedRequest::convert_to_response(Err(VmmActionError::from(
+        let response = ParsedRequest::convert_to_response(Err(VmmActionError::StartMicrovm(
             StartMicrovmError::MicroVMAlreadyRunning,
         )));
         assert!(response.write_all(&mut buf.as_mut()).is_ok());
@@ -480,7 +480,7 @@ mod tests {
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
              Content-Length: 24\r\n\r\n{}",
-            VmmActionError::from(StartMicrovmError::MicroVMAlreadyRunning).to_string()
+            VmmActionError::StartMicrovm(StartMicrovmError::MicroVMAlreadyRunning).to_string()
         );
         assert_eq!(&buf[..], expected_response.as_bytes());
     }
