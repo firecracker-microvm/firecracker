@@ -14,8 +14,6 @@ use std::sync::atomic::{fence, Ordering};
 use std::sync::{Arc, Barrier};
 
 use super::TimestampUs;
-#[cfg(target_arch = "x86_64")]
-use super::VcpuConfig;
 use arch;
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
@@ -30,7 +28,6 @@ use logger::{LogOption, Metric, LOGGER, METRICS};
 use memory_model::{Address, GuestAddress, GuestMemory, GuestMemoryError};
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, SignalHandler};
-#[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::CpuFeaturesTemplate;
 
 const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
@@ -355,6 +352,16 @@ impl Vm {
     pub fn fd(&self) -> &VmFd {
         &self.fd
     }
+}
+
+/// Encapsulates configuration parameters for the guest vCPUS.
+pub struct VcpuConfig {
+    /// Number of guest VCPUs.
+    pub vcpu_count: u8,
+    /// Enable hyperthreading in the CPUID configuration.
+    pub ht_enabled: bool,
+    /// CPUID template to use.
+    pub cpu_template: Option<CpuFeaturesTemplate>,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
