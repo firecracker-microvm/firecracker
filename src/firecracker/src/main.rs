@@ -230,7 +230,6 @@ fn build_microvm_from_json(
 }
 
 fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
-    use vmm::rpc_interface::{RuntimeApiAdapter, RuntimeApiController};
     // The driving epoll engine.
     let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
 
@@ -241,17 +240,23 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
         config_json.unwrap(),
     );
 
-    struct NoopHandler {};
-    impl RuntimeApiAdapter for NoopHandler {
-        fn runtime_request_injector(
-            &self,
-            _: &mut RuntimeApiController,
-        ) -> std::result::Result<(), u8> {
-            warn!("Spurious control event");
-            Ok(())
-        }
-    }
-    let noop_handler = NoopHandler {};
-
-    noop_handler.run(VmmController::new(epoll_context, vm_resources, vmm));
+    let mut controller = VmmController::new(epoll_context, vm_resources, vmm);
+    let exit_code = loop {
+        match controller.run_event_loop() {
+            Err(e) => {
+                error!("Abruptly exited VMM control loop: {:?}", e);
+                break vmm::FC_EXIT_CODE_GENERIC_ERROR;
+            }
+            Ok(exit_reason) => match exit_reason {
+                vmm::EventLoopExitReason::Break => {
+                    info!("Gracefully terminated VMM control loop");
+                    break vmm::FC_EXIT_CODE_OK;
+                }
+                vmm::EventLoopExitReason::ControlAction => {
+                    warn!("Spurious control event");
+                }
+            },
+        };
+    };
+    controller.stop(i32::from(exit_code));
 }

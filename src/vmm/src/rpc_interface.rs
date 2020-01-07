@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter};
-use std::result;
 
-use super::{EpollContext, EventLoopExitReason, Vmm};
+use super::{EpollContext, Vmm};
 
 use super::Error as VmmError;
 use builder::StartMicrovmError;
@@ -126,47 +125,6 @@ pub enum VmmData {
     MachineConfiguration(VmConfig),
 }
 
-/// Trait to be implemented by users of the `PrebootApiController`.
-pub trait PrebootApiAdapter {
-    /// The external implementation of this function is responsible for injecting
-    /// any pending request.
-    /// The provided `PrebootApiController` handler should be called for the request.
-    fn preboot_request_injector(&self, handler: &mut PrebootApiController) -> Option<Vmm>;
-
-    /// Default implementation for the function that builds and starts a microVM.
-    /// It makes use of `preboot_request_injector` to inject RPC requests that configure and
-    /// boot the microVM.
-    ///
-    /// Returns a populated `VmResources` object and a running `Vmm` object.
-    fn build_microvm_from_requests(
-        &self,
-        seccomp_filter: BpfProgram,
-        epoll_context: &mut EpollContext,
-        firecracker_version: String,
-    ) -> (VmResources, Vmm) {
-        let mut vm_resources = VmResources::default();
-        let mut built_vmm = None;
-        // Need to drop the pre-boot controller to pass ownership of vm_resources.
-        {
-            let mut preboot_controller = PrebootApiController::new(
-                seccomp_filter,
-                firecracker_version,
-                &mut vm_resources,
-                epoll_context,
-            );
-            // Configure and start microVM through successive API calls.
-            // Iterate through API calls to configure microVm.
-            // The loop breaks when a microVM is successfully started, and returns a running Vmm.
-            while built_vmm.is_none() {
-                built_vmm = self.preboot_request_injector(&mut preboot_controller);
-            }
-        }
-
-        // Safe to unwrap because previous loop cannot end on None.
-        (vm_resources, built_vmm.unwrap())
-    }
-}
-
 /// Enables pre-boot setup and instantiation of a Firecracker VMM.
 pub struct PrebootApiController<'a> {
     seccomp_filter: BpfProgram,
@@ -266,7 +224,7 @@ impl<'a> PrebootApiController<'a> {
 }
 
 /// Enables RPC interraction with a running Firecracker VMM.
-pub struct RuntimeApiController(VmmController);
+pub struct RuntimeApiController(pub VmmController);
 impl RuntimeApiController {
     /// Constructor for the RuntimeApiController.
     pub fn new(vmm_controller: VmmController) -> RuntimeApiController {
@@ -305,43 +263,5 @@ impl RuntimeApiController {
                 StartMicrovmError::MicroVMAlreadyRunning,
             )),
         }
-    }
-}
-
-/// Simple trait to be implemented by users of the `RuntimeApiController`.
-pub trait RuntimeApiAdapter {
-    /// The external implementation of this function is responsible for injecting
-    /// any pending request.
-    /// The provided `RuntimeApiController` handler should be called for the request.
-    fn runtime_request_injector(
-        &self,
-        handler: &mut RuntimeApiController,
-    ) -> result::Result<(), u8>;
-
-    /// Default implementation that runs the vmm to completion, while any arising
-    /// control events are deferred to the `RuntimeApiController` through the use of
-    /// the `runtime_request_injector`.
-    fn run(&self, vmm_controller: VmmController) {
-        let mut controller = RuntimeApiController(vmm_controller);
-        let exit_code = loop {
-            match controller.0.run_event_loop() {
-                Err(e) => {
-                    error!("Abruptly exited VMM control loop: {:?}", e);
-                    break super::FC_EXIT_CODE_GENERIC_ERROR;
-                }
-                Ok(exit_reason) => match exit_reason {
-                    EventLoopExitReason::Break => {
-                        info!("Gracefully terminated VMM control loop");
-                        break super::FC_EXIT_CODE_OK;
-                    }
-                    EventLoopExitReason::ControlAction => {
-                        if let Err(exit_code) = self.runtime_request_injector(&mut controller) {
-                            break exit_code;
-                        }
-                    }
-                },
-            };
-        };
-        controller.0.stop(i32::from(exit_code));
     }
 }
