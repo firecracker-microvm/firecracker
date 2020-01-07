@@ -235,7 +235,6 @@ pub fn build_microvm(
     // and is architectural specific.
     #[allow(unused_mut)]
     let mut mmio_device_manager = MMIODeviceManager::new(
-        guest_memory.clone(),
         &mut (arch::MMIO_MEM_START as u64),
         (arch::IRQ_BASE, arch::IRQ_MAX),
     );
