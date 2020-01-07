@@ -24,10 +24,6 @@ To set up the jailer correctly, you'll need to:
   their individually owned resources in the unlikely case where any one of the
   jails is broken out of.
 
-- Use Jailer's ``--seccomp-level 2`` flag to enable seccomp filter. The Jailer
-  will apply a restrictive filter on what ``syscall`` and associated call
-  parameters can issued by Firecracker.
-
 Additional details of Jailer features can be found in the
 [Jailer documentation](jailer.md).
 

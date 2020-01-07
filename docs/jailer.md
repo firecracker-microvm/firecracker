@@ -13,7 +13,6 @@ jailer --id <id> \
        [--chroot-base-dir <chroot_base>]
        [--netns <netns>]
        [--daemonize]
-       [--seccomp-level <level>]
        [--...extra arguments for Firecracker]
 ```
 
@@ -32,21 +31,21 @@ jailer --id <id> \
   jailer will use this to join the associated network namespace.
 - When present, the `--daemonize` flag causes the jailer to cal `setsid()` and
   redirect all three standard I/O file descriptors to `/dev/null`.
-- `--seccomp-level` specifies whether seccomp filters should be installed and
-  how restrictive they should be. Possible values are:
-  - 0 : disabled.
-  - 1 : basic filtering. This prohibits syscalls not whitelisted by
-    Firecracker.
-  - 2 (default): advanced filtering. This adds further checks on some of the
-    parameters of the allowed syscalls.
 - The jailer adheres to the "end of command options" convention, meaning
   all parameters specified after `--` are forwarded to Firecracker. For
   example, this can be paired with the `--config-file` Firecracker argument to
   specify a configuration file when starting Firecracker via the jailer (the
   file path and the resources referenced within must be valid relative to a
-  jailed Firecracker). Please note the jailer already passes the following
-  parameters to the Firecracker process: `--api-sock`, `--seccomp-level` and
-  `--id`.
+  jailed Firecracker). Another argument that can be passed in this way is
+  `--seccomp-level`, which specifies whether seccomp filters should be installed
+  and how restrictive they should be. Possible values are:
+  - 0 : disabled.
+  - 1 : basic filtering. This prohibits syscalls not whitelisted by
+    Firecracker.
+  - 2 (default): advanced filtering. This adds further checks on some of the
+    parameters of the allowed syscalls.
+  Please note the jailer already passes the following parameters to the
+  Firecracker process: `--api-sock` and `--id`.
 
 ## Jailer Operation
 
@@ -87,12 +86,10 @@ After starting, the Jailer goes through the following operations:
   `STDOUT`, and `STDERR` to `/dev/null`.
 - Drop privileges via setting the provided `uid` and `gid`.
 - Exec into `<exec_file_name> --id=<id> --api-sock=/api.socket
-  --seccomp-level=<level> --start-time-us=<opaque>
-  --start-time-cpu-us=<opaque>` (and also forward any extra arguments provided
-  to the jailer after `--`, as mentioned in the **Jailer Usage** section),
-  where:
+  --start-time-us=<opaque> --start-time-cpu-us=<opaque>` (and also forward
+  any extra arguments provided to the jailer after `--`, as mentioned in
+  the **Jailer Usage** section), where:
   - `id`: (`string`) - The `id` argument provided to jailer.
-  - `level`: (`number`) - the `--seccomp-level` argument provided to jailer.
   - `opaque`: (`number`) time calculated by the jailer that it spent doing
      its work.
 
@@ -192,7 +189,6 @@ Finally, the jailer switches the `uid` to `123`, and `gid` to `100`, and execs
 ./firecracker \
   --id="551e7604-e35c-42b3-b825-416853441234" \
   --api-sock=/api.socket \
-  --seccomp-level=2 \
   --start-time-us=<opaque> \
   --start-time-cpu-us=<opaque>
 ```

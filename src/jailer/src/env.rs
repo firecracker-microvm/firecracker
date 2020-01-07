@@ -49,7 +49,6 @@ pub struct Env {
     gid: u32,
     netns: Option<String>,
     daemonize: bool,
-    seccomp_level: u32,
     start_time_us: u64,
     start_time_cpu_us: u64,
     extra_args: Vec<String>,
@@ -110,13 +109,6 @@ impl Env {
 
         let daemonize = args.is_present("daemonize");
 
-        // The value of the argument can be safely unwrapped, because a default value was specified.
-        // It can be parsed into an unsigned integer since its possible values were specified and
-        // they are all unsigned integers.
-        let seccomp_level = get_value(&args, "seccomp-level")?
-            .parse::<u32>()
-            .map_err(Error::SeccompLevel)?;
-
         let extra_args = args
             .values_of("extra-args")
             .into_iter()
@@ -133,7 +125,6 @@ impl Env {
             gid,
             netns,
             daemonize,
-            seccomp_level,
             start_time_us,
             start_time_cpu_us,
             extra_args,
@@ -306,7 +297,6 @@ impl Env {
         Err(Error::Exec(
             Command::new(chroot_exec_file)
                 .arg(format!("--id={}", self.id))
-                .arg(format!("--seccomp-level={}", self.seccomp_level))
                 .arg(format!("--start-time-us={}", self.start_time_us))
                 .arg(format!("--start-time-cpu-us={}", self.start_time_cpu_us))
                 .arg(format!("--api-sock=/{}", socket_file_name))

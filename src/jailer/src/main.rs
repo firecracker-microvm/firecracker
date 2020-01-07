@@ -63,7 +63,6 @@ pub enum Error {
     ReadToString(PathBuf, io::Error),
     RegEx(regex::Error),
     RmOldRootDir(io::Error),
-    SeccompLevel(std::num::ParseIntError),
     SetCurrentDir(io::Error),
     SetNetNs(io::Error),
     SetSid(io::Error),
@@ -191,7 +190,6 @@ impl fmt::Display for Error {
             ),
             RegEx(ref err) => write!(f, "Regex failed: {:?}", err),
             RmOldRootDir(ref err) => write!(f, "Failed to remove old jail root directory: {}", err),
-            SeccompLevel(ref err) => write!(f, "Failed to parse seccomp level: {:?}", err),
             SetCurrentDir(ref err) => write!(f, "Failed to change current directory: {}", err),
             SetNetNs(ref err) => write!(f, "Failed to join network namespace: netns: {}", err),
             SetSid(ref err) => write!(f, "Failed to daemonize: setsid: {}", err),
@@ -287,22 +285,6 @@ pub fn clap_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .required(false)
                 .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("seccomp-level")
-                .long("seccomp-level")
-                .help(
-                    "Level of seccomp filtering that will be passed to executed path as \
-                argument.\n
-    - Level 0: No filtering.\n
-    - Level 1: Seccomp filtering by syscall number.\n
-    - Level 2: Seccomp filtering by syscall number and argument values.\n
-",
-                )
-                .required(false)
-                .takes_value(true)
-                .default_value("2")
-                .possible_values(&["0", "1", "2"]),
         )
         .arg(
             Arg::with_name("extra-args")
@@ -403,7 +385,6 @@ mod tests {
         let controller = "sysfs";
         let id = "foobar";
         let err_regex = regex::Error::Syntax(id.to_string());
-        let err_parse = i8::from_str_radix("129", 10).unwrap_err();
         let err2_str = "No such file or directory (os error 2)";
 
         assert_eq!(
@@ -596,10 +577,6 @@ mod tests {
         assert_eq!(
             format!("{}", Error::RmOldRootDir(io::Error::from_raw_os_error(42))),
             "Failed to remove old jail root directory: No message of desired type (os error 42)",
-        );
-        assert_eq!(
-            format!("{}", Error::SeccompLevel(err_parse.clone())),
-            "Failed to parse seccomp level: ParseIntError { kind: Overflow }",
         );
         assert_eq!(
             format!("{}", Error::SetCurrentDir(io::Error::from_raw_os_error(2))),
