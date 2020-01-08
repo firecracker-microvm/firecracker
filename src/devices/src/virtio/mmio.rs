@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use memory_model::{GuestAddress, GuestMemory};
 use utils::eventfd::EventFd;
+use vm_memory::{GuestAddress, GuestMemory};
 
 use super::device_status;
 use super::*;

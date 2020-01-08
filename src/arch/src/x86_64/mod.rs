@@ -17,7 +17,7 @@ pub mod regs;
 use std::mem;
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
-use memory_model::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
 use InitrdConfig;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign

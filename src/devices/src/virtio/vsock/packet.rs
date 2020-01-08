@@ -338,7 +338,7 @@ impl VsockPacket {
 #[cfg(test)]
 mod tests {
 
-    use memory_model::{GuestAddress, GuestMemory};
+    use vm_memory::{GuestAddress, GuestMemory};
 
     use super::super::tests::TestContext;
     use super::*;

@@ -9,7 +9,7 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use memory_model::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
@@ -366,13 +366,13 @@ impl Queue {
 
 #[cfg(test)]
 pub mod tests {
-    extern crate memory_model;
+    extern crate vm_memory;
 
     use std::marker::PhantomData;
     use std::mem;
 
     pub use super::*;
-    use memory_model::{GuestAddress, GuestMemory};
+    use vm_memory::{GuestAddress, GuestMemory};
 
     // Represents a location in GuestMemory which holds a given type.
     pub struct SomeplaceInMemory<'a, T> {
@@ -384,7 +384,7 @@ pub mod tests {
     // The ByteValued trait is required to use mem.read_obj_from_addr and write_obj_at_addr.
     impl<'a, T> SomeplaceInMemory<'a, T>
     where
-        T: memory_model::ByteValued,
+        T: vm_memory::ByteValued,
     {
         fn new(location: GuestAddress, mem: &'a GuestMemory) -> Self {
             SomeplaceInMemory {
@@ -479,7 +479,7 @@ pub mod tests {
 
     impl<'a, T> VirtqRing<'a, T>
     where
-        T: memory_model::ByteValued,
+        T: vm_memory::ByteValued,
     {
         fn new(start: GuestAddress, mem: &'a GuestMemory, qsize: u16, alignment: usize) -> Self {
             assert_eq!(start.0 & (alignment as u64 - 1), 0);
@@ -522,7 +522,7 @@ pub mod tests {
         pub len: u32,
     }
 
-    unsafe impl memory_model::ByteValued for VirtqUsedElem {}
+    unsafe impl vm_memory::ByteValued for VirtqUsedElem {}
 
     pub type VirtqAvail<'a> = VirtqRing<'a, u16>;
     pub type VirtqUsed<'a> = VirtqRing<'a, VirtqUsedElem>;

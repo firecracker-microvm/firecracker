@@ -17,7 +17,7 @@ use kvm_bindings::{
 };
 use kvm_ioctls::VcpuFd;
 
-use memory_model::GuestMemory;
+use vm_memory::GuestMemory;
 
 /// Errors thrown while setting aarch64 registers.
 #[derive(Debug)]

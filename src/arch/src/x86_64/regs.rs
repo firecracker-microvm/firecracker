@@ -11,7 +11,7 @@ use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 use arch_gen::x86::msr_index;
 use kvm_bindings::{kvm_fpu, kvm_msr_entry, kvm_regs, kvm_sregs, Msrs};
 use kvm_ioctls::VcpuFd;
-use memory_model::{Address, Bytes, GuestAddress, GuestMemory};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 
 // Initial pagetables.
 const PML4_START: u64 = 0x9000;
@@ -278,7 +278,7 @@ fn create_msr_entries() -> Vec<kvm_msr_entry> {
 mod tests {
     use super::*;
     use kvm_ioctls::Kvm;
-    use memory_model::{Bytes, GuestAddress, GuestMemory};
+    use vm_memory::{Bytes, GuestAddress, GuestMemory};
 
     fn create_guest_mem() -> GuestMemory {
         GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap()

@@ -9,7 +9,7 @@ kvm-ioctls = ">=0.4"
 libc = ">=0.2.39"
 
 arch_gen = { path = "../arch_gen" }
-memory_model = { path = "../vm-memory" }
+vm-memory = { path = "../vm-memory" }
 
 [dev-dependencies]
 utils = { path = "../utils" }

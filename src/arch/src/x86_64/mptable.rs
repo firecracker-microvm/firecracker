@@ -13,7 +13,7 @@ use std::slice;
 use libc::c_char;
 
 use arch_gen::x86::mpspec;
-use memory_model::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `ByteValued`) where:
@@ -286,7 +286,7 @@ pub fn setup_mptable(mem: &GuestMemory, num_cpus: u8) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use memory_model::Bytes;
+    use vm_memory::Bytes;
 
     fn table_entry_size(type_: u8) -> usize {
         match u32::from(type_) {

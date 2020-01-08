@@ -21,12 +21,12 @@ use std::vec::Vec;
 
 use dumbo::{ns::MmdsNetworkStack, EthernetFrame, MacAddr, MAC_ADDR_LEN};
 use logger::{Metric, METRICS};
-use memory_model::{Bytes, GuestAddress, GuestMemory, GuestMemoryError, MemoryMappingError};
 use net_gen;
 use rate_limiter::{RateLimiter, TokenBucket, TokenType};
 use utils::eventfd::EventFd;
 use utils::net::{Tap, TapError};
 use virtio_gen::virtio_net::*;
+use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryError, MemoryMappingError};
 
 use super::{
     ActivateError, ActivateResult, EpollConfigConstructor, Queue, VirtioDevice, TYPE_NET,
@@ -932,8 +932,8 @@ mod tests {
 
     use dumbo::{EthIPv4ArpFrame, EthernetFrame, ETHERTYPE_ARP, ETH_IPV4_FRAME_LEN};
     use libc;
-    use memory_model::GuestAddress;
     use rate_limiter::TokenBucket;
+    use vm_memory::GuestAddress;
 
     use super::*;
     use crate::virtio::queue::tests::*;

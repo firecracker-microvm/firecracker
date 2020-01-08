@@ -14,8 +14,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
 use super::cmdline::Error as CmdlineError;
-use memory_model::{Address, Bytes, GuestAddress, GuestMemory};
 use utils::structs::read_struct;
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
 
 #[allow(non_camel_case_types)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -262,8 +262,8 @@ pub fn load_cmdline(
 mod tests {
     use super::super::cmdline::Cmdline;
     use super::*;
-    use memory_model::{GuestAddress, GuestMemory};
     use std::io::Cursor;
+    use vm_memory::{GuestAddress, GuestMemory};
 
     const MEM_SIZE: usize = 0x18_0000;
 

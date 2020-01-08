@@ -29,8 +29,8 @@ use std::sync::Arc;
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use memory_model::GuestMemory;
 use utils::eventfd::EventFd;
+use vm_memory::GuestMemory;
 
 use super::super::{ActivateError, ActivateResult, Queue as VirtQueue, VirtioDevice};
 use super::epoll_handler::VsockEpollHandler;

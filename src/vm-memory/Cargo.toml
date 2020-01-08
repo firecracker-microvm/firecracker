@@ -1,5 +1,5 @@
 [package]
-name = "memory_model"
+name = "vm-memory"
 version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 

@@ -20,7 +20,6 @@ dependencies = [
  "kernel",
  "libc",
  "logger",
- "memory_model",
  "micro_http",
  "mmds",
  "rate_limiter",
@@ -29,6 +28,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "utils",
+ "vm-memory",
  "vmm",
 ]
 
@@ -41,8 +41,8 @@ dependencies = [
  "kvm-bindings",
  "kvm-ioctls",
  "libc",
- "memory_model",
  "utils",
+ "vm-memory",
 ]
 
 [[package]]
@@ -130,11 +130,11 @@ dependencies = [
  "epoll",
  "libc",
  "logger",
- "memory_model",
  "net_gen",
  "rate_limiter",
  "utils",
  "virtio_gen",
+ "vm-memory",
 ]
 
 [[package]]
@@ -195,8 +195,8 @@ dependencies = [
 name = "kernel"
 version = "0.1.0"
 dependencies = [
- "memory_model",
  "utils",
+ "vm-memory",
 ]
 
 [[package]]
@@ -258,14 +258,6 @@ name = "memchr"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88579771288728879b57485cc7d6b07d648c9f0141eb955f8ab7f9d45394468e"
-
-[[package]]
-name = "memory_model"
-version = "0.1.0"
-dependencies = [
- "libc",
- "utils",
-]
 
 [[package]]
 name = "micro_http"
@@ -445,6 +437,14 @@ name = "virtio_gen"
 version = "0.1.0"
 
 [[package]]
+name = "vm-memory"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "utils",
+]
+
+[[package]]
 name = "vmm"
 version = "0.1.0"
 dependencies = [
@@ -458,7 +458,6 @@ dependencies = [
  "kvm-ioctls",
  "libc",
  "logger",
- "memory_model",
  "mmds",
  "rate_limiter",
  "seccomp",
@@ -467,6 +466,7 @@ dependencies = [
  "serde_json",
  "timerfd",
  "utils",
+ "vm-memory",
 ]
 
 [[package]]
