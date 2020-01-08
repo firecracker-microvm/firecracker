@@ -139,6 +139,7 @@ dependencies = [
  "mmds 0.1.0",
  "polly 0.0.1",
  "seccomp 0.1.0",
+ "timerfd 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
  "vmm 0.1.0",
 ]
@@ -406,7 +407,6 @@ dependencies = [
  "serde 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.48 (registry+https://github.com/rust-lang/crates.io-index)",
- "timerfd 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
  "vm-memory 0.1.0",
 ]

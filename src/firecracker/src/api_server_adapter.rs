@@ -203,14 +203,20 @@ pub fn run_with_api(
 
     // The driving epoll engine.
     let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
+    // The event manager to replace EpollContext.
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-
+    // Cascade EventManager in EpollContext.
     epoll_context
         .add_epollin_event(&event_manager, EpollDispatch::PollyEvent)
         .expect("Cannot cascade EventManager from epoll_context");
 
+    // Create the firecracker metrics object responsible for periodically printing metrics.
+    let firecracker_metrics = event_manager
+        .register(super::metrics::PeriodicMetrics::new())
+        .expect("Cannot register the metrics event to the event manager.");
+
     epoll_context
-        .add_epollin_event(&api_event_fd, vmm::EpollDispatch::VmmActionRequest)
+        .add_epollin_event(&api_event_fd, EpollDispatch::VmmActionRequest)
         .expect("Cannot add vmm control_fd to epoll.");
 
     let api_handler = ApiServerAdapter::new(api_event_fd, from_api, to_api);
@@ -229,6 +235,9 @@ pub fn run_with_api(
             FIRECRACKER_VERSION.to_string(),
         ),
     };
+
+    // Start the metrics.
+    firecracker_metrics.lock().expect("Unlock failed.").start();
 
     // Update the api shared instance info.
     api_shared_info.write().unwrap().started = true;

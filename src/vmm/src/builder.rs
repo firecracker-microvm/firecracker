@@ -3,16 +3,13 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
-use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
-
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter};
 use std::fs::OpenOptions;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use super::{EpollContext, EpollDispatch, Error, Vmm};
+use super::{EpollContext, Error, Vmm};
 
 use arch::InitrdConfig;
 use device_manager;
@@ -21,7 +18,6 @@ use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
 use devices::virtio::{MmioTransport, NET_EVENTS_COUNT, TYPE_NET};
-use logger::{Metric, LOGGER, METRICS};
 use polly::event_manager::{Error as EventManagerError, EventManager};
 use seccomp::BpfProgramRef;
 use utils::eventfd::EventFd;
@@ -33,8 +29,6 @@ use vmm_config::drive::BlockDeviceConfigs;
 use vmm_config::net::NetworkInterfaceConfigs;
 use vmm_config::vsock::VsockDeviceConfig;
 use vstate::{KvmContext, Vcpu, VcpuConfig, Vm};
-
-const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -210,7 +204,6 @@ pub fn build_microvm(
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut kernel_cmdline = boot_config.cmdline.clone();
-    let write_metrics_event_fd = setup_metrics(epoll_context)?;
     let mut vm = setup_kvm_vm(&guest_memory)?;
 
     #[cfg(target_arch = "x86_64")]
@@ -294,7 +287,6 @@ pub fn build_microvm(
         mmio_device_manager,
         #[cfg(target_arch = "x86_64")]
         pio_device_manager,
-        write_metrics_event_fd,
     };
 
     attach_block_devices(&mut vmm, &vm_resources.block, event_manager)?;
@@ -315,8 +307,6 @@ pub fn build_microvm(
     // Firecracker uses the same seccomp filter for all threads.
     vmm.start_vcpus(vcpus, seccomp_filter.to_vec(), seccomp_filter)
         .map_err(StartMicrovmError::Internal)?;
-
-    arm_logger_and_metrics(&mut vmm);
 
     Ok(vmm)
 }
@@ -417,23 +407,6 @@ fn load_cmdline(vmm: &Vmm) -> std::result::Result<(), StartMicrovmError> {
             .map_err(StartMicrovmError::LoadCommandline)?,
     )
     .map_err(StartMicrovmError::LoadCommandline)
-}
-
-fn setup_metrics(
-    epoll_context: &mut EpollContext,
-) -> std::result::Result<TimerFd, StartMicrovmError> {
-    let write_metrics_event_fd = TimerFd::new_custom(ClockId::Monotonic, true, true)
-        .map_err(Error::TimerFd)
-        .map_err(StartMicrovmError::Internal)?;
-    // TODO: remove expect.
-    epoll_context
-        .add_epollin_event(
-            // non-blocking & close on exec
-            &write_metrics_event_fd,
-            EpollDispatch::WriteMetrics,
-        )
-        .expect("Cannot add write metrics TimerFd to epoll.");
-    Ok(write_metrics_event_fd)
 }
 
 pub(crate) fn setup_kvm_vm(
@@ -792,19 +765,4 @@ fn attach_vsock_device(
     .map_err(RegisterVsockDevice)?;
 
     Ok(())
-}
-
-fn arm_logger_and_metrics(vmm: &mut Vmm) {
-    // Arm the log write timer.
-    let timer_state = TimerState::Periodic {
-        current: Duration::from_secs(WRITE_METRICS_PERIOD_SECONDS),
-        interval: Duration::from_secs(WRITE_METRICS_PERIOD_SECONDS),
-    };
-    vmm.write_metrics_event_fd
-        .set_state(timer_state, SetTimeFlags::Default);
-
-    // Log the metrics straight away to check the process startup time.
-    if LOGGER.log_metrics().is_err() {
-        METRICS.logger.missed_metrics_count.inc();
-    }
 }
