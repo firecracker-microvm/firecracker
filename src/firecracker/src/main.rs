@@ -14,7 +14,6 @@ extern crate vmm;
 
 use backtrace::Backtrace;
 
-use std::convert::TryInto;
 use std::fs;
 use std::io;
 use std::panic;
@@ -27,12 +26,12 @@ use std::thread;
 use api_server::{ApiServer, Error, VmmRequest, VmmResponse};
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
-use seccomp::{BpfInstructionSlice, BpfProgram};
+use seccomp::{BpfInstructionSlice, BpfProgram, SeccompLevel};
 use utils::arg_parser::{App, ArgInfo};
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
-use vmm::default_syscalls::default_filter;
+use vmm::default_syscalls::get_seccomp_filter;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 use vmm::{EventLoopExitReason, Vmm};
@@ -40,21 +39,6 @@ use vmm::{EventLoopExitReason, Vmm};
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
-
-/// Level of filtering that causes syscall numbers and parameters to be examined.
-const SECCOMP_LEVEL_ADVANCED: u32 = 2;
-/// Level of filtering that causes only syscall numbers to be examined.
-const SECCOMP_LEVEL_BASIC: u32 = 1;
-/// Seccomp filtering disabled.
-const SECCOMP_LEVEL_NONE: u32 = 0;
-
-/// Possible errors that could be encountered while processing seccomp levels from CLI.
-#[derive(Debug)]
-enum SeccompFilterError {
-    Seccomp(seccomp::Error),
-    Parse(std::num::ParseIntError),
-    Level(String),
-}
 
 fn main() {
     LOGGER
@@ -174,8 +158,14 @@ fn main() {
 
     // It's safe to unwrap here because the field's been provided with a default value.
     let seccomp_level = arguments.value_as_string("seccomp-level").unwrap();
-    let seccomp_filter =
-        get_seccomp_filter(seccomp_level.as_str()).expect("Could not create seccomp filter");
+    let seccomp_filter = get_seccomp_filter(
+        SeccompLevel::from_string(seccomp_level).unwrap_or_else(|err| {
+            panic!("Invalid value for seccomp-level: {}", err);
+        }),
+    )
+    .unwrap_or_else(|err| {
+        panic!("Could not create seccomp filter: {}", err);
+    });
 
     let start_time_us = arguments.value_as_string("start-time-us").map(|s| {
         s.parse::<u64>()
@@ -257,25 +247,6 @@ fn main() {
         seccomp_filter,
         vmm_config_json,
     );
-}
-
-/// Parse seccomp level and generate a BPF program based on it.
-fn get_seccomp_filter(val: &str) -> Result<BpfProgram, SeccompFilterError> {
-    match val.parse::<u32>() {
-        Ok(SECCOMP_LEVEL_NONE) => Ok(vec![]),
-        Ok(SECCOMP_LEVEL_BASIC) => default_filter()
-            .and_then(|filter| Ok(filter.allow_all()))
-            .and_then(|filter| filter.try_into())
-            .map_err(SeccompFilterError::Seccomp),
-        Ok(SECCOMP_LEVEL_ADVANCED) => default_filter()
-            .and_then(|filter| filter.try_into())
-            .map_err(SeccompFilterError::Seccomp),
-        Ok(level) => Err(SeccompFilterError::Level(format!(
-            "Invalid value for seccomp level: {}",
-            level
-        ))),
-        Err(err) => Err(SeccompFilterError::Parse(err)),
-    }
 }
 
 /// Creates and starts a vmm.
@@ -426,32 +397,4 @@ fn vmm_control_event(
         }
     };
     Ok(())
-}
-#[cfg(test)]
-mod tests {
-    use super::get_seccomp_filter;
-    use super::SeccompFilterError;
-
-    #[test]
-    fn test_parse_seccomp_ok() {
-        assert!(get_seccomp_filter("0").is_ok());
-        assert!(get_seccomp_filter("1").is_ok());
-        assert!(get_seccomp_filter("2").is_ok());
-    }
-
-    #[test]
-    fn test_parse_seccomp_err_str() {
-        match get_seccomp_filter("whatever") {
-            Err(SeccompFilterError::Parse(_)) => (),
-            _ => panic!("Unexpected result"),
-        }
-    }
-
-    #[test]
-    fn test_parse_seccomp_err_u32() {
-        match get_seccomp_filter("3") {
-            Err(SeccompFilterError::Level(_)) => (),
-            _ => panic!("Unexpected result"),
-        }
-    }
 }
