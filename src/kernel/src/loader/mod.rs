@@ -244,10 +244,11 @@ pub fn load_cmdline(
         return Ok(());
     }
 
-    let end = guest_addr
-        .checked_add(raw_cmdline.len() as u64)
+    let cmdline_last_addr = guest_addr
+        .checked_add(raw_cmdline.len() as u64 - 1)
         .ok_or(CmdlineError::CommandLineOverflow)?; // Extra for null termination.
-    if end > guest_mem.end_addr() {
+
+    if cmdline_last_addr > guest_mem.last_addr() {
         return Err(CmdlineError::CommandLineOverflow);
     }
 

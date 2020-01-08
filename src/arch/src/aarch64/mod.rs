@@ -99,11 +99,12 @@ fn get_fdt_addr(mem: &GuestMemoryMmap) -> u64 {
     // we return the start of the DRAM so that
     // we allow the code to try and load the FDT.
 
-    if let Some(offset) = mem.end_addr().checked_sub(layout::FDT_MAX_SIZE as u64) {
-        if mem.address_in_range(offset) {
-            return offset.raw_value();
+    if let Some(addr) = mem.last_addr().checked_sub(layout::FDT_MAX_SIZE as u64 - 1) {
+        if mem.address_in_range(addr) {
+            return addr.raw_value();
         }
     }
+
     layout::DRAM_MEM_START
 }
 

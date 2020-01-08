@@ -16,8 +16,6 @@ pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
-use std::mem;
-
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 use InitrdConfig;
@@ -40,8 +38,6 @@ pub enum Error {
     E820Configuration,
     /// Error writing MP table to memory.
     MpTableSetup(mptable::Error),
-    /// The zero page extends past the end of guest_mem.
-    ZeroPagePastRamEnd,
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
     /// Failed to compute initrd address.
@@ -133,14 +129,14 @@ pub fn configure_system(
 
     add_e820_entry(&mut params.0, 0, EBDA_START, E820_RAM)?;
 
-    let mem_end = guest_mem.end_addr();
-    if mem_end < end_32bit_gap_start {
+    let last_addr = guest_mem.last_addr();
+    if last_addr < end_32bit_gap_start {
         add_e820_entry(
             &mut params.0,
             himem_start.raw_value() as u64,
             // it's safe to use unchecked_offset_from because
             // mem_end > himem_start
-            mem_end.unchecked_offset_from(himem_start) as u64,
+            last_addr.unchecked_offset_from(himem_start) as u64 + 1,
             E820_RAM,
         )?;
     } else {
@@ -152,22 +148,20 @@ pub fn configure_system(
             end_32bit_gap_start.unchecked_offset_from(himem_start),
             E820_RAM,
         )?;
-        if mem_end > first_addr_past_32bits {
+
+        if last_addr > first_addr_past_32bits {
             add_e820_entry(
                 &mut params.0,
                 first_addr_past_32bits.raw_value(),
                 // it's safe to use unchecked_offset_from because
                 // mem_end > first_addr_past_32bits
-                mem_end.unchecked_offset_from(first_addr_past_32bits),
+                last_addr.unchecked_offset_from(first_addr_past_32bits) + 1,
                 E820_RAM,
             )?;
         }
     }
 
     let zero_page_addr = GuestAddress(layout::ZERO_PAGE_START);
-    guest_mem
-        .checked_offset(zero_page_addr, mem::size_of::<boot_params>())
-        .ok_or(Error::ZeroPagePastRamEnd)?;
     guest_mem
         .write_obj(params, zero_page_addr)
         .map_err(|_| Error::ZeroPageSetup)?;
