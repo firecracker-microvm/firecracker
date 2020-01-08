@@ -14,8 +14,6 @@ mod mptable;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
-use std::mem;
-
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
 use memory_model::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
 use InitrdConfig;
@@ -131,7 +129,7 @@ pub fn configure_system(
 
     add_e820_entry(&mut params.0, 0, EBDA_START, E820_RAM)?;
 
-    let mem_end = guest_mem.end_addr();
+    let mem_end = guest_mem.last_addr();
     if mem_end < end_32bit_gap_start {
         add_e820_entry(
             &mut params.0,
@@ -163,9 +161,6 @@ pub fn configure_system(
     }
 
     let zero_page_addr = GuestAddress(layout::ZERO_PAGE_START);
-    guest_mem
-        .checked_offset(zero_page_addr, mem::size_of::<boot_params>())
-        .ok_or(Error::ZeroPagePastRamEnd)?;
     guest_mem
         .write_obj(params, zero_page_addr)
         .map_err(|_| Error::ZeroPageSetup)?;
