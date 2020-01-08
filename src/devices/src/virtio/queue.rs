@@ -106,11 +106,7 @@ impl<'a> DescriptorChain<'a> {
     }
 
     fn is_valid(&self) -> bool {
-        !(self
-            .mem
-            .checked_range_offset(self.addr, self.len as usize)
-            .is_none()
-            || (self.has_next() && self.next >= self.queue_size))
+        !self.has_next() || self.next < self.queue_size
     }
 
     /// Gets if this descriptor chain has another descriptor chain linked after it.
@@ -625,40 +621,19 @@ pub mod tests {
         // desc_table address is way off
         assert!(DescriptorChain::checked_new(m, GuestAddress(0x00ff_ffff_ffff), 16, 0).is_none());
 
-        // the addr field of the descriptor is way off
-        vq.dtable[0].addr.set(0x0fff_ffff_ffff);
-        assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
-
-        // The following configuration is invalid because the addr + len crosses over the gap
-        // between the two memory regions we configured.
+        // Let's create an invalid chain.
         {
+            // The first desc has a normal len, and the next_descriptor flag is set.
             vq.dtable[0].addr.set(0x1000);
-            vq.dtable[0].len.set(0x20000);
-            assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
-        }
-
-        // let's create some invalid chains
-
-        {
-            // the addr field of the desc is ok now
-            vq.dtable[0].addr.set(0x1000);
-            // ...but the length is too large
-            vq.dtable[0].len.set(0xffff_ffff);
-            assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
-        }
-
-        {
-            // the first desc has a normal len now, and the next_descriptor flag is set
             vq.dtable[0].len.set(0x1000);
             vq.dtable[0].flags.set(VIRTQ_DESC_F_NEXT);
-            //..but the the index of the next descriptor is too large
+            // .. but the the index of the next descriptor is too large
             vq.dtable[0].next.set(16);
 
             assert!(DescriptorChain::checked_new(m, vq.dtable_start(), 16, 0).is_none());
         }
 
-        // finally, let's test an ok chain
-
+        // Finally, let's test an ok chain.
         {
             vq.dtable[0].next.set(1);
             vq.dtable[1].set(0x2000, 0x1000, 0, 0);
