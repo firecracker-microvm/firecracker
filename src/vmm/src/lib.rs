@@ -27,10 +27,10 @@ extern crate kernel;
 #[macro_use]
 extern crate logger;
 extern crate dumbo;
-extern crate memory_model;
 extern crate rate_limiter;
 extern crate seccomp;
 extern crate utils;
+extern crate vm_memory;
 
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
@@ -77,12 +77,12 @@ use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
-use memory_model::{Bytes, GuestAddress, GuestMemory};
 use seccomp::SeccompFilter;
 use utils::eventfd::EventFd;
 use utils::net::TapError;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
+use vm_memory::{Bytes, GuestAddress, GuestMemory};
 use vmm_config::boot_source::{
     BootSourceConfig, BootSourceConfigError, KernelConfig, DEFAULT_KERNEL_CMDLINE,
 };
@@ -1344,14 +1344,13 @@ impl Vmm {
     // pages if the KVM operation fails.
     #[cfg(target_arch = "x86_64")]
     fn get_dirty_page_count(&mut self) -> usize {
-        let dirty_pages_in_region =
-            |(slot, memory_region): (usize, &memory_model::MemoryRegion)| {
-                self.vm
-                    .fd()
-                    .get_dirty_log(slot as u32, memory_region.size())
-                    .map(|v| v.iter().map(|page| page.count_ones() as usize).sum())
-                    .unwrap_or(0 as usize)
-            };
+        let dirty_pages_in_region = |(slot, memory_region): (usize, &vm_memory::MemoryRegion)| {
+            self.vm
+                .fd()
+                .get_dirty_log(slot as u32, memory_region.size())
+                .map(|v| v.iter().map(|page| page.count_ones() as usize).sum())
+                .unwrap_or(0 as usize)
+        };
 
         self.vm
             .memory()

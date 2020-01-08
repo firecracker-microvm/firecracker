@@ -17,7 +17,7 @@ use std::ffi::CStr;
 use std::fmt::Debug;
 
 use self::gic::GICDevice;
-use memory_model::{Address, GuestAddress, GuestMemory};
+use vm_memory::{Address, GuestAddress, GuestMemory};
 
 /// Errors thrown while configuring aarch64 system.
 #[derive(Debug)]

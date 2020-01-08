@@ -17,9 +17,9 @@ use devices::virtio::TYPE_BLOCK;
 use devices::{BusDevice, RawIOHandler};
 use kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
-use memory_model::GuestMemory;
 #[cfg(target_arch = "aarch64")]
 use utils::eventfd::EventFd;
+use vm_memory::GuestMemory;
 
 /// Errors for MMIO device manager.
 #[derive(Debug)]
@@ -333,11 +333,11 @@ mod tests {
     use arch;
     use devices::virtio::{ActivateResult, VirtioDevice, TYPE_BLOCK};
     use kernel_cmdline;
-    use memory_model::{GuestAddress, GuestMemory};
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, RwLock};
     use utils::errno;
     use utils::eventfd::EventFd;
+    use vm_memory::{GuestAddress, GuestMemory};
     const QUEUE_SIZES: &[u16] = &[64];
 
     impl MMIODeviceManager {

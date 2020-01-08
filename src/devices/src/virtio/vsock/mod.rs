@@ -19,7 +19,7 @@ pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
 use std::os::unix::io::RawFd;
 use std::sync::mpsc;
 
-use memory_model::GuestMemoryError;
+use vm_memory::GuestMemoryError;
 
 use super::super::EpollHandler;
 use super::EpollConfigConstructor;
@@ -205,7 +205,7 @@ mod tests {
 
     use crate::virtio::queue::tests::VirtQueue as GuestQ;
     use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use memory_model::{GuestAddress, GuestMemory};
+    use vm_memory::{GuestAddress, GuestMemory};
 
     pub struct TestBackend {
         pub evfd: EventFd,

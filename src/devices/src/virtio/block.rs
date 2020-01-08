@@ -18,10 +18,10 @@ use std::sync::mpsc;
 use std::sync::Arc;
 
 use logger::{Metric, METRICS};
-use memory_model::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
 use rate_limiter::{RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
+use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
 
 use super::{
     ActivateError, ActivateResult, DescriptorChain, EpollConfigConstructor, Queue, VirtioDevice,
@@ -662,8 +662,8 @@ mod tests {
 
     use super::*;
     use crate::virtio::queue::tests::*;
-    use memory_model::Address;
     use utils::tempfile::TempFile;
+    use vm_memory::Address;
 
     const EPOLLIN: epoll::Events = epoll::Events::EPOLLIN;
 
