@@ -483,7 +483,6 @@ pub struct Vmm {
 
     // TODO: maybe move this out of Vmm once we switch it to Polly.
     write_metrics_event_fd: TimerFd,
-    event_manager: EventManager,
 }
 
 impl Vmm {
@@ -676,6 +675,7 @@ impl Vmm {
     pub fn run_event_loop(
         &mut self,
         epoll_context: &mut EpollContext,
+        event_manager: &mut EventManager,
     ) -> Result<EventLoopExitReason> {
         // TODO: try handling of errors/failures without breaking this main loop.
         loop {
@@ -754,7 +754,7 @@ impl Vmm {
                 // Cascaded polly: We are doing this until all devices have been ported away
                 // from epoll_context to polly.
                 Some(EpollDispatch::PollyEvent) => {
-                    self.event_manager.run().map_err(Error::EventManager)?;
+                    event_manager.run().map_err(Error::EventManager)?;
                 }
                 None => {
                     // Do nothing.
