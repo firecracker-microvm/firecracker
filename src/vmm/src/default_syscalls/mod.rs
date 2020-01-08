@@ -127,7 +127,7 @@ mod tests {
                 )
                 .is_ok());
         }
-        assert!(filter.apply().is_ok());
+        assert!(SeccompFilter::apply(filter.into_bpf().unwrap()).is_ok());
     }
 
     #[test]
