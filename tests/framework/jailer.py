@@ -29,7 +29,6 @@ class JailerContext:
     chroot_base = None
     netns = None
     daemonize = None
-    seccomp_level = None
 
     def __init__(
             self,
@@ -41,7 +40,6 @@ class JailerContext:
             chroot_base=JAILER_DEFAULT_CHROOT,
             netns=None,
             daemonize=True,
-            seccomp_level=2
     ):
         """Set up jailer fields.
 
@@ -57,7 +55,6 @@ class JailerContext:
         self.chroot_base = chroot_base
         self.netns = netns if netns is not None else jailer_id
         self.daemonize = daemonize
-        self.seccomp_level = seccomp_level
 
     def __del__(self):
         """Cleanup this jailer context."""
@@ -91,10 +88,6 @@ class JailerContext:
             jailer_param_list.extend(['--netns', str(self.netns_file_path())])
         if self.daemonize:
             jailer_param_list.append('--daemonize')
-        if self.seccomp_level is not None:
-            jailer_param_list.extend(
-                ['--seccomp-level', str(self.seccomp_level)]
-            )
         if config_file is not None:
             jailer_param_list.extend(['--'])
             jailer_param_list.extend(['--config-file', str(config_file)])

@@ -6,6 +6,12 @@
 
 - Fixed #1469 - Broken GitHub location for Firecracker release binary.
 
+### Changed
+  
+- Removed redundant `--seccomp-level` jailer parameter since it can be
+  simply forwarded to the Firecracker executable using "end of command
+  options" convention.
+
 ## [0.20.0]
 
 ### Added
