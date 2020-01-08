@@ -1,20 +1,22 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+extern crate api_server;
 extern crate backtrace;
 #[macro_use(crate_version, crate_authors)]
 extern crate clap;
-extern crate api_server;
 extern crate libc;
-extern crate utils;
 #[macro_use]
 extern crate logger;
 extern crate mmds;
 extern crate polly;
 extern crate seccomp;
+extern crate timerfd;
+extern crate utils;
 extern crate vmm;
 
 mod api_server_adapter;
+mod metrics;
 
 use backtrace::Backtrace;
 use clap::{App, Arg};
@@ -33,7 +35,6 @@ use vmm::controller::VmmController;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::InstanceInfo;
-use vmm::EpollDispatch;
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
@@ -227,9 +228,8 @@ fn run_without_api(seccomp_level: u32, config_json: Option<String>) {
     // The driving epoll engine.
     let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-
     epoll_context
-        .add_epollin_event(&event_manager, EpollDispatch::PollyEvent)
+        .add_epollin_event(&event_manager, vmm::EpollDispatch::PollyEvent)
         .expect("Cannot cascade EventManager from epoll_context");
 
     let (vm_resources, vmm) = build_microvm_from_json(

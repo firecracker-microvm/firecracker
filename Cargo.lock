@@ -183,6 +183,7 @@ dependencies = [
  "polly",
  "seccomp",
  "tempfile",
+ "timerfd",
  "utils",
  "vmm",
 ]
@@ -580,7 +581,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tempfile",
- "timerfd",
  "utils",
 ]
 
