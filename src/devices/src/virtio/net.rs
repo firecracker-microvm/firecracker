@@ -33,6 +33,8 @@ use super::{
     VIRTIO_MMIO_INT_VRING,
 };
 use crate::{DeviceEventT, EpollHandler, Error as DeviceError};
+use polly::event_manager::*;
+use polly::pollable::*;
 
 /// The maximum buffer size when segmentation offload is enabled. This
 /// includes the 12-byte virtio net header.
@@ -735,6 +737,12 @@ impl Net {
                 &self.config_space[..MAC_ADDR_LEN],
             ))
         }
+    }
+}
+
+impl EventHandler for Net {
+    fn init(&self) -> Vec<PollableOp> {
+        vec![]
     }
 }
 

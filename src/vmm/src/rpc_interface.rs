@@ -8,6 +8,7 @@ use super::{EpollContext, Vmm};
 use super::Error as VmmError;
 use builder::StartMicrovmError;
 use controller::VmmController;
+use polly::event_manager::EventManager;
 use resources::VmResources;
 use seccomp::BpfProgram;
 use vmm_config;
@@ -131,6 +132,7 @@ pub struct PrebootApiController<'a> {
     firecracker_version: String,
     vm_resources: &'a mut VmResources,
     epoll_context: &'a mut EpollContext,
+    event_manager: &'a mut EventManager,
 }
 
 impl<'a> PrebootApiController<'a> {
@@ -140,12 +142,14 @@ impl<'a> PrebootApiController<'a> {
         firecracker_version: String,
         vm_resources: &'a mut VmResources,
         epoll_context: &'a mut EpollContext,
+        event_manager: &'a mut EventManager,
     ) -> PrebootApiController<'a> {
         PrebootApiController {
             seccomp_filter,
             firecracker_version,
             vm_resources,
             epoll_context,
+            event_manager,
         }
     }
 
@@ -205,6 +209,7 @@ impl<'a> PrebootApiController<'a> {
             StartMicroVm => super::builder::build_microvm(
                 &self.vm_resources,
                 &mut self.epoll_context,
+                &mut self.event_manager,
                 &self.seccomp_filter,
             )
             .map(|vmm| {

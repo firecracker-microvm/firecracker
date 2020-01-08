@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use utils::byte_order;
 use utils::eventfd::EventFd;
@@ -16,6 +16,7 @@ use super::device_status;
 use super::*;
 use crate::bus::BusDevice;
 
+use polly::event_manager::*;
 //TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
 const VENDOR_ID: u32 = 0;
 
@@ -32,7 +33,7 @@ const MMIO_VERSION: u32 = 2;
 /// and all the events, memory, and queues for device operation will be moved into the device.
 /// Optionally, a virtio device can implement device reset in which it returns said resources and
 /// resets its internal.
-pub trait VirtioDevice: Send {
+pub trait VirtioDevice: EventHandler + Send {
     /// Get the available features offered by device.
     fn avail_features(&self) -> u64;
 
@@ -126,7 +127,7 @@ pub trait VirtioDevice: Send {
 /// Typically one page (4096 bytes) of MMIO address space is sufficient to handle this transport
 /// and inner virtio device.
 pub struct MmioDevice {
-    device: Box<dyn VirtioDevice>,
+    device: Arc<Mutex<dyn VirtioDevice>>,
     device_activated: bool,
     // The register where feature bits are stored.
     features_select: u32,
@@ -142,14 +143,52 @@ pub struct MmioDevice {
     mem: Option<GuestMemoryMmap>,
 }
 
+// /// The MmioDevice will act as a proxy and dispatch requests to the upper level (VirtioDevice)
+// impl EventHandler for MmioDevice {
+//     fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+//         self.device
+//             .lock()
+//             .expect("Poisoned device lock")
+//             .handle_read(source)
+//     }
+
+//     fn init(&self) -> Vec<PollableOp> {
+//         // Register all queue events
+//         let mut ops = Vec::new();
+
+//         for queue_evt in self.queue_evts().iter() {
+//             ops.push(
+//                 PollableOpBuilder::new(Pollable::from(queue_evt))
+//                     .readable()
+//                     .register(),
+//             )
+//         }
+
+//         // Call upper level device init.
+//         ops.append(&mut self.device.lock().expect("Poisoned device lock").init());
+//         ops
+//     }
+// }
+
 impl MmioDevice {
     /// Constructs a new MMIO transport for the given virtio device.
-    pub fn new(mem: GuestMemoryMmap, device: Box<dyn VirtioDevice>) -> std::io::Result<MmioDevice> {
+    pub fn new(
+        mem: GuestMemoryMmap,
+        device: Arc<Mutex<dyn VirtioDevice>>,
+    ) -> std::io::Result<MmioDevice> {
         let mut queue_evts = Vec::new();
-        for _ in device.queue_max_sizes().iter() {
+        for _ in device
+            .lock()
+            .expect("Poisoned device lock")
+            .queue_max_sizes()
+            .iter()
+        {
             queue_evts.push(EventFd::new(libc::EFD_NONBLOCK)?)
         }
+
         let queues = device
+            .lock()
+            .expect("Poisoned device lock")
             .queue_max_sizes()
             .iter()
             .map(|&s| Queue::new(s))
@@ -171,13 +210,8 @@ impl MmioDevice {
     }
 
     // Gets the encapsulated VirtioDevice.
-    pub fn device(&self) -> &dyn VirtioDevice {
-        &*self.device
-    }
-
-    // Gets a mutable handle to the encapsulated VirtioDevice.
-    pub fn device_mut(&mut self) -> &mut dyn VirtioDevice {
-        &mut *self.device
+    pub fn device(&self) -> Arc<Mutex<dyn VirtioDevice>> {
+        self.device.clone()
     }
 
     /// Gets the list of queue events that must be triggered whenever the VM writes to
@@ -284,6 +318,8 @@ impl MmioDevice {
                     if let Some(ref interrupt_evt) = self.interrupt_evt {
                         if let Some(mem) = self.mem.take() {
                             self.device
+                                .lock()
+                                .expect("Poisoned device lock")
                                 .activate(
                                     mem,
                                     interrupt_evt.try_clone().expect("Failed to clone eventfd"),
@@ -303,7 +339,7 @@ impl MmioDevice {
             }
             _ if status == 0 => {
                 if self.device_activated {
-                    match self.device.reset() {
+                    match self.device.lock().expect("Poisoned device lock").reset() {
                         Some((_interrupt_evt, mut queue_evts)) => {
                             self.device_activated = false;
                             self.queue_evts.append(&mut queue_evts);
@@ -335,10 +371,18 @@ impl BusDevice for MmioDevice {
                 let v = match offset {
                     0x0 => MMIO_MAGIC_VALUE,
                     0x04 => MMIO_VERSION,
-                    0x08 => self.device.device_type(),
+                    0x08 => self
+                        .device
+                        .lock()
+                        .expect("Poisoned device lock")
+                        .device_type(),
                     0x0c => VENDOR_ID, // vendor id
                     0x10 => {
-                        let mut features = self.device.avail_features_by_page(self.features_select);
+                        let mut features = self
+                            .device
+                            .lock()
+                            .expect("Poisoned device lock")
+                            .avail_features_by_page(self.features_select);
                         if self.features_select == 1 {
                             features |= 0x1; // enable support of VirtIO Version 1
                         }
@@ -356,7 +400,11 @@ impl BusDevice for MmioDevice {
                 };
                 byte_order::write_le_u32(data, v);
             }
-            0x100..=0xfff => self.device.read_config(offset - 0x100, data),
+            0x100..=0xfff => self
+                .device
+                .lock()
+                .expect("Poisoned device lock")
+                .read_config(offset - 0x100, data),
             _ => {
                 warn!(
                     "invalid virtio mmio read: 0x{:x}:0x{:x}",
@@ -387,6 +435,8 @@ impl BusDevice for MmioDevice {
                             device_status::FEATURES_OK | device_status::FAILED,
                         ) {
                             self.device
+                                .lock()
+                                .expect("Poisoned device lock")
                                 .ack_features_by_page(self.acked_features_select, v);
                         } else {
                             warn!(
@@ -419,7 +469,10 @@ impl BusDevice for MmioDevice {
             }
             0x100..=0xfff => {
                 if self.check_device_status(device_status::DRIVER, device_status::FAILED) {
-                    self.device.write_config(offset - 0x100, data)
+                    self.device
+                        .lock()
+                        .expect("Poisoned device lock")
+                        .write_config(offset - 0x100, data)
                 } else {
                     warn!("can not write to device config data area before driver is ready");
                 }

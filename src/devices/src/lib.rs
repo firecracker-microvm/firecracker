@@ -13,6 +13,7 @@ extern crate dumbo;
 #[macro_use]
 extern crate logger;
 extern crate net_gen;
+extern crate polly;
 extern crate rate_limiter;
 extern crate virtio_gen;
 extern crate vm_memory;

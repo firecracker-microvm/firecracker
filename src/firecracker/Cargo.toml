@@ -13,3 +13,4 @@ mmds = { path = "../mmds" }
 seccomp = { path = "../seccomp" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
+polly = { path = "../polly"}
