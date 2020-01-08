@@ -8,11 +8,13 @@ use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
 use mmds::MMDS;
+use polly::event_manager::EventManager;
 use utils::eventfd::EventFd;
 use vmm::controller::VmmController;
 use vmm::resources::VmResources;
 use vmm::rpc_interface::{PrebootApiController, RuntimeApiController};
 use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::EpollDispatch;
 
 struct ApiServerAdapter {
     api_event_fd: EventFd,
@@ -40,6 +42,7 @@ impl ApiServerAdapter {
         &self,
         seccomp_level: u32,
         epoll_context: &mut vmm::EpollContext,
+        event_manager: &mut EventManager,
         firecracker_version: String,
     ) -> (VmResources, vmm::Vmm) {
         let mut vm_resources = VmResources::default();
@@ -51,6 +54,7 @@ impl ApiServerAdapter {
                 firecracker_version,
                 &mut vm_resources,
                 epoll_context,
+                event_manager,
             );
             // Configure and start microVM through successive API calls.
             // Iterate through API calls to configure microVm.
@@ -191,6 +195,11 @@ pub fn run_with_api(
 
     // The driving epoll engine.
     let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
+    let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+
+    epoll_context
+        .add_epollin_event(&event_manager, EpollDispatch::PollyEvent)
+        .expect("Cannot cascade EventManager from epoll_context");
 
     epoll_context
         .add_epollin_event(&api_event_fd, vmm::EpollDispatch::VmmActionRequest)
@@ -203,12 +212,14 @@ pub fn run_with_api(
         Some(json) => super::build_microvm_from_json(
             seccomp_level,
             &mut epoll_context,
+            &mut event_manager,
             firecracker_version,
             json,
         ),
         None => api_handler.build_microvm_from_requests(
             seccomp_level,
             &mut epoll_context,
+            &mut event_manager,
             firecracker_version,
         ),
     };
@@ -216,5 +227,5 @@ pub fn run_with_api(
     // Update the api shared instance info.
     api_shared_info.write().unwrap().started = true;
 
-    api_handler.run_microvm(VmmController::new(epoll_context, vm_resources, vmm));
+    api_handler.run_microvm(VmmController::new(epoll_context, event_manager, vm_resources, vmm));
 }

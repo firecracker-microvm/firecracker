@@ -7,6 +7,7 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use std::fmt::{Display, Formatter};
 use std::fs::OpenOptions;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::{EpollContext, EpollDispatch, Vmm};
@@ -17,10 +18,10 @@ use device_manager;
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
-use devices::virtio::{MmioDevice, BLOCK_EVENTS_COUNT, NET_EVENTS_COUNT, TYPE_BLOCK, TYPE_NET};
+use devices::virtio::{MmioDevice, NET_EVENTS_COUNT, TYPE_NET};
 use logger::{Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
-use polly::event_manager::EventManager;
+use polly::event_manager::{EventManager, Error as EventManagerError};
 use utils::time::TimestampUs;
 use vmm_config;
 use vmm_config::boot_source::BootConfig;
@@ -40,7 +41,7 @@ pub enum StartMicrovmError {
     /// the file was deleted/corrupted.
     CreateBlockDevice(std::io::Error),
     /// Internal errors are due to resource exhaustion.
-    CreateNetDevice(devices::virtio::Error),
+    CreateNetDevice(devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(std::io::Error),
     /// Failed to create the backend for the vsock device.
@@ -67,10 +68,13 @@ pub enum StartMicrovmError {
     OpenBlockDevice(std::io::Error),
     /// Cannot initialize a MMIO Block Device or add a device to the MMIO Bus.
     RegisterBlockDevice(device_manager::mmio::Error),
+    /// Cannot register an EventHandler.
+    RegisterEvent(EventManagerError),
     /// Cannot initialize a MMIO Network Device or add a device to the MMIO Bus.
     RegisterNetDevice(device_manager::mmio::Error),
     /// Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus.
     RegisterVsockDevice(device_manager::mmio::Error),
+    
 }
 
 /// It's convenient to automatically convert `kernel::cmdline::Error`s
@@ -151,6 +155,13 @@ impl Display for StartMicrovmError {
                     err_msg
                 )
             }
+            RegisterEvent(ref err) => {
+                write!(
+                    f,
+                    "Cannot register EventHandler. {:?}",
+                    err
+                )
+            }
             RegisterNetDevice(ref err) => {
                 let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
@@ -182,6 +193,7 @@ impl Display for StartMicrovmError {
 pub fn build_microvm(
     vm_resources: &super::resources::VmResources,
     epoll_context: &mut EpollContext,
+    event_manager: &mut EventManager,
     seccomp_level: u32,
 ) -> std::result::Result<Vmm, StartMicrovmError> {
     let boot_config = vm_resources
@@ -200,7 +212,6 @@ pub fn build_microvm(
     #[allow(unused_mut)]
     let mut kernel_cmdline = boot_config.cmdline.clone();
     let write_metrics_event_fd = setup_metrics(epoll_context)?;
-    let event_manager = setup_event_manager(epoll_context)?;
     let mut vm = setup_kvm_vm(guest_memory.clone())?;
 
     // Instantiate the MMIO device manager.
@@ -262,10 +273,9 @@ pub fn build_microvm(
         pio_device_manager,
         write_metrics_event_fd,
         seccomp_level,
-        event_manager,
     };
 
-    attach_block_devices(&mut vmm, &vm_resources.block, epoll_context)?;
+    attach_block_devices(&mut vmm, &vm_resources.block, event_manager)?;
     attach_net_devices(&mut vmm, &vm_resources.network_interface, epoll_context)?;
     if let Some(vsock) = vm_resources.vsock.as_ref() {
         attach_vsock_device(&mut vmm, vsock, epoll_context)?;
@@ -341,19 +351,6 @@ fn setup_metrics(
         )
         .expect("Cannot add write metrics TimerFd to epoll.");
     Ok(write_metrics_event_fd)
-}
-
-fn setup_event_manager(
-    epoll_context: &mut EpollContext,
-) -> std::result::Result<EventManager, StartMicrovmError> {
-    let event_manager = EventManager::new()
-        .map_err(Error::EventManager)
-        .map_err(StartMicrovmError::Internal)?;
-    // TODO: remove expect.
-    epoll_context
-        .add_epollin_event(&event_manager, EpollDispatch::PollyEvent)
-        .expect("Cannot cascade EventManager from epoll_context");
-    Ok(event_manager)
 }
 
 pub(crate) fn setup_kvm_vm(
@@ -494,7 +491,13 @@ fn attach_mmio_device(
     id: String,
     device: MmioDevice,
 ) -> std::result::Result<(), device_manager::mmio::Error> {
-    let type_id = device.device().device_type();
+    // TODO: we currently map into StartMicrovmError::RegisterBlockDevice for all
+    // devices at the end of device_manager.register_mmio_device.
+    let type_id = device
+        .device()
+        .lock()
+        .expect("Poisoned device lock")
+        .device_type();
     let cmdline = &mut vmm.kernel_cmdline;
 
     vmm.mmio_device_manager.register_mmio_device(
@@ -508,10 +511,32 @@ fn attach_mmio_device(
     Ok(())
 }
 
+/// Adds a virtio device to the MmioDeviceManager using the specified transport.
+fn attach_block_device(
+    vmm: &mut Vmm,
+    id: String,
+    transport_device: MmioDevice,
+    block_device: Arc<Mutex<devices::virtio::Block>>,
+) -> std::result::Result<(), StartMicrovmError> {
+    let cmdline = &mut vmm.kernel_cmdline;
+
+    vmm.mmio_device_manager
+        .register_block_device(
+            vmm.vm.fd(),
+            transport_device,
+            block_device,
+            cmdline,
+            id.as_str(),
+        )
+        .map_err(StartMicrovmError::RegisterBlockDevice)?;
+
+    Ok(())
+}
+
 fn attach_block_devices(
     vmm: &mut Vmm,
     blocks: &BlockDeviceConfigs,
-    epoll_context: &mut EpollContext,
+    event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
@@ -556,36 +581,32 @@ fn attach_block_devices(
             kernel_cmdline.insert_str(flags)?;
         }
 
-        let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
-            TYPE_BLOCK,
-            &drive_config.drive_id,
-            BLOCK_EVENTS_COUNT,
-        );
-
         let rate_limiter = drive_config
             .rate_limiter
             .map(vmm_config::RateLimiterConfig::into_rate_limiter)
             .transpose()
             .map_err(CreateRateLimiter)?;
 
-        let block_box = Box::new(
-            devices::virtio::Block::new(
-                block_file,
-                drive_config.is_read_only,
-                epoll_config,
-                rate_limiter,
-            )
-            .map_err(CreateBlockDevice)?,
-        );
+        error!("Registering");
 
-        attach_mmio_device(
+        let block_device = event_manager
+            .register(
+                devices::virtio::Block::new(
+                    block_file,
+                    drive_config.is_read_only,
+                    rate_limiter.unwrap_or_default(),
+                )
+                .map_err(CreateBlockDevice)?,
+            )
+            .map_err(StartMicrovmError::RegisterEvent)?;
+
+        error!("Attaching");
+        attach_block_device(
             vmm,
             drive_config.drive_id.clone(),
-            MmioDevice::new(vmm.guest_memory().clone(), block_box)
-                .map_err(device_manager::mmio::Error::CreateMmioDevice)
-                .map_err(RegisterBlockDevice)?,
-        )
-        .map_err(RegisterBlockDevice)?;
+            MmioDevice::new(vmm.guest_memory().clone(), block_device.clone()).map_err(CreateBlockDevice)?,
+            block_device,
+        )?;
     }
 
     Ok(())
@@ -621,7 +642,7 @@ fn attach_net_devices(
 
         let tap = cfg.open_tap().map_err(|_| NetDeviceNotConfigured)?;
 
-        let net_box = Box::new(
+        let net_box = Arc::new(Mutex::new(
             devices::virtio::Net::new_with_tap(
                 tap,
                 cfg.guest_mac(),
@@ -631,7 +652,7 @@ fn attach_net_devices(
                 allow_mmds_requests,
             )
             .map_err(CreateNetDevice)?,
-        );
+        ));
 
         attach_mmio_device(
             vmm,
@@ -664,10 +685,10 @@ fn attach_vsock_device(
         VSOCK_EVENTS_COUNT,
     );
 
-    let vsock_box = Box::new(
-        devices::virtio::Vsock::new(u64::from(vsock.guest_cid), epoll_config, backend)
-            .map_err(CreateVsockDevice)?,
-    );
+        let vsock_box = Arc::new(Mutex::new(
+            devices::virtio::Vsock::new(u64::from(vsock.guest_cid), epoll_config, backend)
+                .map_err(CreateVsockDevice)?,
+        ));
 
     attach_mmio_device(
         vmm,

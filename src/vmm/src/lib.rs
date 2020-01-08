@@ -474,7 +474,6 @@ pub struct Vmm {
     write_metrics_event_fd: TimerFd,
     // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
     seccomp_level: u32,
-    event_manager: EventManager,
 }
 
 impl Vmm {
@@ -698,6 +697,7 @@ impl Vmm {
     pub fn run_event_loop(
         &mut self,
         epoll_context: &mut EpollContext,
+        event_manager: &mut EventManager,
     ) -> Result<EventLoopExitReason> {
         // TODO: try handling of errors/failures without breaking this main loop.
         loop {
@@ -767,7 +767,7 @@ impl Vmm {
                 // Cascaded polly: We are doing this until all devices have been ported away
                 // from epoll_context to polly.
                 Some(EpollDispatch::PollyEvent) => {
-                    self.event_manager.run().map_err(Error::EventManager)?;
+                    event_manager.run().map_err(Error::EventManager)?;
                 }
                 None => {
                     // Do nothing.
