@@ -22,6 +22,6 @@ arch = { path = "../arch" }
 devices = { path = "../devices" }
 dumbo = { path = "../dumbo" }
 kernel = { path = "../kernel" }
-memory_model = { path = "../memory_model" }
+memory_model = { path = "../vm-memory" }
 utils = { path = "../utils" }
 rate_limiter = { path = "../rate_limiter" }
