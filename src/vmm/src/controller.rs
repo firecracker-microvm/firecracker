@@ -12,6 +12,7 @@ use super::Result;
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{self, TYPE_BLOCK, TYPE_NET};
+use logger::LOGGER;
 use polly::event_manager::EventManager;
 use resources::VmResources;
 use rpc_interface::VmmActionError;
@@ -41,8 +42,11 @@ impl VmmController {
     /// simply exposes functionality like getting the dirty pages, and then we'll have the
     /// metrics flushing logic entirely on the outside.
     pub fn flush_metrics(&mut self) -> ActionResult {
-        self.vmm
-            .write_metrics()
+        // FIXME: we're losing the bool saying whether metrics were actually written.
+        LOGGER
+            .log_metrics()
+            .map(|_| ())
+            .map_err(super::Error::Logger)
             .map_err(VmmActionError::InternalVmm)
     }
 
