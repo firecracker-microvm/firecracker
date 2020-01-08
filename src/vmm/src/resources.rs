@@ -14,6 +14,7 @@ use vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::net::*;
 use vmm_config::vsock::*;
+use vstate::VcpuConfig;
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -103,6 +104,17 @@ impl VmResources {
             resources.set_vsock_device(vsock_config);
         }
         Ok(resources)
+    }
+
+    /// Returns a VcpuConfig based on the vm config.
+    pub fn vcpu_config(&self) -> VcpuConfig {
+        // The unwraps are ok to use because the values are initialized using defaults if not
+        // supplied by the user.
+        VcpuConfig {
+            vcpu_count: self.vm_config().vcpu_count.unwrap(),
+            ht_enabled: self.vm_config().ht_enabled.unwrap(),
+            cpu_template: self.vm_config().cpu_template,
+        }
     }
 
     /// Returns the VmConfig.
