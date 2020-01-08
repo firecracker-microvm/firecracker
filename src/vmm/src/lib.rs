@@ -18,7 +18,6 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate timerfd;
 
 extern crate arch;
 #[cfg(target_arch = "x86_64")]
@@ -57,8 +56,6 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
-
-use timerfd::TimerFd;
 
 use arch::DeviceType;
 #[cfg(target_arch = "x86_64")]
@@ -119,8 +116,6 @@ pub enum EpollDispatch {
     DeviceHandler(usize, DeviceEventT),
     /// The event loop has to be temporarily suspended for an external action request.
     VmmActionRequest,
-    /// Periodically generated to write Vmm metrics.
-    WriteMetrics,
 }
 
 struct MaybeHandler {
@@ -470,8 +465,6 @@ pub struct Vmm {
     #[cfg(target_arch = "x86_64")]
     pio_device_manager: PortIODeviceManager,
 
-    // TODO: maybe move this out of Vmm once we switch it to Polly.
-    write_metrics_event_fd: TimerFd,
     // The level of seccomp filtering used. Seccomp filters are loaded before executing guest code.
     seccomp_level: u32,
 }
@@ -492,15 +485,6 @@ impl Vmm {
         if LOGGER.flags() | LogOption::LogDirtyPages as usize > 0 {
             METRICS.memory.dirty_pages.add(self.get_dirty_page_count());
         }
-    }
-
-    /// Force writes metrics.
-    fn write_metrics(&mut self) -> Result<()> {
-        // The dirty pages are only available on x86_64.
-        #[cfg(target_arch = "x86_64")]
-        self.log_dirty_pages();
-        // FIXME: we're losing the bool saying whether metrics were actually written.
-        LOGGER.log_metrics().map(|_| ()).map_err(Error::Logger)
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -754,14 +738,6 @@ impl Vmm {
                 }
                 Some(EpollDispatch::VmmActionRequest) => {
                     return Ok(EventLoopExitReason::ControlAction);
-                }
-                Some(EpollDispatch::WriteMetrics) => {
-                    self.write_metrics_event_fd.read();
-                    // Please note that, since LOGGER has no output file configured yet, it will write to
-                    // stdout, so logging will interfere with console output.
-                    if let Err(e) = self.write_metrics() {
-                        error!("Failed to log metrics: {}", e);
-                    }
                 }
                 // Cascaded polly: We are doing this until all devices have been ported away
                 // from epoll_context to polly.

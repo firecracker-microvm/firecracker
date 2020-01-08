@@ -7,14 +7,15 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 backtrace = {version = ">=0.3.35", features = ["libunwind", "libbacktrace", "std"], default-features = false}
 clap = { version = ">=2.27.1", default-features = false}
 libc = ">=0.2.39"
+timerfd = ">=1.0"
 
 api_server = { path = "../api_server" }
 utils = { path = "../utils" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
+polly = { path = "../polly" }
 seccomp = { path = "../seccomp" }
 vmm = { path = "../vmm" }
-polly = { path = "../polly"}
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
