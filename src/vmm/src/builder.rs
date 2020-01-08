@@ -21,10 +21,12 @@ use devices::virtio::{MmioDevice, BLOCK_EVENTS_COUNT, NET_EVENTS_COUNT, TYPE_BLO
 use logger::{Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use polly::event_manager::EventManager;
-use resources::VmResources;
 use utils::time::TimestampUs;
 use vmm_config;
 use vmm_config::boot_source::BootConfig;
+use vmm_config::drive::BlockDeviceConfigs;
+use vmm_config::net::NetworkInterfaceConfigs;
+use vmm_config::vsock::VsockDeviceConfig;
 use vstate::{self, KvmContext, Vcpu, VcpuConfig, Vm};
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
@@ -173,9 +175,12 @@ impl Display for StartMicrovmError {
     }
 }
 
-/// Builds and starts a microVM based on the current configuration.
+/// Builds and starts a microVM based on the current Firecracker VmResources configuration.
+///
+/// This is the default build recipe, one could build other microVM flavors by using the
+/// independent functions in this module instead of calling this recipe.
 pub fn build_microvm(
-    vm_resources: &VmResources,
+    vm_resources: &super::resources::VmResources,
     epoll_context: &mut EpollContext,
     seccomp_level: u32,
 ) -> std::result::Result<Vmm, StartMicrovmError> {
@@ -186,8 +191,10 @@ pub fn build_microvm(
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
 
-    let guest_memory = create_guest_memory(vm_resources)?;
-    let vcpu_config = vcpu_config(vm_resources);
+    let guest_memory = create_guest_memory(vm_resources.vm_config().mem_size_mib.ok_or(
+        StartMicrovmError::GuestMemory(memory_model::GuestMemoryError::MemoryNotInitialized),
+    )?)?;
+    let vcpu_config = vm_resources.vcpu_config();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -258,9 +265,11 @@ pub fn build_microvm(
         event_manager,
     };
 
-    attach_block_devices(&mut vmm, vm_resources, epoll_context)?;
-    attach_net_devices(&mut vmm, vm_resources, epoll_context)?;
-    attach_vsock_device(&mut vmm, vm_resources, epoll_context)?;
+    attach_block_devices(&mut vmm, &vm_resources.block, epoll_context)?;
+    attach_net_devices(&mut vmm, &vm_resources.network_interface, epoll_context)?;
+    if let Some(vsock) = vm_resources.vsock.as_ref() {
+        attach_vsock_device(&mut vmm, vsock, epoll_context)?;
+    }
 
     // Write the kernel command line to guest memory. This is x86_64 specific, since on
     // aarch64 the command line will be specified through the FDT.
@@ -279,29 +288,14 @@ pub fn build_microvm(
     Ok(vmm)
 }
 
-fn create_guest_memory(
-    vm_resources: &VmResources,
+/// Creates GuestMemory of `mem_size_mib` MiB in size.
+pub fn create_guest_memory(
+    mem_size_mib: usize,
 ) -> std::result::Result<GuestMemory, StartMicrovmError> {
-    let mem_size = vm_resources
-        .vm_config()
-        .mem_size_mib
-        .ok_or(StartMicrovmError::GuestMemory(
-            memory_model::GuestMemoryError::MemoryNotInitialized,
-        ))?
-        << 20;
+    let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
     Ok(GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?)
-}
-
-fn vcpu_config(vm_resources: &VmResources) -> VcpuConfig {
-    // The unwraps are ok to use because the values are initialized using defaults if not
-    // supplied by the user.
-    VcpuConfig {
-        vcpu_count: vm_resources.vm_config().vcpu_count.unwrap(),
-        ht_enabled: vm_resources.vm_config().ht_enabled.unwrap(),
-        cpu_template: vm_resources.vm_config().cpu_template,
-    }
 }
 
 fn load_kernel(
@@ -516,18 +510,18 @@ fn attach_mmio_device(
 
 fn attach_block_devices(
     vmm: &mut Vmm,
-    vm_resources: &VmResources,
+    blocks: &BlockDeviceConfigs,
     epoll_context: &mut EpollContext,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     // If no PARTUUID was specified for the root device, try with the /dev/vda.
-    if vm_resources.block.has_root_block_device() && !vm_resources.block.has_partuuid_root() {
+    if blocks.has_root_block_device() && !blocks.has_partuuid_root() {
         let kernel_cmdline = &mut vmm.kernel_cmdline;
 
         kernel_cmdline.insert_str("root=/dev/vda")?;
 
-        let flags = if vm_resources.block.has_read_only_root() {
+        let flags = if blocks.has_read_only_root() {
             "ro"
         } else {
             "rw"
@@ -536,7 +530,7 @@ fn attach_block_devices(
         kernel_cmdline.insert_str(flags)?;
     }
 
-    for drive_config in vm_resources.block.config_list.iter() {
+    for drive_config in blocks.config_list.iter() {
         // Add the block device from file.
         let block_file = OpenOptions::new()
             .read(true)
@@ -599,12 +593,12 @@ fn attach_block_devices(
 
 fn attach_net_devices(
     vmm: &mut Vmm,
-    vm_resources: &VmResources,
+    network_ifaces: &NetworkInterfaceConfigs,
     epoll_context: &mut EpollContext,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    for cfg in vm_resources.network_interface.iter() {
+    for cfg in network_ifaces.iter() {
         let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
             TYPE_NET,
             &cfg.iface_id,
@@ -654,37 +648,35 @@ fn attach_net_devices(
 
 fn attach_vsock_device(
     vmm: &mut Vmm,
-    vm_resources: &VmResources,
+    vsock: &VsockDeviceConfig,
     epoll_context: &mut EpollContext,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
-    if let Some(cfg) = vm_resources.vsock.as_ref() {
-        let backend = devices::virtio::vsock::VsockUnixBackend::new(
-            u64::from(cfg.guest_cid),
-            cfg.uds_path.clone(),
-        )
-        .map_err(CreateVsockBackend)?;
+    let backend = devices::virtio::vsock::VsockUnixBackend::new(
+        u64::from(vsock.guest_cid),
+        vsock.uds_path.clone(),
+    )
+    .map_err(CreateVsockBackend)?;
 
-        let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
-            TYPE_VSOCK,
-            &cfg.vsock_id,
-            VSOCK_EVENTS_COUNT,
-        );
+    let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
+        TYPE_VSOCK,
+        &vsock.vsock_id,
+        VSOCK_EVENTS_COUNT,
+    );
 
-        let vsock_box = Box::new(
-            devices::virtio::Vsock::new(u64::from(cfg.guest_cid), epoll_config, backend)
-                .map_err(CreateVsockDevice)?,
-        );
+    let vsock_box = Box::new(
+        devices::virtio::Vsock::new(u64::from(vsock.guest_cid), epoll_config, backend)
+            .map_err(CreateVsockDevice)?,
+    );
 
-        attach_mmio_device(
-            vmm,
-            cfg.vsock_id.clone(),
-            MmioDevice::new(vmm.guest_memory().clone(), vsock_box)
-                .map_err(device_manager::mmio::Error::CreateMmioDevice)
-                .map_err(RegisterVsockDevice)?,
-        )
-        .map_err(RegisterVsockDevice)?;
-    }
+    attach_mmio_device(
+        vmm,
+        vsock.vsock_id.clone(),
+        MmioDevice::new(vmm.guest_memory().clone(), vsock_box)
+            .map_err(device_manager::mmio::Error::CreateMmioDevice)
+            .map_err(RegisterVsockDevice)?,
+    )
+    .map_err(RegisterVsockDevice)?;
 
     Ok(())
 }
