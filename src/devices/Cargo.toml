@@ -11,7 +11,7 @@ libc = ">=0.2.39"
 
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }
-memory_model = { path = "../memory_model" }
+memory_model = { path = "../vm-memory" }
 utils = { path = "../utils" }
 net_gen = { path = "../net_gen" }
 rate_limiter = { path = "../rate_limiter" }
