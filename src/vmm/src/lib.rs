@@ -77,7 +77,7 @@ use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
-use seccomp::SeccompFilter;
+use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use utils::net::TapError;
 use utils::terminal::Terminal;
@@ -905,8 +905,8 @@ impl Vmm {
     fn start_vcpus(
         &mut self,
         mut vcpus: Vec<Vcpu>,
-        vmm_seccomp_filter: SeccompFilter,
-        vcpu_seccomp_filter: SeccompFilter,
+        vmm_seccomp_filter: BpfProgram,
+        vcpu_seccomp_filter: BpfProgram,
     ) -> std::result::Result<(), StartMicrovmError> {
         // vm_config has a default value for vcpu_count.
         let vcpu_count = self
@@ -938,9 +938,7 @@ impl Vmm {
         // Load seccomp filters for the VMM thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        vmm_seccomp_filter
-            .apply()
-            .map_err(StartMicrovmError::SeccompFilters)?;
+        SeccompFilter::apply(vmm_seccomp_filter).map_err(StartMicrovmError::SeccompFilters)?;
 
         // The vcpus start off in the `Paused` state, let them run.
         self.resume_vcpus()?;
@@ -1134,8 +1132,8 @@ impl Vmm {
     /// Set up the initial microVM state and start the vCPU threads.
     pub fn start_microvm(
         &mut self,
-        vmm_seccomp_filter: SeccompFilter,
-        vcpu_seccomp_filter: SeccompFilter,
+        vmm_seccomp_filter: BpfProgram,
+        vcpu_seccomp_filter: BpfProgram,
     ) -> UserResult {
         info!("VMM received instance start command");
         if self.is_instance_initialized() {

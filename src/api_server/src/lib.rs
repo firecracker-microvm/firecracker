@@ -29,7 +29,7 @@ pub use micro_http::{
 use mmds::data_store;
 use mmds::data_store::Mmds;
 use parsed_request::ParsedRequest;
-use seccomp::SeccompFilter;
+use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
@@ -160,7 +160,7 @@ impl ApiServer {
         path: PathBuf,
         start_time_us: Option<u64>,
         start_time_cpu_us: Option<u64>,
-        seccomp_filter: SeccompFilter,
+        seccomp_filter: BpfProgram,
     ) -> Result<()> {
         let mut server = HttpServer::new(path).expect("Error creating the HTTP server");
 
@@ -185,7 +185,7 @@ impl ApiServer {
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = seccomp_filter.apply() {
+        if let Err(e) = SeccompFilter::apply(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on the API thread: Error: {:?}",
                 e
@@ -645,7 +645,7 @@ mod tests {
                     PathBuf::from(path_to_socket.to_string()),
                     Some(1),
                     Some(1),
-                    SeccompFilter::empty(),
+                    SeccompFilter::empty().into_bpf().unwrap(),
                 )
                 .unwrap();
             })

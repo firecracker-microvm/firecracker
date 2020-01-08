@@ -28,7 +28,7 @@ use std::thread;
 use api_server::{ApiServer, Error, VmmRequest, VmmResponse};
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
-use seccomp::SeccompFilter;
+use seccomp::{BpfInstructionSlice, BpfProgram};
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
@@ -47,28 +47,12 @@ const SECCOMP_LEVEL_BASIC: u32 = 1;
 /// Seccomp filtering disabled.
 const SECCOMP_LEVEL_NONE: u32 = 0;
 
-/// Possible errors that could be encountered while processing seccomp levels from CLI
+/// Possible errors that could be encountered while processing seccomp levels from CLI.
 #[derive(Debug)]
 enum SeccompFilterError {
     Seccomp(seccomp::Error),
     Parse(std::num::ParseIntError),
     Level(String),
-}
-
-/// Parse seccomp level and generate a SeccompFilter based on it.
-fn get_seccomp_filter(val: &str) -> Result<SeccompFilter, SeccompFilterError> {
-    match val.parse::<u32>() {
-        Ok(SECCOMP_LEVEL_NONE) => Ok(SeccompFilter::empty()),
-        Ok(SECCOMP_LEVEL_BASIC) => Ok(default_filter()
-            .map_err(SeccompFilterError::Seccomp)?
-            .allow_all()),
-        Ok(SECCOMP_LEVEL_ADVANCED) => default_filter().map_err(SeccompFilterError::Seccomp),
-        Ok(level) => Err(SeccompFilterError::Level(format!(
-            "Invalid value for seccomp level: {}",
-            level
-        ))),
-        Err(err) => Err(SeccompFilterError::Parse(err)),
-    }
 }
 
 fn main() {
@@ -269,6 +253,25 @@ fn main() {
     );
 }
 
+/// Parse seccomp level and generate a BPF program based on it.
+fn get_seccomp_filter(val: &str) -> Result<BpfProgram, SeccompFilterError> {
+    match val.parse::<u32>() {
+        Ok(SECCOMP_LEVEL_NONE) => Ok(vec![]),
+        Ok(SECCOMP_LEVEL_BASIC) => default_filter()
+            .and_then(|filter| Ok(filter.allow_all()))
+            .and_then(|filter| filter.into_bpf())
+            .map_err(SeccompFilterError::Seccomp),
+        Ok(SECCOMP_LEVEL_ADVANCED) => default_filter()
+            .and_then(|filter| filter.into_bpf())
+            .map_err(SeccompFilterError::Seccomp),
+        Ok(level) => Err(SeccompFilterError::Level(format!(
+            "Invalid value for seccomp level: {}",
+            level
+        ))),
+        Err(err) => Err(SeccompFilterError::Parse(err)),
+    }
+}
+
 /// Creates and starts a vmm.
 ///
 /// # Arguments
@@ -285,7 +288,7 @@ fn start_vmm(
     api_event_fd: EventFd,
     from_api: Receiver<VmmRequest>,
     to_api: Sender<VmmResponse>,
-    seccomp_filter: SeccompFilter,
+    seccomp_filter: BpfProgram,
     config_json: Option<String>,
 ) {
     // If this fails, consider it fatal. Use expect().
@@ -329,8 +332,8 @@ fn start_vmm(
                         &api_event_fd,
                         &from_api,
                         &to_api,
-                        &vmm_seccomp_filter,
-                        &vcpu_seccomp_filter,
+                        &vmm_seccomp_filter[..],
+                        &vcpu_seccomp_filter[..],
                     ) {
                         break exit_code;
                     }
@@ -350,8 +353,8 @@ fn vmm_control_event(
     api_event_fd: &EventFd,
     from_api: &Receiver<VmmRequest>,
     to_api: &Sender<VmmResponse>,
-    vmm_seccomp_filter: &SeccompFilter,
-    vcpu_seccomp_filter: &SeccompFilter,
+    vmm_seccomp_filter: &BpfInstructionSlice,
+    vcpu_seccomp_filter: &BpfInstructionSlice,
 ) -> Result<(), u8> {
     api_event_fd.read().map_err(|e| {
         error!("VMM: Failed to read the API event_fd: {}", e);
@@ -386,7 +389,10 @@ fn vmm_control_event(
                     .rescan_block_device(&drive_id)
                     .map(|_| api_server::VmmData::Empty),
                 StartMicroVm => vmm
-                    .start_microvm(vmm_seccomp_filter.clone(), vcpu_seccomp_filter.clone())
+                    .start_microvm(
+                        vmm_seccomp_filter.to_owned(),
+                        vcpu_seccomp_filter.to_owned(),
+                    )
                     .map(|_| api_server::VmmData::Empty),
                 #[cfg(target_arch = "x86_64")]
                 SendCtrlAltDel => vmm.send_ctrl_alt_del().map(|_| api_server::VmmData::Empty),

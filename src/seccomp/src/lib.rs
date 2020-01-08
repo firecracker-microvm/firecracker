@@ -15,8 +15,6 @@
 //!    syscall's arguments. Arguments whose values do not match the filtering rule will cause the
 //!    syscall to be denied.
 //!
-//! The desired filtering level is passed to the [`apply`] function.
-//!
 //! ## Example with Filtering Disabled
 //!
 //! ```
@@ -70,8 +68,8 @@
 //!         .collect(),
 //!         SeccompAction::Trap,
 //!     )
-//!     .unwrap();
-//!     filter.apply().unwrap();
+//!     .unwrap().into_bpf().unwrap();
+//!     SeccompFilter::apply(filter).unwrap();
 //!     unsafe {
 //!         libc::syscall(
 //!             libc::SYS_write,
@@ -99,6 +97,8 @@
 //! A [`SeccompFilter`] applies only to advanced filtering and is composed of a set of
 //! [`SeccompRule`]s and a default [`SeccompAction`]. The default action will be taken for the
 //! syscalls that do not match any of the rules.
+//!
+//! The seccomp rules are compiled into a [`BpfProgram`] which is loaded in the kernel.
 //!
 //! ### Denying Syscalls
 //!
@@ -197,7 +197,7 @@
 //!         )
 //!         .unwrap();
 //!
-//!     filter.apply().unwrap();
+//!     SeccompFilter::apply(filter.into_bpf().unwrap()).unwrap();
 //!
 //!     unsafe {
 //!         libc::syscall(
@@ -234,6 +234,7 @@
 //! The exit code will be 159.
 //!
 //! [`apply`]: struct.SeccompFilter.html#apply
+//! [`BpfProgram`]: type.BpfProgram.html
 //! [`SeccompCondition`]: struct.SeccompCondition.html
 //! [`SeccompRule`]: struct.SeccompRule.html
 //! [`SeccompAction`]: enum.SeccompAction.html
@@ -455,8 +456,9 @@ pub struct SeccompFilter {
 // BPF instruction structure definition.
 // See /usr/include/linux/filter.h .
 #[repr(C)]
-#[derive(Debug, PartialEq)]
-struct sock_filter {
+#[derive(Clone, Debug, PartialEq)]
+#[doc(hidden)]
+pub struct sock_filter {
     pub code: ::std::os::raw::c_ushort,
     pub jt: ::std::os::raw::c_uchar,
     pub jf: ::std::os::raw::c_uchar,
@@ -470,6 +472,11 @@ struct sock_fprog {
     pub len: ::std::os::raw::c_ushort,
     pub filter: *const sock_filter,
 }
+
+/// Program made up of a sequence of BPF instructions.
+pub type BpfProgram = Vec<sock_filter>;
+/// Slice of BPF instructions.
+pub type BpfInstructionSlice = [sock_filter];
 
 impl SeccompCondition {
     /// Creates a new [`SeccompCondition`].
@@ -907,15 +914,16 @@ impl SeccompFilter {
     ///
     /// # Arguments
     ///
-    /// * `level` - Filtering level.
-    pub fn apply(self) -> Result<()> {
-        // This filter allows everything, there's no reason to compile and apply it.
-        if self.rules.is_empty() && self.default_action == SeccompAction::Allow {
+    /// * `filters` - BPF program containing the seccomp rules.
+    pub fn apply(filters: BpfProgram) -> Result<()> {
+        // If the program is empty, skip this step.
+        if filters.is_empty() {
             return Ok(());
         }
+
         let mut bpf_filter = Vec::new();
         bpf_filter.extend(VALIDATE_ARCHITECTURE());
-        bpf_filter.extend(self.into_bpf().map_err(|_| Error::Load(libc::EINVAL))?);
+        bpf_filter.extend(filters);
 
         unsafe {
             {
@@ -946,7 +954,12 @@ impl SeccompFilter {
     }
 
     /// Translates filter into BPF instructions.
-    fn into_bpf(self) -> Result<Vec<sock_filter>> {
+    pub fn into_bpf(self) -> Result<BpfProgram> {
+        // If no rules are set up, return an empty vector.
+        if self.rules.is_empty() {
+            return Ok(vec![]);
+        }
+
         // The called syscall number is loaded.
         let mut accumulator = Vec::with_capacity(1);
         let mut filter_len = 1;
@@ -1166,7 +1179,7 @@ mod tests {
         // the seccomp filter for the entire unit tests process.
         let errno = thread::spawn(move || {
             // Apply seccomp filter.
-            filter.apply().unwrap();
+            SeccompFilter::apply(filter.into_bpf().unwrap()).unwrap();
 
             // Call the validation fn.
             validation_fn();
@@ -1949,7 +1962,7 @@ mod tests {
     fn test_seccomp_empty() {
         let rc1 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
         assert_eq!(rc1, 0);
-        SeccompFilter::empty().apply().unwrap();
+        SeccompFilter::apply(SeccompFilter::empty().into_bpf().unwrap()).unwrap();
         let rc2 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
         assert_eq!(rc2, 0);
     }

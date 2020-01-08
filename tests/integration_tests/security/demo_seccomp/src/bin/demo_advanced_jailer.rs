@@ -6,6 +6,7 @@ extern crate seccomp;
 
 mod seccomp_rules;
 
+use std::convert::TryInto;
 use std::env::args;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
@@ -40,7 +41,7 @@ fn main() {
         .unwrap();
 
     // Loads filters.
-    filter.apply().unwrap();
+    SeccompFilter::apply(filter.try_into().unwrap()).unwrap();
 
     Command::new(exec_file)
         .stdin(Stdio::inherit())

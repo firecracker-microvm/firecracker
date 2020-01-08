@@ -168,7 +168,7 @@ mod tests {
             )
             .unwrap();
 
-            assert!(filter.apply().is_ok());
+            assert!(SeccompFilter::apply(filter.into_bpf().unwrap()).is_ok());
             assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
             // Call the blacklisted `SYS_mkdirat`.
