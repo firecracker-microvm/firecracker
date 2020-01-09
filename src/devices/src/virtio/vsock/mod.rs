@@ -121,7 +121,10 @@ pub enum VsockError {
     UnreadableDescriptor,
     /// Encountered an unexpected read-only virtio descriptor.
     UnwritableDescriptor,
+    /// EventFd error
+    EventFd(std::io::Error),
 }
+
 type Result<T> = std::result::Result<T, VsockError>;
 
 pub struct EpollConfig {

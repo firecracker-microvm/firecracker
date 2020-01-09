@@ -13,12 +13,14 @@ use std::os::unix::io::RawFd;
 use std::sync::mpsc;
 
 pub mod block;
+pub mod device;
 mod mmio;
 pub mod net;
 mod queue;
 pub mod vsock;
 
 pub use self::block::*;
+pub use self::device::*;
 pub use self::mmio::*;
 pub use self::net::*;
 pub use self::queue::*;

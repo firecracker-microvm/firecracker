@@ -227,5 +227,10 @@ pub fn run_with_api(
     // Update the api shared instance info.
     api_shared_info.write().unwrap().started = true;
 
-    api_handler.run_microvm(VmmController::new(epoll_context, event_manager, vm_resources, vmm));
+    api_handler.run_microvm(VmmController::new(
+        epoll_context,
+        event_manager,
+        vm_resources,
+        vmm,
+    ));
 }
