@@ -54,7 +54,7 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use arch::DeviceType;
@@ -65,7 +65,7 @@ use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio::EpollConfigConstructor;
-use devices::{BusDevice, DeviceEventT, EpollHandler, RawIOHandler};
+use devices::{BusDevice, DeviceEventT, EpollHandler};
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::error::LoggerError;
 use logger::{Metric, LOGGER, METRICS};
@@ -110,8 +110,6 @@ pub enum EventLoopExitReason {
 pub enum EpollDispatch {
     /// This dispatch type is now obsolete.
     Exit,
-    /// Stdin event.
-    Stdin,
     /// Cascaded polly event.
     PollyEvent,
     /// Event has to be dispatch to an EpollHandler.
@@ -139,7 +137,6 @@ impl MaybeHandler {
 // and duping of file descriptors. This issue will be solved when we also implement device removal.
 pub struct EpollContext {
     epoll_raw_fd: RawFd,
-    stdin_index: u64,
     // FIXME: find a different design as this does not scale. This Vec can only grow.
     dispatch_table: Vec<Option<EpollDispatch>>,
     device_handlers: Vec<MaybeHandler>,
@@ -161,16 +158,13 @@ impl EpollContext {
 
         // Initial capacity needs to be large enough to hold:
         // * 1 exit event
-        // * 1 stdin event
         // * 2 queue events for virtio block
         // * 4 for virtio net
         // The total is 8 elements; allowing spare capacity to avoid reallocations.
         let mut dispatch_table = Vec::with_capacity(20);
-        let stdin_index = dispatch_table.len() as u64;
         dispatch_table.push(None);
         Ok(EpollContext {
             epoll_raw_fd,
-            stdin_index,
             dispatch_table,
             device_handlers: Vec::with_capacity(6),
             device_id_to_handler_id: HashMap::new(),
@@ -178,40 +172,6 @@ impl EpollContext {
             num_events: 0,
             event_index: 0,
         })
-    }
-
-    /// Registers an EPOLLIN event associated with the stdin file descriptor.
-    pub fn enable_stdin_event(&mut self) {
-        if let Err(e) = epoll::ctl(
-            self.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            libc::STDIN_FILENO,
-            epoll::Event::new(epoll::Events::EPOLLIN, self.stdin_index),
-        ) {
-            // TODO: We just log this message, and immediately return Ok, instead of returning the
-            // actual error because this operation always fails with EPERM when adding a fd which
-            // has been redirected to /dev/null via dup2 (this may happen inside the jailer).
-            // Find a better solution to this (and think about the state of the serial device
-            // while we're at it). This also led to commenting out parts of the
-            // enable_disable_stdin_test() unit test function.
-            warn!("Could not add stdin event to epoll. {}", e);
-        } else {
-            self.dispatch_table[self.stdin_index as usize] = Some(EpollDispatch::Stdin);
-        }
-    }
-
-    /// Removes the stdin event from the event set.
-    pub fn disable_stdin_event(&mut self) {
-        // Ignore failure to remove from epoll. The only reason for failure is
-        // that stdin has closed or changed in which case we won't get
-        // any more events on the original event_fd anyway.
-        let _ = epoll::ctl(
-            self.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_DEL,
-            libc::STDIN_FILENO,
-            epoll::Event::new(epoll::Events::EPOLLIN, self.stdin_index),
-        );
-        self.dispatch_table[self.stdin_index as usize] = None;
     }
 
     /// Given a file descriptor `fd`, and an EpollDispatch token `token`,
@@ -487,17 +447,6 @@ impl Vmm {
         self.mmio_device_manager.get_device(device_type, device_id)
     }
 
-    #[cfg(target_arch = "x86_64")]
-    fn get_serial_device(&self) -> Option<Arc<Mutex<dyn RawIOHandler>>> {
-        Some(self.pio_device_manager.stdio_serial.clone())
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    fn get_serial_device(&self) -> Option<&Arc<Mutex<dyn RawIOHandler>>> {
-        self.mmio_device_manager
-            .get_raw_io_device(DeviceType::Serial)
-    }
-
     #[cfg(target_arch = "aarch64")]
     fn get_mmio_device_info(&self) -> Option<&HashMap<(DeviceType, String), MMIODeviceInfo>> {
         Some(self.mmio_device_manager.get_device_info())
@@ -587,12 +536,6 @@ impl Vmm {
         self.configure_stdin()
     }
 
-    fn register_events(&mut self, epoll_context: &mut EpollContext) -> Result<()> {
-        epoll_context.add_epollin_event(&self.exit_evt, EpollDispatch::Exit)?;
-        epoll_context.enable_stdin_event();
-        Ok(())
-    }
-
     fn configure_stdin(&self) -> Result<()> {
         // Set raw mode for stdin.
         self.stdin_handle
@@ -639,23 +582,6 @@ impl Vmm {
         }
     }
 
-    fn handle_stdin_event(&self, buffer: &[u8]) -> Result<()> {
-        match self.get_serial_device() {
-            Some(serial) => {
-                // Use expect() to panic if another thread panicked
-                // while holding the lock.
-                serial
-                    .lock()
-                    .expect("Failed to process stdin event due to poisoned lock")
-                    .raw_input(buffer)
-                    .map_err(Error::Serial)?;
-            }
-            None => warn!("Unable to handle stdin event: no serial device available"),
-        }
-
-        Ok(())
-    }
-
     /// Wait on VMM events and dispatch them to the appropriate handler. Returns to the caller
     /// when a control action occurs.
     pub fn run_event_loop(
@@ -692,23 +618,6 @@ impl Vmm {
                         .unwrap_or(FC_EXIT_CODE_OK);
 
                     self.stop(i32::from(exit_code));
-                }
-                Some(EpollDispatch::Stdin) => {
-                    let mut out = [0u8; 64];
-                    let stdin_lock = self.stdin_handle.lock();
-                    match stdin_lock.read_raw(&mut out[..]) {
-                        Ok(0) => {
-                            // Zero-length read indicates EOF. Remove from pollables.
-                            epoll_context.disable_stdin_event();
-                        }
-                        Err(e) => {
-                            warn!("error while reading stdin: {:?}", e);
-                            epoll_context.disable_stdin_event();
-                        }
-                        Ok(count) => {
-                            self.handle_stdin_event(&out[..count])?;
-                        }
-                    }
                 }
                 Some(EpollDispatch::DeviceHandler(device_idx, device_token)) => {
                     METRICS.vmm.device_events.inc();

@@ -276,25 +276,19 @@ impl MMIODeviceManager {
         &mut self,
         vm: &VmFd,
         cmdline: &mut kernel_cmdline::Cmdline,
+        serial: Arc<Mutex<devices::legacy::Serial>>,
     ) -> Result<()> {
         if self.irq > self.last_irq {
             return Err(Error::IrqsExhausted);
         }
 
-        let com_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-        let device = devices::legacy::Serial::new_out(
-            com_evt.try_clone().map_err(Error::EventFd)?,
-            Box::new(io::stdout()),
-        );
-
-        let bus_device = Arc::new(Mutex::new(device));
-        let raw_io_device = bus_device.clone();
-
-        vm.register_irqfd(&com_evt, self.irq)
+        vm.register_irqfd(&serial.lock().unwrap().interrupt_evt(), self.irq)
             .map_err(Error::RegisterIrqFd)?;
 
+        let raw_io_device = serial.clone();
+
         self.bus
-            .insert(bus_device, self.mmio_base, MMIO_LEN)
+            .insert(serial, self.mmio_base, MMIO_LEN)
             .map_err(|err| Error::BusError(err))?;
 
         // Register the RawIOHandler trait.
