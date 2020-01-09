@@ -7,8 +7,11 @@
 
 use std::collections::VecDeque;
 use std::io;
+use std::os::unix::io::AsRawFd;
 
 use logger::{Metric, METRICS};
+use polly::event_manager::EventHandler;
+use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
 use utils::eventfd::EventFd;
 
 use crate::bus::{BusDevice, RawIOHandler};
@@ -51,6 +54,12 @@ const DEFAULT_MODEM_CONTROL: u8 = 0x8; // Auxiliary output 2
 const DEFAULT_MODEM_STATUS: u8 = 0x20 | 0x10 | 0x80; // data ready, clear to send, carrier detect
 const DEFAULT_BAUD_DIVISOR: u16 = 12; // 9600 bps
 
+// Cannot use multiple types as bounds for a trait object, so we define our own trait
+// which is a composition of the desired bounds. In this case, io::Read and AsRawFd.
+// Run `rustc --explain E0225` for more details.
+/// Trait that composes the `std::io::Read` and `std::os::unix::io::AsRawFd` traits.
+pub trait ReadableFd: io::Read + AsRawFd {}
+
 /// Emulates serial COM ports commonly seen on x86 I/O ports 0x3f8/0x2f8/0x3e8/0x2e8.
 ///
 /// This can optionally write the guest's output to a Write trait object. To send input to the
@@ -67,10 +76,15 @@ pub struct Serial {
     baud_divisor: u16,
     in_buffer: VecDeque<u8>,
     out: Option<Box<dyn io::Write + Send>>,
+    input: Option<Box<dyn ReadableFd + Send>>,
 }
 
 impl Serial {
-    fn new(interrupt_evt: EventFd, out: Option<Box<dyn io::Write + Send>>) -> Serial {
+    fn new(
+        interrupt_evt: EventFd,
+        out: Option<Box<dyn io::Write + Send>>,
+        input: Option<Box<dyn ReadableFd + Send>>,
+    ) -> Serial {
         Serial {
             interrupt_enable: 0,
             interrupt_identification: DEFAULT_INTERRUPT_IDENTIFICATION,
@@ -83,17 +97,32 @@ impl Serial {
             baud_divisor: DEFAULT_BAUD_DIVISOR,
             in_buffer: VecDeque::new(),
             out,
+            input,
         }
     }
 
-    /// Constructs a Serial port ready for output.
-    pub fn new_out(interrupt_evt: EventFd, out: Box<dyn io::Write + Send>) -> Serial {
-        Self::new(interrupt_evt, Some(out))
+    /// Constructs a Serial port ready for input and output.
+    pub fn new_in_out(
+        interrupt_evt: EventFd,
+        input: Box<dyn ReadableFd + Send>,
+        out: Box<dyn io::Write + Send>,
+    ) -> Serial {
+        Self::new(interrupt_evt, Some(out), Some(input))
     }
 
-    /// Constructs a Serial port with no connected output.
+    /// Constructs a Serial port ready for output but with no input.
+    pub fn new_out(interrupt_evt: EventFd, out: Box<dyn io::Write + Send>) -> Serial {
+        Self::new(interrupt_evt, Some(out), None)
+    }
+
+    /// Constructs a Serial port with no connected input or output.
     pub fn new_sink(interrupt_evt: EventFd) -> Serial {
-        Self::new(interrupt_evt, None)
+        Self::new(interrupt_evt, None, None)
+    }
+
+    /// Provides a reference to the interrupt event fd.
+    pub fn interrupt_evt(&self) -> &EventFd {
+        &self.interrupt_evt
     }
 
     fn is_dlab_set(&self) -> bool {
@@ -241,6 +270,39 @@ impl BusDevice for Serial {
             error!("Failed the write to serial: {}", e);
             METRICS.uart.error_count.inc();
         }
+    }
+}
+
+impl EventHandler for Serial {
+    /// Handle a read event (EPOLLIN) on the serial input fd.
+    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+        if let Some(input) = self.input.as_mut() {
+            if input.as_raw_fd() == source {
+                let mut out = [0u8; 32];
+                match input.read(&mut out[..]) {
+                    Ok(count) => {
+                        self.raw_input(&out[..count])
+                            .unwrap_or_else(|e| warn!("Serial error on input: {}", e));
+                    }
+                    Err(e) => {
+                        warn!("error while reading stdin: {:?}", e);
+                    }
+                }
+                return vec![];
+            }
+        }
+        error!("Spurious Serial input event!");
+        vec![]
+    }
+
+    /// Initial registration of pollable objects.
+    /// If serial input is present, register the serial input FD as readable.
+    fn init(&self) -> Vec<PollableOp> {
+        self.input.as_ref().map_or(vec![], |input| {
+            vec![PollableOpBuilder::new(input.as_raw_fd())
+                .readable()
+                .register()]
+        })
     }
 }
 

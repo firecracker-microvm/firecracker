@@ -12,6 +12,6 @@ logger = { path = "../logger" }
 vm-memory = { path = "../vm-memory" }
 utils = { path = "../utils" }
 net_gen = { path = "../net_gen" }
+polly = { path = "../polly" }
 rate_limiter = { path = "../rate_limiter" }
 virtio_gen = { path = "../virtio_gen" }
-polly = { path = "../polly" }
