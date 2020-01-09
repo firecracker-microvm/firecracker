@@ -1,4 +1,4 @@
-// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
 // Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
@@ -8,95 +8,38 @@
 use std::cmp;
 use std::convert::From;
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
-use std::os::unix::io::AsRawFd;
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use logger::{Metric, METRICS};
-use memory_model::{DataInit, GuestAddress, GuestMemory, GuestMemoryError};
+use memory_model::GuestMemory;
 use rate_limiter::{RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
 
-use polly::event_manager::EventHandler;
-use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
-
 use super::{
-    ActivateError, ActivateResult, DescriptorChain, Queue, VirtioDevice, TYPE_BLOCK,
-    VIRTIO_MMIO_INT_VRING,
+    super::{
+        ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
+    },
+    request::*,
+    Error, CONFIG_SPACE_SIZE, NUM_QUEUES, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
 };
+
 use crate::Error as DeviceError;
 
-const CONFIG_SPACE_SIZE: usize = 8;
-const SECTOR_SHIFT: u8 = 9;
-pub const SECTOR_SIZE: u64 = (0x01 as u64) << SECTOR_SHIFT;
-const QUEUE_SIZE: u16 = 256;
-const NUM_QUEUES: usize = 1;
-const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE];
-
-#[derive(Debug)]
-enum Error {
-    /// Guest gave us bad memory addresses.
-    GuestMemory(GuestMemoryError),
-    /// Guest gave us a write only descriptor that protocol says to read from.
-    UnexpectedWriteOnlyDescriptor,
-    /// Guest gave us a read only descriptor that protocol says to write to.
-    UnexpectedReadOnlyDescriptor,
-    /// Guest gave us too few descriptors in a descriptor chain.
-    DescriptorChainTooShort,
-    /// Guest gave us a descriptor that was too short to use.
-    DescriptorLengthTooSmall,
-    /// Getting a block's metadata fails for any reason.
-    GetFileMetadata,
-    /// The requested operation would cause a seek beyond disk end.
-    InvalidOffset,
-}
-
-#[derive(Debug)]
-enum ExecuteError {
-    BadRequest(Error),
-    Flush(io::Error),
-    Read(GuestMemoryError),
-    Seek(io::Error),
-    Write(GuestMemoryError),
-    Unsupported(u32),
-}
-
-impl ExecuteError {
-    fn status(&self) -> u32 {
-        match *self {
-            ExecuteError::BadRequest(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
-        }
+pub fn build_config_space(disk_size: u64) -> Vec<u8> {
+    // We only support disk size, which uses the first two words of the configuration space.
+    // If the image is not a multiple of the sector size, the tail bits are not exposed.
+    // The config space is little endian.
+    let mut config = Vec::with_capacity(CONFIG_SPACE_SIZE);
+    let num_sectors = disk_size >> SECTOR_SHIFT;
+    for i in 0..8 {
+        config.push((num_sectors >> (8 * i)) as u8);
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum RequestType {
-    In,
-    Out,
-    Flush,
-    GetDeviceID,
-    Unsupported(u32),
-}
-
-impl From<u32> for RequestType {
-    fn from(value: u32) -> Self {
-        match value {
-            VIRTIO_BLK_T_IN => RequestType::In,
-            VIRTIO_BLK_T_OUT => RequestType::Out,
-            VIRTIO_BLK_T_FLUSH => RequestType::Flush,
-            VIRTIO_BLK_T_GET_ID => RequestType::GetDeviceID,
-            t => RequestType::Unsupported(t),
-        }
-    }
+    config
 }
 
 fn build_device_id(disk_image: &File) -> result::Result<String, Error> {
@@ -132,168 +75,6 @@ fn build_disk_image_id(disk_image: &File) -> Vec<u8> {
     default_disk_image_id
 }
 
-struct Request {
-    request_type: RequestType,
-    sector: u64,
-    data_addr: GuestAddress,
-    data_len: u32,
-    status_addr: GuestAddress,
-}
-
-/// The request header represents the mandatory fields of each block device request.
-///
-/// A request header contains the following fields:
-///   * request_type: an u32 value mapping to a read, write or flush operation.
-///   * reserved: 32 bits are reserved for future extensions of the Virtio Spec.
-///   * sector: an u64 value representing the offset where a read/write is to occur.
-///
-/// The header simplifies reading the request from memory as all request follow
-/// the same memory layout.
-#[derive(Copy, Clone)]
-#[repr(C)]
-struct RequestHeader {
-    request_type: u32,
-    _reserved: u32,
-    sector: u64,
-}
-
-// Safe because RequestHeader only contains plain data.
-unsafe impl DataInit for RequestHeader {}
-
-impl RequestHeader {
-    /// Reads the request header from GuestMemory starting at `addr`.
-    ///
-    /// Virtio 1.0 specifies that the data is transmitted by the driver in little-endian
-    /// format. Firecracker currently runs only on little endian platforms so we don't
-    /// need to do an explicit little endian read as all reads are little endian by default.
-    /// When running on a big endian platform, this code should not compile, and support
-    /// for explicit little endian reads is required.
-    #[cfg(target_endian = "little")]
-    fn read_from(memory: &GuestMemory, addr: GuestAddress) -> result::Result<Self, Error> {
-        let request_header: RequestHeader = memory
-            .read_obj_from_addr(addr)
-            .map_err(Error::GuestMemory)?;
-        Ok(request_header)
-    }
-}
-
-impl Request {
-    fn parse(avail_desc: &DescriptorChain, mem: &GuestMemory) -> result::Result<Request, Error> {
-        // The head contains the request type which MUST be readable.
-        if avail_desc.is_write_only() {
-            return Err(Error::UnexpectedWriteOnlyDescriptor);
-        }
-
-        let request_header = RequestHeader::read_from(mem, avail_desc.addr)?;
-        let mut req = Request {
-            request_type: RequestType::from(request_header.request_type),
-            sector: request_header.sector,
-            data_addr: GuestAddress(0),
-            data_len: 0,
-            status_addr: GuestAddress(0),
-        };
-
-        let data_desc;
-        let status_desc;
-        let desc = avail_desc
-            .next_descriptor()
-            .ok_or(Error::DescriptorChainTooShort)?;
-
-        if !desc.has_next() {
-            status_desc = desc;
-            // Only flush requests are allowed to skip the data descriptor.
-            if req.request_type != RequestType::Flush {
-                return Err(Error::DescriptorChainTooShort);
-            }
-        } else {
-            data_desc = desc;
-            status_desc = data_desc
-                .next_descriptor()
-                .ok_or(Error::DescriptorChainTooShort)?;
-
-            if data_desc.is_write_only() && req.request_type == RequestType::Out {
-                return Err(Error::UnexpectedWriteOnlyDescriptor);
-            }
-            if !data_desc.is_write_only() && req.request_type == RequestType::In {
-                return Err(Error::UnexpectedReadOnlyDescriptor);
-            }
-            if !data_desc.is_write_only() && req.request_type == RequestType::GetDeviceID {
-                return Err(Error::UnexpectedReadOnlyDescriptor);
-            }
-
-            req.data_addr = data_desc.addr;
-            req.data_len = data_desc.len;
-        }
-
-        // The status MUST always be writable.
-        if !status_desc.is_write_only() {
-            return Err(Error::UnexpectedReadOnlyDescriptor);
-        }
-
-        if status_desc.len < 1 {
-            return Err(Error::DescriptorLengthTooSmall);
-        }
-
-        req.status_addr = status_desc.addr;
-
-        Ok(req)
-    }
-
-    fn execute<T: Seek + Read + Write>(
-        &self,
-        disk: &mut T,
-        disk_nsectors: u64,
-        mem: &GuestMemory,
-        disk_id: &[u8],
-    ) -> result::Result<u32, ExecuteError> {
-        let mut top: u64 = u64::from(self.data_len) / SECTOR_SIZE;
-        if u64::from(self.data_len) % SECTOR_SIZE != 0 {
-            top += 1;
-        }
-        top = top
-            .checked_add(self.sector)
-            .ok_or(ExecuteError::BadRequest(Error::InvalidOffset))?;
-        if top > disk_nsectors {
-            return Err(ExecuteError::BadRequest(Error::InvalidOffset));
-        }
-
-        disk.seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
-            .map_err(ExecuteError::Seek)?;
-
-        match self.request_type {
-            RequestType::In => {
-                mem.read_to_memory(self.data_addr, disk, self.data_len as usize)
-                    .map_err(ExecuteError::Read)?;
-                METRICS.block.read_bytes.add(self.data_len as usize);
-                METRICS.block.read_count.inc();
-                return Ok(self.data_len);
-            }
-            RequestType::Out => {
-                mem.write_from_memory(self.data_addr, disk, self.data_len as usize)
-                    .map_err(ExecuteError::Write)?;
-                METRICS.block.write_bytes.add(self.data_len as usize);
-                METRICS.block.write_count.inc();
-            }
-            RequestType::Flush => match disk.flush() {
-                Ok(_) => {
-                    METRICS.block.flush_count.inc();
-                    return Ok(0);
-                }
-                Err(e) => return Err(ExecuteError::Flush(e)),
-            },
-            RequestType::GetDeviceID => {
-                if (self.data_len as usize) < disk_id.len() {
-                    return Err(ExecuteError::BadRequest(Error::InvalidOffset));
-                }
-                mem.write_slice_at_addr(disk_id, self.data_addr)
-                    .map_err(ExecuteError::Write)?;
-            }
-            RequestType::Unsupported(t) => return Err(ExecuteError::Unsupported(t)),
-        };
-        Ok(0)
-    }
-}
-
 /// Virtio device for exposing block level read/write operations on a host file.
 pub struct Block {
     disk_image: File,
@@ -301,25 +82,13 @@ pub struct Block {
     avail_features: u64,
     acked_features: u64,
     config_space: Vec<u8>,
-    rate_limiter: RateLimiter,
+    pub(crate) rate_limiter: RateLimiter,
     disk_image_id: Vec<u8>,
     mem: GuestMemory,
     queues: Vec<Queue>,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
-    queue_evt: EventFd,
-}
-
-pub fn build_config_space(disk_size: u64) -> Vec<u8> {
-    // We only support disk size, which uses the first two words of the configuration space.
-    // If the image is not a multiple of the sector size, the tail bits are not exposed.
-    // The config space is little endian.
-    let mut config = Vec::with_capacity(CONFIG_SPACE_SIZE);
-    let num_sectors = disk_size >> SECTOR_SHIFT;
-    for i in 0..8 {
-        config.push((num_sectors >> (8 * i)) as u8);
-    }
-    config
+    pub(crate) queue_evt: EventFd,
 }
 
 impl Block {
@@ -353,7 +122,7 @@ impl Block {
 
         Ok(Block {
             disk_image_id: build_disk_image_id(&disk_image),
-            disk_image: disk_image,
+            disk_image,
             disk_nsectors: disk_size / SECTOR_SIZE,
             avail_features,
             acked_features: 0u64,
@@ -367,7 +136,26 @@ impl Block {
         })
     }
 
-    fn process_queue(&mut self, queue_index: usize) -> bool {
+    pub(crate) fn process_queue_event(&mut self) {
+        METRICS.block.queue_event_count.inc();
+        if let Err(e) = self.queue_evt.read() {
+            error!("Failed to get queue event: {:?}", e);
+            METRICS.block.event_fails.inc();
+        } else if !self.rate_limiter.is_blocked() && self.process_queue(0) {
+            let _ = self.signal_used_queue();
+        }
+    }
+
+    pub(crate) fn process_rate_limiter_event(&mut self) {
+        METRICS.block.rate_limiter_event_count.inc();
+        // Upon rate limiter event, call the rate limiter handler
+        // and restart processing the queue.
+        if self.rate_limiter.event_handler().is_ok() && self.process_queue(0) {
+            let _ = self.signal_used_queue();
+        }
+    }
+
+    pub(crate) fn process_queue(&mut self, queue_index: usize) -> bool {
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
         while let Some(head) = queue.pop(&self.mem) {
@@ -436,7 +224,7 @@ impl Block {
         used_any
     }
 
-    fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
+    pub(crate) fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
         self.interrupt_status
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
 
@@ -539,42 +327,6 @@ impl VirtioDevice for Block {
         }
 
         Ok(())
-    }
-}
-
-impl EventHandler for Block {
-    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
-        let queue_fd = self.queue_evt.as_raw_fd();
-        let rate_limiter_fd = self.rate_limiter.as_raw_fd();
-        if source.as_raw_fd() == queue_fd {
-            METRICS.block.queue_event_count.inc();
-            if let Err(e) = self.queue_evt.read() {
-                error!("Failed to get queue event: {:?}", e);
-                METRICS.block.event_fails.inc();
-            } else if !self.rate_limiter.is_blocked() && self.process_queue(0) {
-                let _ = self.signal_used_queue();
-            }
-        } else if source.as_raw_fd() == rate_limiter_fd {
-            METRICS.block.rate_limiter_event_count.inc();
-            // Upon rate limiter event, call the rate limiter handler
-            // and restart processing the queue.
-            if self.rate_limiter.event_handler().is_ok() && self.process_queue(0) {
-                let _ = self.signal_used_queue();
-            }
-        }
-
-        vec![]
-    }
-
-    fn init(&self) -> Vec<PollableOp> {
-        vec![
-            PollableOpBuilder::new(Pollable::from(&self.rate_limiter))
-                .readable()
-                .register(),
-            PollableOpBuilder::new(Pollable::from(&self.queue_evt))
-                .readable()
-                .register(),
-        ]
     }
 }
 
