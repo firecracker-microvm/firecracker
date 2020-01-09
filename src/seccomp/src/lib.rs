@@ -49,6 +49,7 @@
 //! extern crate libc;
 //! extern crate seccomp;
 //!
+//! use std::convert::TryInto;
 //! use seccomp::*;
 //!
 //! fn main() {
@@ -68,7 +69,7 @@
 //!         .collect(),
 //!         SeccompAction::Trap,
 //!     )
-//!     .unwrap().into_bpf().unwrap();
+//!     .unwrap().try_into().unwrap();
 //!     SeccompFilter::apply(filter).unwrap();
 //!     unsafe {
 //!         libc::syscall(
@@ -121,6 +122,7 @@
 //! extern crate seccomp;
 //!
 //! use seccomp::*;
+//! use std::convert::TryInto;
 //! use std::mem;
 //! use std::process::exit;
 //!
@@ -197,7 +199,7 @@
 //!         )
 //!         .unwrap();
 //!
-//!     SeccompFilter::apply(filter.into_bpf().unwrap()).unwrap();
+//!     SeccompFilter::apply(filter.try_into().unwrap()).unwrap();
 //!
 //!     unsafe {
 //!         libc::syscall(
@@ -244,6 +246,7 @@
 extern crate libc;
 
 use std::collections::BTreeMap;
+use std::convert::TryInto;
 use std::fmt::{Display, Formatter};
 
 /// Maximum number of instructions that a BPF program can have.
@@ -778,48 +781,6 @@ impl SeccompRule {
         Self { conditions, action }
     }
 
-    /// Translates a rule into BPF statements.
-    ///
-    /// Each rule starts with 2 jump statements:
-    /// * The first jump enters the rule, attempting a match.
-    /// * The second jump points to the end of the rule chain for one syscall, into the rule chain
-    ///   for the next syscall or the default action if the current syscall is the last one. It
-    ///   essentially jumps out of the current rule chain.
-    fn into_bpf(self) -> Vec<sock_filter> {
-        // Rule is built backwards, last statement is the action of the rule.
-        // The offset to the next rule is 1.
-        let mut accumulator = Vec::with_capacity(
-            self.conditions.len()
-                + ((self.conditions.len() * CONDITION_MAX_LEN as usize) / ::std::u8::MAX as usize)
-                + 1,
-        );
-        let mut rule_len = 1;
-        let mut offset = 1;
-        accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, u32::from(self.action))]);
-
-        // Conditions are translated into BPF statements and prepended to the rule.
-        self.conditions.into_iter().for_each(|condition| {
-            SeccompRule::append_condition(condition, &mut accumulator, &mut rule_len, &mut offset)
-        });
-
-        // The two initial jump statements are prepended to the rule.
-        let rule_jumps = vec![
-            BPF_STMT(BPF_JMP + BPF_JA, 1),
-            BPF_STMT(BPF_JMP + BPF_JA, u32::from(offset) + 1),
-        ];
-        rule_len += rule_jumps.len();
-        accumulator.push(rule_jumps);
-
-        // Finally, builds the translated rule by consuming the accumulator.
-        let mut result = Vec::with_capacity(rule_len);
-        accumulator
-            .into_iter()
-            .rev()
-            .for_each(|mut instructions| result.append(&mut instructions));
-
-        result
-    }
-
     /// Appends a condition of the rule to an accumulator.
     ///
     /// The length of the rule and offset to the next rule are updated.
@@ -863,6 +824,50 @@ impl SeccompRule {
         *rule_len += condition.len();
         *offset += condition.len() as u8;
         accumulator.push(condition);
+    }
+}
+
+impl Into<BpfProgram> for SeccompRule {
+    /// Translates a rule into BPF statements.
+    ///
+    /// Each rule starts with 2 jump statements:
+    /// * The first jump enters the rule, attempting a match.
+    /// * The second jump points to the end of the rule chain for one syscall, into the rule chain
+    ///   for the next syscall or the default action if the current syscall is the last one. It
+    ///   essentially jumps out of the current rule chain.
+    fn into(self) -> BpfProgram {
+        // Rule is built backwards, last statement is the action of the rule.
+        // The offset to the next rule is 1.
+        let mut accumulator = Vec::with_capacity(
+            self.conditions.len()
+                + ((self.conditions.len() * CONDITION_MAX_LEN as usize) / ::std::u8::MAX as usize)
+                + 1,
+        );
+        let mut rule_len = 1;
+        let mut offset = 1;
+        accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, u32::from(self.action))]);
+
+        // Conditions are translated into BPF statements and prepended to the rule.
+        self.conditions.into_iter().for_each(|condition| {
+            SeccompRule::append_condition(condition, &mut accumulator, &mut rule_len, &mut offset)
+        });
+
+        // The two initial jump statements are prepended to the rule.
+        let rule_jumps = vec![
+            BPF_STMT(BPF_JMP + BPF_JA, 1),
+            BPF_STMT(BPF_JMP + BPF_JA, u32::from(offset) + 1),
+        ];
+        rule_len += rule_jumps.len();
+        accumulator.push(rule_jumps);
+
+        // Finally, builds the translated rule by consuming the accumulator.
+        let mut result = Vec::with_capacity(rule_len);
+        accumulator
+            .into_iter()
+            .rev()
+            .for_each(|mut instructions| result.append(&mut instructions));
+
+        result
     }
 }
 
@@ -953,47 +958,6 @@ impl SeccompFilter {
         Ok(())
     }
 
-    /// Translates filter into BPF instructions.
-    pub fn into_bpf(self) -> Result<BpfProgram> {
-        // If no rules are set up, return an empty vector.
-        if self.rules.is_empty() {
-            return Ok(vec![]);
-        }
-
-        // The called syscall number is loaded.
-        let mut accumulator = Vec::with_capacity(1);
-        let mut filter_len = 1;
-        accumulator.push(EXAMINE_SYSCALL());
-
-        // Orders syscalls by priority, the highest number represents the highest priority.
-        let mut iter = self.rules.into_iter();
-
-        // For each syscall adds its rule chain to the filter.
-        let default_action = u32::from(self.default_action);
-        iter.try_for_each(|(syscall_number, chain)| {
-            SeccompFilter::append_syscall_chain(
-                syscall_number,
-                chain,
-                default_action,
-                &mut accumulator,
-                &mut filter_len,
-            )
-        })?;
-
-        // The default action is once again appended, it is reached if all syscall number
-        // comparisons fail.
-        filter_len += 1;
-        accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, default_action)]);
-
-        // Finally, builds the translated filter by consuming the accumulator.
-        let mut result = Vec::with_capacity(filter_len);
-        accumulator
-            .into_iter()
-            .for_each(|mut instructions| result.append(&mut instructions));
-
-        Ok(result)
-    }
-
     /// Appends a chain of rules to an accumulator, updating the length of the filter.
     ///
     /// # Arguments
@@ -1012,7 +976,7 @@ impl SeccompFilter {
         filter_len: &mut usize,
     ) -> Result<()> {
         // The rules of the chain are translated into BPF statements.
-        let chain: Vec<_> = chain.into_iter().map(SeccompRule::into_bpf).collect();
+        let chain: Vec<_> = chain.into_iter().map(SeccompRule::into).collect();
         let chain_len: usize = chain.iter().map(std::vec::Vec::len).sum();
 
         // The chain starts with a comparison checking the loaded syscall number against the
@@ -1065,6 +1029,49 @@ impl SeccompFilter {
             rules: BTreeMap::new(),
             default_action: SeccompAction::Allow,
         }
+    }
+}
+
+impl TryInto<BpfProgram> for SeccompFilter {
+    type Error = Error;
+    fn try_into(self) -> Result<BpfProgram> {
+        // If no rules are set up, return an empty vector.
+        if self.rules.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // The called syscall number is loaded.
+        let mut accumulator = Vec::with_capacity(1);
+        let mut filter_len = 1;
+        accumulator.push(EXAMINE_SYSCALL());
+
+        // Orders syscalls by priority, the highest number represents the highest priority.
+        let mut iter = self.rules.into_iter();
+
+        // For each syscall adds its rule chain to the filter.
+        let default_action = u32::from(self.default_action);
+        iter.try_for_each(|(syscall_number, chain)| {
+            SeccompFilter::append_syscall_chain(
+                syscall_number,
+                chain,
+                default_action,
+                &mut accumulator,
+                &mut filter_len,
+            )
+        })?;
+
+        // The default action is once again appended, it is reached if all syscall number
+        // comparisons fail.
+        filter_len += 1;
+        accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, default_action)]);
+
+        // Finally, builds the translated filter by consuming the accumulator.
+        let mut result = Vec::with_capacity(filter_len);
+        accumulator
+            .into_iter()
+            .for_each(|mut instructions| result.append(&mut instructions));
+
+        Ok(result)
     }
 }
 
@@ -1179,7 +1186,7 @@ mod tests {
         // the seccomp filter for the entire unit tests process.
         let errno = thread::spawn(move || {
             // Apply seccomp filter.
-            SeccompFilter::apply(filter.into_bpf().unwrap()).unwrap();
+            SeccompFilter::apply(filter.try_into().unwrap()).unwrap();
 
             // Call the validation fn.
             validation_fn();
@@ -1647,7 +1654,8 @@ mod tests {
         ];
 
         // Compares translated rule with hardcoded BPF instructions.
-        assert_eq!(rule.into_bpf(), instructions);
+        let bpfprog: BpfProgram = rule.into();
+        assert_eq!(bpfprog, instructions);
     }
 
     // Checks that rule with too many conditions gets translated correctly into BPF statements
@@ -1701,7 +1709,8 @@ mod tests {
         instructions.push(BPF_STMT(0x06, 0x7fff_0000));
 
         // Compares translated rule with hardcoded BPF instructions.
-        assert_eq!(rule.into_bpf(), instructions);
+        let bpfprog: BpfProgram = rule.into();
+        assert_eq!(bpfprog, instructions);
     }
 
     fn create_test_bpf_filter(arg_len: ArgLen) -> SeccompFilter {
@@ -1790,7 +1799,8 @@ mod tests {
             BPF_STMT(0x06, 0x0003_0000),
         ];
 
-        assert_eq!(filter.into_bpf().unwrap(), instructions);
+        let bpfprog: BpfProgram = filter.try_into().unwrap();
+        assert_eq!(bpfprog, instructions);
     }
 
     #[test]
@@ -1855,7 +1865,8 @@ mod tests {
             BPF_STMT(0x06, 0x0003_0000),
         ];
 
-        assert_eq!(filter.into_bpf().unwrap(), instructions);
+        let bpfprog: BpfProgram = filter.try_into().unwrap();
+        assert_eq!(bpfprog, instructions);
     }
 
     #[test]
@@ -1962,7 +1973,7 @@ mod tests {
     fn test_seccomp_empty() {
         let rc1 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
         assert_eq!(rc1, 0);
-        SeccompFilter::apply(SeccompFilter::empty().into_bpf().unwrap()).unwrap();
+        SeccompFilter::apply(SeccompFilter::empty().try_into().unwrap()).unwrap();
         let rc2 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
         assert_eq!(rc2, 0);
     }

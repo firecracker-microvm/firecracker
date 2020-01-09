@@ -331,6 +331,7 @@ impl ApiServer {
 mod tests {
     use super::*;
 
+    use std::convert::TryInto;
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
     use std::sync::mpsc::channel;
@@ -645,7 +646,7 @@ mod tests {
                     PathBuf::from(path_to_socket.to_string()),
                     Some(1),
                     Some(1),
-                    SeccompFilter::empty().into_bpf().unwrap(),
+                    SeccompFilter::empty().try_into().unwrap(),
                 )
                 .unwrap();
             })

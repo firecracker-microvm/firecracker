@@ -863,6 +863,7 @@ enum VcpuEmulation {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryInto;
     use std::fs::File;
     use std::path::PathBuf;
     use std::sync::{mpsc, Arc, Barrier};
@@ -1210,7 +1211,7 @@ mod tests {
         vcpu.configure_x86_64(&vm_config, vm_mem, entry_addr)
             .expect("failed to configure vcpu");
 
-        let seccomp_filter = seccomp::SeccompFilter::empty().into_bpf().unwrap();
+        let seccomp_filter = seccomp::SeccompFilter::empty().try_into().unwrap();
         let vcpu_handle = vcpu
             .start_threaded(seccomp_filter)
             .expect("failed to start vcpu");

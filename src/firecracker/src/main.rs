@@ -16,6 +16,7 @@ extern crate vmm;
 use backtrace::Backtrace;
 use clap::{App, Arg};
 
+use std::convert::TryInto;
 use std::fs;
 use std::io;
 use std::panic;
@@ -259,10 +260,10 @@ fn get_seccomp_filter(val: &str) -> Result<BpfProgram, SeccompFilterError> {
         Ok(SECCOMP_LEVEL_NONE) => Ok(vec![]),
         Ok(SECCOMP_LEVEL_BASIC) => default_filter()
             .and_then(|filter| Ok(filter.allow_all()))
-            .and_then(|filter| filter.into_bpf())
+            .and_then(|filter| filter.try_into())
             .map_err(SeccompFilterError::Seccomp),
         Ok(SECCOMP_LEVEL_ADVANCED) => default_filter()
-            .and_then(|filter| filter.into_bpf())
+            .and_then(|filter| filter.try_into())
             .map_err(SeccompFilterError::Seccomp),
         Ok(level) => Err(SeccompFilterError::Level(format!(
             "Invalid value for seccomp level: {}",
