@@ -5,6 +5,8 @@
 
 use std::fmt::{Display, Formatter};
 use std::fs::OpenOptions;
+use std::io;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
 use super::{EpollContext, Vmm};
@@ -14,10 +16,12 @@ use device_manager;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
+use devices::legacy::Serial;
 use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
 use devices::virtio::{MmioTransport, NET_EVENTS_COUNT, TYPE_NET};
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use polly::event_manager::{Error as EventManagerError, EventManager};
+use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
 use vmm_config;
 use vmm_config::boot_source::BootConfig;
@@ -31,11 +35,11 @@ use vstate::{KvmContext, Vcpu, VcpuConfig, Vm};
 pub enum StartMicrovmError {
     /// Unable to seek the block device backing file due to invalid permissions or
     /// the file was deleted/corrupted.
-    CreateBlockDevice(std::io::Error),
+    CreateBlockDevice(io::Error),
     /// Internal errors are due to resource exhaustion.
     CreateNetDevice(devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
-    CreateRateLimiter(std::io::Error),
+    CreateRateLimiter(io::Error),
     /// Failed to create the backend for the vsock device.
     CreateVsockBackend(devices::virtio::vsock::VsockUnixBackendError),
     /// Failed to create the vsock device.
@@ -57,7 +61,7 @@ pub enum StartMicrovmError {
     /// The net device configuration is missing the tap device.
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file.
-    OpenBlockDevice(std::io::Error),
+    OpenBlockDevice(io::Error),
     /// Cannot initialize a MMIO Block Device or add a device to the MMIO Bus.
     RegisterBlockDevice(device_manager::mmio::Error),
     /// Cannot register an EventHandler.
@@ -192,6 +196,34 @@ pub fn build_microvm(
     let mut kernel_cmdline = boot_config.cmdline.clone();
     let mut vm = setup_kvm_vm(&guest_memory)?;
 
+    // On x86_64 always create a serial device,
+    // while on aarch64 only create it if 'console=' is specified in the boot args.
+    let serial_device = if cfg!(target_arch = "x86_64")
+        || (cfg!(target_arch = "aarch64") && kernel_cmdline.as_str().contains("console="))
+    {
+        // Wrapper over io::Stdin that implements `ReadableFd`.
+        struct SerialStdin(io::Stdin);
+        impl io::Read for SerialStdin {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                self.0.read(buf)
+            }
+        }
+        impl AsRawFd for SerialStdin {
+            fn as_raw_fd(&self) -> RawFd {
+                self.0.as_raw_fd()
+            }
+        }
+        impl devices::legacy::ReadableFd for SerialStdin {};
+        let stdin_handle = SerialStdin(io::stdin());
+        Some(setup_serial_device(
+            event_manager,
+            Box::new(stdin_handle),
+            Box::new(io::stdout()),
+        )?)
+    } else {
+        None
+    };
+
     // Instantiate the MMIO device manager.
     // 'mmio_base' address has to be an address which is protected by the kernel
     // and is architectural specific.
@@ -202,7 +234,8 @@ pub fn build_microvm(
     );
 
     #[cfg(target_arch = "x86_64")]
-    let mut pio_device_manager = PortIODeviceManager::new()
+    // Safe to unwrap 'serial_device' as it's always 'Some' on x86_64.
+    let mut pio_device_manager = PortIODeviceManager::new(serial_device.unwrap())
         .map_err(Error::CreateLegacyDevice)
         .map_err(StartMicrovmError::Internal)?;
 
@@ -235,11 +268,16 @@ pub fn build_microvm(
             .map_err(StartMicrovmError::Internal)?;
 
         setup_interrupt_controller(&mut vm, vcpu_config.vcpu_count)?;
-        attach_legacy_devices(&vm, &mut mmio_device_manager, &mut kernel_cmdline)?;
+        attach_legacy_devices(
+            &vm,
+            &mut mmio_device_manager,
+            &mut kernel_cmdline,
+            serial_device,
+        )?;
     }
 
     let mut vmm = Vmm {
-        stdin_handle: std::io::stdin(),
+        stdin_handle: io::stdin(),
         guest_memory,
         kernel_cmdline,
         vcpus_handles: Vec::new(),
@@ -325,23 +363,49 @@ pub(crate) fn setup_kvm_vm(
     Ok(vm)
 }
 
+/// Sets up the irqchip for a x86_64 microVM.
 #[cfg(target_arch = "x86_64")]
-pub(crate) fn setup_interrupt_controller(
-    vm: &mut Vm,
-) -> std::result::Result<(), StartMicrovmError> {
+pub fn setup_interrupt_controller(vm: &mut Vm) -> std::result::Result<(), StartMicrovmError> {
     vm.setup_irqchip()
         .map_err(Error::Vm)
         .map_err(StartMicrovmError::Internal)
 }
 
+/// Sets up the irqchip for a aarch64 microVM.
 #[cfg(target_arch = "aarch64")]
-pub(crate) fn setup_interrupt_controller(
+pub fn setup_interrupt_controller(
     vm: &mut Vm,
     vcpu_count: u8,
 ) -> std::result::Result<(), StartMicrovmError> {
     vm.setup_irqchip(vcpu_count)
         .map_err(Error::Vm)
         .map_err(StartMicrovmError::Internal)
+}
+
+/// Sets up the serial device.
+pub fn setup_serial_device(
+    event_manager: &mut EventManager,
+    input: Box<dyn devices::legacy::ReadableFd + Send>,
+    out: Box<dyn io::Write + Send>,
+) -> std::result::Result<Arc<Mutex<Serial>>, StartMicrovmError> {
+    let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK)
+        .map_err(Error::EventFd)
+        .map_err(StartMicrovmError::Internal)?;
+    let serial = Arc::new(Mutex::new(devices::legacy::Serial::new_in_out(
+        interrupt_evt,
+        input,
+        out,
+    )));
+    if let Err(e) = event_manager.register_protected(serial.clone()) {
+        // TODO: We just log this message, and immediately return Ok, instead of returning the
+        // actual error because this operation always fails with EPERM when adding a fd which
+        // has been redirected to /dev/null via dup2 (this may happen inside the jailer).
+        // Find a better solution to this (and think about the state of the serial device
+        // while we're at it). This also led to commenting out parts of the
+        // enable_disable_stdin_test() unit test function.
+        warn!("Could not add serial input event to epoll: {:?}", e);
+    }
+    Ok(serial)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -360,7 +424,7 @@ fn attach_legacy_devices(
                 .register_irqfd(&pio_device_manager.$evt, $index)
                 .map_err(|e| {
                     Error::LegacyIOBus(device_manager::legacy::Error::EventFd(
-                        std::io::Error::from_raw_os_error(e.errno()),
+                        io::Error::from_raw_os_error(e.errno()),
                     ))
                 })
                 .map_err(StartMicrovmError::Internal)?;
@@ -378,10 +442,11 @@ fn attach_legacy_devices(
     vm: &Vm,
     mmio_device_manager: &mut MMIODeviceManager,
     kernel_cmdline: &mut kernel::cmdline::Cmdline,
+    serial: Option<Arc<Mutex<Serial>>>,
 ) -> std::result::Result<(), StartMicrovmError> {
-    if kernel_cmdline.as_str().contains("console=") {
+    if let Some(serial) = serial {
         mmio_device_manager
-            .register_mmio_serial(vm.fd(), kernel_cmdline)
+            .register_mmio_serial(vm.fd(), kernel_cmdline, serial)
             .map_err(Error::RegisterMMIODevice)
             .map_err(StartMicrovmError::Internal)?;
     }
