@@ -838,7 +838,7 @@ mod tests {}
     use std::sync::atomic::AtomicUsize;
 
     use arch::DeviceType;
-    use devices::virtio::{ActivateResult, MmioDevice, Queue};
+    use devices::virtio::{ActivateResult, MmioTransport, Queue};
     use dumbo::MacAddr;
     use vmm_config::drive::DriveError;
     use vmm_config::machine_config::CpuFeaturesTemplate;
@@ -1142,9 +1142,9 @@ mod tests {}
                 .get_device(DeviceType::Virtio(TYPE_NET), "1")
                 .unwrap();
             let bus_device = &mut *bus_device_mutex.lock().unwrap();
-            let mmio_device: &mut MmioDevice = bus_device
+            let mmio_device: &mut MmioTransport = bus_device
                 .as_mut_any()
-                .downcast_mut::<MmioDevice>()
+                .downcast_mut::<MmioTransport>()
                 .unwrap();
 
             assert!(mmio_device

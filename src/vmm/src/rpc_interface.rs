@@ -106,12 +106,14 @@ impl Display for VmmActionError {
                 Logger(err) => err.to_string(),
                 MachineConfig(err) => err.to_string(),
                 NetworkConfig(err) => err.to_string(),
-                OperationNotSupportedPostBoot =>
+                OperationNotSupportedPostBoot => {
                     "The requested operation is not supported after starting the microVM."
-                        .to_string(),
-                OperationNotSupportedPreBoot =>
+                        .to_string()
+                }
+                OperationNotSupportedPreBoot => {
                     "The requested operation is not supported before starting the microVM."
-                        .to_string(),
+                        .to_string()
+                }
                 StartMicrovm(err) => err.to_string(),
                 VsockConfig(err) => err.to_string(),
             }
@@ -152,7 +154,7 @@ impl<'a> PrebootApiController<'a> {
             firecracker_version,
             vm_resources,
             epoll_context,
-            event_manager
+            event_manager,
         }
     }
 
