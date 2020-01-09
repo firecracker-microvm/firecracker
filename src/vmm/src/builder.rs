@@ -20,7 +20,7 @@ use device_manager;
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
-use devices::virtio::{MmioDevice, NET_EVENTS_COUNT, TYPE_NET};
+use devices::virtio::{MmioTransport, NET_EVENTS_COUNT, TYPE_NET};
 use logger::{Metric, LOGGER, METRICS};
 use polly::event_manager::{Error as EventManagerError, EventManager};
 use seccomp::BpfProgramRef;
@@ -586,14 +586,12 @@ fn create_vcpus_aarch64(
     Ok(vcpus)
 }
 
-/// Adds a MmioDevice.
+/// Adds a MmioTransport.
 fn attach_mmio_device(
     vmm: &mut Vmm,
     id: String,
-    device: MmioDevice,
+    device: MmioTransport,
 ) -> std::result::Result<(), device_manager::mmio::Error> {
-    // TODO: we currently map into StartMicrovmError::RegisterBlockDevice for all
-    // devices at the end of device_manager.register_mmio_device.
     let type_id = device
         .device()
         .lock()
@@ -616,7 +614,7 @@ fn attach_mmio_device(
 fn attach_block_device(
     vmm: &mut Vmm,
     id: String,
-    transport_device: MmioDevice,
+    transport_device: MmioTransport,
     block_device: Arc<Mutex<devices::virtio::Block>>,
 ) -> std::result::Result<(), StartMicrovmError> {
     let cmdline = &mut vmm.kernel_cmdline;
@@ -688,11 +686,10 @@ fn attach_block_devices(
             .transpose()
             .map_err(CreateRateLimiter)?;
 
-        error!("Registering");
-
         let block_device = event_manager
             .register(
                 devices::virtio::Block::new(
+                    vmm.guest_memory.clone(),
                     block_file,
                     drive_config.is_read_only,
                     rate_limiter.unwrap_or_default(),
@@ -701,11 +698,10 @@ fn attach_block_devices(
             )
             .map_err(StartMicrovmError::RegisterEvent)?;
 
-        error!("Attaching");
         attach_block_device(
             vmm,
             drive_config.drive_id.clone(),
-            MmioDevice::new(vmm.guest_memory().clone(), block_device.clone())
+            MmioTransport::new(vmm.guest_memory().clone(), block_device.clone())
                 .map_err(CreateBlockDevice)?,
             block_device,
         )?;
@@ -759,7 +755,7 @@ fn attach_net_devices(
         attach_mmio_device(
             vmm,
             cfg.iface_id.clone(),
-            MmioDevice::new(vmm.guest_memory().clone(), net_box)
+            MmioTransport::new(vmm.guest_memory().clone(), net_box)
                 .map_err(device_manager::mmio::Error::CreateMmioDevice)
                 .map_err(RegisterNetDevice)?,
         )
@@ -795,7 +791,7 @@ fn attach_vsock_device(
     attach_mmio_device(
         vmm,
         vsock.vsock_id.clone(),
-        MmioDevice::new(vmm.guest_memory().clone(), vsock_box)
+        MmioTransport::new(vmm.guest_memory().clone(), vsock_box)
             .map_err(device_manager::mmio::Error::CreateMmioDevice)
             .map_err(RegisterVsockDevice)?,
     )

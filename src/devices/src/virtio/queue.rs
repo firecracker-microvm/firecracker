@@ -352,7 +352,7 @@ impl Queue {
     fn avail_idx(&self, mem: &GuestMemoryMmap) -> Wrapping<u16> {
         // Bound checks for queue inner data have already been performed, at device activation time,
         // via `self.is_valid()`, so it's safe to unwrap and use unchecked offsets here.
-        // Note: the `MmioDevice` code ensures that queue addresses cannot be changed by the guest
+        // Note: the `MmioTransport` code ensures that queue addresses cannot be changed by the guest
         //       after device activation, so we can be certain that no change has occured since
         //       the last `self.is_valid()` check.
         let addr = self.avail_ring.unchecked_add(2);
