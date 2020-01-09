@@ -105,6 +105,7 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
 mod tests {
     use super::*;
     use seccomp::SeccompFilter;
+    use std::convert::TryInto;
     use std::thread;
 
     const EXTRA_SYSCALLS: [i64; 5] = [
@@ -127,7 +128,7 @@ mod tests {
                 )
                 .is_ok());
         }
-        assert!(SeccompFilter::apply(filter.into_bpf().unwrap()).is_ok());
+        assert!(SeccompFilter::apply(filter.try_into().unwrap()).is_ok());
     }
 
     #[test]
