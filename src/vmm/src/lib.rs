@@ -43,6 +43,7 @@ pub mod vmm_config;
 mod vstate;
 
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::{Read, Seek, SeekFrom};
@@ -532,7 +533,7 @@ impl Vmm {
             );
             let rate_limiter = drive_config
                 .rate_limiter
-                .map(vmm_config::RateLimiterConfig::into_rate_limiter)
+                .map(vmm_config::RateLimiterConfig::try_into)
                 .transpose()
                 .map_err(CreateRateLimiter)?;
 
@@ -580,13 +581,13 @@ impl Vmm {
 
             let rx_rate_limiter = cfg
                 .rx_rate_limiter
-                .map(vmm_config::RateLimiterConfig::into_rate_limiter)
+                .map(vmm_config::RateLimiterConfig::try_into)
                 .transpose()
                 .map_err(CreateRateLimiter)?;
 
             let tx_rate_limiter = cfg
                 .tx_rate_limiter
-                .map(vmm_config::RateLimiterConfig::into_rate_limiter)
+                .map(vmm_config::RateLimiterConfig::try_into)
                 .transpose()
                 .map_err(CreateRateLimiter)?;
 
@@ -1501,10 +1502,7 @@ impl Vmm {
                 ($rate_limiter: ident, $metric: ident) => {{
                     new_cfg
                         .$rate_limiter
-                        .map(|rl| {
-                            rl.$metric
-                                .map(vmm_config::TokenBucketConfig::into_token_bucket)
-                        })
+                        .map(|rl| rl.$metric.map(vmm_config::TokenBucketConfig::into))
                         .unwrap_or(None)
                 }};
             }

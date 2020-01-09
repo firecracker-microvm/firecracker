@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use rate_limiter::{RateLimiter, TokenBucket};
+use std::convert::TryInto;
 use std::io;
 
 /// Wrapper for configuring the microVM boot source.
@@ -42,13 +43,8 @@ pub struct TokenBucketConfig {
     pub refill_time: u64,
 }
 
-impl TokenBucketConfig {
-    /// Convert the stateless `self` into a live `TokenBucket` object.
-    pub fn into_token_bucket(self) -> TokenBucket {
-        // This would look nicer if we were to implement `Into<TokenBucket>` (or, more generally,
-        // `Into<LiveCounterpart>`), but some constructors may fail, and until `TryInto` makes into
-        // the stable channel, we'll settle for the unenforceable convention of implementing
-        // an `into_<live_counterpart>()` member for these stateless structures.
+impl Into<TokenBucket> for TokenBucketConfig {
+    fn into(self) -> TokenBucket {
         TokenBucket::new(self.size, self.one_time_burst, self.refill_time)
     }
 }
@@ -65,8 +61,21 @@ pub struct RateLimiterConfig {
 }
 
 impl RateLimiterConfig {
-    /// Convert the stateless `self` into a live `RateLimiter` object.
-    pub fn into_rate_limiter(self) -> Result<RateLimiter, io::Error> {
+    /// Updates the configuration, merging in new options from `new_config`.
+    pub fn update(&mut self, new_config: &RateLimiterConfig) {
+        if new_config.bandwidth.is_some() {
+            self.bandwidth = new_config.bandwidth;
+        }
+        if new_config.ops.is_some() {
+            self.ops = new_config.ops;
+        }
+    }
+}
+
+impl TryInto<RateLimiter> for RateLimiterConfig {
+    type Error = io::Error;
+
+    fn try_into(self) -> Result<RateLimiter, Self::Error> {
         let bw = self.bandwidth.unwrap_or_default();
         let ops = self.ops.unwrap_or_default();
         RateLimiter::new(
@@ -77,15 +86,6 @@ impl RateLimiterConfig {
             ops.one_time_burst,
             ops.refill_time,
         )
-    }
-    /// Updates the configuration, merging in new options from `new_config`.
-    pub fn update(&mut self, new_config: &RateLimiterConfig) {
-        if new_config.bandwidth.is_some() {
-            self.bandwidth = new_config.bandwidth;
-        }
-        if new_config.ops.is_some() {
-            self.ops = new_config.ops;
-        }
     }
 }
 
@@ -99,12 +99,12 @@ mod tests {
         const ONE_TIME_BURST: u64 = 1024;
         const REFILL_TIME: u64 = 1000;
 
-        let b = TokenBucketConfig {
+        let b: TokenBucket = TokenBucketConfig {
             size: SIZE,
             one_time_burst: Some(ONE_TIME_BURST),
             refill_time: REFILL_TIME,
         }
-        .into_token_bucket();
+        .into();
         assert_eq!(b.capacity(), SIZE);
         assert_eq!(b.one_time_burst(), ONE_TIME_BURST);
         assert_eq!(b.refill_time_ms(), REFILL_TIME);
@@ -121,7 +121,7 @@ mod tests {
                 refill_time: REFILL_TIME * 2,
             }),
         };
-        let rl = rlconf.into_rate_limiter().unwrap();
+        let rl: RateLimiter = rlconf.try_into().unwrap();
         assert_eq!(rl.bandwidth().unwrap().capacity(), SIZE);
         assert_eq!(rl.bandwidth().unwrap().one_time_burst(), ONE_TIME_BURST);
         assert_eq!(rl.bandwidth().unwrap().refill_time_ms(), REFILL_TIME);
