@@ -92,14 +92,6 @@ impl VmmController {
                 .and_then(|mut f| f.seek(SeekFrom::End(0)))
                 .map_err(|_| DriveError::BlockDeviceUpdateFailed)
                 .map_err(VmmActionError::DriveConfig)?;
-            if new_size % virtio::block::SECTOR_SIZE != 0 {
-                warn!(
-                    "Disk size {} is not a multiple of sector size {}; \
-                     the remainder will not be visible to the guest.",
-                    new_size,
-                    virtio::block::SECTOR_SIZE
-                );
-            }
 
             return match self
                 .vmm

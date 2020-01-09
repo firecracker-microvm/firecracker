@@ -13,8 +13,13 @@ use std::{fmt, io};
 use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
 use devices;
+
+// Temporarly we have this hard coupling here until we refactor all devices and
+// have a single path of registering devices. Right now we have 2, one using
+// epoll_context and another using EventManager.
 use devices::virtio::block::Block;
 use devices::virtio::TYPE_BLOCK;
+
 use devices::{BusDevice, RawIOHandler};
 use kernel::cmdline as kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
