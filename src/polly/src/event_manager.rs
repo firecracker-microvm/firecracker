@@ -185,7 +185,6 @@ impl EventManager {
 
     /// Update an event handler pollables and event sets.
     /// Use the PollableOpBuilder to build the vector of PollableOps.
-    ///
     pub fn update(
         &mut self,
         wrapped_handler: WrappedHandler,
@@ -206,14 +205,21 @@ impl EventManager {
     /// Register a new event handler.
     /// handler.init() will specify the pollable and event set.
     ///
+    /// Returns the handler wrapped in an Arc<Mutex>.
     pub fn register<T: EventHandler + 'static>(&mut self, handler: T) -> Result<Arc<Mutex<T>>> {
-        let pollable_ops = handler.init();
-        let wrapped_type = Arc::new(Mutex::new(handler));
-        let wrapped_handler: Arc<Mutex<dyn EventHandler>> = wrapped_type.clone();
+        let wrapped_handler = Arc::new(Mutex::new(handler));
+        self.register_protected(wrapped_handler.clone())?;
+        Ok(wrapped_handler)
+    }
 
-        self.update(wrapped_handler, pollable_ops)?;
-
-        Ok(wrapped_type)
+    /// Register an event handler object already wrapped in an Arc<Mutex>.
+    pub fn register_protected<T: EventHandler + 'static>(
+        &mut self,
+        handler: Arc<Mutex<T>>,
+    ) -> Result<()> {
+        let pollable_ops = handler.lock().unwrap().init();
+        self.update(handler, pollable_ops)?;
+        Ok(())
     }
 
     fn update_event(&mut self, event: EventRegistrationData) -> Result<()> {
@@ -234,7 +240,6 @@ impl EventManager {
     }
 
     /// Unregister the event handler for the specified pollable.
-    ///
     pub fn unregister(&mut self, pollable: Pollable) -> Result<()> {
         match self.handlers.remove(&pollable) {
             Some(_) => {
