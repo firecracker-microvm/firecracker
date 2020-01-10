@@ -478,7 +478,7 @@ fn create_vcpus_aarch64(
     Ok(vcpus)
 }
 
-/// Adds a MmioTransport.
+/// Attaches an MmioTransport device to the device manager.
 fn attach_mmio_device(
     vmm: &mut Vmm,
     id: String,
@@ -502,6 +502,8 @@ fn attach_mmio_device(
     Ok(())
 }
 
+/// Secondary path for attaching devices to the Bus and EventManager.
+/// TODO: Remove this and have a single generic path for all devices.
 /// Adds a virtio device to the MmioDeviceManager using the specified transport.
 fn attach_block_device(
     vmm: &mut Vmm,
