@@ -81,18 +81,25 @@ fn build_disk_image_id(disk_image: &File) -> Vec<u8> {
 
 /// Virtio device for exposing block level read/write operations on a host file.
 pub struct Block {
+    // Host file and properties.
     disk_image: File,
     disk_nsectors: u64,
+    disk_image_id: Vec<u8>,
+
+    // Virtio fields.
     avail_features: u64,
     acked_features: u64,
     config_space: Vec<u8>,
-    pub(crate) rate_limiter: RateLimiter,
-    disk_image_id: Vec<u8>,
-    mem: GuestMemoryMmap,
+
+    // Transport related fields.
     queues: Vec<Queue>,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
     pub(crate) queue_evt: EventFd,
+    mem: GuestMemoryMmap,
+
+    // Implementation specific fields.
+    pub(crate) rate_limiter: RateLimiter,
 }
 
 impl Block {
@@ -254,17 +261,12 @@ impl VirtioDevice for Block {
         &mut self.queues
     }
 
-    fn get_queue_events(&self) -> Vec<EventFd> {
-        vec![self
-            .queue_evt
-            .try_clone()
-            .expect("Unable to clone queue event fd.")]
+    fn get_queue_events(&self) -> Result<Vec<EventFd>, std::io::Error> {
+        Ok(vec![self.queue_evt.try_clone()?])
     }
 
-    fn get_interrupt(&self) -> EventFd {
-        self.interrupt_evt
-            .try_clone()
-            .expect("Failed to clone event fd")
+    fn get_interrupt(&self) -> Result<EventFd, std::io::Error> {
+        Ok(self.interrupt_evt.try_clone()?)
     }
 
     /// Returns the current device interrupt status.

@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use utils::byte_order;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
@@ -60,7 +60,7 @@ impl MmioTransport {
     ) -> std::io::Result<MmioTransport> {
         let interrupt_status = device
             .lock()
-            .expect("Posioned device lock")
+            .expect("Poisoned device lock")
             .get_interrupt_status();
 
         Ok(MmioTransport {
@@ -76,6 +76,10 @@ impl MmioTransport {
         })
     }
 
+    pub fn locked_device(&self) -> MutexGuard<dyn VirtioDevice + 'static> {
+        self.device.lock().expect("Poisoned device lock")
+    }
+
     // Gets the encapsulated VirtioDevice.
     pub fn device(&self) -> Arc<Mutex<dyn VirtioDevice>> {
         self.device.clone()
@@ -86,9 +90,7 @@ impl MmioTransport {
     }
 
     fn are_queues_valid(&self) -> bool {
-        self.device
-            .lock()
-            .expect("Poisoned device lock")
+        self.locked_device()
             .get_queues()
             .iter()
             .all(|q| q.is_valid(&self.mem))
@@ -99,9 +101,7 @@ impl MmioTransport {
         F: FnOnce(&Queue) -> U,
     {
         match self
-            .device
-            .lock()
-            .expect("Poisoned device lock")
+            .locked_device()
             .get_queues()
             .get(self.queue_select as usize)
         {
@@ -112,9 +112,7 @@ impl MmioTransport {
 
     fn with_queue_mut<F: FnOnce(&mut Queue)>(&mut self, f: F) -> bool {
         if let Some(queue) = self
-            .device
-            .lock()
-            .expect("Poisoned device lock")
+            .locked_device()
             .get_queues()
             .get_mut(self.queue_select as usize)
         {
@@ -153,13 +151,7 @@ impl MmioTransport {
         //   notifications in those eventfds, but nothing will happen other
         //   than supurious wakeups.
         // . Do not reset config_generation and keep it monotonically increasing
-        for queue in self
-            .device
-            .lock()
-            .expect("Poisoned device lock")
-            .get_queues()
-            .as_mut_slice()
-        {
+        for queue in self.locked_device().get_queues().as_mut_slice() {
             *queue = Queue::new(queue.get_max_size());
         }
     }
@@ -171,6 +163,7 @@ impl MmioTransport {
     /// of the driver initialization sequence specified in 3.1. The driver MUST NOT clear
     /// a device status bit. If the driver sets the FAILED bit, the driver MUST later reset
     /// the device before attempting to re-initialize.
+    #[allow(unused_assignments)]
     fn set_device_status(&mut self, status: u32) {
         use device_status::*;
         // match changed bits
@@ -189,9 +182,7 @@ impl MmioTransport {
                 // If the driver incorrectly sets up the queues, the following
                 // check will fail and take the device into an unusable state.
                 if !self.device_activated && self.are_queues_valid() {
-                    self.device
-                        .lock()
-                        .expect("Poisoned device lock")
+                    self.locked_device()
                         .activate(self.mem.clone())
                         .expect("Failed to activate device");
 
@@ -204,20 +195,28 @@ impl MmioTransport {
             }
             _ if status == 0 => {
                 if self.device_activated {
-                    let mut device = self.device.lock().expect("Poisoned device lock");
-                    match device.reset() {
+                    let mut device_activated = true;
+                    let mut device_status = self.device_status;
+                    let reset_result = self.locked_device().reset();
+                    match reset_result {
                         Some((_interrupt_evt, mut _queue_evts)) => {
-                            self.device_activated = false;
+                            device_activated = false;
                         }
-                        // Backend device driver doesn't support reset,
-                        // just mark the device as FAILED.
+
                         None => {
-                            self.device_status |= FAILED;
-                            return;
+                            device_status |= FAILED;
                         }
                     }
+
+                    self.device_activated = device_activated;
+                    self.device_status = device_status;
                 }
-                self.reset();
+
+                // If the backend device driver doesn't support reset,
+                // just leave the device marked as FAILED.
+                if self.device_status & FAILED == 0 {
+                    self.reset();
+                }
             }
             _ => {
                 warn!(
@@ -236,17 +235,11 @@ impl BusDevice for MmioTransport {
                 let v = match offset {
                     0x0 => MMIO_MAGIC_VALUE,
                     0x04 => MMIO_VERSION,
-                    0x08 => self
-                        .device
-                        .lock()
-                        .expect("Poisoned device lock")
-                        .device_type(),
+                    0x08 => self.locked_device().device_type(),
                     0x0c => VENDOR_ID, // vendor id
                     0x10 => {
                         let mut features = self
-                            .device
-                            .lock()
-                            .expect("Poisoned device lock")
+                            .locked_device()
                             .avail_features_by_page(self.features_select);
                         if self.features_select == 1 {
                             features |= 0x1; // enable support of VirtIO Version 1
@@ -265,11 +258,7 @@ impl BusDevice for MmioTransport {
                 };
                 byte_order::write_le_u32(data, v);
             }
-            0x100..=0xfff => self
-                .device
-                .lock()
-                .expect("Poisoned device lock")
-                .read_config(offset - 0x100, data),
+            0x100..=0xfff => self.locked_device().read_config(offset - 0x100, data),
             _ => {
                 warn!(
                     "invalid virtio mmio read: 0x{:x}:0x{:x}",
@@ -299,9 +288,7 @@ impl BusDevice for MmioTransport {
                             device_status::DRIVER,
                             device_status::FEATURES_OK | device_status::FAILED,
                         ) {
-                            self.device
-                                .lock()
-                                .expect("Poisoned device lock")
+                            self.locked_device()
                                 .ack_features_by_page(self.acked_features_select, v);
                         } else {
                             warn!(
@@ -334,10 +321,7 @@ impl BusDevice for MmioTransport {
             }
             0x100..=0xfff => {
                 if self.check_device_status(device_status::DRIVER, device_status::FAILED) {
-                    self.device
-                        .lock()
-                        .expect("Poisoned device lock")
-                        .write_config(offset - 0x100, data)
+                    self.locked_device().write_config(offset - 0x100, data)
                 } else {
                     warn!("can not write to device config data area before driver is ready");
                 }
@@ -352,18 +336,14 @@ impl BusDevice for MmioTransport {
         }
     }
 
-    fn interrupt(&self, irq_mask: u32) {
+    fn interrupt(&self, irq_mask: u32) -> std::io::Result<()> {
         self.interrupt_status
             .fetch_or(irq_mask as usize, Ordering::SeqCst);
         // interrupt_evt() is safe to unwrap because the inner interrupt_evt is initialized in the
         // constructor.
         // write() is safe to unwrap because the inner syscall is tailored to be safe as well.
-        self.device
-            .lock()
-            .expect("Posioned device lock")
-            .get_interrupt()
-            .write(1)
-            .unwrap();
+        self.locked_device().get_interrupt()?.write(1).unwrap();
+        Ok(())
     }
 }
 

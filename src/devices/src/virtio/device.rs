@@ -7,8 +7,7 @@
 
 use std::sync::{atomic::AtomicUsize, Arc};
 
-use super::*;
-use polly::pollable::{Pollable, PollableOp};
+use super::{ActivateResult, Queue};
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;
 
@@ -36,10 +35,10 @@ pub trait VirtioDevice: Send {
     fn get_queues(&mut self) -> &mut Vec<Queue>;
 
     /// Returns the device queues event fds.
-    fn get_queue_events(&self) -> Vec<EventFd>;
+    fn get_queue_events(&self) -> Result<Vec<EventFd>, std::io::Error>;
 
     /// Returns the device interrupt eventfd.
-    fn get_interrupt(&self) -> EventFd;
+    fn get_interrupt(&self) -> Result<EventFd, std::io::Error>;
 
     /// Returns the current device interrupt status.
     fn get_interrupt_status(&self) -> Arc<AtomicUsize>;
@@ -95,13 +94,5 @@ pub trait VirtioDevice: Send {
     /// event, and queue events.
     fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
         None
-    }
-
-    fn handle_read(&mut self, _source: Pollable) -> Vec<PollableOp> {
-        vec![]
-    }
-
-    fn init(&mut self) -> Vec<PollableOp> {
-        vec![]
     }
 }

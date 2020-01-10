@@ -33,8 +33,6 @@ use super::{
     VIRTIO_MMIO_INT_VRING,
 };
 use crate::{DeviceEventT, EpollHandler, Error as DeviceError};
-use polly::event_manager::EventHandler;
-use polly::pollable::PollableOp;
 
 /// The maximum buffer size when segmentation offload is enabled. This
 /// includes the 12-byte virtio net header.
@@ -757,12 +755,6 @@ impl Net {
     }
 }
 
-impl EventHandler for Net {
-    fn init(&self) -> Vec<PollableOp> {
-        vec![]
-    }
-}
-
 impl VirtioDevice for Net {
     fn device_type(&self) -> u32 {
         TYPE_NET
@@ -772,17 +764,17 @@ impl VirtioDevice for Net {
         &mut self.queues
     }
 
-    fn get_queue_events(&self) -> Vec<EventFd> {
-        self.queue_evts
-            .iter()
-            .map(|efd| efd.try_clone().expect("Cannot clone event fd"))
-            .collect()
+    fn get_queue_events(&self) -> std::io::Result<Vec<EventFd>> {
+        let mut queue_evts_copy = Vec::new();
+        for evt in self.queue_evts.iter() {
+            queue_evts_copy.push(evt.try_clone()?);
+        }
+
+        Ok(queue_evts_copy)
     }
 
-    fn get_interrupt(&self) -> EventFd {
-        self.interrupt_evt
-            .try_clone()
-            .expect("Cannot clone event fd")
+    fn get_interrupt(&self) -> std::io::Result<EventFd> {
+        Ok(self.interrupt_evt.try_clone()?)
     }
 
     fn get_interrupt_status(&self) -> Arc<AtomicUsize> {
@@ -1125,6 +1117,7 @@ mod tests {
 
     fn activate_some_net(n: &mut Net, bad_qlen: bool, bad_evtlen: bool) -> ActivateResult {
         let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+
         let rxq = VirtQueue::new(GuestAddress(0), &mem, 16);
         let txq = VirtQueue::new(GuestAddress(0x1000), &mem, 16);
 

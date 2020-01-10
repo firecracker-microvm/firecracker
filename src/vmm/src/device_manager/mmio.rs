@@ -129,14 +129,12 @@ impl MMIODeviceManager {
             return Err(Error::IrqsExhausted);
         }
 
-        for (i, queue_evt) in transport_device
-            .device()
-            .lock()
-            .expect("Poisoned device lock")
+        let queue_evts = transport_device
+            .locked_device()
             .get_queue_events()
-            .iter()
-            .enumerate()
-        {
+            .map_err(Error::EventFd)?;
+
+        for (i, queue_evt) in queue_evts.iter().enumerate() {
             let io_addr = IoEventAddress::Mmio(
                 self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
             );
@@ -146,10 +144,9 @@ impl MMIODeviceManager {
         }
 
         let interrupt_evt = transport_device
-            .device()
-            .lock()
-            .expect("Poisoned device lock")
-            .get_interrupt();
+            .locked_device()
+            .get_interrupt()
+            .map_err(Error::EventFd)?;
         vm.register_irqfd(&interrupt_evt, self.irq)
             .map_err(Error::RegisterIrqFd)?;
 
@@ -192,6 +189,10 @@ impl MMIODeviceManager {
         Ok(())
     }
 
+    // This is the secondary path for registering devices.
+    // TODO: Replace with a generic path for all devices insted of being
+    // Block specific.
+    //
     // Register a new block device using Mmio as transport.
     pub fn register_block_device(
         &mut self,
@@ -202,6 +203,8 @@ impl MMIODeviceManager {
         device_id: &str,
     ) -> Result<()> {
         self.register_device_resources(vm, transport_device, cmdline, device_id, TYPE_BLOCK)?;
+        // Temporarly use this hashmap. It is used to retrieve the Block object
+        // in update_drive_handler().
         self.block_devices.insert(device_id.to_owned(), device);
 
         Ok(())
@@ -220,14 +223,12 @@ impl MMIODeviceManager {
             return Err(Error::IrqsExhausted);
         }
 
-        for (i, queue_evt) in mmio_device
-            .device()
-            .lock()
-            .expect("Poisoned device lock")
+        let queue_evts = mmio_device
+            .locked_device()
             .get_queue_events()
-            .iter()
-            .enumerate()
-        {
+            .map_err(Error::EventFd)?;
+
+        for (i, queue_evt) in queue_evts.iter().enumerate() {
             let io_addr = IoEventAddress::Mmio(
                 self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
             );
@@ -236,15 +237,12 @@ impl MMIODeviceManager {
                 .map_err(Error::RegisterIoEvent)?;
         }
 
-        vm.register_irqfd(
-            &mmio_device
-                .device()
-                .lock()
-                .expect("Poisoned device lock")
-                .get_interrupt(),
-            self.irq,
-        )
-        .map_err(Error::RegisterIrqFd)?;
+        let interrupt_evt = mmio_device
+            .locked_device()
+            .get_interrupt()
+            .map_err(Error::EventFd)?;
+        vm.register_irqfd(&interrupt_evt, self.irq)
+            .map_err(Error::RegisterIrqFd)?;
 
         self.bus
             .insert(Arc::new(Mutex::new(mmio_device)), self.mmio_base, MMIO_LEN)

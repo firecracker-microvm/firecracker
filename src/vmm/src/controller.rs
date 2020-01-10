@@ -105,7 +105,7 @@ impl VmmController {
                         .map_err(VmmActionError::DriveConfig)?;
 
                     busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
-                    busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);
+                    let _ = busdev.interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG);
 
                     Ok(())
                 }
