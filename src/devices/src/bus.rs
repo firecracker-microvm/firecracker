@@ -27,7 +27,9 @@ pub trait BusDevice: AsAny + Send {
     /// Writes at `offset` into this device
     fn write(&mut self, offset: u64, data: &[u8]) {}
     /// Triggers the `irq_mask` interrupt on this device
-    fn interrupt(&self, irq_mask: u32) {}
+    fn interrupt(&self, irq_mask: u32) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Trait for devices that handle raw non-blocking I/O requests.
