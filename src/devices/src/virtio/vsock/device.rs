@@ -36,9 +36,6 @@ use super::epoll_handler::VsockEpollHandler;
 use super::VsockBackend;
 use super::{defs, defs::uapi, EpollConfig};
 
-use polly::event_manager::EventHandler;
-use polly::pollable::PollableOp;
-
 /// The virtio features supported by our vsock device:
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
@@ -88,15 +85,6 @@ where
     }
 }
 
-impl<B> EventHandler for Vsock<B>
-where
-    B: VsockBackend + 'static,
-{
-    fn init(&self) -> Vec<PollableOp> {
-        vec![]
-    }
-}
-
 impl<B> VirtioDevice for Vsock<B>
 where
     B: VsockBackend + 'static,
@@ -109,17 +97,17 @@ where
         &mut self.queues
     }
 
-    fn get_queue_events(&self) -> Vec<EventFd> {
-        self.queue_evts
-            .iter()
-            .map(|efd| efd.try_clone().expect("Cannot clone event fd"))
-            .collect()
+    fn get_queue_events(&self) -> std::io::Result<Vec<EventFd>> {
+        let mut queue_evts_copy = Vec::new();
+        for evt in self.queue_evts.iter() {
+            queue_evts_copy.push(evt.try_clone()?);
+        }
+
+        Ok(queue_evts_copy)
     }
 
-    fn get_interrupt(&self) -> EventFd {
-        self.interrupt_evt
-            .try_clone()
-            .expect("Cannot clone event fd")
+    fn get_interrupt(&self) -> std::io::Result<EventFd> {
+        Ok(self.interrupt_evt.try_clone()?)
     }
 
     fn get_interrupt_status(&self) -> Arc<AtomicUsize> {
