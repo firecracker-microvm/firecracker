@@ -359,7 +359,7 @@ impl Display for Error {
 type Result<T> = std::result::Result<T, Error>;
 
 /// Comparison to perform when matching a condition.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum SeccompCmpOp {
     /// Argument value is equal to the specified value.
     Eq,
@@ -378,7 +378,7 @@ pub enum SeccompCmpOp {
 }
 
 /// Seccomp argument length.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum SeccompCmpArgLen {
     /// Argument length is 4 bytes.
     DWORD,
@@ -387,7 +387,7 @@ pub enum SeccompCmpArgLen {
 }
 
 /// Condition that syscall must match in order to satisfy a rule.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SeccompCondition {
     /// Number of the argument value that is to be compared.
     arg_number: u8,
@@ -400,7 +400,7 @@ pub struct SeccompCondition {
 }
 
 /// Actions that `seccomp` can apply to process calling a syscall.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SeccompAction {
     /// Allows syscall.
     Allow,
@@ -421,7 +421,7 @@ pub enum SeccompAction {
 /// If all conditions match then rule gets matched.
 /// The action of the first rule that matches will be applied to the calling process.
 /// If no rule matches the default action is applied.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SeccompRule {
     /// Conditions of rule that need to match in order for the rule to get matched.
     conditions: Vec<SeccompCondition>,
@@ -448,7 +448,7 @@ pub fn allow_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> Syscall
 }
 
 /// Filter containing rules assigned to syscall numbers.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SeccompFilter {
     /// Map of syscall numbers and corresponding rule chains.
     rules: BTreeMap<i64, Vec<SeccompRule>>,
@@ -1128,6 +1128,58 @@ fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
         BPF_LD + BPF_W + BPF_ABS,
         u32::from(SECCOMP_DATA_NR_OFFSET),
     )]
+}
+
+/// Possible errors that could be encountered while processing a seccomp level value or generating
+/// a BPF program based on it.
+#[derive(Debug)]
+pub enum SeccompError {
+    /// Error while trying to generate a BPF program.
+    SeccompFilter(Error),
+    /// Failed to parse to `u32`.
+    Parse(std::num::ParseIntError),
+    /// Seccomp level is an `u32` value, other than 0, 1 or 2.
+    Level(u32),
+}
+
+impl Display for SeccompError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match *self {
+            SeccompError::SeccompFilter(ref err) => write!(f, "Seccomp error: {}", err),
+            SeccompError::Parse(ref err) => write!(f, "Could not parse to 'u32': {}", err),
+            SeccompError::Level(arg) => write!(
+                f,
+                "'{}' isn't a valid value for 'seccomp-level'. Must be 0, 1 or 2.",
+                arg
+            ),
+        }
+    }
+}
+
+/// Possible values for seccomp level.
+#[repr(u32)]
+#[derive(Debug, PartialEq)]
+pub enum SeccompLevel {
+    /// Seccomp filtering disabled.
+    None = 0,
+    /// Level of filtering that causes only syscall numbers to be examined.
+    Basic = 1,
+    /// Level of filtering that causes syscall numbers and parameters to be examined.
+    Advanced = 2,
+}
+
+impl SeccompLevel {
+    /// Converts from a seccomp level value of type String to the corresponding SeccompLevel variant
+    /// or returns an error if the parsing failed.
+    pub fn from_string(seccomp_value: String) -> std::result::Result<Self, SeccompError> {
+        match seccomp_value.parse::<u32>() {
+            Ok(0) => Ok(SeccompLevel::None),
+            Ok(1) => Ok(SeccompLevel::Basic),
+            Ok(2) => Ok(SeccompLevel::Advanced),
+            Ok(level) => Err(SeccompError::Level(level)),
+            Err(err) => Err(SeccompError::Parse(err)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1976,5 +2028,44 @@ mod tests {
         SeccompFilter::apply(SeccompFilter::empty().try_into().unwrap()).unwrap();
         let rc2 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
         assert_eq!(rc2, 0);
+    }
+
+    #[test]
+    fn test_parse_seccomp() {
+        // Check `from_string()` behaviour for different scenarios.
+        match SeccompLevel::from_string("3".to_string()) {
+            Err(SeccompError::Level(_)) => (),
+            _ => panic!("Unexpected result"),
+        }
+        assert_eq!(
+            format!(
+                "{}",
+                SeccompLevel::from_string("3".to_string()).unwrap_err()
+            ),
+            "'3' isn't a valid value for 'seccomp-level'. Must be 0, 1 or 2."
+        );
+        match SeccompLevel::from_string("foo".to_string()) {
+            Err(SeccompError::Parse(_)) => (),
+            _ => panic!("Unexpected result"),
+        }
+        assert_eq!(
+            format!(
+                "{}",
+                SeccompLevel::from_string("foo".to_string()).unwrap_err()
+            ),
+            "Could not parse to 'u32': invalid digit found in string"
+        );
+        assert_eq!(
+            SeccompLevel::from_string("0".to_string()).unwrap(),
+            SeccompLevel::None
+        );
+        assert_eq!(
+            SeccompLevel::from_string("1".to_string()).unwrap(),
+            SeccompLevel::Basic
+        );
+        assert_eq!(
+            SeccompLevel::from_string("2".to_string()).unwrap(),
+            SeccompLevel::Advanced
+        );
     }
 }

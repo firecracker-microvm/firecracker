@@ -4,9 +4,12 @@
 extern crate libc;
 extern crate utils;
 
+use std::convert::TryInto;
+
 use seccomp::{
-    allow_syscall, allow_syscall_if, Error, SeccompAction, SeccompCmpArgLen as ArgLen,
-    SeccompCmpOp::Eq, SeccompCondition as Cond, SeccompFilter, SeccompRule,
+    allow_syscall, allow_syscall_if, BpfProgram, Error, SeccompAction, SeccompCmpArgLen as ArgLen,
+    SeccompCmpOp::Eq, SeccompCondition as Cond, SeccompError, SeccompFilter, SeccompLevel,
+    SeccompRule,
 };
 use utils::signal::sigrtmin;
 
@@ -109,4 +112,31 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
         .collect(),
         SeccompAction::Trap,
     )?)
+}
+
+/// Generate a BPF program based on a seccomp level value.
+pub fn get_seccomp_filter(seccomp_level: SeccompLevel) -> Result<BpfProgram, SeccompError> {
+    match seccomp_level {
+        SeccompLevel::None => Ok(vec![]),
+        SeccompLevel::Basic => default_filter()
+            .and_then(|filter| Ok(filter.allow_all()))
+            .and_then(|filter| filter.try_into())
+            .map_err(SeccompError::SeccompFilter),
+        SeccompLevel::Advanced => default_filter()
+            .and_then(|filter| filter.try_into())
+            .map_err(SeccompError::SeccompFilter),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_seccomp_filter;
+    use seccomp::SeccompLevel;
+
+    #[test]
+    fn test_get_seccomp_filter() {
+        assert!(get_seccomp_filter(SeccompLevel::None).is_ok());
+        assert!(get_seccomp_filter(SeccompLevel::Basic).is_ok());
+        assert!(get_seccomp_filter(SeccompLevel::Advanced).is_ok());
+    }
 }

@@ -6,6 +6,7 @@ extern crate vmm_sys_util;
 
 pub use vmm_sys_util::{errno, eventfd, ioctl, tempdir, tempfile, terminal};
 
+pub mod arg_parser;
 pub mod net;
 pub mod rand;
 pub mod signal;
