@@ -11,6 +11,7 @@ mod macros;
 mod filters;
 
 pub use self::filters::default_filter;
+pub use self::filters::get_seccomp_filter;
 
 // See include/uapi/asm-generic/fcntl.h in the kernel code.
 const FCNTL_FD_CLOEXEC: u64 = 1;

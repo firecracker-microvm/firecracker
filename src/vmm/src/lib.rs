@@ -119,6 +119,8 @@ pub const FC_EXIT_CODE_SIGSEGV: u8 = 150;
 pub const FC_EXIT_CODE_INVALID_JSON: u8 = 151;
 /// Bad configuration for microvm's resources, when using a single json.
 pub const FC_EXIT_CODE_BAD_CONFIGURATION: u8 = 152;
+/// Command line arguments parsing error.
+pub const FC_EXIT_CODE_ARG_PARSING: u8 = 153;
 
 /// Describes all possible reasons which may cause the event loop to return to the caller in
 /// the absence of errors.
