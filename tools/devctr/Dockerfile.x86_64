@@ -5,6 +5,7 @@ FROM ubuntu:18.04
 # dependencies layer intact for much longer.
 
 ARG RUST_TOOLCHAIN="1.39.0"
+ARG TINI_VERSION_TAG="v0.18.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
@@ -81,4 +82,9 @@ RUN mkdir "$TMP_BUILD_DIR" \
     && cd / \
     && rm -rf "$TMP_BUILD_DIR"
 
+# Add the tini init binary.
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION_TAG}/tini-static-amd64 /sbin/tini
+RUN chmod +x /sbin/tini
+
 WORKDIR "$FIRECRACKER_SRC_DIR"
+ENTRYPOINT ["/sbin/tini", "--"]

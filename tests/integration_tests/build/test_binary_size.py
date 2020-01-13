@@ -28,12 +28,9 @@ BINARY_SIZE_TOLERANCE = 0.05
 
 
 @pytest.mark.timeout(500)
-def test_binary_sizes(test_session_root_path):
+def test_binary_sizes():
     """Test if the sizes of the release binaries are within expected ranges."""
-    fc_binary, jailer_binary = host.get_firecracker_binaries(
-        test_session_root_path,
-        ''
-    )
+    fc_binary, jailer_binary = host.get_firecracker_binaries()
 
     check_binary_size("firecracker", fc_binary, FC_BINARY_SIZE_TARGET,
                       BINARY_SIZE_TOLERANCE, FC_BINARY_SIZE_LIMIT)
