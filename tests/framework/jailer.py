@@ -29,6 +29,7 @@ class JailerContext:
     chroot_base = None
     netns = None
     daemonize = None
+    extra_args = None
 
     def __init__(
             self,
@@ -40,6 +41,7 @@ class JailerContext:
             chroot_base=JAILER_DEFAULT_CHROOT,
             netns=None,
             daemonize=True,
+            **extra_args
     ):
         """Set up jailer fields.
 
@@ -55,12 +57,13 @@ class JailerContext:
         self.chroot_base = chroot_base
         self.netns = netns if netns is not None else jailer_id
         self.daemonize = daemonize
+        self.extra_args = extra_args
 
     def __del__(self):
         """Cleanup this jailer context."""
         self.cleanup()
 
-    def construct_param_list(self, config_file, no_api):
+    def construct_param_list(self):
         """Create the list of parameters we want the jailer to start with.
 
         We want to be able to vary any parameter even the required ones as we
@@ -89,14 +92,14 @@ class JailerContext:
         if self.daemonize:
             jailer_param_list.append('--daemonize')
         # applying neccessory extra args if needed
-        if API_USOCKET_NAME is not None or no_api or config_file is not None:
-            jailer_param_list.extend(['--'])
-            if config_file is not None:
-                jailer_param_list.extend(['--config-file', str(config_file)])
-            if no_api:
-                jailer_param_list.append('--no-api')
-            if API_USOCKET_NAME is not None:
-                jailer_param_list.extend(['--api-sock', str(API_USOCKET_NAME)])
+        if self.extra_args is not None:
+            jailer_param_list.append('--')
+            for key, value in self.extra_args.items():
+                jailer_param_list.append('--{}'.format(key))
+                if value is not None:
+                    jailer_param_list.append(value)
+        if self.extra_args.get("api-sock") is None:
+            jailer_param_list.extend(['--api-sock', str(API_USOCKET_NAME)])
         return jailer_param_list
 
     def chroot_base_with_id(self):
