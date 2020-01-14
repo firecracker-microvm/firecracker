@@ -115,7 +115,8 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
                     "/functional/test_initrd.py",
                     "/functional/test_max_vcpus.py",
                     "/functional/test_rate_limiter.py",
-                    "/functional/test_signals.py"
+                    "/functional/test_signals.py",
+                    "/build/test_coverage.py"
                 ],
                 'items': []
             },
