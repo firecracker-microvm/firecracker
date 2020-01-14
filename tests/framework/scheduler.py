@@ -28,6 +28,8 @@ import sys
 from random import random
 from select import select
 from time import sleep
+import pytest
+from _pytest.main import ExitCode
 
 from . import mpsing  # pylint: disable=relative-beyond-top-level
 
@@ -171,6 +173,23 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
             self._run_batch(batch)
 
         return "stahp"
+
+    @pytest.mark.tryfirst
+    # pylint: disable=unused-argument
+    # pylint: disable=no-self-use
+    def pytest_sessionfinish(self, session, exitstatus):
+        """Pytest hook. Wrap up the whole testing session.
+
+        Since the scheduler is more or less mangling the test session in order
+        to distribute test items to worker processes, the main pytest process
+        can become unaware of test failures and errors. Using this session
+        wrap-up hook to set the correct exit code.
+        """
+        trep = session.config.pluginmanager.getplugin("terminalreporter")
+        if "error" in trep.stats:
+            session.exitstatus = ExitCode.INTERNAL_ERROR
+        if "failed" in trep.stats:
+            session.exitstatus = ExitCode.TESTS_FAILED
 
     def _run_batch(self, batch):
         """Run the tests in this batch, spread across multiple workers.
