@@ -60,7 +60,7 @@ To build an EXT4 image:
    on how much data you'll want to fit inside:
 
    ```bash
-   dd if=/dev/zero of=/rootfs.ext4 bs=1M count=50
+   dd if=/dev/zero of=rootfs.ext4 bs=1M count=50
    ```
 
 2. Create an empty file system on the file you created:
