@@ -33,7 +33,8 @@ def _configure_vm_from_json(test_microvm, vm_config_file):
             for line in f1:
                 f2.write(line)
     test_microvm.create_jailed_resource(vm_config_path, create_jail=True)
-    test_microvm.config_file = os.path.basename(vm_config_file)
+    test_microvm.jailer.extra_args = {'config-file': os.path.basename(
+        vm_config_file)}
 
 
 @pytest.mark.parametrize(
@@ -67,7 +68,8 @@ def test_config_start_no_api(test_microvm_with_ssh, vm_config_file):
     test_microvm.create_jailed_resource(metrics_fifo.path, create_jail=True)
 
     _configure_vm_from_json(test_microvm, vm_config_file)
-    test_microvm.no_api = True
+    test_microvm.jailer.extra_args.update({'no-api': None})
+
     test_microvm.spawn()
 
     # Get Firecracker PID so we can check the names of threads.
