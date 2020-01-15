@@ -86,16 +86,15 @@ The virtio-vsock device will require an ID, a CID, and the path to a backing
 AF_UNIX socket:
 
 ```bash
-curl -X PUT \
-  --unix-socket ./firecracker-api.sock \
-  /vsock \
-  -H accept:application/json \
-  -H content-type:application/json \
+curl --unix-socket /tmp/firecracker.socket -i \
+  -X PUT 'http://localhost/vsock' \
+  -H 'Accept: application/json' \
+  -H 'Content-Type: application/json' \
   -d '{
       "vsock_id": "1",
       "guest_cid": 3,
       "uds_path": "./v.sock"
-    }'
+  }'
 ```
 
 Once the microvm is started, Firecracker will create and start listening on the
