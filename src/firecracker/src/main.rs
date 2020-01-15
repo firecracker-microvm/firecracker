@@ -36,7 +36,10 @@ use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 use vmm::{EventLoopExitReason, Vmm};
 
-const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
+// The reason we place default API socket under /run is that API socket is a
+// runtime file.
+// see https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html for more information.
+const DEFAULT_API_SOCK_PATH: &str = "/run/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
