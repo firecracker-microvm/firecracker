@@ -88,11 +88,15 @@ class JailerContext:
             jailer_param_list.extend(['--netns', str(self.netns_file_path())])
         if self.daemonize:
             jailer_param_list.append('--daemonize')
-        if config_file is not None:
+        # applying neccessory extra args if needed
+        if API_USOCKET_NAME is not None or no_api or config_file is not None:
             jailer_param_list.extend(['--'])
-            jailer_param_list.extend(['--config-file', str(config_file)])
-        if no_api:
-            jailer_param_list.append('--no-api')
+            if config_file is not None:
+                jailer_param_list.extend(['--config-file', str(config_file)])
+            if no_api:
+                jailer_param_list.append('--no-api')
+            if API_USOCKET_NAME is not None:
+                jailer_param_list.extend(['--api-sock', str(API_USOCKET_NAME)])
         return jailer_param_list
 
     def chroot_base_with_id(self):

@@ -44,8 +44,8 @@ jailer --id <id> \
     Firecracker.
   - 2 (default): advanced filtering. This adds further checks on some of the
     parameters of the allowed syscalls.
-  Please note the jailer already passes the following parameters to the
-  Firecracker process: `--api-sock` and `--id`.
+  Please note the jailer already passes `--id` parameter to the
+  Firecracker process.
 
 ## Jailer Operation
 
@@ -85,7 +85,7 @@ After starting, the Jailer goes through the following operations:
 - If `--daemonize` is specified, call `setsid()` and redirect `STDIN`,
   `STDOUT`, and `STDERR` to `/dev/null`.
 - Drop privileges via setting the provided `uid` and `gid`.
-- Exec into `<exec_file_name> --id=<id> --api-sock=/api.socket
+- Exec into `<exec_file_name> --id=<id>
   --start-time-us=<opaque> --start-time-cpu-us=<opaque>` (and also forward
   any extra arguments provided to the jailer after `--`, as mentioned in
   the **Jailer Usage** section), where:
@@ -115,9 +115,6 @@ as the path which contains them):
 
 - `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/firecracker`
   (copied from `/usr/bin/firecracker`)
-
-Firecracker will create its API socket at
-`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/api.socket`
 
 We are going to refer to
 `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root`
@@ -188,14 +185,15 @@ Finally, the jailer switches the `uid` to `123`, and `gid` to `100`, and execs
 ```
 ./firecracker \
   --id="551e7604-e35c-42b3-b825-416853441234" \
-  --api-sock=/api.socket \
   --start-time-us=<opaque> \
   --start-time-cpu-us=<opaque>
 ```
 
-We can now use the socket at
-`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/api.socket`
+Now firecracker creates the socket at
+`/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/<api-sock>`
 to interact with the VM.
+
+Note: default value for <api-sock> is `/run/firecracker.socket`
 
 ### Observations
 

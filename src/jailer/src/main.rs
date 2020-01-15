@@ -22,9 +22,7 @@ use env::Env;
 use utils::arg_parser::{App, ArgInfo, Error as ParsingError};
 use utils::validators;
 
-const SOCKET_FILE_NAME: &str = "api.socket";
 const JAILER_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 #[derive(Debug)]
 pub enum Error {
     ArgumentParsing(ParsingError),
@@ -341,7 +339,7 @@ fn main() {
     .and_then(|env| {
         fs::create_dir_all(env.chroot_dir())
             .map_err(|e| Error::CreateDir(env.chroot_dir().to_owned(), e))?;
-        env.run(SOCKET_FILE_NAME)
+        env.run()
     })
     .unwrap_or_else(|err| panic!("Jailer error: {}", err));
 }

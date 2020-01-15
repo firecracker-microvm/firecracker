@@ -11,6 +11,8 @@
 ### Fixed
 
 - Fixed #1469 - Broken GitHub location for Firecracker release binary.
+- The jailer allows changing the default api socket path by using the extra
+  arguments passed to firecracker.
 
 ### Changed
   
@@ -18,6 +20,8 @@
   simply forwarded to the Firecracker executable using "end of command
   options" convention.
 - Decreased release binary size by ~15%.
+- Changed default API socket path to `/run/firecracker.socket`. This path
+  also applies when running with the jailer.
 
 ## [0.20.0]
 

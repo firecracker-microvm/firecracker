@@ -167,7 +167,7 @@ impl Env {
             .map_err(|e| Error::ChangeFileOwner(e, std::str::from_utf8(dev_path_str).unwrap()))
     }
 
-    pub fn run(mut self, socket_file_name: &str) -> Result<()> {
+    pub fn run(mut self) -> Result<()> {
         // We need to create the equivalent of /dev/net inside the jail.
         self.chroot_dir.push("dev/net");
 
@@ -294,8 +294,6 @@ impl Env {
                 .args(&["--id", &self.id])
                 .args(&["--start-time-us", &self.start_time_us.to_string()])
                 .args(&["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
-                .arg("--api-sock")
-                .arg(format!("/{}", socket_file_name))
                 .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
