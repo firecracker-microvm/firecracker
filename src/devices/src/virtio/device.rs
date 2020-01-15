@@ -8,6 +8,7 @@
 use std::sync::{atomic::AtomicUsize, Arc};
 
 use super::{ActivateResult, Queue};
+use crate::virtio::AsAny;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;
 
@@ -16,7 +17,7 @@ use vm_memory::GuestMemoryMmap;
 /// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query the
 /// device. The virtio devices needs to create queues, events and event fds for interrupts and expose
 /// them to the transport via get_queues/get_queue_events/get_interrupt/get_interrupt_status fns.
-pub trait VirtioDevice: Send {
+pub trait VirtioDevice: AsAny + Send {
     /// Get the available features offered by device.
     fn avail_features(&self) -> u64;
 

@@ -252,7 +252,6 @@ impl MMIODeviceManager {
             )
             .map_err(Error::Cmdline)?;
         let ret = self.mmio_base;
-
         self.id_to_dev_info.insert(
             (DeviceType::Virtio(type_id), device_id.to_string()),
             MMIODeviceInfo {
@@ -261,7 +260,6 @@ impl MMIODeviceManager {
                 irq: self.irq,
             },
         );
-
         self.mmio_base += MMIO_LEN;
         self.irq += 1;
 

@@ -39,6 +39,7 @@ bitflags! {
         const READ = 0b0000_0001;
         const WRITE = 0b0000_0010;
         const CLOSE = 0b0000_0100;
+        const EDGE_TRIGGERED = 0b0000_1000;
     }
 }
 
@@ -56,6 +57,10 @@ impl EventSet {
     pub fn is_closed(self) -> bool {
         self.contains(EventSet::CLOSE)
     }
+    // Check if this is an edge triggered event.
+    pub fn is_edge_triggered(self) -> bool {
+        self.contains(EventSet::EDGE_TRIGGERED)
+    }
 }
 
 impl From<EventSet> for epoll::EventType {
@@ -72,6 +77,10 @@ impl From<EventSet> for epoll::EventType {
 
         if event.is_closed() {
             epoll_event_mask |= epoll::EventType::READ_HANG_UP;
+        }
+
+        if event.is_edge_triggered() {
+            epoll_event_mask |= epoll::EventType::EDGE_TRIGGERED;
         }
 
         epoll_event_mask
@@ -109,6 +118,12 @@ impl PollableOpBuilder {
     /// Caller is interested in Pollable close events.
     pub fn closeable(&mut self) -> &mut PollableOpBuilder {
         self.event_mask |= EventSet::CLOSE;
+        self
+    }
+
+    /// Caller is interested in Pollable edge triggered events.
+    pub fn edge_trigered(&mut self) -> &mut PollableOpBuilder {
+        self.event_mask |= EventSet::EDGE_TRIGGERED;
         self
     }
 
