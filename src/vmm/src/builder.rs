@@ -19,7 +19,7 @@ use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::Serial;
 use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
-use devices::virtio::{MmioTransport, NET_EVENTS_COUNT, TYPE_NET};
+use devices::virtio::MmioTransport;
 use polly::event_manager::{Error as EventManagerError, EventManager};
 use seccomp::BpfProgramRef;
 use utils::eventfd::EventFd;
@@ -326,7 +326,7 @@ pub fn build_microvm(
     };
 
     attach_block_devices(&mut vmm, &vm_resources.block, event_manager)?;
-    attach_net_devices(&mut vmm, &vm_resources.network_interface, epoll_context)?;
+    attach_net_devices(&mut vmm, &vm_resources.network_interface, event_manager)?;
     if let Some(vsock) = vm_resources.vsock.as_ref() {
         attach_vsock_device(&mut vmm, vsock, epoll_context)?;
     }
@@ -738,17 +738,11 @@ fn attach_block_devices(
 fn attach_net_devices(
     vmm: &mut Vmm,
     network_ifaces: &NetworkInterfaceConfigs,
-    epoll_context: &mut EpollContext,
+    event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
     for cfg in network_ifaces.iter() {
-        let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
-            TYPE_NET,
-            &cfg.iface_id,
-            NET_EVENTS_COUNT,
-        );
-
         let allow_mmds_requests = cfg.allow_mmds_requests();
 
         let rx_rate_limiter = cfg
@@ -765,24 +759,27 @@ fn attach_net_devices(
 
         let tap = cfg.open_tap().map_err(|_| NetDeviceNotConfigured)?;
 
-        let net_box = Arc::new(Mutex::new(
+        let net_device = Arc::new(Mutex::new(
             devices::virtio::Net::new_with_tap(
                 tap,
                 cfg.guest_mac(),
-                epoll_config,
-                rx_rate_limiter,
-                tx_rate_limiter,
+                vmm.guest_memory().clone(),
+                rx_rate_limiter.unwrap_or_default(),
+                tx_rate_limiter.unwrap_or_default(),
                 allow_mmds_requests,
             )
             .map_err(CreateNetDevice)?,
         ));
+        event_manager
+            .register(net_device.clone())
+            .map_err(StartMicrovmError::RegisterEvent)?;
 
         attach_mmio_device(
             vmm,
             cfg.iface_id.clone(),
-            MmioTransport::new(vmm.guest_memory().clone(), net_box)
-                .map_err(device_manager::mmio::Error::CreateMmioDevice)
-                .map_err(RegisterNetDevice)?,
+            MmioTransport::new(vmm.guest_memory().clone(), net_device).map_err(|e| {
+                RegisterNetDevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
+            })?,
         )
         .map_err(RegisterNetDevice)?;
     }
