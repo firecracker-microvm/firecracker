@@ -56,7 +56,7 @@ enum Error {
     /// Guest gave us a descriptor that was too short to use.
     DescriptorLengthTooSmall,
     /// Getting a block's metadata fails for any reason.
-    GetFileMetadata,
+    GetFileMetadata(std::io::Error),
     /// The requested operation would cause a seek beyond disk end.
     InvalidOffset,
 }
@@ -106,10 +106,7 @@ impl From<u32> for RequestType {
 }
 
 fn build_device_id(disk_image: &File) -> result::Result<String, Error> {
-    let blk_metadata = match disk_image.metadata() {
-        Err(_) => return Err(Error::GetFileMetadata),
-        Ok(m) => m,
-    };
+    let blk_metadata = disk_image.metadata().map_err(Error::GetFileMetadata)?;
     // This is how kvmtool does it.
     let device_id = format!(
         "{}{}{}",
