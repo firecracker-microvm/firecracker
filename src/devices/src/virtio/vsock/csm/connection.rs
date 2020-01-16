@@ -727,7 +727,7 @@ mod tests {
     // primitives. A single `VsockPacket` object will be enough for our testing needs. We'll be
     // using it for simulating both packet sends and packet receives. We need to keep the vsock
     // testing context alive, since `VsockPacket` is just a pointer-wrapper over some data that
-    // resides in guest memory. The vsock test context owns the `GuestMemory` object, so we'll make
+    // resides in guest memory. The vsock test context owns the `GuestMemoryMmap` object, so we'll make
     // it a member here, in order to make sure that guest memory outlives our testing packet.  A
     // single `VsockConnection` object will also suffice for our testing needs. We'll be using a
     // specially crafted `Read + Write + AsRawFd` object as a backing stream, so that we can

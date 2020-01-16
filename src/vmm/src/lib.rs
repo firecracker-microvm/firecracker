@@ -82,7 +82,7 @@ use utils::eventfd::EventFd;
 use utils::net::TapError;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vm_memory::{Bytes, GuestAddress, GuestMemory};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 use vmm_config::boot_source::{
     BootSourceConfig, BootSourceConfigError, KernelConfig, DEFAULT_KERNEL_CMDLINE,
 };
@@ -698,7 +698,8 @@ impl Vmm {
 
         self.vm
             .memory_init(
-                GuestMemory::new(&arch_mem_regions).map_err(StartMicrovmError::GuestMemory)?,
+                GuestMemoryMmap::new(&arch_mem_regions)
+                    .map_err(StartMicrovmError::GuestMemoryMmap)?,
                 &self.kvm,
             )
             .map_err(StartMicrovmError::ConfigureVm)
@@ -996,7 +997,7 @@ impl Vmm {
     ///
     /// Returns the result of initrd loading
     fn load_initrd<F>(
-        vm_memory: &GuestMemory,
+        vm_memory: &GuestMemoryMmap,
         image: &mut F,
     ) -> std::result::Result<InitrdConfig, LoadInitrdError>
     where
@@ -1826,7 +1827,7 @@ mod tests {
         #[allow(unused_mut)]
         fn activate(
             &mut self,
-            mem: GuestMemory,
+            mem: GuestMemoryMmap,
             interrupt_evt: EventFd,
             status: Arc<AtomicUsize>,
             queues: Vec<devices::virtio::Queue>,
@@ -2830,14 +2831,14 @@ mod tests {
         assert!(vmm.load_kernel().is_ok());
     }
 
-    fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemory {
-        GuestMemory::new(&[(at, size)]).unwrap()
+    fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
+        GuestMemoryMmap::new(&[(at, size)]).unwrap()
     }
 
-    fn create_guest_mem_with_size(size: usize) -> GuestMemory {
+    fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
         const MEM_START: GuestAddress = GuestAddress(0x0);
 
-        GuestMemory::new(&[(MEM_START, size)]).unwrap()
+        GuestMemoryMmap::new(&[(MEM_START, size)]).unwrap()
     }
 
     fn make_test_bin() -> Vec<u8> {

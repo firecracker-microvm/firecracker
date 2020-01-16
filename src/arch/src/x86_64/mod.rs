@@ -19,7 +19,7 @@ pub mod regs;
 use std::mem;
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 use InitrdConfig;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
@@ -56,7 +56,7 @@ const MEM_32BIT_GAP_SIZE: u64 = (768 << 20);
 pub const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
 
 /// Returns a Vec of the valid memory addresses.
-/// These should be used to configure the GuestMemory structure for the platform.
+/// These should be used to configure the GuestMemoryMmap structure for the platform.
 /// For x86_64 all addresses are valid from the start of the kernel except a
 /// carve out at the end of 32bit address space.
 pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
@@ -79,7 +79,7 @@ pub fn get_kernel_start() -> u64 {
 }
 
 /// Returns the memory address where the initrd could be loaded.
-pub fn initrd_load_addr(guest_mem: &GuestMemory, initrd_size: usize) -> super::Result<u64> {
+pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> super::Result<u64> {
     let lowmem_size: usize = guest_mem.region_size(0).map_err(|_| Error::InitrdAddress)?;
 
     if lowmem_size < initrd_size {
@@ -100,7 +100,7 @@ pub fn initrd_load_addr(guest_mem: &GuestMemory, initrd_size: usize) -> super::R
 /// * `initrd` - Information about where the ramdisk image was loaded in the `guest_mem`.
 /// * `num_cpus` - Number of virtual CPUs the guest will have.
 pub fn configure_system(
-    guest_mem: &GuestMemory,
+    guest_mem: &GuestMemoryMmap,
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
     initrd: &Option<InitrdConfig>,
@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn test_system_configuration() {
         let no_vcpus = 4;
-        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
         assert!(config_err.is_err());
         assert_eq!(
@@ -230,19 +230,19 @@ mod tests {
         // Now assigning some memory that falls before the 32bit memory hole.
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = GuestMemory::new(&arch_mem_regions).unwrap();
+        let gm = GuestMemoryMmap::new(&arch_mem_regions).unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = GuestMemory::new(&arch_mem_regions).unwrap();
+        let gm = GuestMemoryMmap::new(&arch_mem_regions).unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
-        let gm = GuestMemory::new(&arch_mem_regions).unwrap();
+        let gm = GuestMemoryMmap::new(&arch_mem_regions).unwrap();
         configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
     }
 

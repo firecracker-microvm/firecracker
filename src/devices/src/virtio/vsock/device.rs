@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 use utils::byte_order;
 use utils::eventfd::EventFd;
-use vm_memory::GuestMemory;
+use vm_memory::GuestMemoryMmap;
 
 use super::super::{ActivateError, ActivateResult, Queue as VirtQueue, VirtioDevice};
 use super::epoll_handler::VsockEpollHandler;
@@ -116,7 +116,7 @@ where
 
     fn activate(
         &mut self,
-        mem: GuestMemory,
+        mem: GuestMemoryMmap,
         interrupt_evt: EventFd,
         interrupt_status: Arc<AtomicUsize>,
         mut queues: Vec<VirtQueue>,

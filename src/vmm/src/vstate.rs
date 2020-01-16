@@ -28,7 +28,7 @@ use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
-use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryError};
+use vm_memory::{Address, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 
@@ -48,7 +48,7 @@ pub enum Error {
     /// A call to cpuid instruction failed.
     CpuId(cpuid::Error),
     /// Invalid guest memory configuration.
-    GuestMemory(GuestMemoryError),
+    GuestMemoryMmap(GuestMemoryError),
     /// Hyperthreading flag is not initialized.
     HTNotInitialized,
     /// The host kernel reports an invalid KVM API version.
@@ -165,7 +165,7 @@ impl KvmContext {
 /// A wrapper around creating and using a VM.
 pub struct Vm {
     fd: VmFd,
-    guest_mem: Option<GuestMemory>,
+    guest_mem: Option<GuestMemoryMmap>,
 
     // X86 specific fields.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -204,7 +204,11 @@ impl Vm {
     }
 
     /// Initializes the guest memory.
-    pub fn memory_init(&mut self, guest_mem: GuestMemory, kvm_context: &KvmContext) -> Result<()> {
+    pub fn memory_init(
+        &mut self,
+        guest_mem: GuestMemoryMmap,
+        kvm_context: &KvmContext,
+    ) -> Result<()> {
         if guest_mem.num_regions() > kvm_context.max_memslots() {
             return Err(Error::NotEnoughMemorySlots);
         }
@@ -262,9 +266,9 @@ impl Vm {
 
     /// Gets a reference to the guest memory owned by this VM.
     ///
-    /// Note that `GuestMemory` does not include any device memory that may have been added after
+    /// Note that `GuestMemoryMmap` does not include any device memory that may have been added after
     /// this VM was constructed.
-    pub fn memory(&self) -> Option<&GuestMemory> {
+    pub fn memory(&self) -> Option<&GuestMemoryMmap> {
         self.guest_mem.as_ref()
     }
 
@@ -479,7 +483,7 @@ impl Vcpu {
     pub fn configure_x86_64(
         &mut self,
         machine_config: &VmConfig,
-        guest_mem: &GuestMemory,
+        guest_mem: &GuestMemoryMmap,
         kernel_start_addr: GuestAddress,
     ) -> Result<()> {
         let cpuid_vm_spec = VmSpec::new(
@@ -532,7 +536,7 @@ impl Vcpu {
     pub fn configure_aarch64(
         &mut self,
         vm_fd: &VmFd,
-        guest_mem: &GuestMemory,
+        guest_mem: &GuestMemoryMmap,
         kernel_load_addr: GuestAddress,
     ) -> Result<()> {
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
@@ -871,7 +875,7 @@ mod tests {
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu) {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemory::new(&[(GuestAddress(0), mem_size)]).unwrap();
+        let gm = GuestMemoryMmap::new(&[(GuestAddress(0), mem_size)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(gm, &kvm).is_ok());
 
@@ -924,14 +928,15 @@ mod tests {
         let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
-        let gm = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
         assert!(vm.memory_init(gm, &kvm_context).is_ok());
 
         // Set the maximum number of memory slots to 1 in KvmContext to check the error
         // path of memory_init. Create 2 non-overlapping memory slots.
         kvm_context.max_memslots = 1;
-        let gm = GuestMemory::new(&[(GuestAddress(0x0), 0x1000), (GuestAddress(0x1001), 0x2000)])
-            .unwrap();
+        let gm =
+            GuestMemoryMmap::new(&[(GuestAddress(0x0), 0x1000), (GuestAddress(0x1001), 0x2000)])
+                .unwrap();
         assert!(vm.memory_init(gm, &kvm_context).is_err());
     }
 
@@ -1004,7 +1009,7 @@ mod tests {
     #[test]
     fn test_configure_vcpu() {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(gm, &kvm).is_ok());
         let vm_mem = vm.memory().unwrap();

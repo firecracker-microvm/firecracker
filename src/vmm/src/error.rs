@@ -115,7 +115,7 @@ pub enum StartMicrovmError {
     /// Cannot read from an Event file descriptor.
     EventFd,
     /// Memory regions are overlapping or mmap fails.
-    GuestMemory(GuestMemoryError),
+    GuestMemoryMmap(GuestMemoryError),
     /// Cannot load initrd.
     InitrdLoader(self::LoadInitrdError),
     /// The kernel command line is invalid.
@@ -215,7 +215,7 @@ impl Display for StartMicrovmError {
             }
             DeviceManager => write!(f, "The device manager was not configured."),
             EventFd => write!(f, "Cannot read from an Event file descriptor."),
-            GuestMemory(ref err) => {
+            GuestMemoryMmap(ref err) => {
                 // Remove imbricated quotes from error message.
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
@@ -467,7 +467,7 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
             | CreateVsockDevice(_)
             | DeviceManager
             | EventFd
-            | GuestMemory(_)
+            | GuestMemoryMmap(_)
             | InitrdLoader(_)
             | RegisterBlockDevice(_)
             | RegisterEvent
@@ -716,7 +716,7 @@ mod tests {
         );
         assert_eq!(error_kind(StartMicrovmError::EventFd), ErrorKind::Internal);
         assert_eq!(
-            error_kind(StartMicrovmError::GuestMemory(
+            error_kind(StartMicrovmError::GuestMemoryMmap(
                 vm_memory::GuestMemoryError::NoMemoryRegions
             )),
             ErrorKind::Internal

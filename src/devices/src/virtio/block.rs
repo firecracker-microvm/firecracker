@@ -21,7 +21,7 @@ use logger::{Metric, METRICS};
 use rate_limiter::{RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
+use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 use super::{
     ActivateError, ActivateResult, DescriptorChain, EpollConfigConstructor, Queue, VirtioDevice,
@@ -46,7 +46,7 @@ pub const BLOCK_EVENTS_COUNT: usize = 2;
 #[derive(Debug)]
 enum Error {
     /// Guest gave us bad memory addresses.
-    GuestMemory(GuestMemoryError),
+    GuestMemoryMmap(GuestMemoryError),
     /// Guest gave us a write only descriptor that protocol says to read from.
     UnexpectedWriteOnlyDescriptor,
     /// Guest gave us a read only descriptor that protocol says to write to.
@@ -164,7 +164,7 @@ struct RequestHeader {
 unsafe impl ByteValued for RequestHeader {}
 
 impl RequestHeader {
-    /// Reads the request header from GuestMemory starting at `addr`.
+    /// Reads the request header from GuestMemoryMmap starting at `addr`.
     ///
     /// Virtio 1.0 specifies that the data is transmitted by the driver in little-endian
     /// format. Firecracker currently runs only on little endian platforms so we don't
@@ -172,14 +172,18 @@ impl RequestHeader {
     /// When running on a big endian platform, this code should not compile, and support
     /// for explicit little endian reads is required.
     #[cfg(target_endian = "little")]
-    fn read_from(memory: &GuestMemory, addr: GuestAddress) -> result::Result<Self, Error> {
-        let request_header: RequestHeader = memory.read_obj(addr).map_err(Error::GuestMemory)?;
+    fn read_from(memory: &GuestMemoryMmap, addr: GuestAddress) -> result::Result<Self, Error> {
+        let request_header: RequestHeader =
+            memory.read_obj(addr).map_err(Error::GuestMemoryMmap)?;
         Ok(request_header)
     }
 }
 
 impl Request {
-    fn parse(avail_desc: &DescriptorChain, mem: &GuestMemory) -> result::Result<Request, Error> {
+    fn parse(
+        avail_desc: &DescriptorChain,
+        mem: &GuestMemoryMmap,
+    ) -> result::Result<Request, Error> {
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
             return Err(Error::UnexpectedWriteOnlyDescriptor);
@@ -244,7 +248,7 @@ impl Request {
         &self,
         disk: &mut T,
         disk_nsectors: u64,
-        mem: &GuestMemory,
+        mem: &GuestMemoryMmap,
         disk_id: &[u8],
     ) -> result::Result<u32, ExecuteError> {
         let mut top: u64 = u64::from(self.data_len) / SECTOR_SIZE;
@@ -298,7 +302,7 @@ impl Request {
 /// Handler that drives the execution of the Block devices
 pub struct BlockEpollHandler {
     queues: Vec<Queue>,
-    mem: GuestMemory,
+    mem: GuestMemoryMmap,
     disk_image: File,
     disk_nsectors: u64,
     interrupt_status: Arc<AtomicUsize>,
@@ -573,7 +577,7 @@ impl VirtioDevice for Block {
 
     fn activate(
         &mut self,
-        mem: GuestMemory,
+        mem: GuestMemoryMmap,
         interrupt_evt: EventFd,
         status: Arc<AtomicUsize>,
         queues: Vec<Queue>,
@@ -733,7 +737,7 @@ mod tests {
         }
     }
 
-    fn default_test_blockepollhandler(mem: &GuestMemory) -> (BlockEpollHandler, VirtQueue) {
+    fn default_test_blockepollhandler(mem: &GuestMemoryMmap) -> (BlockEpollHandler, VirtQueue) {
         let mut dummy = DummyBlock::new(false);
         let b = dummy.block();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -774,7 +778,7 @@ mod tests {
         bad_qlen: bool,
         bad_evtlen: bool,
     ) -> ActivateResult {
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
         let ievt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let stat = Arc::new(AtomicUsize::new(0));
 
@@ -807,7 +811,7 @@ mod tests {
     }
 
     // Writes at address 0x0 the request_type, reserved, sector.
-    fn write_request_header(mem: &GuestMemory, request_type: u32, sector: u64) {
+    fn write_request_header(mem: &GuestMemoryMmap, request_type: u32, sector: u64) {
         let addr = GuestAddress(0);
 
         mem.write_obj::<u32>(request_type, addr).unwrap();
@@ -817,7 +821,7 @@ mod tests {
 
     #[test]
     fn test_read_request_header() {
-        let mem = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mem = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
         let addr = GuestAddress(0);
         let sector = 123_454_321;
 
@@ -856,7 +860,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        let m = &GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), &m, 16);
 
         assert!(vq.end().0 < 0x1000);
@@ -1080,7 +1084,7 @@ mod tests {
 
     #[test]
     fn test_invalid_event_handler() {
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _vq) = default_test_blockepollhandler(&m);
         let r = h.handle_event(BLOCK_EVENTS_COUNT as DeviceEventT, EPOLLIN);
         match r {
@@ -1099,7 +1103,7 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_handler() {
-        let m = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, vq) = default_test_blockepollhandler(&m);
 
         let blk_metadata = h.disk_image.metadata();
