@@ -9,6 +9,7 @@ extern crate kvm_ioctls;
 extern crate libc;
 
 extern crate arch_gen;
+extern crate utils;
 extern crate vm_memory;
 
 use std::fmt;

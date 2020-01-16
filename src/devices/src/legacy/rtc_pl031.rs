@@ -14,10 +14,9 @@ use std::fmt;
 use std::time::Instant;
 use std::{io, result};
 
-use byteorder::{ByteOrder, LittleEndian};
-
 use crate::BusDevice;
 use logger::{Metric, METRICS};
+use utils::byte_order;
 use utils::eventfd::EventFd;
 //use bus::Error;
 
@@ -161,7 +160,7 @@ impl BusDevice for RTC {
             };
         }
         if read_ok && data.len() <= 4 {
-            LittleEndian::write_u32(data, v);
+            byte_order::write_le_u32(data, v);
         } else {
             warn!(
                 "Invalid RTC PL031 read: offset {}, data length {}",
@@ -174,7 +173,7 @@ impl BusDevice for RTC {
 
     fn write(&mut self, offset: u64, data: &[u8]) {
         if data.len() <= 4 {
-            let v = LittleEndian::read_u32(data);
+            let v = byte_order::read_le_u32(&data[..]);
             if let Err(e) = self.handle_write(offset, v) {
                 warn!("Failed to write to RTC PL031 device: {}", e);
                 METRICS.rtc.error_count.inc();
@@ -200,67 +199,67 @@ mod tests {
         let mut data = [0; 4];
 
         // Read and write to the MR register.
-        LittleEndian::write_u32(&mut data, 123);
+        byte_order::write_le_u32(&mut data, 123);
         rtc.write(RTCMR, &mut data);
         rtc.read(RTCMR, &mut data);
-        let v = LittleEndian::read_u32(&data);
+        let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(v, 123);
 
         // Read and write to the LR register.
         let v = utils::time::get_time(utils::time::ClockType::Real);
-        LittleEndian::write_u32(&mut data, (v / utils::time::NANOS_PER_SECOND) as u32);
+        byte_order::write_le_u32(&mut data, (v / utils::time::NANOS_PER_SECOND) as u32);
         let previous_now_before = rtc.previous_now;
         rtc.write(RTCLR, &mut data);
 
         assert!(rtc.previous_now > previous_now_before);
 
         rtc.read(RTCLR, &mut data);
-        let v_read = LittleEndian::read_u32(&data);
+        let v_read = byte_order::read_le_u32(&data[..]);
         assert_eq!((v / utils::time::NANOS_PER_SECOND) as u32, v_read);
 
         // Read and write to IMSC register.
         // Test with non zero value.
         let non_zero = 1;
-        LittleEndian::write_u32(&mut data, non_zero);
+        byte_order::write_le_u32(&mut data, non_zero);
         rtc.write(RTCIMSC, &mut data);
         // The interrupt line should be on.
         assert!(rtc.interrupt_evt.read().unwrap() == 1);
         rtc.read(RTCIMSC, &mut data);
-        let v = LittleEndian::read_u32(&data);
+        let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(non_zero & 1, v);
 
         // Now test with 0.
-        LittleEndian::write_u32(&mut data, 0);
+        byte_order::write_le_u32(&mut data, 0);
         rtc.write(RTCIMSC, &mut data);
         rtc.read(RTCIMSC, &mut data);
-        let v = LittleEndian::read_u32(&data);
+        let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(0, v);
 
         // Read and write to the ICR register.
-        LittleEndian::write_u32(&mut data, 1);
+        byte_order::write_le_u32(&mut data, 1);
         rtc.write(RTCICR, &mut data);
         // The interrupt line should be on.
         assert!(rtc.interrupt_evt.read().unwrap() > 1);
-        let v_before = LittleEndian::read_u32(&data);
+        let v_before = byte_order::read_le_u32(&data[..]);
         let no_errors_before = METRICS.rtc.error_count.count();
 
         rtc.read(RTCICR, &mut data);
         let no_errors_after = METRICS.rtc.error_count.count();
-        let v = LittleEndian::read_u32(&data);
+        let v = byte_order::read_le_u32(&data[..]);
         // ICR is a  write only register. Data received should stay equal to data sent.
         assert_eq!(v, v_before);
         assert_eq!(no_errors_after - no_errors_before, 1);
 
         // Attempts to turn off the RTC should not go through.
-        LittleEndian::write_u32(&mut data, 0);
+        byte_order::write_le_u32(&mut data, 0);
         rtc.write(RTCCR, &mut data);
         rtc.read(RTCCR, &mut data);
-        let v = LittleEndian::read_u32(&data);
+        let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(v, 1);
 
         // Attempts to write beyond the writable space. Using here the space used to read
         // the CID and PID from.
-        LittleEndian::write_u32(&mut data, 0);
+        byte_order::write_le_u32(&mut data, 0);
         let no_errors_before = METRICS.rtc.error_count.count();
         rtc.write(AMBA_ID_LOW, &mut data);
         let no_errors_after = METRICS.rtc.error_count.count();

@@ -5,10 +5,8 @@ authors = ["The Chromium OS Authors"]
 edition = "2018"
 
 [dependencies]
-byteorder = ">=1.2.1"
 epoll = ">=4.0.1"
 libc = ">=0.2.39"
-
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }
 vm-memory = { path = "../vm-memory" }
