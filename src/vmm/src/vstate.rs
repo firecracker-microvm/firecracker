@@ -238,8 +238,6 @@ impl KvmContext {
 /// A wrapper around creating and using a VM.
 pub struct Vm {
     fd: VmFd,
-    // TODO: remove the Option, keep a single reference instead of both Vmm and Vm.
-    guest_mem: Option<GuestMemory>,
 
     // X86 specific fields.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -265,7 +263,6 @@ impl Vm {
             fd: vm_fd,
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             supported_cpuid,
-            guest_mem: None,
             #[cfg(target_arch = "aarch64")]
             irqchip_handle: None,
         })
@@ -278,7 +275,7 @@ impl Vm {
     }
 
     /// Initializes the guest memory.
-    pub fn memory_init(&mut self, guest_mem: GuestMemory, kvm_max_memslots: usize) -> Result<()> {
+    pub fn memory_init(&mut self, guest_mem: &GuestMemory, kvm_max_memslots: usize) -> Result<()> {
         if guest_mem.num_regions() > kvm_max_memslots {
             return Err(Error::NotEnoughMemorySlots);
         }
@@ -304,7 +301,6 @@ impl Vm {
                 unsafe { self.fd.set_user_memory_region(memory_region) }
             })
             .map_err(Error::SetUserMemoryRegion)?;
-        self.guest_mem = Some(guest_mem);
 
         #[cfg(target_arch = "x86_64")]
         self.fd
@@ -338,14 +334,6 @@ impl Vm {
     #[cfg(target_arch = "aarch64")]
     pub fn get_irqchip(&self) -> &Box<dyn GICDevice> {
         &self.irqchip_handle.as_ref().unwrap()
-    }
-
-    /// Gets a reference to the guest memory owned by this VM.
-    ///
-    /// Note that `GuestMemory` does not include any device memory that may have been added after
-    /// this VM was constructed.
-    pub fn memory(&self) -> Option<&GuestMemory> {
-        self.guest_mem.as_ref()
     }
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
@@ -763,11 +751,11 @@ mod tests {
     use utils::signal::Killable;
 
     // Auxiliary function being used throughout the tests.
-    fn setup_vcpu() -> (Vm, Vcpu) {
+    fn setup_vcpu() -> (Vm, Vcpu, GuestMemory) {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-        assert!(vm.memory_init(gm, kvm.max_memslots()).is_ok());
+        assert!(vm.memory_init(&gm, kvm.max_memslots()).is_ok());
 
         let vcpu;
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -788,12 +776,12 @@ mod tests {
             vm.setup_irqchip(1).expect("Cannot setup irqchip");
         }
 
-        (vm, vcpu)
+        (vm, vcpu, gm)
     }
 
     #[test]
     fn test_set_mmio_bus() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu, _) = setup_vcpu();
         assert!(vcpu.mmio_bus.is_none());
         vcpu.set_mmio_bus(devices::Bus::new());
         assert!(vcpu.mmio_bus.is_some());
@@ -818,14 +806,14 @@ mod tests {
 
         // Create valid memory region and test that the initialization is successful.
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x1000)]).unwrap();
-        assert!(vm.memory_init(gm, kvm_context.max_memslots()).is_ok());
+        assert!(vm.memory_init(&gm, kvm_context.max_memslots()).is_ok());
 
         // Set the maximum number of memory slots to 1 in KvmContext to check the error
         // path of memory_init. Create 2 non-overlapping memory slots.
         kvm_context.max_memslots = 1;
         let gm = GuestMemory::new(&[(GuestAddress(0x0), 0x1000), (GuestAddress(0x1001), 0x2000)])
             .unwrap();
-        assert!(vm.memory_init(gm, kvm_context.max_memslots()).is_err());
+        assert!(vm.memory_init(&gm, kvm_context.max_memslots()).is_err());
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -869,7 +857,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_configure_vcpu() {
-        let (vm, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu, vm_mem) = setup_vcpu();
 
         let mut vcpu_config = VcpuConfig {
             vcpu_count: 1,
@@ -877,22 +865,20 @@ mod tests {
             cpu_template: None,
         };
 
-        let vm_mem = vm.memory().unwrap();
-
         assert!(vcpu
-            .configure_x86_64(vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
 
         // Test configure while using the T2 template.
         vcpu_config.cpu_template = Some(CpuFeaturesTemplate::T2);
         assert!(vcpu
-            .configure_x86_64(vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
 
         // Test configure while using the C3 template.
         vcpu_config.cpu_template = Some(CpuFeaturesTemplate::C3);
         assert!(vcpu
-            .configure_x86_64(vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
     }
 
@@ -902,28 +888,27 @@ mod tests {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
-        assert!(vm.memory_init(gm, kvm.max_memslots()).is_ok());
-        let vm_mem = vm.memory().unwrap();
+        assert!(vm.memory_init(&gm, kvm.max_memslots()).is_ok());
 
         // Try it for when vcpu id is 0.
         let mut vcpu = Vcpu::new_aarch64(0, vm.fd(), super::super::TimestampUs::default()).unwrap();
 
         assert!(vcpu
-            .configure_aarch64(vm.fd(), vm_mem, GuestAddress(0))
+            .configure_aarch64(vm.fd(), &gm, GuestAddress(0))
             .is_ok());
 
         // Try it for when vcpu id is NOT 0.
         let mut vcpu = Vcpu::new_aarch64(1, vm.fd(), super::super::TimestampUs::default()).unwrap();
 
         assert!(vcpu
-            .configure_aarch64(vm.fd(), vm_mem, GuestAddress(0))
+            .configure_aarch64(vm.fd(), &gm, GuestAddress(0))
             .is_ok());
     }
 
     #[test]
     #[should_panic]
     fn test_vcpu_run_failed() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu, _) = setup_vcpu();
         // Setting an invalid seccomp level should panic.
         vcpu.run(
             Arc::new(Barrier::new(1)),
@@ -952,7 +937,7 @@ mod tests {
 
     #[test]
     fn test_vcpu_tls() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu, _) = setup_vcpu();
 
         // Running on the TLS vcpu should fail before we actually initialize it.
         unsafe {
@@ -983,7 +968,7 @@ mod tests {
 
     #[test]
     fn test_invalid_tls() {
-        let (_, mut vcpu) = setup_vcpu();
+        let (_, mut vcpu, _) = setup_vcpu();
         // Initialize vcpu TLS.
         vcpu.init_thread_local_data().unwrap();
         // Trying to initialize non-empty TLS should error.
@@ -993,7 +978,7 @@ mod tests {
     #[test]
     fn test_vcpu_kick() {
         Vcpu::register_kick_signal_handler();
-        let (vm, mut vcpu) = setup_vcpu();
+        let (vm, mut vcpu, _mem) = setup_vcpu();
 
         let kvm_run =
             KvmRunWrapper::mmap_from_fd(&vcpu.fd, vm.fd.run_size()).expect("cannot mmap kvm-run");

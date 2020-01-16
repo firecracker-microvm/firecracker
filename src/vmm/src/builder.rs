@@ -28,15 +28,13 @@ use vmm_config::boot_source::BootConfig;
 use vmm_config::drive::BlockDeviceConfigs;
 use vmm_config::net::NetworkInterfaceConfigs;
 use vmm_config::vsock::VsockDeviceConfig;
-use vstate::{self, KvmContext, Vcpu, VcpuConfig, Vm};
+use vstate::{KvmContext, Vcpu, VcpuConfig, Vm};
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
 pub enum StartMicrovmError {
-    /// Cannot configure the VM.
-    ConfigureVm(vstate::Error),
     /// Unable to seek the block device backing file due to invalid permissions or
     /// the file was deleted/corrupted.
     CreateBlockDevice(std::io::Error),
@@ -88,12 +86,6 @@ impl Display for StartMicrovmError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::StartMicrovmError::*;
         match *self {
-            ConfigureVm(ref err) => {
-                let mut err_msg = format!("{:?}", err);
-                err_msg = err_msg.replace("\"", "");
-
-                write!(f, "Cannot configure virtual machine. {}", err_msg)
-            }
             CreateBlockDevice(ref err) => write!(
                 f,
                 "Unable to seek the block device backing file due to invalid permissions or \
@@ -205,7 +197,7 @@ pub fn build_microvm(
     #[allow(unused_mut)]
     let mut kernel_cmdline = boot_config.cmdline.clone();
     let write_metrics_event_fd = setup_metrics(epoll_context)?;
-    let mut vm = setup_kvm_vm(guest_memory.clone())?;
+    let mut vm = setup_kvm_vm(&guest_memory)?;
 
     // Instantiate the MMIO device manager.
     // 'mmio_base' address has to be an address which is protected by the kernel
@@ -347,7 +339,7 @@ fn setup_metrics(
 }
 
 pub(crate) fn setup_kvm_vm(
-    guest_memory: GuestMemory,
+    guest_memory: &GuestMemory,
 ) -> std::result::Result<Vm, StartMicrovmError> {
     let kvm = KvmContext::new()
         .map_err(Error::KvmContext)
@@ -355,8 +347,9 @@ pub(crate) fn setup_kvm_vm(
     let mut vm = Vm::new(kvm.fd())
         .map_err(Error::Vm)
         .map_err(StartMicrovmError::Internal)?;
-    vm.memory_init(guest_memory.clone(), kvm.max_memslots())
-        .map_err(StartMicrovmError::ConfigureVm)?;
+    vm.memory_init(guest_memory, kvm.max_memslots())
+        .map_err(Error::Vm)
+        .map_err(StartMicrovmError::Internal)?;
     Ok(vm)
 }
 
