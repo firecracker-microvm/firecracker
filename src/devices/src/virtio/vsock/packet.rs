@@ -115,7 +115,7 @@ impl VsockPacket {
             hdr: head
                 .mem
                 .get_host_address(head.addr, VSOCK_PKT_HDR_SIZE)
-                .map_err(VsockError::GuestMemory)? as *mut u8,
+                .map_err(VsockError::GuestMemoryMmap)? as *mut u8,
             buf: None,
             buf_size: 0,
         };
@@ -150,7 +150,7 @@ impl VsockPacket {
             buf_desc
                 .mem
                 .get_host_address(buf_desc.addr, pkt.buf_size)
-                .map_err(VsockError::GuestMemory)? as *mut u8,
+                .map_err(VsockError::GuestMemoryMmap)? as *mut u8,
         );
 
         Ok(pkt)
@@ -183,12 +183,12 @@ impl VsockPacket {
             hdr: head
                 .mem
                 .get_host_address(head.addr, VSOCK_PKT_HDR_SIZE)
-                .map_err(VsockError::GuestMemory)? as *mut u8,
+                .map_err(VsockError::GuestMemoryMmap)? as *mut u8,
             buf: Some(
                 buf_desc
                     .mem
                     .get_host_address(buf_desc.addr, buf_size)
-                    .map_err(VsockError::GuestMemory)? as *mut u8,
+                    .map_err(VsockError::GuestMemoryMmap)? as *mut u8,
             ),
             buf_size,
         })
@@ -337,7 +337,7 @@ impl VsockPacket {
 #[cfg(test)]
 mod tests {
 
-    use vm_memory::{GuestAddress, GuestMemory};
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::super::tests::TestContext;
     use super::*;
@@ -370,7 +370,7 @@ mod tests {
         };
     }
 
-    fn set_pkt_len(len: u32, guest_desc: &GuestQDesc, mem: &GuestMemory) {
+    fn set_pkt_len(len: u32, guest_desc: &GuestQDesc, mem: &GuestMemoryMmap) {
         let hdr_gpa = guest_desc.addr.get();
         let hdr_ptr = mem
             .get_host_address(GuestAddress(hdr_gpa), VSOCK_PKT_HDR_SIZE)

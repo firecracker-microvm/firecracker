@@ -15,7 +15,7 @@ use std::mem;
 
 use super::cmdline::Error as CmdlineError;
 use utils::structs::read_struct;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
 #[allow(non_camel_case_types)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -74,7 +74,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Returns the entry address of the kernel.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn load_kernel<F>(
-    guest_mem: &GuestMemory,
+    guest_mem: &GuestMemoryMmap,
     kernel_image: &mut F,
     start_address: u64,
 ) -> Result<GuestAddress>
@@ -147,7 +147,7 @@ where
 
 #[cfg(target_arch = "aarch64")]
 pub fn load_kernel<F>(
-    guest_mem: &GuestMemory,
+    guest_mem: &GuestMemoryMmap,
     kernel_image: &mut F,
     start_address: u64,
 ) -> Result<GuestAddress>
@@ -235,7 +235,7 @@ where
 /// * `guest_addr` - The address in `guest_mem` at which to load the command line.
 /// * `cmdline` - The kernel command line as CString.
 pub fn load_cmdline(
-    guest_mem: &GuestMemory,
+    guest_mem: &GuestMemoryMmap,
     guest_addr: GuestAddress,
     cmdline: &CString,
 ) -> std::result::Result<(), CmdlineError> {
@@ -263,12 +263,12 @@ mod tests {
     use super::super::cmdline::Cmdline;
     use super::*;
     use std::io::Cursor;
-    use vm_memory::{GuestAddress, GuestMemory};
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     const MEM_SIZE: usize = 0x18_0000;
 
-    fn create_guest_mem() -> GuestMemory {
-        GuestMemory::new(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap()
+    fn create_guest_mem() -> GuestMemoryMmap {
+        GuestMemoryMmap::new(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap()
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_load_kernel_no_memory() {
-        let gm = GuestMemory::new(&[(GuestAddress(0x0), 79)]).unwrap();
+        let gm = GuestMemoryMmap::new(&[(GuestAddress(0x0), 79)]).unwrap();
         let image = make_test_bin();
         assert_eq!(
             Err(Error::ReadKernelImage),
