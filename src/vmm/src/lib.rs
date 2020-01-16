@@ -677,7 +677,6 @@ impl Vmm {
         epoll_context: &mut EpollContext,
         event_manager: &mut EventManager,
     ) -> Result<EventLoopExitReason> {
-        // TODO: try handling of errors/failures without breaking this main loop.
         loop {
             let event = epoll_context.get_event()?;
             let evset = match epoll::Events::from_bits(event.events) {
