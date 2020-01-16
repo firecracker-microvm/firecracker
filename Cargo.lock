@@ -13,22 +13,17 @@ dependencies = [
 name = "api_server"
 version = "0.1.0"
 dependencies = [
- "arch",
- "devices",
  "dumbo",
  "epoll",
- "kernel",
  "libc",
  "logger",
  "micro_http",
  "mmds",
- "rate_limiter",
  "seccomp",
  "serde",
  "serde_derive",
  "serde_json",
  "utils",
- "vm-memory",
  "vmm",
 ]
 

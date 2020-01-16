@@ -8,7 +8,6 @@ serde = ">=1.0.27"
 serde_derive = ">=1.0.27"
 serde_json = ">=1.0.9"
 epoll = ">=4.0.1"
-libc = ">=0.2.39"
 
 logger = { path = "../logger" }
 micro_http = { path = "../micro_http" }
@@ -18,10 +17,6 @@ utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 
 [dev-dependencies]
-arch = { path = "../arch" }
-devices = { path = "../devices" }
+libc = ">=0.2.39"
+
 dumbo = { path = "../dumbo" }
-kernel = { path = "../kernel" }
-vm-memory = { path = "../vm-memory" }
-utils = { path = "../utils" }
-rate_limiter = { path = "../rate_limiter" }

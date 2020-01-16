@@ -329,17 +329,18 @@ impl ApiServer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    extern crate libc;
 
     use std::convert::TryInto;
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
     use std::sync::mpsc::channel;
+    use std::time::Duration;
     use std::{fs, thread};
 
+    use super::*;
     use micro_http::HttpConnection;
     use mmds::MMDS;
-    use std::time::Duration;
     use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
     use vmm::{ErrorKind, StartMicrovmError, VmmActionError};
 
