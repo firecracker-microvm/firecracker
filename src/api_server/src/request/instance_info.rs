@@ -14,7 +14,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_request() {
+    fn test_parse_get_instance_info_request() {
         match parse_get_instance_info() {
             Ok(ParsedRequest::GetInstanceInfo) => {}
             _ => panic!("Test failed."),

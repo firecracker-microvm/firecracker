@@ -10,7 +10,7 @@ use request::{Body, Error, ParsedRequest, StatusCode};
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed
 // struct from the Serde deserialization process.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 enum ActionType {
     BlockDeviceRescan,
     FlushMetrics,
@@ -20,9 +20,9 @@ enum ActionType {
 
 // The model of the json body from a sync request. We use Serde to transform each associated
 // json body into this.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ActionBody {
+struct ActionBody {
     action_type: ActionType,
     #[serde(skip_serializing_if = "Option::is_none")]
     payload: Option<Value>,
@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn test_into_parsed_request() {
+    fn test_parse_put_actions_request() {
         {
             assert!(parse_put_actions(&Body::new("invalid_body")).is_err());
 

@@ -62,7 +62,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_put_net_request() {
+    fn test_parse_put_net_request() {
         let body = r#"{
                 "iface_id": "foo",
                 "host_dev_name": "bar",
@@ -105,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_patch_net_request() {
+    fn test_parse_patch_net_request() {
         let body = r#"{
                 "iface_id": "foo",
                 "rx_rate_limiter": {

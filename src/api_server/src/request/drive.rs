@@ -141,7 +141,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_patch_request() {
+    fn test_parse_patch_drive_request() {
         assert!(parse_patch_drive(&Body::new("invalid_payload"), None).is_err());
         assert!(parse_patch_drive(&Body::new("invalid_payload"), Some(&"id")).is_err());
 
@@ -218,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_put_request() {
+    fn test_parse_put_drive_request() {
         assert!(parse_put_drive(&Body::new("invalid_payload"), None).is_err());
         assert!(parse_put_drive(&Body::new("invalid_payload"), Some(&"id")).is_err());
 
