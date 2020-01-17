@@ -677,7 +677,7 @@ fn attach_net_devices(
                 RegisterNetDevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
             })?,
         )
-        .map_err(|e| RegisterNetDevice(e))?;
+        .map_err(RegisterNetDevice)?;
     }
 
     Ok(())
