@@ -121,43 +121,6 @@ def test_error_logs(test_microvm_with_ssh):
     )
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="not yet supported on aarch64"
-)
-def test_dirty_page_metrics(test_microvm_with_api):
-    """Check the `dirty_pages` metric."""
-    microvm = test_microvm_with_api
-    microvm.spawn()
-    microvm.basic_config()
-
-    # Configure logging.
-    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
-    log_fifo = log_tools.Fifo(log_fifo_path)
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-
-    response = microvm.logger.put(
-        log_fifo=microvm.create_jailed_resource(log_fifo.path),
-        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
-        level='Error',
-        show_level=False,
-        show_log_origin=False,
-        options=['LogDirtyPages']
-    )
-    assert microvm.api_session.is_status_no_content(response.status_code)
-
-    microvm.start()
-
-    sleep(0.3)
-    response = microvm.actions.put(action_type='FlushMetrics')
-    assert microvm.api_session.is_status_no_content(response.status_code)
-
-    lines = metrics_fifo.sequential_reader(2)
-    assert int(json.loads(lines[0])['memory']['dirty_pages']) == 0
-    assert int(json.loads(lines[1])['memory']['dirty_pages']) > 0
-
-
 def log_file_contains_strings(log_fifo, string_list):
     """Check if the log file contains all strings in string_list.
 
