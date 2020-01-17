@@ -7,10 +7,11 @@ use request::{checked_id, Body, Error, ParsedRequest, StatusCode};
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
 pub fn parse_put_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
-    METRICS.patch_api_requests.network_count.inc();
+    METRICS.put_api_requests.network_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
     } else {
+        METRICS.put_api_requests.network_fails.inc();
         return Err(Error::EmptyID);
     };
 
@@ -19,6 +20,7 @@ pub fn parse_put_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedR
         Error::SerdeJson(e)
     })?;
     if id != netif.iface_id.as_str() {
+        METRICS.put_api_requests.network_fails.inc();
         return Err(Error::Generic(
             StatusCode::BadRequest,
             "The id from the path does not match the id from the body!".to_string(),
@@ -28,10 +30,11 @@ pub fn parse_put_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedR
 }
 
 pub fn parse_patch_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
-    METRICS.put_api_requests.network_count.inc();
+    METRICS.patch_api_requests.network_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
     } else {
+        METRICS.patch_api_requests.network_count.inc();
         return Err(Error::EmptyID);
     };
 
@@ -41,6 +44,7 @@ pub fn parse_patch_net(body: &Body, id_from_path: Option<&&str>) -> Result<Parse
             Error::SerdeJson(e)
         })?;
     if id != netif.iface_id {
+        METRICS.patch_api_requests.network_count.inc();
         return Err(Error::Generic(
             StatusCode::BadRequest,
             "The id from the path does not match the id from the body!".to_string(),
