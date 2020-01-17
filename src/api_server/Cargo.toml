@@ -18,5 +18,3 @@ vmm = { path = "../vmm" }
 
 [dev-dependencies]
 libc = ">=0.2.39"
-
-dumbo = { path = "../dumbo" }
