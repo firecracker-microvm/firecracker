@@ -352,13 +352,6 @@ pub struct VmmMetrics {
     pub panic_count: SharedMetric,
 }
 
-/// Memory usage metrics.
-#[derive(Default, Serialize)]
-pub struct MemoryMetrics {
-    /// Number of pages dirtied since the last call to `KVM_GET_DIRTY_LOG`.
-    pub dirty_pages: SharedMetric,
-}
-
 /// Metrics related to signals.
 #[derive(Default, Serialize)]
 pub struct SignalMetrics {
@@ -412,8 +405,6 @@ pub struct FirecrackerMetrics {
     pub vmm: VmmMetrics,
     /// Metrics related to the UART device.
     pub uart: SerialDeviceMetrics,
-    /// Memory usage metrics.
-    pub memory: MemoryMetrics,
     /// Metrics related to signals.
     pub signals: SignalMetrics,
 }
