@@ -8,8 +8,7 @@ use logger::{Metric, METRICS};
 use request::{checked_id, Body, Error, ParsedRequest, StatusCode};
 use vmm::vmm_config::drive::BlockDeviceConfig;
 
-#[derive(Clone)]
-pub struct PatchDrivePayload {
+struct PatchDrivePayload {
     // Leaving `fields` pub because ownership on it needs to be yielded to the
     // Request enum object. A getter couldn't move `fields` out of the borrowed
     // PatchDrivePayload object.
@@ -43,7 +42,7 @@ impl PatchDrivePayload {
                 // Check that field `drive_id` exists and its type is String.
                 PatchDrivePayload::check_field_is_string(fields_map, "drive_id")
                     .map_err(|e| Error::Generic(StatusCode::BadRequest, e))?;
-                // Check that field `drive_id` exists and its type is String.
+                // Check that field `path_on_host` exists and its type is String.
                 PatchDrivePayload::check_field_is_string(fields_map, "path_on_host")
                     .map_err(|e| Error::Generic(StatusCode::BadRequest, e))?;
 
@@ -78,11 +77,11 @@ impl PatchDrivePayload {
 
 pub fn parse_put_drive(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.drive_count.inc();
-    let id = match id_from_path {
-        Some(&id) => checked_id(id)?,
-        None => {
-            return Err(Error::EmptyID);
-        }
+    let id = if let Some(id) = id_from_path {
+        checked_id(id)?
+    } else {
+        METRICS.put_api_requests.drive_fails.inc();
+        return Err(Error::EmptyID);
     };
 
     let device_cfg = serde_json::from_slice::<BlockDeviceConfig>(body.raw()).map_err(|e| {
@@ -105,14 +104,13 @@ pub fn parse_put_drive(body: &Body, id_from_path: Option<&&str>) -> Result<Parse
 
 pub fn parse_patch_drive(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.drive_count.inc();
-    let id = match id_from_path {
-        Some(&id) => checked_id(id)?,
-        None => {
-            return Err(Error::EmptyID);
-        }
+    let id = if let Some(id) = id_from_path {
+        checked_id(id)?
+    } else {
+        METRICS.patch_api_requests.drive_fails.inc();
+        return Err(Error::EmptyID);
     };
 
-    METRICS.patch_api_requests.drive_count.inc();
     let patch_drive_payload = PatchDrivePayload {
         fields: serde_json::from_slice(body.raw()).map_err(|e| {
             METRICS.patch_api_requests.drive_fails.inc();
@@ -144,6 +142,7 @@ mod tests {
 
     #[test]
     fn test_parse_patch_request() {
+        assert!(parse_patch_drive(&Body::new("invalid_payload"), None).is_err());
         assert!(parse_patch_drive(&Body::new("invalid_payload"), Some(&"id")).is_err());
 
         // PATCH with invalid fields.
@@ -185,8 +184,8 @@ mod tests {
 
         // PATCH that tries to update something else other than path_on_host.
         let body = r#"{
-                "drive_id": 1234,
-                "path_on_host": "dummy",
+                "drive_id": "dummy_id",
+                "path_on_host": "dummy_host",
                 "is_read_only": false
               }"#;
         let res = parse_patch_drive(&Body::new(body), Some(&"1234"));
@@ -220,6 +219,7 @@ mod tests {
 
     #[test]
     fn test_parse_put_request() {
+        assert!(parse_put_drive(&Body::new("invalid_payload"), None).is_err());
         assert!(parse_put_drive(&Body::new("invalid_payload"), Some(&"id")).is_err());
 
         // PATCH with invalid fields.
