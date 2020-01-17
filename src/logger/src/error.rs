@@ -17,8 +17,6 @@ pub enum LoggerError {
     IsInitializing,
     /// The logger does not allow reinitialization.
     AlreadyInitialized,
-    /// Invalid logger option specified.
-    InvalidLogOption(String),
     /// Writing to specified buffer failed.
     LogWrite(std::io::Error),
     /// Flushing messages stored in buffer to disk failed.
@@ -42,7 +40,6 @@ impl fmt::Display for LoggerError {
             LoggerError::AlreadyInitialized => {
                 "Reinitialization of logger not allowed.".to_string()
             }
-            LoggerError::InvalidLogOption(ref s) => format!("Invalid log option: {}", s),
             LoggerError::LogWrite(ref e) => format!("Failed to write logs. Error: {}", e),
             LoggerError::LogFlush(ref e) => format!("Failed to flush logs. Error: {}", e),
             LoggerError::LogMetricFailure(ref e) => e.to_string(),
@@ -80,11 +77,6 @@ mod tests {
         assert_eq!(
             format!("{}", LoggerError::IsPreinitializing),
             "The logger is preinitializing. Can't perform the requested action right now."
-        );
-
-        assert_eq!(
-            format!("{}", LoggerError::InvalidLogOption("dirty-log".to_string())),
-            "Invalid log option: dirty-log"
         );
 
         assert_eq!(

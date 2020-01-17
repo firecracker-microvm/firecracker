@@ -5,14 +5,11 @@
 It checks the response of the API configuration calls and the logs that show
 up in the configured logging FIFO.
 """
-import json
 import os
 import platform
 import re
 
-from time import sleep, strptime
-
-import pytest
+from time import strptime
 
 import host_tools.logging as log_tools
 
@@ -271,8 +268,7 @@ def _test_log_config(
         microvm,
         log_level='Info',
         show_level=True,
-        show_origin=True,
-        options=[]
+        show_origin=True
 ):
     """Exercises different scenarios for testing the logging config."""
     microvm.spawn()
@@ -290,8 +286,7 @@ def _test_log_config(
             metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
             level=log_level,
             show_level=show_level,
-            show_log_origin=show_origin,
-            options=options
+            show_log_origin=show_origin
            )
     else:
         response = microvm.logger.put(

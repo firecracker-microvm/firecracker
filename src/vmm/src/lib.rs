@@ -1602,19 +1602,6 @@ impl Vmm {
         LOGGER.set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin);
         LOGGER.set_include_level(logger_cfg.show_level);
 
-        #[cfg(target_arch = "aarch64")]
-        let options: &Vec<LogOption> = &vec![];
-
-        #[cfg(target_arch = "x86_64")]
-        let options = &logger_cfg.options;
-
-        LOGGER.set_flags(options).map_err(|e| {
-            VmmActionError::Logger(
-                ErrorKind::User,
-                LoggerConfigError::InitializationFailure(e.to_string()),
-            )
-        })?;
-
         LOGGER
             .init(
                 &AppInfo::new("Firecracker", &firecracker_version),
@@ -2688,8 +2675,6 @@ mod tests {
             level: LoggerLevel::Warning,
             show_level: true,
             show_log_origin: true,
-            #[cfg(target_arch = "x86_64")]
-            options: vec![],
         };
 
         let mut vmm = create_vmm_object(InstanceState::Running);
@@ -2705,8 +2690,6 @@ mod tests {
             level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
-            #[cfg(target_arch = "x86_64")]
-            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2717,8 +2700,6 @@ mod tests {
             level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
-            #[cfg(target_arch = "x86_64")]
-            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2729,8 +2710,6 @@ mod tests {
             level: LoggerLevel::Warning,
             show_level: false,
             show_log_origin: false,
-            #[cfg(target_arch = "x86_64")]
-            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2743,8 +2722,6 @@ mod tests {
             level: LoggerLevel::Info,
             show_level: true,
             show_log_origin: true,
-            #[cfg(target_arch = "x86_64")]
-            options: vec![],
         };
         // Flushing metrics before initializing logger is not erroneous.
         assert!(vmm.flush_metrics().is_ok());

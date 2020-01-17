@@ -91,19 +91,10 @@ pub struct LoggerConfig {
     /// When enabled, the logger will append the origin of the log entry.
     #[serde(default)]
     pub show_log_origin: bool,
-    /// Additional logging options.
-    #[cfg(target_arch = "x86_64")]
-    #[serde(default = "default_log_options")]
-    pub options: Vec<logger::LogOption>,
 }
 
 fn default_level() -> LoggerLevel {
     LoggerLevel::Warning
-}
-
-#[cfg(target_arch = "x86_64")]
-fn default_log_options() -> Vec<logger::LogOption> {
-    vec![]
 }
 
 /// Errors associated with actions on the `LoggerConfig`.

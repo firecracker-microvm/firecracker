@@ -20,6 +20,7 @@
   simply forwarded to the Firecracker executable using "end of command
   options" convention.
 - Removed `memory.dirty_pages` metric.
+- Removed `options` field from the logger configuration.
 - Decreased release binary size by ~15%.
 - Changed default API socket path to `/run/firecracker.socket`. This path
   also applies when running with the jailer.
