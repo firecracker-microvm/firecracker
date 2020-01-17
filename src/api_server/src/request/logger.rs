@@ -22,7 +22,7 @@ mod tests {
     use vmm::vmm_config::logger::LoggerLevel;
 
     #[test]
-    fn test_parse_logger_request() {
+    fn test_parse_put_logger_request() {
         let body = r#"{
                 "log_fifo": "log",
                 "metrics_fifo": "metrics",
