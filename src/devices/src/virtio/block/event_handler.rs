@@ -4,7 +4,7 @@ use std::os::unix::io::AsRawFd;
 
 use crate::virtio::block::device::Block;
 use polly::event_manager::EventHandler;
-use polly::pollable::*;
+use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
 
 impl EventHandler for Block {
     // Handle an event for queue or rate limiter.

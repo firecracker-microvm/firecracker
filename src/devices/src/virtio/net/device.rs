@@ -1,61 +1,37 @@
-// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
 // Portions Copyright 2017 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use libc::EAGAIN;
-use std::cmp;
-use std::io::{self, Read, Write};
-use std::mem;
-use std::os::unix::io::AsRawFd;
-use std::result;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::vec::Vec;
-
-use dumbo::{ns::MmdsNetworkStack, EthernetFrame, MacAddr, MAC_ADDR_LEN};
-use logger::{Metric, METRICS};
-use net_gen;
-use rate_limiter::{RateLimiter, TokenBucket, TokenType};
-use utils::eventfd::EventFd;
-use utils::net::{Tap, TapError};
-use virtio_gen::virtio_net::*;
-use vm_memory::{Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap, MemoryMappingError};
-
-use super::{ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
+use crate::virtio::net::defs::{
+    MAX_BUFFER_SIZE, NUM_QUEUES, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX,
+};
+use crate::virtio::net::Error;
+use crate::virtio::net::Result;
+use crate::virtio::{
+    ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING,
+};
 use crate::Error as DeviceError;
-use polly::event_manager::EventHandler;
-use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
-
-/// The maximum buffer size when segmentation offload is enabled. This
-/// includes the 12-byte virtio net header.
-/// http://docs.oasis-open.org/virtio/virtio/v1.0/virtio-v1.0.html#x1-1740003
-const MAX_BUFFER_SIZE: usize = 65562;
-const QUEUE_SIZE: u16 = 256;
-const NUM_QUEUES: usize = 2;
-const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE; NUM_QUEUES];
-// The index of the rx queue from Net device queues/queues_evts vector.
-const RX_INDEX: usize = 0;
-// The index of the tx queue from Net device queues/queues_evts vector.
-const TX_INDEX: usize = 1;
-
-#[derive(Debug)]
-pub enum Error {
-    /// Open tap device failed.
-    TapOpen(TapError),
-    /// Setting tap interface offload flags failed.
-    TapSetOffload(TapError),
-    /// Setting vnet header size failed.
-    TapSetVnetHdrSize(TapError),
-    /// Enabling tap interface failed.
-    TapEnable(TapError),
-    /// EventFd
-    EventFd(io::Error),
-}
-
-pub type Result<T> = result::Result<T, Error>;
+use dumbo::ns::MmdsNetworkStack;
+use dumbo::{EthernetFrame, MacAddr, MAC_ADDR_LEN};
+use libc::EAGAIN;
+use logger::{Metric, METRICS};
+use rate_limiter::{RateLimiter, TokenBucket, TokenType};
+use std::io::{Read, Write};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::{cmp, io, mem, result};
+use utils::eventfd::EventFd;
+use utils::net::Tap;
+use virtio_gen::virtio_net::{
+    virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
+    VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
+    VIRTIO_NET_F_MAC,
+};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap, MemoryMappingError};
 
 fn vnet_hdr_len() -> usize {
     mem::size_of::<virtio_net_hdr_v1>()
@@ -81,17 +57,17 @@ fn init_vnet_hdr(buf: &mut [u8]) {
 }
 
 pub struct Net {
-    tap: Tap,
+    pub(crate) tap: Tap,
     avail_features: u64,
     acked_features: u64,
 
     mem: GuestMemoryMmap,
 
-    queues: Vec<Queue>,
-    queue_evts: Vec<EventFd>,
+    pub(crate) queues: Vec<Queue>,
+    pub(crate) queue_evts: Vec<EventFd>,
 
-    rx_rate_limiter: RateLimiter,
-    tx_rate_limiter: RateLimiter,
+    pub(crate) rx_rate_limiter: RateLimiter,
+    pub(crate) tx_rate_limiter: RateLimiter,
 
     rx_deferred_frame: bool,
     rx_deferred_irqs: bool,
@@ -279,7 +255,6 @@ impl Net {
                             {
                                 write_count += completed;
                             }
-
                             break;
                         }
                     };
@@ -504,7 +479,6 @@ impl Net {
                         {
                             read_count += completed;
                         }
-
                         break;
                     }
                 }
@@ -554,22 +528,26 @@ impl Net {
         self.tap.read(&mut self.rx_frame_buf)
     }
 
-    fn process_rx_queue_event(&mut self) {
+    pub fn process_rx_queue_event(&mut self) {
         METRICS.net.rx_queue_event_count.inc();
         if let Err(e) = self.queue_evts[RX_INDEX].read() {
+            // rate limiters present but with _very high_ allowed rate
+            // FIXME: Have to propagate an error to upper levels
+            // when all the devices are ported on polly.
             error!("Failed to get rx queue event: {:?}", e);
             METRICS.net.event_fails.inc();
         } else {
             // If the limiter is not blocked, resume the receiving of bytes.
             if !self.rx_rate_limiter.is_blocked() {
-                // FIXME: log error
-                // There should be a buffer available now to receive the frame into.
+                // FIXME: Have to propagate an error to upper levels
+                // when all the devices are ported on polly.
+                #[allow(unused)]
                 let _result = self.resume_rx();
             }
         }
     }
 
-    fn process_tap_rx_event(&mut self) {
+    pub fn process_tap_rx_event(&mut self) {
         METRICS.net.rx_tap_event_count.inc();
         if self.queues[RX_INDEX].is_empty(&self.mem) {
             // FIXME: Have to propagate an error to upper levels
@@ -591,21 +569,24 @@ impl Net {
                 self.rx_deferred_frame = false;
                 // FIXME: Have to propagate this errors to upper levels
                 // when all the devices are ported on polly.
+                #[allow(unused)]
                 let _result = self.process_rx();
             } else if self.rx_deferred_irqs {
                 self.rx_deferred_irqs = false;
                 // FIXME: Have to propagate this errors to upper levels
                 // when all the devices are ported on polly.
+                #[allow(unused)]
                 let _result = self.signal_used_queue();
             }
         } else {
             // FIXME: Have to propagate this errors to upper levels
             // when all the devices are ported on polly.
+            #[allow(unused)]
             let _result = self.process_rx();
         }
     }
 
-    fn process_tx_queue_event(&mut self) {
+    pub fn process_tx_queue_event(&mut self) {
         METRICS.net.tx_queue_event_count.inc();
         if let Err(e) = self.queue_evts[TX_INDEX].read() {
             // FIXME: Have to propagate an error to upper levels
@@ -617,12 +598,13 @@ impl Net {
         {
             // FIXME: Have to propagate this errors to upper levels
             // when all the devices are ported on polly.
+            #[allow(unused)]
             let _result = self.process_tx();
         } else {
         }
     }
 
-    fn process_rx_rate_limiter_event(&mut self) {
+    pub fn process_rx_rate_limiter_event(&mut self) {
         METRICS.net.rx_event_rate_limiter_count.inc();
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
@@ -631,6 +613,7 @@ impl Net {
                 // FIXME: Have to propagate this errors to upper levels
                 // when all the devices are ported on polly.
                 // There might be enough budget now to receive the frame.
+                #[allow(unused)]
                 let _result = self.resume_rx();
             }
             Err(e) => {
@@ -640,7 +623,7 @@ impl Net {
         }
     }
 
-    fn process_tx_rate_limiter_event(&mut self) {
+    pub fn process_tx_rate_limiter_event(&mut self) {
         METRICS.net.tx_rate_limiter_event_count.inc();
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
@@ -649,6 +632,7 @@ impl Net {
                 // FIXME: Have to propagate this errors to upper levels
                 // when all the devices are ported on polly.
                 // There might be enough budget now to send the frame.
+                #[allow(unused)]
                 let _result = self.process_tx();
             }
             Err(e) => {
@@ -661,49 +645,6 @@ impl Net {
     }
 }
 
-impl EventHandler for Net {
-    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
-        let virtq_rx_ev_fd = self.queue_evts[RX_INDEX].as_raw_fd();
-        let virtq_tx_ev_fd = self.queue_evts[TX_INDEX].as_raw_fd();
-        let rx_rate_limiter_fd = self.rx_rate_limiter.as_raw_fd();
-        let tx_rate_limiter_fd = self.tx_rate_limiter.as_raw_fd();
-        let tap_fd = self.tap.as_raw_fd();
-        let source = source;
-
-        match source {
-            _ if source == virtq_rx_ev_fd => self.process_rx_queue_event(),
-            _ if source == tap_fd => self.process_tap_rx_event(),
-            _ if source == virtq_tx_ev_fd => self.process_tx_queue_event(),
-            _ if source == rx_rate_limiter_fd => self.process_rx_rate_limiter_event(),
-            _ if source == tx_rate_limiter_fd => self.process_tx_rate_limiter_event(),
-            _ => error!("Unknown event. No handling was done."),
-        }
-
-        vec![]
-    }
-
-    fn init(&self) -> Vec<PollableOp> {
-        vec![
-            PollableOpBuilder::new(self.tap.as_raw_fd())
-                .readable()
-                .edge_trigered()
-                .register(),
-            PollableOpBuilder::new(self.queue_evts[RX_INDEX].as_raw_fd())
-                .readable()
-                .register(),
-            PollableOpBuilder::new(self.queue_evts[TX_INDEX].as_raw_fd())
-                .readable()
-                .register(),
-            PollableOpBuilder::new(self.rx_rate_limiter.as_raw_fd())
-                .readable()
-                .register(),
-            PollableOpBuilder::new(self.tx_rate_limiter.as_raw_fd())
-                .readable()
-                .register(),
-        ]
-    }
-}
-
 impl VirtioDevice for Net {
     fn device_type(&self) -> u32 {
         TYPE_NET
@@ -713,10 +654,10 @@ impl VirtioDevice for Net {
         &mut self.queues
     }
 
-    fn get_queue_events(&self) -> std::io::Result<Vec<EventFd>> {
-        let mut queue_evts_copy = Vec::new();
-        for evt in self.queue_evts.iter() {
-            queue_evts_copy.push(evt.try_clone()?);
+    fn get_queue_events(&self) -> result::Result<Vec<EventFd>, std::io::Error> {
+        let mut queue_evts_copy: Vec<EventFd> = Vec::new();
+        for event_fd in &self.queue_evts {
+            queue_evts_copy.push(event_fd.try_clone()?);
         }
 
         Ok(queue_evts_copy)
@@ -779,12 +720,25 @@ impl VirtioDevice for Net {
             METRICS.net.activate_fails.inc();
             return Err(ActivateError::BadActivate);
         }
+
         Ok(())
     }
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    pub struct TestMutators {
+        pub tap_read_fail: bool,
+    }
+
+    impl Default for TestMutators {
+        fn default() -> TestMutators {
+            TestMutators {
+                tap_read_fail: false,
+            }
+        }
+    }
+}
 //    use std::net::Ipv4Addr;
 //    use std::sync::mpsc::Receiver;
 //    use std::thread;
@@ -832,17 +786,6 @@ mod tests {}
 //        )
 //    }
 //
-//    pub struct TestMutators {
-//        pub tap_read_fail: bool,
-//    }
-//
-//    impl Default for TestMutators {
-//        fn default() -> TestMutators {
-//            TestMutators {
-//                tap_read_fail: false,
-//            }
-//        }
-//    }
 //
 //    struct DummyNet {
 //        net: Net,
@@ -947,7 +890,7 @@ mod tests {}
 //    }
 //
 //    fn activate_some_net(n: &mut Net, bad_qlen: bool, bad_evtlen: bool) -> ActivateResult {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 //        let status = Arc::new(AtomicUsize::new(0));
 //
@@ -1163,7 +1106,7 @@ mod tests {}
 //
 //    #[test]
 //    fn test_mmds_detour_and_injection() {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 //
 //        let sha = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
@@ -1224,7 +1167,7 @@ mod tests {}
 //
 //    #[test]
 //    fn test_mac_spoofing_detection() {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 //
 //        let guest_mac = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
@@ -1291,7 +1234,7 @@ mod tests {}
 //
 //    #[test]
 //    fn test_handler_error_cases() {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 //
 //        // RX rate limiter events should error since the limiter is not blocked.
@@ -1313,7 +1256,7 @@ mod tests {}
 //
 //    #[test]
 //    fn test_invalid_event_handler() {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 //
 //        let bad_event = 1000;
@@ -1337,7 +1280,7 @@ mod tests {}
 //        let test_mutators = TestMutators {
 //            tap_read_fail: true,
 //        };
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, _txq, rxq) = default_test_netepollhandler(&mem, test_mutators);
 //
 //        // The RX queue is empty.
@@ -1356,7 +1299,7 @@ mod tests {}
 //
 //    #[test]
 //    fn test_rx_rate_limited_event_handler() {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 //        let rl = RateLimiter::new(0, None, 0, 0, None, 0).unwrap();
 //        h.set_rx_rate_limiter(rl);
@@ -1369,7 +1312,7 @@ mod tests {}
 //
 //    #[test]
 //    fn test_tx_rate_limited_event_handler() {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 //        let rl = RateLimiter::new(0, None, 0, 0, None, 0).unwrap();
 //        h.set_tx_rate_limiter(rl);
@@ -1382,7 +1325,7 @@ mod tests {}
 //
 //    #[test]
 //    fn test_handler() {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, txq, rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 //
 //        let daddr = 0x2000;
@@ -1522,7 +1465,7 @@ mod tests {}
 //            let test_mutators = TestMutators {
 //                tap_read_fail: true,
 //            };
-//            let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//            let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //            let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, test_mutators);
 //
 //            check_metric_after_block!(&METRICS.net.rx_fails, 1, h.process_rx());
@@ -1531,7 +1474,7 @@ mod tests {}
 //
 //    #[test]
 //    fn test_bandwidth_rate_limiter() {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, txq, rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 //
 //        let daddr = 0x2000;
@@ -1639,7 +1582,7 @@ mod tests {}
 //
 //    #[test]
 //    fn test_ops_rate_limiter() {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, txq, rxq) = default_test_netepollhandler(&mem, TestMutators::default());
 //
 //        let daddr = 0x2000;
@@ -1749,7 +1692,7 @@ mod tests {}
 //
 //    #[test]
 //    fn test_patch_rate_limiters() {
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, _, _) = default_test_netepollhandler(&mem, TestMutators::default());
 //
 //        h.set_rx_rate_limiter(RateLimiter::new(10, None, 10, 2, None, 2).unwrap());
@@ -1782,7 +1725,7 @@ mod tests {}
 //    #[test]
 //    fn test_tx_queue_interrupt() {
 //        // Regression test for https://github.com/firecracker-microvm/firecracker/issues/1436 .
-//        let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+//        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
 //        let (mut h, txq, _) = default_test_netepollhandler(&mem, TestMutators::default());
 //
 //        let daddr = 0x2000;
