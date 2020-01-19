@@ -377,21 +377,21 @@ pub enum SeccompCmpOp {
     Ne,
 }
 
-/// Seccomp argument length.
+/// Seccomp argument value length.
 #[derive(Clone, Debug)]
 pub enum SeccompCmpArgLen {
-    /// Argument length is 4 bytes.
+    /// Argument value length is 4 bytes.
     DWORD,
-    /// Argument length is 8 bytes.
+    /// Argument value length is 8 bytes.
     QWORD,
 }
 
 /// Condition that syscall must match in order to satisfy a rule.
 #[derive(Clone, Debug)]
 pub struct SeccompCondition {
-    /// Number of the argument value that is to be compared.
+    /// Index of the argument that is to be compared.
     arg_number: u8,
-    /// Length of the argument that is to be compared.
+    /// Length of the argument value that is to be compared.
     arg_len: SeccompCmpArgLen,
     /// Comparison to perform.
     operator: SeccompCmpOp,
@@ -487,6 +487,7 @@ impl SeccompCondition {
     /// # Arguments
     ///
     /// * `arg_number` - The index of the argument in the system call.
+    /// * `arg_len` - The length of the argument value. See `SeccompCmpArgLen`.
     /// * `operator` - The comparison operator. See `SeccompCmpOp`.
     /// * `value` - The value against which the argument will be compared with `operator`.
     ///
