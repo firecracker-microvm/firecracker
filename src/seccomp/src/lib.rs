@@ -1016,10 +1016,8 @@ impl SeccompFilter {
         // Pre-collect the keys to avoid the double borrow.
         let syscalls: Vec<i64> = self.rules.keys().cloned().collect();
         for syscall in syscalls {
-            self.rules.insert(
-                syscall,
-                vec![SeccompRule::new(vec![], SeccompAction::Allow)],
-            );
+            let ruleset: SyscallRuleSet = allow_syscall(syscall);
+            self.rules.insert(ruleset.0, ruleset.1);
         }
         self
     }
@@ -1137,17 +1135,17 @@ fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
 pub enum SeccompError {
     /// Error while trying to generate a BPF program.
     SeccompFilter(Error),
-    /// Failed to parse to `u32`.
+    /// Failed to parse to `u8`.
     Parse(std::num::ParseIntError),
-    /// Seccomp level is an `u32` value, other than 0, 1 or 2.
-    Level(u32),
+    /// Seccomp level is an `u8` value, other than 0, 1 or 2.
+    Level(u8),
 }
 
 impl Display for SeccompError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match *self {
             SeccompError::SeccompFilter(ref err) => write!(f, "Seccomp error: {}", err),
-            SeccompError::Parse(ref err) => write!(f, "Could not parse to 'u32': {}", err),
+            SeccompError::Parse(ref err) => write!(f, "Could not parse to 'u8': {}", err),
             SeccompError::Level(arg) => write!(
                 f,
                 "'{}' isn't a valid value for 'seccomp-level'. Must be 0, 1 or 2.",
@@ -1158,7 +1156,7 @@ impl Display for SeccompError {
 }
 
 /// Possible values for seccomp level.
-#[repr(u32)]
+#[repr(u8)]
 #[derive(Debug, PartialEq)]
 pub enum SeccompLevel {
     /// Seccomp filtering disabled.
@@ -1173,7 +1171,7 @@ impl SeccompLevel {
     /// Converts from a seccomp level value of type String to the corresponding SeccompLevel variant
     /// or returns an error if the parsing failed.
     pub fn from_string(seccomp_value: String) -> std::result::Result<Self, SeccompError> {
-        match seccomp_value.parse::<u32>() {
+        match seccomp_value.parse::<u8>() {
             Ok(0) => Ok(SeccompLevel::None),
             Ok(1) => Ok(SeccompLevel::Basic),
             Ok(2) => Ok(SeccompLevel::Advanced),
@@ -2054,7 +2052,7 @@ mod tests {
                 "{}",
                 SeccompLevel::from_string("foo".to_string()).unwrap_err()
             ),
-            "Could not parse to 'u32': invalid digit found in string"
+            "Could not parse to 'u8': invalid digit found in string"
         );
         assert_eq!(
             SeccompLevel::from_string("0".to_string()).unwrap(),
