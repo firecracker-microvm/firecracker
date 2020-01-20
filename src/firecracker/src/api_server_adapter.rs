@@ -237,7 +237,10 @@ pub fn run_with_api(
     };
 
     // Start the metrics.
-    firecracker_metrics.lock().expect("Unlock failed.").start();
+    firecracker_metrics
+        .lock()
+        .expect("Metrics lock poisoned.")
+        .start(super::metrics::WRITE_METRICS_PERIOD_MS);
 
     // Update the api shared instance info.
     api_shared_info.write().unwrap().started = true;

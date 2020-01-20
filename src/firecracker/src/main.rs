@@ -242,6 +242,11 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
         .add_epollin_event(&event_manager, vmm::EpollDispatch::PollyEvent)
         .expect("Cannot cascade EventManager from epoll_context");
 
+    // Create the firecracker metrics object responsible for periodically printing metrics.
+    let firecracker_metrics = event_manager
+        .register(metrics::PeriodicMetrics::new())
+        .expect("Cannot register the metrics event to the event manager.");
+
     let (vm_resources, vmm) = build_microvm_from_json(
         seccomp_filter,
         &mut epoll_context,
@@ -249,6 +254,12 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
         // Safe to unwrap since no-api requires this to be set.
         config_json.unwrap(),
     );
+
+    // Start the metrics.
+    firecracker_metrics
+        .lock()
+        .expect("Metrics lock poisoned.")
+        .start(metrics::WRITE_METRICS_PERIOD_MS);
 
     let mut controller = VmmController::new(epoll_context, event_manager, vm_resources, vmm);
     let exit_code = loop {
