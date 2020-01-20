@@ -25,7 +25,7 @@ mod bus;
 pub mod legacy;
 pub mod virtio;
 
-pub use self::bus::{Bus, BusDevice, Error as BusError, RawIOHandler};
+pub use self::bus::{Bus, BusDevice, Error as BusError};
 use virtio::AsAny;
 
 pub type DeviceEventT = u16;

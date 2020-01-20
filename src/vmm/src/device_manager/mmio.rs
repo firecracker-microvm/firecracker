@@ -20,7 +20,7 @@ use devices;
 use devices::virtio::block::Block;
 use devices::virtio::TYPE_BLOCK;
 
-use devices::{BusDevice, RawIOHandler};
+use devices::BusDevice;
 use kernel::cmdline as kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
 #[cfg(target_arch = "aarch64")]
@@ -86,7 +86,6 @@ pub struct MMIODeviceManager {
     irq: u32,
     last_irq: u32,
     id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
-    raw_io_handlers: HashMap<(DeviceType, String), Arc<Mutex<dyn RawIOHandler>>>,
     block_devices: HashMap<String, Arc<Mutex<Block>>>,
 }
 
@@ -102,7 +101,6 @@ impl MMIODeviceManager {
             last_irq: irq_interval.1,
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
-            raw_io_handlers: HashMap::new(),
             block_devices: HashMap::new(),
         }
     }
@@ -285,17 +283,9 @@ impl MMIODeviceManager {
         vm.register_irqfd(&serial.lock().unwrap().interrupt_evt(), self.irq)
             .map_err(Error::RegisterIrqFd)?;
 
-        let raw_io_device = serial.clone();
-
         self.bus
             .insert(serial, self.mmio_base, MMIO_LEN)
             .map_err(|err| Error::BusError(err))?;
-
-        // Register the RawIOHandler trait.
-        self.raw_io_handlers.insert(
-            (DeviceType::Serial, DeviceType::Serial.to_string()),
-            raw_io_device,
-        );
 
         cmdline
             .insert("earlycon", &format!("uart,mmio,0x{:08x}", self.mmio_base))
@@ -371,16 +361,6 @@ impl MMIODeviceManager {
             }
         }
         None
-    }
-
-    // Used only on 'aarch64', but needed by unit tests on all platforms.
-    #[allow(dead_code)]
-    pub fn get_raw_io_device(
-        &self,
-        device_type: DeviceType,
-    ) -> Option<&Arc<Mutex<dyn RawIOHandler>>> {
-        self.raw_io_handlers
-            .get(&(device_type, device_type.to_string()))
     }
 
     pub fn get_block_device(&self, device_id: &str) -> Option<&Arc<Mutex<Block>>> {
@@ -528,8 +508,6 @@ mod tests {
             Ok(())
         }
     }
-
-    impl devices::RawIOHandler for DummyDevice {}
 
     #[test]
     fn test_register_virtio_device() {
@@ -736,26 +714,5 @@ mod tests {
         assert!(device_manager
             .get_device(DeviceType::Virtio(type_id), &id)
             .is_none());
-    }
-
-    #[test]
-    fn test_raw_io_device() {
-        let mut device_manager =
-            MMIODeviceManager::new(&mut 0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
-        let dummy_device = Arc::new(Mutex::new(DummyDevice::new()));
-
-        device_manager.raw_io_handlers.insert(
-            (
-                arch::DeviceType::Virtio(1337),
-                arch::DeviceType::Virtio(1337).to_string(),
-            ),
-            dummy_device,
-        );
-
-        let mut raw_io_device = device_manager.get_raw_io_device(arch::DeviceType::Virtio(1337));
-        assert!(raw_io_device.is_some());
-
-        raw_io_device = device_manager.get_raw_io_device(arch::DeviceType::Virtio(7331));
-        assert!(raw_io_device.is_none());
     }
 }

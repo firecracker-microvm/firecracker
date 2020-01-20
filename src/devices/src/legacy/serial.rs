@@ -14,7 +14,7 @@ use polly::event_manager::EventHandler;
 use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
 use utils::eventfd::EventFd;
 
-use crate::bus::{BusDevice, RawIOHandler};
+use crate::bus::BusDevice;
 
 const LOOP_SIZE: usize = 0x40;
 
@@ -239,9 +239,7 @@ impl Serial {
             _ => 0,
         }
     }
-}
 
-impl RawIOHandler for Serial {
     fn raw_input(&mut self, data: &[u8]) -> io::Result<()> {
         if !self.is_loop() {
             self.in_buffer.extend(data);
@@ -355,7 +353,6 @@ mod tests {
     fn serial_input() {
         let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_out = SharedBuffer::new();
-        let mut buffer: Vec<u8> = Vec::with_capacity(16);
 
         let mut serial =
             Serial::new_out(intr_evt.try_clone().unwrap(), Box::new(serial_out.clone()));
@@ -365,7 +362,6 @@ mod tests {
         assert!(intr_evt.write(1).is_ok());
         serial.write(u64::from(IER), &[IER_RECV_BIT]);
         serial.raw_input(&[b'a', b'b', b'c']).unwrap();
-        serial.raw_output(buffer.as_mut_slice()).unwrap();
 
         assert_eq!(intr_evt.read().unwrap(), 2);
 
