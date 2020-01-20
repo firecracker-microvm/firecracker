@@ -32,18 +32,6 @@ pub trait BusDevice: AsAny + Send {
     }
 }
 
-/// Trait for devices that handle raw non-blocking I/O requests.
-pub trait RawIOHandler {
-    /// Send raw input to this emulated device.
-    fn raw_input(&mut self, _data: &[u8]) -> io::Result<()> {
-        Ok(())
-    }
-    /// Receive raw output from this emulated device.
-    fn raw_output(&mut self, _data: &mut [u8]) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 #[derive(Debug)]
 pub enum Error {
     /// The insertion failed because the new device overlapped with an old device.
