@@ -24,6 +24,7 @@
 - Decreased release binary size by ~15%.
 - Changed default API socket path to `/run/firecracker.socket`. This path
   also applies when running with the jailer.
+- Disabled KVM dirty page tracking by default.
 
 ## [0.20.0]
 
