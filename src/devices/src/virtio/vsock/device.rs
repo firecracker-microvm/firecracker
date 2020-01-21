@@ -54,6 +54,7 @@ pub struct Vsock<B: VsockBackend> {
     interrupt_status: Arc<AtomicUsize>,
     queues: Vec<VirtQueue>,
     queue_evts: Vec<EventFd>,
+    device_activated: bool,
 }
 
 impl<B> Vsock<B>
@@ -82,6 +83,7 @@ where
             interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             queues,
             queue_evts,
+            device_activated: false,
         })
     }
 }
@@ -230,6 +232,14 @@ where
         .map_err(ActivateError::EpollCtl)?;
 
         Ok(())
+    }
+
+    fn is_activated(&self) -> bool {
+        self.device_activated
+    }
+
+    fn set_device_activated(&mut self, device_activated: bool) {
+        self.device_activated = device_activated;
     }
 }
 
