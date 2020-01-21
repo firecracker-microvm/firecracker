@@ -582,6 +582,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "utils",
+ "vmm-sys-util",
 ]
 
 [[package]]

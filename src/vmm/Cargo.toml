@@ -29,3 +29,4 @@ cpuid = { path = "../cpuid" }
 
 [dev-dependencies]
 tempfile = ">=3.0.2"
+vmm-sys-util = ">=0.2.1"
