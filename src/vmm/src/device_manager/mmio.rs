@@ -505,6 +505,12 @@ mod tests {
         fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
             Ok(())
         }
+
+        fn is_activated(&self) -> bool {
+            false
+        }
+
+        fn set_device_activated(&mut self, _device_activated: bool) {}
     }
 
     #[test]

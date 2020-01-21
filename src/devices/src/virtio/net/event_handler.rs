@@ -2,13 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::virtio::net::device::Net;
-use crate::virtio::{RX_INDEX, TX_INDEX};
+use crate::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
 use polly::event_manager::EventHandler;
 use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
 use std::os::unix::io::AsRawFd;
 
 impl EventHandler for Net {
     fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+        if !self.is_activated() {
+            warn!("The device is not yet activated. Events can not be handled.");
+            return vec![];
+        }
+
         let virtq_rx_ev_fd = self.queue_evts[RX_INDEX].as_raw_fd();
         let virtq_tx_ev_fd = self.queue_evts[TX_INDEX].as_raw_fd();
         let rx_rate_limiter_fd = self.rx_rate_limiter.as_raw_fd();

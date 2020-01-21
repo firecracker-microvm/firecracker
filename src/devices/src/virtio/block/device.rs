@@ -21,11 +21,9 @@ use virtio_gen::virtio_blk::*;
 use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::{
-    super::{
-        ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING,
-    },
+    super::{ActivateResult, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING},
     request::*,
-    Error, CONFIG_SPACE_SIZE, NUM_QUEUES, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
+    Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
 };
 
 use crate::Error as DeviceError;
@@ -98,6 +96,8 @@ pub struct Block {
     pub(crate) queue_evt: EventFd,
     mem: GuestMemoryMmap,
 
+    device_activated: bool,
+
     // Implementation specific fields.
     pub(crate) rate_limiter: RateLimiter,
 }
@@ -137,6 +137,7 @@ impl Block {
             interrupt_evt: EventFd::new(libc::EFD_NONBLOCK)?,
             queue_evt,
             queues,
+            device_activated: false,
         })
     }
 
@@ -312,17 +313,16 @@ impl VirtioDevice for Block {
         right.copy_from_slice(&data[..]);
     }
 
-    fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
-        if self.queues.len() != NUM_QUEUES {
-            error!(
-                "Cannot perform activate. Expected {} queue(s), got {}",
-                NUM_QUEUES,
-                self.queues.len()
-            );
-            METRICS.block.activate_fails.inc();
-            return Err(ActivateError::BadActivate);
-        }
+    fn is_activated(&self) -> bool {
+        self.device_activated
+    }
 
+    fn set_device_activated(&mut self, device_activated: bool) {
+        self.device_activated = device_activated;
+    }
+
+    fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
+        // TODO: to be removed
         Ok(())
     }
 }

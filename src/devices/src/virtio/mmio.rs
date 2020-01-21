@@ -40,7 +40,6 @@ const MMIO_VERSION: u32 = 2;
 /// and inner virtio device.
 pub struct MmioTransport {
     device: Arc<Mutex<dyn VirtioDevice>>,
-    device_activated: bool,
     // The register where feature bits are stored.
     features_select: u32,
     // The register where features page is selected.
@@ -65,7 +64,6 @@ impl MmioTransport {
 
         Ok(MmioTransport {
             device,
-            device_activated: false,
             features_select: 0,
             acked_features_select: 0,
             queue_select: 0,
@@ -138,7 +136,7 @@ impl MmioTransport {
     }
 
     fn reset(&mut self) {
-        if self.device_activated {
+        if self.locked_device().is_activated() {
             warn!("reset device while it's still in active state");
             return;
         }
@@ -179,14 +177,12 @@ impl MmioTransport {
             }
             DRIVER_OK if self.device_status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) => {
                 self.device_status = status;
-                // If the driver incorrectly sets up the queues, the following
-                // check will fail and take the device into an unusable state.
-                if !self.device_activated && self.are_queues_valid() {
+                let device_activated = self.locked_device().is_activated();
+                if !device_activated && self.are_queues_valid() {
                     self.locked_device()
                         .activate(self.mem.clone())
                         .expect("Failed to activate device");
-
-                    self.device_activated = true;
+                    self.locked_device().set_device_activated(true);
                 }
             }
             _ if (status & FAILED) != 0 => {
@@ -194,7 +190,7 @@ impl MmioTransport {
                 self.device_status |= FAILED;
             }
             _ if status == 0 => {
-                if self.device_activated {
+                if self.locked_device().is_activated() {
                     let mut device_activated = true;
                     let mut device_status = self.device_status;
                     let reset_result = self.locked_device().reset();
@@ -208,7 +204,7 @@ impl MmioTransport {
                         }
                     }
 
-                    self.device_activated = device_activated;
+                    self.locked_device().set_device_activated(device_activated);
                     self.device_status = device_status;
                 }
 
