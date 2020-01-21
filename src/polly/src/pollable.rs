@@ -1,8 +1,11 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
 use std::convert::From;
 use std::fmt::Formatter;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+
+use epoll;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Pollable {
@@ -80,20 +83,20 @@ impl EventSet {
     }
 }
 
-impl From<EventSet> for epoll::Events {
-    fn from(event: EventSet) -> epoll::Events {
-        let mut epoll_event_mask = epoll::Events::empty();
+impl From<EventSet> for epoll::EventType {
+    fn from(event: EventSet) -> epoll::EventType {
+        let mut epoll_event_mask = epoll::EventType::empty();
 
         if event.is_readable() {
-            epoll_event_mask |= epoll::Events::EPOLLIN;
+            epoll_event_mask |= epoll::EventType::IN;
         }
 
         if event.is_writeable() {
-            epoll_event_mask |= epoll::Events::EPOLLOUT;
+            epoll_event_mask |= epoll::EventType::OUT;
         }
 
         if event.is_closed() {
-            epoll_event_mask |= epoll::Events::EPOLLRDHUP;
+            epoll_event_mask |= epoll::EventType::READ_HANG_UP;
         }
 
         epoll_event_mask
@@ -158,6 +161,7 @@ impl PollableOpBuilder {
 mod tests {
     use super::*;
     use std::io;
+
     #[test]
     fn test_pollable() {
         let mut pollable = Pollable::from(&io::stdin());
