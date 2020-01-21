@@ -180,6 +180,20 @@ impl Display for StartMicrovmError {
     }
 }
 
+// Wrapper over io::Stdin that implements `ReadableFd`.
+struct SerialStdin(io::Stdin);
+impl io::Read for SerialStdin {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+impl AsRawFd for SerialStdin {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+impl devices::legacy::ReadableFd for SerialStdin {}
+
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
 /// This is the default build recipe, one could build other microVM flavors by using the
@@ -213,23 +227,9 @@ pub fn build_microvm(
     let serial_device = if cfg!(target_arch = "x86_64")
         || (cfg!(target_arch = "aarch64") && kernel_cmdline.as_str().contains("console="))
     {
-        // Wrapper over io::Stdin that implements `ReadableFd`.
-        struct SerialStdin(io::Stdin);
-        impl io::Read for SerialStdin {
-            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-                self.0.read(buf)
-            }
-        }
-        impl AsRawFd for SerialStdin {
-            fn as_raw_fd(&self) -> RawFd {
-                self.0.as_raw_fd()
-            }
-        }
-        impl devices::legacy::ReadableFd for SerialStdin {};
-        let stdin_handle = SerialStdin(io::stdin());
         Some(setup_serial_device(
             event_manager,
-            Box::new(stdin_handle),
+            Box::new(SerialStdin(io::stdin())),
             Box::new(io::stdout()),
         )?)
     } else {
@@ -823,4 +823,49 @@ fn attach_vsock_device(
     .map_err(RegisterVsockDevice)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+pub mod tests {
+    extern crate vmm_sys_util;
+    use self::vmm_sys_util::tempfile::TempFile;
+
+    use std::fs::File;
+
+    use super::*;
+    use polly::event_manager::EventManager;
+
+    #[test]
+    fn test_stdin_wrapper() {
+        let wrapper = SerialStdin(io::stdin());
+        assert_eq!(wrapper.as_raw_fd(), io::stdin().as_raw_fd())
+    }
+
+    #[test]
+    fn test_setup_serial_device() {
+        // Wrapper over TempFile that implements `ReadableFd`.
+        struct SerialInput(File);
+        impl io::Read for SerialInput {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                self.0.read(buf)
+            }
+        }
+        impl AsRawFd for SerialInput {
+            fn as_raw_fd(&self) -> RawFd {
+                self.0.as_raw_fd()
+            }
+        }
+        impl devices::legacy::ReadableFd for SerialInput {};
+
+        let read_tempfile = TempFile::new().unwrap();
+        let read_file = File::open(read_tempfile.as_path()).unwrap();
+        let read_handle = SerialInput(read_file);
+        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        setup_serial_device(
+            &mut event_manager,
+            Box::new(read_handle),
+            Box::new(io::stdout()),
+        )
+        .unwrap();
+    }
 }

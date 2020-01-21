@@ -308,64 +308,92 @@ impl EventHandler for Serial {
 mod tests {
     use super::*;
     use std::io;
+    use std::io::Write;
+    use std::os::unix::io::RawFd;
     use std::sync::{Arc, Mutex};
+
+    use polly::event_manager::EventManager;
+
+    struct SharedBufferInternal {
+        read_buf: Vec<u8>,
+        write_buf: Vec<u8>,
+        evfd: EventFd,
+    }
 
     #[derive(Clone)]
     struct SharedBuffer {
-        buf: Arc<Mutex<Vec<u8>>>,
+        internal: Arc<Mutex<SharedBufferInternal>>,
     }
 
     impl SharedBuffer {
         fn new() -> SharedBuffer {
             SharedBuffer {
-                buf: Arc::new(Mutex::new(Vec::new())),
+                internal: Arc::new(Mutex::new(SharedBufferInternal {
+                    read_buf: Vec::new(),
+                    write_buf: Vec::new(),
+                    evfd: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                })),
             }
         }
     }
-
     impl io::Write for SharedBuffer {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.buf.lock().unwrap().write(buf)
+            self.internal.lock().unwrap().write_buf.write(buf)
         }
         fn flush(&mut self) -> io::Result<()> {
-            self.buf.lock().unwrap().flush()
+            self.internal.lock().unwrap().write_buf.flush()
         }
     }
+    impl io::Read for SharedBuffer {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.internal.lock().unwrap().read_buf.as_slice().read(buf)
+        }
+    }
+    impl AsRawFd for SharedBuffer {
+        fn as_raw_fd(&self) -> RawFd {
+            self.internal.lock().unwrap().evfd.as_raw_fd()
+        }
+    }
+    impl ReadableFd for SharedBuffer {}
+
+    static RAW_INPUT_BUF: [u8; 3] = [b'a', b'b', b'c'];
 
     #[test]
-    fn serial_output() {
+    fn test_serial_output() {
         let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_out = SharedBuffer::new();
 
         let mut serial = Serial::new_out(intr_evt, Box::new(serial_out.clone()));
 
+        // Invalid write of multiple chars at once.
         serial.write(u64::from(DATA), &[b'x', b'y']);
-        serial.write(u64::from(DATA), &[b'a']);
-        serial.write(u64::from(DATA), &[b'b']);
-        serial.write(u64::from(DATA), &[b'c']);
+        // Valid one char at a time writes.
+        RAW_INPUT_BUF
+            .iter()
+            .for_each(|&c| serial.write(u64::from(DATA), &[c]));
         assert_eq!(
-            serial_out.buf.lock().unwrap().as_slice(),
-            &[b'a', b'b', b'c']
+            serial_out.internal.lock().unwrap().write_buf.as_slice(),
+            &RAW_INPUT_BUF
         );
     }
 
     #[test]
-    fn serial_input() {
+    fn test_serial_raw_input() {
         let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_out = SharedBuffer::new();
 
-        let mut serial =
-            Serial::new_out(intr_evt.try_clone().unwrap(), Box::new(serial_out.clone()));
+        let mut serial = Serial::new_out(intr_evt.try_clone().unwrap(), Box::new(serial_out));
 
-        // write 1 to the interrupt event fd, so that read doesn't block in case the event fd
-        // counter doesn't change (for 0 it blocks)
+        // Write 1 to the interrupt event fd, so that read doesn't block in case the event fd
+        // counter doesn't change (for 0 it blocks).
         assert!(intr_evt.write(1).is_ok());
         serial.write(u64::from(IER), &[IER_RECV_BIT]);
-        serial.raw_input(&[b'a', b'b', b'c']).unwrap();
+        serial.raw_input(&RAW_INPUT_BUF).unwrap();
 
+        // Verify the serial raised an interrupt.
         assert_eq!(intr_evt.read().unwrap(), 2);
 
-        // check if reading in a 2-length array doesn't have side effects
+        // Check if reading in a 2-length array doesn't have side effects.
         let mut data = [0u8, 0u8];
         serial.read(u64::from(DATA), &mut data[..]);
         assert_eq!(data, [0u8, 0u8]);
@@ -373,20 +401,66 @@ mod tests {
         let mut data = [0u8];
         serial.read(u64::from(LSR), &mut data[..]);
         assert_ne!(data[0] & LSR_DATA_BIT, 0);
-        serial.read(u64::from(DATA), &mut data[..]);
-        assert_eq!(data[0], b'a');
-        serial.read(u64::from(DATA), &mut data[..]);
-        assert_eq!(data[0], b'b');
-        serial.read(u64::from(DATA), &mut data[..]);
-        assert_eq!(data[0], b'c');
 
-        // check if reading from the largest u8 offset returns 0
+        // Verify reading the previously inputted buffer.
+        RAW_INPUT_BUF.iter().for_each(|&c| {
+            serial.read(u64::from(DATA), &mut data[..]);
+            assert_eq!(data[0], c);
+        });
+
+        // Check if reading from the largest u8 offset returns 0.
         serial.read(0xff, &mut data[..]);
         assert_eq!(data[0], 0);
     }
 
     #[test]
-    fn serial_thr() {
+    fn test_serial_input() {
+        let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let serial_in_out = SharedBuffer::new();
+
+        let mut serial = Serial::new_in_out(
+            intr_evt.try_clone().unwrap(),
+            Box::new(serial_in_out.clone()),
+            Box::new(serial_in_out.clone()),
+        );
+
+        // Write 1 to the interrupt event fd, so that read doesn't block in case the event fd
+        // counter doesn't change (for 0 it blocks).
+        assert!(intr_evt.write(1).is_ok());
+        serial.write(u64::from(IER), &[IER_RECV_BIT]);
+
+        // Prepare the input buffer.
+        {
+            let mut guard = serial_in_out.internal.lock().unwrap();
+            guard.read_buf.write_all(&RAW_INPUT_BUF).unwrap();
+            guard.evfd.write(1).unwrap();
+        }
+
+        let mut evmgr = EventManager::new().unwrap();
+        let serial_wrap = Arc::new(Mutex::new(serial));
+        evmgr.register(serial_wrap.clone()).unwrap();
+
+        // Run the event handler which should drive serial input.
+        // There should be one event reported (which should have also handled serial input).
+        assert_eq!(evmgr.run_timeout(50).unwrap(), 1);
+
+        // Verify the serial raised an interrupt.
+        assert_eq!(intr_evt.read().unwrap(), 2);
+
+        let mut serial = serial_wrap.lock().unwrap();
+        let mut data = [0u8];
+        serial.read(u64::from(LSR), &mut data[..]);
+        assert_ne!(data[0] & LSR_DATA_BIT, 0);
+
+        // Verify reading the previously inputted buffer.
+        RAW_INPUT_BUF.iter().for_each(|&c| {
+            serial.read(u64::from(DATA), &mut data[..]);
+            assert_eq!(data[0], c);
+        });
+    }
+
+    #[test]
+    fn test_serial_thr() {
         let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let mut serial = Serial::new_sink(intr_evt.try_clone().unwrap());
 
@@ -405,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn serial_dlab() {
+    fn test_serial_dlab() {
         let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(LCR), &[LCR_DLAB_BIT as u8]);
@@ -422,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn serial_modem() {
+    fn test_serial_modem() {
         let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(MCR), &[MCR_LOOP_BIT as u8]);
@@ -444,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn serial_scratch() {
+    fn test_serial_scratch() {
         let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(SCR), &[0x12 as u8]);
