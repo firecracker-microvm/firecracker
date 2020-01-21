@@ -50,7 +50,10 @@ fn validate_payload(action_body: &ActionBody) -> Result<(), Error> {
                 )),
             }
         }
-        ActionType::FlushMetrics | ActionType::InstanceStart | ActionType::SendCtrlAltDel | ActionType::InstanceForceStop => {
+        ActionType::FlushMetrics
+        | ActionType::InstanceStart
+        | ActionType::SendCtrlAltDel
+        | ActionType::InstanceForceStop => {
             // Neither FlushMetrics nor InstanceStart should have a payload.
             if action_body.payload.is_some() {
                 return Err(Error::Generic(
@@ -91,7 +94,7 @@ pub fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
 
             #[cfg(target_arch = "x86_64")]
             Ok(ParsedRequest::Sync(VmmAction::SendCtrlAltDel))
-        },
+        }
         ActionType::InstanceForceStop => Ok(ParsedRequest::Sync(VmmAction::ForceStopMicroVm)),
     }
 }

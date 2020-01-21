@@ -98,7 +98,9 @@ use vmm_config::net::{
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{KvmContext, Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
-pub use error::{ErrorKind, ForceStopMicrovmError, LoadInitrdError, StartMicrovmError, VmmActionError};
+pub use error::{
+    ErrorKind, ForceStopMicrovmError, LoadInitrdError, StartMicrovmError, VmmActionError,
+};
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 

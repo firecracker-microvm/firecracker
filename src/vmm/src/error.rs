@@ -529,7 +529,6 @@ impl std::convert::From<ForceStopMicrovmError> for VmmActionError {
     }
 }
 
-
 impl VmmActionError {
     /// Returns the error type.
     pub fn kind(&self) -> &ErrorKind {
