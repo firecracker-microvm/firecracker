@@ -1,12 +1,13 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use epoll::Events;
+
+use epoll;
 use pollable::{EventRegistrationData, Pollable, PollableOp, PollableOpBuilder};
 use std::collections::HashMap;
 use std::fmt::Formatter;
 use std::io;
 use std::ops::{Deref, DerefMut};
-use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use utils::eventfd::EventFd;
@@ -180,7 +181,7 @@ pub type ChannelMessage = (WrappedHandler, Vec<PollableOp>);
 pub type Channel = GenericChannel<ChannelMessage>;
 
 pub struct EventManager {
-    fd: Pollable,
+    epoll: epoll::Epoll,
     handlers: HandlerMap,
     events: Vec<epoll::Event>,
     channel_rx: Receiver<ChannelMessage>,
@@ -189,21 +190,20 @@ pub struct EventManager {
 
 impl AsRawFd for EventManager {
     fn as_raw_fd(&self) -> RawFd {
-        self.fd.as_raw_fd()
+        self.epoll.as_raw_fd()
     }
 }
 
 impl EventManager {
     /// Create a new EventManager.
     pub fn new() -> Result<EventManager> {
-        let epoll_fd =
-            unsafe { Pollable::from_raw_fd(epoll::create(true).map_err(Error::EpollCreate)?) };
+        let epoll_fd = epoll::Epoll::new().map_err(Error::EpollCreate)?;
         let (tx, rx) = channel();
 
         Ok(EventManager {
-            fd: epoll_fd,
+            epoll: epoll_fd,
             handlers: HandlerMap::new(),
-            events: vec![epoll::Event::new(epoll::Events::empty(), 0); EVENT_BUFFER_SIZE],
+            events: vec![epoll::Event::default(); EVENT_BUFFER_SIZE],
             channel_rx: rx,
             channel_tx: Channel::new(tx)?,
         })
@@ -227,17 +227,17 @@ impl EventManager {
             return Err(Error::AlreadyExists(pollable));
         };
 
-        epoll::ctl(
-            self.fd.as_raw_fd(),
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            pollable.as_raw_fd(),
-            epoll::Event::new(
-                event_type.into(),
-                // Use the fd for event source identification in handlers.
-                pollable.as_raw_fd() as u64,
-            ),
-        )
-        .map_err(Error::Poll)?;
+        self.epoll
+            .ctl(
+                epoll::ControlOperation::Add,
+                pollable.as_raw_fd(),
+                epoll::Event::new(
+                    event_type.into(),
+                    // Use the fd for event source identification in handlers.
+                    pollable.as_raw_fd() as u64,
+                ),
+            )
+            .map_err(Error::Poll)?;
 
         self.handlers.insert(
             pollable.as_raw_fd(),
@@ -301,13 +301,13 @@ impl EventManager {
 
     fn update_event(&mut self, event: EventRegistrationData) -> Result<()> {
         if let Some(handler_data) = self.handlers.get_mut(&event.0.as_raw_fd()) {
-            epoll::ctl(
-                self.fd.as_raw_fd(),
-                epoll::ControlOptions::EPOLL_CTL_MOD,
-                event.0.as_raw_fd(),
-                epoll::Event::new(event.1.into(), event.0.as_raw_fd() as u64),
-            )
-            .map_err(Error::Poll)?;
+            self.epoll
+                .ctl(
+                    epoll::ControlOperation::Modify,
+                    event.0.as_raw_fd(),
+                    epoll::Event::new(event.1.into(), event.0.as_raw_fd() as u64),
+                )
+                .map_err(Error::Poll)?;
             handler_data.data = event;
         } else {
             return Err(Error::NotFound(event.0));
@@ -321,13 +321,13 @@ impl EventManager {
     pub fn unregister(&mut self, pollable: Pollable) -> Result<()> {
         match self.handlers.remove(&pollable.as_raw_fd()) {
             Some(_) => {
-                epoll::ctl(
-                    self.fd.as_raw_fd(),
-                    epoll::ControlOptions::EPOLL_CTL_DEL,
-                    pollable.as_raw_fd(),
-                    epoll::Event::new(epoll::Events::empty(), 0),
-                )
-                .map_err(Error::Poll)?;
+                self.epoll
+                    .ctl(
+                        epoll::ControlOperation::Delete,
+                        pollable.as_raw_fd(),
+                        epoll::Event::default(),
+                    )
+                    .map_err(Error::Poll)?;
             }
             None => {
                 return Err(Error::NotFound(pollable));
@@ -341,7 +341,7 @@ impl EventManager {
     fn dispatch_event(
         &mut self,
         source: Pollable,
-        evset: epoll::Events,
+        evset: epoll::EventType,
         wrapped_handler: WrappedHandler,
     ) -> Result<()> {
         let mut all_ops = Vec::new();
@@ -350,19 +350,19 @@ impl EventManager {
 
         // If an error occurs on a fd then only dispatch the error callback,
         // ignoring other flags.
-        if evset.contains(epoll::Events::EPOLLERR) {
+        if evset.contains(epoll::EventType::ERROR) {
             all_ops.append(&mut handler.handle_error(source));
         } else {
             // We expect EventHandler implementors to be prepared to
             // handle multiple events for a pollable in this order:
             // READ, WRITE, CLOSE.
-            if evset.contains(epoll::Events::EPOLLIN) {
+            if evset.contains(epoll::EventType::IN) {
                 all_ops.append(&mut handler.handle_read(source));
             }
-            if evset.contains(epoll::Events::EPOLLOUT) {
+            if evset.contains(epoll::EventType::OUT) {
                 all_ops.append(&mut handler.handle_write(source));
             }
-            if evset.contains(epoll::Events::EPOLLRDHUP) {
+            if evset.contains(epoll::EventType::READ_HANG_UP) {
                 all_ops.append(&mut handler.handle_close(source));
             }
         }
@@ -375,9 +375,9 @@ impl EventManager {
     fn process_events(&mut self, event_count: usize) -> Result<()> {
         for idx in 0..event_count {
             let event = self.events[idx];
-            let event_mask = event.events;
-            let event_data = event.data;
-            let evset = match Events::from_bits(event_mask) {
+            let event_mask = event.events();
+            let event_data = event.data();
+            let evset = match epoll::EventType::from_bits(event_mask) {
                 Some(evset) => evset,
                 None => {
                     // Ignore unknown bits in event mask.
@@ -416,7 +416,9 @@ impl EventManager {
 
     // Wait for events or a timeout, then dispatch to registered event handlers.
     pub fn run_timeout(&mut self, milliseconds: i32) -> Result<usize> {
-        let event_count = epoll::wait(self.fd.as_raw_fd(), milliseconds, &mut self.events[..])
+        let event_count = self
+            .epoll
+            .wait(EVENT_BUFFER_SIZE, milliseconds, &mut self.events[..])
             .map_err(Error::Poll)?;
         self.process_events(event_count)?;
 
@@ -514,9 +516,9 @@ mod tests {
 
     #[test]
     fn test_event_type_to_epoll_mask() {
-        let mask: epoll::Events = (EventSet::READ | EventSet::WRITE | EventSet::CLOSE).into();
+        let mask: epoll::EventType = (EventSet::READ | EventSet::WRITE | EventSet::CLOSE).into();
         let epoll_mask =
-            epoll::Events::EPOLLIN | epoll::Events::EPOLLOUT | epoll::Events::EPOLLRDHUP;
+            epoll::EventType::IN | epoll::EventType::OUT | epoll::EventType::READ_HANG_UP;
 
         assert_eq!(mask, epoll_mask);
     }
