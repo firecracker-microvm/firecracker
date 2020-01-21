@@ -28,4 +28,4 @@ polly = { path = "../polly" }
 cpuid = { path = "../cpuid" }
 
 [dev-dependencies]
-libc = ">=0.2.39"
+vmm-sys-util = ">=0.2.1"
