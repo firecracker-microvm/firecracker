@@ -3,46 +3,19 @@
 
 use std::convert::From;
 use std::fmt::Formatter;
-use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::io::RawFd;
 
 use epoll;
 
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub struct Pollable {
-    // Event manager will use this in callbacks so the EventHandler implementation can
-    // multiplex the handling for multiple registered fds.
-    fd: RawFd,
-}
-
-/// Wrapper for file descriptors.
-impl Pollable {
-    pub fn from<T: AsRawFd>(rawfd: &T) -> Pollable {
-        Pollable {
-            fd: rawfd.as_raw_fd(),
-        }
-    }
-}
-
-impl FromRawFd for Pollable {
-    unsafe fn from_raw_fd(fd: RawFd) -> Pollable {
-        Pollable { fd }
-    }
-}
-
-impl AsRawFd for Pollable {
-    fn as_raw_fd(&self) -> RawFd {
-        self.fd
-    }
-}
-
+pub type Pollable = RawFd;
 pub type EventRegistrationData = (Pollable, EventSet);
 
 pub enum PollableOp {
-    /// Register a new handler for a pollable and eventset.
+    /// Register a new handler for a pollable fd and a set of events.
     Register(EventRegistrationData),
-    /// Unregister a handler for a pollable.
+    /// Unregister a handler for a pollable fd.
     Unregister(Pollable),
-    /// Update eventset for a specified pollable.
+    /// Update the event set for a specified pollable fd.
     Update(EventRegistrationData),
 }
 
@@ -51,14 +24,16 @@ impl std::fmt::Debug for PollableOp {
         use self::PollableOp::*;
 
         match self {
-            Register(data) => write!(f, "Register {:?}", data),
-            Unregister(data) => write!(f, "Unregister {:?}", data),
-            Update(data) => write!(f, "Update {:?}", data),
+            Register(data) => write!(f, "Register (fd: {}, events: {:?})", data.0, data.1),
+            Unregister(data) => write!(f, "Unregister fd: {}", data),
+            Update(data) => write!(f, "Update (fd: {}, events: {:?})", data.0, data.1),
         }
     }
 }
 
 bitflags! {
+    /// Contains the events we want to monitor a fd and it works as an interface between
+    /// the platform specific events and some general events we are watching.
     pub struct EventSet: u8 {
         const NONE = 0b0000_0000;
         const READ = 0b0000_0001;
@@ -103,12 +78,8 @@ impl From<EventSet> for epoll::EventType {
     }
 }
 
-impl std::fmt::Display for Pollable {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.fd)
-    }
-}
-
+/// Associates the file descriptor represented by `fd` with the events
+/// that the user is interested for it.
 pub struct PollableOpBuilder {
     fd: Pollable,
     event_mask: EventSet,
@@ -141,17 +112,17 @@ impl PollableOpBuilder {
         self
     }
 
-    /// Create a Register PollableOp.
+    /// Create a `Register` PollableOp.
     pub fn register(&self) -> PollableOp {
         PollableOp::Register((self.fd, self.event_mask))
     }
 
-    /// Create an Unregister PollableOp.
+    /// Create an `Unregister` PollableOp.
     pub fn unregister(&self) -> PollableOp {
         PollableOp::Unregister(self.fd)
     }
 
-    /// Create an Update PollableOp.
+    /// Create an `Update` PollableOp.
     pub fn update(&self) -> PollableOp {
         PollableOp::Update((self.fd, self.event_mask))
     }
@@ -161,18 +132,11 @@ impl PollableOpBuilder {
 mod tests {
     use super::*;
     use std::io;
-
-    #[test]
-    fn test_pollable() {
-        let mut pollable = Pollable::from(&io::stdin());
-        assert_eq!(pollable.as_raw_fd(), io::stdin().as_raw_fd());
-        pollable = unsafe { Pollable::from_raw_fd(io::stdin().as_raw_fd()) };
-        assert_eq!(pollable.as_raw_fd(), io::stdin().as_raw_fd());
-    }
+    use std::os::unix::io::AsRawFd;
 
     #[test]
     fn test_pollable_op_builder() {
-        let pollable = Pollable::from(&io::stdin());
+        let pollable = io::stdin().as_raw_fd();
         let mut op_register = PollableOpBuilder::new(pollable)
             .readable()
             .writeable()
@@ -180,7 +144,7 @@ mod tests {
             .register();
         assert_eq!(
             format!("{:?}", op_register),
-            "Register (Pollable { fd: 0 }, READ | WRITE | CLOSE)"
+            "Register (fd: 0, events: READ | WRITE | CLOSE)"
         );
 
         match op_register {
