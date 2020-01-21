@@ -456,6 +456,7 @@ definitions:
         - FlushMetrics
         - InstanceStart
         - SendCtrlAltDel
+        - InstanceForceStop
       payload:
         type: string
 

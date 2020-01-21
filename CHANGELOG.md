@@ -7,6 +7,9 @@
 - Support for booting with an initial RAM disk image. This image can be
   specified through the new `initrd_path` field of the `/boot-source` API
   request.
+- New API action: InstanceForceStop, used to forcefully stop a running
+  instance. See [the docs](docs/api_requests/actions.md#instanceforcestop) for
+  details.
 
 ### Fixed
 

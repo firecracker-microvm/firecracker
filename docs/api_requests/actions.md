@@ -118,3 +118,22 @@ curl --unix-socket /tmp/firecracker.socket -i \
              \"action_type\": \"SendCtrlAltDel\"
     }"
 ```
+
+## InstanceForceStop
+
+This action will forcefully exit the microVM by stopping all VCPUs. Note that
+this is an unclean shutdown; the guest will not have a chance to respond to
+this action, and no guarantees are made about the order or synchronization of
+stopping VCPUs.
+
+### InstanceForceStop Example
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT "http://localhost/actions" \
+    -H  "accept: application/json" \
+    -H  "Content-Type: application/json" \
+    -d "{
+             \"action_type\": \"InstanceForceStop\"
+    }"
+```
