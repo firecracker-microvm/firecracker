@@ -1,8 +1,6 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use epoll;
-use pollable::{EventRegistrationData, Pollable, PollableOp, PollableOpBuilder};
 use std::collections::HashMap;
 use std::fmt::Formatter;
 use std::io;
@@ -10,7 +8,11 @@ use std::ops::{Deref, DerefMut};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
+
 use utils::eventfd::EventFd;
+
+use epoll;
+use pollable::{EventRegistrationData, Pollable, PollableOp, PollableOpBuilder};
 
 const EVENT_BUFFER_SIZE: usize = 128;
 const DEFAULT_EPOLL_TIMEOUT: i32 = 250;
@@ -18,6 +20,7 @@ const DEFAULT_EPOLL_TIMEOUT: i32 = 250;
 pub type Result<T> = std::result::Result<T, Error>;
 pub type WrappedHandler = Arc<Mutex<dyn EventHandler>>;
 
+/// Errors associated with epoll events handling.
 pub enum Error {
     /// Cannot create epoll fd.
     EpollCreate(io::Error),
@@ -44,7 +47,7 @@ impl std::fmt::Debug for Error {
             Poll(err) => write!(f, "Error during epoll call: {}", err),
             AlreadyExists(pollable) => write!(
                 f,
-                "A handler for the specified pollable {} already exists",
+                "A handler for the specified pollable {} already exists.",
                 pollable
             ),
             ChannelFd(err) => write!(f, "Error while writing channel event fd: {}", err),
@@ -52,7 +55,7 @@ impl std::fmt::Debug for Error {
             ChannelClone(err) => write!(f, "Error while cloning tx channel: {}", err),
             NotFound(pollable) => write!(
                 f,
-                "A handler for the specified pollable {} was not found",
+                "A handler for the specified pollable {} was not found.",
                 pollable
             ),
         }
@@ -156,7 +159,7 @@ impl<T> GenericChannel<T> {
         self.channel.send(msg).map_err(|_| Error::ChannelDisconnect)
     }
 
-    /// Reads evenfd event count.
+    /// Reads eventfd event count.
     pub fn read_event(&mut self) -> u64 {
         self.fd.read().unwrap_or(0)
     }
@@ -180,10 +183,11 @@ impl<T> AsRawFd for GenericChannel<T> {
 pub type ChannelMessage = (WrappedHandler, Vec<PollableOp>);
 pub type Channel = GenericChannel<ChannelMessage>;
 
+/// Manages I/O notifications using epoll mechanism.
 pub struct EventManager {
     epoll: epoll::Epoll,
     handlers: HandlerMap,
-    events: Vec<epoll::Event>,
+    ready_events: Vec<epoll::Event>,
     channel_rx: Receiver<ChannelMessage>,
     channel_tx: Channel,
 }
@@ -203,7 +207,10 @@ impl EventManager {
         Ok(EventManager {
             epoll: epoll_fd,
             handlers: HandlerMap::new(),
-            events: vec![epoll::Event::default(); EVENT_BUFFER_SIZE],
+            // This buffer is used for storing the events returned by `epoll_wait()`.
+            // We preallocate memory for this buffer in order to not repeat this
+            // operation every time `run()` loop is executed.
+            ready_events: vec![epoll::Event::default(); EVENT_BUFFER_SIZE],
             channel_rx: rx,
             channel_tx: Channel::new(tx)?,
         })
@@ -214,7 +221,7 @@ impl EventManager {
         self.channel_tx.try_clone()
     }
 
-    // Register a new eventhandler for the pollable and mask specified
+    // Register a new event handler for the pollable and mask specified
     // in event_data.
     fn register_handler(
         &mut self,
@@ -223,24 +230,24 @@ impl EventManager {
     ) -> Result<()> {
         let (pollable, event_type) = event_data;
 
-        if self.handlers.get(pollable.as_raw_fd()).is_some() {
+        if self.handlers.get(pollable).is_some() {
             return Err(Error::AlreadyExists(pollable));
         };
 
         self.epoll
             .ctl(
                 epoll::ControlOperation::Add,
-                pollable.as_raw_fd(),
+                pollable,
                 epoll::Event::new(
                     event_type.into(),
                     // Use the fd for event source identification in handlers.
-                    pollable.as_raw_fd() as u64,
+                    pollable as u64,
                 ),
             )
             .map_err(Error::Poll)?;
 
         self.handlers.insert(
-            pollable.as_raw_fd(),
+            pollable,
             EventHandlerData::new((pollable, event_type), wrapped_handler.clone()),
         );
         Ok(())
@@ -300,12 +307,12 @@ impl EventManager {
     }
 
     fn update_event(&mut self, event: EventRegistrationData) -> Result<()> {
-        if let Some(handler_data) = self.handlers.get_mut(&event.0.as_raw_fd()) {
+        if let Some(handler_data) = self.handlers.get_mut(&event.0) {
             self.epoll
                 .ctl(
                     epoll::ControlOperation::Modify,
-                    event.0.as_raw_fd(),
-                    epoll::Event::new(event.1.into(), event.0.as_raw_fd() as u64),
+                    event.0,
+                    epoll::Event::new(event.1.into(), event.0 as u64),
                 )
                 .map_err(Error::Poll)?;
             handler_data.data = event;
@@ -316,15 +323,15 @@ impl EventManager {
         Ok(())
     }
 
-    /// Unregister a the event handler for the specified pollable.
+    /// Unregister the event handler for the specified pollable.
     ///
     pub fn unregister(&mut self, pollable: Pollable) -> Result<()> {
-        match self.handlers.remove(&pollable.as_raw_fd()) {
+        match self.handlers.remove(&pollable) {
             Some(_) => {
                 self.epoll
                     .ctl(
                         epoll::ControlOperation::Delete,
-                        pollable.as_raw_fd(),
+                        pollable,
                         epoll::Event::default(),
                     )
                     .map_err(Error::Poll)?;
@@ -336,7 +343,7 @@ impl EventManager {
         Ok(())
     }
 
-    // Dispatch an epoll eventset for a handler.
+    // Dispatch an epoll event set for a handler.
     #[inline(always)]
     fn dispatch_event(
         &mut self,
@@ -374,7 +381,7 @@ impl EventManager {
     // Process/dispatch buffered epoll events.
     fn process_events(&mut self, event_count: usize) -> Result<()> {
         for idx in 0..event_count {
-            let event = self.events[idx];
+            let event = self.ready_events[idx];
             let event_mask = event.events();
             let event_data = event.data();
             let evset = match epoll::EventType::from_bits(event_mask) {
@@ -395,14 +402,14 @@ impl EventManager {
                 ) {
                     continue;
                 } else {
-                    // We might get errors related to pollableops.
+                    // We might get errors related to PollableOps.
                     // Need to decide what to do with them.
                     // Options:
                     // 1. Break loop and throw them to the caller
-                    // 2. Invoke a TBD evenhandler error callback.
+                    // 2. Invoke a TBD event handler error callback.
                 }
             } else {
-                // There is no handler registered for this eventset/pollable.
+                // There is no handler registered for this event set/pollable.
             }
         }
 
@@ -418,7 +425,7 @@ impl EventManager {
     pub fn run_timeout(&mut self, milliseconds: i32) -> Result<usize> {
         let event_count = self
             .epoll
-            .wait(EVENT_BUFFER_SIZE, milliseconds, &mut self.events[..])
+            .wait(EVENT_BUFFER_SIZE, milliseconds, &mut self.ready_events[..])
             .map_err(Error::Poll)?;
         self.process_events(event_count)?;
 
@@ -439,7 +446,7 @@ impl EventHandler for EventManager {
 
     // Returns the epoll fd to the parent EventManager.
     fn init(&self) -> Vec<PollableOp> {
-        vec![PollableOpBuilder::new(Pollable::from(self))
+        vec![PollableOpBuilder::new(self.epoll.as_raw_fd())
             .readable()
             .register()]
     }
@@ -463,7 +470,7 @@ mod tests {
         pub fn new() -> Self {
             let event_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
             DummyEventConsumer {
-                pollable: Pollable::from(&event_fd),
+                pollable: event_fd.as_raw_fd(),
                 event_fd,
                 read: false,
                 write: false,
@@ -476,28 +483,28 @@ mod tests {
     impl EventHandler for DummyEventConsumer {
         /// Handle a read event (EPOLLIN).
         fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
-            if source.as_raw_fd() == self.event_fd.as_raw_fd() {
+            if source == self.event_fd.as_raw_fd() {
                 self.read = true;
             }
             vec![]
         }
         /// Handle a write event (EPOLLOUT).
         fn handle_write(&mut self, source: Pollable) -> Vec<PollableOp> {
-            if source.as_raw_fd() == self.event_fd.as_raw_fd() {
+            if source == self.event_fd.as_raw_fd() {
                 self.write = true;
             }
             vec![]
         }
         /// Handle a close event (EPOLLRDHUP).
         fn handle_close(&mut self, source: Pollable) -> Vec<PollableOp> {
-            if source.as_raw_fd() == self.event_fd.as_raw_fd() {
+            if source == self.event_fd.as_raw_fd() {
                 self.close = true;
             }
             vec![]
         }
         /// Handle an error event (EPOLLERR).assert_ne!
         fn handle_error(&mut self, source: Pollable) -> Vec<PollableOp> {
-            if source.as_raw_fd() == self.event_fd.as_raw_fd() {
+            if source == self.event_fd.as_raw_fd() {
                 self.error = true;
             }
             vec![]
@@ -530,7 +537,7 @@ mod tests {
         let dummy = DummyEventConsumer::new();
         let pollable = dummy.pollable;
         let event_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let pollable2 = Pollable::from(&event_fd);
+        let pollable2 = event_fd.as_raw_fd();
 
         let handler = Arc::new(Mutex::new(dummy));
         let mut ops = vec![PollableOpBuilder::new(pollable).readable().register()];
@@ -559,12 +566,12 @@ mod tests {
 
         // Validate the handler is registered.
         let event_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let pollable2 = Pollable::from(&event_fd);
+        let pollable2 = event_fd.as_raw_fd();
         ops = vec![PollableOpBuilder::new(pollable2).writeable().register()];
         channel.send((handler.clone(), ops)).unwrap();
 
         assert_eq!(em.process_ops().unwrap(), 1);
-        assert!(em.handlers.get(pollable.as_raw_fd()).is_some());
+        assert!(em.handlers.get(pollable).is_some());
     }
 
     #[test]
@@ -575,7 +582,7 @@ mod tests {
         let handler = em.register(DummyEventConsumer::new()).unwrap();
         let pollable = handler.lock().expect("Unlock failed.").pollable;
 
-        assert!(em.handlers.get(pollable.as_raw_fd()).is_some());
+        assert!(em.handlers.get(pollable).is_some());
     }
 
     #[test]
@@ -588,7 +595,7 @@ mod tests {
         let ops = handler.lock().expect("Unlock failed.").init();
         em.update(handler, ops).unwrap();
 
-        let handler_data = em.handlers.get(pollable.as_raw_fd());
+        let handler_data = em.handlers.get(pollable);
         assert!(handler_data.is_some());
         let reg_data = handler_data.unwrap().data;
         assert_eq!(
@@ -607,7 +614,7 @@ mod tests {
         let ops = handler.lock().expect("Unlock failed.").init();
         em.update(handler.clone(), ops).unwrap();
 
-        let mut handler_data = em.handlers.get(pollable.as_raw_fd());
+        let mut handler_data = em.handlers.get(pollable);
         assert!(handler_data.is_some());
 
         assert!(em
@@ -617,7 +624,7 @@ mod tests {
             )
             .is_ok());
 
-        handler_data = em.handlers.get(pollable.as_raw_fd());
+        handler_data = em.handlers.get(pollable);
         assert!(handler_data.is_none());
     }
 
@@ -630,7 +637,7 @@ mod tests {
         let handler = em.register(DummyEventConsumer::new()).unwrap();
         let pollable = handler.lock().expect("Unlock failed.").pollable;
 
-        let mut handler_data = em.handlers.get(pollable.as_raw_fd());
+        let mut handler_data = em.handlers.get(pollable);
         assert!(handler_data.is_some());
 
         channel
@@ -642,7 +649,7 @@ mod tests {
 
         assert_eq!(em.process_ops().unwrap(), 1);
 
-        handler_data = em.handlers.get(pollable.as_raw_fd());
+        handler_data = em.handlers.get(pollable);
         assert!(handler_data.is_none());
     }
 
@@ -654,19 +661,19 @@ mod tests {
         let handler = Arc::new(Mutex::new(DummyEventConsumer::new()));
         let pollable = handler.lock().expect("Unlock failed").pollable;
 
-        let mut handler_data = em.handlers.get(pollable.as_raw_fd());
+        let mut handler_data = em.handlers.get(pollable);
         assert!(handler_data.is_none());
 
         let err = em.unregister(pollable).unwrap_err();
         assert_eq!(
             format!("{:?}", err),
             format!(
-                "A handler for the specified pollable {} was not found",
+                "A handler for the specified pollable {} was not found.",
                 pollable
             )
         );
 
-        handler_data = em.handlers.get(pollable.as_raw_fd());
+        handler_data = em.handlers.get(pollable);
         assert!(handler_data.is_none());
     }
 
@@ -688,7 +695,7 @@ mod tests {
             Err(err) => assert_eq!(
                 format!("{:?}", err),
                 format!(
-                    "A handler for the specified pollable {} already exists",
+                    "A handler for the specified pollable {} already exists.",
                     pollable
                 )
             ),
@@ -708,7 +715,7 @@ mod tests {
         // register via update
         em.update(handler.clone(), ops).unwrap();
 
-        let mut handler_data = em.handlers.get(pollable.as_raw_fd());
+        let mut handler_data = em.handlers.get(pollable);
         assert!(handler_data.is_some());
 
         channel
@@ -720,7 +727,7 @@ mod tests {
 
         assert_eq!(em.process_ops().unwrap(), 1);
 
-        handler_data = em.handlers.get(pollable.as_raw_fd());
+        handler_data = em.handlers.get(pollable);
         assert!(handler_data.is_some());
         let reg_data = handler_data.unwrap().data;
         assert_eq!(reg_data, (pollable, EventSet::WRITE));
