@@ -5,14 +5,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use crate::virtio::net::defs::{
-    MAX_BUFFER_SIZE, NUM_QUEUES, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX,
-};
 use crate::virtio::net::Error;
 use crate::virtio::net::Result;
-use crate::virtio::{
-    ActivateError, ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING,
-};
+use crate::virtio::net::{MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
+use crate::virtio::{ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
 use crate::Error as DeviceError;
 use dumbo::ns::MmdsNetworkStack;
 use dumbo::{EthernetFrame, MacAddr, MAC_ADDR_LEN};
@@ -83,6 +79,8 @@ pub struct Net {
 
     config_space: Vec<u8>,
     guest_mac: Option<MacAddr>,
+
+    device_activated: bool,
 
     // TODO(smbarber): http://crbug.com/753630
     // Remove once MRG_RXBUF is supported and this variable is actually used.
@@ -164,6 +162,7 @@ impl Net {
             guest_mac: Some(MacAddr::from_bytes_unchecked(
                 &config_space.clone()[..MAC_ADDR_LEN],
             )),
+            device_activated: false,
             config_space,
             mmds_ns,
         })
@@ -530,6 +529,7 @@ impl Net {
 
     pub fn process_rx_queue_event(&mut self) {
         METRICS.net.rx_queue_event_count.inc();
+
         if let Err(e) = self.queue_evts[RX_INDEX].read() {
             // rate limiters present but with _very high_ allowed rate
             // FIXME: Have to propagate an error to upper levels
@@ -549,6 +549,7 @@ impl Net {
 
     pub fn process_tap_rx_event(&mut self) {
         METRICS.net.rx_tap_event_count.inc();
+
         if self.queues[RX_INDEX].is_empty(&self.mem) {
             // FIXME: Have to propagate an error to upper levels
             // when all the devices are ported on polly.
@@ -588,6 +589,7 @@ impl Net {
 
     pub fn process_tx_queue_event(&mut self) {
         METRICS.net.tx_queue_event_count.inc();
+
         if let Err(e) = self.queue_evts[TX_INDEX].read() {
             // FIXME: Have to propagate an error to upper levels
             // when all the devices are ported on polly.
@@ -608,6 +610,7 @@ impl Net {
         METRICS.net.rx_event_rate_limiter_count.inc();
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
+
         match self.rx_rate_limiter.event_handler() {
             Ok(_) => {
                 // FIXME: Have to propagate this errors to upper levels
@@ -627,6 +630,7 @@ impl Net {
         METRICS.net.tx_rate_limiter_event_count.inc();
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
+
         match self.tx_rate_limiter.event_handler() {
             Ok(_) => {
                 // FIXME: Have to propagate this errors to upper levels
@@ -709,33 +713,271 @@ impl VirtioDevice for Net {
         right.copy_from_slice(&data[..]);
     }
 
-    fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
-        let queues = self.get_queues();
-        if queues.len() != NUM_QUEUES {
-            error!(
-                "Cannot perform activate. Expected {} queue(s), got {}",
-                NUM_QUEUES,
-                queues.len()
-            );
-            METRICS.net.activate_fails.inc();
-            return Err(ActivateError::BadActivate);
-        }
+    fn is_activated(&self) -> bool {
+        self.device_activated
+    }
 
+    fn set_device_activated(&mut self, device_activated: bool) {
+        self.device_activated = device_activated;
+    }
+
+    fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
+        // TODO: to be removed
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    pub struct TestMutators {
-        pub tap_read_fail: bool,
+    use crate::virtio::net::device::{
+        frame_bytes_from_buf, frame_bytes_from_buf_mut, init_vnet_hdr, vnet_hdr_len,
+    };
+    use crate::virtio::{Net, MAX_BUFFER_SIZE};
+    use dumbo::{MacAddr, MAC_ADDR_LEN};
+    use std::mem;
+    use std::sync::atomic::Ordering;
+    use utils::net::Tap;
+    use virtio_gen::virtio_net::{
+        virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
+        VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
+        VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
+    };
+
+    trait TestUtil {
+        fn default_net() -> Net;
+        fn default_guest_mac() -> MacAddr;
     }
 
-    impl Default for TestMutators {
-        fn default() -> TestMutators {
-            TestMutators {
-                tap_read_fail: false,
+    impl TestUtil for Net {
+        fn default_net() -> Net {
+            let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
+            let tap = Tap::open_named(&format!("net{}", next_tap)).unwrap();
+            tap.enable().unwrap();
+
+            // Set offload flags to match the virtio features below.
+            tap.set_offload(
+                net_gen::TUN_F_CSUM
+                    | net_gen::TUN_F_UFO
+                    | net_gen::TUN_F_TSO4
+                    | net_gen::TUN_F_TSO6,
+            )
+            .map_err(Error::TapSetOffload)?;
+
+            let vnet_hdr_size = vnet_hdr_len() as i32;
+            tap.set_vnet_hdr_size(vnet_hdr_size)
+                .map_err(Error::TapSetVnetHdrSize)?;
+
+            let mut avail_features = 1 << VIRTIO_NET_F_GUEST_CSUM
+                | 1 << VIRTIO_NET_F_CSUM
+                | 1 << VIRTIO_NET_F_GUEST_TSO4
+                | 1 << VIRTIO_NET_F_GUEST_UFO
+                | 1 << VIRTIO_NET_F_HOST_TSO4
+                | 1 << VIRTIO_NET_F_HOST_UFO
+                | 1 << VIRTIO_F_VERSION_1;
+
+            let guest_mac = Net::default_guest_mac();
+
+            let mut config_space;
+            config_space = Vec::with_capacity(MAC_ADDR_LEN);
+            // This is safe, because we know the capacity is large enough.
+            unsafe { config_space.set_len(MAC_ADDR_LEN) }
+            config_space[..].copy_from_slice(guest_mac.get_bytes());
+            // When this feature isn't available, the driver generates a random MAC address.
+            // Otherwise, it should attempt to read the device MAC address from the config space.
+            avail_features |= 1 << VIRTIO_NET_F_MAC;
+
+            let mut queue_evts = Vec::new();
+            for _ in QUEUE_SIZES.iter() {
+                queue_evts.push(EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?);
             }
+
+            let queues = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
+
+            let mmds_ns = if allow_mmds_requests {
+                Some(MmdsNetworkStack::new_with_defaults())
+            } else {
+                None
+            };
+
+            Ok(Net {
+                tap,
+                avail_features,
+                acked_features: 0u64,
+                mem,
+                queues,
+                queue_evts,
+                rx_rate_limiter,
+                tx_rate_limiter,
+                rx_deferred_frame: false,
+                rx_deferred_irqs: false,
+                rx_bytes_read: 0,
+                rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
+                tx_frame_buf: [0u8; MAX_BUFFER_SIZE],
+                tx_iovec: Vec::with_capacity(QUEUE_SIZE as usize),
+                interrupt_status: Arc::new(AtomicUsize::new(0)),
+                interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
+                guest_mac: Some(MacAddr::from_bytes_unchecked(
+                    &config_space.clone()[..MAC_ADDR_LEN],
+                )),
+                device_activated: false,
+                config_space,
+                mmds_ns,
+            })
+        }
+
+        fn default_guest_mac() -> MacAddr {
+            unimplemented!()
+        }
+    }
+
+    #[test]
+    fn test_vnet_helpers() {
+        let mut frame_buf: [u8; MAX_BUFFER_SIZE] = [42u8; MAX_BUFFER_SIZE];
+
+        let vnet_hdr_len_ = mem::size_of::<virtio_net_hdr_v1>();
+        assert_eq!(vnet_hdr_len_, vnet_hdr_len());
+
+        init_vnet_hdr(&mut frame_buf);
+        let zero_vnet_hdr = vec![0u8; vnet_hdr_len_];
+        assert_eq!(zero_vnet_hdr, &frame_buf[..vnet_hdr_len_]);
+
+        let payload = vec![42u8; MAX_BUFFER_SIZE - vnet_hdr_len_];
+        assert_eq!(payload, frame_bytes_from_buf(&frame_buf));
+
+        {
+            let payload = frame_bytes_from_buf_mut(&mut frame_buf);
+            payload[0] = 15;
+        }
+        assert_eq!(frame_buf[vnet_hdr_len_], 15);
+    }
+
+    #[test]
+    #[allow(clippy::cognitive_complexity)]
+    // Allowing assertions on constants because there is no way to implement
+    // `PartialEq` for `Error` without implementing it `TapError` as well.
+    fn test_virtio_device() {
+        let mac = MacAddr::parse_str("11:22:33:44:55:66").unwrap();
+        let mut dummy = DummyNet::new(Some(&mac));
+        let n = dummy.net();
+
+        // Test `device_type()`.
+        {
+            assert_eq!(n.device_type(), TYPE_NET);
+        }
+
+        // // Test `queue_max_sizes()`.
+        // {
+        //     let x = n.queue_max_sizes();
+        //     assert_eq!(x, QUEUE_SIZES);
+
+        //     // power of 2?
+        //     for &y in x {
+        //         assert!(y > 0 && y & (y - 1) == 0);
+        //     }
+        // }
+
+        // Test `features()` and `ack_features()`.
+        {
+            let features = 1 << VIRTIO_NET_F_GUEST_CSUM
+                | 1 << VIRTIO_NET_F_CSUM
+                | 1 << VIRTIO_NET_F_GUEST_TSO4
+                | 1 << VIRTIO_NET_F_MAC
+                | 1 << VIRTIO_NET_F_GUEST_UFO
+                | 1 << VIRTIO_NET_F_HOST_TSO4
+                | 1 << VIRTIO_NET_F_HOST_UFO
+                | 1 << VIRTIO_F_VERSION_1;
+
+            assert_eq!(n.avail_features_by_page(0), features as u32);
+            assert_eq!(n.avail_features_by_page(1), (features >> 32) as u32);
+            for i in 2..10 {
+                assert_eq!(n.avail_features_by_page(i), 0u32);
+            }
+
+            for i in 0..10 {
+                n.ack_features_by_page(i, u32::MAX);
+            }
+
+            assert_eq!(n.acked_features, features);
+        }
+
+        // Test `read_config()`. This also validates the MAC was properly configured.
+        {
+            let mut config_mac = [0u8; MAC_ADDR_LEN];
+            n.read_config(0, &mut config_mac);
+            assert_eq!(config_mac, mac.get_bytes());
+
+            // Invalid read.
+            config_mac = [0u8; MAC_ADDR_LEN];
+            check_metric_after_block!(
+                &METRICS.net.cfg_fails,
+                1,
+                n.read_config(MAC_ADDR_LEN as u64 + 1, &mut config_mac)
+            );
+            assert_eq!(config_mac, [0u8, 0u8, 0u8, 0u8, 0u8, 0u8]);
+        }
+
+        // Let's test the activate function.
+        {
+            // It should fail when not enough queues and/or evts are provided.
+            // check_metric_after_block!(
+            //     &METRICS.net.activate_fails,
+            //     1,
+            //     assert!(match activate_some_net(n, true, false) {
+            //         Err(ActivateError::BadActivate) => true,
+            //         _ => false,
+            //     })
+            // );
+
+            // check_metric_after_block!(
+            //     &METRICS.net.activate_fails,
+            //     1,
+            //     assert!(match activate_some_net(n, false, true) {
+            //         Err(ActivateError::BadActivate) => true,
+            //         _ => false,
+            //     })
+            // );
+
+            // check_metric_after_block!(
+            //     &METRICS.net.activate_fails,
+            //     1,
+            //     assert!(match activate_some_net(n, true, true) {
+            //         Err(ActivateError::BadActivate) => true,
+            //         _ => false,
+            //     })
+            // );
+
+            // Otherwise, it should be ok.
+            check_metric_after_block!(
+                &METRICS.net.activate_fails,
+                0,
+                assert!(activate_some_net(n, false, false).is_ok())
+            );
+
+            // Second activate shouldn't be ok anymore.
+            check_metric_after_block!(
+                &METRICS.net.activate_fails,
+                1,
+                assert!(match activate_some_net(n, false, false) {
+                    Err(ActivateError::BadActivate) => true,
+                    _ => false,
+                })
+            );
+        }
+
+        // Test writing another config.
+        {
+            let new_config: [u8; 6] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
+            n.write_config(0, &new_config);
+            let mut new_config_read = [0u8; 6];
+            n.read_config(0, &mut new_config_read);
+            assert_eq!(new_config, new_config_read);
+
+            // Invalid write.
+            check_metric_after_block!(&METRICS.net.cfg_fails, 1, n.write_config(5, &new_config));
+            // Verify old config was untouched.
+            new_config_read = [0u8; 6];
+            n.read_config(0, &mut new_config_read);
+            assert_eq!(new_config, new_config_read);
         }
     }
 }
@@ -952,157 +1194,7 @@ mod tests {
 //            rxq,
 //        )
 //    }
-//
-//    #[test]
-//    fn test_vnet_helpers() {
-//        let mut frame_buf: [u8; MAX_BUFFER_SIZE] = [42u8; MAX_BUFFER_SIZE];
-//
-//        let vnet_hdr_len_ = mem::size_of::<virtio_net_hdr_v1>();
-//        assert_eq!(vnet_hdr_len_, vnet_hdr_len());
-//
-//        init_vnet_hdr(&mut frame_buf);
-//        let zero_vnet_hdr = vec![0u8; vnet_hdr_len_];
-//        assert_eq!(zero_vnet_hdr, &frame_buf[..vnet_hdr_len_]);
-//
-//        let payload = vec![42u8; MAX_BUFFER_SIZE - vnet_hdr_len_];
-//        assert_eq!(payload, frame_bytes_from_buf(&frame_buf));
-//
-//        {
-//            let payload = frame_bytes_from_buf_mut(&mut frame_buf);
-//            payload[0] = 15;
-//        }
-//        assert_eq!(frame_buf[vnet_hdr_len_], 15);
-//    }
-//
-//    #[test]
-//    #[allow(clippy::cognitive_complexity)]
-//    // Allowing assertions on constants because there is no way to implement
-//    // `PartialEq` for `Error` without implementing it `TapError` as well.
-//    fn test_virtio_device() {
-//        let mac = MacAddr::parse_str("11:22:33:44:55:66").unwrap();
-//        let mut dummy = DummyNet::new(Some(&mac));
-//        let n = dummy.net();
-//
-//        // Test `device_type()`.
-//        {
-//            assert_eq!(n.device_type(), TYPE_NET);
-//        }
-//
-//        // // Test `queue_max_sizes()`.
-//        // {
-//        //     let x = n.queue_max_sizes();
-//        //     assert_eq!(x, QUEUE_SIZES);
-//
-//        //     // power of 2?
-//        //     for &y in x {
-//        //         assert!(y > 0 && y & (y - 1) == 0);
-//        //     }
-//        // }
-//
-//        // Test `features()` and `ack_features()`.
-//        {
-//            let features = 1 << VIRTIO_NET_F_GUEST_CSUM
-//                | 1 << VIRTIO_NET_F_CSUM
-//                | 1 << VIRTIO_NET_F_GUEST_TSO4
-//                | 1 << VIRTIO_NET_F_MAC
-//                | 1 << VIRTIO_NET_F_GUEST_UFO
-//                | 1 << VIRTIO_NET_F_HOST_TSO4
-//                | 1 << VIRTIO_NET_F_HOST_UFO
-//                | 1 << VIRTIO_F_VERSION_1;
-//
-//            assert_eq!(n.avail_features_by_page(0), features as u32);
-//            assert_eq!(n.avail_features_by_page(1), (features >> 32) as u32);
-//            for i in 2..10 {
-//                assert_eq!(n.avail_features_by_page(i), 0u32);
-//            }
-//
-//            for i in 0..10 {
-//                n.ack_features_by_page(i, u32::MAX);
-//            }
-//
-//            assert_eq!(n.acked_features, features);
-//        }
-//
-//        // Test `read_config()`. This also validates the MAC was properly configured.
-//        {
-//            let mut config_mac = [0u8; MAC_ADDR_LEN];
-//            n.read_config(0, &mut config_mac);
-//            assert_eq!(config_mac, mac.get_bytes());
-//
-//            // Invalid read.
-//            config_mac = [0u8; MAC_ADDR_LEN];
-//            check_metric_after_block!(
-//                &METRICS.net.cfg_fails,
-//                1,
-//                n.read_config(MAC_ADDR_LEN as u64 + 1, &mut config_mac)
-//            );
-//            assert_eq!(config_mac, [0u8, 0u8, 0u8, 0u8, 0u8, 0u8]);
-//        }
-//
-//        // Let's test the activate function.
-//        {
-//            // It should fail when not enough queues and/or evts are provided.
-//            // check_metric_after_block!(
-//            //     &METRICS.net.activate_fails,
-//            //     1,
-//            //     assert!(match activate_some_net(n, true, false) {
-//            //         Err(ActivateError::BadActivate) => true,
-//            //         _ => false,
-//            //     })
-//            // );
-//
-//            // check_metric_after_block!(
-//            //     &METRICS.net.activate_fails,
-//            //     1,
-//            //     assert!(match activate_some_net(n, false, true) {
-//            //         Err(ActivateError::BadActivate) => true,
-//            //         _ => false,
-//            //     })
-//            // );
-//
-//            // check_metric_after_block!(
-//            //     &METRICS.net.activate_fails,
-//            //     1,
-//            //     assert!(match activate_some_net(n, true, true) {
-//            //         Err(ActivateError::BadActivate) => true,
-//            //         _ => false,
-//            //     })
-//            // );
-//
-//            // Otherwise, it should be ok.
-//            check_metric_after_block!(
-//                &METRICS.net.activate_fails,
-//                0,
-//                assert!(activate_some_net(n, false, false).is_ok())
-//            );
-//
-//            // Second activate shouldn't be ok anymore.
-//            check_metric_after_block!(
-//                &METRICS.net.activate_fails,
-//                1,
-//                assert!(match activate_some_net(n, false, false) {
-//                    Err(ActivateError::BadActivate) => true,
-//                    _ => false,
-//                })
-//            );
-//        }
-//
-//        // Test writing another config.
-//        {
-//            let new_config: [u8; 6] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
-//            n.write_config(0, &new_config);
-//            let mut new_config_read = [0u8; 6];
-//            n.read_config(0, &mut new_config_read);
-//            assert_eq!(new_config, new_config_read);
-//
-//            // Invalid write.
-//            check_metric_after_block!(&METRICS.net.cfg_fails, 1, n.write_config(5, &new_config));
-//            // Verify old config was untouched.
-//            new_config_read = [0u8; 6];
-//            n.read_config(0, &mut new_config_read);
-//            assert_eq!(new_config, new_config_read);
-//        }
-//    }
+
 //
 //    #[test]
 //    fn test_mmds_detour_and_injection() {

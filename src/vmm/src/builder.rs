@@ -760,7 +760,7 @@ fn attach_net_devices(
         let tap = cfg.open_tap().map_err(|_| NetDeviceNotConfigured)?;
 
         let net_device = Arc::new(Mutex::new(
-            devices::virtio::Net::new_with_tap(
+            devices::virtio::net::Net::new_with_tap(
                 tap,
                 cfg.guest_mac(),
                 vmm.guest_memory().clone(),

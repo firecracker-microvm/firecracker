@@ -88,8 +88,15 @@ pub trait VirtioDevice: AsAny + Send {
     /// Writes to this device configuration space at `offset`.
     fn write_config(&mut self, offset: u64, data: &[u8]);
 
-    /// Activates this device for real usage.
+    // TODO: this method is not necessary anymore, and is
+    // kept only for vsock case, which is not ported on polly yet.
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult;
+
+    /// Checks if the resources of this device are activated.
+    fn is_activated(&self) -> bool;
+
+    /// Performs the formal activation for a device, which can be verified also with `is_activated`.
+    fn set_device_activated(&mut self, device_activated: bool);
 
     /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
     /// event, and queue events.
