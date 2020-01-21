@@ -11,7 +11,6 @@ impl EventHandler for Block {
     fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
         let queue = self.queue_evt.as_raw_fd();
         let rate_limiter = self.rate_limiter.as_raw_fd();
-        let source = source.as_raw_fd();
 
         // Looks better than C style if/else if/else.
         match source {
@@ -26,10 +25,10 @@ impl EventHandler for Block {
     // Returns the rate_limiter and queue event fds.
     fn init(&self) -> Vec<PollableOp> {
         vec![
-            PollableOpBuilder::new(Pollable::from(&self.rate_limiter))
+            PollableOpBuilder::new(self.rate_limiter.as_raw_fd())
                 .readable()
                 .register(),
-            PollableOpBuilder::new(Pollable::from(&self.queue_evt))
+            PollableOpBuilder::new(self.queue_evt.as_raw_fd())
                 .readable()
                 .register(),
         ]
