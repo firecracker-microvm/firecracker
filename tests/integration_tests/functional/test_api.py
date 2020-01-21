@@ -672,6 +672,42 @@ def test_send_ctrl_alt_del(test_microvm_with_atkbd):
     assert shutdown_ok
 
 
+def test_instance_force_stop(test_microvm_with_api):
+    """Test shutting down the microVM forcefully.
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    test_microvm.basic_config()
+    test_microvm.start()
+
+    # Wait around for the guest to boot up and initialize the user space
+    time.sleep(2)
+
+    response = test_microvm.actions.put(
+        action_type='InstanceForceStop'
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    firecracker_pid = test_microvm.jailer_clone_pid
+
+    # If everyting goes as expected, Firecracker will kill all VCPUs and will
+    # exit ~immediately.
+    # We'll keep poking Firecracker for at most 30 seconds, waiting for it
+    # to die.
+    start_time = time.time()
+    shutdown_ok = False
+    while time.time() - start_time < 30:
+        try:
+            os.kill(firecracker_pid, 0)
+            time.sleep(0.01)
+        except OSError:
+            shutdown_ok = True
+            break
+
+    assert shutdown_ok
+
+
 def _drive_patch(test_microvm):
     """Exercise drive patch test scenarios."""
     # Patches without mandatory fields are not allowed.
