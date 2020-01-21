@@ -673,8 +673,7 @@ def test_send_ctrl_alt_del(test_microvm_with_atkbd):
 
 
 def test_instance_force_stop(test_microvm_with_api):
-    """Test shutting down the microVM forcefully.
-    """
+    """Test shutting down the microVM forcefully."""
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
