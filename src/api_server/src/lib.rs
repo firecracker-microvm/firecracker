@@ -84,6 +84,8 @@ pub enum VmmAction {
     /// Update a network interface, after microVM start. Currently, the only updatable properties
     /// are the RX and TX rate limiters.
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
+    /// Forcefully stops the microVM.
+    ForceStopMicroVm,
 }
 
 /// The enum represents the response sent by the VMM in case of success. The response is either

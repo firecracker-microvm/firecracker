@@ -333,6 +333,22 @@ impl Display for StartMicrovmError {
     }
 }
 
+/// Errors associated with force-stopping an instance
+#[derive(Debug)]
+pub enum ForceStopMicrovmError {
+    /// Cannot send event to vCPU.
+    VcpuEvent(vstate::Error),
+}
+
+impl Display for ForceStopMicrovmError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::ForceStopMicrovmError::*;
+        match *self {
+            VcpuEvent(ref err) => write!(f, "Cannot send event to vCPU. {:?}", err),
+        }
+    }
+}
+
 /// Types of errors associated with vmm actions.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ErrorKind {
@@ -371,6 +387,8 @@ pub enum VmmActionError {
     /// The action `set_vsock_device` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     VsockConfig(ErrorKind, VsockError),
+    /// The action `ForceStopMicroVm` failed.
+    ForceStopMicroVm(ErrorKind, ForceStopMicrovmError),
 }
 
 // It's convenient to turn DriveErrors into VmmActionErrors directly.
@@ -493,6 +511,25 @@ impl std::convert::From<StartMicrovmError> for VmmActionError {
     }
 }
 
+// It's convenient to turn ForceStopMicrovmErrors into VmmActionErrors directly.
+impl std::convert::From<ForceStopMicrovmError> for VmmActionError {
+    fn from(e: ForceStopMicrovmError) -> Self {
+        use ForceStopMicrovmError::*;
+
+        // This match is used to force developers who add new types of
+        // `DriveError`s to explicitly consider what kind they should
+        // have. Remove this comment when a match arm that yields
+        // something other than `ErrorKind::Internal` is added.
+        let kind = match e {
+            // Internal errors.
+            VcpuEvent(_) => ErrorKind::Internal,
+        };
+
+        VmmActionError::ForceStopMicroVm(kind, e)
+    }
+}
+
+
 impl VmmActionError {
     /// Returns the error type.
     pub fn kind(&self) -> &ErrorKind {
@@ -507,6 +544,7 @@ impl VmmActionError {
             StartMicrovm(ref kind, _) => kind,
             SendCtrlAltDel(ref kind, _) => kind,
             VsockConfig(ref kind, _) => kind,
+            ForceStopMicroVm(ref kind, _) => kind,
         }
     }
 }
@@ -524,6 +562,7 @@ impl Display for VmmActionError {
             StartMicrovm(_, ref err) => err,
             SendCtrlAltDel(_, ref err) => err,
             VsockConfig(_, ref err) => err,
+            ForceStopMicroVm(_, ref err) => err,
         };
 
         write!(f, "{}", error.to_string())

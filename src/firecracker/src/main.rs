@@ -385,6 +385,9 @@ fn vmm_control_event(
                 UpdateNetworkInterface(netif_update) => vmm
                     .update_net_device(netif_update)
                     .map(|_| api_server::VmmData::Empty),
+                ForceStopMicroVm => vmm
+                    .force_stop()
+                    .map(|_| api_server::VmmData::Empty),
             };
             // Run the requested action and send back the result.
             to_api

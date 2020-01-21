@@ -98,7 +98,7 @@ use vmm_config::net::{
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{KvmContext, Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
-pub use error::{ErrorKind, LoadInitrdError, StartMicrovmError, VmmActionError};
+pub use error::{ErrorKind, ForceStopMicrovmError, LoadInitrdError, StartMicrovmError, VmmActionError};
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
@@ -1667,6 +1667,19 @@ impl Vmm {
         if let Some(vsock_config) = vmm_config.vsock_device {
             self.set_vsock_device(vsock_config)?;
         }
+        Ok(())
+    }
+
+    /// Forcefully stops the VMM by exiting all VCPUs.
+    pub fn force_stop(&mut self) -> std::result::Result<(), VmmActionError> {
+        for handle in self.vcpus_handles.iter() {
+            handle
+                .send_event(VcpuEvent::Exit)
+                .map_err(ForceStopMicrovmError::VcpuEvent)?;
+        }
+
+        // Do not receive a response, since the state machine in Vcpu::exited does not send a
+        // response.
         Ok(())
     }
 }
