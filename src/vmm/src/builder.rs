@@ -658,7 +658,7 @@ fn attach_net_devices(
 
         let net_device = event_manager
             .register(
-                devices::virtio::Net::new_with_tap(
+                devices::virtio::net::Net::new_with_tap(
                     tap,
                     cfg.guest_mac(),
                     vmm.guest_memory().clone(),
@@ -673,7 +673,7 @@ fn attach_net_devices(
         attach_mmio_device(
             vmm,
             cfg.iface_id.clone(),
-            MmioTransport::new(vmm.guest_memory().clone(), net_device.clone()).map_err(|e| {
+            MmioTransport::new(vmm.guest_memory().clone(), net_device).map_err(|e| {
                 RegisterNetDevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
             })?,
         )
