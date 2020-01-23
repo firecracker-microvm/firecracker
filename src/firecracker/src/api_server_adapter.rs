@@ -47,7 +47,7 @@ impl ApiServerAdapter {
         epoll_context: &mut vmm::EpollContext,
         event_manager: &mut EventManager,
         firecracker_version: String,
-    ) -> (VmResources, vmm::Vmm) {
+    ) -> (VmResources, Arc<Mutex<vmm::Vmm>>) {
         let mut vm_resources = VmResources::default();
         let mut built_vmm = None;
         // Need to drop the pre-boot controller to pass ownership of vm_resources.

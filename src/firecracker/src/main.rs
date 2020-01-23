@@ -212,7 +212,7 @@ fn build_microvm_from_json(
     epoll_context: &mut vmm::EpollContext,
     event_manager: &mut EventManager,
     config_json: String,
-) -> (VmResources, vmm::Vmm) {
+) -> (VmResources, Arc<Mutex<vmm::Vmm>>) {
     let vm_resources =
         VmResources::from_json(&config_json, FIRECRACKER_VERSION).unwrap_or_else(|err| {
             error!(

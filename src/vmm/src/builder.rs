@@ -225,7 +225,7 @@ pub fn build_microvm(
     epoll_context: &mut EpollContext,
     event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
-) -> std::result::Result<Vmm, StartMicrovmError> {
+) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     let boot_config = vm_resources
         .boot_source()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
@@ -258,11 +258,22 @@ pub fn build_microvm(
         None
     };
 
+    let exit_evt = EventFd::new(libc::EFD_NONBLOCK)
+        .map_err(Error::EventFd)
+        .map_err(StartMicrovmError::Internal)?;
+
     #[cfg(target_arch = "x86_64")]
     // Safe to unwrap 'serial_device' as it's always 'Some' on x86_64.
-    let mut pio_device_manager = PortIODeviceManager::new(serial_device.unwrap())
-        .map_err(Error::CreateLegacyDevice)
-        .map_err(StartMicrovmError::Internal)?;
+    // x86_64 uses the i8042 reset event as the Vmm exit event.
+    let mut pio_device_manager = PortIODeviceManager::new(
+        serial_device.unwrap(),
+        exit_evt
+            .try_clone()
+            .map_err(Error::EventFd)
+            .map_err(StartMicrovmError::Internal)?,
+    )
+    .map_err(Error::CreateLegacyDevice)
+    .map_err(StartMicrovmError::Internal)?;
 
     // Instantiate the MMIO device manager.
     // 'mmio_base' address has to be an address which is protected by the kernel
@@ -272,23 +283,6 @@ pub fn build_microvm(
         &mut (arch::MMIO_MEM_START as u64),
         (arch::IRQ_BASE, arch::IRQ_MAX),
     );
-
-    // TODO: remove unwrap() below.
-    #[cfg(target_arch = "x86_64")]
-    let exit_evt = pio_device_manager
-        .i8042
-        .lock()
-        .expect("Failed to start VCPUs due to poisoned i8042 lock")
-        .get_reset_evt_clone()
-        .unwrap();
-    #[cfg(target_arch = "aarch64")]
-    let exit_evt = EventFd::new(libc::EFD_NONBLOCK)
-        .map_err(Error::EventFd)
-        .map_err(StartMicrovmError::Internal)?;
-    // Register exit event with epoll.
-    epoll_context
-        .add_epollin_event(&exit_evt, super::EpollDispatch::Exit)
-        .map_err(StartMicrovmError::Internal)?;
 
     let vcpus;
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
@@ -363,6 +357,11 @@ pub fn build_microvm(
     // Firecracker uses the same seccomp filter for all threads.
     vmm.start_vcpus(vcpus, seccomp_filter.to_vec(), seccomp_filter)
         .map_err(StartMicrovmError::Internal)?;
+
+    let vmm = Arc::new(Mutex::new(vmm));
+    event_manager
+        .register(vmm.clone())
+        .map_err(StartMicrovmError::RegisterEvent)?;
 
     Ok(vmm)
 }
