@@ -363,7 +363,7 @@ pub fn build_microvm(
 
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager
-        .register(vmm.clone())
+        .add_subscriber(vmm.clone())
         .map_err(StartMicrovmError::RegisterEvent)?;
 
     Ok(vmm)
@@ -511,7 +511,7 @@ pub fn setup_serial_device(
         .map_err(Error::EventFd)
         .map_err(StartMicrovmError::Internal)?;
     let serial = Arc::new(Mutex::new(Serial::new_in_out(interrupt_evt, input, out)));
-    if let Err(e) = event_manager.register(serial.clone()) {
+    if let Err(e) = event_manager.add_subscriber(serial.clone()) {
         // TODO: We just log this message, and immediately return Ok, instead of returning the
         // actual error because this operation always fails with EPERM when adding a fd which
         // has been redirected to /dev/null via dup2 (this may happen inside the jailer).
@@ -743,8 +743,9 @@ fn attach_block_devices(
             )
             .map_err(CreateBlockDevice)?,
         ));
+
         event_manager
-            .register(block_device.clone())
+            .add_subscriber(block_device.clone())
             .map_err(StartMicrovmError::RegisterEvent)?;
 
         attach_block_device(
@@ -794,7 +795,7 @@ fn attach_net_devices(
             .map_err(CreateNetDevice)?,
         ));
         event_manager
-            .register(net_device.clone())
+            .add_subscriber(net_device.clone())
             .map_err(StartMicrovmError::RegisterEvent)?;
 
         attach_mmio_device(

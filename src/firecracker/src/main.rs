@@ -242,7 +242,7 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(metrics::PeriodicMetrics::new()));
     event_manager
-        .register(firecracker_metrics.clone())
+        .add_subscriber(firecracker_metrics.clone())
         .expect("Cannot register the metrics event to the event manager.");
 
     // Build the microVm. We can ignore the returned values here because:
@@ -264,7 +264,7 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
 
     // TODO: remove this when last epoll_context user is migrated to EventManager.
     let epoll_context = Arc::new(Mutex::new(epoll_context));
-    event_manager.register(epoll_context).unwrap();
+    event_manager.add_subscriber(epoll_context).unwrap();
 
     // Run the EventManager that drives everything in the microVM.
     loop {
