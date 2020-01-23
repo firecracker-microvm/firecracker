@@ -11,7 +11,7 @@ use std::os::unix::io::AsRawFd;
 
 use logger::{Metric, METRICS};
 use polly::epoll::{EpollEvent, EventSet};
-use polly::event_manager::Subscriber;
+use polly::event_manager::{EventManager, Subscriber};
 use utils::eventfd::EventFd;
 
 use crate::bus::BusDevice;
@@ -273,7 +273,7 @@ impl BusDevice for Serial {
 
 impl Subscriber for Serial {
     /// Handle a read event (EPOLLIN) on the serial input fd.
-    fn process(&mut self, event: EpollEvent) {
+    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -371,6 +371,8 @@ mod tests {
 
     #[test]
     fn test_event_handling_no_in() {
+        let mut event_manager = EventManager::new().unwrap();
+
         let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_out = SharedBuffer::new();
 
@@ -378,11 +380,13 @@ mod tests {
         // A serial without in does not have any events in the list.
         assert!(serial.interest_list().is_empty());
         // Even though there is no in, process should not panic. Call it to validate this.
-        serial.process(EpollEvent::new(EventSet::IN, 0));
+        serial.process(EpollEvent::new(EventSet::IN, 0), &mut event_manager);
     }
 
     #[test]
     fn test_event_handling_with_in() {
+        let mut event_manager = EventManager::new().unwrap();
+
         let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_in_out = SharedBuffer::new();
 
@@ -396,11 +400,11 @@ mod tests {
 
         // Process an invalid event type does not panic.
         let invalid_event = EpollEvent::new(EventSet::OUT, intr_evt.as_raw_fd() as u64);
-        serial.process(invalid_event);
+        serial.process(invalid_event, &mut event_manager);
 
         // Process an event with a `RawFd` that does not correspond to `intr_evt` does not panic.
         let invalid_event = EpollEvent::new(EventSet::IN, 0);
-        serial.process(invalid_event);
+        serial.process(invalid_event, &mut event_manager);
     }
 
     #[test]

@@ -72,7 +72,7 @@ use logger::LogOption;
 use logger::{Metric, LOGGER, METRICS};
 use memory_model::GuestMemory;
 use polly::epoll::{EpollEvent, EventSet};
-use polly::event_manager::{self, Subscriber};
+use polly::event_manager::{self, EventManager, Subscriber};
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
 use vstate::{Vcpu, Vm};
@@ -328,7 +328,7 @@ impl AsRawFd for EpollContext {
 
 impl Subscriber for EpollContext {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: EpollEvent) {
+    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -669,7 +669,7 @@ impl Vmm {
 
 impl Subscriber for Vmm {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: EpollEvent) {
+    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 
