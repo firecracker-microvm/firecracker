@@ -149,6 +149,9 @@ pub trait GuestMemory {
     /// }
     /// ```
     fn last_addr(&self) -> GuestAddress;
+
+    /// Returns true if the given address is within the memory range available to the guest.
+    fn address_in_range(&self, addr: GuestAddress) -> bool;
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -187,16 +190,6 @@ impl GuestMemoryMmap {
         Ok(GuestMemoryMmap {
             regions: Arc::new(regions),
         })
-    }
-
-    /// Returns true if the given address is within the memory range available to the guest.
-    pub fn address_in_range(&self, addr: GuestAddress) -> bool {
-        for region in self.regions.iter() {
-            if addr >= region.guest_base && addr <= region.last_addr() {
-                return true;
-            }
-        }
-        false
     }
 
     /// Returns the address plus the offset if the result falls within a valid memory region. The
@@ -330,6 +323,15 @@ impl GuestMemory for GuestMemoryMmap {
             .iter()
             .max_by_key(|region| region.guest_base)
             .map_or(GuestAddress(0), |region| region.last_addr())
+    }
+
+    fn address_in_range(&self, addr: GuestAddress) -> bool {
+        for region in self.regions.iter() {
+            if addr >= region.guest_base && addr <= region.last_addr() {
+                return true;
+            }
+        }
+        false
     }
 }
 
