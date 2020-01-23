@@ -9,8 +9,8 @@ use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
 use mmds::MMDS;
-use polly::event_manager::{EventHandler, EventManager};
-use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
+use polly::epoll::{EpollEvent, EventSet};
+use polly::event_manager::{EventManager, Subscriber};
 use seccomp::BpfProgram;
 use utils::eventfd::EventFd;
 use vmm::controller::VmmController;
@@ -43,7 +43,7 @@ impl ApiServerAdapter {
             controller: RuntimeApiController(vmm_controller),
         }));
         event_manager
-            .register(api_adapter.clone())
+            .add_subscriber(api_adapter.clone())
             .expect("Cannot register the api event to the event manager.");
         loop {
             event_manager
@@ -52,10 +52,13 @@ impl ApiServerAdapter {
         }
     }
 }
-impl EventHandler for ApiServerAdapter {
+impl Subscriber for ApiServerAdapter {
     /// Handle a read event (EPOLLIN).
-    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
-        if source == self.api_event_fd.as_raw_fd() {
+    fn process(&mut self, event: EpollEvent) {
+        let source = event.fd();
+        let event_set = event.event_set();
+
+        if source == self.api_event_fd.as_raw_fd() && event_set == EventSet::IN {
             let _ = self.api_event_fd.read();
             match self.from_api.try_recv() {
                 Ok(api_request) => {
@@ -76,13 +79,13 @@ impl EventHandler for ApiServerAdapter {
         } else {
             error!("Spurious EventManager event for handler: ApiServerAdapter");
         }
-        vec![]
     }
 
-    fn init(&self) -> Vec<PollableOp> {
-        vec![PollableOpBuilder::new(self.api_event_fd.as_raw_fd())
-            .readable()
-            .register()]
+    fn interest_list(&self) -> Vec<EpollEvent> {
+        vec![EpollEvent::new(
+            EventSet::IN,
+            self.api_event_fd.as_raw_fd() as u64,
+        )]
     }
 }
 
@@ -151,7 +154,7 @@ pub fn run_with_api(
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(super::metrics::PeriodicMetrics::new()));
     event_manager
-        .register(firecracker_metrics.clone())
+        .add_subscriber(firecracker_metrics.clone())
         .expect("Cannot register the metrics event to the event manager.");
 
     // Configure, build and start the microVM.
@@ -197,7 +200,7 @@ pub fn run_with_api(
 
     // TODO: remove this when last epoll_context user is migrated to EventManager.
     let epoll_context = Arc::new(Mutex::new(epoll_context));
-    event_manager.register(epoll_context).unwrap();
+    event_manager.add_subscriber(epoll_context).unwrap();
 
     ApiServerAdapter::run_microvm(
         api_event_fd,

@@ -1,18 +1,34 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::virtio::net::device::Net;
-use crate::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
-use logger::{Metric, METRICS};
-use polly::event_manager::EventHandler;
-use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
 use std::os::unix::io::AsRawFd;
 
-impl EventHandler for Net {
-    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+use logger::{Metric, METRICS};
+use polly::epoll::{EpollEvent, EventSet};
+use polly::event_manager::Subscriber;
+
+use crate::virtio::net::device::Net;
+use crate::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
+
+impl Subscriber for Net {
+    fn process(&mut self, event: EpollEvent) {
         if !self.is_activated() {
             warn!("The device is not yet activated. Events can not be handled.");
-            return vec![];
+            return;
+        }
+
+        let source = event.fd();
+        let event_set = event.event_set();
+
+        // TODO: also check for errors. Pending high level discussions on how we want
+        // to handle errors in devices.
+        let supported_events = EventSet::IN;
+        if !supported_events.contains(event_set) {
+            warn!(
+                "Received unknown event: {:?} from source: {:?}",
+                event_set, source
+            );
+            return;
         }
 
         let virtq_rx_ev_fd = self.queue_evts[RX_INDEX].as_raw_fd();
@@ -32,84 +48,18 @@ impl EventHandler for Net {
                 METRICS.net.event_fails.inc();
             }
         }
-
-        vec![]
     }
 
-    fn init(&self) -> Vec<PollableOp> {
+    fn interest_list(&self) -> Vec<EpollEvent> {
         vec![
-            PollableOpBuilder::new(self.tap.as_raw_fd())
-                .readable()
-                .edge_trigered()
-                .register(),
-            PollableOpBuilder::new(self.queue_evts[RX_INDEX].as_raw_fd())
-                .readable()
-                .register(),
-            PollableOpBuilder::new(self.queue_evts[TX_INDEX].as_raw_fd())
-                .readable()
-                .register(),
-            PollableOpBuilder::new(self.rx_rate_limiter.as_raw_fd())
-                .readable()
-                .register(),
-            PollableOpBuilder::new(self.tx_rate_limiter.as_raw_fd())
-                .readable()
-                .register(),
+            EpollEvent::new(
+                EventSet::IN | EventSet::EDGE_TRIGGERED,
+                self.tap.as_raw_fd() as u64,
+            ),
+            EpollEvent::new(EventSet::IN, self.queue_evts[RX_INDEX].as_raw_fd() as u64),
+            EpollEvent::new(EventSet::IN, self.queue_evts[TX_INDEX].as_raw_fd() as u64),
+            EpollEvent::new(EventSet::IN, self.rx_rate_limiter.as_raw_fd() as u64),
+            EpollEvent::new(EventSet::IN, self.tx_rate_limiter.as_raw_fd() as u64),
         ]
-    }
-}
-#[cfg(test)]
-pub mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use super::*;
-    use rate_limiter::RateLimiter;
-    use utils::net::Tap;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
-
-    fn new_tap(enabled: bool) -> Tap {
-        static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
-        let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
-        let tap = Tap::open_named(&format!("net-handler{}", next_tap)).unwrap();
-        if enabled {
-            tap.enable().unwrap();
-        }
-        tap
-    }
-
-    #[test]
-    fn test_event_handler_init() {
-        let net = Net::new_with_tap(
-            new_tap(false),
-            None,
-            GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap(),
-            RateLimiter::default(),
-            RateLimiter::default(),
-            false,
-        )
-        .unwrap();
-        let pollable_ops = net.init();
-        assert_eq!(pollable_ops.len(), 5);
-        for (idx, pollable_op) in pollable_ops.iter().enumerate() {
-            match pollable_op {
-                PollableOp::Register(reg_data) => {
-                    let (pollable, event_set) = reg_data;
-                    match idx {
-                        0 => {
-                            assert_eq!(*pollable, net.tap.as_raw_fd());
-                            assert!(event_set.is_edge_triggered());
-                        }
-                        1 => assert_eq!(*pollable, net.queue_evts[RX_INDEX].as_raw_fd()),
-                        2 => assert_eq!(*pollable, net.queue_evts[TX_INDEX].as_raw_fd()),
-                        3 => assert_eq!(*pollable, net.rx_rate_limiter.as_raw_fd()),
-                        4 => assert_eq!(*pollable, net.tx_rate_limiter.as_raw_fd()),
-                        _ => panic!("Unexpected pollable op."),
-                    };
-                    assert!(event_set.is_readable());
-                    assert!(!event_set.is_writeable());
-                    assert!(!event_set.is_closed());
-                }
-                _ => panic!("Unexpected pollable op."),
-            }
-        }
     }
 }
