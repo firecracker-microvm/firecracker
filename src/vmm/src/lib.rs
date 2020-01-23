@@ -69,7 +69,8 @@ use devices::{BusDevice, DeviceEventT, EpollHandler};
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::error::LoggerError;
 use logger::{Metric, LOGGER, METRICS};
-use polly::event_manager::{self, EventManager};
+use polly::event_manager::{self, EventHandler, EventManager};
+use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
 use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
@@ -107,8 +108,6 @@ pub enum EventLoopExitReason {
 /// Dispatch categories for epoll events.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EpollDispatch {
-    /// This dispatch type is now obsolete.
-    Exit,
     /// Cascaded polly event.
     PollyEvent,
     /// Event has to be dispatch to an EpollHandler.
@@ -598,7 +597,6 @@ impl Vmm {
     /// Wait on VMM events and dispatch them to the appropriate handler. Returns to the caller
     /// when a control action occurs.
     pub fn run_event_loop(
-        &mut self,
         epoll_context: &mut EpollContext,
         event_manager: &mut EventManager,
     ) -> Result<EventLoopExitReason> {
@@ -614,24 +612,6 @@ impl Vmm {
             };
 
             match epoll_context.dispatch_table[event.data as usize] {
-                Some(EpollDispatch::Exit) => {
-                    self.exit_evt.read().map_err(Error::EventFd)?;
-
-                    // Query each vcpu for the exit_code.
-                    // If the exit_code can't be found on any vcpu, it means that the exit signal
-                    // has been issued by the i8042 controller in which case we exit with
-                    // FC_EXIT_CODE_OK.
-                    let exit_code = self
-                        .vcpus_handles
-                        .iter()
-                        .find_map(|handle| match handle.response_receiver().try_recv() {
-                            Ok(VcpuResponse::Exited(exit_code)) => Some(exit_code),
-                            _ => None,
-                        })
-                        .unwrap_or(FC_EXIT_CODE_OK);
-
-                    self.stop(i32::from(exit_code));
-                }
                 Some(EpollDispatch::DeviceHandler(device_idx, device_token)) => {
                     METRICS.vmm.device_events.inc();
                     match epoll_context.get_device_handler_by_handler_id(device_idx) {
@@ -681,6 +661,37 @@ impl Vmm {
     /// Returns a reference to the inner KVM Vm object.
     pub fn kvm_vm(&self) -> &Vm {
         &self.vm
+    }
+}
+
+impl EventHandler for Vmm {
+    /// Handle a read event (EPOLLIN).
+    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+        if source == self.exit_evt.as_raw_fd() {
+            let _ = self.exit_evt.read();
+            // Query each vcpu for the exit_code.
+            // If the exit_code can't be found on any vcpu, it means that the exit signal
+            // has been issued by the i8042 controller in which case we exit with
+            // FC_EXIT_CODE_OK.
+            let exit_code = self
+                .vcpus_handles
+                .iter()
+                .find_map(|handle| match handle.response_receiver().try_recv() {
+                    Ok(VcpuResponse::Exited(exit_code)) => Some(exit_code),
+                    _ => None,
+                })
+                .unwrap_or(FC_EXIT_CODE_OK);
+            self.stop(i32::from(exit_code));
+        } else {
+            error!("Spurious EventManager event for handler: Vmm");
+        }
+        vec![]
+    }
+
+    fn init(&self) -> Vec<PollableOp> {
+        vec![PollableOpBuilder::new(self.exit_evt.as_raw_fd())
+            .readable()
+            .register()]
     }
 }
 

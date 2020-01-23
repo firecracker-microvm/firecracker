@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter};
+use std::sync::{Arc, Mutex};
 
 use super::{EpollContext, Vmm};
 
@@ -160,7 +161,10 @@ impl<'a> PrebootApiController<'a> {
     pub fn handle_preboot_request(
         &mut self,
         request: VmmAction,
-    ) -> (std::result::Result<VmmData, VmmActionError>, Option<Vmm>) {
+    ) -> (
+        std::result::Result<VmmData, VmmActionError>,
+        Option<Arc<Mutex<Vmm>>>,
+    ) {
         use self::VmmAction::*;
 
         let mut maybe_vmm = None;

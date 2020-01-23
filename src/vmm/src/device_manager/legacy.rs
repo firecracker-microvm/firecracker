@@ -49,7 +49,10 @@ pub struct PortIODeviceManager {
 
 impl PortIODeviceManager {
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
-    pub fn new(serial: Arc<Mutex<devices::legacy::Serial>>) -> Result<Self> {
+    pub fn new(
+        serial: Arc<Mutex<devices::legacy::Serial>>,
+        i8042_reset_evfd: EventFd,
+    ) -> Result<Self> {
         let io_bus = devices::Bus::new();
         let com_evt_1_3 = serial
             .lock()
@@ -60,10 +63,8 @@ impl PortIODeviceManager {
         let com_evt_2_4 = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let kbd_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
 
-        // Create exit event for i8042
-        let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let i8042 = Arc::new(Mutex::new(devices::legacy::I8042Device::new(
-            exit_evt,
+            i8042_reset_evfd,
             kbd_evt.try_clone().map_err(Error::EventFd)?,
         )));
 
@@ -123,7 +124,10 @@ mod tests {
     #[test]
     fn test_register_legacy_devices() {
         let serial = devices::legacy::Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
-        let ldm = PortIODeviceManager::new(Arc::new(Mutex::new(serial)));
+        let ldm = PortIODeviceManager::new(
+            Arc::new(Mutex::new(serial)),
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+        );
         assert!(ldm.is_ok());
         assert!(&ldm.unwrap().register_devices().is_ok());
     }
