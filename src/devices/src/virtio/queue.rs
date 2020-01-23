@@ -9,7 +9,7 @@ use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
 pub(super) const VIRTQ_DESC_F_WRITE: u16 = 0x2;
