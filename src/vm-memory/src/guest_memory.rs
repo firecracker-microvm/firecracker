@@ -88,6 +88,11 @@ pub trait GuestMemory {
 
     /// Returns the number of regions in the collection.
     fn num_regions(&self) -> usize;
+
+    /// Perform the specified action on each region's addresses.
+    fn with_regions<F, E>(&self, cb: F) -> result::Result<(), E>
+    where
+        F: Fn(usize, GuestAddress, usize, usize) -> result::Result<(), E>;
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -177,22 +182,6 @@ impl GuestMemoryMmap {
         }
 
         Ok(self.regions[index].mapping.size())
-    }
-
-    /// Perform the specified action on each region's addresses.
-    pub fn with_regions<F, E>(&self, cb: F) -> result::Result<(), E>
-    where
-        F: Fn(usize, GuestAddress, usize, usize) -> result::Result<(), E>,
-    {
-        for (index, region) in self.regions.iter().enumerate() {
-            cb(
-                index,
-                region.guest_base,
-                region.mapping.size(),
-                region.mapping.as_ptr() as usize,
-            )?;
-        }
-        Ok(())
     }
 
     /// Perform the specified action on each region's addresses mutably.
@@ -324,6 +313,21 @@ impl GuestMemory for GuestMemoryMmap {
     /// Returns the size of the memory region.
     fn num_regions(&self) -> usize {
         self.regions.len()
+    }
+
+    fn with_regions<F, E>(&self, cb: F) -> result::Result<(), E>
+    where
+        F: Fn(usize, GuestAddress, usize, usize) -> result::Result<(), E>,
+    {
+        for (index, region) in self.regions.iter().enumerate() {
+            cb(
+                index,
+                region.guest_base,
+                region.mapping.size(),
+                region.mapping.as_ptr() as usize,
+            )?;
+        }
+        Ok(())
     }
 }
 
