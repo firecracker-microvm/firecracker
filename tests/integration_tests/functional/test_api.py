@@ -583,52 +583,6 @@ def test_drive_patch(test_microvm_with_api):
     _drive_patch(test_microvm)
 
 
-def test_api_actions(test_microvm_with_api):
-    """Test PUTs to /actions beyond InstanceStart and InstanceHalt."""
-    test_microvm = test_microvm_with_api
-    test_microvm.spawn()
-
-    # Sets up the microVM with 2 vCPUs, 256 MiB of RAM and
-    # a root file system with the rw permission.
-    test_microvm.basic_config()
-
-    fs = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, 'scratch')
-    )
-    response = test_microvm.drive.put(
-        drive_id='scratch',
-        path_on_host=test_microvm.create_jailed_resource(fs.path),
-        is_root_device=False,
-        is_read_only=False
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Rescan operations before the guest boots are not allowed.
-    response = test_microvm.actions.put(
-        action_type='BlockDeviceRescan',
-        payload='scratch'
-    )
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Operation not allowed pre-boot" in response.text
-
-    test_microvm.start()
-
-    # Rescan operations after the guest boots are allowed.
-    response = test_microvm.actions.put(
-        action_type='BlockDeviceRescan',
-        payload='scratch'
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Rescan operations on non-existent drives are not allowed.
-    response = test_microvm.actions.put(
-        action_type='BlockDeviceRescan',
-        payload='foobar'
-    )
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Invalid block device ID" in response.text
-
-
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
     reason="not yet implemented on aarch64"
