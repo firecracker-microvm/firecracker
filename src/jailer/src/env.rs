@@ -24,7 +24,12 @@ const STDERR_FILENO: libc::c_int = 2;
 const DEV_KVM_WITH_NUL: &[u8] = b"/dev/kvm\0";
 const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
 const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
-const ROOT_PATH_WITH_NUL: &[u8] = b"/\0";
+// Relevant folders inside the jail that we create or/and for which we change ownership.
+// We need /dev in order to be able to create /dev/kvm and /dev/net/tun device.
+// We need /run for the default location of the api socket.
+// Since libc::chown is not recursive, we cannot specify only /dev/net as we want
+// to walk through the entire folder hierarchy.
+const FOLDER_HIERARCHY: [&[u8]; 4] = [b"/\0", b"/dev\0", b"/dev/net\0", b"/run\0"];
 
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
@@ -166,22 +171,22 @@ impl Env {
             .map_err(|e| Error::ChangeFileOwner(dev_path.to_str().unwrap(), e))
     }
 
+    fn setup_jailed_folders(&mut self) -> Result<()> {
+        for folder in FOLDER_HIERARCHY.iter() {
+            let folder_cstr = CStr::from_bytes_with_nul(folder).map_err(Error::FromBytesWithNul)?;
+
+            // This unwrap is safe as we provided strings that have valid utf8 chars.
+            let path = folder_cstr.to_str().unwrap();
+            fs::create_dir_all(path).map_err(|e| Error::CreateDir(PathBuf::from(path), e))?;
+
+            SyscallReturnCode(unsafe { libc::chown(folder_cstr.as_ptr(), self.uid(), self.gid()) })
+                .into_empty_result()
+                .map_err(|e| Error::ChangeFileOwner(folder_cstr.to_str().unwrap(), e))?;
+        }
+        Ok(())
+    }
+
     pub fn run(mut self) -> Result<()> {
-        // We need to create the equivalent of /dev/net inside the jail.
-        self.chroot_dir.push("dev/net");
-
-        // Create the folder tree.
-        // TODO: the final part of chroot_dir ("<id>/root") should not exist, if the id is never
-        // reused. Is this a reasonable assumption? Should we check for this and return an error?
-        // If we choose to do that here, we should extend the same extra functionality to the Cgroup
-        // module, where we also create a folder hierarchy which depends on the id.
-        fs::create_dir_all(&self.chroot_dir)
-            .map_err(|e| Error::CreateDir(self.chroot_dir.clone(), e))?;
-
-        // Pop dev/net.
-        self.chroot_dir.pop();
-        self.chroot_dir.pop();
-
         let exec_file_name = self
             .exec_file_path
             .file_name()
@@ -249,6 +254,10 @@ impl Env {
         // Jail self.
         chroot(self.chroot_dir())?;
 
+        // This will not only create necessary directories, but will also change ownership
+        // for all of them.
+        self.setup_jailed_folders()?;
+
         // Here we are creating the /dev/kvm and /dev/net/tun devices inside the jailer.
         // Following commands can be translated into bash like this:
         // $: mkdir -p $chroot_dir/dev/net
@@ -259,14 +268,6 @@ impl Env {
         self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, 10, 200)?;
         // Do the same for /dev/kvm with (major, minor) = (10, 232).
         self.mknod_and_own_dev(DEV_KVM_WITH_NUL, 10, 232)?;
-
-        // Change ownership of the jail root to Firecracker's UID and GID. This is necessary
-        // so Firecracker can create the unix domain socket in its own jail.
-        let jail_root_path =
-            CStr::from_bytes_with_nul(ROOT_PATH_WITH_NUL).map_err(Error::FromBytesWithNul)?;
-        SyscallReturnCode(unsafe { libc::chown(jail_root_path.as_ptr(), self.uid(), self.gid()) })
-            .into_empty_result()
-            .map_err(|e| Error::ChangeFileOwner(jail_root_path.to_str().unwrap(), e))?;
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(fd) = dev_null {
