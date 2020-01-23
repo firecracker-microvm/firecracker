@@ -85,6 +85,9 @@ impl GuestMemoryRegion for MemoryRegion {
 pub trait GuestMemory {
     /// Type of objects hosted by the address space.
     type R: GuestMemoryRegion;
+
+    /// Returns the number of regions in the collection.
+    fn num_regions(&self) -> usize;
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -165,11 +168,6 @@ impl GuestMemoryMmap {
         }
 
         None
-    }
-
-    /// Returns the size of the memory region.
-    pub fn num_regions(&self) -> usize {
-        self.regions.len()
     }
 
     /// Returns the size of the region identified by passed index
@@ -322,6 +320,11 @@ impl GuestMemoryMmap {
 
 impl GuestMemory for GuestMemoryMmap {
     type R = MemoryRegion;
+
+    /// Returns the size of the memory region.
+    fn num_regions(&self) -> usize {
+        self.regions.len()
+    }
 }
 
 impl Bytes<GuestAddress> for GuestMemoryMmap {
