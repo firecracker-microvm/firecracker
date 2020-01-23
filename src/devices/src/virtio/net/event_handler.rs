@@ -5,13 +5,13 @@ use std::os::unix::io::AsRawFd;
 
 use logger::{Metric, METRICS};
 use polly::epoll::{EpollEvent, EventSet};
-use polly::event_manager::Subscriber;
+use polly::event_manager::{EventManager, Subscriber};
 
 use crate::virtio::net::device::Net;
 use crate::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
 
 impl Subscriber for Net {
-    fn process(&mut self, event: EpollEvent) {
+    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
         if !self.is_activated() {
             warn!("The device is not yet activated. Events can not be handled.");
             return;

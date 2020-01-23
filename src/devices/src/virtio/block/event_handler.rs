@@ -3,14 +3,14 @@
 use std::os::unix::io::AsRawFd;
 
 use polly::epoll::{EpollEvent, EventSet};
-use polly::event_manager::Subscriber;
+use polly::event_manager::{EventManager, Subscriber};
 
 use crate::virtio::block::device::Block;
 use crate::virtio::VirtioDevice;
 
 impl Subscriber for Block {
     // Handle an event for queue or rate limiter.
-    fn process(&mut self, event: EpollEvent) {
+    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
         if !self.is_activated() {
             warn!("The device is not yet activated. Events can not be handled.");
             return;
