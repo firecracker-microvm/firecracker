@@ -152,6 +152,9 @@ pub trait GuestMemory {
 
     /// Returns true if the given address is within the memory range available to the guest.
     fn address_in_range(&self, addr: GuestAddress) -> bool;
+
+    /// Returns the address plus the offset if it is in range.
+    fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress>;
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -190,18 +193,6 @@ impl GuestMemoryMmap {
         Ok(GuestMemoryMmap {
             regions: Arc::new(regions),
         })
-    }
-
-    /// Returns the address plus the offset if the result falls within a valid memory region. The
-    /// resulting address and base address may belong to different memory regions, and the base
-    /// might not even exist in a valid region.
-    pub fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
-        let addr = base.checked_add(offset as u64)?;
-        if self.address_in_range(addr) {
-            return Some(addr);
-        }
-
-        None
     }
 
     /// Returns the size of the region identified by passed index
@@ -332,6 +323,15 @@ impl GuestMemory for GuestMemoryMmap {
             }
         }
         false
+    }
+
+    fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
+        let addr = base.checked_add(offset as u64)?;
+        if self.address_in_range(addr) {
+            return Some(addr);
+        }
+
+        None
     }
 }
 
