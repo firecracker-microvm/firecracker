@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
@@ -211,8 +211,9 @@ pub fn run_with_api(
         .expect("Cannot cascade EventManager from epoll_context");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
-    let firecracker_metrics = event_manager
-        .register(super::metrics::PeriodicMetrics::new())
+    let firecracker_metrics = Arc::new(Mutex::new(super::metrics::PeriodicMetrics::new()));
+    event_manager
+        .register(firecracker_metrics.clone())
         .expect("Cannot register the metrics event to the event manager.");
 
     epoll_context
