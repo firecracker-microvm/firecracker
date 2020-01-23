@@ -374,7 +374,7 @@ where
     }
 }
 
-impl<S> VsockEpollListener for VsockConnection<S>
+impl<S> AsRawFd for VsockConnection<S>
 where
     S: Read + Write + AsRawFd,
 {
@@ -382,10 +382,15 @@ where
     ///
     /// The connection is interested in being notified about EPOLLIN / EPOLLOUT events on the
     /// host stream.
-    fn get_polled_fd(&self) -> RawFd {
+    fn as_raw_fd(&self) -> RawFd {
         self.stream.as_raw_fd()
     }
+}
 
+impl<S> VsockEpollListener for VsockConnection<S>
+where
+    S: Read + Write + AsRawFd,
+{
     /// Get the event set that this connection is interested in.
     ///
     /// A connection will want to be notified when:
@@ -885,7 +890,7 @@ mod tests {
         let mut ctx = CsmTestContext::new_established();
         let data = &[1, 2, 3, 4];
         ctx.set_stream(TestStream::new_with_read_buf(data));
-        assert_eq!(ctx.conn.get_polled_fd(), ctx.conn.stream.as_raw_fd());
+        assert_eq!(ctx.conn.as_raw_fd(), ctx.conn.stream.as_raw_fd());
         ctx.notify_epollin();
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);

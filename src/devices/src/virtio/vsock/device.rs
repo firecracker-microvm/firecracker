@@ -170,7 +170,7 @@ where
         let evvq_evt = self.queue_evts.remove(0);
 
         let backend = self.backend.take().unwrap();
-        let backend_fd = backend.get_polled_fd();
+        let backend_fd = backend.as_raw_fd();
         let backend_evset = backend.get_polled_evset();
 
         let handler: VsockEpollHandler<B> = VsockEpollHandler {
