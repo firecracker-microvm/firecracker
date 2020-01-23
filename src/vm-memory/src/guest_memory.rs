@@ -74,6 +74,19 @@ impl GuestMemoryRegion for MemoryRegion {
     }
 }
 
+/// Represents a container for a collection of GuestMemoryRegion objects.
+///
+/// The main responsibilities of the GuestMemory trait are:
+/// - hide the detail of accessing guest's physical address.
+/// - map a request address to a GuestMemoryRegion object and relay the request to it.
+/// - handle cases where an access request spanning two or more GuestMemoryRegion objects.
+///
+/// Note: all regions in a GuestMemory object must not intersect with each other.
+pub trait GuestMemory {
+    /// Type of objects hosted by the address space.
+    type R: GuestMemoryRegion;
+}
+
 /// Tracks all memory regions allocated for the guest in the current process.
 #[derive(Clone)]
 pub struct GuestMemoryMmap {
@@ -305,6 +318,10 @@ impl GuestMemoryMmap {
         }
         Err(Error::InvalidGuestAddress(guest_addr))
     }
+}
+
+impl GuestMemory for GuestMemoryMmap {
+    type R = MemoryRegion;
 }
 
 impl Bytes<GuestAddress> for GuestMemoryMmap {
