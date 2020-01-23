@@ -624,6 +624,7 @@ where
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
@@ -1165,3 +1166,4 @@ mod tests {
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RST);
     }
 }
+*/

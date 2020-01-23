@@ -743,6 +743,7 @@ impl VsockMuxer {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
@@ -1286,3 +1287,4 @@ mod tests {
         assert!(!ctx.muxer.has_pending_rx());
     }
 }
+*/

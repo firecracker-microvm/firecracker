@@ -334,6 +334,7 @@ impl VsockPacket {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
 
@@ -627,3 +628,4 @@ mod tests {
         }
     }
 }
+*/
