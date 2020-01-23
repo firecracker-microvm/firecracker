@@ -7,39 +7,22 @@
 
 mod csm;
 mod device;
-mod epoll_handler;
+mod event_handler;
 mod packet;
 mod unix;
 
 use std::os::unix::io::AsRawFd;
-use std::sync::mpsc;
 
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
-pub use self::defs::EVENT_COUNT as VSOCK_EVENTS_COUNT;
 pub use self::device::Vsock;
 pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
 
-use polly::epoll::{Epoll, EventSet};
+use polly::epoll::EventSet;
 use vm_memory::GuestMemoryError;
 
-use super::super::EpollHandler;
-use super::EpollConfigConstructor;
 use packet::VsockPacket;
 
 mod defs {
-    use crate::DeviceEventT;
-
-    /// RX queue event: the driver added available buffers to the RX queue.
-    pub const RXQ_EVENT: DeviceEventT = 0;
-    /// TX queue event: the driver added available buffers to the RX queue.
-    pub const TXQ_EVENT: DeviceEventT = 1;
-    /// Event queue event: the driver added available buffers to the event queue.
-    pub const EVQ_EVENT: DeviceEventT = 2;
-    /// Backend event: the backend needs a kick.
-    pub const BACKEND_EVENT: DeviceEventT = 3;
-    /// Total number of events known to the vsock epoll handler.
-    pub const EVENT_COUNT: usize = 4;
-
     /// Number of virtio queues.
     pub const NUM_QUEUES: usize = 3;
     /// Virtio queue sizes, in number of descriptor chain heads.
@@ -128,28 +111,6 @@ pub enum VsockError {
 
 type Result<T> = std::result::Result<T, VsockError>;
 
-pub struct EpollConfig {
-    rxq_token: u64,
-    txq_token: u64,
-    evq_token: u64,
-    backend_token: u64,
-    epoll: Epoll,
-    sender: mpsc::Sender<Box<dyn EpollHandler>>,
-}
-
-impl EpollConfigConstructor for EpollConfig {
-    fn new(first_token: u64, epoll: Epoll, sender: mpsc::Sender<Box<dyn EpollHandler>>) -> Self {
-        EpollConfig {
-            rxq_token: first_token + u64::from(defs::RXQ_EVENT),
-            txq_token: first_token + u64::from(defs::TXQ_EVENT),
-            evq_token: first_token + u64::from(defs::EVQ_EVENT),
-            backend_token: first_token + u64::from(defs::BACKEND_EVENT),
-            epoll,
-            sender,
-        }
-    }
-}
-
 /// A passive, event-driven object, that needs to be notified whenever an epoll-able event occurs.
 /// An event-polling control loop will use `as_raw_fd()` and `get_polled_evset()` to query
 /// the listener for the file descriptor and the set of events it's interested in. When such an
@@ -189,9 +150,10 @@ pub trait VsockChannel {
 /// translates guest-side vsock connections to host-side Unix domain socket connections.
 pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {}
 
+/*
 #[cfg(test)]
 mod tests {
-    use super::epoll_handler::VsockEpollHandler;
+    use super::event_handler::VsockEventHandler;
     use super::packet::VSOCK_PKT_HDR_SIZE;
     use super::*;
 
@@ -288,27 +250,18 @@ mod tests {
         pub mem: GuestMemoryMmap,
         pub mem_size: usize,
         pub device: Vsock<TestBackend>,
-
-        // This needs to live here, so that sending the handler, at device activation, works.
-        _handler_receiver: mpsc::Receiver<Box<dyn EpollHandler>>,
     }
 
     impl TestContext {
         pub fn new() -> Self {
             const CID: u64 = 52;
             const MEM_SIZE: usize = 1024 * 1024 * 128;
-            let (sender, _handler_receiver) = mpsc::channel();
+            let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), MEM_SIZE)]).unwrap();
             Self {
                 cid: CID,
-                mem: GuestMemoryMmap::from_ranges(&[(GuestAddress(0), MEM_SIZE)]).unwrap(),
+                mem: mem.clone(),
                 mem_size: MEM_SIZE,
-                device: Vsock::new(
-                    CID,
-                    EpollConfig::new(0, Epoll::new().unwrap(), sender),
-                    TestBackend::new(),
-                )
-                .unwrap(),
-                _handler_receiver,
+                device: Vsock::new(CID, mem, TestBackend::new()).unwrap(),
             }
         }
 
@@ -344,7 +297,7 @@ mod tests {
                 guest_rxvq,
                 guest_txvq,
                 guest_evvq,
-                handler: VsockEpollHandler {
+                handler: VsockEventHandler {
                     rxvq,
                     rxvq_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                     txvq,
@@ -362,7 +315,7 @@ mod tests {
     }
 
     pub struct EpollHandlerContext<'a> {
-        pub handler: VsockEpollHandler<TestBackend>,
+        pub handler: VsockEventHandler<TestBackend>,
         pub guest_rxvq: GuestQ<'a>,
         pub guest_txvq: GuestQ<'a>,
         pub guest_evvq: GuestQ<'a>,
@@ -383,3 +336,4 @@ mod tests {
         }
     }
 }
+*/
