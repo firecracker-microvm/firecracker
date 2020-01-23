@@ -134,6 +134,21 @@ pub trait GuestMemory {
     where
         F: Fn((usize, &Self::R)) -> T,
         G: Fn(T, T) -> T;
+
+    /// Returns the last address of memory.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, MemoryMapping};
+    /// fn test_last_addr() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     assert_eq!(start_addr.checked_add(0x3ff), Some(gm.last_addr()));
+    ///     Ok(())
+    /// }
+    /// ```
+    fn last_addr(&self) -> GuestAddress;
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -172,26 +187,6 @@ impl GuestMemoryMmap {
         Ok(GuestMemoryMmap {
             regions: Arc::new(regions),
         })
-    }
-
-    /// Returns the last address of memory.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vm_memory::{Address, GuestAddress, GuestMemoryMmap, MemoryMapping};
-    /// fn test_last_addr() -> Result<(), ()> {
-    ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
-    ///     assert_eq!(start_addr.checked_add(0x3ff), Some(gm.last_addr()));
-    ///     Ok(())
-    /// }
-    /// ```
-    pub fn last_addr(&self) -> GuestAddress {
-        self.regions
-            .iter()
-            .max_by_key(|region| region.guest_base)
-            .map_or(GuestAddress(0), |region| region.last_addr())
     }
 
     /// Returns true if the given address is within the memory range available to the guest.
@@ -328,6 +323,13 @@ impl GuestMemory for GuestMemoryMmap {
         G: Fn(T, T) -> T,
     {
         self.regions.iter().enumerate().map(mapf).fold(init, foldf)
+    }
+
+    fn last_addr(&self) -> GuestAddress {
+        self.regions
+            .iter()
+            .max_by_key(|region| region.guest_base)
+            .map_or(GuestAddress(0), |region| region.last_addr())
     }
 }
 

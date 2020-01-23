@@ -18,7 +18,7 @@ use super::get_fdt_addr;
 use super::gic::GICDevice;
 use super::layout::FDT_MAX_SIZE;
 use aarch64::fdt::Error::CstringFDTTransform;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
