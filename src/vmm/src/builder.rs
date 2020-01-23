@@ -486,12 +486,8 @@ pub fn setup_serial_device(
     let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK)
         .map_err(Error::EventFd)
         .map_err(StartMicrovmError::Internal)?;
-    let serial = Arc::new(Mutex::new(devices::legacy::Serial::new_in_out(
-        interrupt_evt,
-        input,
-        out,
-    )));
-    if let Err(e) = event_manager.register_protected(serial.clone()) {
+    let serial = Arc::new(Mutex::new(Serial::new_in_out(interrupt_evt, input, out)));
+    if let Err(e) = event_manager.register(serial.clone()) {
         // TODO: We just log this message, and immediately return Ok, instead of returning the
         // actual error because this operation always fails with EPERM when adding a fd which
         // has been redirected to /dev/null via dup2 (this may happen inside the jailer).
@@ -714,16 +710,17 @@ fn attach_block_devices(
             .transpose()
             .map_err(CreateRateLimiter)?;
 
-        let block_device = event_manager
-            .register(
-                devices::virtio::Block::new(
-                    vmm.guest_memory.clone(),
-                    block_file,
-                    drive_config.is_read_only,
-                    rate_limiter.unwrap_or_default(),
-                )
-                .map_err(CreateBlockDevice)?,
+        let block_device = Arc::new(Mutex::new(
+            devices::virtio::Block::new(
+                vmm.guest_memory.clone(),
+                block_file,
+                drive_config.is_read_only,
+                rate_limiter.unwrap_or_default(),
             )
+            .map_err(CreateBlockDevice)?,
+        ));
+        event_manager
+            .register(block_device.clone())
             .map_err(StartMicrovmError::RegisterEvent)?;
 
         attach_block_device(

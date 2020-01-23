@@ -23,6 +23,7 @@ use std::io;
 use std::panic;
 use std::path::PathBuf;
 use std::process;
+use std::sync::{Arc, Mutex};
 
 use logger::{Metric, LOGGER, METRICS};
 use polly::event_manager::EventManager;
@@ -243,8 +244,9 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
         .expect("Cannot cascade EventManager from epoll_context");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
-    let firecracker_metrics = event_manager
-        .register(metrics::PeriodicMetrics::new())
+    let firecracker_metrics = Arc::new(Mutex::new(metrics::PeriodicMetrics::new()));
+    event_manager
+        .register(firecracker_metrics.clone())
         .expect("Cannot register the metrics event to the event manager.");
 
     let (vm_resources, vmm) = build_microvm_from_json(

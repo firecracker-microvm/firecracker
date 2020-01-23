@@ -204,19 +204,7 @@ impl EventManager {
 
     /// Register a new event handler.
     /// handler.init() will specify the pollable and event set.
-    ///
-    /// Returns the handler wrapped in an Arc<Mutex>.
-    pub fn register<T: EventHandler + 'static>(&mut self, handler: T) -> Result<Arc<Mutex<T>>> {
-        let wrapped_handler = Arc::new(Mutex::new(handler));
-        self.register_protected(wrapped_handler.clone())?;
-        Ok(wrapped_handler)
-    }
-
-    /// Register an event handler object already wrapped in an Arc<Mutex>.
-    pub fn register_protected<T: EventHandler + 'static>(
-        &mut self,
-        handler: Arc<Mutex<T>>,
-    ) -> Result<()> {
+    pub fn register<T: EventHandler + 'static>(&mut self, handler: Arc<Mutex<T>>) -> Result<()> {
         let pollable_ops = handler.lock().unwrap().init();
         self.update(handler, pollable_ops)?;
         Ok(())
@@ -451,9 +439,10 @@ mod tests {
         // Test registration via register()/init() callback api.
         let mut em = EventManager::new().unwrap();
 
-        let handler = em.register(DummyEventConsumer::new()).unwrap();
-        let pollable = handler.lock().expect("Unlock failed.").pollable;
+        let handler = Arc::new(Mutex::new(DummyEventConsumer::new()));
+        em.register(handler.clone()).unwrap();
 
+        let pollable = handler.lock().expect("Unlock failed.").pollable;
         assert!(em.handlers.get(pollable).is_some());
     }
 
@@ -547,9 +536,9 @@ mod tests {
         dummy3.pollable = dummy1.pollable;
         let pollable = dummy1.pollable;
 
-        em.register(dummy1).unwrap();
-        assert!(em.register(dummy2).is_err());
-        match em.register(dummy3) {
+        em.register(Arc::new(Mutex::new(dummy1))).unwrap();
+        assert!(em.register(Arc::new(Mutex::new(dummy2))).is_err());
+        match em.register(Arc::new(Mutex::new(dummy3))) {
             Err(err) => assert_eq!(
                 format!("{:?}", err),
                 format!(
@@ -564,7 +553,8 @@ mod tests {
     #[test]
     fn test_read_event() {
         let mut em = EventManager::new().unwrap();
-        let handler = em.register(DummyEventConsumer::new()).unwrap();
+        let handler = Arc::new(Mutex::new(DummyEventConsumer::new()));
+        em.register(handler.clone()).unwrap();
 
         handler
             .lock()
@@ -580,7 +570,8 @@ mod tests {
     #[test]
     fn test_write_event() {
         let mut em = EventManager::new().unwrap();
-        let handler = em.register(DummyEventConsumer::new()).unwrap();
+        let handler = Arc::new(Mutex::new(DummyEventConsumer::new()));
+        em.register(handler.clone()).unwrap();
 
         em.run().unwrap();
         assert!(handler.lock().expect("Unlock failed").write);
@@ -590,7 +581,8 @@ mod tests {
     fn test_cascaded_events() {
         let mut root_em = EventManager::new().unwrap();
         let mut em = EventManager::new().unwrap();
-        let handler = em.register(DummyEventConsumer::new()).unwrap();
+        let handler = Arc::new(Mutex::new(DummyEventConsumer::new()));
+        em.register(handler.clone()).unwrap();
         handler
             .lock()
             .expect("Unlock failed")
@@ -598,7 +590,7 @@ mod tests {
             .write(1)
             .unwrap();
 
-        root_em.register(em).unwrap();
+        root_em.register(Arc::new(Mutex::new(em))).unwrap();
 
         root_em.run().unwrap();
         assert!(handler.lock().expect("Unlock failed").read);
