@@ -1531,7 +1531,7 @@ impl Vmm {
     }
 
     /// Triggers a rescan of the host file backing the emulated block device with id `drive_id`.
-    pub fn rescan_block_device(&mut self, drive_id: &str) -> UserResult {
+    fn rescan_block_device(&mut self, drive_id: &str) -> UserResult {
         // Rescan can only happen after the guest is booted.
         if !self.is_instance_initialized() {
             return Err(DriveError::OperationNotAllowedPreBoot.into());
@@ -1546,14 +1546,6 @@ impl Vmm {
                 let new_size = File::open(&drive_config.path_on_host)
                     .and_then(|mut f| f.seek(SeekFrom::End(0)))
                     .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                if new_size % virtio::block::SECTOR_SIZE != 0 {
-                    warn!(
-                        "Disk size {} is not a multiple of sector size {}; \
-                         the remainder will not be visible to the guest.",
-                        new_size,
-                        virtio::block::SECTOR_SIZE
-                    );
-                }
                 return device_manager
                     .update_drive(drive_id, new_size)
                     .map_err(|_| VmmActionError::from(DriveError::BlockDeviceUpdateFailed));

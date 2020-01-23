@@ -349,7 +349,7 @@ pub enum VmmActionError {
     /// The action `ConfigureBootSource` failed either because of bad user input (`ErrorKind::User`)
     /// or an internal error (`ErrorKind::Internal`).
     BootSource(ErrorKind, BootSourceConfigError),
-    /// One of the actions `InsertBlockDevice`, `RescanBlockDevice` or `UpdateBlockDevicePath`
+    /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
     /// failed either because of bad user input (`ErrorKind::User`) or an
     /// internal error (`ErrorKind::Internal`).
     DriveConfig(ErrorKind, DriveError),

@@ -45,10 +45,9 @@ def test_rescan_file(test_microvm_with_ssh, network_config):
     # Resize the filesystem from 256 MiB (default) to 512 MiB.
     fs.resize(512)
 
-    # Rescan operations after the guest boots are allowed.
-    response = test_microvm.actions.put(
-        action_type='BlockDeviceRescan',
-        payload='scratch'
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        path_on_host=test_microvm.create_jailed_resource(fs.path),
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
