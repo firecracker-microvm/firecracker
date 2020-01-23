@@ -17,7 +17,6 @@ use arch::InitrdConfig;
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::Serial;
-use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
 use devices::virtio::MmioTransport;
 use polly::event_manager::{Error as EventManagerError, EventManager};
 use seccomp::BpfProgramRef;
@@ -225,7 +224,7 @@ impl VmmEventsObserver for SerialStdin {
 /// is returned.
 pub fn build_microvm(
     vm_resources: &super::resources::VmResources,
-    epoll_context: &mut EpollContext,
+    _epoll_context: &mut EpollContext,
     event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
@@ -347,7 +346,7 @@ pub fn build_microvm(
     attach_block_devices(&mut vmm, &vm_resources.block, event_manager)?;
     attach_net_devices(&mut vmm, &vm_resources.network_interface, event_manager)?;
     if let Some(vsock) = vm_resources.vsock.as_ref() {
-        attach_vsock_device(&mut vmm, vsock, epoll_context)?;
+        attach_vsock_device(&mut vmm, vsock, event_manager)?;
     }
 
     // Write the kernel command line to guest memory. This is x86_64 specific, since on
@@ -814,7 +813,7 @@ fn attach_net_devices(
 fn attach_vsock_device(
     vmm: &mut Vmm,
     vsock: &VsockDeviceConfig,
-    epoll_context: &mut EpollContext,
+    event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
     let backend = devices::virtio::vsock::VsockUnixBackend::new(
@@ -823,21 +822,23 @@ fn attach_vsock_device(
     )
     .map_err(CreateVsockBackend)?;
 
-    let epoll_config = epoll_context.allocate_tokens_for_virtio_device(
-        TYPE_VSOCK,
-        &vsock.vsock_id,
-        VSOCK_EVENTS_COUNT,
-    );
-
-    let vsock_box = Arc::new(Mutex::new(
-        devices::virtio::Vsock::new(u64::from(vsock.guest_cid), epoll_config, backend)
-            .map_err(CreateVsockDevice)?,
+    let vsock_device = Arc::new(Mutex::new(
+        devices::virtio::Vsock::new(
+            u64::from(vsock.guest_cid),
+            vmm.guest_memory().clone(),
+            backend,
+        )
+        .map_err(CreateVsockDevice)?,
     ));
+
+    event_manager
+        .add_subscriber(vsock_device.clone())
+        .map_err(StartMicrovmError::RegisterEvent)?;
 
     attach_mmio_device(
         vmm,
         vsock.vsock_id.clone(),
-        MmioTransport::new(vmm.guest_memory().clone(), vsock_box)
+        MmioTransport::new(vmm.guest_memory().clone(), vsock_device)
             .map_err(device_manager::mmio::Error::CreateMmioDevice)
             .map_err(RegisterVsockDevice)?,
     )

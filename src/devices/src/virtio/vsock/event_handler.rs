@@ -22,201 +22,204 @@
 /// - on backend event:
 ///   - forward the event to the backend; then
 ///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX buffers.
-use std::result;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::os::unix::io::AsRawFd;
 
-use polly::epoll::EventSet;
-use utils::eventfd::EventFd;
-use vm_memory::GuestMemoryMmap;
+use polly::epoll::{EpollEvent, EventSet};
+use polly::event_manager::{EventManager, Subscriber};
 
-use super::super::super::{DeviceEventT, Error as DeviceError};
-use super::super::queue::Queue as VirtQueue;
-use super::super::VIRTIO_MMIO_INT_VRING;
-use super::defs;
-use super::packet::VsockPacket;
-use super::{EpollHandler, VsockBackend};
+use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
+use super::VsockBackend;
 
-// TODO: Detect / handle queue deadlock:
-// 1. If the driver halts RX queue processing, we'll need to notify `self.backend`, so that it
-//    can unregister any EPOLLIN listeners, since otherwise it will keep spinning, unable to consume
-//    its EPOLLIN events.
-
-pub struct VsockEpollHandler<B: VsockBackend + 'static> {
-    pub rxvq: VirtQueue,
-    pub rxvq_evt: EventFd,
-    pub txvq: VirtQueue,
-    pub txvq_evt: EventFd,
-    pub evvq: VirtQueue,
-    pub evvq_evt: EventFd,
-    pub cid: u64,
-    pub mem: GuestMemoryMmap,
-    pub interrupt_status: Arc<AtomicUsize>,
-    pub interrupt_evt: EventFd,
-    pub backend: B,
-}
-
-impl<B> VsockEpollHandler<B>
+impl<B> Vsock<B>
 where
     B: VsockBackend + 'static,
 {
-    /// Signal the guest driver that we've used some virtio buffers that it had previously made
-    /// available.
-    fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
-        debug!("vsock: raising IRQ");
-        self.interrupt_status
-            .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
-        self.interrupt_evt.write(1).map_err(|e| {
-            error!("Failed to signal used queue: {:?}", e);
-            DeviceError::FailedSignalingUsedQueue(e)
-        })
-    }
+    fn handle_rxq_event(&mut self, event: EpollEvent) -> bool {
+        debug!("vsock: RX queue event");
 
-    /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
-    /// have pending.
-    fn process_rx(&mut self) -> bool {
-        debug!("vsock: epoll_handler::process_rx()");
-
-        let mut have_used = false;
-
-        while let Some(head) = self.rxvq.pop(&self.mem) {
-            let used_len = match VsockPacket::from_rx_virtq_head(&head) {
-                Ok(mut pkt) => {
-                    if self.backend.recv_pkt(&mut pkt).is_ok() {
-                        pkt.hdr().len() as u32 + pkt.len()
-                    } else {
-                        // We are using a consuming iterator over the virtio buffers, so, if we can't
-                        // fill in this buffer, we'll need to undo the last iterator step.
-                        self.rxvq.undo_pop();
-                        break;
-                    }
-                }
-                Err(e) => {
-                    warn!("vsock: RX queue error: {:?}", e);
-                    0
-                }
-            };
-
-            have_used = true;
-            self.rxvq.add_used(&self.mem, head.index, used_len);
+        let event_set = event.event_set();
+        if event_set != EventSet::IN {
+            warn!("vsock: rxq unexpected event {:?}", event_set);
+            return false;
         }
 
-        have_used
+        let mut raise_irq = false;
+        if let Err(e) = self.queue_events[RXQ_INDEX].read() {
+            error!("Failed to get vsock rx queue event: {:?}", e);
+        } else if self.backend.has_pending_rx() {
+            raise_irq |= self.process_rx();
+        }
+        raise_irq
     }
 
-    /// Walk the driver-provided TX queue buffers, package them up as vsock packets, and send them to
-    /// the backend for processing.
-    fn process_tx(&mut self) -> bool {
-        debug!("vsock: epoll_handler::process_tx()");
+    fn handle_txq_event(&mut self, event: EpollEvent) -> bool {
+        debug!("vsock: TX queue event");
 
-        let mut have_used = false;
+        let event_set = event.event_set();
+        if event_set != EventSet::IN {
+            warn!("vsock: txq unexpected event {:?}", event_set);
+            return false;
+        }
 
-        while let Some(head) = self.txvq.pop(&self.mem) {
-            let pkt = match VsockPacket::from_tx_virtq_head(&head) {
-                Ok(pkt) => pkt,
-                Err(e) => {
-                    error!("vsock: error reading TX packet: {:?}", e);
-                    have_used = true;
-                    self.txvq.add_used(&self.mem, head.index, 0);
-                    continue;
-                }
-            };
-
-            if self.backend.send_pkt(&pkt).is_err() {
-                self.txvq.undo_pop();
-                break;
+        let mut raise_irq = false;
+        if let Err(e) = self.queue_events[TXQ_INDEX].read() {
+            error!("Failed to get vsock tx queue event: {:?}", e);
+        } else {
+            raise_irq |= self.process_tx();
+            // The backend may have queued up responses to the packets we sent during
+            // TX queue processing. If that happened, we need to fetch those responses
+            // and place them into RX buffers.
+            if self.backend.has_pending_rx() {
+                raise_irq |= self.process_rx();
             }
+        }
+        raise_irq
+    }
 
-            have_used = true;
-            self.txvq.add_used(&self.mem, head.index, 0);
+    fn handle_evq_event(&mut self, event: EpollEvent) -> bool {
+        debug!("vsock: event queue event");
+
+        let event_set = event.event_set();
+        if event_set != EventSet::IN {
+            warn!("vsock: evq unexpected event {:?}", event_set);
+            return false;
         }
 
-        have_used
+        if let Err(e) = self.queue_events[EVQ_INDEX].read() {
+            error!("Failed to consume vsock evq event: {:?}", e);
+        }
+        false
+    }
+
+    fn notify_backend(&mut self, event: EpollEvent) -> bool {
+        debug!("vsock: backend event");
+
+        self.backend.notify(event.event_set());
+        // After the backend has been kicked, it might've freed up some resources, so we
+        // can attempt to send it more data to process.
+        // In particular, if `self.backend.send_pkt()` halted the TX queue processing (by
+        // reurning an error) at some point in the past, now is the time to try walking the
+        // TX queue again.
+        let mut raise_irq = self.process_tx();
+        if self.backend.has_pending_rx() {
+            raise_irq |= self.process_rx();
+        }
+        raise_irq
+    }
+
+    fn handle_activate_event(&self, event_manager: &mut EventManager) {
+        debug!("vsock: activate event");
+        if let Err(e) = self.activate_evt.read() {
+            error!("Failed to consume vsock activate event: {:?}", e);
+        }
+
+        // The subscriber must exist as we previously registered activate_evt via
+        // `interest_list()`.
+        let self_subscriber = event_manager
+            .subscriber(self.activate_evt.as_raw_fd())
+            .unwrap();
+
+        event_manager
+            .register(
+                self.queue_events[RXQ_INDEX].as_raw_fd(),
+                EpollEvent::new(
+                    EventSet::IN,
+                    self.queue_events[RXQ_INDEX].as_raw_fd() as u64,
+                ),
+                self_subscriber.clone(),
+            )
+            .unwrap_or_else(|e| {
+                error!("Failed to register vsock rxq with event manager: {:?}", e);
+            });
+
+        event_manager
+            .register(
+                self.queue_events[TXQ_INDEX].as_raw_fd(),
+                EpollEvent::new(
+                    EventSet::IN,
+                    self.queue_events[TXQ_INDEX].as_raw_fd() as u64,
+                ),
+                self_subscriber.clone(),
+            )
+            .unwrap_or_else(|e| {
+                error!("Failed to register vsock txq with event manager: {:?}", e);
+            });
+
+        event_manager
+            .register(
+                self.queue_events[EVQ_INDEX].as_raw_fd(),
+                EpollEvent::new(
+                    EventSet::IN,
+                    self.queue_events[EVQ_INDEX].as_raw_fd() as u64,
+                ),
+                self_subscriber.clone(),
+            )
+            .unwrap_or_else(|e| {
+                error!("Failed to register vsock evq with event manager: {:?}", e);
+            });
+
+        event_manager
+            .register(
+                self.backend.as_raw_fd(),
+                EpollEvent::new(
+                    self.backend.get_polled_evset(),
+                    self.backend.as_raw_fd() as u64,
+                ),
+                self_subscriber,
+            )
+            .unwrap_or_else(|e| {
+                error!("Failed to register vsock backend events: {:?}", e);
+            });
+
+        event_manager
+            .unregister(self.activate_evt.as_raw_fd())
+            .unwrap_or_else(|e| {
+                error!("Failed to unregister vsock activate evt: {:?}", e);
+            })
     }
 }
 
-impl<B> EpollHandler for VsockEpollHandler<B>
+impl<B> Subscriber for Vsock<B>
 where
-    B: VsockBackend,
+    B: VsockBackend + 'static,
 {
-    /// Respond to a new event, coming from the main epoll loop (implemented by the VMM).
-    fn handle_event(
-        &mut self,
-        device_event: DeviceEventT,
-        evset: EventSet,
-    ) -> result::Result<(), DeviceError> {
+    fn process(&mut self, event: EpollEvent, event_manager: &mut EventManager) {
+        let source = event.fd();
+        let rxq = self.queue_events[RXQ_INDEX].as_raw_fd();
+        let txq = self.queue_events[TXQ_INDEX].as_raw_fd();
+        let evq = self.queue_events[EVQ_INDEX].as_raw_fd();
+        let backend = self.backend.as_raw_fd();
+        let activate_evt = self.activate_evt.as_raw_fd();
+
         let mut raise_irq = false;
 
-        match device_event {
-            defs::RXQ_EVENT => {
-                debug!("vsock: RX queue event");
-                if let Err(e) = self.rxvq_evt.read() {
-                    error!("Failed to get rx queue event: {:?}", e);
-                    return Err(DeviceError::FailedReadingQueue {
-                        event_type: "rx queue event",
-                        underlying: e,
-                    });
-                } else if self.backend.has_pending_rx() {
-                    raise_irq |= self.process_rx();
-                }
+        match source {
+            _ if source == rxq => raise_irq = self.handle_rxq_event(event),
+            _ if source == txq => raise_irq = self.handle_txq_event(event),
+            _ if source == evq => raise_irq = self.handle_evq_event(event),
+            _ if source == backend => {
+                raise_irq = self.notify_backend(event);
             }
-            defs::TXQ_EVENT => {
-                debug!("vsock: TX queue event");
-                if let Err(e) = self.txvq_evt.read() {
-                    error!("Failed to get tx queue event: {:?}", e);
-                    return Err(DeviceError::FailedReadingQueue {
-                        event_type: "tx queue event",
-                        underlying: e,
-                    });
-                } else {
-                    raise_irq |= self.process_tx();
-                    // The backend may have queued up responses to the packets we sent during TX queue
-                    // processing. If that happened, we need to fetch those responses and place them
-                    // into RX buffers.
-                    if self.backend.has_pending_rx() {
-                        raise_irq |= self.process_rx();
-                    }
-                }
+            _ if source == activate_evt => {
+                self.handle_activate_event(event_manager);
             }
-            defs::EVQ_EVENT => {
-                debug!("vsock: event queue event");
-                if let Err(e) = self.evvq_evt.read() {
-                    error!("Failed to consume evq event: {:?}", e);
-                    return Err(DeviceError::FailedReadingQueue {
-                        event_type: "ev queue event",
-                        underlying: e,
-                    });
-                }
-            }
-            defs::BACKEND_EVENT => {
-                debug!("vsock: backend event");
-                self.backend.notify(evset);
-                // After the backend has been kicked, it might've freed up some resources, so we
-                // can attempt to send it more data to process.
-                // In particular, if `self.backend.send_pkt()` halted the TX queue processing (by
-                // reurning an error) at some point in the past, now is the time to try walking the
-                // TX queue again.
-                raise_irq |= self.process_tx();
-                if self.backend.has_pending_rx() {
-                    raise_irq |= self.process_rx();
-                }
-            }
-            other => {
-                return Err(DeviceError::UnknownEvent {
-                    device: "vsock",
-                    event: other,
-                });
-            }
+            _ => warn!("Unexpected vsock event received: {:?}", source),
         }
 
         if raise_irq {
             self.signal_used_queue().unwrap_or_default();
         }
+    }
 
-        Ok(())
+    fn interest_list(&self) -> Vec<EpollEvent> {
+        vec![EpollEvent::new(
+            EventSet::IN,
+            self.activate_evt.as_raw_fd() as u64,
+        )]
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::super::tests::TestContext;
@@ -561,3 +564,4 @@ mod tests {
         );
     }
 }
+*/

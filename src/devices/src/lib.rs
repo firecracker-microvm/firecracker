@@ -18,7 +18,6 @@ extern crate rate_limiter;
 extern crate virtio_gen;
 extern crate vm_memory;
 
-use polly::epoll::EventSet;
 use rate_limiter::Error as RateLimiterError;
 use std::io;
 
@@ -28,15 +27,8 @@ pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice, Error as BusError};
 use logger::{Metric, METRICS};
-use virtio::AsAny;
 
 pub type DeviceEventT = u16;
-
-type Result<T> = std::result::Result<T, Error>;
-
-pub trait EpollHandler: AsAny + Send {
-    fn handle_event(&mut self, device_event: DeviceEventT, evset: EventSet) -> Result<()>;
-}
 
 // Function used for reporting error in terms of logging
 // but also in terms of METRICS net event fails.
