@@ -10,7 +10,7 @@ use std::mem;
 use super::gdt::{gdt_entry, kvm_segment_from_gdt};
 use kvm_bindings::{kvm_fpu, kvm_regs, kvm_sregs};
 use kvm_ioctls::VcpuFd;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 // Initial pagetables.
 const PML4_START: u64 = 0x9000;
