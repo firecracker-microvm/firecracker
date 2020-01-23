@@ -36,6 +36,19 @@ pub enum Error {
 
 type Result<T> = result::Result<T, Error>;
 
+/// Represents a continuous region of guest physical memory.
+#[allow(clippy::len_without_is_empty)]
+pub trait GuestMemoryRegion {
+    /// Get the size of the region.
+    fn len(&self) -> usize;
+
+    /// Get minimum (inclusive) address managed by the region.
+    fn start_addr(&self) -> GuestAddress;
+
+    /// Get maximum (inclusive) address managed by the region.
+    fn last_addr(&self) -> GuestAddress;
+}
+
 /// Tracks a mapping of anonymous memory in the current process and the corresponding base address
 /// in the guest's memory space.
 pub struct MemoryRegion {
@@ -43,10 +56,15 @@ pub struct MemoryRegion {
     guest_base: GuestAddress,
 }
 
-impl MemoryRegion {
-    /// Returns the size of the memory region in bytes.
-    pub fn size(&self) -> usize {
+impl MemoryRegion {}
+
+impl GuestMemoryRegion for MemoryRegion {
+    fn len(&self) -> usize {
         self.mapping.size()
+    }
+
+    fn start_addr(&self) -> GuestAddress {
+        self.guest_base
     }
 
     fn last_addr(&self) -> GuestAddress {
@@ -227,14 +245,14 @@ impl GuestMemoryMmap {
     ///   and dividing their sizes to 1024, then summing up the values in an accumulator.
     ///
     /// ```
-    /// use vm_memory::{GuestAddress, GuestMemoryMmap};
+    /// use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryRegion};
     /// fn test_map_fold() -> Result<(), ()> {
     ///     let start_addr1 = GuestAddress(0x0);
     ///     let start_addr2 = GuestAddress(0x400);
     ///     let mem = GuestMemoryMmap::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
     ///     let total_size = mem.map_and_fold(
     ///         0,
-    ///         |(_, region)| region.size() / 1024,
+    ///         |(_, region)| region.len() / 1024,
     ///         |acc, size| acc + size,
     ///     );
     ///     println!("Total memory size = {} KB", total_size);
@@ -662,11 +680,7 @@ mod tests {
         let mem = GuestMemoryMmap::new(&[(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
 
         assert_eq!(
-            mem.map_and_fold(
-                0,
-                |(_, region)| region.size() / 1024,
-                |acc, size| acc + size
-            ),
+            mem.map_and_fold(0, |(_, region)| region.len() / 1024, |acc, size| acc + size),
             3
         );
     }
