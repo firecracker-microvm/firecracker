@@ -5,6 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom};
 use std::path::PathBuf;
 use std::result;
+use std::sync::{Arc, Mutex};
 
 use super::{EpollContext, EventLoopExitReason, Vmm};
 
@@ -29,7 +30,7 @@ pub struct VmmController {
     epoll_context: EpollContext,
     event_manager: EventManager,
     vm_resources: VmResources,
-    vmm: Vmm,
+    vmm: Arc<Mutex<Vmm>>,
 }
 
 impl VmmController {
@@ -44,7 +45,7 @@ impl VmmController {
     pub fn flush_metrics(&mut self) -> ActionResult {
         // The dirty pages are only available on x86_64.
         #[cfg(target_arch = "x86_64")]
-        self.vmm.log_dirty_pages();
+        self.vmm.lock().unwrap().log_dirty_pages();
         // FIXME: we're losing the bool saying whether metrics were actually written.
         LOGGER
             .log_metrics()
@@ -57,13 +58,15 @@ impl VmmController {
     #[cfg(target_arch = "x86_64")]
     pub fn send_ctrl_alt_del(&mut self) -> ActionResult {
         self.vmm
+            .lock()
+            .unwrap()
             .send_ctrl_alt_del()
             .map_err(VmmActionError::InternalVmm)
     }
 
     /// Stops the inner Vmm and exits the process with the provided exit_code.
     pub fn stop(&mut self, exit_code: i32) {
-        self.vmm.stop(exit_code)
+        self.vmm.lock().unwrap().stop(exit_code)
     }
 
     /// Creates a new `VmmController`.
@@ -71,7 +74,7 @@ impl VmmController {
         epoll_context: EpollContext,
         event_manager: EventManager,
         vm_resources: VmResources,
-        vmm: Vmm,
+        vmm: Arc<Mutex<Vmm>>,
     ) -> Self {
         VmmController {
             epoll_context,
@@ -83,8 +86,7 @@ impl VmmController {
 
     /// Wait for and dispatch events. Will defer to the inner Vmm loop after it's started.
     pub fn run_event_loop(&mut self) -> Result<EventLoopExitReason> {
-        self.vmm
-            .run_event_loop(&mut self.epoll_context, &mut self.event_manager)
+        Vmm::run_event_loop(&mut self.epoll_context, &mut self.event_manager)
     }
 
     /// Triggers a rescan of the host file backing the emulated block device with id `drive_id`.
@@ -111,6 +113,8 @@ impl VmmController {
 
             return match self
                 .vmm
+                .lock()
+                .unwrap()
                 .get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id)
             {
                 Some(device) => {
@@ -141,7 +145,13 @@ impl VmmController {
         drive_id: &str,
         disk_image: File,
     ) -> result::Result<(), DriveError> {
-        if let Some(handler) = self.vmm.mmio_device_manager.get_block_device(drive_id) {
+        if let Some(handler) = self
+            .vmm
+            .lock()
+            .unwrap()
+            .mmio_device_manager
+            .get_block_device(drive_id)
+        {
             handler
                 .lock()
                 .expect("Poisoned device lock")

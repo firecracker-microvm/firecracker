@@ -71,7 +71,8 @@ use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{Metric, LOGGER, METRICS};
 use memory_model::GuestMemory;
-use polly::event_manager::{self, EventManager};
+use polly::event_manager::{self, EventHandler, EventManager};
+use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
 use vstate::{Vcpu, Vm};
@@ -105,8 +106,6 @@ pub enum EventLoopExitReason {
 /// Dispatch categories for epoll events.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EpollDispatch {
-    /// This dispatch type is now obsolete.
-    Exit,
     /// Cascaded polly event.
     PollyEvent,
     /// Event has to be dispatch to an EpollHandler.
@@ -437,7 +436,7 @@ pub struct Vmm {
     kernel_cmdline: KernelCmdline,
 
     vcpus_handles: Vec<thread::JoinHandle<()>>,
-    exit_evt: Option<EventFd>,
+    exit_evt: EventFd,
     vm: Vm,
 
     // Guest VM devices.
@@ -489,21 +488,7 @@ impl Vmm {
         for cpu_id in (0..vcpu_count).rev() {
             let vcpu_thread_barrier = vcpus_thread_barrier.clone();
 
-            // On x86_64 we support i8042. Get a clone of its reset event.
-            // If the lock is poisoned, it's OK to panic.
-            #[cfg(target_arch = "x86_64")]
-            let vcpu_exit_evt = self
-                .pio_device_manager
-                .i8042
-                .lock()
-                .expect("Failed to start VCPUs due to poisoned i8042 lock")
-                .get_reset_evt_clone()
-                .map_err(Error::I8042Error)?;
-
-            // On aarch64 we don't support i8042. Use a dummy event nobody touches until
-            // we get i8042 support.
-            #[cfg(target_arch = "aarch64")]
-            let vcpu_exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+            let vcpu_exit_evt = self.exit_evt.try_clone().map_err(Error::EventFd)?;
 
             // `unwrap` is safe since we are asserting that the `vcpu_count` is equal to the number
             // of items of `vcpus` vector.
@@ -561,26 +546,6 @@ impl Vmm {
         Ok(())
     }
 
-    fn register_events(&mut self, epoll_context: &mut EpollContext) -> Result<()> {
-        #[cfg(target_arch = "x86_64")]
-        {
-            // If the lock is poisoned, it's OK to panic.
-            let exit_poll_evt_fd = self
-                .pio_device_manager
-                .i8042
-                .lock()
-                .expect("Failed to register events on the event fd due to poisoned lock")
-                .get_reset_evt_clone()
-                .map_err(Error::I8042Error)?;
-
-            epoll_context.add_epollin_event(&exit_poll_evt_fd, EpollDispatch::Exit)?;
-
-            self.exit_evt = Some(exit_poll_evt_fd);
-        }
-
-        Ok(())
-    }
-
     /// Returns a reference to the inner `GuestMemory` object if present, or `None` otherwise.
     pub fn guest_memory(&self) -> &GuestMemory {
         &self.guest_memory
@@ -622,7 +587,6 @@ impl Vmm {
     /// Wait on VMM events and dispatch them to the appropriate handler. Returns to the caller
     /// when a control action occurs.
     pub fn run_event_loop(
-        &mut self,
         epoll_context: &mut EpollContext,
         event_manager: &mut EventManager,
     ) -> Result<EventLoopExitReason> {
@@ -638,15 +602,6 @@ impl Vmm {
             };
 
             match epoll_context.dispatch_table[event.data as usize] {
-                Some(EpollDispatch::Exit) => {
-                    match self.exit_evt {
-                        Some(ref ev) => {
-                            ev.read().map_err(Error::EventFd)?;
-                        }
-                        None => warn!("leftover exit-evt in epollcontext!"),
-                    }
-                    self.stop(i32::from(FC_EXIT_CODE_OK));
-                }
                 Some(EpollDispatch::DeviceHandler(device_idx, device_token)) => {
                     METRICS.vmm.device_events.inc();
                     match epoll_context.get_device_handler_by_handler_id(device_idx) {
@@ -714,6 +669,25 @@ impl Vmm {
     /// Returns a reference to the inner KVM Vm object.
     pub fn kvm_vm(&self) -> &Vm {
         &self.vm
+    }
+}
+
+impl EventHandler for Vmm {
+    /// Handle a read event (EPOLLIN).
+    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+        if source == self.exit_evt.as_raw_fd() {
+            let _ = self.exit_evt.read();
+            self.stop(i32::from(FC_EXIT_CODE_OK));
+        } else {
+            error!("Spurious EventManager event for handler: Vmm");
+        }
+        vec![]
+    }
+
+    fn init(&self) -> Vec<PollableOp> {
+        vec![PollableOpBuilder::new(self.exit_evt.as_raw_fd())
+            .readable()
+            .register()]
     }
 }
 
