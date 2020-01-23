@@ -93,6 +93,11 @@ pub trait GuestMemory {
     fn with_regions<F, E>(&self, cb: F) -> result::Result<(), E>
     where
         F: Fn(usize, &Self::R) -> result::Result<(), E>;
+
+    /// Perform the specified action on each region mutably.
+    fn with_regions_mut<F, E>(&self, cb: F) -> result::Result<(), E>
+    where
+        F: FnMut(usize, GuestAddress, usize, usize) -> result::Result<(), E>;
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -182,22 +187,6 @@ impl GuestMemoryMmap {
         }
 
         Ok(self.regions[index].mapping.size())
-    }
-
-    /// Perform the specified action on each region's addresses mutably.
-    pub fn with_regions_mut<F, E>(&self, mut cb: F) -> result::Result<(), E>
-    where
-        F: FnMut(usize, GuestAddress, usize, usize) -> result::Result<(), E>,
-    {
-        for (index, region) in self.regions.iter().enumerate() {
-            cb(
-                index,
-                region.guest_base,
-                region.mapping.size(),
-                region.mapping.as_ptr() as usize,
-            )?;
-        }
-        Ok(())
     }
 
     /// Converts a GuestAddress into a pointer in the address space of this
@@ -322,6 +311,21 @@ impl GuestMemory for GuestMemoryMmap {
     {
         for (index, region) in self.regions.iter().enumerate() {
             cb(index, region)?;
+        }
+        Ok(())
+    }
+
+    fn with_regions_mut<F, E>(&self, mut cb: F) -> result::Result<(), E>
+    where
+        F: FnMut(usize, GuestAddress, usize, usize) -> result::Result<(), E>,
+    {
+        for (index, region) in self.regions.iter().enumerate() {
+            cb(
+                index,
+                region.guest_base,
+                region.mapping.size(),
+                region.mapping.as_ptr() as usize,
+            )?;
         }
         Ok(())
     }
