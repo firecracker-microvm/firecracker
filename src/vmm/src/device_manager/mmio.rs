@@ -231,6 +231,7 @@ impl MMIODeviceManager {
             .locked_device()
             .get_interrupt()
             .map_err(Error::EventFd)?;
+
         vm.register_irqfd(&interrupt_evt, self.irq)
             .map_err(Error::RegisterIrqFd)?;
 
