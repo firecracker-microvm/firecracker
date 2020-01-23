@@ -252,15 +252,17 @@ impl VsockChannel for VsockMuxer {
     }
 }
 
-impl VsockEpollListener for VsockMuxer {
+impl AsRawFd for VsockMuxer {
     /// Get the FD to be registered for polling upstream (in the main VMM epoll loop, in this
     /// case).
     ///
     /// This will be the muxer's nested epoll FD.
-    fn get_polled_fd(&self) -> RawFd {
+    fn as_raw_fd(&self) -> RawFd {
         self.epoll_fd
     }
+}
 
+impl VsockEpollListener for VsockMuxer {
     /// Get the epoll events to be polled upstream.
     ///
     /// Since the polled FD is a nested epoll FD, we're only interested in EPOLLIN events (i.e.
@@ -471,7 +473,7 @@ impl VsockMuxer {
         }
 
         self.add_listener(
-            conn.get_polled_fd(),
+            conn.as_raw_fd(),
             EpollListener::Connection {
                 key,
                 evset: conn.get_polled_evset(),
@@ -492,7 +494,7 @@ impl VsockMuxer {
     /// Remove a connection from the active connection poll.
     fn remove_connection(&mut self, key: ConnMapKey) {
         if let Some(conn) = self.conn_map.remove(&key) {
-            self.remove_listener(conn.get_polled_fd());
+            self.remove_listener(conn.as_raw_fd());
         }
         self.free_local_port(key.local_port);
     }
@@ -653,7 +655,7 @@ impl VsockMuxer {
                 self.killq.push(key, conn.expiry().unwrap());
             }
 
-            let fd = conn.get_polled_fd();
+            let fd = conn.as_raw_fd();
             let new_evset = conn.get_polled_evset();
             if new_evset.is_empty() {
                 // If the connection no longer needs epoll notifications, remove its listener
@@ -934,7 +936,7 @@ mod tests {
     #[test]
     fn test_muxer_epoll_listener() {
         let ctx = MuxerTestContext::new("muxer_epoll_listener");
-        assert_eq!(ctx.muxer.get_polled_fd(), ctx.muxer.epoll_fd);
+        assert_eq!(ctx.muxer.as_raw_fd(), ctx.muxer.epoll_fd);
         assert_eq!(ctx.muxer.get_polled_evset(), epoll::Events::EPOLLIN);
     }
 
