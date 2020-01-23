@@ -97,7 +97,7 @@ pub trait GuestMemory {
     /// Perform the specified action on each region mutably.
     fn with_regions_mut<F, E>(&self, cb: F) -> result::Result<(), E>
     where
-        F: FnMut(usize, GuestAddress, usize, usize) -> result::Result<(), E>;
+        F: FnMut(usize, &Self::R) -> result::Result<(), E>;
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -317,15 +317,10 @@ impl GuestMemory for GuestMemoryMmap {
 
     fn with_regions_mut<F, E>(&self, mut cb: F) -> result::Result<(), E>
     where
-        F: FnMut(usize, GuestAddress, usize, usize) -> result::Result<(), E>,
+        F: FnMut(usize, &Self::R) -> result::Result<(), E>,
     {
         for (index, region) in self.regions.iter().enumerate() {
-            cb(
-                index,
-                region.guest_base,
-                region.mapping.size(),
-                region.mapping.as_ptr() as usize,
-            )?;
+            cb(index, region)?;
         }
         Ok(())
     }
@@ -657,8 +652,8 @@ mod tests {
         });
         assert!(res.is_ok());
 
-        let res: Result<()> = gm.with_regions_mut(|_, guest_addr, size, _| {
-            iterated_regions.push((guest_addr, size));
+        let res: Result<()> = gm.with_regions_mut(|_, region| {
+            iterated_regions.push((region.start_addr(), region.len()));
             Ok(())
         });
         assert!(res.is_ok());
