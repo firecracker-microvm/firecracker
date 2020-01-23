@@ -5,8 +5,8 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use logger::{Metric, LOGGER, METRICS};
-use polly::event_manager::EventHandler;
-use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
+use polly::epoll::{EpollEvent, EventSet};
+use polly::event_manager::Subscriber;
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 /// Metrics reporting period.
@@ -15,6 +15,7 @@ pub const WRITE_METRICS_PERIOD_MS: u64 = 60000;
 /// Object to drive periodic reporting of metrics.
 pub struct PeriodicMetrics {
     write_metrics_event_fd: TimerFd,
+    #[cfg(test)]
     flush_counter: u64,
 }
 
@@ -25,6 +26,7 @@ impl PeriodicMetrics {
             .expect("Cannot create the metrics timer fd.");
         PeriodicMetrics {
             write_metrics_event_fd,
+            #[cfg(test)]
             flush_counter: 0,
         }
     }
@@ -51,31 +53,43 @@ impl PeriodicMetrics {
             error!("Failed to log metrics: {}", e);
         }
 
-        // Only used in tests, but has virtually no cost in production.
-        self.flush_counter += 1;
+        #[cfg(test)]
+        {
+            self.flush_counter += 1;
+        }
     }
 }
 
-impl EventHandler for PeriodicMetrics {
+impl Subscriber for PeriodicMetrics {
     /// Handle a read event (EPOLLIN).
-    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+    fn process(&mut self, event: EpollEvent) {
+        let source = event.fd();
+        let event_set = event.event_set();
+
+        // TODO: also check for errors. Pending high level discussions on how we want
+        // to handle errors in devices.
+        let supported_events = EventSet::IN;
+        if !supported_events.contains(event_set) {
+            warn!(
+                "Received unknown event: {:?} from source: {:?}",
+                event_set, source
+            );
+            return;
+        }
+
         if source == self.write_metrics_event_fd.as_raw_fd() {
             self.write_metrics_event_fd.read();
             self.log_metrics();
         } else {
             error!("Spurious METRICS event!");
         }
-        vec![]
     }
 
-    /// Initial registration of pollable objects.
-    /// Use the PollableOpBuilder to build the vector of PollableOps.
-    fn init(&self) -> Vec<PollableOp> {
-        vec![
-            PollableOpBuilder::new(self.write_metrics_event_fd.as_raw_fd())
-                .readable()
-                .register(),
-        ]
+    fn interest_list(&self) -> Vec<EpollEvent> {
+        vec![EpollEvent::new(
+            EventSet::IN,
+            self.write_metrics_event_fd.as_raw_fd() as u64,
+        )]
     }
 }
 
@@ -88,20 +102,18 @@ pub mod tests {
     use utils::eventfd::EventFd;
 
     #[test]
-    fn test_event_handler_init() {
+    fn test_interest_list() {
         let metrics = PeriodicMetrics::new();
-        let pollable_ops = metrics.init();
-        assert_eq!(pollable_ops.len(), 1);
-        match pollable_ops[0] {
-            PollableOp::Register(reg_data) => {
-                let (pollable, event_set) = reg_data;
-                assert_eq!(pollable, metrics.write_metrics_event_fd.as_raw_fd());
-                assert!(event_set.is_readable());
-                assert!(!event_set.is_writeable());
-                assert!(!event_set.is_closed());
-            }
-            _ => panic!("Unexpected pollable op."),
-        }
+        let interest_list = metrics.interest_list();
+        assert_eq!(interest_list.len(), 1);
+        assert_eq!(
+            interest_list[0].data() as i32,
+            metrics.write_metrics_event_fd.as_raw_fd()
+        );
+        assert_eq!(
+            EventSet::from_bits(interest_list[0].events()).unwrap(),
+            EventSet::IN
+        );
     }
 
     #[test]
@@ -109,18 +121,24 @@ pub mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let mut metrics = PeriodicMetrics::new();
 
-        assert_eq!(metrics.flush_counter, 0);
         // Test invalid read event.
         let unrelated_object = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let updated_pollable_ops = metrics.handle_read(unrelated_object.as_raw_fd());
-        // No events update is done.
-        assert!(updated_pollable_ops.is_empty());
+        let unrelated_event = EpollEvent::new(EventSet::IN, unrelated_object.as_raw_fd() as u64);
+        metrics.process(unrelated_event);
         // No flush happened.
+        assert_eq!(metrics.flush_counter, 0);
+
+        // Test unsupported event type.
+        let unsupported_event = EpollEvent::new(
+            EventSet::OUT,
+            metrics.write_metrics_event_fd.as_raw_fd() as u64,
+        );
+        metrics.process(unsupported_event);
         assert_eq!(metrics.flush_counter, 0);
 
         let metrics = Arc::new(Mutex::new(metrics));
         event_manager
-            .register(metrics.clone())
+            .add_subscriber(metrics.clone())
             .expect("Cannot register the metrics event to the event manager.");
 
         let flush_period_ms = 50;
@@ -133,7 +151,7 @@ pub mod tests {
 
         // Wait for at most 1.5x period.
         event_manager
-            .run_timeout((flush_period_ms + flush_period_ms / 2) as i32)
+            .run_with_timeout((flush_period_ms + flush_period_ms / 2) as i32)
             .expect("Metrics event timeout or error.");
         // Verify there was another flush.
         assert_eq!(metrics.lock().expect("Unlock failed.").flush_counter, 2);

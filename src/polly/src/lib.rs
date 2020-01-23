@@ -7,4 +7,3 @@ extern crate bitflags;
 
 pub mod epoll;
 pub mod event_manager;
-pub mod pollable;

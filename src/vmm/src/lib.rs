@@ -71,8 +71,8 @@ use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{Metric, LOGGER, METRICS};
 use memory_model::GuestMemory;
-use polly::event_manager::{self, EventHandler};
-use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
+use polly::epoll::{EpollEvent, EventSet};
+use polly::event_manager::{self, Subscriber};
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
 use vstate::{Vcpu, Vm};
@@ -326,21 +326,21 @@ impl AsRawFd for EpollContext {
     }
 }
 
-impl EventHandler for EpollContext {
+impl Subscriber for EpollContext {
     /// Handle a read event (EPOLLIN).
-    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
-        if source == self.epoll_raw_fd {
+    fn process(&mut self, event: EpollEvent) {
+        let source = event.fd();
+        let event_set = event.event_set();
+
+        if source == self.epoll_raw_fd && event_set == EventSet::IN {
             self.run_event_loop();
         } else {
             error!("Spurious EventManager event for handler: EpollContext");
         }
-        vec![]
     }
 
-    fn init(&self) -> Vec<PollableOp> {
-        vec![PollableOpBuilder::new(self.as_raw_fd())
-            .readable()
-            .register()]
+    fn interest_list(&self) -> Vec<EpollEvent> {
+        vec![EpollEvent::new(EventSet::IN, self.as_raw_fd() as u64)]
     }
 }
 
@@ -667,22 +667,25 @@ impl Vmm {
     }
 }
 
-impl EventHandler for Vmm {
+impl Subscriber for Vmm {
     /// Handle a read event (EPOLLIN).
-    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
-        if source == self.exit_evt.as_raw_fd() {
+    fn process(&mut self, event: EpollEvent) {
+        let source = event.fd();
+        let event_set = event.event_set();
+
+        if source == self.exit_evt.as_raw_fd() && event_set == EventSet::IN {
             let _ = self.exit_evt.read();
             self.stop(i32::from(FC_EXIT_CODE_OK));
         } else {
             error!("Spurious EventManager event for handler: Vmm");
         }
-        vec![]
     }
 
-    fn init(&self) -> Vec<PollableOp> {
-        vec![PollableOpBuilder::new(self.exit_evt.as_raw_fd())
-            .readable()
-            .register()]
+    fn interest_list(&self) -> Vec<EpollEvent> {
+        vec![EpollEvent::new(
+            EventSet::IN,
+            self.exit_evt.as_raw_fd() as u64,
+        )]
     }
 }
 
