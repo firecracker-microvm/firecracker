@@ -52,7 +52,9 @@ pub trait Subscriber {
     ///
     /// # Arguments
     /// * event - the available `EpollEvent` ready for processing
-    fn process(&mut self, event: EpollEvent);
+    /// * event_manager - Reference to the `EventManager` that gives the implementor
+    ///                   the possibility to directly call the required update operations.
+    fn process(&mut self, event: EpollEvent, event_manager: &mut EventManager);
 
     /// Returns a list of `EpollEvent` that this subscriber is interested in.
     fn interest_list(&self) -> Vec<EpollEvent>;
@@ -86,6 +88,13 @@ impl EventManager {
             // operation every time `run()` loop is executed.
             ready_events: vec![epoll::EpollEvent::default(); EventManager::EVENT_BUFFER_SIZE],
         })
+    }
+
+    pub fn subscriber(&self, fd: Pollable) -> Result<Arc<Mutex<dyn Subscriber>>> {
+        self.subscribers
+            .get(&fd)
+            .ok_or(Error::NotFound(fd))
+            .map(|subscriber| subscriber.clone())
     }
 
     pub fn add_subscriber(&mut self, subscriber: Arc<Mutex<dyn Subscriber>>) -> Result<()> {
@@ -176,9 +185,10 @@ impl EventManager {
                 self.subscribers
                     .get_mut(&pollable)
                     .unwrap()
+                    .clone()
                     .lock()
                     .unwrap()
-                    .process(event);
+                    .process(event, self);
             }
             // TODO: Should we log an error in case the subscriber does not exist?
         }
