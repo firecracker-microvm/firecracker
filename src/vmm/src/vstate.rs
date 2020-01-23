@@ -28,7 +28,9 @@ use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
-use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{
+    Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
+};
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 
@@ -213,13 +215,15 @@ impl Vm {
             return Err(Error::NotEnoughMemorySlots);
         }
         guest_mem
-            .with_regions(|index, guest_addr, size, host_addr| {
+            .with_regions(|index, region| {
+                // It's safe to unwrap because the guest address is valid.
+                let host_addr = guest_mem.get_host_address(region.start_addr()).unwrap();
                 info!("Guest memory starts at {:x?}", host_addr);
 
                 let memory_region = kvm_userspace_memory_region {
                     slot: index as u32,
-                    guest_phys_addr: guest_addr.raw_value() as u64,
-                    memory_size: size as u64,
+                    guest_phys_addr: region.start_addr().raw_value() as u64,
+                    memory_size: region.len() as u64,
                     userspace_addr: host_addr as u64,
                     flags: 0,
                 };

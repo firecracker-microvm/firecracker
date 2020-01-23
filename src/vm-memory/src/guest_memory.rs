@@ -89,10 +89,10 @@ pub trait GuestMemory {
     /// Returns the number of regions in the collection.
     fn num_regions(&self) -> usize;
 
-    /// Perform the specified action on each region's addresses.
+    /// Perform the specified action on each region.
     fn with_regions<F, E>(&self, cb: F) -> result::Result<(), E>
     where
-        F: Fn(usize, GuestAddress, usize, usize) -> result::Result<(), E>;
+        F: Fn(usize, &Self::R) -> result::Result<(), E>;
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -315,17 +315,13 @@ impl GuestMemory for GuestMemoryMmap {
         self.regions.len()
     }
 
+    /// Perform the specified action on each region's addresses.
     fn with_regions<F, E>(&self, cb: F) -> result::Result<(), E>
     where
-        F: Fn(usize, GuestAddress, usize, usize) -> result::Result<(), E>,
+        F: Fn(usize, &Self::R) -> result::Result<(), E>,
     {
         for (index, region) in self.regions.iter().enumerate() {
-            cb(
-                index,
-                region.guest_base,
-                region.mapping.size(),
-                region.mapping.as_ptr() as usize,
-            )?;
+            cb(index, region)?;
         }
         Ok(())
     }
@@ -651,8 +647,8 @@ mod tests {
         let mut iterated_regions = Vec::new();
         let gm = GuestMemoryMmap::new(&regions).unwrap();
 
-        let res: Result<()> = gm.with_regions(|_, _, size, _| {
-            assert_eq!(size, region_size);
+        let res: Result<()> = gm.with_regions(|_, region| {
+            assert_eq!(region.len(), region_size);
             Ok(())
         });
         assert!(res.is_ok());
