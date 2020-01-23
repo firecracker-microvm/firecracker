@@ -11,13 +11,13 @@ mod epoll_handler;
 mod packet;
 mod unix;
 
+use std::os::unix::io::{AsRawFd, RawFd};
+use std::sync::mpsc;
+
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::defs::EVENT_COUNT as VSOCK_EVENTS_COUNT;
 pub use self::device::Vsock;
 pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
-
-use std::os::unix::io::RawFd;
-use std::sync::mpsc;
 
 use vm_memory::GuestMemoryError;
 
@@ -154,13 +154,10 @@ impl EpollConfigConstructor for EpollConfig {
 }
 
 /// A passive, event-driven object, that needs to be notified whenever an epoll-able event occurs.
-/// An event-polling control loop will use `get_polled_fd()` and `get_polled_evset()` to query
+/// An event-polling control loop will use `as_raw_fd()` and `get_polled_evset()` to query
 /// the listener for the file descriptor and the set of events it's interested in. When such an
 /// event occurs, the control loop will route the event to the listener via `notify()`.
-pub trait VsockEpollListener {
-    /// Get the file descriptor the listener needs polled.
-    fn get_polled_fd(&self) -> RawFd;
-
+pub trait VsockEpollListener: AsRawFd {
     /// Get the set of events for which the listener wants to be notified.
     fn get_polled_evset(&self) -> epoll::Events;
 
@@ -272,10 +269,14 @@ mod tests {
             self.pending_rx
         }
     }
-    impl VsockEpollListener for TestBackend {
-        fn get_polled_fd(&self) -> RawFd {
+
+    impl AsRawFd for TestBackend {
+        fn as_raw_fd(&self) -> RawFd {
             self.evfd.as_raw_fd()
         }
+    }
+
+    impl VsockEpollListener for TestBackend {
         fn get_polled_evset(&self) -> epoll::Events {
             epoll::Events::EPOLLIN
         }
