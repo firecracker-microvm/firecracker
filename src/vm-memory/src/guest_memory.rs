@@ -155,6 +155,33 @@ pub trait GuestMemory {
 
     /// Returns the address plus the offset if it is in range.
     fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress>;
+
+    /// Get the host virtual address corresponding to the guest address.
+    ///
+    /// Some GuestMemory backends, like the GuestMemoryMmap backend, have the capability to mmap
+    /// guest address range into host virtual address space for direct access, so the corresponding
+    /// host virtual address may be passed to other subsystems.
+    ///
+    /// Note: the underline guest memory is not protected from memory aliasing, which breaks the
+    /// rust memory safety model. It's the caller's responsibility to ensure that there's no
+    /// concurrent accesses to the underline guest memory.
+    ///
+    /// # Arguments
+    /// * `guest_addr` - Guest address to convert.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+    /// fn test_host_addr() -> Result<(), ()> {
+    ///     let start_addr = GuestAddress(0x1000);
+    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
+    ///     let addr = gm.get_host_address(GuestAddress(0x1200)).unwrap();
+    ///     println!("Host address is {:p}", addr);
+    ///     Ok(())
+    /// }
+    /// ```
+    fn get_host_address(&self, addr: GuestAddress) -> Result<*mut u8>;
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -202,34 +229,6 @@ impl GuestMemoryMmap {
         }
 
         Ok(self.regions[index].mapping.size())
-    }
-
-    /// Converts a GuestAddress into a pointer in the address space of this
-    /// process. This should only be necessary for giving addresses to the
-    /// kernel, as with vhost ioctls. Normal reads/writes to guest memory should
-    /// be done through `write_from_memory`, `read_obj_from_addr`, etc.
-    ///
-    /// # Arguments
-    /// * `guest_addr` - Guest address to convert.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vm_memory::{GuestAddress, GuestMemoryMmap};
-    /// fn test_host_addr() -> Result<(), ()> {
-    ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
-    ///     let addr = gm.get_host_address(GuestAddress(0x1200)).unwrap();
-    ///     println!("Host address is {:p}", addr);
-    ///     Ok(())
-    /// }
-    /// ```
-    pub fn get_host_address(&self, guest_addr: GuestAddress) -> Result<*const u8> {
-        self.do_in_region(guest_addr, 1, |mapping, offset| {
-            // This is safe; `do_in_region` already checks that offset is in
-            // bounds.
-            Ok(unsafe { mapping.as_ptr().add(offset) } as *const u8)
-        })
     }
 
     /// Read the whole object from a single MemoryRegion
@@ -332,6 +331,14 @@ impl GuestMemory for GuestMemoryMmap {
         }
 
         None
+    }
+
+    fn get_host_address(&self, guest_addr: GuestAddress) -> Result<*mut u8> {
+        self.do_in_region(guest_addr, 1, |mapping, offset| {
+            // This is safe; `do_in_region` already checks that offset is in
+            // bounds.
+            Ok(unsafe { mapping.as_ptr().add(offset) } as *mut u8)
+        })
     }
 }
 
@@ -672,8 +679,8 @@ mod tests {
     }
 
     // Get the base address of the mapping for a GuestAddress.
-    fn get_mapping(mem: &GuestMemoryMmap, addr: GuestAddress) -> Result<*const u8> {
-        mem.do_in_region(addr, 1, |mapping, _| Ok(mapping.as_ptr() as *const u8))
+    fn get_mapping(mem: &GuestMemoryMmap, addr: GuestAddress) -> Result<*mut u8> {
+        mem.do_in_region(addr, 1, |mapping, _| Ok(mapping.as_ptr() as *mut u8))
     }
 
     #[test]
