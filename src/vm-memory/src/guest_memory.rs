@@ -98,6 +98,42 @@ pub trait GuestMemory {
     fn with_regions_mut<F, E>(&self, cb: F) -> result::Result<(), E>
     where
         F: FnMut(usize, &Self::R) -> result::Result<(), E>;
+
+    /// Applies two functions, specified as callbacks, on the inner memory regions.
+    ///
+    /// # Arguments
+    /// * `init` - Starting value of the accumulator for the `foldf` function.
+    /// * `mapf` - "Map" function, applied to all the inner memory regions. It returns an array of
+    ///            the same size as the memory regions array, containing the function's results
+    ///            for each region.
+    /// * `foldf` - "Fold" function, applied to the array returned by `mapf`. It acts as an
+    ///             operator, applying itself to the `init` value and to each subsequent elemnent
+    ///             in the array returned by `mapf`.
+    ///
+    /// # Examples
+    ///
+    /// * Compute the total size of all memory mappings in KB by iterating over the memory regions
+    ///   and dividing their sizes to 1024, then summing up the values in an accumulator.
+    ///
+    /// ```
+    /// use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+    /// fn test_map_fold() -> Result<(), ()> {
+    ///     let start_addr1 = GuestAddress(0x0);
+    ///     let start_addr2 = GuestAddress(0x400);
+    ///     let mem = GuestMemoryMmap::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
+    ///     let total_size = mem.map_and_fold(
+    ///         0,
+    ///         |(_, region)| region.len() / 1024,
+    ///         |acc, size| acc + size,
+    ///     );
+    ///     println!("Total memory size = {} KB", total_size);
+    ///     Ok(())
+    /// }
+    /// ```
+    fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
+    where
+        F: Fn((usize, &Self::R)) -> T,
+        G: Fn(T, T) -> T;
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -217,45 +253,6 @@ impl GuestMemoryMmap {
         })
     }
 
-    /// Applies two functions, specified as callbacks, on the inner memory regions.
-    ///
-    /// # Arguments
-    /// * `init` - Starting value of the accumulator for the `foldf` function.
-    /// * `mapf` - "Map" function, applied to all the inner memory regions. It returns an array of
-    ///            the same size as the memory regions array, containing the function's results
-    ///            for each region.
-    /// * `foldf` - "Fold" function, applied to the array returned by `mapf`. It acts as an
-    ///             operator, applying itself to the `init` value and to each subsequent elemnent
-    ///             in the array returned by `mapf`.
-    ///
-    /// # Examples
-    ///
-    /// * Compute the total size of all memory mappings in KB by iterating over the memory regions
-    ///   and dividing their sizes to 1024, then summing up the values in an accumulator.
-    ///
-    /// ```
-    /// use vm_memory::{GuestAddress, GuestMemoryMmap, GuestMemoryRegion};
-    /// fn test_map_fold() -> Result<(), ()> {
-    ///     let start_addr1 = GuestAddress(0x0);
-    ///     let start_addr2 = GuestAddress(0x400);
-    ///     let mem = GuestMemoryMmap::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
-    ///     let total_size = mem.map_and_fold(
-    ///         0,
-    ///         |(_, region)| region.len() / 1024,
-    ///         |acc, size| acc + size,
-    ///     );
-    ///     println!("Total memory size = {} KB", total_size);
-    ///     Ok(())
-    /// }
-    /// ```
-    pub fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
-    where
-        F: Fn((usize, &MemoryRegion)) -> T,
-        G: Fn(T, T) -> T,
-    {
-        self.regions.iter().enumerate().map(mapf).fold(init, foldf)
-    }
-
     /// Read the whole object from a single MemoryRegion
     pub fn do_in_region<F, T>(&self, guest_addr: GuestAddress, size: usize, cb: F) -> Result<T>
     where
@@ -323,6 +320,14 @@ impl GuestMemory for GuestMemoryMmap {
             cb(index, region)?;
         }
         Ok(())
+    }
+
+    fn map_and_fold<F, G, T>(&self, init: T, mapf: F, foldf: G) -> T
+    where
+        F: Fn((usize, &MemoryRegion)) -> T,
+        G: Fn(T, T) -> T,
+    {
+        self.regions.iter().enumerate().map(mapf).fold(init, foldf)
     }
 }
 
