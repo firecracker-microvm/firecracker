@@ -28,7 +28,7 @@ use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
-use vm_memory::{Address, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 
