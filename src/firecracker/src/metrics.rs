@@ -81,6 +81,8 @@ impl EventHandler for PeriodicMetrics {
 
 #[cfg(test)]
 pub mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
     use polly::event_manager::EventManager;
     use utils::eventfd::EventFd;
@@ -116,8 +118,9 @@ pub mod tests {
         // No flush happened.
         assert_eq!(metrics.flush_counter, 0);
 
-        let metrics = event_manager
-            .register(metrics)
+        let metrics = Arc::new(Mutex::new(metrics));
+        event_manager
+            .register(metrics.clone())
             .expect("Cannot register the metrics event to the event manager.");
 
         let flush_period_ms = 50;
