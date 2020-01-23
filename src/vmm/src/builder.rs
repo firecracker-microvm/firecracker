@@ -214,7 +214,7 @@ pub fn build_microvm(
     epoll_context: &mut EpollContext,
     event_manager: &mut EventManager,
     seccomp_level: u32,
-) -> std::result::Result<Vmm, StartMicrovmError> {
+) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     let boot_config = vm_resources
         .boot_source()
         .ok_or(StartMicrovmError::MissingKernelConfig)?;
@@ -255,11 +255,22 @@ pub fn build_microvm(
         (arch::IRQ_BASE, arch::IRQ_MAX),
     );
 
+    let exit_evt = EventFd::new(libc::EFD_NONBLOCK)
+        .map_err(Error::EventFd)
+        .map_err(StartMicrovmError::Internal)?;
+
     #[cfg(target_arch = "x86_64")]
     // Safe to unwrap 'serial_device' as it's always 'Some' on x86_64.
-    let mut pio_device_manager = PortIODeviceManager::new(serial_device.unwrap())
-        .map_err(Error::CreateLegacyDevice)
-        .map_err(StartMicrovmError::Internal)?;
+    // x86_64 uses the i8042 reset event as the Vmm exit event.
+    let mut pio_device_manager = PortIODeviceManager::new(
+        serial_device.unwrap(),
+        exit_evt
+            .try_clone()
+            .map_err(Error::EventFd)
+            .map_err(StartMicrovmError::Internal)?,
+    )
+    .map_err(Error::CreateLegacyDevice)
+    .map_err(StartMicrovmError::Internal)?;
 
     let vcpus;
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
@@ -303,7 +314,7 @@ pub fn build_microvm(
         guest_memory,
         kernel_cmdline,
         vcpus_handles: Vec::new(),
-        exit_evt: None,
+        exit_evt,
         vm,
         mmio_device_manager,
         #[cfg(target_arch = "x86_64")]
@@ -324,10 +335,13 @@ pub fn build_microvm(
 
     vmm.configure_system(vcpus.as_slice())
         .map_err(StartMicrovmError::Internal)?;
-    vmm.register_events(epoll_context)
-        .map_err(StartMicrovmError::Internal)?;
     vmm.start_vcpus(vcpus)
         .map_err(StartMicrovmError::Internal)?;
+
+    let vmm = Arc::new(Mutex::new(vmm));
+    event_manager
+        .register(vmm.clone())
+        .map_err(StartMicrovmError::RegisterEvent)?;
 
     Ok(vmm)
 }

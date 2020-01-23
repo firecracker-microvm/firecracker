@@ -202,7 +202,7 @@ fn build_microvm_from_json(
     event_manager: &mut EventManager,
     firecracker_version: String,
     config_json: String,
-) -> (VmResources, vmm::Vmm) {
+) -> (VmResources, Arc<Mutex<vmm::Vmm>>) {
     let vm_resources =
         VmResources::from_json(&config_json, &firecracker_version).unwrap_or_else(|err| {
             error!(
