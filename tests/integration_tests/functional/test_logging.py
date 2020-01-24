@@ -118,6 +118,23 @@ def test_error_logs(test_microvm_with_ssh):
     )
 
 
+def test_log_config_failure(test_microvm_with_api):
+    """Check passing invalid FIFOs is detected and reported as an error."""
+    microvm = test_microvm_with_api
+    microvm.spawn()
+    microvm.basic_config()
+
+    response = microvm.logger.put(
+        log_fifo='invalid log fifo',
+        metrics_fifo='invalid metrics fifo',
+        level='Info',
+        show_level=True,
+        show_log_origin=True,
+    )
+    assert microvm.api_session.is_status_bad_request(response.status_code)
+    assert response.json()['fault_message']
+
+
 def log_file_contains_strings(log_fifo, string_list):
     """Check if the log file contains all strings in string_list.
 
