@@ -92,7 +92,9 @@ impl ParsedRequest {
                     vmm_action_error
                 );
                 let mut response = Response::new(Version::Http11, StatusCode::BadRequest);
-                response.set_body(Body::new(vmm_action_error.to_string()));
+                response.set_body(Body::new(ApiServer::json_fault_message(
+                    vmm_action_error.to_string(),
+                )));
                 response
             }
         }
@@ -465,18 +467,20 @@ mod tests {
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Error.
-        let mut buf: [u8; 160] = [0; 160];
-        let response = ParsedRequest::convert_to_response(Err(VmmActionError::from(
-            StartMicrovmError::EventFd,
-        )));
+        let error = VmmActionError::from(StartMicrovmError::EventFd);
+        let mut buf: [u8; 185] = [0; 185];
+        let json = ApiServer::json_fault_message(error.to_string());
+        let response = ParsedRequest::convert_to_response(Err(error));
         assert!(response.write_all(&mut buf.as_mut()).is_ok());
+
         let expected_response = format!(
             "HTTP/1.1 400 \r\n\
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 42\r\n\r\n{}",
-            VmmActionError::from(StartMicrovmError::EventFd).to_string()
+             Content-Length: {}\r\n\r\n{}",
+            json.len(),
+            json,
         );
         assert_eq!(&buf[..], expected_response.as_bytes());
     }
