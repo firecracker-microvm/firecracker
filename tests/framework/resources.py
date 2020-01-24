@@ -207,8 +207,7 @@ class Logger:
             metrics_fifo=None,
             level=None,
             show_level=None,
-            show_log_origin=None,
-            options=None
+            show_log_origin=None
     ):
         """Compose the json associated to this type of API request."""
         datax = {}
@@ -222,8 +221,6 @@ class Logger:
             datax['show_level'] = show_level
         if show_log_origin is not None:
             datax['show_log_origin'] = show_log_origin
-        if options is not None:
-            datax['options'] = options
         return datax
 
 

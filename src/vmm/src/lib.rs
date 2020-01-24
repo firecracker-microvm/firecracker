@@ -76,7 +76,6 @@ use error::{Error, Result, UserResult};
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
-use logger::LogOption;
 use logger::{AppInfo, Level, Metric, LOGGER, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
@@ -678,18 +677,7 @@ impl Vmm {
         })
     }
 
-    #[cfg(target_arch = "x86_64")]
-    fn log_dirty_pages(&mut self) {
-        // If we're logging dirty pages, post the metrics on how many dirty pages there are.
-        if LOGGER.flags() | LogOption::LogDirtyPages as usize > 0 {
-            METRICS.memory.dirty_pages.add(self.get_dirty_page_count());
-        }
-    }
-
     fn write_metrics(&mut self) -> result::Result<(), LoggerError> {
-        // The dirty pages are only available on x86_64.
-        #[cfg(target_arch = "x86_64")]
-        self.log_dirty_pages();
         LOGGER.log_metrics().map(|_| ())
     }
 
@@ -1341,25 +1329,6 @@ impl Vmm {
         // we just invoke stop() whenever that would happen.
     }
 
-    // Count the number of pages dirtied since the last call to this function.
-    // Because this is used for metrics, it swallows most errors and simply doesn't count dirty
-    // pages if the KVM operation fails.
-    #[cfg(target_arch = "x86_64")]
-    fn get_dirty_page_count(&mut self) -> usize {
-        let dirty_pages_in_region = |(slot, memory_region): (usize, &vm_memory::MemoryRegion)| {
-            self.vm
-                .fd()
-                .get_dirty_log(slot as u32, memory_region.size())
-                .map(|v| v.iter().map(|page| page.count_ones() as usize).sum())
-                .unwrap_or(0 as usize)
-        };
-
-        self.vm
-            .memory()
-            .map(|ref mem| mem.map_and_fold(0, dirty_pages_in_region, std::ops::Add::add))
-            .unwrap_or(0)
-    }
-
     /// Set the guest boot source configuration.
     pub fn configure_boot_source(&mut self, boot_source_cfg: BootSourceConfig) -> UserResult {
         use BootSourceConfigError::{
@@ -1633,19 +1602,6 @@ impl Vmm {
 
         LOGGER.set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin);
         LOGGER.set_include_level(logger_cfg.show_level);
-
-        #[cfg(target_arch = "aarch64")]
-        let options: &Vec<LogOption> = &vec![];
-
-        #[cfg(target_arch = "x86_64")]
-        let options = &logger_cfg.options;
-
-        LOGGER.set_flags(options).map_err(|e| {
-            VmmActionError::Logger(
-                ErrorKind::User,
-                LoggerConfigError::InitializationFailure(e.to_string()),
-            )
-        })?;
 
         LOGGER
             .init(
@@ -2720,8 +2676,6 @@ mod tests {
             level: LoggerLevel::Warning,
             show_level: true,
             show_log_origin: true,
-            #[cfg(target_arch = "x86_64")]
-            options: vec![],
         };
 
         let mut vmm = create_vmm_object(InstanceState::Running);
@@ -2737,8 +2691,6 @@ mod tests {
             level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
-            #[cfg(target_arch = "x86_64")]
-            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2749,8 +2701,6 @@ mod tests {
             level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
-            #[cfg(target_arch = "x86_64")]
-            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2761,8 +2711,6 @@ mod tests {
             level: LoggerLevel::Warning,
             show_level: false,
             show_log_origin: false,
-            #[cfg(target_arch = "x86_64")]
-            options: vec![],
         };
         assert!(vmm.init_logger(desc).is_err());
 
@@ -2775,8 +2723,6 @@ mod tests {
             level: LoggerLevel::Info,
             show_level: true,
             show_log_origin: true,
-            #[cfg(target_arch = "x86_64")]
-            options: vec![LogOption::LogDirtyPages],
         };
         // Flushing metrics before initializing logger is not erroneous.
         assert!(vmm.flush_metrics().is_ok());
@@ -2828,14 +2774,6 @@ mod tests {
                 assert!(line.contains("Guest-boot-time ="));
             }
         }
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_dirty_page_count() {
-        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
-        assert_eq!(vmm.get_dirty_page_count(), 0);
-        // Booting an actual guest and getting real data is covered by `kvm::tests::run_code_test`.
     }
 
     #[test]

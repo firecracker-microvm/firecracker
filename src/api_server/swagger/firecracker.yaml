@@ -511,12 +511,6 @@ definitions:
         type: boolean
         description: Whether or not to include the file path and line number of the log's origin.
         default: false
-      options:
-        type: array
-        items:
-          type: string
-        description: Additional logging options. Only "LogDirtyPages" is supported.
-        default: []
 
   MachineConfiguration:
     type: object

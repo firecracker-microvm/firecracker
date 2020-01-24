@@ -23,7 +23,7 @@ use cpuid::{c3, filter_cpuid, t2, VmSpec};
 use kvm_bindings::{kvm_pit_config, CpuId, KVM_MAX_CPUID_ENTRIES, KVM_PIT_SPEAKER_DUMMY};
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
-use logger::{LogOption, Metric, LOGGER, METRICS};
+use logger::{Metric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
@@ -31,8 +31,6 @@ use utils::sm::StateMachine;
 use vm_memory::{Address, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
-
-const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
 
 #[cfg(target_arch = "x86_64")]
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x03f0;
@@ -78,7 +76,7 @@ pub enum Error {
     SetUserMemoryRegion(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the MSR registers
-    MSRSConfiguration(arch::x86_64::regs::Error),
+    MSRSConfiguration(arch::x86_64::msr::Error),
     #[cfg(target_arch = "aarch64")]
     /// Error configuring the general purpose aarch64 registers.
     REGSConfiguration(arch::aarch64::regs::Error),
@@ -218,18 +216,12 @@ impl Vm {
             .with_regions(|index, guest_addr, size, host_addr| {
                 info!("Guest memory starts at {:x?}", host_addr);
 
-                let flags = if LOGGER.flags() & LogOption::LogDirtyPages as usize > 0 {
-                    KVM_MEM_LOG_DIRTY_PAGES
-                } else {
-                    0
-                };
-
                 let memory_region = kvm_userspace_memory_region {
                     slot: index as u32,
                     guest_phys_addr: guest_addr.raw_value() as u64,
                     memory_size: size as u64,
                     userspace_addr: host_addr as u64,
-                    flags,
+                    flags: 0,
                 };
                 // Safe because we mapped the memory region, we made sure that the regions
                 // are not overlapping.
@@ -524,7 +516,7 @@ impl Vcpu {
             .set_cpuid2(&self.cpuid)
             .map_err(Error::SetSupportedCpusFailed)?;
 
-        arch::x86_64::regs::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
+        arch::x86_64::msr::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
         arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)
             .map_err(Error::REGSConfiguration)?;
         arch::x86_64::regs::setup_fpu(&self.fd).map_err(Error::FPUConfiguration)?;

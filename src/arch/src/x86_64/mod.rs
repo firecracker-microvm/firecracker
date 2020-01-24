@@ -11,6 +11,8 @@ pub mod interrupts;
 /// Layout for the x86_64 system.
 pub mod layout;
 mod mptable;
+/// Logic for configuring x86_64 model specific registers (MSRs).
+pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 

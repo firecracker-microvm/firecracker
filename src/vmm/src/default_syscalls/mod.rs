@@ -43,7 +43,6 @@ const KVM_CREATE_VM: u64 = 0xae01;
 const KVM_CHECK_EXTENSION: u64 = 0xae03;
 const KVM_GET_VCPU_MMAP_SIZE: u64 = 0xae04;
 const KVM_CREATE_VCPU: u64 = 0xae41;
-const KVM_GET_DIRTY_LOG: u64 = 0x4010_ae42;
 const KVM_SET_TSS_ADDR: u64 = 0xae47;
 const KVM_CREATE_IRQCHIP: u64 = 0xae60;
 const KVM_RUN: u64 = 0xae80;
@@ -79,7 +78,6 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_CREATE_IRQCHIP,)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_CREATE_PIT2)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_CREATE_VCPU)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_DIRTY_LOG,)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_IOEVENTFD)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_IRQFD)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_TSS_ADDR,)?],
