@@ -136,6 +136,8 @@ pub struct PrebootApiController<'a> {
     vm_resources: &'a mut VmResources,
     epoll_context: &'a mut EpollContext,
     event_manager: &'a mut EventManager,
+
+    built_vmm: Option<Arc<Mutex<Vmm>>>,
 }
 
 impl<'a> PrebootApiController<'a> {
@@ -153,7 +155,47 @@ impl<'a> PrebootApiController<'a> {
             vm_resources,
             epoll_context,
             event_manager,
+
+            built_vmm: None,
         }
+    }
+
+    /// Default implementation for the function that builds and starts a microVM.
+    /// It takes two closures `recv_req` and `respond` as params which abstract away
+    /// the message transport.
+    ///
+    /// Returns a populated `VmResources` object and a running `Vmm` object.
+    pub fn build_microvm_from_requests<F, G>(
+        seccomp_filter: BpfProgram,
+        epoll_context: &mut EpollContext,
+        event_manager: &mut EventManager,
+        firecracker_version: String,
+        recv_req: F,
+        respond: G,
+    ) -> (VmResources, Arc<Mutex<Vmm>>)
+    where
+        F: Fn() -> VmmAction,
+        G: Fn(std::result::Result<VmmData, VmmActionError>),
+    {
+        let mut vm_resources = VmResources::default();
+        let mut preboot_controller = PrebootApiController::new(
+            seccomp_filter,
+            firecracker_version,
+            &mut vm_resources,
+            epoll_context,
+            event_manager,
+        );
+        // Configure and start microVM through successive API calls.
+        // Iterate through API calls to configure microVm.
+        // The loop breaks when a microVM is successfully started, and a running Vmm is built.
+        while preboot_controller.built_vmm.is_none() {
+            // Get request, process it, send back the response.
+            respond(preboot_controller.handle_preboot_request(recv_req()));
+        }
+
+        // Safe to unwrap because previous loop cannot end on None.
+        let vmm = preboot_controller.built_vmm.unwrap();
+        (vm_resources, vmm)
     }
 
     /// Handles the incoming preboot request and provides a response for it.
@@ -161,14 +203,10 @@ impl<'a> PrebootApiController<'a> {
     pub fn handle_preboot_request(
         &mut self,
         request: VmmAction,
-    ) -> (
-        std::result::Result<VmmData, VmmActionError>,
-        Option<Arc<Mutex<Vmm>>>,
-    ) {
+    ) -> std::result::Result<VmmData, VmmActionError> {
         use self::VmmAction::*;
 
-        let mut maybe_vmm = None;
-        let response = match request {
+        match request {
             // Supported operations allowed pre-boot.
             ConfigureBootSource(boot_source_body) => self
                 .vm_resources
@@ -219,7 +257,7 @@ impl<'a> PrebootApiController<'a> {
                 &self.seccomp_filter,
             )
             .map(|vmm| {
-                maybe_vmm = Some(vmm);
+                self.built_vmm = Some(vmm);
                 VmmData::Empty
             })
             .map_err(VmmActionError::StartMicrovm),
@@ -228,9 +266,7 @@ impl<'a> PrebootApiController<'a> {
             FlushMetrics => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
-        };
-
-        (response, maybe_vmm)
+        }
     }
 }
 

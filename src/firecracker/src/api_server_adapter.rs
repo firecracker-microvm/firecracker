@@ -12,7 +12,6 @@ use polly::event_manager::EventManager;
 use seccomp::BpfProgram;
 use utils::eventfd::EventFd;
 use vmm::controller::VmmController;
-use vmm::resources::VmResources;
 use vmm::rpc_interface::{PrebootApiController, RuntimeApiController};
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::EpollDispatch;
@@ -36,65 +35,6 @@ impl ApiServerAdapter {
             from_api,
             to_api,
         }
-    }
-
-    /// Default implementation for the function that builds and starts a microVM.
-    ///
-    /// Returns a populated `VmResources` object and a running `Vmm` object.
-    fn build_microvm_from_requests(
-        &self,
-        seccomp_filter: BpfProgram,
-        epoll_context: &mut vmm::EpollContext,
-        event_manager: &mut EventManager,
-        firecracker_version: String,
-    ) -> (VmResources, Arc<Mutex<vmm::Vmm>>) {
-        let mut vm_resources = VmResources::default();
-        let mut built_vmm = None;
-        // Need to drop the pre-boot controller to pass ownership of vm_resources.
-        {
-            let mut preboot_controller = PrebootApiController::new(
-                seccomp_filter,
-                firecracker_version,
-                &mut vm_resources,
-                epoll_context,
-                event_manager,
-            );
-            // Configure and start microVM through successive API calls.
-            // Iterate through API calls to configure microVm.
-            // The loop breaks when a microVM is successfully started, and returns a running Vmm.
-            while built_vmm.is_none() {
-                built_vmm = self
-                    .from_api
-                    .recv()
-                    .map_err(|_| {
-                        panic!("The channel's sending half was disconnected. Cannot receive data.")
-                    })
-                    .map(|vmm_request| {
-                        // Also consume the API event. This is safe since communication
-                        // between this thread and the API thread is synchronous.
-                        let _ = self.api_event_fd.read().map_err(|e| {
-                            error!("VMM: Failed to read the API event_fd: {}", e);
-                            std::process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
-                        });
-
-                        let (response, maybe_vmm) =
-                            preboot_controller.handle_preboot_request(*vmm_request);
-
-                        // Send back the result.
-                        self.to_api
-                            .send(Box::new(response))
-                            .map_err(|_| ())
-                            .expect("one-shot channel closed");
-
-                        maybe_vmm
-                    })
-                    // Safe to unwrap the result since in case of Err(), map_err will panic anyway.
-                    .unwrap()
-            }
-        }
-
-        // Safe to unwrap because previous loop cannot end on None.
-        (vm_resources, built_vmm.unwrap())
     }
 
     /// Runs the vmm to completion, while any arising control events are deferred
@@ -220,7 +160,6 @@ pub fn run_with_api(
         .add_epollin_event(&api_event_fd, EpollDispatch::VmmActionRequest)
         .expect("Cannot add vmm control_fd to epoll.");
 
-    let api_handler = ApiServerAdapter::new(api_event_fd, from_api, to_api);
     // Configure, build and start the microVM.
     let (vm_resources, vmm) = match config_json {
         Some(json) => super::build_microvm_from_json(
@@ -229,11 +168,27 @@ pub fn run_with_api(
             &mut event_manager,
             json,
         ),
-        None => api_handler.build_microvm_from_requests(
+        None => PrebootApiController::build_microvm_from_requests(
             seccomp_filter,
             &mut epoll_context,
             &mut event_manager,
             FIRECRACKER_VERSION.to_string(),
+            || {
+                let req = from_api
+                    .recv()
+                    .expect("The channel's sending half was disconnected. Cannot receive data.");
+                // Also consume the API event along with the message. It is safe to unwrap()
+                // since communication between this thread and the API thread is synchronous.
+                api_event_fd
+                    .read()
+                    .expect("VMM: Failed to read the API event_fd");
+                *req
+            },
+            |response| {
+                to_api
+                    .send(Box::new(response))
+                    .expect("one-shot channel closed")
+            },
         ),
     };
 
@@ -246,6 +201,7 @@ pub fn run_with_api(
     // Update the api shared instance info.
     api_shared_info.write().unwrap().started = true;
 
+    let api_handler = ApiServerAdapter::new(api_event_fd, from_api, to_api);
     api_handler.run_microvm(VmmController::new(
         epoll_context,
         event_manager,
