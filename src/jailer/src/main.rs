@@ -41,7 +41,7 @@ pub enum Error {
     Exec(io::Error),
     FileName(PathBuf),
     FileOpen(PathBuf, io::Error),
-    FromBytesWithNul(&'static [u8]),
+    FromBytesWithNul(std::ffi::FromBytesWithNulError),
     GetOldFdFlags(io::Error),
     Gid(String),
     InvalidInstanceId(validators::Error),
@@ -130,8 +130,8 @@ impl fmt::Display for Error {
                 "{}",
                 format!("Failed to open file {:?}: {}", path, err).replace("\"", "")
             ),
-            FromBytesWithNul(ref bytes) => {
-                write!(f, "Failed to decode string from byte array: {:?}", bytes)
+            FromBytesWithNul(ref err) => {
+                write!(f, "Failed to decode string from byte array: {}", err)
             }
             GetOldFdFlags(ref err) => write!(f, "Failed to get flags from fd: {}", err),
             Gid(ref gid) => write!(f, "Invalid gid: {}", gid),
@@ -379,6 +379,8 @@ mod tests {
     #[allow(clippy::cognitive_complexity)]
     #[test]
     fn test_error_display() {
+        use std::ffi::CStr;
+
         let path = PathBuf::from("/foo");
         let file_str = "/foo/bar";
         let file_path = PathBuf::from(file_str);
@@ -487,9 +489,11 @@ mod tests {
             ),
             format!("Failed to open file /foo/bar: {}", err2_str)
         );
+
+        let err = CStr::from_bytes_with_nul(b"/dev").err().unwrap();
         assert_eq!(
-            format!("{}", Error::FromBytesWithNul(b"/\0")),
-            "Failed to decode string from byte array: [47, 0]",
+            format!("{}", Error::FromBytesWithNul(err)),
+            "Failed to decode string from byte array: data provided is not nul terminated",
         );
         assert_eq!(
             format!("{}", Error::GetOldFdFlags(io::Error::from_raw_os_error(42))),
