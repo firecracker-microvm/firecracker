@@ -24,8 +24,8 @@ pub fn chroot(path: &Path) -> Result<()> {
         .into_empty_result()
         .map_err(Error::UnshareNewNs)?;
 
-    let root_dir = CStr::from_bytes_with_nul(ROOT_DIR_NUL_TERMINATED)
-        .map_err(|_| Error::FromBytesWithNul(ROOT_DIR_NUL_TERMINATED))?;
+    let root_dir =
+        CStr::from_bytes_with_nul(ROOT_DIR_NUL_TERMINATED).map_err(Error::FromBytesWithNul)?;
 
     // Recursively change the propagation type of all the mounts in this namespace to SLAVE, so
     // we can call pivot_root. Safe because we provide valid parameters.
@@ -65,7 +65,7 @@ pub fn chroot(path: &Path) -> Result<()> {
     // We use the CStr conversion to make sure the contents of the byte slice would be a
     // valid C string (and for the as_ptr() method).
     let old_root_dir = CStr::from_bytes_with_nul(OLD_ROOT_DIR_NAME_NUL_TERMINATED)
-        .map_err(|_| Error::FromBytesWithNul(OLD_ROOT_DIR_NAME_NUL_TERMINATED))?;
+        .map_err(Error::FromBytesWithNul)?;
 
     // Create the old_root folder we're going to use for pivot_root, using a relative path. The call
     // is safe because we provide valid arguments.
@@ -73,8 +73,8 @@ pub fn chroot(path: &Path) -> Result<()> {
         .into_empty_result()
         .map_err(Error::MkdirOldRoot)?;
 
-    let cwd = CStr::from_bytes_with_nul(CURRENT_DIR_NUL_TERMINATED)
-        .map_err(|_| Error::FromBytesWithNul(CURRENT_DIR_NUL_TERMINATED))?;
+    let cwd =
+        CStr::from_bytes_with_nul(CURRENT_DIR_NUL_TERMINATED).map_err(Error::FromBytesWithNul)?;
 
     // We are now ready to call pivot_root. We have to use sys_call because there is no libc
     // wrapper for pivot_root. Safe because we provide valid parameters.

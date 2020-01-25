@@ -144,8 +144,7 @@ impl Env {
         dev_major: u32,
         dev_minor: u32,
     ) -> Result<()> {
-        let dev_path = CStr::from_bytes_with_nul(dev_path_str)
-            .map_err(|_| Error::FromBytesWithNul(dev_path_str))?;
+        let dev_path = CStr::from_bytes_with_nul(dev_path_str).map_err(Error::FromBytesWithNul)?;
         // As per sysstat.h:
         // S_IFCHR -> character special device
         // S_IRUSR -> read permission, owner
@@ -263,8 +262,8 @@ impl Env {
 
         // Change ownership of the jail root to Firecracker's UID and GID. This is necessary
         // so Firecracker can create the unix domain socket in its own jail.
-        let jail_root_path = CStr::from_bytes_with_nul(ROOT_PATH_WITH_NUL)
-            .map_err(|_| Error::FromBytesWithNul(ROOT_PATH_WITH_NUL))?;
+        let jail_root_path =
+            CStr::from_bytes_with_nul(ROOT_PATH_WITH_NUL).map_err(Error::FromBytesWithNul)?;
         SyscallReturnCode(unsafe { libc::chown(jail_root_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
             .map_err(|e| {
