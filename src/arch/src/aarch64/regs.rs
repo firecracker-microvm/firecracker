@@ -17,7 +17,7 @@ use kvm_bindings::{
 };
 use kvm_ioctls::VcpuFd;
 
-use vm_memory::GuestMemory;
+use vm_memory::GuestMemoryMmap;
 
 /// Errors thrown while setting aarch64 registers.
 #[derive(Debug)]
@@ -122,7 +122,7 @@ arm64_sys_reg!(MPIDR_EL1, 3, 0, 0, 0, 5);
 /// * `cpu_id` - Index of current vcpu.
 /// * `boot_ip` - Starting instruction pointer.
 /// * `mem` - Reserved DRAM for current VM.
-pub fn setup_regs(vcpu: &VcpuFd, cpu_id: u8, boot_ip: u64, mem: &GuestMemory) -> Result<()> {
+pub fn setup_regs(vcpu: &VcpuFd, cpu_id: u8, boot_ip: u64, mem: &GuestMemoryMmap) -> Result<()> {
     // Get the register index of the PSTATE (Processor State) register.
     vcpu.set_one_reg(arm64_core_reg!(pstate), PSTATE_FAULT_BITS_64)
         .map_err(Error::SetCoreRegister)?;
@@ -164,7 +164,7 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mem = GuestMemoryMmap::new(&regions).expect("Cannot initialize memory");
 
         match setup_regs(&vcpu, 0, 0x0, &mem).unwrap_err() {
             Error::SetCoreRegister(ref e) => assert_eq!(e.errno(), libc::ENOEXEC),

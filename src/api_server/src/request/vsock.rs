@@ -16,7 +16,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_vsock_request() {
+    fn test_parse_put_vsock_request() {
         let body = r#"{
                 "vsock_id": "foo",
                 "guest_cid": 42,

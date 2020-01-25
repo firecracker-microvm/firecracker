@@ -18,7 +18,7 @@ use super::get_fdt_addr;
 use super::gic::GICDevice;
 use super::layout::FDT_MAX_SIZE;
 use aarch64::fdt::Error::CstringFDTTransform;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
@@ -83,7 +83,7 @@ type Result<T> = result::Result<T, Error>;
 
 /// Creates the flattened device tree for this aarch64 microVM.
 pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
-    guest_mem: &GuestMemory,
+    guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
     cmdline: &CStr,
     device_info: Option<&HashMap<(DeviceType, String), T>>,
@@ -325,7 +325,7 @@ fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &Vec<u64>) -> Result<()> {
     Ok(())
 }
 
-fn create_memory_node(fdt: &mut Vec<u8>, guest_mem: &GuestMemory) -> Result<()> {
+fn create_memory_node(fdt: &mut Vec<u8>, guest_mem: &GuestMemoryMmap) -> Result<()> {
     let mem_size = guest_mem.end_addr().raw_value() - super::layout::DRAM_MEM_START;
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/booting-without-of.txt#L960
     // for an explanation of this.
@@ -562,7 +562,7 @@ mod tests {
     #[test]
     fn test_create_fdt_with_devices() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mem = GuestMemoryMmap::new(&regions).expect("Cannot initialize memory");
 
         let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
             (
@@ -604,7 +604,7 @@ mod tests {
     #[test]
     fn test_create_fdt() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mem = GuestMemoryMmap::new(&regions).expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1).unwrap();
@@ -649,7 +649,7 @@ mod tests {
     #[test]
     fn test_create_fdt_with_initrd() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemory::new(&regions).expect("Cannot initialize memory");
+        let mem = GuestMemoryMmap::new(&regions).expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1).unwrap();

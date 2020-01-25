@@ -105,8 +105,8 @@ pub enum VsockError {
     BufDescTooSmall,
     /// The vsock data/buffer virtio descriptor is expected, but missing.
     BufDescMissing,
-    /// Chained GuestMemory error.
-    GuestMemory(GuestMemoryError),
+    /// Chained GuestMemoryMmap error.
+    GuestMemoryMmap(GuestMemoryError),
     /// Bounds check failed on guest memory pointer.
     GuestMemoryBounds,
     /// The vsock header descriptor length is too small.
@@ -205,7 +205,7 @@ mod tests {
 
     use crate::virtio::queue::tests::VirtQueue as GuestQ;
     use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use vm_memory::{GuestAddress, GuestMemory};
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     pub struct TestBackend {
         pub evfd: EventFd,
@@ -284,7 +284,7 @@ mod tests {
 
     pub struct TestContext {
         pub cid: u64,
-        pub mem: GuestMemory,
+        pub mem: GuestMemoryMmap,
         pub mem_size: usize,
         pub device: Vsock<TestBackend>,
 
@@ -299,7 +299,7 @@ mod tests {
             let (sender, _handler_receiver) = mpsc::channel();
             Self {
                 cid: CID,
-                mem: GuestMemory::new(&[(GuestAddress(0), MEM_SIZE)]).unwrap(),
+                mem: GuestMemoryMmap::new(&[(GuestAddress(0), MEM_SIZE)]).unwrap(),
                 mem_size: MEM_SIZE,
                 device: Vsock::new(
                     CID,
