@@ -163,7 +163,7 @@ impl Env {
 
         SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
-            .map_err(|e| Error::ChangeFileOwner(e, std::str::from_utf8(dev_path_str).unwrap()))
+            .map_err(|e| Error::ChangeFileOwner(dev_path.to_str().unwrap(), e))
     }
 
     pub fn run(mut self) -> Result<()> {
@@ -266,9 +266,7 @@ impl Env {
             CStr::from_bytes_with_nul(ROOT_PATH_WITH_NUL).map_err(Error::FromBytesWithNul)?;
         SyscallReturnCode(unsafe { libc::chown(jail_root_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
-            .map_err(|e| {
-                Error::ChangeFileOwner(e, std::str::from_utf8(ROOT_PATH_WITH_NUL).unwrap())
-            })?;
+            .map_err(|e| Error::ChangeFileOwner(jail_root_path.to_str().unwrap(), e))?;
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(fd) = dev_null {
