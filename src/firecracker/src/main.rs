@@ -31,7 +31,6 @@ use seccomp::{BpfProgram, SeccompLevel};
 use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
-use vmm::controller::VmmController;
 use vmm::default_syscalls::get_seccomp_filter;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
@@ -239,9 +238,6 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
     // The driving epoll engine.
     let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-    epoll_context
-        .add_epollin_event(&event_manager, vmm::EpollDispatch::PollyEvent)
-        .expect("Cannot cascade EventManager from epoll_context");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(metrics::PeriodicMetrics::new()));
@@ -249,11 +245,14 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
         .register(firecracker_metrics.clone())
         .expect("Cannot register the metrics event to the event manager.");
 
-    let (vm_resources, vmm) = build_microvm_from_json(
+    // Build the microVm. We can ignore the returned values here because:
+    // - VmResources is not used without api,
+    // - An `Arc` reference of the built `Vmm` is plugged in the `EventManager` by the builder.
+    build_microvm_from_json(
         seccomp_filter,
         &mut epoll_context,
         &mut event_manager,
-        // Safe to unwrap since no-api requires this to be set.
+        // Safe to unwrap since '--no-api' requires this to be set.
         config_json.unwrap(),
     );
 
@@ -263,23 +262,12 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
         .expect("Metrics lock poisoned.")
         .start(metrics::WRITE_METRICS_PERIOD_MS);
 
-    let mut controller = VmmController::new(epoll_context, event_manager, vm_resources, vmm);
-    let exit_code = loop {
-        match controller.run_event_loop() {
-            Err(e) => {
-                error!("Abruptly exited VMM control loop: {:?}", e);
-                break vmm::FC_EXIT_CODE_GENERIC_ERROR;
-            }
-            Ok(exit_reason) => match exit_reason {
-                vmm::EventLoopExitReason::Break => {
-                    info!("Gracefully terminated VMM control loop");
-                    break vmm::FC_EXIT_CODE_OK;
-                }
-                vmm::EventLoopExitReason::ControlAction => {
-                    warn!("Spurious control event");
-                }
-            },
-        };
-    };
-    controller.stop(i32::from(exit_code));
+    // TODO: remove this when last epoll_context user is migrated to EventManager.
+    let epoll_context = Arc::new(Mutex::new(epoll_context));
+    event_manager.register(epoll_context).unwrap();
+
+    // Run the EventManager that drives everything in the microVM.
+    loop {
+        event_manager.run().unwrap();
+    }
 }

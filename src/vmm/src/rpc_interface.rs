@@ -273,11 +273,6 @@ impl<'a> PrebootApiController<'a> {
 /// Enables RPC interraction with a running Firecracker VMM.
 pub struct RuntimeApiController(pub VmmController);
 impl RuntimeApiController {
-    /// Constructor for the RuntimeApiController.
-    pub fn new(vmm_controller: VmmController) -> RuntimeApiController {
-        RuntimeApiController(vmm_controller)
-    }
-
     /// Handles the incoming runtime `VmmAction` request and provides a response for it.
     pub fn handle_request(
         &mut self,

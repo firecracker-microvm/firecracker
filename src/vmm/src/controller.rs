@@ -7,28 +7,23 @@ use std::path::PathBuf;
 use std::result;
 use std::sync::{Arc, Mutex};
 
-use super::{EpollContext, EventLoopExitReason, Vmm};
-
-use super::Result;
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
 use logger::LOGGER;
-use polly::event_manager::EventManager;
 use resources::VmResources;
 use rpc_interface::VmmActionError;
 use vmm_config;
 use vmm_config::drive::DriveError;
 use vmm_config::machine_config::VmConfig;
 use vmm_config::net::NetworkInterfaceUpdateConfig;
+use Vmm;
 
 /// Shorthand result type for external VMM commands.
 pub type ActionResult = std::result::Result<(), VmmActionError>;
 
 /// Enables runtime configuration of a Firecracker VMM.
 pub struct VmmController {
-    epoll_context: EpollContext,
-    event_manager: EventManager,
     vm_resources: VmResources,
     vmm: Arc<Mutex<Vmm>>,
 }
@@ -67,23 +62,8 @@ impl VmmController {
     }
 
     /// Creates a new `VmmController`.
-    pub fn new(
-        epoll_context: EpollContext,
-        event_manager: EventManager,
-        vm_resources: VmResources,
-        vmm: Arc<Mutex<Vmm>>,
-    ) -> Self {
-        VmmController {
-            epoll_context,
-            event_manager,
-            vm_resources,
-            vmm,
-        }
-    }
-
-    /// Wait for and dispatch events. Will defer to the inner Vmm loop after it's started.
-    pub fn run_event_loop(&mut self) -> Result<EventLoopExitReason> {
-        Vmm::run_event_loop(&mut self.epoll_context, &mut self.event_manager)
+    pub fn new(vm_resources: VmResources, vmm: Arc<Mutex<Vmm>>) -> Self {
+        VmmController { vm_resources, vmm }
     }
 
     /// Triggers a rescan of the host file backing the emulated block device with id `drive_id`.

@@ -1,6 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, RwLock};
@@ -8,13 +9,13 @@ use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
 use mmds::MMDS;
-use polly::event_manager::EventManager;
+use polly::event_manager::{EventHandler, EventManager};
+use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
 use seccomp::BpfProgram;
 use utils::eventfd::EventFd;
 use vmm::controller::VmmController;
 use vmm::rpc_interface::{PrebootApiController, RuntimeApiController};
 use vmm::vmm_config::instance_info::InstanceInfo;
-use vmm::EpollDispatch;
 
 use super::FIRECRACKER_VERSION;
 
@@ -22,63 +23,66 @@ struct ApiServerAdapter {
     api_event_fd: EventFd,
     from_api: Receiver<ApiRequest>,
     to_api: Sender<ApiResponse>,
+    controller: RuntimeApiController,
 }
 
 impl ApiServerAdapter {
-    pub fn new(
+    /// Runs the vmm to completion, while any arising control events are deferred
+    /// to a `RuntimeApiController`.
+    fn run_microvm(
         api_event_fd: EventFd,
         from_api: Receiver<ApiRequest>,
         to_api: Sender<ApiResponse>,
-    ) -> Self {
-        ApiServerAdapter {
+        vmm_controller: VmmController,
+        event_manager: &mut EventManager,
+    ) {
+        let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
             from_api,
             to_api,
+            controller: RuntimeApiController(vmm_controller),
+        }));
+        event_manager
+            .register(api_adapter.clone())
+            .expect("Cannot register the api event to the event manager.");
+        loop {
+            event_manager
+                .run()
+                .expect("EventManager events driver fatal error");
         }
     }
-
-    /// Runs the vmm to completion, while any arising control events are deferred
-    /// to a `RuntimeApiController`.
-    fn run_microvm(&self, vmm_controller: VmmController) {
-        let mut controller = RuntimeApiController(vmm_controller);
-        let exit_code = loop {
-            match controller.0.run_event_loop() {
-                Err(e) => {
-                    error!("Abruptly exited VMM control loop: {:?}", e);
-                    break vmm::FC_EXIT_CODE_GENERIC_ERROR;
+}
+impl EventHandler for ApiServerAdapter {
+    /// Handle a read event (EPOLLIN).
+    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+        if source == self.api_event_fd.as_raw_fd() {
+            let _ = self.api_event_fd.read();
+            match self.from_api.try_recv() {
+                Ok(api_request) => {
+                    let response = self.controller.handle_request(*api_request);
+                    // Send back the result.
+                    self.to_api
+                        .send(Box::new(response))
+                        .map_err(|_| ())
+                        .expect("one-shot channel closed");
                 }
-                Ok(exit_reason) => match exit_reason {
-                    vmm::EventLoopExitReason::Break => {
-                        info!("Gracefully terminated VMM control loop");
-                        break vmm::FC_EXIT_CODE_OK;
-                    }
-                    vmm::EventLoopExitReason::ControlAction => {
-                        if let Err(e) = self.api_event_fd.read() {
-                            error!("VMM: Failed to read the API event_fd: {}", e);
-                            break vmm::FC_EXIT_CODE_GENERIC_ERROR;
-                        };
-
-                        match self.from_api.try_recv() {
-                            Ok(api_request) => {
-                                let response = controller.handle_request(*api_request);
-                                // Send back the result.
-                                self.to_api
-                                    .send(Box::new(response))
-                                    .map_err(|_| ())
-                                    .expect("one-shot channel closed");
-                            }
-                            Err(TryRecvError::Empty) => {
-                                warn!("Got a spurious notification from api thread");
-                            }
-                            Err(TryRecvError::Disconnected) => {
-                                panic!("The channel's sending half was disconnected. Cannot receive data.");
-                            }
-                        };
-                    }
-                },
+                Err(TryRecvError::Empty) => {
+                    warn!("Got a spurious notification from api thread");
+                }
+                Err(TryRecvError::Disconnected) => {
+                    panic!("The channel's sending half was disconnected. Cannot receive data.");
+                }
             };
-        };
-        controller.0.stop(i32::from(exit_code));
+        } else {
+            error!("Spurious EventManager event for handler: ApiServerAdapter");
+        }
+        vec![]
+    }
+
+    fn init(&self) -> Vec<PollableOp> {
+        vec![PollableOpBuilder::new(self.api_event_fd.as_raw_fd())
+            .readable()
+            .register()]
     }
 }
 
@@ -91,9 +95,7 @@ pub fn run_with_api(
     start_time_cpu_us: Option<u64>,
 ) {
     // FD to notify of API events.
-    let api_event_fd = EventFd::new(libc::EFD_NONBLOCK)
-        .map_err(api_server::Error::Eventfd)
-        .expect("Cannot create API Eventfd.");
+    let api_event_fd = EventFd::new(libc::EFD_NONBLOCK).expect("Cannot create API Eventfd.");
     // Channels for both directions between Vmm and Api threads.
     let (to_vmm, from_api) = channel();
     let (to_api, from_vmm) = channel();
@@ -145,20 +147,12 @@ pub fn run_with_api(
     let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
     // The event manager to replace EpollContext.
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-    // Cascade EventManager in EpollContext.
-    epoll_context
-        .add_epollin_event(&event_manager, EpollDispatch::PollyEvent)
-        .expect("Cannot cascade EventManager from epoll_context");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(super::metrics::PeriodicMetrics::new()));
     event_manager
         .register(firecracker_metrics.clone())
         .expect("Cannot register the metrics event to the event manager.");
-
-    epoll_context
-        .add_epollin_event(&api_event_fd, EpollDispatch::VmmActionRequest)
-        .expect("Cannot add vmm control_fd to epoll.");
 
     // Configure, build and start the microVM.
     let (vm_resources, vmm) = match config_json {
@@ -201,11 +195,15 @@ pub fn run_with_api(
     // Update the api shared instance info.
     api_shared_info.write().unwrap().started = true;
 
-    let api_handler = ApiServerAdapter::new(api_event_fd, from_api, to_api);
-    api_handler.run_microvm(VmmController::new(
-        epoll_context,
-        event_manager,
-        vm_resources,
-        vmm,
-    ));
+    // TODO: remove this when last epoll_context user is migrated to EventManager.
+    let epoll_context = Arc::new(Mutex::new(epoll_context));
+    event_manager.register(epoll_context).unwrap();
+
+    ApiServerAdapter::run_microvm(
+        api_event_fd,
+        from_api,
+        to_api,
+        VmmController::new(vm_resources, vmm),
+        &mut event_manager,
+    );
 }

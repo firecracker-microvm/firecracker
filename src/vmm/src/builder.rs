@@ -220,6 +220,9 @@ impl VmmEventsObserver for SerialStdin {
 ///
 /// This is the default build recipe, one could build other microVM flavors by using the
 /// independent functions in this module instead of calling this recipe.
+///
+/// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
+/// is returned.
 pub fn build_microvm(
     vm_resources: &super::resources::VmResources,
     epoll_context: &mut EpollContext,

@@ -69,7 +69,7 @@ use devices::{BusDevice, DeviceEventT, EpollHandler};
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::error::LoggerError;
 use logger::{Metric, LOGGER, METRICS};
-use polly::event_manager::{self, EventHandler, EventManager};
+use polly::event_manager::{self, EventHandler};
 use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
 use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
 use utils::eventfd::EventFd;
@@ -94,26 +94,10 @@ pub const FC_EXIT_CODE_BAD_CONFIGURATION: u8 = 151;
 /// Command line arguments parsing error.
 pub const FC_EXIT_CODE_ARG_PARSING: u8 = 152;
 
-/// Describes all possible reasons which may cause the event loop to return to the caller in
-/// the absence of errors.
-#[derive(Debug)]
-pub enum EventLoopExitReason {
-    /// A break statement interrupted the event loop during normal execution. This is the
-    /// default exit reason.
-    Break,
-    /// The control action file descriptor has data available for reading.
-    ControlAction,
-}
-
 /// Dispatch categories for epoll events.
-#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EpollDispatch {
-    /// Cascaded polly event.
-    PollyEvent,
     /// Event has to be dispatch to an EpollHandler.
     DeviceHandler(usize, DeviceEventT),
-    /// The event loop has to be temporarily suspended for an external action request.
-    VmmActionRequest,
 }
 
 struct MaybeHandler {
@@ -298,6 +282,67 @@ impl EpollContext {
 
         // And return the appropriate event.
         Ok(self.events[self.event_index - 1])
+    }
+
+    /// Wait for and dispatch events.
+    pub fn run_event_loop(&mut self) {
+        let event = self.get_event().unwrap();
+        let evset = match epoll::Events::from_bits(event.events) {
+            Some(evset) => evset,
+            None => {
+                let evbits = event.events;
+                warn!("epoll: ignoring unknown event set: 0x{:x}", evbits);
+                return;
+            }
+        };
+
+        match self.dispatch_table[event.data as usize] {
+            Some(EpollDispatch::DeviceHandler(device_idx, device_token)) => {
+                METRICS.vmm.device_events.inc();
+                match self.get_device_handler_by_handler_id(device_idx) {
+                    Ok(handler) => match handler.handle_event(device_token, evset) {
+                        Err(devices::Error::PayloadExpected) => {
+                            panic!("Received update disk image event with empty payload.")
+                        }
+                        Err(devices::Error::UnknownEvent { device, event }) => {
+                            panic!("Unknown event: {:?} {:?}", device, event)
+                        }
+                        _ => (),
+                    },
+                    Err(e) => warn!("invalid handler for device {}: {:?}", device_idx, e),
+                }
+            }
+            None => {
+                panic!("what do you mean nothing?!");
+                // Do nothing.
+            }
+        };
+        // Currently, we never get to return with Ok(EventLoopExitReason::Break) because
+        // we just invoke stop() whenever that would happen.
+    }
+}
+
+impl AsRawFd for EpollContext {
+    fn as_raw_fd(&self) -> RawFd {
+        self.epoll_raw_fd
+    }
+}
+
+impl EventHandler for EpollContext {
+    /// Handle a read event (EPOLLIN).
+    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+        if source == self.epoll_raw_fd {
+            self.run_event_loop();
+        } else {
+            error!("Spurious EventManager event for handler: EpollContext");
+        }
+        vec![]
+    }
+
+    fn init(&self) -> Vec<PollableOp> {
+        vec![PollableOpBuilder::new(self.as_raw_fd())
+            .readable()
+            .register()]
     }
 }
 
@@ -592,56 +637,6 @@ impl Vmm {
         unsafe {
             libc::_exit(exit_code);
         }
-    }
-
-    /// Wait on VMM events and dispatch them to the appropriate handler. Returns to the caller
-    /// when a control action occurs.
-    pub fn run_event_loop(
-        epoll_context: &mut EpollContext,
-        event_manager: &mut EventManager,
-    ) -> Result<EventLoopExitReason> {
-        loop {
-            let event = epoll_context.get_event()?;
-            let evset = match epoll::Events::from_bits(event.events) {
-                Some(evset) => evset,
-                None => {
-                    let evbits = event.events;
-                    warn!("epoll: ignoring unknown event set: 0x{:x}", evbits);
-                    continue;
-                }
-            };
-
-            match epoll_context.dispatch_table[event.data as usize] {
-                Some(EpollDispatch::DeviceHandler(device_idx, device_token)) => {
-                    METRICS.vmm.device_events.inc();
-                    match epoll_context.get_device_handler_by_handler_id(device_idx) {
-                        Ok(handler) => match handler.handle_event(device_token, evset) {
-                            Err(devices::Error::PayloadExpected) => {
-                                panic!("Received update disk image event with empty payload.")
-                            }
-                            Err(devices::Error::UnknownEvent { device, event }) => {
-                                panic!("Unknown event: {:?} {:?}", device, event)
-                            }
-                            _ => (),
-                        },
-                        Err(e) => warn!("invalid handler for device {}: {:?}", device_idx, e),
-                    }
-                }
-                Some(EpollDispatch::VmmActionRequest) => {
-                    return Ok(EventLoopExitReason::ControlAction);
-                }
-                // Cascaded polly: We are doing this until all devices have been ported away
-                // from epoll_context to polly.
-                Some(EpollDispatch::PollyEvent) => {
-                    event_manager.run().map_err(Error::EventManager)?;
-                }
-                None => {
-                    // Do nothing.
-                }
-            }
-        }
-        // Currently, we never get to return with Ok(EventLoopExitReason::Break) because
-        // we just invoke stop() whenever that would happen.
     }
 
     fn log_boot_time(t0_ts: &TimestampUs) {
