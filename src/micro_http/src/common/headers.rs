@@ -21,25 +21,32 @@ pub enum Header {
 }
 
 impl Header {
+    /// Returns a byte slice representation of the object.
     pub fn raw(&self) -> &'static [u8] {
         match self {
-            Header::ContentLength => b"Content-Length",
-            Header::ContentType => b"Content-Type",
-            Header::Expect => b"Expect",
-            Header::TransferEncoding => b"Transfer-Encoding",
-            Header::Server => b"Server",
+            Self::ContentLength => b"Content-Length",
+            Self::ContentType => b"Content-Type",
+            Self::Expect => b"Expect",
+            Self::TransferEncoding => b"Transfer-Encoding",
+            Self::Server => b"Server",
         }
     }
 
+    /// Parses a byte slice into a Header structure. Header must be ASCII, so also
+    /// UTF-8 valid.
+    ///
+    /// # Errors
+    /// `InvalidRequest` is returned if slice contains invalid utf8 characters.
+    /// `InvalidHeader` is returned if unsupported header found.
     fn try_from(string: &[u8]) -> Result<Self, RequestError> {
         if let Ok(mut utf8_string) = String::from_utf8(string.to_vec()) {
             utf8_string.make_ascii_lowercase();
             match utf8_string.trim() {
-                "content-length" => Ok(Header::ContentLength),
-                "content-type" => Ok(Header::ContentType),
-                "expect" => Ok(Header::Expect),
-                "transfer-encoding" => Ok(Header::TransferEncoding),
-                "server" => Ok(Header::Server),
+                "content-length" => Ok(Self::ContentLength),
+                "content-type" => Ok(Self::ContentType),
+                "expect" => Ok(Self::Expect),
+                "transfer-encoding" => Ok(Self::TransferEncoding),
+                "server" => Ok(Self::Server),
                 _ => Err(RequestError::InvalidHeader),
             }
         } else {
@@ -75,16 +82,18 @@ pub struct Headers {
     chunked: bool,
 }
 
-impl Headers {
+impl Default for Headers {
     /// By default Requests are created with no headers.
-    pub fn default() -> Headers {
-        Headers {
-            content_length: 0,
-            expect: false,
-            chunked: false,
+    fn default() -> Self {
+        Self {
+            content_length: Default::default(),
+            expect: Default::default(),
+            chunked: Default::default(),
         }
     }
+}
 
+impl Headers {
     /// Expects one header line and parses it, updating the header structure or returning an
     /// error if the header is invalid.
     ///
@@ -94,6 +103,17 @@ impl Headers {
     /// `InvalidHeader` is returned when the parsed header is formatted incorrectly or suggests
     /// that the client is using HTTP features that we do not support in this implementation,
     /// which invalidates the request.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// extern crate micro_http;
+    /// use micro_http::Headers;
+    ///
+    /// let mut request_header = Headers::default();
+    /// assert!(request_header.parse_header_line(b"Content-Length: 24").is_ok());
+    /// assert!(request_header.parse_header_line(b"Content-Length: 24: 2").is_err());
+    /// ```
     pub fn parse_header_line(&mut self, header_line: &[u8]) -> Result<(), RequestError> {
         // Headers must be ASCII, so also UTF-8 valid.
         match std::str::from_utf8(header_line) {
@@ -104,16 +124,13 @@ impl Headers {
                 }
                 if let Ok(head) = Header::try_from(entry[0].as_bytes()) {
                     match head {
-                        Header::ContentLength => {
-                            let try_numeric: Result<i32, std::num::ParseIntError> =
-                                std::str::FromStr::from_str(entry[1].trim());
-                            if let Ok(content_length) = try_numeric {
+                        Header::ContentLength => match entry[1].trim().parse::<i32>() {
+                            Ok(content_length) => {
                                 self.content_length = content_length;
                                 Ok(())
-                            } else {
-                                Err(RequestError::InvalidHeader)
                             }
-                        }
+                            Err(_) => Err(RequestError::InvalidHeader),
+                        },
                         Header::ContentType => {
                             match MediaType::try_from(entry[1].trim().as_bytes()) {
                                 Ok(_) => Ok(()),
@@ -164,7 +181,7 @@ impl Headers {
 
     #[cfg(test)]
     pub fn new(content_length: i32, expect: bool, chunked: bool) -> Self {
-        Headers {
+        Self {
             content_length,
             expect,
             chunked,
@@ -195,7 +212,7 @@ impl Headers {
     pub fn try_from(bytes: &[u8]) -> Result<Headers, RequestError> {
         // Headers must be ASCII, so also UTF-8 valid.
         if let Ok(text) = std::str::from_utf8(bytes) {
-            let mut headers = Headers::default();
+            let mut headers = Self::default();
 
             let header_lines = text.split("\r\n");
             for header_line in header_lines {
@@ -223,30 +240,57 @@ pub enum MediaType {
 }
 
 impl Default for MediaType {
+    /// Default value for MediaType is application/json
     fn default() -> Self {
-        MediaType::ApplicationJson
+        Self::ApplicationJson
     }
 }
 
 impl MediaType {
-    fn try_from(bytes: &[u8]) -> Result<Self, RequestError> {
+    /// Parses a byte slice into a MediaType structure for a HTTP request. MediaType
+    /// must be ASCII, so also UTF-8 valid.
+    ///
+    /// # Errors
+    /// The function returns `InvalidRequest` when parsing the byte stream fails or
+    /// unsupported MediaType found.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// extern crate micro_http;
+    /// use micro_http::MediaType;
+    ///
+    /// assert!(MediaType::try_from(b"application/json").is_ok());
+    /// assert!(MediaType::try_from(b"application/json2").is_err());
+    /// ```
+    pub fn try_from(bytes: &[u8]) -> Result<Self, RequestError> {
         if bytes.is_empty() {
             return Err(RequestError::InvalidRequest);
         }
         let utf8_slice =
             String::from_utf8(bytes.to_vec()).map_err(|_| RequestError::InvalidRequest)?;
         match utf8_slice.as_str().trim() {
-            "text/plain" => Ok(MediaType::PlainText),
-            "application/json" => Ok(MediaType::ApplicationJson),
+            "text/plain" => Ok(Self::PlainText),
+            "application/json" => Ok(Self::ApplicationJson),
             _ => Err(RequestError::InvalidRequest),
         }
     }
 
     /// Returns a static string representation of the object.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// extern crate micro_http;
+    /// use micro_http::MediaType;
+    ///
+    /// let media_type = MediaType::ApplicationJson;
+    /// assert_eq!(media_type.as_str(), "application/json");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
-            MediaType::PlainText => "text/plain",
-            MediaType::ApplicationJson => "application/json",
+            Self::PlainText => "text/plain",
+            Self::ApplicationJson => "application/json",
         }
     }
 }
