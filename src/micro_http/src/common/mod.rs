@@ -33,12 +33,12 @@ pub enum RequestError {
 impl Display for RequestError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            RequestError::InvalidHttpMethod(inner) => write!(f, "Invalid HTTP Method: {}", inner),
-            RequestError::InvalidUri(inner) => write!(f, "Invalid URI: {}", inner),
-            RequestError::InvalidHttpVersion(inner) => write!(f, "Invalid HTTP Version: {}", inner),
-            RequestError::UnsupportedHeader => write!(f, "Unsupported header."),
-            RequestError::InvalidHeader => write!(f, "Invalid header."),
-            RequestError::InvalidRequest => write!(f, "Invalid request."),
+            Self::InvalidHttpMethod(inner) => write!(f, "Invalid HTTP Method: {}", inner),
+            Self::InvalidUri(inner) => write!(f, "Invalid URI: {}", inner),
+            Self::InvalidHttpVersion(inner) => write!(f, "Invalid HTTP Version: {}", inner),
+            Self::UnsupportedHeader => write!(f, "Unsupported header."),
+            Self::InvalidHeader => write!(f, "Invalid header."),
+            Self::InvalidRequest => write!(f, "Invalid request."),
         }
     }
 }
@@ -59,10 +59,10 @@ pub enum ConnectionError {
 impl Display for ConnectionError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            ConnectionError::ParseError(inner) => write!(f, "Parsing error: {}", inner),
-            ConnectionError::StreamError(inner) => write!(f, "Stream error: {}", inner),
-            ConnectionError::ConnectionClosed => write!(f, "Connection closed."),
-            ConnectionError::InvalidWrite => write!(f, "Invalid write attempt."),
+            Self::ParseError(inner) => write!(f, "Parsing error: {}", inner),
+            Self::StreamError(inner) => write!(f, "Stream error: {}", inner),
+            Self::ConnectionClosed => write!(f, "Connection closed."),
+            Self::InvalidWrite => write!(f, "Invalid write attempt."),
         }
     }
 }
@@ -81,9 +81,9 @@ pub enum ServerError {
 impl Display for ServerError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            ServerError::IOError(inner) => write!(f, "IO error: {}", inner),
-            ServerError::ConnectionError(inner) => write!(f, "Connection error: {}", inner),
-            ServerError::ServerFull => write!(f, "Server is full."),
+            Self::IOError(inner) => write!(f, "IO error: {}", inner),
+            Self::ConnectionError(inner) => write!(f, "Connection error: {}", inner),
+            Self::ServerFull => write!(f, "Server is full."),
         }
     }
 }
@@ -107,7 +107,7 @@ pub struct Body {
 impl Body {
     /// Creates a new `Body` from a `String` input.
     pub fn new<T: Into<Vec<u8>>>(body: T) -> Self {
-        Body { body: body.into() }
+        Self { body: body.into() }
     }
 
     /// Returns the body as an `u8 slice`.
@@ -144,12 +144,12 @@ impl Method {
     /// an error, but when using the input b"GET", it returns Method::Get.
     ///
     /// # Errors
-    /// Returns `RequestError` if the method specified by `bytes` is unsupported.
+    /// `InvalidHttpMethod` is returned if the specified HTTP method is unsupported.
     pub fn try_from(bytes: &[u8]) -> Result<Self, RequestError> {
         match bytes {
-            b"GET" => Ok(Method::Get),
-            b"PUT" => Ok(Method::Put),
-            b"PATCH" => Ok(Method::Patch),
+            b"GET" => Ok(Self::Get),
+            b"PUT" => Ok(Self::Put),
+            b"PATCH" => Ok(Self::Patch),
             _ => Err(RequestError::InvalidHttpMethod("Unsupported HTTP method.")),
         }
     }
@@ -157,9 +157,9 @@ impl Method {
     /// Returns an `u8 slice` corresponding to the Method.
     pub fn raw(self) -> &'static [u8] {
         match self {
-            Method::Get => b"GET",
-            Method::Put => b"PUT",
-            Method::Patch => b"PATCH",
+            Self::Get => b"GET",
+            Self::Put => b"PUT",
+            Self::Patch => b"PATCH",
         }
     }
 }
@@ -184,12 +184,19 @@ pub enum Version {
     Http11,
 }
 
+impl Default for Version {
+    /// Returns the default HTTP version = HTTP/1.1.
+    fn default() -> Self {
+        Self::Http11
+    }
+}
+
 impl Version {
     /// HTTP Version as an `u8 slice`.
     pub fn raw(self) -> &'static [u8] {
         match self {
-            Version::Http10 => b"HTTP/1.0",
-            Version::Http11 => b"HTTP/1.1",
+            Self::Http10 => b"HTTP/1.0",
+            Self::Http11 => b"HTTP/1.1",
         }
     }
 
@@ -199,20 +206,15 @@ impl Version {
     /// The version is case sensitive and the accepted input is upper case.
     ///
     /// # Errors
-    /// Returns a `RequestError` when the version is not supported.
+    /// Returns a `InvalidHttpVersion` when the HTTP version is not supported.
     pub fn try_from(bytes: &[u8]) -> Result<Self, RequestError> {
         match bytes {
-            b"HTTP/1.0" => Ok(Version::Http10),
-            b"HTTP/1.1" => Ok(Version::Http11),
+            b"HTTP/1.0" => Ok(Self::Http10),
+            b"HTTP/1.1" => Ok(Self::Http11),
             _ => Err(RequestError::InvalidHttpVersion(
                 "Unsupported HTTP version.",
             )),
         }
-    }
-
-    /// Returns the default HTTP version = HTTP/1.1.
-    pub fn default() -> Self {
-        Version::Http11
     }
 }
 

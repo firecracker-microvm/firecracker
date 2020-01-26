@@ -35,7 +35,7 @@ impl ServerRequest {
     /// Creates a new `ServerRequest` object from an existing `Request`,
     /// adding an identification token.
     pub fn new(request: Request, id: u64) -> Self {
-        ServerRequest { request, id }
+        Self { request, id }
     }
 
     /// Returns a reference to the inner request.
@@ -65,8 +65,8 @@ pub struct ServerResponse {
 }
 
 impl ServerResponse {
-    fn new(response: Response, id: u64) -> ServerResponse {
-        ServerResponse { response, id }
+    fn new(response: Response, id: u64) -> Self {
+        Self { response, id }
     }
 }
 
@@ -94,7 +94,7 @@ struct ClientConnection<T> {
 
 impl<T: Read + Write> ClientConnection<T> {
     fn new(connection: HttpConnection<T>) -> Self {
-        ClientConnection {
+        Self {
             connection,
             state: ClientConnectionState::AwaitingIncoming,
             in_flight_response_count: 0,
@@ -198,13 +198,14 @@ impl<T: Read + Write> ClientConnection<T> {
 /// HTTP Server implementation using Unix Domain Sockets and `EPOLL` to
 /// handle multiple connections on the same thread.
 ///
-/// The function that does the data exchange is `handle_notifications`.
+/// The function that handles incoming connections, parses incoming
+/// requests and sends responses for awaiting requests is `requests`.
 /// It can be called in a loop, which will render the thread that the
 /// server runs on incapable of performing other operations, or it can
 /// be used in another `EPOLL` structure, as it provides its `epoll_fd`,
 /// the file descriptor of the epoll structure used within the server,
 /// and it can be added to another one using the `EPOLLIN` flag. Whenever
-/// there is a notification on that fd, `handle_notifications` should be
+/// there is a notification on that fd, `requests` should be
 /// called once.
 ///
 /// # Example
@@ -260,7 +261,7 @@ impl HttpServer {
     pub fn new<P: AsRef<Path>>(path_to_socket: P) -> Result<Self> {
         let socket = UnixListener::bind(path_to_socket).map_err(ServerError::IOError)?;
         let epoll_fd = epoll::create(true).map_err(ServerError::IOError)?;
-        Ok(HttpServer {
+        Ok(Self {
             socket,
             epoll_fd,
             connections: HashMap::new(),
@@ -463,7 +464,8 @@ impl HttpServer {
     /// Accepts a new incoming connection and adds it to the `epoll` notification structure.
     ///
     /// # Errors
-    /// `IOError` is returned when an `epoll::ctl` operation fails.
+    /// `IOError` is returned when socket or epoll operations fail.
+    /// `ServerFull` is returned if server full capacity has been reached.
     fn handle_new_connection(&mut self) -> Result<()> {
         if self.connections.len() == MAX_CONNECTIONS {
             // If we want a replacement policy for connections
@@ -495,6 +497,9 @@ impl HttpServer {
 
     /// Changes the event type for a connection to either listen for incoming bytes
     /// or for when the stream is ready for writing.
+    ///
+    /// # Errors
+    /// `IOError` is returned when an `EPOLL_CTL_MOD` control operation fails.
     fn epoll_mod(epoll_fd: RawFd, stream_fd: RawFd, evset: epoll::Events) -> Result<()> {
         let event = epoll::Event::new(evset, stream_fd as u64);
         epoll::ctl(
@@ -507,6 +512,9 @@ impl HttpServer {
     }
 
     /// Adds a stream to the `epoll` notification structure with the `EPOLLIN` event set.
+    ///
+    /// # Errors
+    /// `IOError` is returned when an `EPOLL_CTL_ADD` control operation fails.
     fn epoll_add(epoll_fd: RawFd, stream_fd: RawFd) -> Result<()> {
         epoll::ctl(
             epoll_fd,

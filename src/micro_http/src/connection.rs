@@ -54,7 +54,7 @@ pub struct HttpConnection<T> {
 impl<T: Read + Write> HttpConnection<T> {
     /// Creates an empty connection.
     pub fn new(stream: T) -> Self {
-        HttpConnection {
+        Self {
             pending_request: None,
             stream,
             state: ConnectionState::WaitingForRequestLine,
@@ -113,8 +113,12 @@ impl<T: Read + Write> HttpConnection<T> {
         }
     }
 
-    // Reads a maximum of 1024 bytes from the stream into `buffer`.
-    // The return value represents the end index of what we have just appended.
+    /// Reads a maximum of 1024 bytes from the stream into `buffer`.
+    /// The return value represents the end index of what we have just appended.
+    ///
+    /// # Errors
+    /// `StreamError` is returned if any error occurred while reading the stream.
+    /// `ConnectionClosed` is returned if the client closed the connection.
     fn read_bytes(&mut self) -> Result<usize, ConnectionError> {
         // Append new bytes to what we already have in the buffer.
         let bytes_read = self
@@ -130,8 +134,11 @@ impl<T: Read + Write> HttpConnection<T> {
         Ok(bytes_read + self.read_cursor)
     }
 
-    // Parses bytes in `buffer` for a valid request line.
-    // Returns `false` if there are no more bytes to be parsed in the buffer.
+    /// Parses bytes in `buffer` for a valid request line.
+    /// Returns `false` if there are no more bytes to be parsed in the buffer.
+    ///
+    /// # Errors
+    /// `ParseError` is returned if unable to parse request line or line longer than BUFFER_SIZE.
     fn parse_request_line(
         &mut self,
         start: &mut usize,
@@ -142,13 +149,12 @@ impl<T: Read + Write> HttpConnection<T> {
                 let line = &self.buffer[*start..(*start + line_end_index)];
 
                 *start = *start + line_end_index + CRLF_LEN;
-                let request_line =
-                    RequestLine::try_from(line).map_err(ConnectionError::ParseError)?;
 
                 // Form the request with a valid request line, which is the bare minimum
                 // for a valid request.
                 self.pending_request = Some(Request {
-                    request_line,
+                    request_line: RequestLine::try_from(line)
+                        .map_err(ConnectionError::ParseError)?,
                     headers: Headers::default(),
                     body: None,
                 });
@@ -171,19 +177,23 @@ impl<T: Read + Write> HttpConnection<T> {
         }
     }
 
-    // Parses bytes in `buffer` for header fields.
-    // Returns `false` if there are no more bytes to be parsed in the buffer.
+    /// Parses bytes in `buffer` for header fields.
+    /// Returns `false` if there are no more bytes to be parsed in the buffer.
+    ///
+    /// # Errors
+    /// `ParseError` is returned if unable to parse header or line longer than BUFFER_SIZE.
     fn parse_headers(
         &mut self,
         line_start_index: &mut usize,
         end_cursor: usize,
     ) -> Result<bool, ConnectionError> {
         match find(&self.buffer[*line_start_index..end_cursor], &[CR, LF]) {
-            // We have found the end of the headers.
             // `line_start_index` points to the end of the most recently found CR LF
             // sequence. That means that if we found the next CR LF sequence at this index,
             // they are, in fact, a CR LF CR LF sequence, which marks the end of the header
             // fields, per HTTP specification.
+
+            // We have found the end of the header.
             Some(0) => {
                 // If our current state is `WaitingForHeaders`, it means that we already have
                 // a valid request formed from a request line, so it's safe to unwrap.
@@ -244,8 +254,11 @@ impl<T: Read + Write> HttpConnection<T> {
         }
     }
 
-    // Parses bytes in `buffer` to be put into the request body, if there should be one.
-    // Returns `false` if there are no more bytes to be parsed in the buffer.
+    /// Parses bytes in `buffer` to be put into the request body, if there should be one.
+    /// Returns `false` if there are no more bytes to be parsed in the buffer.
+    ///
+    /// # Errors
+    /// `ParseError` is returned when the body is larger than the specified content-length.
     fn parse_body(
         &mut self,
         line_start_index: &mut usize,
@@ -297,7 +310,10 @@ impl<T: Read + Write> HttpConnection<T> {
 
     /// Tries to write the first available response to the provided stream.
     /// Meant to be used only with non-blocking streams and an `EPOLL` structure.
-    /// Should be called whenever an `EPOLLOUT` event is signaled.
+    /// Should be called whenever an `EPOLLOUT` event is signaled. If no bytes
+    /// were written to the stream or error occurred while trying to write to stream,
+    /// we will discard all responses from response_queue because there is no way
+    /// to deliver it to client.
     ///
     /// # Errors
     /// `StreamError` is returned when an IO operation fails.
