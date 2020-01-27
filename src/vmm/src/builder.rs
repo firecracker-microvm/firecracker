@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex};
 use super::{EpollContext, Vmm};
 
 use super::Error;
-use device_manager;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -22,6 +21,7 @@ use devices::virtio::MmioTransport;
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use polly::event_manager::{Error as EventManagerError, EventManager};
 use utils::eventfd::EventFd;
+use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use vmm_config;
 use vmm_config::boot_source::BootConfig;
@@ -29,6 +29,7 @@ use vmm_config::drive::BlockDeviceConfigs;
 use vmm_config::net::NetworkInterfaceConfigs;
 use vmm_config::vsock::VsockDeviceConfig;
 use vstate::{KvmContext, Vcpu, VcpuConfig, Vm};
+use {device_manager, VmmEventsObserver};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -169,8 +170,14 @@ impl Display for StartMicrovmError {
     }
 }
 
-// Wrapper over io::Stdin that implements `ReadableFd`.
+// Wrapper over io::Stdin that implements `Serial::ReadableFd` and `vmm::VmmEventsObserver`.
 struct SerialStdin(io::Stdin);
+impl SerialStdin {
+    /// Returns a `SerialStdin` wrapper over `io::stdin`.
+    pub fn get() -> Self {
+        SerialStdin(io::stdin())
+    }
+}
 impl io::Read for SerialStdin {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.0.read(buf)
@@ -182,6 +189,21 @@ impl AsRawFd for SerialStdin {
     }
 }
 impl devices::legacy::ReadableFd for SerialStdin {}
+impl VmmEventsObserver for SerialStdin {
+    fn on_vmm_boot(&mut self) -> std::result::Result<(), utils::errno::Error> {
+        // Set raw mode for stdin.
+        self.0.lock().set_raw_mode().map_err(|e| {
+            warn!("Cannot set raw mode for the terminal. {:?}", e);
+            e
+        })
+    }
+    fn on_vmm_stop(&mut self) -> std::result::Result<(), utils::errno::Error> {
+        self.0.lock().set_canon_mode().map_err(|e| {
+            warn!("Cannot set canonical mode for the terminal. {:?}", e);
+            e
+        })
+    }
+}
 
 /// Builds and starts a microVM based on the current Firecracker VmResources configuration.
 ///
@@ -217,7 +239,7 @@ pub fn build_microvm(
     {
         Some(setup_serial_device(
             event_manager,
-            Box::new(SerialStdin(io::stdin())),
+            Box::new(SerialStdin::get()),
             Box::new(io::stdout()),
         )?)
     } else {
@@ -277,7 +299,7 @@ pub fn build_microvm(
     }
 
     let mut vmm = Vmm {
-        stdin_handle: io::stdin(),
+        events_observer: Some(Box::new(SerialStdin::get())),
         guest_memory,
         kernel_cmdline,
         vcpus_handles: Vec::new(),
