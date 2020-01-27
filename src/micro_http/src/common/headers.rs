@@ -32,13 +32,14 @@ impl Header {
     }
 
     fn try_from(string: &[u8]) -> Result<Self, RequestError> {
-        if let Ok(utf8_string) = String::from_utf8(string.to_vec()) {
+        if let Ok(mut utf8_string) = String::from_utf8(string.to_vec()) {
+            utf8_string.make_ascii_lowercase();
             match utf8_string.trim() {
-                "Content-Length" => Ok(Header::ContentLength),
-                "Content-Type" => Ok(Header::ContentType),
-                "Expect" => Ok(Header::Expect),
-                "Transfer-Encoding" => Ok(Header::TransferEncoding),
-                "Server" => Ok(Header::Server),
+                "content-length" => Ok(Header::ContentLength),
+                "content-type" => Ok(Header::ContentType),
+                "expect" => Ok(Header::Expect),
+                "transfer-encoding" => Ok(Header::TransferEncoding),
+                "server" => Ok(Header::Server),
                 _ => Err(RequestError::InvalidHeader),
             }
         } else {
@@ -393,5 +394,8 @@ mod tests {
 
         let header = Header::try_from(b"Transfer-Encoding").unwrap();
         assert_eq!(header.raw(), b"Transfer-Encoding");
+
+        let header = Header::try_from(b"content-length").unwrap();
+        assert_eq!(header.raw(), b"Content-Length");
     }
 }
