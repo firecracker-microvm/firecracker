@@ -10,6 +10,7 @@ REG_PERMS = stat.S_IRUSR | stat.S_IWUSR | \
             stat.S_IROTH | stat.S_IXOTH
 DIR_STATS = stat.S_IFDIR | REG_PERMS
 FILE_STATS = stat.S_IFREG | REG_PERMS
+SOCK_STATS = stat.S_IFSOCK | REG_PERMS
 # These are the stats of the devices created by tha jailer.
 CHAR_STATS = stat.S_IFCHR | stat.S_IRUSR | stat.S_IWUSR
 
@@ -79,3 +80,15 @@ def test_default_chroot_hierarchy(test_microvm_with_initrd):
                 CHAR_STATS, test_microvm.jailer.uid, test_microvm.jailer.gid)
     check_stats(os.path.join(test_microvm.jailer.chroot_path(),
                              "firecracker"), FILE_STATS, 0, 0)
+
+
+def test_arbitrary_usocket_location(test_microvm_with_initrd):
+    """Test arbitrary location scenario for the api socket."""
+    test_microvm = test_microvm_with_initrd
+    test_microvm.jailer.extra_args = {'api-sock': 'api.socket'}
+
+    test_microvm.spawn()
+
+    check_stats(os.path.join(test_microvm.jailer.chroot_path(),
+                             "api.socket"), SOCK_STATS,
+                test_microvm.jailer.uid, test_microvm.jailer.gid)
