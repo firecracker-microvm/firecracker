@@ -63,7 +63,7 @@ impl EventHandlerData {
 
 /// A trait to express the ability to respond to I/O event readiness
 /// using callbacks.
-pub trait EventHandler: Send {
+pub trait EventHandler {
     /// Handle a read event (EPOLLIN).
     fn handle_read(&mut self, _source: Pollable) -> Vec<PollableOp> {
         vec![]
