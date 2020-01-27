@@ -72,9 +72,8 @@ use logger::{Metric, LOGGER, METRICS};
 use polly::event_manager::{self, EventManager};
 use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
 use utils::eventfd::EventFd;
-use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use vm_memory::GuestMemoryMmap;
 use vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
 /// Success exit code.
@@ -327,10 +326,14 @@ pub enum Error {
     EpollFd(io::Error),
     /// Cannot read from an Event file descriptor.
     EventFd(io::Error),
+    /// Polly error wrapper.
+    EventManager(event_manager::Error),
     /// An event arrived for a device, but the dispatcher can't find the event (epoll) handler.
     DeviceEventHandlerNotFound,
     /// An epoll handler can't be downcasted to the desired type.
     DeviceEventHandlerInvalidDowncast,
+    /// I8042 Error.
+    I8042Error(devices::legacy::I8042DeviceError),
     /// Cannot access kernel file.
     KernelFile(io::Error),
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
@@ -343,8 +346,6 @@ pub enum Error {
     LoadCommandline(kernel::cmdline::Error),
     /// Internal logger error.
     Logger(LoggerError),
-    /// I8042 Error.
-    I8042Error(devices::legacy::I8042DeviceError),
     /// Epoll wait failed.
     Poll(io::Error),
     /// Cannot add a device to the MMIO Bus.
@@ -353,8 +354,6 @@ pub enum Error {
     SeccompFilters(seccomp::Error),
     /// Write to the serial console failed.
     Serial(io::Error),
-    /// Cannot set mode for terminal.
-    StdinHandle(utils::errno::Error),
     /// Cannot create Timer file descriptor.
     TimerFd(io::Error),
     /// Vcpu error.
@@ -369,8 +368,10 @@ pub enum Error {
     VcpuSpawn(std::io::Error),
     /// Vm error.
     Vm(vstate::Error),
-    /// Polly error wrapper.
-    EventManager(event_manager::Error),
+    /// Error thrown by observer object on Vmm initialization.
+    VmmObserverInit(utils::errno::Error),
+    /// Error thrown by observer object on Vmm teardown.
+    VmmObserverTeardown(utils::errno::Error),
 }
 
 impl Display for Error {
@@ -383,6 +384,7 @@ impl Display for Error {
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
             EpollFd(e) => write!(f, "Epoll fd error: {}", e),
             EventFd(e) => write!(f, "Event fd error: {}", e),
+            EventManager(e) => write!(f, "Event manager error: {:?}", e),
             DeviceEventHandlerNotFound => write!(
                 f,
                 "Device event handler not found. This might point to a guest device driver issue."
@@ -391,18 +393,17 @@ impl Display for Error {
                 f,
                 "Device event handler couldn't be downcasted to expected type."
             ),
+            I8042Error(e) => write!(f, "I8042 error: {}", e),
             KernelFile(e) => write!(f, "Cannot access kernel file: {}", e),
             KvmContext(e) => write!(f, "Failed to validate KVM support: {:?}", e),
             #[cfg(target_arch = "x86_64")]
             LegacyIOBus(e) => write!(f, "Cannot add devices to the legacy I/O Bus. {}", e),
             LoadCommandline(e) => write!(f, "Cannot load command line: {}", e),
             Logger(e) => write!(f, "Logger error: {}", e),
-            I8042Error(e) => write!(f, "I8042 error: {}", e),
             Poll(e) => write!(f, "Epoll wait failed: {}", e),
             RegisterMMIODevice(e) => write!(f, "Cannot add a device to the MMIO Bus. {}", e),
             SeccompFilters(e) => write!(f, "Cannot build seccomp filters: {}", e),
             Serial(e) => write!(f, "Error writing to the serial console: {:?}", e),
-            StdinHandle(e) => write!(f, "Failed to set mode for terminal: {}", e),
             TimerFd(e) => write!(f, "Error creating timer fd: {}", e),
             Vcpu(e) => write!(f, "Vcpu error: {}", e),
             VcpuEvent(e) => write!(f, "Cannot send event to vCPU. {:?}", e),
@@ -410,8 +411,27 @@ impl Display for Error {
             VcpuResume => write!(f, "vCPUs resume failed."),
             VcpuSpawn(e) => write!(f, "Cannot spawn Vcpu thread: {}", e),
             Vm(e) => write!(f, "Vm error: {}", e),
-            EventManager(e) => write!(f, "Event manager error: {:?}", e),
+            VmmObserverInit(e) => write!(
+                f,
+                "Error thrown by observer object on Vmm initialization: {}",
+                e
+            ),
+            VmmObserverTeardown(e) => {
+                write!(f, "Error thrown by observer object on Vmm teardown: {}", e)
+            }
         }
+    }
+}
+
+/// Trait for objects that need custom initialization and teardown during the Vmm lifetime.
+pub trait VmmEventsObserver {
+    /// This function will be called during microVm boot.
+    fn on_vmm_boot(&mut self) -> std::result::Result<(), utils::errno::Error> {
+        Ok(())
+    }
+    /// This function will be called on microVm teardown.
+    fn on_vmm_stop(&mut self) -> std::result::Result<(), utils::errno::Error> {
+        Ok(())
     }
 }
 
@@ -420,7 +440,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Contains the state and associated methods required for the Firecracker VMM.
 pub struct Vmm {
-    stdin_handle: io::Stdin,
+    events_observer: Option<Box<dyn VmmEventsObserver>>,
 
     // Guest VM core resources.
     guest_memory: GuestMemoryMmap,
@@ -459,6 +479,10 @@ impl Vmm {
         vcpu_seccomp_filter: BpfProgramRef,
     ) -> Result<()> {
         let vcpu_count = vcpus.len();
+
+        if let Some(observer) = self.events_observer.as_mut() {
+            observer.on_vmm_boot().map_err(Error::VmmObserverInit)?;
+        }
 
         Vcpu::register_kick_signal_handler();
 
@@ -504,15 +528,13 @@ impl Vmm {
 
     #[allow(unused_variables)]
     fn configure_system(&self, vcpus: &[Vcpu], initrd: &Option<InitrdConfig>) -> Result<()> {
-        let vcpu_count = vcpus.len() as u8;
-
         #[cfg(target_arch = "x86_64")]
         arch::x86_64::configure_system(
             &self.guest_memory,
-            GuestAddress(arch::x86_64::layout::CMDLINE_START),
+            vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
             self.kernel_cmdline.len() + 1,
             initrd,
-            vcpu_count,
+            vcpus.len() as u8,
         )
         .map_err(Error::ConfigureSystem)?;
 
@@ -532,17 +554,6 @@ impl Vmm {
             )
             .map_err(Error::ConfigureSystem)?;
         }
-
-        self.configure_stdin()
-    }
-
-    fn configure_stdin(&self) -> Result<()> {
-        // Set raw mode for stdin.
-        self.stdin_handle
-            .lock()
-            .set_raw_mode()
-            .map_err(Error::StdinHandle)?;
-
         Ok(())
     }
 
@@ -566,8 +577,10 @@ impl Vmm {
     pub fn stop(&mut self, exit_code: i32) {
         info!("Vmm is stopping.");
 
-        if let Err(e) = self.stdin_handle.lock().set_canon_mode() {
-            warn!("Cannot set canonical mode for the terminal. {:?}", e);
+        if let Some(observer) = self.events_observer.as_mut() {
+            if let Err(e) = observer.on_vmm_stop() {
+                warn!("{}", Error::VmmObserverTeardown(e));
+            }
         }
 
         // Log the metrics before exiting.
