@@ -6,7 +6,7 @@ from pathlib import Path
 
 API_USOCKET_URL_PREFIX = 'http+unix://'
 """URL prefix used for the API calls through a UNIX domain socket."""
-API_USOCKET_NAME = 'api.socket'
+API_USOCKET_NAME = 'run/firecracker.socket'
 """Default name for the socket used for API calls."""
 FC_BINARY_NAME = 'firecracker'
 """Firecracker's binary name."""

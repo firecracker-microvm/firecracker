@@ -92,14 +92,12 @@ class JailerContext:
         if self.daemonize:
             jailer_param_list.append('--daemonize')
         # applying neccessory extra args if needed
-        if self.extra_args is not None:
+        if len(self.extra_args) > 0:
             jailer_param_list.append('--')
             for key, value in self.extra_args.items():
                 jailer_param_list.append('--{}'.format(key))
                 if value is not None:
                     jailer_param_list.append(value)
-        if self.extra_args.get("api-sock") is None:
-            jailer_param_list.extend(['--api-sock', str(API_USOCKET_NAME)])
         return jailer_param_list
 
     def chroot_base_with_id(self):
