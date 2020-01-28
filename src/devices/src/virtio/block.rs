@@ -483,6 +483,15 @@ pub fn build_config_space(disk_size: u64) -> Vec<u8> {
     // We only support disk size, which uses the first two words of the configuration space.
     // If the image is not a multiple of the sector size, the tail bits are not exposed.
     // The config space is little endian.
+
+    if disk_size % SECTOR_SIZE != 0 {
+        warn!(
+            "Disk size {} is not a multiple of sector size {}; \
+             the remainder will not be visible to the guest.",
+            disk_size, SECTOR_SIZE
+        );
+    }
+
     let mut config = Vec::with_capacity(CONFIG_SPACE_SIZE);
     let num_sectors = disk_size >> SECTOR_SHIFT;
     for i in 0..8 {
@@ -502,13 +511,6 @@ impl Block {
         rate_limiter: Option<RateLimiter>,
     ) -> io::Result<Block> {
         let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
-        if disk_size % SECTOR_SIZE != 0 {
-            warn!(
-                "Disk size {} is not a multiple of sector size {}; \
-                 the remainder will not be visible to the guest.",
-                disk_size, SECTOR_SIZE
-            );
-        }
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
 
