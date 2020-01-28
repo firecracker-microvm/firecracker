@@ -35,6 +35,8 @@ use vm_memory::{
 #[cfg(target_arch = "x86_64")]
 use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
 
+const KVM_MEM_LOG_DIRTY_PAGES: u32 = 0x1;
+
 #[cfg(target_arch = "x86_64")]
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x03f0;
 #[cfg(target_arch = "aarch64")]
@@ -226,7 +228,7 @@ impl Vm {
                     guest_phys_addr: region.start_addr().raw_value() as u64,
                     memory_size: region.len() as u64,
                     userspace_addr: host_addr as u64,
-                    flags: 0,
+                    flags: KVM_MEM_LOG_DIRTY_PAGES,
                 };
                 // Safe because we mapped the memory region, we made sure that the regions
                 // are not overlapping.
