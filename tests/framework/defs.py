@@ -6,8 +6,6 @@ from pathlib import Path
 
 API_USOCKET_URL_PREFIX = 'http+unix://'
 """URL prefix used for the API calls through a UNIX domain socket."""
-API_USOCKET_NAME = 'run/firecracker.socket'
-"""Default name for the socket used for API calls."""
 FC_BINARY_NAME = 'firecracker'
 """Firecracker's binary name."""
 JAILER_BINARY_NAME = 'jailer'
@@ -16,8 +14,6 @@ FC_WORKSPACE_DIR = Path(__file__).parent.parent.parent.resolve()
 """The Firecracker sources workspace dir."""
 FC_WORKSPACE_TARGET_DIR = Path(FC_WORKSPACE_DIR).joinpath("build/cargo_target")
 """Cargo target dir for the Firecracker workspace. Set via .cargo/config."""
-JAILER_DEFAULT_CHROOT = '/srv/jailer'
-"""The default location for the chroot."""
 MAX_API_CALL_DURATION_MS = 300
 """Maximum accepted duration of an API call, in milliseconds."""
 MICROVM_KERNEL_RELPATH = 'kernel/'
