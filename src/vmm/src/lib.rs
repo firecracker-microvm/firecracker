@@ -99,6 +99,8 @@ pub enum Error {
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::Error),
+    /// Cannot fetch the KVM dirty bitmap.
+    DirtyBitmap(kvm_ioctls::Error),
     /// Cannot read from an Event file descriptor.
     EventFd(io::Error),
     /// Polly error wrapper.
@@ -136,7 +138,7 @@ pub enum Error {
     /// vCPU resume failed.
     VcpuResume,
     /// Cannot spawn a new Vcpu thread.
-    VcpuSpawn(std::io::Error),
+    VcpuSpawn(io::Error),
     /// Vm error.
     Vm(vstate::Error),
     /// Error thrown by observer object on Vmm initialization.
@@ -153,6 +155,7 @@ impl Display for Error {
             ConfigureSystem(e) => write!(f, "System configuration error: {:?}", e),
             #[cfg(target_arch = "x86_64")]
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
+            DirtyBitmap(e) => write!(f, "Error getting the KVM dirty bitmap. {}", e),
             EventFd(e) => write!(f, "Event fd error: {}", e),
             EventManager(e) => write!(f, "Event manager error: {:?}", e),
             I8042Error(e) => write!(f, "I8042 error: {}", e),

@@ -1,6 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex};
 
@@ -36,6 +37,8 @@ pub enum VmmAction {
     /// Configure the metrics using as input the `MetricsConfig`. This action can only be called
     /// before the microVM has booted.
     ConfigureMetrics(MetricsConfig),
+    /// Get the KVM dirty page bitmap.
+    GetDirtyBitmap,
     /// Get the configuration of the microVM.
     GetVmConfiguration,
     /// Flush the metrics. This action can only be called after the logger has been configured.
@@ -132,6 +135,8 @@ impl Display for VmmActionError {
 pub enum VmmData {
     /// No data is sent on the channel.
     Empty,
+    /// The KVM dirty page bitmap.
+    DirtyBitmap(HashMap<usize, Vec<u64>>),
     /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(VmConfig),
 }
@@ -266,14 +271,14 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::StartMicrovm),
 
             // Operations not allowed pre-boot.
-            FlushMetrics => Err(VmmActionError::OperationNotSupportedPreBoot),
+            GetDirtyBitmap | FlushMetrics => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
 }
 
-/// Enables RPC interraction with a running Firecracker VMM.
+/// Enables RPC interaction with a running Firecracker VMM.
 pub struct RuntimeApiController(pub VmmController);
 impl RuntimeApiController {
     /// Handles the incoming runtime `VmmAction` request and provides a response for it.
@@ -285,6 +290,7 @@ impl RuntimeApiController {
         match request {
             // Supported operations allowed post-boot.
             FlushMetrics => self.0.flush_metrics().map(|_| VmmData::Empty),
+            GetDirtyBitmap => self.0.get_dirty_bitmap().map(VmmData::DirtyBitmap),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.0.vm_config().clone())),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.0.send_ctrl_alt_del().map(|_| VmmData::Empty),

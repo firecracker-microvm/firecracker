@@ -80,6 +80,12 @@ impl ParsedRequest {
     ) -> Response {
         match request_outcome {
             Ok(vmm_data) => match vmm_data {
+                VmmData::DirtyBitmap(bitmap) => {
+                    info!("The request was executed successfully. Status code: 200 OK.");
+                    let mut response = Response::new(Version::Http11, StatusCode::OK);
+                    response.set_body(Body::new(format!("{:?}", bitmap)));
+                    response
+                }
                 VmmData::Empty => {
                     info!("The request was executed successfully. Status code: 204 No Content.");
                     Response::new(Version::Http11, StatusCode::NoContent)

@@ -5,7 +5,7 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
 kvm-bindings = { version = ">=0.2", features = ["fam-wrappers"] }
-kvm-ioctls = ">=0.4"
+kvm-ioctls = ">=0.5"
 libc = ">=0.2.39"
 serde = ">=1.0.27"
 serde_derive = ">=1.0.27"
