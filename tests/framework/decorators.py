@@ -4,7 +4,7 @@
 
 import time
 
-from framework.defs import API_USOCKET_NAME, MAX_API_CALL_DURATION_MS
+from framework.defs import MAX_API_CALL_DURATION_MS
 
 
 def timed_request(method):
@@ -30,8 +30,7 @@ def timed_request(method):
                 # The positional arguments are:
                 # 1. The Session object
                 # 2. The URL from which we extract the resource for readability
-                resource = args[1][args[1].find(
-                    API_USOCKET_NAME)+len(API_USOCKET_NAME):]
+                resource = args[1][(args[1].rfind("/")):]
             except IndexError:
                 # Ignore formatting errors.
                 resource = ''

@@ -10,8 +10,12 @@ from subprocess import run, PIPE
 
 from retry.api import retry_call
 
-from framework.defs import API_USOCKET_NAME, FC_BINARY_NAME, \
-    JAILER_DEFAULT_CHROOT
+from framework.defs import FC_BINARY_NAME
+
+# Default name for the socket used for API calls.
+API_USOCKET_NAME = 'run/firecracker.socket'
+# The default location for the chroot.
+JAILER_DEFAULT_CHROOT = '/srv/jailer'
 
 
 class JailerContext:
