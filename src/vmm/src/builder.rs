@@ -18,8 +18,7 @@ use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::Serial;
 use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
-use devices::virtio::{MmioTransport, NET_EVENTS_COUNT, TYPE_NET};
-use logger::{Metric, LOGGER, METRICS};
+use devices::virtio::MmioTransport;
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
 use polly::event_manager::{Error as EventManagerError, EventManager};
 use utils::eventfd::EventFd;
@@ -655,19 +654,20 @@ fn attach_net_devices(
             .map_err(CreateRateLimiter)?;
 
         let tap = cfg.open_tap().map_err(|_| NetDeviceNotConfigured)?;
-
-        let net_device = event_manager
-            .register(
-                devices::virtio::net::Net::new_with_tap(
-                    tap,
-                    cfg.guest_mac(),
-                    vmm.guest_memory().clone(),
-                    rx_rate_limiter.unwrap_or_default(),
-                    tx_rate_limiter.unwrap_or_default(),
-                    allow_mmds_requests,
-                )
-                .map_err(CreateNetDevice)?,
+        let net_device = Arc::new(Mutex::new(
+            devices::virtio::net::Net::new_with_tap(
+                tap,
+                cfg.guest_mac(),
+                vmm.guest_memory().clone(),
+                rx_rate_limiter.unwrap_or_default(),
+                tx_rate_limiter.unwrap_or_default(),
+                allow_mmds_requests,
             )
+            .map_err(CreateNetDevice)?,
+        ));
+
+        event_manager
+            .register(net_device.clone())
             .map_err(StartMicrovmError::RegisterEvent)?;
 
         attach_mmio_device(
