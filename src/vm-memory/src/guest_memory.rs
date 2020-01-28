@@ -33,6 +33,7 @@ pub enum Error {
     /// No memory regions were provided for initializing the guest memory.
     NoMemoryRegions,
 }
+
 type Result<T> = result::Result<T, Error>;
 
 /// Tracks a mapping of anonymous memory in the current process and the corresponding base address
@@ -47,13 +48,12 @@ impl MemoryRegion {
     pub fn size(&self) -> usize {
         self.mapping.size()
     }
-}
 
-fn region_end(region: &MemoryRegion) -> GuestAddress {
-    // unchecked_add is safe as the region bounds were checked when it was created.
-    region
-        .guest_base
-        .unchecked_add(region.mapping.size() as u64)
+    fn last_addr(&self) -> GuestAddress {
+        // unchecked_add is safe as the region bounds were checked when it was created.
+        self.guest_base
+            .unchecked_add((self.mapping.size() - 1) as u64)
+    }
 }
 
 /// Tracks all memory regions allocated for the guest in the current process.
@@ -94,30 +94,30 @@ impl GuestMemoryMmap {
         })
     }
 
-    /// Returns the end address of memory.
+    /// Returns the last address of memory.
     ///
     /// # Examples
     ///
     /// ```
     /// use vm_memory::{Address, GuestAddress, GuestMemoryMmap, MemoryMapping};
-    /// fn test_end_addr() -> Result<(), ()> {
+    /// fn test_last_addr() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
     ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
-    ///     assert_eq!(start_addr.checked_add(0x400), Some(gm.end_addr()));
+    ///     assert_eq!(start_addr.checked_add(0x3ff), Some(gm.last_addr()));
     ///     Ok(())
     /// }
     /// ```
-    pub fn end_addr(&self) -> GuestAddress {
+    pub fn last_addr(&self) -> GuestAddress {
         self.regions
             .iter()
             .max_by_key(|region| region.guest_base)
-            .map_or(GuestAddress(0), |region| region_end(region))
+            .map_or(GuestAddress(0), |region| region.last_addr())
     }
 
     /// Returns true if the given address is within the memory range available to the guest.
     pub fn address_in_range(&self, addr: GuestAddress) -> bool {
         for region in self.regions.iter() {
-            if addr >= region.guest_base && addr < region_end(region) {
+            if addr >= region.guest_base && addr <= region.last_addr() {
                 return true;
             }
         }
@@ -128,13 +128,11 @@ impl GuestMemoryMmap {
     /// resulting address and base address may belong to different memory regions, and the base
     /// might not even exist in a valid region.
     pub fn checked_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
-        if let Some(addr) = base.checked_add(offset as u64) {
-            for region in self.regions.iter() {
-                if addr >= region.guest_base && addr < region_end(region) {
-                    return Some(addr);
-                }
-            }
+        let addr = base.checked_add(offset as u64)?;
+        if self.address_in_range(addr) {
+            return Some(addr);
         }
+
         None
     }
 
@@ -144,11 +142,11 @@ impl GuestMemoryMmap {
     pub fn checked_range_offset(&self, base: GuestAddress, offset: usize) -> Option<GuestAddress> {
         if let Some(addr) = base.checked_add(offset as u64) {
             for region in self.regions.iter() {
-                let region_end = region_end(region);
+                let last_addr = region.last_addr();
                 if base >= region.guest_base
-                    && base < region_end
+                    && base <= last_addr
                     && addr >= region.guest_base
-                    && addr < region_end
+                    && addr <= last_addr
                 {
                     return Some(addr);
                 }
@@ -280,7 +278,7 @@ impl GuestMemoryMmap {
         F: FnOnce(&MemoryMapping, usize) -> Result<T>,
     {
         for region in self.regions.iter() {
-            if guest_addr >= region.guest_base && guest_addr < region_end(region) {
+            if guest_addr >= region.guest_base && guest_addr <= region.last_addr() {
                 // it's safe to use unchecked_offset_from because
                 // guest_addr >= region.guest_base
                 // it's safe to convert the result to usize since region.size() is usize
@@ -300,7 +298,7 @@ impl GuestMemoryMmap {
         F: FnOnce(&MemoryMapping, usize) -> Result<()>,
     {
         for region in self.regions.iter() {
-            if guest_addr >= region.guest_base && guest_addr < region_end(region) {
+            if guest_addr >= region.guest_base && guest_addr <= region.last_addr() {
                 return cb(
                     &region.mapping,
                     // it's safe to use unchecked_offset_from because
@@ -505,9 +503,10 @@ mod tests {
         assert!(guest_mem.address_in_range(GuestAddress(0x200)));
         assert!(!guest_mem.address_in_range(GuestAddress(0x600)));
         assert!(guest_mem.address_in_range(GuestAddress(0xa00)));
-        let end_addr = GuestAddress(0xc00);
-        assert!(!guest_mem.address_in_range(end_addr));
-        assert_eq!(guest_mem.end_addr(), end_addr);
+
+        let last_addr = GuestAddress(0xc00);
+        assert!(!guest_mem.address_in_range(last_addr));
+        assert_eq!(guest_mem.last_addr(), last_addr.checked_sub(1).unwrap());
 
         // Begins and ends within first region.
         assert_eq!(
@@ -668,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn guest_to_host() {
+    fn test_guest_to_host() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x100);
         let mem = GuestMemoryMmap::new(&[(start_addr1, 0x100), (start_addr2, 0x400)]).unwrap();

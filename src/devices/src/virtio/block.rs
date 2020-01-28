@@ -219,9 +219,11 @@ impl Request {
             if data_desc.is_write_only() && req.request_type == RequestType::Out {
                 return Err(Error::UnexpectedWriteOnlyDescriptor);
             }
+
             if !data_desc.is_write_only() && req.request_type == RequestType::In {
                 return Err(Error::UnexpectedReadOnlyDescriptor);
             }
+
             if !data_desc.is_write_only() && req.request_type == RequestType::GetDeviceID {
                 return Err(Error::UnexpectedReadOnlyDescriptor);
             }
