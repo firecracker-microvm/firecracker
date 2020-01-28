@@ -52,6 +52,7 @@ pub mod signal_handler;
 pub mod vmm_config;
 mod vstate;
 
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::os::unix::io::AsRawFd;
@@ -69,7 +70,7 @@ use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
-use vm_memory::GuestMemoryMmap;
+use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap};
 use vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
 /// Success exit code.
@@ -98,6 +99,8 @@ pub enum Error {
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::Error),
+    /// Cannot fetch the KVM dirty bitmap.
+    DirtyBitmap(kvm_ioctls::Error),
     /// Cannot read from an Event file descriptor.
     EventFd(io::Error),
     /// Polly error wrapper.
@@ -135,7 +138,7 @@ pub enum Error {
     /// vCPU resume failed.
     VcpuResume,
     /// Cannot spawn a new Vcpu thread.
-    VcpuSpawn(std::io::Error),
+    VcpuSpawn(io::Error),
     /// Vm error.
     Vm(vstate::Error),
     /// Error thrown by observer object on Vmm initialization.
@@ -151,6 +154,7 @@ impl Display for Error {
         match self {
             #[cfg(target_arch = "x86_64")]
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
+            DirtyBitmap(e) => write!(f, "Error getting the KVM dirty bitmap. {}", e),
             EventFd(e) => write!(f, "Event fd error: {}", e),
             EventManager(e) => write!(f, "Event manager error: {:?}", e),
             I8042Error(e) => write!(f, "I8042 error: {}", e),
@@ -197,6 +201,9 @@ pub trait VmmEventsObserver {
 
 /// Shorthand result type for internal VMM commands.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Shorthand type for KVM dirty page bitmap.
+pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
 
 /// Contains the state and associated methods required for the Firecracker VMM.
 pub struct Vmm {
@@ -358,6 +365,23 @@ impl Vmm {
     /// Returns a reference to the inner KVM Vm object.
     pub fn kvm_vm(&self) -> &Vm {
         &self.vm
+    }
+
+    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
+    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap> {
+        let mut bitmap: DirtyBitmap = HashMap::new();
+        self.guest_memory.with_regions_mut(
+            |slot: usize, region: &GuestRegionMmap| -> Result<()> {
+                let bitmap_region = self
+                    .vm
+                    .fd()
+                    .get_dirty_log(slot as u32, region.len() as usize)
+                    .map_err(Error::DirtyBitmap)?;
+                bitmap.insert(slot, bitmap_region);
+                Ok(())
+            },
+        )?;
+        Ok(bitmap)
     }
 }
 
