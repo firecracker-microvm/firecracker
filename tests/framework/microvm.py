@@ -49,8 +49,6 @@ class Microvm:
         microvm_id,
         monitor_memory=True,
         bin_cloner_path=None,
-        config_file=None,
-        no_api=False,
     ):
         """Set up microVM attributes, paths, and data structures."""
         # Unique identifier for this machine.
@@ -98,13 +96,6 @@ class Microvm:
         self.network = None
         self.machine_cfg = None
         self.vsock = None
-
-        # Optional file that contains a json for configuring microvm from
-        # command line parameter.
-        self.config_file = config_file
-
-        # Parameter set when user wants to disable API thread.
-        self.no_api = no_api
 
         # The ssh config dictionary is populated with information about how
         # to connect to a microVM that has ssh capability. The path of the
@@ -284,8 +275,7 @@ class Microvm:
         self.network = Network(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
 
-        jailer_param_list = self._jailer.construct_param_list(self.config_file,
-                                                              self.no_api)
+        jailer_param_list = self._jailer.construct_param_list()
 
         # When the daemonize flag is on, we want to clone-exec into the
         # jailer rather than executing it via spawning a shell. Going
@@ -361,7 +351,7 @@ class Microvm:
         # We expect the jailer to start within 80 ms. However, we wait for
         # 1 sec since we are rechecking the existence of the socket 5 times
         # and leave 0.2 delay between them.
-        if not self.no_api:
+        if 'no-api' not in self._jailer.extra_args:
             self._wait_create()
 
     @retry(delay=0.2, tries=5)
