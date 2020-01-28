@@ -25,6 +25,9 @@
 - Changed default API socket path to `/run/firecracker.socket`. This path
   also applies when running with the jailer.
 - Disabled KVM dirty page tracking by default.
+- Removed redundant RescanBlockDevice action from the /actions API.
+  The functionality is available through the PATCH /drives API.
+  See `docs/api_requests/patch-block.md`.
 
 ## [0.20.0]
 

@@ -521,9 +521,8 @@ mod tests {
             .write_all(
                 b"PUT /actions HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
-                Content-Length: 59\r\n\r\n{ \
-                \"action_type\": \"BlockDeviceRescan\", \
-                \"payload\": \"string\" \
+                Content-Length: 33\r\n\r\n{ \
+                \"action_type\": \"FlushMetrics\" \
                 }",
             )
             .unwrap();

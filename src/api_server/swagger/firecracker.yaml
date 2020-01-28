@@ -452,12 +452,9 @@ definitions:
         description: Enumeration indicating what type of action is contained in the payload
         type: string
         enum:
-        - BlockDeviceRescan
         - FlushMetrics
         - InstanceStart
         - SendCtrlAltDel
-      payload:
-        type: string
 
   InstanceInfo:
     type: object

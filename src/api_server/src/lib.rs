@@ -65,10 +65,6 @@ pub enum VmmAction {
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
     /// booted.
     SetVsockDevice(VsockDeviceConfig),
-    /// Update the size of an existing block device specified by an ID. The ID is the first data
-    /// associated with this enum variant. This action can only be called after the microVM is
-    /// started.
-    RescanBlockDevice(String),
     /// Set the microVM configuration (memory & vcpu) using `VmConfig` as input. This
     /// action can only be called before the microVM has booted.
     SetVmConfiguration(VmConfig),
