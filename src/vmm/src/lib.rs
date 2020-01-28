@@ -72,7 +72,7 @@ use devices::virtio::{BLOCK_EVENTS_COUNT, TYPE_BLOCK};
 use devices::virtio::{NET_EVENTS_COUNT, TYPE_NET};
 use devices::RawIOHandler;
 use devices::{DeviceEventT, EpollHandler};
-use error::{Error, Result, UserResult};
+use error::{DirtyBitmapError, Error, Result, UserResult};
 use kernel::cmdline as kernel_cmdline;
 use kernel::loader as kernel_loader;
 use logger::error::LoggerError;
@@ -82,7 +82,10 @@ use utils::eventfd::EventFd;
 use utils::net::TapError;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+use vm_memory::{
+    Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
+    MemoryRegion,
+};
 use vmm_config::boot_source::{
     BootSourceConfig, BootSourceConfigError, KernelConfig, DEFAULT_KERNEL_CMDLINE,
 };
@@ -1663,6 +1666,33 @@ impl Vmm {
         }
         Ok(())
     }
+
+    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
+    pub fn get_dirty_bitmap(
+        &self,
+    ) -> std::result::Result<HashMap<usize, Vec<u64>>, DirtyBitmapError> {
+        if !self.is_instance_initialized() {
+            return Err(DirtyBitmapError::InstanceNotInitialized);
+        }
+        let mut bitmap: HashMap<usize, Vec<u64>> = HashMap::new();
+        self.vm
+            .memory()
+            .ok_or(DirtyBitmapError::GuestMemory(
+                GuestMemoryError::MemoryNotInitialized,
+            ))?
+            .with_regions_mut(
+                |slot: usize, region: &MemoryRegion| -> std::result::Result<(), DirtyBitmapError> {
+                    let bitmap_region = self
+                        .vm
+                        .fd()
+                        .get_dirty_log(slot as u32, region.len())
+                        .map_err(DirtyBitmapError::Ioctl)?;
+                    bitmap.insert(slot, bitmap_region);
+                    Ok(())
+                },
+            )?;
+        Ok(bitmap)
+    }
 }
 
 #[cfg(test)]
@@ -1690,6 +1720,7 @@ mod tests {
     use arch::DeviceType;
     use devices::virtio::{ActivateResult, MmioDevice, Queue};
     use dumbo::MacAddr;
+    use kvm_ioctls::VcpuFd;
     use utils::tempfile::TempFile;
     use vmm_config::drive::DriveError;
     use vmm_config::machine_config::CpuFeaturesTemplate;
@@ -1762,6 +1793,90 @@ mod tests {
                     config.drive_id = new_id.to_string();
                     break;
                 }
+            }
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        fn config_vcpu(&self, vcpu_fd: &mut VcpuFd, guest_addr: GuestAddress) {
+            // x86_64 specific registry setup.
+            let mut vcpu_sregs = vcpu_fd.get_sregs().unwrap();
+            vcpu_sregs.cs.base = 0;
+            vcpu_sregs.cs.selector = 0;
+            vcpu_fd.set_sregs(&vcpu_sregs).unwrap();
+
+            let mut vcpu_regs = vcpu_fd.get_regs().unwrap();
+            // Set the Instruction Pointer to the guest address where we loaded the code.
+            vcpu_regs.rip = guest_addr.0;
+            vcpu_regs.rax = 2;
+            vcpu_regs.rbx = 3;
+            vcpu_regs.rflags = 2;
+            vcpu_fd.set_regs(&vcpu_regs).unwrap();
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        fn config_vcpu(&self, vcpu_fd: &mut VcpuFd, guest_addr: GuestAddress) {
+            // aarch64 specific registry setup.
+            let mut kvi = kvm_bindings::kvm_vcpu_init::default();
+            self.vm.fd().get_preferred_target(&mut kvi).unwrap();
+            vcpu_fd.vcpu_init(&kvi).unwrap();
+
+            let core_reg_base: u64 = 0x6030_0000_0010_0000;
+            let mem_size = self.vm_config.mem_size_mib.unwrap() << 20;
+            let mmio_addr: u64 = guest_addr.0 + mem_size as u64;
+            vcpu_fd
+                .set_one_reg(core_reg_base + 2 * 32, guest_addr.0)
+                .unwrap(); // set PC
+            vcpu_fd
+                .set_one_reg(core_reg_base + 2 * 0, mmio_addr)
+                .unwrap(); // set X0
+        }
+
+        // Prepare a VM with 1 MB memory and 1 vCPU.
+        // Dirty a page and run the VM.
+        // Return after the first VM exit.
+        fn setup_with_code_and_run(&mut self) {
+            self.vm_config.mem_size_mib = Some(1);
+            assert!(self.init_guest_memory().is_ok());
+
+            #[cfg(target_arch = "x86_64")]
+            // HLT instruction.
+            let asm_code: Vec<u8> = vec![0xf4u8];
+            #[cfg(target_arch = "aarch64")]
+            let asm_code: Vec<u8> = vec![
+                0x01, 0x00, 0x00, 0x10, /* adr x1, <this address> */
+                0x22, 0x10, 0x00, 0xb9, /* str w2, [x1, #16]; write to this page */
+                0x02, 0x00, 0x00, 0xb9, /* str w2, [x0]; force MMIO exit */
+                0x00, 0x00, 0x00,
+                0x14, /* b <this address>; shouldn't get here, but if so loop forever */
+            ];
+
+            #[cfg(target_arch = "x86_64")]
+            let guest_addr = GuestAddress(0);
+            #[cfg(target_arch = "aarch64")]
+            let guest_addr = GuestAddress(arch::aarch64::layout::DRAM_MEM_START);
+
+            let host_addr = self
+                .vm
+                .memory()
+                .unwrap()
+                .get_host_address(guest_addr)
+                .unwrap();
+            let code_slice: &mut [u8] =
+                unsafe { std::slice::from_raw_parts_mut(host_addr as *mut u8, asm_code.len()) };
+            code_slice.copy_from_slice(&asm_code);
+
+            // Create a vCPU.
+            let mut vcpu_fd = self.vm.fd().create_vcpu(0).unwrap();
+            self.config_vcpu(&mut vcpu_fd, guest_addr);
+
+            // Run the VM. It will trigger a vCPU exit with its first instruction, but it's enough
+            // to get its dirty bitmap.
+            match vcpu_fd.run().unwrap() {
+                #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                kvm_ioctls::VcpuExit::Hlt => (),
+                #[cfg(target_arch = "aarch64")]
+                kvm_ioctls::VcpuExit::MmioWrite(_, _) => (),
+                exit_reason => panic!("unexpected exit reason: {:?}", exit_reason),
             }
         }
     }
@@ -3331,5 +3446,32 @@ mod tests {
         );
 
         assert!(vmm.configure_from_json(json).is_ok());
+    }
+
+    #[test]
+    fn test_dirty_bitmap() {
+        let mut vmm = create_vmm_object(InstanceState::Uninitialized);
+
+        // Error case: instance state is `Uninitialized`.
+        assert_eq!(
+            format!("{:?}", vmm.get_dirty_bitmap().err()),
+            "Some(InstanceNotInitialized)"
+        );
+
+        // Error case: instance state is `Running`, memory is uninitialized.
+        vmm.set_instance_state(InstanceState::Running);
+        assert_eq!(
+            format!("{:?}", vmm.get_dirty_bitmap().err()),
+            "Some(GuestMemory(MemoryNotInitialized))"
+        );
+
+        vmm.setup_with_code_and_run();
+        // Success case: 1 memory region has 1 dirty page.
+        let ret = vmm.get_dirty_bitmap().unwrap();
+        // The memory region has 1 MiB totaling 256 x 4 KiB pages.
+        // With one bit per page, 256 pages are expressed by 4 x 64bit numbers.
+        let mut expected: HashMap<usize, Vec<u64>> = HashMap::new();
+        expected.insert(0, vec![1u64, 0u64, 0u64, 0u64]);
+        assert_eq!(ret, expected);
     }
 }

@@ -333,6 +333,28 @@ impl Display for StartMicrovmError {
     }
 }
 
+/// Types of errors associated with retrieving the guest's dirty page bitmap.
+#[cfg_attr(test, derive(Debug))]
+pub enum DirtyBitmapError {
+    /// The guest memory is invalid.
+    GuestMemory(GuestMemoryError),
+    /// The guest isn't running.
+    InstanceNotInitialized,
+    /// The `KVM_GET_DIRTY_LOG` ioctl failed.
+    Ioctl(kvm_ioctls::Error),
+}
+
+impl Display for DirtyBitmapError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use DirtyBitmapError::*;
+        match *self {
+            GuestMemory(ref e) => write!(f, "Invalid guest memory: {:?}.", e),
+            InstanceNotInitialized => write!(f, "The guest is not running."),
+            Ioctl(ref e) => write!(f, "KVM get dirty bitmap ioctl failed. {}", e),
+        }
+    }
+}
+
 /// Types of errors associated with vmm actions.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ErrorKind {
@@ -1032,6 +1054,24 @@ mod tests {
                 VmmActionError::VsockConfig(ErrorKind::User, VsockError::UpdateNotAllowedPostBoot)
             ),
             "The update operation is not allowed after boot."
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                DirtyBitmapError::GuestMemory(GuestMemoryError::MemoryNotInitialized)
+            ),
+            "Invalid guest memory: MemoryNotInitialized."
+        );
+        assert_eq!(
+            format!("{}", DirtyBitmapError::InstanceNotInitialized),
+            "The guest is not running."
+        );
+        assert_eq!(
+            format!("{}", DirtyBitmapError::Ioctl(kvm_ioctls::Error::new(42))),
+            format!(
+                "KVM get dirty bitmap ioctl failed. {}",
+                kvm_ioctls::Error::new(42)
+            )
         );
     }
 }
