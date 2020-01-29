@@ -99,7 +99,7 @@ impl MMIODeviceManager {
         &mut self,
         vm: &VmFd,
         mmio_device: devices::virtio::MmioTransport,
-        cmdline: &mut kernel_cmdline::Cmdline,
+        _cmdline: &mut kernel_cmdline::Cmdline,
         type_id: u32,
         device_id: String,
     ) -> Result<u64> {
@@ -135,7 +135,7 @@ impl MMIODeviceManager {
         // transform it to decimal
 
         #[cfg(target_arch = "x86_64")]
-        cmdline
+        _cmdline
             .insert(
                 "virtio_mmio.device",
                 &format!("{}K@0x{:08x}:{}", MMIO_LEN / 1024, self.mmio_base, self.irq),
