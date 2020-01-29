@@ -134,6 +134,7 @@ pub enum EventLoopExitReason {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum EpollDispatch {
+    #[cfg_attr(target_arch = "aarch64", allow(dead_code))]
     Exit,
     Stdin,
     DeviceHandler(usize, DeviceEventT),

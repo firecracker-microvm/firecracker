@@ -25,6 +25,7 @@ use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{Metric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
+#[cfg(target_arch = "x86_64")]
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
@@ -863,16 +864,23 @@ enum VcpuEmulation {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_arch = "x86_64")]
     use std::convert::TryInto;
     use std::fs::File;
+    #[cfg(target_arch = "x86_64")]
     use std::path::PathBuf;
-    use std::sync::{mpsc, Arc, Barrier};
+    #[cfg(target_arch = "x86_64")]
+    use std::sync::mpsc;
+    use std::sync::{Arc, Barrier};
+    #[cfg(target_arch = "x86_64")]
     use std::time::Duration;
 
     use super::super::devices;
     use super::*;
 
+    #[cfg(target_arch = "x86_64")]
     use kernel::cmdline as kernel_cmdline;
+    #[cfg(target_arch = "x86_64")]
     use kernel::loader as kernel_loader;
     use utils::signal::validate_signal_num;
 
@@ -1167,6 +1175,7 @@ mod tests {
         entry_addr
     }
 
+    #[cfg(target_arch = "x86_64")]
     // Sends an event to a vcpu and expects a particular response.
     fn queue_event_expect_response(handle: &VcpuHandle, event: VcpuEvent, response: VcpuResponse) {
         handle
@@ -1181,6 +1190,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "x86_64")]
     // Sends an event to a vcpu and expects no response.
     fn queue_event_expect_timeout(handle: &VcpuHandle, event: VcpuEvent) {
         handle
