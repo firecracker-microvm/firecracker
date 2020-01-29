@@ -7,7 +7,7 @@ import platform
 
 import pytest
 
-AMAZON_COPYRIGHT_YEARS = (2018, 2019)
+AMAZON_COPYRIGHT_YEARS = (2018, 2019, 2020)
 AMAZON_COPYRIGHT = (
     "Copyright {} Amazon.com, Inc. or its affiliates. All Rights Reserved."
     )
