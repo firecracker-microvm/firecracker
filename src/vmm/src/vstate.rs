@@ -12,6 +12,8 @@ use std::io;
 use std::result;
 use std::sync::atomic::{fence, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+#[cfg(not(test))]
+use std::sync::Barrier;
 use std::thread;
 
 use super::TimestampUs;
@@ -584,6 +586,7 @@ pub struct Vcpu {
     id: u8,
     create_ts: TimestampUs,
     mmio_bus: Option<devices::Bus>,
+    #[cfg_attr(all(test, target_arch = "aarch64"), allow(unused))]
     exit_evt: EventFd,
 
     #[cfg(target_arch = "x86_64")]
@@ -1215,7 +1218,7 @@ impl Vcpu {
     fn exited(&mut self) -> StateMachine<Self> {
         // Wait indefinitely.
         // The VMM thread will kill the entire process.
-        let barrier = std::sync::Barrier::new(2);
+        let barrier = Barrier::new(2);
         barrier.wait();
 
         StateMachine::finish()
@@ -1332,7 +1335,9 @@ mod tests {
     use std::os::unix::io::AsRawFd;
     #[cfg(target_arch = "x86_64")]
     use std::path::PathBuf;
-    use std::sync::{mpsc, Arc, Barrier};
+    #[cfg(target_arch = "x86_64")]
+    use std::sync::mpsc;
+    use std::sync::{Arc, Barrier};
     #[cfg(target_arch = "x86_64")]
     use std::time::Duration;
 
@@ -1340,7 +1345,6 @@ mod tests {
     use super::*;
 
     use utils::signal::validate_signal_num;
-    use vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
 
     // In tests we need to close any pending Vcpu threads on test completion.
     impl Drop for VcpuHandle {
@@ -1639,6 +1643,8 @@ mod tests {
 
     #[cfg(target_arch = "x86_64")]
     fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
+        use vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
+
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let parent = path.parent().unwrap();
 

@@ -49,8 +49,6 @@ pub mod signal_handler;
 pub mod vmm_config;
 mod vstate;
 
-#[cfg(target_arch = "aarch64")]
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::os::unix::io::AsRawFd;
@@ -61,8 +59,6 @@ use arch::DeviceType;
 use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
-#[cfg(target_arch = "aarch64")]
-use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::BusDevice;
 use kernel::cmdline::Cmdline as KernelCmdline;
