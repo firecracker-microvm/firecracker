@@ -3,12 +3,18 @@
 use std::os::unix::io::AsRawFd;
 
 use crate::virtio::block::device::Block;
+use crate::virtio::VirtioDevice;
 use polly::event_manager::EventHandler;
 use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
 
 impl EventHandler for Block {
     // Handle an event for queue or rate limiter.
     fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+        if !self.is_activated() {
+            warn!("The device is not yet activated. Events can not be handled.");
+            return vec![];
+        }
+
         let queue = self.queue_evt.as_raw_fd();
         let rate_limiter = self.rate_limiter.as_raw_fd();
 
