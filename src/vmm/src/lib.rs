@@ -1666,6 +1666,8 @@ impl Vmm {
 
 #[cfg(test)]
 mod tests {
+    use vm_memory::GuestMemory;
+
     macro_rules! assert_match {
         ($x:expr, $y:pat) => {{
             if let $y = $x {
