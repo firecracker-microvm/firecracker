@@ -149,7 +149,7 @@ pub struct Queue {
     /// The queue size in elements the driver selected
     pub size: u16,
 
-    /// Inidcates if the queue is finished with configuration
+    /// Indicates if the queue is finished with configuration
     pub ready: bool,
 
     /// Guest physical address of the descriptor table

@@ -89,6 +89,13 @@ pub struct RequestHeader {
 unsafe impl ByteValued for RequestHeader {}
 
 impl RequestHeader {
+    pub fn new(request_type: u32, sector: u64) -> RequestHeader {
+        RequestHeader {
+            request_type,
+            _reserved: 0,
+            sector,
+        }
+    }
     /// Reads the request header from GuestMemoryMmap starting at `addr`.
     ///
     /// Virtio 1.0 specifies that the data is transmitted by the driver in little-endian
@@ -220,5 +227,201 @@ impl Request {
             RequestType::Unsupported(t) => return Err(ExecuteError::Unsupported(t)),
         };
         Ok(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::virtio::queue::tests::*;
+    use vm_memory::GuestAddress;
+
+    #[test]
+    fn test_read_request_header() {
+        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let addr = GuestAddress(0);
+        let sector = 123_454_321;
+
+        // Test that all supported request types are read correctly from memory.
+        let supported_request_types = vec![
+            VIRTIO_BLK_T_IN,
+            VIRTIO_BLK_T_OUT,
+            VIRTIO_BLK_T_FLUSH,
+            VIRTIO_BLK_T_GET_ID,
+        ];
+
+        for request_type in supported_request_types {
+            let expected_header = RequestHeader::new(request_type, sector);
+            mem.write_obj::<RequestHeader>(expected_header, addr)
+                .unwrap();
+
+            let actual_header = RequestHeader::read_from(&mem, addr).unwrap();
+            assert_eq!(actual_header.request_type, expected_header.request_type);
+            assert_eq!(actual_header.sector, expected_header.sector);
+        }
+
+        // Test that trying to read a request header that goes outside of the
+        // memory boundary fails.
+        assert!(RequestHeader::read_from(&mem, GuestAddress(0x1000)).is_err());
+    }
+
+    #[test]
+    fn test_request_type_from() {
+        assert_eq!(RequestType::from(VIRTIO_BLK_T_IN), RequestType::In);
+        assert_eq!(RequestType::from(VIRTIO_BLK_T_OUT), RequestType::Out);
+        assert_eq!(RequestType::from(VIRTIO_BLK_T_FLUSH), RequestType::Flush);
+        assert_eq!(
+            RequestType::from(VIRTIO_BLK_T_GET_ID),
+            RequestType::GetDeviceID
+        );
+        assert_eq!(RequestType::from(42), RequestType::Unsupported(42));
+    }
+
+    #[test]
+    fn test_execute_error_status() {
+        assert_eq!(
+            ExecuteError::BadRequest(Error::InvalidOffset).status(),
+            VIRTIO_BLK_S_IOERR
+        );
+        assert_eq!(
+            ExecuteError::Flush(io::Error::from_raw_os_error(42)).status(),
+            VIRTIO_BLK_S_IOERR
+        );
+        assert_eq!(
+            ExecuteError::Read(GuestMemoryError::NoMemoryRegions).status(),
+            VIRTIO_BLK_S_IOERR
+        );
+        assert_eq!(
+            ExecuteError::Seek(io::Error::from_raw_os_error(42)).status(),
+            VIRTIO_BLK_S_IOERR
+        );
+        assert_eq!(
+            ExecuteError::Write(GuestMemoryError::NoMemoryRegions).status(),
+            VIRTIO_BLK_S_IOERR
+        );
+        assert_eq!(ExecuteError::Unsupported(42).status(), VIRTIO_BLK_S_UNSUPP);
+    }
+
+    #[test]
+    fn test_parse() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), &m, 16);
+
+        assert!(vq.end().0 < 0x1000);
+
+        let request_type_descriptor = 0;
+        let data_descriptor = 1;
+        let status_descriptor = 2;
+
+        vq.avail.ring[0].set(0);
+        vq.avail.idx.set(1);
+
+        {
+            let mut q = vq.create_queue();
+            // Write only request type descriptor.
+            vq.dtable[request_type_descriptor].set(0x1000, 0x1000, VIRTQ_DESC_F_WRITE, 1);
+            let request_header = RequestHeader::new(VIRTIO_BLK_T_OUT, 114);
+            m.write_obj::<RequestHeader>(request_header, GuestAddress(0x1000))
+                .unwrap();
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
+                Err(Error::UnexpectedWriteOnlyDescriptor) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // Chain too short: no data_descriptor.
+            vq.dtable[request_type_descriptor].flags.set(0);
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
+                Err(Error::DescriptorChainTooShort) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // Chain too short: no status descriptor.
+            vq.dtable[request_type_descriptor]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[data_descriptor].set(0x2000, 0x1000, 0, 2);
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
+                Err(Error::DescriptorChainTooShort) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // Write only data for OUT.
+            vq.dtable[data_descriptor]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+            vq.dtable[status_descriptor].set(0x3000, 0, 0, 0);
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
+                Err(Error::UnexpectedWriteOnlyDescriptor) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // Read only data for GetDeviceID.
+            m.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
+                .unwrap();
+            vq.dtable[data_descriptor].flags.set(VIRTQ_DESC_F_NEXT);
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
+                Err(Error::UnexpectedReadOnlyDescriptor) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // Read only data for IN.
+            m.write_obj::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
+                .unwrap();
+            vq.dtable[data_descriptor].flags.set(VIRTQ_DESC_F_NEXT);
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
+                Err(Error::UnexpectedReadOnlyDescriptor) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // Status descriptor not writable.
+            vq.dtable[data_descriptor]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
+                Err(Error::UnexpectedReadOnlyDescriptor) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // Status descriptor too small.
+            vq.dtable[status_descriptor].flags.set(VIRTQ_DESC_F_WRITE);
+            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
+                Err(Error::DescriptorLengthTooSmall) => true,
+                _ => false,
+            });
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // Should be OK now.
+            vq.dtable[status_descriptor].len.set(0x1000);
+            let r = Request::parse(&q.pop(m).unwrap(), m).unwrap();
+
+            assert_eq!(r.request_type, RequestType::In);
+            assert_eq!(r.sector, 114);
+            assert_eq!(r.data_addr, GuestAddress(0x2000));
+            assert_eq!(r.data_len, 0x1000);
+            assert_eq!(r.status_addr, GuestAddress(0x3000));
+        }
     }
 }
