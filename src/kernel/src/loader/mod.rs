@@ -15,7 +15,7 @@ use std::mem;
 
 use super::cmdline::Error as CmdlineError;
 use utils::structs::read_struct;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 #[allow(non_camel_case_types)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

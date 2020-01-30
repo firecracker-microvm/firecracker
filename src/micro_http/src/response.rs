@@ -34,13 +34,13 @@ impl StatusCode {
     /// Returns the status code as bytes.
     pub fn raw(self) -> &'static [u8; 3] {
         match self {
-            StatusCode::Continue => b"100",
-            StatusCode::OK => b"200",
-            StatusCode::NoContent => b"204",
-            StatusCode::BadRequest => b"400",
-            StatusCode::NotFound => b"404",
-            StatusCode::InternalServerError => b"500",
-            StatusCode::NotImplemented => b"501",
+            Self::Continue => b"100",
+            Self::OK => b"200",
+            Self::NoContent => b"204",
+            Self::BadRequest => b"400",
+            Self::NotFound => b"404",
+            Self::InternalServerError => b"500",
+            Self::NotImplemented => b"501",
         }
     }
 }
@@ -52,7 +52,7 @@ struct StatusLine {
 
 impl StatusLine {
     fn new(http_version: Version, status_code: StatusCode) -> Self {
-        StatusLine {
+        Self {
             http_version,
             status_code,
         }
@@ -79,10 +79,10 @@ pub struct ResponseHeaders {
 
 impl Default for ResponseHeaders {
     fn default() -> Self {
-        ResponseHeaders {
+        Self {
             content_length: Default::default(),
             content_type: Default::default(),
-            server: "Firecracker API".to_string(),
+            server: String::from("Firecracker API"),
         }
     }
 }
@@ -133,7 +133,9 @@ impl ResponseHeaders {
 /// Wrapper over an HTTP Response.
 ///
 /// The Response is created using a `Version` and a `StatusCode`. When creating a Response object,
-/// the body is initialized to `None`. The body can be updated with a call to `set_body`.
+/// the body is initialized to `None` and the header is initialized with the `default` value. The body
+/// can be updated with a call to `set_body`. The header can be updated with `set_content_type` and
+/// `set_server`.
 pub struct Response {
     status_line: StatusLine,
     headers: ResponseHeaders,
@@ -142,11 +144,11 @@ pub struct Response {
 
 impl Response {
     /// Creates a new HTTP `Response` with an empty body.
-    pub fn new(http_version: Version, status_code: StatusCode) -> Response {
-        Response {
+    pub fn new(http_version: Version, status_code: StatusCode) -> Self {
+        Self {
             status_line: StatusLine::new(http_version, status_code),
             headers: ResponseHeaders::default(),
-            body: None,
+            body: Default::default(),
         }
     }
 

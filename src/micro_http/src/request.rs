@@ -28,7 +28,7 @@ pub struct Uri {
 
 impl Uri {
     fn new(slice: &str) -> Self {
-        Uri {
+        Self {
             string: String::from(slice),
         }
     }
@@ -39,7 +39,7 @@ impl Uri {
         }
         let utf8_slice =
             from_utf8(bytes).map_err(|_| RequestError::InvalidUri("Cannot parse URI as UTF-8."))?;
-        Ok(Uri::new(utf8_slice))
+        Ok(Self::new(utf8_slice))
     }
 
     /// Returns the absolute path of the `Uri`.
@@ -107,10 +107,15 @@ impl RequestLine {
     }
 
     /// Tries to parse a byte stream in a request line. Fails if the request line is malformed.
+    ///
+    /// # Errors
+    /// `InvalidHttpMethod` is returned if the specified HTTP method is unsupported.
+    /// `InvalidHttpVersion` is returned if the specified HTTP version is unsupported.
+    /// `InvalidUri` is returned if the specified Uri is not valid.
     pub fn try_from(request_line: &[u8]) -> Result<Self, RequestError> {
-        let (method, uri, version) = RequestLine::parse_request_line(request_line);
+        let (method, uri, version) = Self::parse_request_line(request_line);
 
-        Ok(RequestLine {
+        Ok(Self {
             method: Method::try_from(method)?,
             uri: Uri::try_from(uri)?,
             http_version: Version::try_from(version)?,
@@ -126,7 +131,7 @@ impl RequestLine {
 
     #[cfg(test)]
     pub fn new(method: Method, uri: &str, http_version: Version) -> Self {
-        RequestLine {
+        Self {
             method,
             uri: Uri::new(uri),
             http_version,
@@ -189,7 +194,7 @@ impl Request {
         match find(&byte_stream[request_line_end..], &[CR, LF, CR, LF]) {
             // If we have found a CR LF CR LF at the end of the Request Line, the request
             // is complete.
-            Some(0) => Ok(Request {
+            Some(0) => Ok(Self {
                 request_line,
                 headers: Headers::default(),
                 body: None,
@@ -227,7 +232,7 @@ impl Request {
                     }
                 };
 
-                Ok(Request {
+                Ok(Self {
                     request_line,
                     headers,
                     body,
@@ -262,7 +267,7 @@ mod tests {
     use super::*;
 
     impl PartialEq for Request {
-        fn eq(&self, other: &Request) -> bool {
+        fn eq(&self, other: &Self) -> bool {
             // Ignore the other fields of Request for now because they are not used.
             self.request_line == other.request_line
                 && self.headers.content_length() == other.headers.content_length()
