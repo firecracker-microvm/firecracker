@@ -20,4 +20,4 @@ virtio_gen = { path = "../virtio_gen" }
 
 [dev-dependencies]
 utils = { path = "../utils" }
-tempfile = ">=3.0.2"
+vmm-sys-util = ">=0.3.1"

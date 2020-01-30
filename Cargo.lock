@@ -120,7 +120,7 @@ version = "0.1.0"
 dependencies = [
  "kvm-bindings",
  "kvm-ioctls",
- "vmm-sys-util",
+ "vmm-sys-util 0.2.1",
 ]
 
 [[package]]
@@ -142,9 +142,9 @@ dependencies = [
  "net_gen",
  "polly",
  "rate_limiter",
- "tempfile",
  "utils",
  "virtio_gen",
+ "vmm-sys-util 0.4.0",
 ]
 
 [[package]]
@@ -230,7 +230,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d381156ad52005b4655a9421401f02b80f9f049e653496e3ea6639a83fc12453"
 dependencies = [
- "vmm-sys-util",
+ "vmm-sys-util 0.2.1",
 ]
 
 [[package]]
@@ -241,7 +241,7 @@ checksum = "ac8a59db3c7098cc87f140eb7a4317decda01dd42e7979b1d4d789bd6f6c599a"
 dependencies = [
  "kvm-bindings",
  "libc",
- "vmm-sys-util",
+ "vmm-sys-util 0.2.1",
 ]
 
 [[package]]
@@ -551,7 +551,7 @@ dependencies = [
  "net_gen",
  "serde",
  "serde_json",
- "vmm-sys-util",
+ "vmm-sys-util 0.2.1",
 ]
 
 [[package]]
@@ -582,7 +582,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "utils",
- "vmm-sys-util",
+ "vmm-sys-util 0.2.1",
 ]
 
 [[package]]
@@ -590,6 +590,15 @@ name = "vmm-sys-util"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ebb6ba7ba5653b69bfd3fab8c8c363945c0d3f616a6a1592e12122c3be4724e"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "vmm-sys-util"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "048b10a74f061d87dacca196a1964052a7135651641ab8d100aef21e58f33571"
 dependencies = [
  "libc",
 ]
