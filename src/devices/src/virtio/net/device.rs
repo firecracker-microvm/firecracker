@@ -9,7 +9,7 @@ use crate::virtio::net::Error;
 use crate::virtio::net::Result;
 use crate::virtio::net::{MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
 use crate::virtio::{ActivateResult, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING};
-use crate::Error as DeviceError;
+use crate::{report_net_event_fail, Error as DeviceError};
 use dumbo::ns::MmdsNetworkStack;
 use dumbo::{EthernetFrame, MacAddr, MAC_ADDR_LEN};
 use libc::EAGAIN;
@@ -129,13 +129,7 @@ impl Net {
             config_space = Vec::new();
         }
 
-        let guest_mac = if config_space.len() == MAC_ADDR_LEN {
-            Some(MacAddr::from_bytes_unchecked(
-                &config_space.clone()[..MAC_ADDR_LEN],
-            ))
-        } else {
-            None
-        };
+        let guest_mac = guest_mac.copied();
 
         let mut queue_evts = Vec::new();
         for _ in QUEUE_SIZES.iter() {
@@ -221,7 +215,7 @@ impl Net {
         success
     }
 
-    // Copies a single frame from `self.rx.frame_buf` into the guest. Returns true
+    // Copies a single frame from `self.rx_frame_buf` into the guest. Returns true
     // if a buffer was used, and false if the frame must be deferred until a buffer
     // is made available by the driver.
     fn rx_single_frame(&mut self) -> bool {
@@ -549,13 +543,7 @@ impl Net {
         } else {
             // If the limiter is not blocked, resume the receiving of bytes.
             if !self.rx_rate_limiter.is_blocked() {
-                match self.resume_rx() {
-                    Ok(()) => (),
-                    Err(e) => {
-                        error!("{:?}", e);
-                        METRICS.net.event_fails.inc();
-                    }
-                }
+                self.resume_rx().unwrap_or_else(report_net_event_fail);
             }
         }
     }
@@ -579,31 +567,14 @@ impl Net {
         {
             if self.rate_limited_rx_single_frame() {
                 self.rx_deferred_frame = false;
-                match self.process_rx() {
-                    Ok(()) => (),
-                    Err(e) => {
-                        error!("{:?}", e);
-                        METRICS.net.event_fails.inc();
-                    }
-                }
+                self.process_rx().unwrap_or_else(report_net_event_fail);
             } else if self.rx_deferred_irqs {
                 self.rx_deferred_irqs = false;
-                match self.signal_used_queue() {
-                    Ok(()) => (),
-                    Err(e) => {
-                        error!("{:?}", e);
-                        METRICS.net.event_fails.inc();
-                    }
-                }
+                self.signal_used_queue()
+                    .unwrap_or_else(report_net_event_fail);
             }
         } else {
-            match self.process_rx() {
-                Ok(()) => (),
-                Err(e) => {
-                    error!("{:?}", e);
-                    METRICS.net.event_fails.inc();
-                }
-            }
+            self.process_rx().unwrap_or_else(report_net_event_fail);
         }
     }
 
@@ -615,14 +586,7 @@ impl Net {
         } else if !self.tx_rate_limiter.is_blocked()
         // If the limiter is not blocked, continue transmitting bytes.
         {
-            match self.process_tx() {
-                Ok(()) => (),
-                Err(e) => {
-                    error!("{:?}", e);
-                    METRICS.net.event_fails.inc();
-                }
-            }
-        } else {
+            self.process_tx().unwrap_or_else(report_net_event_fail);
         }
     }
 
@@ -634,13 +598,7 @@ impl Net {
         match self.rx_rate_limiter.event_handler() {
             Ok(_) => {
                 // There might be enough budget now to receive the frame.
-                match self.resume_rx() {
-                    Ok(()) => (),
-                    Err(e) => {
-                        error!("{:?}", e);
-                        METRICS.net.event_fails.inc();
-                    }
-                }
+                self.resume_rx().unwrap_or_else(report_net_event_fail);
             }
             Err(e) => {
                 METRICS.net.event_fails.inc();
@@ -656,13 +614,7 @@ impl Net {
         match self.tx_rate_limiter.event_handler() {
             Ok(_) => {
                 // There might be enough budget now to send the frame.
-                match self.process_tx() {
-                    Ok(()) => (),
-                    Err(e) => {
-                        error!("{:?}", e);
-                        METRICS.net.event_fails.inc();
-                    }
-                }
+                self.process_tx().unwrap_or_else(report_net_event_fail);
             }
             Err(e) => {
                 METRICS.net.event_fails.inc();

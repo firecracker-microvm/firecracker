@@ -26,6 +26,7 @@ pub mod legacy;
 pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice, Error as BusError};
+use logger::{Metric, METRICS};
 use virtio::AsAny;
 
 pub type DeviceEventT = u16;
@@ -34,6 +35,13 @@ type Result<T> = std::result::Result<T, Error>;
 
 pub trait EpollHandler: AsAny + Send {
     fn handle_event(&mut self, device_event: DeviceEventT, evset: epoll::Events) -> Result<()>;
+}
+
+// Function used for reporting error in terms of logging
+// but also in terms of METRICS net event fails.
+pub(crate) fn report_net_event_fail(err: Error) {
+    error!("{:?}", err);
+    METRICS.net.event_fails.inc();
 }
 
 #[derive(Debug)]
