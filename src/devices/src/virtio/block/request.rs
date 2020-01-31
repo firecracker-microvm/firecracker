@@ -288,7 +288,7 @@ mod tests {
             VIRTIO_BLK_S_IOERR
         );
         assert_eq!(
-            ExecuteError::Read(GuestMemoryError::NoMemoryRegions).status(),
+            ExecuteError::Read(GuestMemoryError::InvalidBackendAddress).status(),
             VIRTIO_BLK_S_IOERR
         );
         assert_eq!(
@@ -296,7 +296,7 @@ mod tests {
             VIRTIO_BLK_S_IOERR
         );
         assert_eq!(
-            ExecuteError::Write(GuestMemoryError::NoMemoryRegions).status(),
+            ExecuteError::Write(GuestMemoryError::InvalidBackendAddress).status(),
             VIRTIO_BLK_S_IOERR
         );
         assert_eq!(ExecuteError::Unsupported(42).status(), VIRTIO_BLK_S_UNSUPP);

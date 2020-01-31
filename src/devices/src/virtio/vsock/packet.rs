@@ -17,7 +17,7 @@
 use std::result;
 
 use utils::byte_order;
-use vm_memory::{self, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{self, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryRegion};
 
 use super::super::DescriptorChain;
 use super::defs;
@@ -97,16 +97,23 @@ pub struct VsockPacket {
     buf_size: usize,
 }
 
-fn get_host_address(
-    mem: &GuestMemoryMmap,
+fn get_host_address<T: GuestMemory>(
+    mem: &T,
     guest_addr: GuestAddress,
     size: usize,
 ) -> result::Result<*mut u8, GuestMemoryError> {
-    mem.do_in_region(guest_addr, size, |mapping, offset| {
-        // This is safe; `do_in_region` already checks that offset is in
-        // bounds.
-        Ok(unsafe { mapping.as_ptr().add(offset) } as *mut u8)
-    })
+    let region = mem
+        .find_region(guest_addr)
+        .ok_or(GuestMemoryError::InvalidGuestAddress(guest_addr))?;
+    let region_addr = region
+        .to_region_addr(guest_addr)
+        .ok_or(GuestMemoryError::InvalidGuestAddress(guest_addr))?;
+
+    if size > 0 && region.checked_offset(region_addr, size - 1).is_none() {
+        return Err(GuestMemoryError::InvalidGuestAddress(guest_addr));
+    }
+
+    Ok(region.get_host_address(region_addr)?)
 }
 
 impl VsockPacket {
