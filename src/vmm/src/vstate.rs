@@ -49,52 +49,57 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// A call to cpuid instruction failed.
     CpuId(cpuid::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Error configuring the floating point related registers
+    FPUConfiguration(arch::x86_64::regs::Error),
     /// Invalid guest memory configuration.
     GuestMemoryMmap(GuestMemoryError),
     /// Hyperthreading flag is not initialized.
     HTNotInitialized,
+    /// Cannot configure the IRQ.
+    Irq(kvm_ioctls::Error),
     /// The host kernel reports an invalid KVM API version.
     KvmApiVersion(i32),
     /// Cannot initialize the KVM context due to missing capabilities.
     KvmCap(kvm_ioctls::Cap),
-    /// vCPU count is not initialized.
-    VcpuCountNotInitialized,
-    /// Cannot open the VM file descriptor.
-    VmFd(kvm_ioctls::Error),
-    /// Cannot open the VCPU file descriptor.
-    VcpuFd(kvm_ioctls::Error),
-    /// Cannot configure the microvm.
-    VmSetup(kvm_ioctls::Error),
-    /// Cannot run the VCPUs.
-    VcpuRun(kvm_ioctls::Error),
-    /// The call to KVM_SET_CPUID2 failed.
-    SetSupportedCpusFailed(kvm_ioctls::Error),
-    /// The number of configured slots is bigger than the maximum reported by KVM.
-    NotEnoughMemorySlots,
     #[cfg(target_arch = "x86_64")]
     /// Cannot set the local interruption due to bad configuration.
     LocalIntConfiguration(arch::x86_64::interrupts::Error),
-    /// Cannot set the memory regions.
-    SetUserMemoryRegion(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the MSR registers
     MSRSConfiguration(arch::x86_64::msr::Error),
+    /// The number of configured slots is bigger than the maximum reported by KVM.
+    NotEnoughMemorySlots,
     #[cfg(target_arch = "aarch64")]
     /// Error configuring the general purpose aarch64 registers.
     REGSConfiguration(arch::aarch64::regs::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the general purpose registers
     REGSConfiguration(arch::x86_64::regs::Error),
+    /// The call to KVM_SET_CPUID2 failed.
+    SetSupportedCpusFailed(kvm_ioctls::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Error setting up the global interrupt controller.
+    SetupGIC(arch::aarch64::gic::Error),
+    /// Cannot set the memory regions.
+    SetUserMemoryRegion(kvm_ioctls::Error),
+    /// Failed to signal Vcpu.
+    SignalVcpu(utils::errno::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the special registers
     SREGSConfiguration(arch::x86_64::regs::Error),
-    #[cfg(target_arch = "x86_64")]
-    /// Error configuring the floating point related registers
-    FPUConfiguration(arch::x86_64::regs::Error),
-    /// Cannot configure the IRQ.
-    Irq(kvm_ioctls::Error),
-    /// Failed to signal Vcpu.
-    SignalVcpu(utils::errno::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Error doing Vcpu Init on Arm.
+    VcpuArmInit(kvm_ioctls::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Error getting the Vcpu preferred target on Arm.
+    VcpuArmPreferredTarget(kvm_ioctls::Error),
+    /// vCPU count is not initialized.
+    VcpuCountNotInitialized,
+    /// Cannot open the VCPU file descriptor.
+    VcpuFd(kvm_ioctls::Error),
+    /// Cannot run the VCPUs.
+    VcpuRun(kvm_ioctls::Error),
     /// Cannot spawn a new vCPU thread.
     VcpuSpawn(io::Error),
     /// Cannot cleanly initialize vcpu TLS.
@@ -103,15 +108,10 @@ pub enum Error {
     VcpuTlsNotPresent,
     /// Unexpected KVM_RUN exit reason
     VcpuUnhandledKvmExit,
-    #[cfg(target_arch = "aarch64")]
-    /// Error setting up the global interrupt controller.
-    SetupGIC(arch::aarch64::gic::Error),
-    #[cfg(target_arch = "aarch64")]
-    /// Error getting the Vcpu preferred target on Arm.
-    VcpuArmPreferredTarget(kvm_ioctls::Error),
-    #[cfg(target_arch = "aarch64")]
-    /// Error doing Vcpu Init on Arm.
-    VcpuArmInit(kvm_ioctls::Error),
+    /// Cannot open the VM file descriptor.
+    VmFd(kvm_ioctls::Error),
+    /// Cannot configure the microvm.
+    VmSetup(kvm_ioctls::Error),
 }
 pub type Result<T> = result::Result<T, Error>;
 
