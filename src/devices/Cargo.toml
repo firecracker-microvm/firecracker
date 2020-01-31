@@ -8,7 +8,7 @@ edition = "2018"
 libc = ">=0.2.39"
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }
-vm-memory = { path = "../vm-memory" }
+vm-memory = { version = ">=0.1.0", features = ["backend-mmap"] }
 utils = { path = "../utils" }
 net_gen = { path = "../net_gen" }
 polly = { path = "../polly" }

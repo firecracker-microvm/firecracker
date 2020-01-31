@@ -29,7 +29,7 @@ use virtio_gen::virtio_net::{
     VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
     VIRTIO_NET_F_MAC,
 };
-use vm_memory::{Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap, MemoryMappingError};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 fn vnet_hdr_len() -> usize {
     mem::size_of::<virtio_net_hdr_v1>()
@@ -251,11 +251,7 @@ impl Net {
 
                             METRICS.net.rx_fails.inc();
 
-                            if let GuestMemoryError::MemoryAccess(
-                                _addr,
-                                MemoryMappingError::PartialBuffer { completed, .. },
-                            ) = e
-                            {
+                            if let GuestMemoryError::PartialBuffer { completed, .. } = e {
                                 write_count += completed;
                             }
                             break;
@@ -476,11 +472,7 @@ impl Net {
                         error!("Failed to read slice: {:?}", e);
                         METRICS.net.tx_fails.inc();
 
-                        if let GuestMemoryError::MemoryAccess(
-                            _addr,
-                            MemoryMappingError::PartialBuffer { completed, .. },
-                        ) = e
-                        {
+                        if let GuestMemoryError::PartialBuffer { completed, .. } = e {
                             read_count += completed;
                         }
                         break;

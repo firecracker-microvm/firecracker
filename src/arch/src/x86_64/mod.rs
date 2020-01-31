@@ -17,7 +17,9 @@ pub mod msr;
 pub mod regs;
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
-use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory::{
+    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
+};
 use InitrdConfig;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
@@ -76,7 +78,11 @@ pub fn get_kernel_start() -> u64 {
 
 /// Returns the memory address where the initrd could be loaded.
 pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> super::Result<u64> {
-    let lowmem_size: usize = guest_mem.region_size(0).map_err(|_| Error::InitrdAddress)?;
+    let first_region = guest_mem
+        .find_region(GuestAddress::new(0))
+        .ok_or(Error::InitrdAddress)?;
+    // It's safe to cast to usize because the size of a region can't be greater than usize.
+    let lowmem_size = first_region.len() as usize;
 
     if lowmem_size < initrd_size {
         return Err(Error::InitrdAddress);

@@ -23,7 +23,7 @@ use seccomp::BpfProgramRef;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vm_memory::{Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 use vmm_config;
 use vmm_config::boot_source::BootConfig;
 use vmm_config::drive::BlockDeviceConfigs;
@@ -47,7 +47,7 @@ pub enum StartMicrovmError {
     /// Failed to create the vsock device.
     CreateVsockDevice(devices::virtio::vsock::VsockError),
     /// Memory regions are overlapping or mmap fails.
-    GuestMemoryMmap(GuestMemoryError),
+    GuestMemoryMmap(vm_memory::Error),
     /// Cannot load initrd due to an invalid memory configuration.
     InitrdLoad,
     /// Cannot load initrd due to an invalid image.
@@ -64,6 +64,8 @@ pub enum StartMicrovmError {
     MicroVMAlreadyRunning,
     /// Cannot start the VM because the kernel was not configured.
     MissingKernelConfig,
+    /// Cannot start the VM because the size of the guest memory  was not specified.
+    MissingMemSizeConfig,
     /// The net device configuration is missing the tap device.
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file.
@@ -137,6 +139,9 @@ impl Display for StartMicrovmError {
             }
             MicroVMAlreadyRunning => write!(f, "Microvm already running."),
             MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),
+            MissingMemSizeConfig => {
+                write!(f, "Cannot start microvm without guest mem_size config.")
+            }
             NetDeviceNotConfigured => {
                 write!(f, "The net device configuration is missing the tap device.")
             }
@@ -238,9 +243,12 @@ pub fn build_microvm(
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
 
-    let guest_memory = create_guest_memory(vm_resources.vm_config().mem_size_mib.ok_or(
-        StartMicrovmError::GuestMemoryMmap(vm_memory::GuestMemoryError::MemoryNotInitialized),
-    )?)?;
+    let guest_memory = create_guest_memory(
+        vm_resources
+            .vm_config()
+            .mem_size_mib
+            .ok_or(StartMicrovmError::MissingMemSizeConfig)?,
+    )?;
     let vcpu_config = vm_resources.vcpu_config();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
@@ -1363,15 +1371,6 @@ pub mod tests {
             )
         );
 
-        let err = GuestMemoryMmap(GuestMemoryError::NoMemoryRegions);
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Invalid Memory Configuration: {:?}",
-                GuestMemoryError::NoMemoryRegions
-            )
-        );
-
         let err = Internal(Error::Serial(io::Error::from_raw_os_error(0)));
         assert_eq!(
             format!("{}", err),
@@ -1413,6 +1412,12 @@ pub mod tests {
         assert_eq!(
             format!("{}", err),
             "Cannot start microvm without kernel configuration."
+        );
+
+        let err = MissingMemSizeConfig;
+        assert_eq!(
+            format!("{}", err),
+            "Cannot start microvm without guest mem_size config."
         );
 
         let err = NetDeviceNotConfigured;
