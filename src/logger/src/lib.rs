@@ -547,7 +547,8 @@ impl Logger {
                     METRICS.logger.missed_log_count.inc();
                 }
             } else {
-                panic!("Failed to write to the provided metrics destination due to poisoned lock");
+                METRICS.logger.missed_log_count.inc();
+                panic!("Failed to write to the provided log destination due to poisoned lock");
             }
         } else if msg_level <= Level::Warn {
             eprintln!("{}", msg);
@@ -566,13 +567,15 @@ impl Logger {
             match serde_json::to_string(METRICS.deref()) {
                 Ok(msg) => {
                     if let Some(guard) = self.metrics_buf_guard().as_mut() {
-                        write_to_destination(msg, guard)
+                        return write_to_destination(msg, guard)
                             .map_err(|e| {
                                 METRICS.logger.missed_metrics_count.inc();
                                 e
                             })
-                            .map(|()| true)?;
+                            .map(|_| true);
                     } else {
+                        // We have not incremented `missed_metrics_count` as there is no way to push metrics
+                        // if destination lock got poisoned.
                         panic!("Failed to write to the provided metrics destination due to poisoned lock");
                     }
                 }
