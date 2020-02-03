@@ -10,8 +10,12 @@ from subprocess import run, PIPE
 
 from retry.api import retry_call
 
-from framework.defs import API_USOCKET_NAME, FC_BINARY_NAME, \
-    JAILER_DEFAULT_CHROOT
+from framework.defs import FC_BINARY_NAME
+
+# Default name for the socket used for API calls.
+DEFAULT_USOCKET_NAME = 'run/firecracker.socket'
+# The default location for the chroot.
+DEFAULT_CHROOT_PATH = '/srv/jailer'
 
 
 class JailerContext:
@@ -30,6 +34,7 @@ class JailerContext:
     netns = None
     daemonize = None
     extra_args = None
+    api_socket_name = None
 
     def __init__(
             self,
@@ -38,7 +43,7 @@ class JailerContext:
             numa_node=0,
             uid=1234,
             gid=1234,
-            chroot_base=JAILER_DEFAULT_CHROOT,
+            chroot_base=DEFAULT_CHROOT_PATH,
             netns=None,
             daemonize=True,
             **extra_args
@@ -58,6 +63,7 @@ class JailerContext:
         self.netns = netns if netns is not None else jailer_id
         self.daemonize = daemonize
         self.extra_args = extra_args
+        self.api_socket_name = DEFAULT_USOCKET_NAME
 
     def __del__(self):
         """Cleanup this jailer context."""
@@ -92,28 +98,28 @@ class JailerContext:
         if self.daemonize:
             jailer_param_list.append('--daemonize')
         # applying neccessory extra args if needed
-        if self.extra_args is not None:
+        if len(self.extra_args) > 0:
             jailer_param_list.append('--')
             for key, value in self.extra_args.items():
                 jailer_param_list.append('--{}'.format(key))
                 if value is not None:
                     jailer_param_list.append(value)
-        if self.extra_args.get("api-sock") is None:
-            jailer_param_list.extend(['--api-sock', str(API_USOCKET_NAME)])
+                    if key == "api-sock":
+                        self.api_socket_name = value
         return jailer_param_list
 
     def chroot_base_with_id(self):
         """Return the MicroVM chroot base + MicroVM ID."""
         return os.path.join(
             self.chroot_base if self.chroot_base is not None
-            else JAILER_DEFAULT_CHROOT,
+            else DEFAULT_CHROOT_PATH,
             FC_BINARY_NAME,
             self.jailer_id
         )
 
     def api_socket_path(self):
         """Return the MicroVM API socket path."""
-        return os.path.join(self.chroot_path(), API_USOCKET_NAME)
+        return os.path.join(self.chroot_path(), self.api_socket_name)
 
     def chroot_path(self):
         """Return the MicroVM chroot path."""
@@ -168,7 +174,7 @@ class JailerContext:
         """Set up this jailer context."""
         os.makedirs(
             self.chroot_base if self.chroot_base is not None
-            else JAILER_DEFAULT_CHROOT,
+            else DEFAULT_CHROOT_PATH,
             exist_ok=True
         )
         if self.netns:

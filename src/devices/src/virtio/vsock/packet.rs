@@ -2,9 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-use super::super::DescriptorChain;
-use super::defs;
-use super::{Result, VsockError};
 /// `VsockPacket` provides a thin wrapper over the buffers exchanged via virtio queues.
 /// There are two components to a vsock packet, each using its own descriptor in a
 /// virtio queue:
@@ -17,7 +14,14 @@ use super::{Result, VsockError};
 /// `VsockPacket` wraps these two buffers and provides direct access to the data stored
 /// in guest memory. This is done to avoid unnecessarily copying data from guest memory
 /// to temporary buffers, before passing it on to the vsock backend.
+use std::result;
+
 use utils::byte_order;
+use vm_memory::{self, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+
+use super::super::DescriptorChain;
+use super::defs;
+use super::{Result, VsockError};
 
 // The vsock packet header is defined by the C struct:
 //
@@ -93,6 +97,18 @@ pub struct VsockPacket {
     buf_size: usize,
 }
 
+fn get_host_address(
+    mem: &GuestMemoryMmap,
+    guest_addr: GuestAddress,
+    size: usize,
+) -> result::Result<*mut u8, GuestMemoryError> {
+    mem.do_in_region(guest_addr, size, |mapping, offset| {
+        // This is safe; `do_in_region` already checks that offset is in
+        // bounds.
+        Ok(unsafe { mapping.as_ptr().add(offset) } as *mut u8)
+    })
+}
+
 impl VsockPacket {
     /// Create the packet wrapper from a TX virtq chain head.
     ///
@@ -112,10 +128,8 @@ impl VsockPacket {
         }
 
         let mut pkt = Self {
-            hdr: head
-                .mem
-                .get_host_address(head.addr, VSOCK_PKT_HDR_SIZE)
-                .map_err(VsockError::GuestMemoryMmap)? as *mut u8,
+            hdr: get_host_address(head.mem, head.addr, VSOCK_PKT_HDR_SIZE)
+                .map_err(VsockError::GuestMemoryMmap)?,
             buf: None,
             buf_size: 0,
         };
@@ -147,10 +161,8 @@ impl VsockPacket {
 
         pkt.buf_size = buf_desc.len as usize;
         pkt.buf = Some(
-            buf_desc
-                .mem
-                .get_host_address(buf_desc.addr, pkt.buf_size)
-                .map_err(VsockError::GuestMemoryMmap)? as *mut u8,
+            get_host_address(buf_desc.mem, buf_desc.addr, pkt.buf_size)
+                .map_err(VsockError::GuestMemoryMmap)?,
         );
 
         Ok(pkt)
@@ -180,15 +192,11 @@ impl VsockPacket {
         let buf_size = buf_desc.len as usize;
 
         Ok(Self {
-            hdr: head
-                .mem
-                .get_host_address(head.addr, VSOCK_PKT_HDR_SIZE)
-                .map_err(VsockError::GuestMemoryMmap)? as *mut u8,
+            hdr: get_host_address(head.mem, head.addr, VSOCK_PKT_HDR_SIZE)
+                .map_err(VsockError::GuestMemoryMmap)?,
             buf: Some(
-                buf_desc
-                    .mem
-                    .get_host_address(buf_desc.addr, buf_size)
-                    .map_err(VsockError::GuestMemoryMmap)? as *mut u8,
+                get_host_address(buf_desc.mem, buf_desc.addr, buf_size)
+                    .map_err(VsockError::GuestMemoryMmap)?,
             ),
             buf_size,
         })
@@ -372,9 +380,7 @@ mod tests {
 
     fn set_pkt_len(len: u32, guest_desc: &GuestQDesc, mem: &GuestMemoryMmap) {
         let hdr_gpa = guest_desc.addr.get();
-        let hdr_ptr = mem
-            .get_host_address(GuestAddress(hdr_gpa), VSOCK_PKT_HDR_SIZE)
-            .unwrap() as *mut u8;
+        let hdr_ptr = get_host_address(mem, GuestAddress(hdr_gpa), VSOCK_PKT_HDR_SIZE).unwrap();
         let len_ptr = unsafe { hdr_ptr.add(HDROFF_LEN) };
 
         byte_order::write_le_u32(unsafe { std::slice::from_raw_parts_mut(len_ptr, 4) }, len);
