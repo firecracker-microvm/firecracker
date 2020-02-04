@@ -5,12 +5,14 @@
 use std::result;
 
 use arch_gen::x86::msr_index::*;
-use kvm_bindings::{kvm_msr_entry, Msrs};
-use kvm_ioctls::VcpuFd;
+use kvm_bindings::{kvm_msr_entry, MsrList, Msrs};
+use kvm_ioctls::{Kvm, VcpuFd};
 
 #[derive(Debug)]
 /// MSR related errors.
 pub enum Error {
+    /// Getting supported MSRs failed.
+    GetSupportedModelSpecificRegisters(kvm_ioctls::Error),
     /// Setting up MSRs failed.
     SetModelSpecificRegisters(kvm_ioctls::Error),
     /// Failed to set all MSRs.
@@ -225,6 +227,21 @@ pub fn setup_msrs(vcpu: &VcpuFd) -> Result<()> {
                 Ok(())
             }
         })
+}
+
+/// Returns the list of supported, serializable MSRs.
+///
+/// # Arguments
+///
+/// * `kvm_fd` - Structure that holds the KVM's fd.
+pub fn supported_guest_msrs(kvm_fd: &Kvm) -> Result<MsrList> {
+    let mut msr_list = kvm_fd
+        .get_msr_index_list()
+        .map_err(Error::GetSupportedModelSpecificRegisters)?;
+
+    msr_list.retain(|msr_index| msr_should_serialize(*msr_index));
+
+    Ok(msr_list)
 }
 
 #[cfg(test)]

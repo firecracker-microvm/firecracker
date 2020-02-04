@@ -885,6 +885,7 @@ impl Vmm {
                     cpu_index,
                     self.vm.fd(),
                     self.vm.supported_cpuid().clone(),
+                    self.vm.supported_msrs().clone(),
                     self.pio_device_manager.io_bus.clone(),
                     vcpu_exit_evt,
                     request_ts.clone(),
