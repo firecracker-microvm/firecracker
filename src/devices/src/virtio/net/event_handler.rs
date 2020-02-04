@@ -1,8 +1,10 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::update_net_metrics;
 use crate::virtio::net::device::Net;
 use crate::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
+#[cfg(not(test))]
 use logger::{Metric, METRICS};
 use polly::event_manager::EventHandler;
 use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
@@ -29,7 +31,7 @@ impl EventHandler for Net {
             _ if source == tx_rate_limiter_fd => self.process_tx_rate_limiter_event(),
             _ => {
                 error!("Unknown event source.");
-                METRICS.net.event_fails.inc();
+                update_net_metrics!(self, event_fails, 1);
             }
         }
 
