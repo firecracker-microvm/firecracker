@@ -20,7 +20,11 @@ use arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "x86_64")]
 use cpuid::{c3, filter_cpuid, t2, VmSpec};
 #[cfg(target_arch = "x86_64")]
-use kvm_bindings::{kvm_pit_config, CpuId, KVM_MAX_CPUID_ENTRIES, KVM_PIT_SPEAKER_DUMMY};
+use kvm_bindings::{
+    kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2, CpuId, MsrList,
+    KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
+    KVM_MAX_CPUID_ENTRIES, KVM_PIT_SPEAKER_DUMMY,
+};
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{Metric, METRICS};
@@ -110,6 +114,24 @@ pub enum Error {
     VcpuUnhandledKvmExit,
     /// Cannot open the VM file descriptor.
     VmFd(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vm pit state.
+    VmGetPit2(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vm clock.
+    VmGetClock(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vm irqchip.
+    VmGetIrqChip(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vm pit state.
+    VmSetPit2(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vm clock.
+    VmSetClock(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vm irqchip.
+    VmSetIrqChip(kvm_ioctls::Error),
     /// Cannot configure the microvm.
     VmSetup(kvm_ioctls::Error),
 }
@@ -280,6 +302,74 @@ impl Vm {
     pub fn fd(&self) -> &VmFd {
         &self.fd
     }
+
+    #[allow(unused)]
+    #[cfg(target_arch = "x86_64")]
+    /// Saves and returns the Kvm Vm state.
+    pub fn save_state(&self) -> Result<VmState> {
+        let pitstate = self.fd.get_pit2().map_err(Error::VmGetPit2)?;
+
+        let mut clock = self.fd.get_clock().map_err(Error::VmGetClock)?;
+        // This bit is not accepted in SET_CLOCK, clear it.
+        clock.flags &= !KVM_CLOCK_TSC_STABLE;
+
+        let mut pic_master = kvm_irqchip::default();
+        pic_master.chip_id = KVM_IRQCHIP_PIC_MASTER;
+        self.fd
+            .get_irqchip(&mut pic_master)
+            .map_err(Error::VmGetIrqChip)?;
+
+        let mut pic_slave = kvm_irqchip::default();
+        pic_slave.chip_id = KVM_IRQCHIP_PIC_SLAVE;
+        self.fd
+            .get_irqchip(&mut pic_slave)
+            .map_err(Error::VmGetIrqChip)?;
+
+        let mut ioapic = kvm_irqchip::default();
+        ioapic.chip_id = KVM_IRQCHIP_IOAPIC;
+        self.fd
+            .get_irqchip(&mut ioapic)
+            .map_err(Error::VmGetIrqChip)?;
+
+        Ok(VmState {
+            pitstate,
+            clock,
+            pic_master,
+            pic_slave,
+            ioapic,
+        })
+    }
+
+    #[allow(unused)]
+    #[cfg(target_arch = "x86_64")]
+    /// Restores the Kvm Vm state.
+    pub fn restore_state(&self, state: &VmState) -> Result<()> {
+        self.fd
+            .set_pit2(&state.pitstate)
+            .map_err(Error::VmSetPit2)?;
+        self.fd.set_clock(&state.clock).map_err(Error::VmSetClock)?;
+        self.fd
+            .set_irqchip(&state.pic_master)
+            .map_err(Error::VmSetIrqChip)?;
+        self.fd
+            .set_irqchip(&state.pic_slave)
+            .map_err(Error::VmSetIrqChip)?;
+        self.fd
+            .set_irqchip(&state.ioapic)
+            .map_err(Error::VmSetIrqChip)?;
+        Ok(())
+    }
+}
+
+#[allow(unused)]
+#[cfg(target_arch = "x86_64")]
+/// Structure holding VM kvm state.
+pub struct VmState {
+    pitstate: kvm_pit_state2,
+    clock: kvm_clock_data,
+    pic_master: kvm_irqchip,
+    pic_slave: kvm_irqchip,
+    ioapic: kvm_irqchip,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
@@ -1284,5 +1374,28 @@ mod tests {
     #[test]
     fn test_vcpu_rtsig_offset() {
         assert!(validate_signal_num(sigrtmin() + VCPU_RTSIG_OFFSET).is_ok());
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_vm_save_restore_state() {
+        let kvm_fd = Kvm::new().unwrap();
+        let vm = Vm::new(&kvm_fd).expect("new vm failed");
+        // Irqchips, clock and pitstate are not configured so trying to save state should fail.
+        assert!(vm.save_state().is_err());
+
+        let (vm, _) = setup_vcpu(0x1000);
+        let vm_state = vm.save_state().unwrap();
+        assert_eq!(
+            vm_state.pitstate.flags | KVM_PIT_SPEAKER_DUMMY,
+            KVM_PIT_SPEAKER_DUMMY
+        );
+        assert_eq!(vm_state.clock.flags & KVM_CLOCK_TSC_STABLE, 0);
+        assert_eq!(vm_state.pic_master.chip_id, KVM_IRQCHIP_PIC_MASTER);
+        assert_eq!(vm_state.pic_slave.chip_id, KVM_IRQCHIP_PIC_SLAVE);
+        assert_eq!(vm_state.ioapic.chip_id, KVM_IRQCHIP_IOAPIC);
+
+        let (vm, _) = setup_vcpu(0x1000);
+        assert!(vm.restore_state(&vm_state).is_ok());
     }
 }
