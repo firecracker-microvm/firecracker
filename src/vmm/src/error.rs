@@ -816,9 +816,9 @@ mod tests {
             ErrorKind::Internal
         );
         assert_eq!(
-            error_kind(StartMicrovmError::VcpuConfigure(
-                vstate::Error::SetSupportedCpusFailed(utils::errno::Error::new(0))
-            )),
+            error_kind(StartMicrovmError::VcpuConfigure(vstate::Error::VcpuFd(
+                utils::errno::Error::new(0)
+            ))),
             ErrorKind::Internal
         );
         assert_eq!(
