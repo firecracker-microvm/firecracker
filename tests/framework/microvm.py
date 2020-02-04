@@ -18,10 +18,12 @@ import time
 from subprocess import run, PIPE
 
 from retry import retry
+from retry.api import retry_call
 
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 
+import framework.utils as utils
 from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
 from framework.http import Session
 from framework.jailer import JailerContext
@@ -333,10 +335,24 @@ class Microvm:
 
             run(start_cmd, shell=True, check=True)
 
-            out = run('screen -ls', shell=True, stdout=PIPE)\
-                .stdout.decode('utf-8')
-            screen_pid = re.search(r'([0-9]+)\.{}'.format(self._session_name),
-                                   out).group(1)
+            # Build a regex object to match (number).session_name
+            regex_object = re.compile(
+                r'([0-9]+)\.{}'.format(self._session_name))
+
+            # Run 'screen -ls' in a retry_call loop, 30 times with a one
+            # second delay between calls.
+            # If the output of 'screen -ls' matches the regex object, it will
+            # return the PID. Otherwise a RuntimeError will be raised.
+            screen_pid = retry_call(
+                utils.search_output_from_cmd,
+                fkwargs={
+                    "cmd": 'screen -ls',
+                    "find_regex": regex_object
+                },
+                exceptions=RuntimeError,
+                tries=30,
+                delay=1).group(1)
+
             self.jailer_clone_pid = open('/proc/{0}/task/{0}/children'
                                          .format(screen_pid)
                                          ).read().strip()
