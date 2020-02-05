@@ -138,8 +138,6 @@ pub fn run_with_api(
         })
         .expect("API thread spawn failed.");
 
-    // The driving epoll engine.
-    let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
     // The event manager to replace EpollContext.
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
@@ -154,14 +152,12 @@ pub fn run_with_api(
     let (vm_resources, vmm) = match config_json {
         Some(json) => super::build_microvm_from_json(
             seccomp_level,
-            &mut epoll_context,
             &mut event_manager,
             firecracker_version,
             json,
         ),
         None => PrebootApiController::build_microvm_from_requests(
             seccomp_level,
-            &mut epoll_context,
             &mut event_manager,
             firecracker_version,
             || {
@@ -191,10 +187,6 @@ pub fn run_with_api(
 
     // Update the api shared instance info.
     api_shared_info.write().unwrap().started = true;
-
-    // TODO: remove this when last epoll_context user is migrated to EventManager.
-    let epoll_context = Arc::new(Mutex::new(epoll_context));
-    event_manager.add_subscriber(epoll_context).unwrap();
 
     ApiServerAdapter::run_microvm(
         api_event_fd,

@@ -4,7 +4,7 @@
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex};
 
-use super::{EpollContext, Vmm};
+use super::Vmm;
 
 use super::Error as VmmError;
 use builder::StartMicrovmError;
@@ -137,7 +137,6 @@ pub struct PrebootApiController<'a> {
     seccomp_level: u32,
     firecracker_version: String,
     vm_resources: &'a mut VmResources,
-    epoll_context: &'a mut EpollContext,
     event_manager: &'a mut EventManager,
 
     built_vmm: Option<Arc<Mutex<Vmm>>>,
@@ -149,16 +148,13 @@ impl<'a> PrebootApiController<'a> {
         seccomp_level: u32,
         firecracker_version: String,
         vm_resources: &'a mut VmResources,
-        epoll_context: &'a mut EpollContext,
         event_manager: &'a mut EventManager,
     ) -> PrebootApiController<'a> {
         PrebootApiController {
             seccomp_level,
             firecracker_version,
             vm_resources,
-            epoll_context,
             event_manager,
-
             built_vmm: None,
         }
     }
@@ -170,7 +166,6 @@ impl<'a> PrebootApiController<'a> {
     /// Returns a populated `VmResources` object and a running `Vmm` object.
     pub fn build_microvm_from_requests<F, G>(
         seccomp_level: u32,
-        epoll_context: &mut EpollContext,
         event_manager: &mut EventManager,
         firecracker_version: String,
         recv_req: F,
@@ -185,7 +180,6 @@ impl<'a> PrebootApiController<'a> {
             seccomp_level,
             firecracker_version,
             &mut vm_resources,
-            epoll_context,
             event_manager,
         );
         // Configure and start microVM through successive API calls.
@@ -255,7 +249,6 @@ impl<'a> PrebootApiController<'a> {
                 .map_err(VmmActionError::NetworkConfig),
             StartMicroVm => super::builder::build_microvm(
                 &self.vm_resources,
-                &mut self.epoll_context,
                 &mut self.event_manager,
                 self.seccomp_level,
             )
