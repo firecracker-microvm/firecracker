@@ -743,7 +743,6 @@ impl VsockMuxer {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
@@ -754,6 +753,8 @@ mod tests {
     use super::super::super::csm::defs as csm_defs;
     use super::super::super::tests::TestContext as VsockTestContext;
     use super::*;
+
+    use crate::virtio::vsock::device::RXQ_INDEX;
 
     const PEER_CID: u64 = 3;
     const PEER_BUF_ALLOC: u32 = 64 * 1024;
@@ -773,9 +774,11 @@ mod tests {
     impl MuxerTestContext {
         fn new(name: &str) -> Self {
             let vsock_test_ctx = VsockTestContext::new();
-            let mut handler_ctx = vsock_test_ctx.create_epoll_handler_context();
+            let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let pkt = VsockPacket::from_rx_virtq_head(
-                &handler_ctx.handler.rxvq.pop(&vsock_test_ctx.mem).unwrap(),
+                &handler_ctx.device.queues[RXQ_INDEX]
+                    .pop(&vsock_test_ctx.mem)
+                    .unwrap(),
             )
             .unwrap();
             let uds_path = format!("test_vsock_{}.sock", name);
@@ -1287,4 +1290,3 @@ mod tests {
         assert!(!ctx.muxer.has_pending_rx());
     }
 }
-*/
