@@ -624,7 +624,6 @@ where
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use std::io::{Error as IoError, ErrorKind, Read, Result as IoResult, Write};
@@ -636,6 +635,8 @@ mod tests {
     use super::super::super::tests::TestContext;
     use super::super::defs as csm_defs;
     use super::*;
+
+    use crate::virtio::vsock::device::RXQ_INDEX;
 
     const LOCAL_CID: u64 = 2;
     const PEER_CID: u64 = 3;
@@ -753,10 +754,12 @@ mod tests {
 
         fn new(conn_state: ConnState) -> Self {
             let vsock_test_ctx = TestContext::new();
-            let mut handler_ctx = vsock_test_ctx.create_epoll_handler_context();
+            let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let stream = TestStream::new();
             let mut pkt = VsockPacket::from_rx_virtq_head(
-                &handler_ctx.handler.rxvq.pop(&vsock_test_ctx.mem).unwrap(),
+                &handler_ctx.device.queues[RXQ_INDEX]
+                    .pop(&vsock_test_ctx.mem)
+                    .unwrap(),
             )
             .unwrap();
             let conn = match conn_state {
@@ -1166,4 +1169,3 @@ mod tests {
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RST);
     }
 }
-*/

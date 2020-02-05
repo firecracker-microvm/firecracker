@@ -49,6 +49,8 @@ pub mod signal_handler;
 pub mod vmm_config;
 mod vstate;
 
+#[cfg(target_arch = "aarch64")]
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::os::unix::io::AsRawFd;
@@ -68,7 +70,7 @@ use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{Metric, LOGGER, METRICS};
 use memory_model::GuestMemory;
-use polly::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
+use polly::epoll::{EpollEvent, EventSet};
 use polly::event_manager::{self, EventManager, Subscriber};
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
