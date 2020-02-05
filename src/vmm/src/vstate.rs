@@ -11,6 +11,7 @@ use std::io;
 use std::result;
 use std::sync::atomic::{fence, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::{Arc, Barrier};
 use std::thread;
 
 use super::TimestampUs;
@@ -570,6 +571,10 @@ impl Vcpu {
     pub fn start_threaded(mut self, seccomp_filter: BpfProgram) -> Result<VcpuHandle> {
         let event_sender = self.event_sender.take().unwrap();
         let response_receiver = self.response_receiver.take().unwrap();
+
+        let exit_barrier = Arc::new(Barrier::new(2));
+        let barrier = exit_barrier.clone();
+
         let vcpu_thread = thread::Builder::new()
             .name(format!("fc_vcpu {}", self.cpu_index()))
             .spawn(move || {
@@ -577,6 +582,11 @@ impl Vcpu {
                     .expect("Cannot cleanly initialize vcpu TLS.");
 
                 self.run(seccomp_filter);
+
+                // Don't exit from the thread until we have another cue on the VcpuHandle below.
+                // Thread cleanup on a libc may call syscalls which we don't want to whitelist.
+                // For example, musl calls sigprocmask. See #1456 for the detail.
+                barrier.wait();
             })
             .map_err(Error::VcpuSpawn)?;
 
@@ -584,6 +594,7 @@ impl Vcpu {
             event_sender,
             response_receiver,
             vcpu_thread,
+            exit_barrier,
         })
     }
 
@@ -825,6 +836,7 @@ pub struct VcpuHandle {
     event_sender: Sender<VcpuEvent>,
     response_receiver: Receiver<VcpuResponse>,
     vcpu_thread: thread::JoinHandle<()>,
+    exit_barrier: Arc<Barrier>,
 }
 
 impl VcpuHandle {
@@ -846,6 +858,7 @@ impl VcpuHandle {
 
     #[allow(dead_code)]
     pub fn join_vcpu_thread(self) -> thread::Result<()> {
+        self.exit_barrier.wait();
         self.vcpu_thread.join()
     }
 }
