@@ -342,7 +342,6 @@ impl VsockPacket {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
 
@@ -352,12 +351,13 @@ mod tests {
     use super::*;
     use crate::virtio::queue::tests::VirtqDesc as GuestQDesc;
     use crate::virtio::vsock::defs::MAX_PKT_BUF_SIZE;
+    use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
     use crate::virtio::VIRTQ_DESC_F_WRITE;
 
     macro_rules! create_context {
         ($test_ctx:ident, $handler_ctx:ident) => {
             let $test_ctx = TestContext::new();
-            let mut $handler_ctx = $test_ctx.create_epoll_handler_context();
+            let mut $handler_ctx = $test_ctx.create_event_handler_context();
             // For TX packets, hdr.len should be set to a valid value.
             set_pkt_len(1024, &$handler_ctx.guest_txvq.dtable[0], &$test_ctx.mem);
         };
@@ -365,13 +365,17 @@ mod tests {
 
     macro_rules! expect_asm_error {
         (tx, $test_ctx:expr, $handler_ctx:expr, $err:pat) => {
-            expect_asm_error!($test_ctx, $handler_ctx, $err, from_tx_virtq_head, txvq);
+            expect_asm_error!($test_ctx, $handler_ctx, $err, from_tx_virtq_head, TXQ_INDEX);
         };
         (rx, $test_ctx:expr, $handler_ctx:expr, $err:pat) => {
-            expect_asm_error!($test_ctx, $handler_ctx, $err, from_rx_virtq_head, rxvq);
+            expect_asm_error!($test_ctx, $handler_ctx, $err, from_rx_virtq_head, RXQ_INDEX);
         };
-        ($test_ctx:expr, $handler_ctx:expr, $err:pat, $ctor:ident, $vq:ident) => {
-            match VsockPacket::$ctor(&$handler_ctx.handler.$vq.pop(&$test_ctx.mem).unwrap()) {
+        ($test_ctx:expr, $handler_ctx:expr, $err:pat, $ctor:ident, $vq_index:ident) => {
+            match VsockPacket::$ctor(
+                &$handler_ctx.device.queues[$vq_index]
+                    .pop(&$test_ctx.mem)
+                    .unwrap(),
+            ) {
                 Err($err) => (),
                 Ok(_) => panic!("Packet assembly should've failed!"),
                 Err(other) => panic!("Packet assembly failed with: {:?}", other),
@@ -395,7 +399,9 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
 
             let pkt = VsockPacket::from_tx_virtq_head(
-                &handler_ctx.handler.txvq.pop(&test_ctx.mem).unwrap(),
+                &handler_ctx.device.queues[TXQ_INDEX]
+                    .pop(&test_ctx.mem)
+                    .unwrap(),
             )
             .unwrap();
             assert_eq!(pkt.hdr().len(), VSOCK_PKT_HDR_SIZE);
@@ -428,7 +434,9 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(0, &handler_ctx.guest_txvq.dtable[0], &test_ctx.mem);
             let mut pkt = VsockPacket::from_tx_virtq_head(
-                &handler_ctx.handler.txvq.pop(&test_ctx.mem).unwrap(),
+                &handler_ctx.device.queues[TXQ_INDEX]
+                    .pop(&test_ctx.mem)
+                    .unwrap(),
             )
             .unwrap();
             assert!(pkt.buf().is_none());
@@ -481,7 +489,9 @@ mod tests {
         {
             create_context!(test_ctx, handler_ctx);
             let pkt = VsockPacket::from_rx_virtq_head(
-                &handler_ctx.handler.rxvq.pop(&test_ctx.mem).unwrap(),
+                &handler_ctx.device.queues[RXQ_INDEX]
+                    .pop(&test_ctx.mem)
+                    .unwrap(),
             )
             .unwrap();
             assert_eq!(pkt.hdr().len(), VSOCK_PKT_HDR_SIZE);
@@ -532,9 +542,12 @@ mod tests {
         const FWD_CNT: u32 = 10;
 
         create_context!(test_ctx, handler_ctx);
-        let mut pkt =
-            VsockPacket::from_rx_virtq_head(&handler_ctx.handler.rxvq.pop(&test_ctx.mem).unwrap())
-                .unwrap();
+        let mut pkt = VsockPacket::from_rx_virtq_head(
+            &handler_ctx.device.queues[RXQ_INDEX]
+                .pop(&test_ctx.mem)
+                .unwrap(),
+        )
+        .unwrap();
 
         // Test field accessors.
         pkt.set_src_cid(SRC_CID)
@@ -617,9 +630,12 @@ mod tests {
     #[test]
     fn test_packet_buf() {
         create_context!(test_ctx, handler_ctx);
-        let mut pkt =
-            VsockPacket::from_rx_virtq_head(&handler_ctx.handler.rxvq.pop(&test_ctx.mem).unwrap())
-                .unwrap();
+        let mut pkt = VsockPacket::from_rx_virtq_head(
+            &handler_ctx.device.queues[RXQ_INDEX]
+                .pop(&test_ctx.mem)
+                .unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(
             pkt.buf().unwrap().len(),
@@ -636,4 +652,3 @@ mod tests {
         }
     }
 }
-*/

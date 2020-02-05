@@ -49,6 +49,8 @@ pub mod signal_handler;
 pub mod vmm_config;
 mod vstate;
 
+#[cfg(target_arch = "aarch64")]
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::os::unix::io::AsRawFd;
