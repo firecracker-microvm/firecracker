@@ -144,8 +144,7 @@ pub trait VsockChannel {
     fn has_pending_rx(&self) -> bool;
 }
 
-/// The vsock backend, which is basically an epoll-event-driven vsock channel, that needs to be
-/// sendable through a mpsc channel (the latter due to how `vmm::EpollContext` works).
+/// The vsock backend, which is basically an epoll-event-driven vsock channel.
 /// Currently, the only implementation we have is `crate::virtio::unix::muxer::VsockMuxer`, which
 /// translates guest-side vsock connections to host-side Unix domain socket connections.
 pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {}

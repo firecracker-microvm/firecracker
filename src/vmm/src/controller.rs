@@ -108,26 +108,25 @@ impl VmmController {
         ))
     }
 
-    fn update_drive_handler(
+    fn update_drive_disk_image(
         &mut self,
         drive_id: &str,
         disk_image: File,
     ) -> result::Result<(), DriveError> {
-        if let Some(handler) = self
+        if let Some(block) = self
             .vmm
             .lock()
             .unwrap()
             .mmio_device_manager
             .get_block_device(drive_id)
         {
-            handler
+            block
                 .lock()
                 .expect("Poisoned device lock")
                 .update_disk_image(disk_image)
                 .map_err(|_| DriveError::BlockDeviceUpdateFailed)
         } else {
-            // TODO: Update this error after all devices have been ported.
-            Err(DriveError::EpollHandlerNotFound)
+            Err(DriveError::InvalidBlockDeviceID)
         }
     }
 
@@ -158,9 +157,9 @@ impl VmmController {
         // Update the path of the block device with the specified path_on_host.
         self.vm_resources.block.config_list[block_device_index].path_on_host = file_path;
 
-        // When the microvm is running, we also need to update the drive handler and send a
+        // When the microvm is running, we also need to update the disk image and send a
         // rescan command to the drive.
-        self.update_drive_handler(&drive_id, disk_file)
+        self.update_drive_disk_image(&drive_id, disk_file)
             .map_err(VmmActionError::DriveConfig)?;
         self.rescan_block_device(&drive_id)?;
         Ok(())

@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-/// The vsock `EpollHandler` implements the runtime logic of our vsock device:
+/// The vsock object implements the runtime logic of our vsock device:
 /// 1. Respond to TX queue events by wrapping virtio buffers into `VsockPacket`s, then sending those
 ///    packets to the `VsockBackend`;
 /// 2. Forward backend FD event notifications to the `VsockBackend`;
@@ -13,7 +13,7 @@
 /// 4. Whenever we have processed some virtio buffers (either TX or RX), let the driver know by
 ///    raising our assigned IRQ.
 ///
-/// In a nutshell, the `EpollHandler` logic looks like this:
+/// In a nutshell, the logic looks like this:
 /// - on TX queue event:
 ///   - fetch all packets from the TX queue and send them to the backend; then
 ///   - if the backend has queued up any incoming packets, fetch them into any available RX buffers.

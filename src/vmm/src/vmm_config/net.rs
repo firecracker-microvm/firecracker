@@ -4,7 +4,6 @@
 use std::fmt::{Display, Formatter, Result};
 use std::result;
 
-use super::super::Error as VmmInternalError;
 use super::RateLimiterConfig;
 use devices;
 use dumbo::MacAddr;
@@ -79,8 +78,6 @@ pub struct NetworkInterfaceUpdateConfig {
 pub enum NetworkInterfaceError {
     /// The MAC address is already in use.
     GuestMacAddressInUse(String),
-    /// Error retrieving device handler during update.
-    EpollHandlerNotFound(VmmInternalError),
     /// The host device name is already in use.
     HostDeviceNameInUse(String),
     /// Couldn't find the interface to update (patch).
@@ -100,9 +97,6 @@ impl Display for NetworkInterfaceError {
                 "{}",
                 format!("The guest MAC address {} is already in use.", mac_addr)
             ),
-            EpollHandlerNotFound(ref e) => {
-                write!(f, "Error retrieving device epoll handler: {:?}", e)
-            }
             HostDeviceNameInUse(ref host_dev_name) => write!(
                 f,
                 "{}",
@@ -404,15 +398,6 @@ mod tests {
             "{}{:?}",
             NetworkInterfaceError::GuestMacAddressInUse("00:00:00:00:00:00".to_string()),
             NetworkInterfaceError::GuestMacAddressInUse("00:00:00:00:00:00".to_string())
-        );
-        let _ = format!(
-            "{}{:?}",
-            NetworkInterfaceError::EpollHandlerNotFound(
-                VmmInternalError::DeviceEventHandlerNotFound
-            ),
-            NetworkInterfaceError::EpollHandlerNotFound(
-                VmmInternalError::DeviceEventHandlerNotFound
-            )
         );
         let _ = format!(
             "{}{:?}",
