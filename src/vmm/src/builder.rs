@@ -10,7 +10,7 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
-use super::{EpollContext, Error, Vmm};
+use super::{Error, Vmm};
 
 use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
@@ -224,7 +224,6 @@ impl VmmEventsObserver for SerialStdin {
 /// is returned.
 pub fn build_microvm(
     vm_resources: &super::resources::VmResources,
-    _epoll_context: &mut EpollContext,
     event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {

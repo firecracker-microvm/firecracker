@@ -154,7 +154,7 @@ where
     /// to the backend for processing. Return `true` if descriptors have been added to the used
     /// ring, and `false` otherwise.
     pub fn process_tx(&mut self) -> bool {
-        debug!("vsock: epoll_handler::process_tx()");
+        debug!("vsock::process_tx()");
 
         let mut have_used = false;
 

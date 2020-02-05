@@ -28,8 +28,6 @@ pub mod virtio;
 pub use self::bus::{Bus, BusDevice, Error as BusError};
 use logger::{Metric, METRICS};
 
-pub type DeviceEventT = u16;
-
 // Function used for reporting error in terms of logging
 // but also in terms of METRICS net event fails.
 pub(crate) fn report_net_event_fail(err: Error) {
@@ -47,10 +45,6 @@ pub enum Error {
     FailedSignalingUsedQueue(io::Error),
     RateLimited(RateLimiterError),
     PayloadExpected,
-    UnknownEvent {
-        device: &'static str,
-        event: DeviceEventT,
-    },
     IoError(io::Error),
     NoAvailBuffers,
 }

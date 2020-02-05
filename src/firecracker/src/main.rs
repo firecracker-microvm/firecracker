@@ -208,7 +208,6 @@ fn main() {
 // Configure and start a microVM as described by the command-line JSON.
 fn build_microvm_from_json(
     seccomp_filter: BpfProgram,
-    epoll_context: &mut vmm::EpollContext,
     event_manager: &mut EventManager,
     config_json: String,
 ) -> (VmResources, Arc<Mutex<vmm::Vmm>>) {
@@ -220,23 +219,20 @@ fn build_microvm_from_json(
             );
             process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
         });
-    let vmm =
-        vmm::builder::build_microvm(&vm_resources, epoll_context, event_manager, &seccomp_filter)
-            .unwrap_or_else(|err| {
-                error!(
-                    "Building VMM configured from cmdline json failed: {:?}",
-                    err
-                );
-                process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
-            });
+    let vmm = vmm::builder::build_microvm(&vm_resources, event_manager, &seccomp_filter)
+        .unwrap_or_else(|err| {
+            error!(
+                "Building VMM configured from cmdline json failed: {:?}",
+                err
+            );
+            process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
+        });
     info!("Successfully started microvm that was configured from one single json");
 
     (vm_resources, vmm)
 }
 
 fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
-    // The driving epoll engine.
-    let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
@@ -250,7 +246,6 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
     // - An `Arc` reference of the built `Vmm` is plugged in the `EventManager` by the builder.
     build_microvm_from_json(
         seccomp_filter,
-        &mut epoll_context,
         &mut event_manager,
         // Safe to unwrap since '--no-api' requires this to be set.
         config_json.unwrap(),
@@ -261,10 +256,6 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
         .lock()
         .expect("Metrics lock poisoned.")
         .start(metrics::WRITE_METRICS_PERIOD_MS);
-
-    // TODO: remove this when last epoll_context user is migrated to EventManager.
-    let epoll_context = Arc::new(Mutex::new(epoll_context));
-    event_manager.add_subscriber(epoll_context).unwrap();
 
     // Run the EventManager that drives everything in the microVM.
     loop {
