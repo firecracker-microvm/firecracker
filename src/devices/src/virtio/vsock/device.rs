@@ -44,19 +44,19 @@ pub(crate) const EVQ_INDEX: usize = 2;
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
 ///   them available.
-const AVAIL_FEATURES: u64 =
+pub(crate) const AVAIL_FEATURES: u64 =
     1 << uapi::VIRTIO_F_VERSION_1 as u64 | 1 << uapi::VIRTIO_F_IN_ORDER as u64;
 
 pub struct Vsock<B> {
     cid: u64,
-    queues: Vec<VirtQueue>,
+    pub(crate) queues: Vec<VirtQueue>,
     pub(crate) queue_events: Vec<EventFd>,
     mem: GuestMemoryMmap,
     pub(crate) backend: B,
     avail_features: u64,
     acked_features: u64,
-    interrupt_status: Arc<AtomicUsize>,
-    interrupt_evt: EventFd,
+    pub(crate) interrupt_status: Arc<AtomicUsize>,
+    pub(crate) interrupt_evt: EventFd,
     // This EventFd is the only one initially registered for a vsock device, and is used to convert
     // a VirtioDevice::activate call into an EventHandler read event which allows the other events
     // (queue and backend related) to be registered post virtio device activation. That's
@@ -75,12 +75,12 @@ impl<B> Vsock<B>
 where
     B: VsockBackend,
 {
-    /// Create a new virtio-vsock device with the given VM CID and vsock backend.
-    pub fn new(cid: u64, mem: GuestMemoryMmap, backend: B) -> super::Result<Vsock<B>> {
-        let queues: Vec<VirtQueue> = defs::QUEUE_SIZES
-            .iter()
-            .map(|&max_size| VirtQueue::new(max_size))
-            .collect();
+    pub(crate) fn with_queues(
+        cid: u64,
+        mem: GuestMemoryMmap,
+        backend: B,
+        queues: Vec<VirtQueue>,
+    ) -> super::Result<Vsock<B>> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
             queue_events.push(EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?);
@@ -99,6 +99,15 @@ where
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_activated: false,
         })
+    }
+
+    /// Create a new virtio-vsock device with the given VM CID and vsock backend.
+    pub fn new(cid: u64, mem: GuestMemoryMmap, backend: B) -> super::Result<Vsock<B>> {
+        let queues: Vec<VirtQueue> = defs::QUEUE_SIZES
+            .iter()
+            .map(|&max_size| VirtQueue::new(max_size))
+            .collect();
+        Self::with_queues(cid, mem, backend, queues)
     }
 
     pub fn cid(&self) -> u64 {
@@ -275,7 +284,6 @@ where
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use crate::virtio::vsock::defs::uapi;
@@ -297,7 +305,6 @@ mod tests {
             (driver_features >> 32) as u32,
         ];
         assert_eq!(ctx.device.device_type(), uapi::VIRTIO_ID_VSOCK);
-        // assert_eq!(ctx.device.queue_max_sizes(), defs::QUEUE_SIZES);
         assert_eq!(ctx.device.avail_features_by_page(0), device_pages[0]);
         assert_eq!(ctx.device.avail_features_by_page(1), device_pages[1]);
         assert_eq!(ctx.device.avail_features_by_page(2), 0);
@@ -354,4 +361,3 @@ mod tests {
         ctx.device.activate(ctx.mem.clone()).unwrap();
     }
 }
-*/
