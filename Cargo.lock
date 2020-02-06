@@ -135,7 +135,6 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
  "dumbo",
- "epoll",
  "libc",
  "logger",
  "memory_model",
@@ -566,7 +565,6 @@ dependencies = [
  "cpuid",
  "devices",
  "dumbo",
- "epoll",
  "kernel",
  "kvm-bindings",
  "kvm-ioctls",
