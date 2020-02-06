@@ -273,7 +273,7 @@ impl BusDevice for Serial {
 
 impl Subscriber for Serial {
     /// Handle a read event (EPOLLIN) on the serial input fd.
-    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: EpollEvent, _: &mut dyn EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -323,7 +323,7 @@ mod tests {
     use std::os::unix::io::RawFd;
     use std::sync::{Arc, Mutex};
 
-    use polly::event_manager::EventManager;
+    use polly::event_manager::EpollManager;
 
     struct SharedBufferInternal {
         read_buf: Vec<u8>,
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_event_handling_no_in() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
 
         let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_out = SharedBuffer::new();
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_event_handling_with_in() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
 
         let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_in_out = SharedBuffer::new();
@@ -485,7 +485,7 @@ mod tests {
             guard.evfd.write(1).unwrap();
         }
 
-        let mut evmgr = EventManager::new().unwrap();
+        let mut evmgr = EpollManager::new().unwrap();
         let serial_wrap = Arc::new(Mutex::new(serial));
         evmgr.add_subscriber(serial_wrap.clone()).unwrap();
 

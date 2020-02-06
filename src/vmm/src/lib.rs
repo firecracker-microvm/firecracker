@@ -328,7 +328,7 @@ impl AsRawFd for EpollContext {
 
 impl Subscriber for EpollContext {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: EpollEvent, _: &mut dyn EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -669,7 +669,7 @@ impl Vmm {
 
 impl Subscriber for Vmm {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: EpollEvent, _: &mut dyn EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 

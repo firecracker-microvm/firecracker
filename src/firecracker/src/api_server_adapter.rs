@@ -10,7 +10,7 @@ use std::thread;
 use api_server::{ApiRequest, ApiResponse, ApiServer};
 use mmds::MMDS;
 use polly::epoll::{EpollEvent, EventSet};
-use polly::event_manager::{EventManager, Subscriber};
+use polly::event_manager::{EpollManager, EventManager, Subscriber};
 use utils::eventfd::EventFd;
 use vmm::controller::VmmController;
 use vmm::rpc_interface::{PrebootApiController, RuntimeApiController};
@@ -31,7 +31,7 @@ impl ApiServerAdapter {
         from_api: Receiver<ApiRequest>,
         to_api: Sender<ApiResponse>,
         vmm_controller: VmmController,
-        event_manager: &mut EventManager,
+        event_manager: &mut EpollManager,
     ) {
         let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
@@ -51,7 +51,7 @@ impl ApiServerAdapter {
 }
 impl Subscriber for ApiServerAdapter {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: EpollEvent, _: &mut dyn EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -141,7 +141,7 @@ pub fn run_with_api(
     // The driving epoll engine.
     let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
     // The event manager to replace EpollContext.
-    let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+    let mut event_manager = EpollManager::new().expect("Unable to create EventManager");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(super::metrics::PeriodicMetrics::new()));

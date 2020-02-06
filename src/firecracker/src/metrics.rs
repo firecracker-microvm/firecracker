@@ -62,7 +62,7 @@ impl PeriodicMetrics {
 
 impl Subscriber for PeriodicMetrics {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: EpollEvent, _: &mut dyn EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -98,7 +98,7 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use polly::event_manager::EventManager;
+    use polly::event_manager::EpollManager;
     use utils::eventfd::EventFd;
 
     #[test]
@@ -118,7 +118,7 @@ pub mod tests {
 
     #[test]
     fn test_periodic_metrics() {
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut event_manager = EpollManager::new().expect("Unable to create EventManager");
         let mut metrics = PeriodicMetrics::new();
 
         // Test invalid read event.

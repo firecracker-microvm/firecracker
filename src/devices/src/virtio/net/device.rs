@@ -703,7 +703,7 @@ mod tests {
     use logger::{Metric, METRICS};
     use memory_model::{GuestAddress, GuestMemory};
     use polly::epoll::{EpollEvent, EventSet};
-    use polly::event_manager::{EventManager, Subscriber};
+    use polly::event_manager::{EpollManager, Subscriber};
     use rate_limiter::{RateLimiter, TokenBucket, TokenType};
     use std::net::Ipv4Addr;
     use std::os::unix::io::AsRawFd;
@@ -931,7 +931,7 @@ mod tests {
 
     #[test]
     fn test_event_handling() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let mut net = Net::default_net(TestMutators::default());
         let mem_clone = net.mem.clone();
         let (rxq, txq) = Net::virtqueues(&mem_clone);
@@ -1212,7 +1212,7 @@ mod tests {
 
     #[test]
     fn test_process_error_cases() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let mut net = Net::default_net(TestMutators::default());
         let mem_clone = net.mem.clone();
         let (rxq, txq) = Net::virtqueues(&mem_clone);
@@ -1241,7 +1241,7 @@ mod tests {
 
     #[test]
     fn test_invalid_event() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let mut net = Net::default_net(TestMutators::default());
         let mem_clone = net.mem.clone();
         let (rxq, txq) = Net::virtqueues(&mem_clone);
@@ -1260,7 +1260,7 @@ mod tests {
     //  * interrupt_evt.write
     #[test]
     fn test_read_tap_fail_event_handler() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let test_mutators = TestMutators {
             tap_read_fail: true,
         };
@@ -1289,7 +1289,7 @@ mod tests {
 
     #[test]
     fn test_rx_rate_limiter_handling() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let mut net = Net::default_net(TestMutators::default());
         let mem_clone = net.mem.clone();
         let (rxq, txq) = Net::virtqueues(&mem_clone);
@@ -1307,7 +1307,7 @@ mod tests {
 
     #[test]
     fn test_tx_rate_limiter_handling() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let mut net = Net::default_net(TestMutators::default());
         let mem_clone = net.mem.clone();
         let (rxq, txq) = Net::virtqueues(&mem_clone);
@@ -1326,7 +1326,7 @@ mod tests {
 
     #[test]
     fn test_bandwidth_rate_limiter() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let mut net = Net::default_net(TestMutators::default());
         let mem_clone = net.mem.clone();
         let (rxq, txq) = Net::virtqueues(&mem_clone);
@@ -1444,7 +1444,7 @@ mod tests {
 
     #[test]
     fn test_ops_rate_limiter() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let mut net = Net::default_net(TestMutators::default());
         let mem_clone = net.mem.clone();
         let (rxq, txq) = Net::virtqueues(&mem_clone);
@@ -1599,7 +1599,7 @@ mod tests {
     #[test]
     fn test_tx_queue_interrupt() {
         // Regression test for https://github.com/firecracker-microvm/firecracker/issues/1436 .
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let mut net = Net::default_net(TestMutators::default());
         let mem_clone = net.mem.clone();
         let (rxq, txq) = Net::virtqueues(&mem_clone);

@@ -19,7 +19,7 @@ use devices::legacy::Serial;
 use devices::virtio::vsock::{TYPE_VSOCK, VSOCK_EVENTS_COUNT};
 use devices::virtio::MmioTransport;
 use memory_model::{GuestAddress, GuestMemory, GuestMemoryError};
-use polly::event_manager::{Error as EventManagerError, EventManager};
+use polly::event_manager::{EpollManager, Error as EventManagerError};
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
@@ -212,7 +212,7 @@ impl VmmEventsObserver for SerialStdin {
 pub fn build_microvm(
     vm_resources: &super::resources::VmResources,
     epoll_context: &mut EpollContext,
-    event_manager: &mut EventManager,
+    event_manager: &mut EpollManager,
     seccomp_level: u32,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     let boot_config = vm_resources
@@ -420,7 +420,7 @@ pub fn setup_interrupt_controller(
 
 /// Sets up the serial device.
 pub fn setup_serial_device(
-    event_manager: &mut EventManager,
+    event_manager: &mut EpollManager,
     input: Box<dyn devices::legacy::ReadableFd + Send>,
     out: Box<dyn io::Write + Send>,
 ) -> std::result::Result<Arc<Mutex<Serial>>, StartMicrovmError> {
@@ -591,7 +591,7 @@ fn attach_block_device(
 fn attach_block_devices(
     vmm: &mut Vmm,
     blocks: &BlockDeviceConfigs,
-    event_manager: &mut EventManager,
+    event_manager: &mut EpollManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
@@ -671,7 +671,7 @@ fn attach_block_devices(
 fn attach_net_devices(
     vmm: &mut Vmm,
     network_ifaces: &NetworkInterfaceConfigs,
-    event_manager: &mut EventManager,
+    event_manager: &mut EpollManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
@@ -763,7 +763,7 @@ pub mod tests {
     use std::fs::File;
 
     use super::*;
-    use polly::event_manager::EventManager;
+    use polly::event_manager::EpollManager;
 
     #[test]
     fn test_stdin_wrapper() {
@@ -790,7 +790,7 @@ pub mod tests {
         let read_tempfile = TempFile::new("/tmp/serial_read_").unwrap();
         let read_file = File::open(read_tempfile.as_path()).unwrap();
         let read_handle = SerialInput(read_file);
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut event_manager = EpollManager::new().expect("Unable to create EventManager");
         setup_serial_device(
             &mut event_manager,
             Box::new(read_handle),

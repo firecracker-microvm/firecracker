@@ -29,7 +29,7 @@ use std::process;
 use std::sync::{Arc, Mutex};
 
 use logger::{Metric, LOGGER, METRICS};
-use polly::event_manager::EventManager;
+use polly::event_manager::EpollManager;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::resources::VmResources;
@@ -198,7 +198,7 @@ fn main() {
 fn build_microvm_from_json(
     seccomp_level: u32,
     epoll_context: &mut vmm::EpollContext,
-    event_manager: &mut EventManager,
+    event_manager: &mut EpollManager,
     firecracker_version: String,
     config_json: String,
 ) -> (VmResources, Arc<Mutex<vmm::Vmm>>) {
@@ -227,7 +227,7 @@ fn build_microvm_from_json(
 fn run_without_api(seccomp_level: u32, config_json: Option<String>) {
     // The driving epoll engine.
     let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
-    let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+    let mut event_manager = EpollManager::new().expect("Unable to create EventManager");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(metrics::PeriodicMetrics::new()));

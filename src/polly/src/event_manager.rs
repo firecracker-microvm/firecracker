@@ -52,53 +52,133 @@ pub trait Subscriber {
     ///
     /// # Arguments
     /// * event - the available `EpollEvent` ready for processing
-    /// * event_manager - Reference to the `EventManager` that gives the implementor
-    ///                   the possibility to directly call the required update operations.
-    ///                   The only functions safe to call on this `EventManager` reference
-    ///                   are `register`, `unregister` and `modify` which correspond to
-    ///                   the `libc::epoll_ctl` operations.
-    fn process(&mut self, event: EpollEvent, event_manager: &mut EventManager);
+    /// * event_manager - Mutable reference to the `EventManager`. It allows
+    ///                   updating the events that the subscriber is interested
+    ///                   in.
+    fn process(&mut self, event: EpollEvent, event_manager: &mut dyn EventManager);
 
     /// Returns a list of `EpollEvent` that this subscriber is interested in.
     fn interest_list(&self) -> Vec<EpollEvent>;
 }
 
+pub trait EventManager {
+    /// Registers a new event.
+    ///
+    /// # Arguments
+    /// * pollable - target pollable object.
+    /// * epoll_event - configuration of the event being registered.
+    /// * subscriber - subscriber responsible for processing the event.
+    fn register(
+        &mut self,
+        pollable: Pollable,
+        epoll_event: EpollEvent,
+        subscriber: Arc<Mutex<dyn Subscriber>>,
+    ) -> Result<()>;
+
+    /// Removes `pollable` from the interest list.
+    fn unregister(&mut self, pollable: Pollable) -> Result<()>;
+
+    /// Updates the event configuration corresponding to `pollable`.
+    ///
+    /// # Arguments
+    /// * pollable - target pollable object.
+    /// * epoll_event - new event configuration.
+    fn modify(&mut self, pollable: Pollable, epoll_event: EpollEvent) -> Result<()>;
+
+    /// Returns a clone of the `Subscriber` associated with `pollable`.
+    fn subscriber(&self, pollable: Pollable) -> Result<Arc<Mutex<dyn Subscriber>>>;
+}
+
 /// Manages I/O notifications using epoll mechanism.
-pub struct EventManager {
+pub struct EpollManager {
     epoll: Epoll,
     subscribers: HashMap<RawFd, Arc<Mutex<dyn Subscriber>>>,
     ready_events: Vec<EpollEvent>,
 }
 
-impl AsRawFd for EventManager {
+impl AsRawFd for EpollManager {
     fn as_raw_fd(&self) -> RawFd {
         self.epoll.as_raw_fd()
     }
 }
 
-impl EventManager {
+impl EventManager for EpollManager {
+    /// Register a new `pollable` file descriptor with the corresponding `epoll_event`
+    /// for `subscriber`.
+    fn register(
+        &mut self,
+        pollable: Pollable,
+        epoll_event: EpollEvent,
+        subscriber: Arc<Mutex<dyn Subscriber>>,
+    ) -> Result<()> {
+        if self.subscribers.contains_key(&pollable) {
+            return Err(Error::AlreadyExists(pollable));
+        };
+
+        self.epoll
+            .ctl(epoll::ControlOperation::Add, pollable, epoll_event)
+            .map_err(Error::Poll)?;
+
+        self.subscribers.insert(pollable, subscriber);
+        Ok(())
+    }
+
+    /// Unregister the `pollable` file descriptor.
+    fn unregister(&mut self, pollable: Pollable) -> Result<()> {
+        match self.subscribers.remove(&pollable) {
+            Some(_) => {
+                self.epoll
+                    .ctl(
+                        epoll::ControlOperation::Delete,
+                        pollable,
+                        epoll::EpollEvent::default(),
+                    )
+                    .map_err(Error::Poll)?;
+            }
+            None => {
+                return Err(Error::NotFound(pollable));
+            }
+        }
+        Ok(())
+    }
+
+    /// Update the events monitored by `pollable`.
+    fn modify(&mut self, pollable: Pollable, epoll_event: EpollEvent) -> Result<()> {
+        if self.subscribers.contains_key(&pollable) {
+            self.epoll
+                .ctl(epoll::ControlOperation::Modify, pollable, epoll_event)
+                .map_err(Error::Poll)?;
+        } else {
+            return Err(Error::NotFound(pollable));
+        }
+
+        Ok(())
+    }
+
+    /// Returns a clone of the subscriber associated with the `fd`.
+    fn subscriber(&self, fd: Pollable) -> Result<Arc<Mutex<dyn Subscriber>>> {
+        self.subscribers
+            .get(&fd)
+            .ok_or(Error::NotFound(fd))
+            .map(|subscriber| subscriber.clone())
+    }
+}
+
+impl EpollManager {
     const EVENT_BUFFER_SIZE: usize = 128;
 
     /// Create a new EventManager.
-    pub fn new() -> Result<EventManager> {
+    pub fn new() -> Result<EpollManager> {
         let epoll_fd = epoll::Epoll::new().map_err(Error::EpollCreate)?;
 
-        Ok(EventManager {
+        Ok(EpollManager {
             epoll: epoll_fd,
             subscribers: HashMap::new(),
             // This buffer is used for storing the events returned by `epoll_wait()`.
             // We preallocate memory for this buffer in order to not repeat this
             // operation every time `run()` loop is executed.
-            ready_events: vec![epoll::EpollEvent::default(); EventManager::EVENT_BUFFER_SIZE],
+            ready_events: vec![epoll::EpollEvent::default(); EpollManager::EVENT_BUFFER_SIZE],
         })
-    }
-
-    /// Returns a clone of the subscriber associated with the `fd`.
-    pub fn subscriber(&self, fd: Pollable) -> Result<Arc<Mutex<dyn Subscriber>>> {
-        self.subscribers
-            .get(&fd)
-            .ok_or(Error::NotFound(fd))
-            .map(|subscriber| subscriber.clone())
     }
 
     /// Register a new subscriber. All events that the subscriber is interested are registered.
@@ -118,58 +198,6 @@ impl EventManager {
         Ok(())
     }
 
-    /// Register a new `pollable` file descriptor with the corresponding `epoll_event`
-    /// for `subscriber`.
-    pub fn register(
-        &mut self,
-        pollable: Pollable,
-        epoll_event: EpollEvent,
-        subscriber: Arc<Mutex<dyn Subscriber>>,
-    ) -> Result<()> {
-        if self.subscribers.contains_key(&pollable) {
-            return Err(Error::AlreadyExists(pollable));
-        };
-
-        self.epoll
-            .ctl(epoll::ControlOperation::Add, pollable, epoll_event)
-            .map_err(Error::Poll)?;
-
-        self.subscribers.insert(pollable, subscriber);
-        Ok(())
-    }
-
-    /// Unregister the `pollable` file descriptor.
-    pub fn unregister(&mut self, pollable: Pollable) -> Result<()> {
-        match self.subscribers.remove(&pollable) {
-            Some(_) => {
-                self.epoll
-                    .ctl(
-                        epoll::ControlOperation::Delete,
-                        pollable,
-                        epoll::EpollEvent::default(),
-                    )
-                    .map_err(Error::Poll)?;
-            }
-            None => {
-                return Err(Error::NotFound(pollable));
-            }
-        }
-        Ok(())
-    }
-
-    /// Update the events monitored by `pollable`.
-    pub fn modify(&mut self, pollable: Pollable, epoll_event: EpollEvent) -> Result<()> {
-        if self.subscribers.contains_key(&pollable) {
-            self.epoll
-                .ctl(epoll::ControlOperation::Modify, pollable, epoll_event)
-                .map_err(Error::Poll)?;
-        } else {
-            return Err(Error::NotFound(pollable));
-        }
-
-        Ok(())
-    }
-
     /// Wait for events, then dispatch to the registered event handlers.
     pub fn run(&mut self) -> Result<usize> {
         self.run_with_timeout(-1)
@@ -181,7 +209,7 @@ impl EventManager {
         let event_count = self
             .epoll
             .wait(
-                EventManager::EVENT_BUFFER_SIZE,
+                EpollManager::EVENT_BUFFER_SIZE,
                 milliseconds,
                 &mut self.ready_events[..],
             )
@@ -280,7 +308,7 @@ mod tests {
             self.processed_ev1_in = false;
         }
 
-        fn handle_updates(&mut self, event_manager: &mut EventManager) {
+        fn handle_updates(&mut self, event_manager: &mut dyn EventManager) {
             if self.register_ev2 {
                 event_manager
                     .register(
@@ -332,7 +360,7 @@ mod tests {
     }
 
     impl Subscriber for DummySubscriber {
-        fn process(&mut self, event: EpollEvent, event_manager: &mut EventManager) {
+        fn process(&mut self, event: EpollEvent, event_manager: &mut dyn EventManager) {
             let source = event.data() as i32;
             let event_set = EventSet::from_bits(event.events()).unwrap();
 
@@ -363,7 +391,7 @@ mod tests {
     // Test that registering a new event while processing an existing event works.
     #[test]
     fn test_register() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let dummy_subscriber = Arc::new(Mutex::new(DummySubscriber::new()));
 
         event_manager
@@ -388,7 +416,7 @@ mod tests {
     // Test that unregistering an event while processing another one works.
     #[test]
     fn test_unregister() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let dummy_subscriber = Arc::new(Mutex::new(DummySubscriber::new()));
 
         event_manager
@@ -410,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_modify() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let dummy_subscriber = Arc::new(Mutex::new(DummySubscriber::new()));
 
         event_manager
@@ -451,7 +479,7 @@ mod tests {
     // Test that registering the same event twice throws an error.
     #[test]
     fn test_register_errors() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let dummy_subscriber = Arc::new(Mutex::new(DummySubscriber::new()));
 
         event_manager
@@ -465,7 +493,7 @@ mod tests {
 
     #[test]
     fn test_unregister_errors() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let dummy_subscriber = Arc::new(Mutex::new(DummySubscriber::new()));
 
         event_manager
@@ -488,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_get_handler() {
-        let mut event_manager = EventManager::new().unwrap();
+        let mut event_manager = EpollManager::new().unwrap();
         let dummy_subscriber = Arc::new(Mutex::new(DummySubscriber::new()));
 
         event_manager
