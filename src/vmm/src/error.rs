@@ -23,6 +23,9 @@ pub enum Error {
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::Error),
+    /// Cannot clone an Event file descriptor
+    #[cfg(target_arch = "x86_64")]
+    CloneEventFd(I8042DeviceError),
     /// An operation on the epoll instance failed due to resource exhaustion or bad configuration.
     EpollFd(io::Error),
     /// Cannot read from an Event file descriptor.
@@ -52,6 +55,8 @@ impl std::fmt::Debug for Error {
         match self {
             #[cfg(target_arch = "x86_64")]
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
+            #[cfg(target_arch = "x86_64")]
+            CloneEventFd(e) => write!(f, "Error cloning an event fd: {:?}", e),
             EpollFd(e) => write!(f, "Epoll fd error: {}", e.to_string()),
             EventFd(e) => write!(f, "Event fd error: {}", e.to_string()),
             DeviceEventHandlerNotFound => write!(
