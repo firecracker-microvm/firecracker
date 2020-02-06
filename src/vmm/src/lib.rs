@@ -9,7 +9,7 @@
 //! and other virtualization features to run a single lightweight micro-virtual
 //! machine (microVM).
 #![deny(missing_docs)]
-extern crate epoll;
+
 extern crate kvm_bindings;
 extern crate kvm_ioctls;
 extern crate libc;
@@ -69,7 +69,7 @@ use devices::{BusDevice, DeviceEventT, EpollHandler};
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::error::LoggerError;
 use logger::{Metric, LOGGER, METRICS};
-use polly::epoll::{EpollEvent, EventSet};
+use polly::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use polly::event_manager::{self, EventManager, Subscriber};
 use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
 use utils::eventfd::EventFd;
@@ -118,7 +118,7 @@ impl MaybeHandler {
 // A glaring shortcoming of the current design is the liberal passing around of raw_fds,
 // and duping of file descriptors. This issue will be solved when we also implement device removal.
 pub struct EpollContext {
-    epoll_raw_fd: RawFd,
+    epoll: Epoll,
     // FIXME: find a different design as this does not scale. This Vec can only grow.
     dispatch_table: Vec<Option<EpollDispatch>>,
     device_handlers: Vec<MaybeHandler>,
@@ -126,7 +126,7 @@ pub struct EpollContext {
 
     // This part of the class relates to incoming epoll events. The incoming events are held in
     // `events[event_index..num_events)`, followed by the events not yet read from `epoll_raw_fd`.
-    events: Vec<epoll::Event>,
+    events: Vec<EpollEvent>,
     num_events: usize,
     event_index: usize,
 }
@@ -136,8 +136,6 @@ impl EpollContext {
     pub fn new() -> Result<Self> {
         const EPOLL_EVENTS_LEN: usize = 100;
 
-        let epoll_raw_fd = epoll::create(true).map_err(Error::EpollFd)?;
-
         // Initial capacity needs to be large enough to hold:
         // * 1 exit event
         // * 2 queue events for virtio block
@@ -146,11 +144,11 @@ impl EpollContext {
         let mut dispatch_table = Vec::with_capacity(20);
         dispatch_table.push(None);
         Ok(EpollContext {
-            epoll_raw_fd,
+            epoll: Epoll::new().map_err(Error::EpollFd)?,
             dispatch_table,
             device_handlers: Vec::with_capacity(6),
             device_id_to_handler_id: HashMap::new(),
-            events: vec![epoll::Event::new(epoll::Events::empty(), 0); EPOLL_EVENTS_LEN],
+            events: vec![EpollEvent::new(EventSet::empty(), 0); EPOLL_EVENTS_LEN],
             num_events: 0,
             event_index: 0,
         })
@@ -169,13 +167,13 @@ impl EpollContext {
 
         // Add a new epoll event on `fd`, associated with index
         // `dispatch_index`.
-        epoll::ctl(
-            self.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            fd.as_raw_fd(),
-            epoll::Event::new(epoll::Events::EPOLLIN, dispatch_index),
-        )
-        .map_err(Error::EpollFd)?;
+        self.epoll
+            .ctl(
+                ControlOperation::Add,
+                fd.as_raw_fd(),
+                EpollEvent::new(EventSet::IN, dispatch_index),
+            )
+            .map_err(Error::EpollFd)?;
 
         // Add the associated token at index `dispatch_index`
         self.dispatch_table.push(Some(token));
@@ -224,7 +222,7 @@ impl EpollContext {
             self.device_handlers.len() - 1,
         );
 
-        T::new(dispatch_base, self.epoll_raw_fd, sender)
+        T::new(dispatch_base, self.epoll, sender)
     }
 
     /// Obtains the `EpollHandler` trait object associated with the provided handler id.
@@ -266,13 +264,15 @@ impl EpollContext {
     }
 
     /// Gets the next event from `epoll_raw_fd`.
-    pub fn get_event(&mut self) -> Result<epoll::Event> {
+    pub fn get_event(&mut self) -> Result<EpollEvent> {
         // Check if no events are left in `events`:
         while self.num_events == self.event_index {
             // If so, get more events.
             // Note that if there is an error, we propagate it.
-            self.num_events =
-                epoll::wait(self.epoll_raw_fd, -1, &mut self.events[..]).map_err(Error::Poll)?;
+            self.num_events = self
+                .epoll
+                .wait(self.events.len(), -1, self.events.as_mut_slice())
+                .map_err(Error::Poll)?;
             // And reset the event_index.
             self.event_index = 0;
         }
@@ -287,16 +287,15 @@ impl EpollContext {
     /// Wait for and dispatch events.
     pub fn run_event_loop(&mut self) {
         let event = self.get_event().unwrap();
-        let evset = match epoll::Events::from_bits(event.events) {
+        let evset = match EventSet::from_bits(event.events()) {
             Some(evset) => evset,
             None => {
-                let evbits = event.events;
-                warn!("epoll: ignoring unknown event set: 0x{:x}", evbits);
+                warn!("epoll: ignoring unknown event set: 0x{:x}", event.events());
                 return;
             }
         };
 
-        match self.dispatch_table[event.data as usize] {
+        match self.dispatch_table[event.data() as usize] {
             Some(EpollDispatch::DeviceHandler(device_idx, device_token)) => {
                 METRICS.vmm.device_events.inc();
                 match self.get_device_handler_by_handler_id(device_idx) {
@@ -324,7 +323,7 @@ impl EpollContext {
 
 impl AsRawFd for EpollContext {
     fn as_raw_fd(&self) -> RawFd {
-        self.epoll_raw_fd
+        self.epoll.as_raw_fd()
     }
 }
 
@@ -334,7 +333,7 @@ impl Subscriber for EpollContext {
         let source = event.fd();
         let event_set = event.event_set();
 
-        if source == self.epoll_raw_fd && event_set == EventSet::IN {
+        if source == self.as_raw_fd() && event_set == EventSet::IN {
             self.run_event_loop();
         } else {
             error!("Spurious EventManager event for handler: EpollContext");
@@ -348,7 +347,7 @@ impl Subscriber for EpollContext {
 
 impl Drop for EpollContext {
     fn drop(&mut self) {
-        let rc = unsafe { libc::close(self.epoll_raw_fd) };
+        let rc = unsafe { libc::close(self.as_raw_fd()) };
         if rc != 0 {
             warn!("Cannot close epoll.");
         }

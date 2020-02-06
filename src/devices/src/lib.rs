@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 //! Emulates virtual and hardware devices.
-extern crate epoll;
+
 extern crate libc;
 
 extern crate dumbo;
@@ -18,6 +18,7 @@ extern crate rate_limiter;
 extern crate virtio_gen;
 extern crate vm_memory;
 
+use polly::epoll::EventSet;
 use rate_limiter::Error as RateLimiterError;
 use std::io;
 
@@ -34,7 +35,7 @@ pub type DeviceEventT = u16;
 type Result<T> = std::result::Result<T, Error>;
 
 pub trait EpollHandler: AsAny + Send {
-    fn handle_event(&mut self, device_event: DeviceEventT, evset: epoll::Events) -> Result<()>;
+    fn handle_event(&mut self, device_event: DeviceEventT, evset: EventSet) -> Result<()>;
 }
 
 // Function used for reporting error in terms of logging

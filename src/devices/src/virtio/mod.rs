@@ -9,8 +9,9 @@
 use std;
 use std::any::Any;
 use std::io::Error as IOError;
-use std::os::unix::io::RawFd;
 use std::sync::mpsc;
+
+use polly::epoll::Epoll;
 
 pub mod block;
 pub mod device;
@@ -69,11 +70,7 @@ pub enum ActivateError {
 pub type ActivateResult = std::result::Result<(), ActivateError>;
 
 pub trait EpollConfigConstructor {
-    fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<dyn EpollHandler>>,
-    ) -> Self;
+    fn new(first_token: u64, epoll: Epoll, sender: mpsc::Sender<Box<dyn EpollHandler>>) -> Self;
 }
 
 /// Trait that helps in upcasting an object to Any
