@@ -278,45 +278,34 @@ mod tests {
 
     #[test]
     fn test_uri() {
-        let uri = Uri::new("http://localhost/home");
-        assert_eq!(uri.get_abs_path(), "/home");
-
-        let uri = Uri::new("/home");
-        assert_eq!(uri.get_abs_path(), "/home");
-
-        let uri = Uri::new("home");
-        assert_eq!(uri.get_abs_path(), "");
-
-        let uri = Uri::new("http://");
-        assert_eq!(uri.get_abs_path(), "");
-
-        let uri = Uri::new("http://192.168.0.0");
-        assert_eq!(uri.get_abs_path(), "");
+        for tc in &vec![
+            ("http://localhost/home", "/home"),
+            ("http://localhost:8080/home", "/home"),
+            ("http://localhost/home/sub", "/home/sub"),
+            ("/home", "/home"),
+            ("home", ""),
+            ("http://", ""),
+            ("http://192.168.0.0", ""),
+        ] {
+            assert_eq!(Uri::new(tc.0).get_abs_path(), tc.1);
+        }
     }
 
     #[test]
     fn test_find() {
         let bytes: &[u8; 13] = b"abcacrgbabsjl";
-        let i = find(&bytes[..], b"ac");
-        assert_eq!(i.unwrap(), 3);
 
-        let i = find(&bytes[..], b"rgb");
-        assert_eq!(i.unwrap(), 5);
-
-        let i = find(&bytes[..], b"ab");
-        assert_eq!(i.unwrap(), 0);
-
-        let i = find(&bytes[..], b"l");
-        assert_eq!(i.unwrap(), 12);
-
-        let i = find(&bytes[..], b"jle");
-        assert!(i.is_none());
-
-        let i = find(&bytes[..], b"asdkjhasjhdjhgsadg");
-        assert!(i.is_none());
-
-        let i = find(&bytes[..], b"abcacrgbabsjl");
-        assert_eq!(i.unwrap(), 0);
+        for tc in &vec![
+            ("ac", Some(3)),
+            ("rgb", Some(5)),
+            ("ab", Some(0)),
+            ("l", Some(12)),
+            ("abcacrgbabsjl", Some(0)),
+            ("jle", None),
+            ("asdkjhasjhdjhgsadg", None),
+        ] {
+            assert_eq!(find(&bytes[..], tc.0.as_bytes()), tc.1);
+        }
     }
 
     #[test]

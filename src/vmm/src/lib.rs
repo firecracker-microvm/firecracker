@@ -947,7 +947,7 @@ impl Vmm {
         for handle in self.vcpus_handles.iter() {
             match handle
                 .response_receiver()
-                .recv_timeout(Duration::from_millis(100))
+                .recv_timeout(Duration::from_millis(1000))
             {
                 Ok(VcpuResponse::Resumed) => (),
                 _ => return Err(StartMicrovmError::VcpuResume),

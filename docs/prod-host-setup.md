@@ -167,3 +167,55 @@ Verify that swap is disabled by running:
 ```bash
 grep -q "/dev" /proc/swaps && echo "swap partitions present (Recommendation: no swap)" || echo "no swap partitions (OK)"
 ```
+
+### Known kernel issues
+
+General recommendation: Keep the host and the guest kernels up to date.
+
+#### [CVE-2019-3016](https://nvd.nist.gov/vuln/detail/CVE-2019-3016)
+
+##### Description
+
+In a Linux KVM guest that has PV TLB enabled, a process in the guest kernel 
+may be able to read memory locations from another process in the same guest.
+
+##### Impact
+
+Under certain conditions the TLB will contain invalid entries. A malicious 
+attacker running on the guest can get access to the memory of other running 
+process on that guest.
+
+##### Vulnerable systems
+
+The vulnerability affects systems where all the following conditions
+are present:
+
+- the host kernel >= 4.10.
+- the guest kernel >= 4.16.
+- the `KVM_FEATURE_PV_TLB_FLUSH` is set in the CPUID of the
+guest. This is the `EAX` bit 9 in the `KVM_CPUID_FEATURES (0x40000001)` entry. 
+
+This can be checked by running 
+
+```bash
+cpuid -r
+```
+
+and by searching for the entry corresponding to the leaf `0x40000001`.
+
+Example output:
+
+```
+0x40000001 0x00: eax=0x200 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
+EAX 010004fb = 0010 0000 0000
+EAX Bit 9: KVM_FEATURE_PV_TLB_FLUSH = 1 
+```
+
+##### Mitigation
+
+The vulnerability is fixed by the following host kernel 
+[patches](https://lkml.org/lkml/2020/1/30/482).
+
+The the fix was integrated in the mainline kernel. Please follow kernel.org and
+once the fix is available in your stable release please update the host kernel. 
+If you are not using a vanilla kernel, please check with Linux distro provider.
