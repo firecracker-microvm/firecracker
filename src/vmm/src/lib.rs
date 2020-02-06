@@ -438,6 +438,14 @@ impl Vmm {
         let kvm = KvmContext::new().map_err(Error::KvmContext)?;
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
+        #[cfg(target_arch = "x86_64")]
+        let exit_evt = None;
+
+        #[cfg(target_arch = "aarch64")]
+        let exit_evt = EventFd::new(libc::EFD_NONBLOCK)
+            .map(Some)
+            .map_err(Error::EventFd)?;
+
         Ok(Vmm {
             kvm,
             vm_config: VmConfig::default(),
@@ -445,7 +453,7 @@ impl Vmm {
             stdin_handle: io::stdin(),
             kernel_config: None,
             vcpus_handles: vec![],
-            exit_evt: None,
+            exit_evt,
             vm,
             mmio_device_manager: None,
             #[cfg(target_arch = "x86_64")]
@@ -882,7 +890,13 @@ impl Vmm {
             }
             #[cfg(target_arch = "aarch64")]
             {
-                vcpu = Vcpu::new_aarch64(cpu_index, self.vm.fd(), request_ts.clone())
+                let exit_evt = self
+                    .exit_evt
+                    .as_ref()
+                    .unwrap()
+                    .try_clone()
+                    .map_err(|_| StartMicrovmError::EventFd)?;
+                vcpu = Vcpu::new_aarch64(cpu_index, self.vm.fd(), exit_evt, request_ts.clone())
                     .map_err(StartMicrovmError::Vcpu)?;
 
                 vcpu.configure_aarch64(self.vm.fd(), vm_memory, entry_addr)
@@ -1106,6 +1120,13 @@ impl Vmm {
                 .map_err(|_| RegisterEvent)?;
 
             self.exit_evt = Some(exit_poll_evt_fd);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            self.epoll_context
+                .add_epollin_event(self.exit_evt.as_ref().unwrap(), EpollDispatch::Exit)
+                .map_err(|_| StartMicrovmError::RegisterEvent)?;
         }
 
         self.epoll_context.enable_stdin_event();
