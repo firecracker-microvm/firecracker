@@ -83,6 +83,8 @@ use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
+use polly::epoll::EventSet;
+
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
 use super::super::{Result as VsockResult, VsockChannel, VsockEpollListener, VsockError};
@@ -397,32 +399,32 @@ where
     /// - data is available to be read from the host stream, so that it can store an RW pending
     ///   RX indication; and
     /// - data can be written to the host stream, and the TX buffer needs to be flushed.
-    fn get_polled_evset(&self) -> epoll::Events {
-        let mut evset = epoll::Events::empty();
+    fn get_polled_evset(&self) -> EventSet {
+        let mut evset = EventSet::empty();
         if !self.tx_buf.is_empty() {
             // There's data waiting in the TX buffer, so we are interested in being notified
             // when writing to the host stream wouldn't block.
-            evset.insert(epoll::Events::EPOLLOUT);
+            evset.insert(EventSet::OUT);
         }
         // We're generally interested in being notified when data can be read from the host
         // stream, unless we're in a state which doesn't allow moving data from host to guest.
         match self.state {
             ConnState::Killed | ConnState::LocalClosed | ConnState::PeerClosed(true, _) => (),
             _ if self.need_credit_update_from_peer() => (),
-            _ => evset.insert(epoll::Events::EPOLLIN),
+            _ => evset.insert(EventSet::IN),
         }
         evset
     }
 
     /// Notify the connection about an event (or set of events) that it was interested in.
-    fn notify(&mut self, evset: epoll::Events) {
-        if evset.contains(epoll::Events::EPOLLIN) {
+    fn notify(&mut self, evset: EventSet) {
+        if evset.contains(EventSet::IN) {
             // Data can be read from the host stream. Setting a Rw pending indication, so that
             // the muxer will know to call `recv_pkt()` later.
             self.pending_rx.insert(PendingRx::Rw);
         }
 
-        if evset.contains(epoll::Events::EPOLLOUT) {
+        if evset.contains(EventSet::OUT) {
             // Data can be written to the host stream. Time to flush out the TX buffer.
             //
             if self.tx_buf.is_empty() {
@@ -812,12 +814,12 @@ mod tests {
         }
 
         fn notify_epollin(&mut self) {
-            self.conn.notify(epoll::Events::EPOLLIN);
+            self.conn.notify(EventSet::IN);
             assert!(self.conn.has_pending_rx());
         }
 
         fn notify_epollout(&mut self) {
-            self.conn.notify(epoll::Events::EPOLLOUT);
+            self.conn.notify(EventSet::OUT);
         }
 
         fn init_pkt(&mut self, op: u16, len: u32) -> &mut VsockPacket {
@@ -1081,16 +1083,13 @@ mod tests {
 
             // When there's data in the TX buffer, the connection should ask to be notified when it
             // can write to its backing stream.
-            assert!(ctx
-                .conn
-                .get_polled_evset()
-                .contains(epoll::Events::EPOLLOUT));
+            assert!(ctx.conn.get_polled_evset().contains(EventSet::OUT));
             assert_eq!(ctx.conn.tx_buf.len(), data.len());
 
             // Unlock the write stream and notify the connection it can now write its bufferred
             // data.
             ctx.set_stream(TestStream::new());
-            ctx.conn.notify(epoll::Events::EPOLLOUT);
+            ctx.conn.notify(EventSet::OUT);
             assert!(ctx.conn.tx_buf.is_empty());
             assert_eq!(ctx.conn.stream.write_buf, data);
         }
@@ -1135,10 +1134,7 @@ mod tests {
             stream.write_state = StreamState::Closed;
             ctx.set_stream(stream);
 
-            assert!(ctx
-                .conn
-                .get_polled_evset()
-                .contains(epoll::Events::EPOLLOUT));
+            assert!(ctx.conn.get_polled_evset().contains(EventSet::OUT));
             ctx.notify_epollout();
             assert_eq!(ctx.conn.state, ConnState::Killed);
         }

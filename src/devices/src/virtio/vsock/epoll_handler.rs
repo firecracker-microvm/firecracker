@@ -26,6 +26,7 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use polly::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;
 
@@ -142,7 +143,7 @@ where
     fn handle_event(
         &mut self,
         device_event: DeviceEventT,
-        evset: epoll::Events,
+        evset: EventSet,
     ) -> result::Result<(), DeviceError> {
         let mut raise_irq = false;
 
@@ -324,7 +325,7 @@ mod tests {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_epoll_handler_context();
 
-            match ctx.handler.handle_event(TXQ_EVENT, epoll::Events::EPOLLIN) {
+            match ctx.handler.handle_event(TXQ_EVENT, EventSet::IN) {
                 Err(DeviceError::FailedReadingQueue { .. }) => (),
                 other => panic!("{:?}", other),
             }
@@ -383,7 +384,7 @@ mod tests {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_epoll_handler_context();
             ctx.handler.backend.set_pending_rx(false);
-            match ctx.handler.handle_event(RXQ_EVENT, epoll::Events::EPOLLIN) {
+            match ctx.handler.handle_event(RXQ_EVENT, EventSet::IN) {
                 Err(DeviceError::FailedReadingQueue { .. }) => (),
                 other => panic!("{:?}", other),
             }
@@ -397,7 +398,7 @@ mod tests {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_epoll_handler_context();
             ctx.handler.backend.set_pending_rx(false);
-            match ctx.handler.handle_event(EVQ_EVENT, epoll::Events::EPOLLIN) {
+            match ctx.handler.handle_event(EVQ_EVENT, EventSet::IN) {
                 Err(DeviceError::FailedReadingQueue { .. }) => (),
                 other => panic!("{:?}", other),
             }
@@ -415,11 +416,11 @@ mod tests {
 
             ctx.handler.backend.set_pending_rx(true);
             ctx.handler
-                .handle_event(BACKEND_EVENT, epoll::Events::EPOLLIN)
+                .handle_event(BACKEND_EVENT, EventSet::IN)
                 .unwrap();
 
             // The backend should've received this event.
-            assert_eq!(ctx.handler.backend.evset, Some(epoll::Events::EPOLLIN));
+            assert_eq!(ctx.handler.backend.evset, Some(EventSet::IN));
             // TX queue processing should've been triggered.
             assert_eq!(ctx.guest_txvq.used.idx.get(), 1);
             // RX queue processing should've been triggered.
@@ -435,11 +436,11 @@ mod tests {
 
             ctx.handler.backend.set_pending_rx(false);
             ctx.handler
-                .handle_event(BACKEND_EVENT, epoll::Events::EPOLLIN)
+                .handle_event(BACKEND_EVENT, EventSet::IN)
                 .unwrap();
 
             // The backend should've received this event.
-            assert_eq!(ctx.handler.backend.evset, Some(epoll::Events::EPOLLIN));
+            assert_eq!(ctx.handler.backend.evset, Some(EventSet::IN));
             // TX queue processing should've been triggered.
             assert_eq!(ctx.guest_txvq.used.idx.get(), 1);
             // The RX queue should've been left untouched.
@@ -452,7 +453,7 @@ mod tests {
         let test_ctx = TestContext::new();
         let mut ctx = test_ctx.create_epoll_handler_context();
 
-        match ctx.handler.handle_event(0xff, epoll::Events::EPOLLIN) {
+        match ctx.handler.handle_event(0xff, EventSet::IN) {
             Err(DeviceError::UnknownEvent { .. }) => (),
             other => panic!("{:?}", other),
         }

@@ -27,6 +27,7 @@ use std::os::unix::io::AsRawFd;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
+use polly::epoll::{ControlOperation, EpollEvent, EventSet};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;
@@ -198,37 +199,41 @@ where
             .send(Box::new(handler))
             .expect("Failed to send handler through channel");
 
-        epoll::ctl(
-            self.epoll_config.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            rx_queue_rawfd,
-            epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.rxq_token),
-        )
-        .map_err(ActivateError::EpollCtl)?;
+        self.epoll_config
+            .epoll
+            .ctl(
+                ControlOperation::Add,
+                rx_queue_rawfd,
+                EpollEvent::new(EventSet::IN, self.epoll_config.rxq_token),
+            )
+            .map_err(ActivateError::EpollCtl)?;
 
-        epoll::ctl(
-            self.epoll_config.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            tx_queue_rawfd,
-            epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.txq_token),
-        )
-        .map_err(ActivateError::EpollCtl)?;
+        self.epoll_config
+            .epoll
+            .ctl(
+                ControlOperation::Add,
+                tx_queue_rawfd,
+                EpollEvent::new(EventSet::IN, self.epoll_config.txq_token),
+            )
+            .map_err(ActivateError::EpollCtl)?;
 
-        epoll::ctl(
-            self.epoll_config.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            ev_queue_rawfd,
-            epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.evq_token),
-        )
-        .map_err(ActivateError::EpollCtl)?;
+        self.epoll_config
+            .epoll
+            .ctl(
+                ControlOperation::Add,
+                ev_queue_rawfd,
+                EpollEvent::new(EventSet::IN, self.epoll_config.evq_token),
+            )
+            .map_err(ActivateError::EpollCtl)?;
 
-        epoll::ctl(
-            self.epoll_config.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            backend_fd,
-            epoll::Event::new(backend_evset, self.epoll_config.backend_token),
-        )
-        .map_err(ActivateError::EpollCtl)?;
+        self.epoll_config
+            .epoll
+            .ctl(
+                ControlOperation::Add,
+                backend_fd,
+                EpollEvent::new(backend_evset, self.epoll_config.backend_token),
+            )
+            .map_err(ActivateError::EpollCtl)?;
 
         Ok(())
     }

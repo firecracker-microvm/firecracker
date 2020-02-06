@@ -96,7 +96,6 @@ name = "devices"
 version = "0.1.0"
 dependencies = [
  "dumbo 0.1.0",
- "epoll 4.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.66 (registry+https://github.com/rust-lang/crates.io-index)",
  "logger 0.1.0",
  "net_gen 0.1.0",
@@ -394,7 +393,6 @@ dependencies = [
  "cpuid 0.1.0",
  "devices 0.1.0",
  "dumbo 0.1.0",
- "epoll 4.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "kernel 0.1.0",
  "kvm-bindings 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "kvm-ioctls 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",

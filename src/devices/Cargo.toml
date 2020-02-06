@@ -5,7 +5,6 @@ authors = ["The Chromium OS Authors"]
 edition = "2018"
 
 [dependencies]
-epoll = ">=4.0.1"
 libc = ">=0.2.39"
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }
