@@ -57,7 +57,7 @@ pub trait Subscriber {
     ///                   The only functions safe to call on this `EventManager` reference
     ///                   are `register`, `unregister` and `modify` which correspond to
     ///                   the `libc::epoll_ctl` operations.
-    fn process(&mut self, event: EpollEvent, event_manager: &mut EventManager);
+    fn process(&mut self, event: &EpollEvent, event_manager: &mut EventManager);
 
     /// Returns a list of `EpollEvent` that this subscriber is interested in.
     fn interest_list(&self) -> Vec<EpollEvent>;
@@ -131,7 +131,7 @@ impl EventManager {
         };
 
         self.epoll
-            .ctl(epoll::ControlOperation::Add, pollable, epoll_event)
+            .ctl(epoll::ControlOperation::Add, pollable, &epoll_event)
             .map_err(Error::Poll)?;
 
         self.subscribers.insert(pollable, subscriber);
@@ -146,7 +146,7 @@ impl EventManager {
                     .ctl(
                         epoll::ControlOperation::Delete,
                         pollable,
-                        epoll::EpollEvent::default(),
+                        &epoll::EpollEvent::default(),
                     )
                     .map_err(Error::Poll)?;
             }
@@ -161,7 +161,7 @@ impl EventManager {
     pub fn modify(&mut self, pollable: Pollable, epoll_event: EpollEvent) -> Result<()> {
         if self.subscribers.contains_key(&pollable) {
             self.epoll
-                .ctl(epoll::ControlOperation::Modify, pollable, epoll_event)
+                .ctl(epoll::ControlOperation::Modify, pollable, &epoll_event)
                 .map_err(Error::Poll)?;
         } else {
             return Err(Error::NotFound(pollable));
@@ -194,7 +194,7 @@ impl EventManager {
     fn dispatch_events(&mut self, event_count: usize) {
         // Use the temporary, pre-allocated buffer to check ready events.
         for ev_index in 0..event_count {
-            let event = self.ready_events[ev_index];
+            let event = &self.ready_events[ev_index].clone();
             let pollable = event.fd();
 
             if self.subscribers.contains_key(&pollable) {
@@ -204,7 +204,7 @@ impl EventManager {
                     .clone()
                     .lock()
                     .unwrap()
-                    .process(event, self);
+                    .process(&event, self);
             }
             // TODO: Should we log an error in case the subscriber does not exist?
         }
@@ -332,7 +332,7 @@ mod tests {
     }
 
     impl Subscriber for DummySubscriber {
-        fn process(&mut self, event: EpollEvent, event_manager: &mut EventManager) {
+        fn process(&mut self, event: &EpollEvent, event_manager: &mut EventManager) {
             let source = event.data() as i32;
             let event_set = EventSet::from_bits(event.events()).unwrap();
 
