@@ -879,7 +879,7 @@ mod tests {
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu) {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemoryMmap::new(&[(GuestAddress(0), mem_size)]).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), mem_size)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(gm, &kvm).is_ok());
 
@@ -932,15 +932,17 @@ mod tests {
         let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
-        let gm = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
         assert!(vm.memory_init(gm, &kvm_context).is_ok());
 
         // Set the maximum number of memory slots to 1 in KvmContext to check the error
         // path of memory_init. Create 2 non-overlapping memory slots.
         kvm_context.max_memslots = 1;
-        let gm =
-            GuestMemoryMmap::new(&[(GuestAddress(0x0), 0x1000), (GuestAddress(0x1001), 0x2000)])
-                .unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[
+            (GuestAddress(0x0), 0x1000),
+            (GuestAddress(0x1001), 0x2000),
+        ])
+        .unwrap();
         assert!(vm.memory_init(gm, &kvm_context).is_err());
     }
 
@@ -1013,7 +1015,7 @@ mod tests {
     #[test]
     fn test_configure_vcpu() {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
         assert!(vm.memory_init(gm, &kvm).is_ok());
         let vm_mem = vm.memory().unwrap();

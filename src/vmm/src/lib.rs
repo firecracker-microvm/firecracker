@@ -698,7 +698,7 @@ impl Vmm {
 
         self.vm
             .memory_init(
-                GuestMemoryMmap::new(&arch_mem_regions)
+                GuestMemoryMmap::from_ranges(&arch_mem_regions)
                     .map_err(StartMicrovmError::GuestMemoryMmap)?,
                 &self.kvm,
             )
@@ -2826,13 +2826,13 @@ mod tests {
     }
 
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        GuestMemoryMmap::new(&[(at, size)]).unwrap()
+        GuestMemoryMmap::from_ranges(&[(at, size)]).unwrap()
     }
 
     fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
         const MEM_START: GuestAddress = GuestAddress(0x0);
 
-        GuestMemoryMmap::new(&[(MEM_START, size)]).unwrap()
+        GuestMemoryMmap::from_ranges(&[(MEM_START, size)]).unwrap()
     }
 
     fn make_test_bin() -> Vec<u8> {

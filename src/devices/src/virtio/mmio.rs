@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
         assert!(dummy.reset().is_none());
@@ -563,7 +563,7 @@ mod tests {
 
     #[test]
     fn test_bus_device_read() {
-        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
         let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
 
         let mut buf = vec![0xff, 0, 0xfe, 0];
@@ -641,7 +641,7 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_bus_device_write() {
-        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
 
         let mut dummy_box = Box::new(DummyDevice::new());
         let dummy_dev_acked_features = &dummy_box.acked_features as *const u64;
@@ -801,7 +801,7 @@ mod tests {
 
     #[test]
     fn test_bus_device_activate() {
-        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
         let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
 
         assert!(!d.are_queues_valid());
@@ -917,7 +917,7 @@ mod tests {
 
     #[test]
     fn test_bus_device_reset() {
-        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
         let mut d = MmioDevice::new(m, Box::new(DummyDevice::new())).unwrap();
         let mut buf = vec![0; 4];
 

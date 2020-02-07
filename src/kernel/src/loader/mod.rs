@@ -269,7 +269,7 @@ mod tests {
     const MEM_SIZE: usize = 0x18_0000;
 
     fn create_guest_mem() -> GuestMemoryMmap {
-        GuestMemoryMmap::new(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap()
+        GuestMemoryMmap::from_ranges(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap()
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_load_kernel_no_memory() {
-        let gm = GuestMemoryMmap::new(&[(GuestAddress(0x0), 79)]).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0x0), 79)]).unwrap();
         let image = make_test_bin();
         assert_eq!(
             Err(Error::ReadKernelImage),
