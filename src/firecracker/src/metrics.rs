@@ -62,7 +62,7 @@ impl PeriodicMetrics {
 
 impl Subscriber for PeriodicMetrics {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: &EpollEvent, _: &mut EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -124,7 +124,7 @@ pub mod tests {
         // Test invalid read event.
         let unrelated_object = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let unrelated_event = EpollEvent::new(EventSet::IN, unrelated_object.as_raw_fd() as u64);
-        metrics.process(unrelated_event, &mut event_manager);
+        metrics.process(&unrelated_event, &mut event_manager);
         // No flush happened.
         assert_eq!(metrics.flush_counter, 0);
 
@@ -133,7 +133,7 @@ pub mod tests {
             EventSet::OUT,
             metrics.write_metrics_event_fd.as_raw_fd() as u64,
         );
-        metrics.process(unsupported_event, &mut event_manager);
+        metrics.process(&unsupported_event, &mut event_manager);
         assert_eq!(metrics.flush_counter, 0);
 
         let metrics = Arc::new(Mutex::new(metrics));
