@@ -381,7 +381,7 @@ impl Vmm {
 
 impl Subscriber for Vmm {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: &EpollEvent, _: &mut EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 

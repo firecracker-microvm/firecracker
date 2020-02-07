@@ -11,7 +11,7 @@ use crate::virtio::net::device::Net;
 use crate::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
 
 impl Subscriber for Net {
-    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: &EpollEvent, _: &mut EventManager) {
         if !self.is_activated() {
             warn!("The device is not yet activated. Events can not be handled.");
             return;

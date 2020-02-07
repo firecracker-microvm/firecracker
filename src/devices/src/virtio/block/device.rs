@@ -421,7 +421,7 @@ mod tests {
         b.queue_evt.write(1).unwrap();
         // Handle event.
         b.process(
-            EpollEvent::new(EventSet::IN, b.queue_evt.as_raw_fd() as u64),
+            &EpollEvent::new(EventSet::IN, b.queue_evt.as_raw_fd() as u64),
             &mut EventManager::new().unwrap(),
         );
         // Validate the queue operation finished successfully.
@@ -809,7 +809,7 @@ mod tests {
         {
             // Trigger the attempt to write.
             block.queue_evt.write(1).unwrap();
-            block.process(queue_evt, &mut event_manager);
+            block.process(&queue_evt, &mut event_manager);
 
             // Assert that limiter is blocked.
             assert!(block.rate_limiter().is_blocked());
@@ -825,7 +825,7 @@ mod tests {
 
         // Following write procedure should succeed because bandwidth should now be available.
         {
-            block.process(rate_limiter_evt, &mut event_manager);
+            block.process(&rate_limiter_evt, &mut event_manager);
             // Validate the rate_limiter is no longer blocked.
             assert!(!block.rate_limiter().is_blocked());
             // Make sure the virtio queue operation completed this time.
@@ -874,7 +874,7 @@ mod tests {
         {
             // Trigger the attempt to write.
             block.queue_evt.write(1).unwrap();
-            block.process(queue_evt, &mut event_manager);
+            block.process(&queue_evt, &mut event_manager);
 
             // Assert that limiter is blocked.
             assert!(block.rate_limiter().is_blocked());
@@ -888,7 +888,7 @@ mod tests {
         {
             // Trigger the attempt to write.
             block.queue_evt.write(1).unwrap();
-            block.process(queue_evt, &mut event_manager);
+            block.process(&queue_evt, &mut event_manager);
 
             // Assert that limiter is blocked.
             assert!(block.rate_limiter().is_blocked());
@@ -904,7 +904,7 @@ mod tests {
 
         // Following write procedure should succeed because ops budget should now be available.
         {
-            block.process(rate_limiter_evt, &mut event_manager);
+            block.process(&rate_limiter_evt, &mut event_manager);
             // Validate the rate_limiter is no longer blocked.
             assert!(!block.rate_limiter().is_blocked());
             // Make sure the virtio queue operation completed this time.

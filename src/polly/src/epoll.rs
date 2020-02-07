@@ -68,7 +68,7 @@ bitflags! {
 // We are using `transparent` here to be super sure that this struct and its fields
 // have the same alignment as those from the `epoll_event` struct from C.
 #[repr(transparent)]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct EpollEvent(epoll_event);
 
 impl Deref for EpollEvent {
@@ -130,7 +130,7 @@ impl EpollEvent {
 }
 
 /// Wrapper over epoll functionality.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Epoll {
     epoll_fd: RawFd,
 }
@@ -152,11 +152,12 @@ impl Epoll {
     /// * `operation` refers to the action to be performed on the file descriptor.
     /// * `fd` is the file descriptor on which we want to perform `operation`.
     /// * `event` refers to the `epoll_event` instance that is linked to `fd`.
-    pub fn ctl(self, operation: ControlOperation, fd: RawFd, event: EpollEvent) -> io::Result<()> {
-        // We copy here `event` in order to obtain a mutable Event as this is a requirement
-        // from `epoll_ctl()` signature even if this syscall doesn't actually mutate the object.
-        let mut event_as_mut = event;
-
+    pub fn ctl(
+        &self,
+        operation: ControlOperation,
+        fd: RawFd,
+        event: &EpollEvent,
+    ) -> io::Result<()> {
         // Safe because we give a valid epoll file descriptor, a valid file descriptor to watch,
         // as well as a valid epoll_event structure. We also check the return value.
         SyscallReturnCode(unsafe {
@@ -164,7 +165,7 @@ impl Epoll {
                 self.epoll_fd,
                 operation as i32,
                 fd,
-                &mut event_as_mut as *mut _ as *mut epoll_event,
+                event as *const EpollEvent as *mut epoll_event,
             )
         })
         .into_empty_result()
@@ -183,7 +184,7 @@ impl Epoll {
     /// * `events` points to a memory area that will be used for storing the events
     /// returned by `epoll_wait()` call.
     pub fn wait(
-        self,
+        &self,
         max_events: usize,
         timeout: i32,
         events: &mut [EpollEvent],
@@ -258,7 +259,7 @@ mod tests {
             .ctl(
                 ControlOperation::Add,
                 event_fd_1.as_raw_fd() as i32,
-                event_1
+                &event_1
             )
             .is_ok());
 
@@ -267,7 +268,7 @@ mod tests {
             .ctl(
                 ControlOperation::Add,
                 event_fd_1.as_raw_fd() as i32,
-                event_1
+                &event_1
             )
             .is_err());
 
@@ -279,7 +280,7 @@ mod tests {
                 event_fd_2.as_raw_fd() as i32,
                 // For this fd, we want an Event instance that has `data` field set to other
                 // value than the value of the fd and `events` without EPOLLIN type set.
-                EpollEvent::new(EventSet::OUT, 10)
+                &EpollEvent::new(EventSet::OUT, 10)
             )
             .is_ok());
 
@@ -292,7 +293,7 @@ mod tests {
             .ctl(
                 ControlOperation::Add,
                 event_fd_3.as_raw_fd() as i32,
-                event_3
+                &event_3
             )
             .is_ok());
 
@@ -332,7 +333,7 @@ mod tests {
             .ctl(
                 ControlOperation::Modify,
                 event_fd_1.as_raw_fd() as i32,
-                event_1
+                &event_1
             )
             .is_ok());
 
@@ -342,7 +343,7 @@ mod tests {
             .ctl(
                 ControlOperation::Modify,
                 event_fd_4.as_raw_fd() as i32,
-                EpollEvent::default()
+                &EpollEvent::default()
             )
             .is_err());
 
@@ -360,7 +361,7 @@ mod tests {
             .ctl(
                 ControlOperation::Modify,
                 event_fd_1.as_raw_fd() as i32,
-                EpollEvent::default()
+                &EpollEvent::default()
             )
             .is_ok());
 
@@ -375,7 +376,7 @@ mod tests {
             .ctl(
                 ControlOperation::Delete,
                 event_fd_2.as_raw_fd() as i32,
-                EpollEvent::default()
+                &EpollEvent::default()
             )
             .is_ok());
 
@@ -393,7 +394,7 @@ mod tests {
             .ctl(
                 ControlOperation::Delete,
                 event_fd_4.as_raw_fd() as i32,
-                EpollEvent::default()
+                &EpollEvent::default()
             )
             .is_err());
     }
