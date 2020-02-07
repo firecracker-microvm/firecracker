@@ -120,7 +120,7 @@ pub trait GuestMemory {
     /// fn test_map_fold() -> Result<(), ()> {
     ///     let start_addr1 = GuestAddress(0x0);
     ///     let start_addr2 = GuestAddress(0x400);
-    ///     let mem = GuestMemoryMmap::new(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
+    ///     let mem = GuestMemoryMmap::from_ranges(&vec![(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
     ///     let total_size = mem.map_and_fold(
     ///         0,
     ///         |(_, region)| region.len() / 1024,
@@ -143,7 +143,7 @@ pub trait GuestMemory {
     /// use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, MemoryMapping};
     /// fn test_last_addr() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///     assert_eq!(start_addr.checked_add(0x3ff), Some(gm.last_addr()));
     ///     Ok(())
     /// }
@@ -175,7 +175,7 @@ pub trait GuestMemory {
     /// use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
     /// fn test_host_addr() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
+    ///     let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x500)]).map_err(|_| ())?;
     ///     let addr = gm.get_host_address(GuestAddress(0x1200)).unwrap();
     ///     println!("Host address is {:p}", addr);
     ///     Ok(())
@@ -193,7 +193,7 @@ pub struct GuestMemoryMmap {
 impl GuestMemoryMmap {
     /// Creates a container for guest memory regions.
     /// Valid memory regions are specified as a Vec of (Address, Size) tuples sorted by Address.
-    pub fn new(ranges: &[(GuestAddress, usize)]) -> Result<GuestMemoryMmap> {
+    pub fn from_ranges(ranges: &[(GuestAddress, usize)]) -> Result<GuestMemoryMmap> {
         if ranges.is_empty() {
             return Err(Error::NoMemoryRegions);
         }
@@ -352,7 +352,7 @@ impl Bytes<GuestAddress> for GuestMemoryMmap {
     /// use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap, MemoryMapping};
     /// fn test_write_u64() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///     let res = gm
     ///         .write_slice(&[1, 2, 3, 4, 5], GuestAddress(0x200))
     ///         .map_err(|_| ())?;
@@ -374,7 +374,7 @@ impl Bytes<GuestAddress> for GuestMemoryMmap {
     /// use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap, MemoryMapping};
     /// fn test_write_u64() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///     let buf = &mut [0u8; 16];
     ///     let res = gm
     ///         .read_slice(buf, GuestAddress(0x200))
@@ -397,7 +397,7 @@ impl Bytes<GuestAddress> for GuestMemoryMmap {
     /// use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap, MemoryMapping};
     /// fn test_write_u64() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
-    ///     let mut gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let mut gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///     gm.write_obj(55u64, GuestAddress(0x1100))
     ///         .map_err(|_| ())
     /// }
@@ -423,7 +423,7 @@ impl Bytes<GuestAddress> for GuestMemoryMmap {
     ///     let start_addr1 = GuestAddress(0x0);
     ///     let start_addr2 = GuestAddress(0x400);
     ///     let mut gm =
-    ///         GuestMemoryMmap::new(&vec![(start_addr1, 0x400), (start_addr2, 0x400)]).map_err(|_| ())?;
+    ///         GuestMemoryMmap::from_ranges(&vec![(start_addr1, 0x400), (start_addr2, 0x400)]).map_err(|_| ())?;
     ///     let num1: u64 = gm.read_obj(GuestAddress(32)).map_err(|_| ())?;
     ///     let num2: u64 = gm
     ///         .read_obj(GuestAddress(0x400 + 32))
@@ -449,7 +449,7 @@ impl Bytes<GuestAddress> for GuestMemoryMmap {
     /// use std::path::Path;
     /// fn test_read_random() -> Result<u32, ()> {
     ///     let start_addr = GuestAddress(0x1000);
-    ///     let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///     let mut file = File::open(Path::new("/dev/urandom")).map_err(|_| ())?;
     ///     let addr = GuestAddress(0x1010);
     ///     gm.read_from(addr, &mut file, 128).map_err(|_| ())?;
@@ -485,7 +485,7 @@ impl Bytes<GuestAddress> for GuestMemoryMmap {
     /// use std::path::Path;
     /// fn test_write_null() -> Result<(), ()> {
     ///     let start_addr = GuestAddress(0x1000);
-    ///     let gm = GuestMemoryMmap::new(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
+    ///     let gm = GuestMemoryMmap::from_ranges(&vec![(start_addr, 0x400)]).map_err(|_| ())?;
     ///     let mut file = File::open(Path::new("/dev/null")).map_err(|_| ())?;
     ///     let addr = GuestAddress(0x1010);
     ///     gm.write_to(addr, &mut file, 128).map_err(|_| ())?;
@@ -521,14 +521,14 @@ mod tests {
     fn test_regions() {
         // No regions provided should return error.
         assert_eq!(
-            format!("{:?}", GuestMemoryMmap::new(&[]).err().unwrap()),
+            format!("{:?}", GuestMemoryMmap::from_ranges(&[]).err().unwrap()),
             format!("{:?}", Error::NoMemoryRegions)
         );
 
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
-            GuestMemoryMmap::new(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
         assert_eq!(guest_mem.num_regions(), 2);
         assert!(guest_mem.address_in_range(GuestAddress(0x200)));
         assert!(!guest_mem.address_in_range(GuestAddress(0x600)));
@@ -572,7 +572,7 @@ mod tests {
     fn overlap_memory() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let res = GuestMemoryMmap::new(&[(start_addr1, 0x2000), (start_addr2, 0x2000)]);
+        let res = GuestMemoryMmap::from_ranges(&[(start_addr1, 0x2000), (start_addr2, 0x2000)]);
         assert_eq!(
             format!("{:?}", res.err().unwrap()),
             format!("{:?}", Error::MemoryRegionOverlap)
@@ -586,7 +586,8 @@ mod tests {
         let bad_addr = GuestAddress(0x2001);
         let bad_addr2 = GuestAddress(0x1ffc);
 
-        let gm = GuestMemoryMmap::new(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let gm =
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
 
         let val1: u64 = 0xaa55_aa55_aa55_aa55;
         let val2: u64 = 0x55aa_55aa_55aa_55aa;
@@ -618,7 +619,7 @@ mod tests {
     #[test]
     fn write_and_read_slice() {
         let mut start_addr = GuestAddress(0x1000);
-        let gm = GuestMemoryMmap::new(&[(start_addr, 0x400)]).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[(start_addr, 0x400)]).unwrap();
         let sample_buf = &[1, 2, 3, 4, 5];
 
         assert!(gm.write_slice(sample_buf, start_addr).is_ok());
@@ -635,7 +636,7 @@ mod tests {
 
     #[test]
     fn read_to_and_write_from_mem() {
-        let gm = GuestMemoryMmap::new(&[(GuestAddress(0x1000), 0x400)]).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0x1000), 0x400)]).unwrap();
         let addr = GuestAddress(0x1010);
         gm.write_obj(!0u32, addr).unwrap();
         gm.read_from(
@@ -660,7 +661,7 @@ mod tests {
             (GuestAddress(0x1000), region_size),
         ];
         let mut iterated_regions = Vec::new();
-        let gm = GuestMemoryMmap::new(&regions).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&regions).unwrap();
 
         let res: Result<()> = gm.with_regions(|_, region| {
             assert_eq!(region.len(), region_size);
@@ -687,7 +688,8 @@ mod tests {
     fn test_guest_to_host() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x100);
-        let mem = GuestMemoryMmap::new(&[(start_addr1, 0x100), (start_addr2, 0x400)]).unwrap();
+        let mem =
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x100), (start_addr2, 0x400)]).unwrap();
 
         assert!(mem.get_host_address(start_addr1).is_ok());
 
@@ -712,7 +714,8 @@ mod tests {
     fn test_map_fold() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x400);
-        let mem = GuestMemoryMmap::new(&[(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
+        let mem =
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 1024), (start_addr2, 2048)]).unwrap();
 
         assert_eq!(
             mem.map_and_fold(0, |(_, region)| region.len() / 1024, |acc, size| acc + size),
@@ -724,7 +727,8 @@ mod tests {
     fn test_region_size() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let mem = GuestMemoryMmap::new(&[(start_addr1, 0x100), (start_addr2, 0x400)]).unwrap();
+        let mem =
+            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x100), (start_addr2, 0x400)]).unwrap();
 
         assert_eq!(mem.region_size(0).unwrap(), 0x100);
         assert_eq!(mem.region_size(1).unwrap(), 0x400);
