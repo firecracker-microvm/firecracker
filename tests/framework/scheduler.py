@@ -150,17 +150,16 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         # Go through the list of tests and assign each of them to its
         # corresponding batch in the schedule.
         for item in session.items:
-            for batch in schedule:
-                # A test can match any of the patterns defined by the batch,
-                # in order to get assigned to it.
-                re_pattern = "|".join(
-                    ["({})".format(x) for x in batch['patterns']]
-                )
-                item_full_name = "/".join(item.listnames())
-                if re.search(re_pattern, item_full_name) is not None:
-                    # Found a matching batch. No need to look any further.
-                    batch['items'].append(item)
-                    break
+            # A test can match any of the patterns defined by the batch,
+            # in order to get assigned to it.
+            next(
+                # Found a matching batch. No need to look any further.
+                batch['items'].append(item) for batch in schedule
+                if re.search(
+                    "|".join(["({})".format(x) for x in batch['patterns']]),
+                    "/".join(item.listnames()),
+                ) is not None
+            )
 
         # Filter out empty batches.
         schedule = [batch for batch in schedule if batch['items']]
