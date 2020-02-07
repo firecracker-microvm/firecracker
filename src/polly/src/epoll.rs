@@ -212,6 +212,16 @@ impl AsRawFd for Epoll {
     }
 }
 
+impl std::ops::Drop for Epoll {
+    fn drop(&mut self) {
+        // Safe because this fd is opened with `epoll_create` and we trust
+        // the kernel to give us a valid fd.
+        unsafe {
+            libc::close(self.epoll_fd);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
