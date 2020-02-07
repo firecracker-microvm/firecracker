@@ -34,7 +34,7 @@ impl<B> Vsock<B>
 where
     B: VsockBackend + 'static,
 {
-    pub(crate) fn handle_rxq_event(&mut self, event: EpollEvent) -> bool {
+    pub(crate) fn handle_rxq_event(&mut self, event: &EpollEvent) -> bool {
         debug!("vsock: RX queue event");
 
         let event_set = event.event_set();
@@ -52,7 +52,7 @@ where
         raise_irq
     }
 
-    pub(crate) fn handle_txq_event(&mut self, event: EpollEvent) -> bool {
+    pub(crate) fn handle_txq_event(&mut self, event: &EpollEvent) -> bool {
         debug!("vsock: TX queue event");
 
         let event_set = event.event_set();
@@ -76,7 +76,7 @@ where
         raise_irq
     }
 
-    fn handle_evq_event(&mut self, event: EpollEvent) -> bool {
+    fn handle_evq_event(&mut self, event: &EpollEvent) -> bool {
         debug!("vsock: event queue event");
 
         let event_set = event.event_set();
@@ -91,7 +91,7 @@ where
         false
     }
 
-    fn notify_backend(&mut self, event: EpollEvent) -> bool {
+    fn notify_backend(&mut self, event: &EpollEvent) -> bool {
         debug!("vsock: backend event");
 
         self.backend.notify(event.event_set());
@@ -183,7 +183,7 @@ impl<B> Subscriber for Vsock<B>
 where
     B: VsockBackend + 'static,
 {
-    fn process(&mut self, event: EpollEvent, event_manager: &mut EventManager) {
+    fn process(&mut self, event: &EpollEvent, event_manager: &mut EventManager) {
         let source = event.fd();
         let rxq = self.queue_events[RXQ_INDEX].as_raw_fd();
         let txq = self.queue_events[TXQ_INDEX].as_raw_fd();
@@ -332,7 +332,7 @@ mod tests {
 
             assert!(!ctx
                 .device
-                .handle_txq_event(EpollEvent::new(EventSet::IN, 0)));
+                .handle_txq_event(&EpollEvent::new(EventSet::IN, 0)));
         }
     }
 
@@ -390,7 +390,7 @@ mod tests {
             ctx.device.backend.set_pending_rx(false);
             assert!(!ctx
                 .device
-                .handle_rxq_event(EpollEvent::new(EventSet::IN, 0)));
+                .handle_rxq_event(&EpollEvent::new(EventSet::IN, 0)));
         }
     }
 
@@ -403,7 +403,7 @@ mod tests {
             ctx.device.backend.set_pending_rx(false);
             assert!(!ctx
                 .device
-                .handle_evq_event(EpollEvent::new(EventSet::IN, 0)));
+                .handle_evq_event(&EpollEvent::new(EventSet::IN, 0)));
         }
     }
 
@@ -417,7 +417,7 @@ mod tests {
             let mut ctx = test_ctx.create_event_handler_context();
 
             ctx.device.backend.set_pending_rx(true);
-            ctx.device.notify_backend(EpollEvent::new(EventSet::IN, 0));
+            ctx.device.notify_backend(&EpollEvent::new(EventSet::IN, 0));
 
             // The backend should've received this event.
             assert_eq!(ctx.device.backend.evset, Some(EventSet::IN));
@@ -435,7 +435,7 @@ mod tests {
             let mut ctx = test_ctx.create_event_handler_context();
 
             ctx.device.backend.set_pending_rx(false);
-            ctx.device.notify_backend(EpollEvent::new(EventSet::IN, 0));
+            ctx.device.notify_backend(&EpollEvent::new(EventSet::IN, 0));
 
             // The backend should've received this event.
             assert_eq!(ctx.device.backend.evset, Some(EventSet::IN));

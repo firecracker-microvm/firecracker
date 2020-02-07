@@ -525,7 +525,11 @@ impl VsockMuxer {
         };
 
         self.epoll
-            .ctl(ControlOperation::Add, fd, EpollEvent::new(evset, fd as u64))
+            .ctl(
+                ControlOperation::Add,
+                fd,
+                &EpollEvent::new(evset, fd as u64),
+            )
             .and_then(|_| {
                 self.listener_map.insert(fd, listener);
                 Ok(())
@@ -541,7 +545,7 @@ impl VsockMuxer {
 
         if maybe_listener.is_some() {
             self.epoll
-                .ctl(ControlOperation::Delete, fd, EpollEvent::default())
+                .ctl(ControlOperation::Delete, fd, &EpollEvent::default())
                 .unwrap_or_else(|err| {
                     warn!(
                         "vosck muxer: error removing epoll listener for fd {:?}: {:?}",
@@ -667,7 +671,7 @@ impl VsockMuxer {
                         .ctl(
                             ControlOperation::Modify,
                             fd,
-                            EpollEvent::new(new_evset, fd as u64),
+                            &EpollEvent::new(new_evset, fd as u64),
                         )
                         .unwrap_or_else(|err| {
                             // This really shouldn't happen, like, ever. However, "famous last

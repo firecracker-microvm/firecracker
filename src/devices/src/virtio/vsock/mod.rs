@@ -318,12 +318,12 @@ mod tests {
         pub fn signal_txq_event(&mut self) {
             self.device.queue_events[TXQ_INDEX].write(1).unwrap();
             self.device
-                .handle_txq_event(EpollEvent::new(EventSet::IN, 0));
+                .handle_txq_event(&EpollEvent::new(EventSet::IN, 0));
         }
         pub fn signal_rxq_event(&mut self) {
             self.device.queue_events[RXQ_INDEX].write(1).unwrap();
             self.device
-                .handle_rxq_event(EpollEvent::new(EventSet::IN, 0));
+                .handle_rxq_event(&EpollEvent::new(EventSet::IN, 0));
         }
     }
 }
