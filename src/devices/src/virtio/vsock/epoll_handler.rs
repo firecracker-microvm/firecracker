@@ -513,7 +513,7 @@ mod tests {
         const MIB: usize = 1 << 20;
 
         let mut test_ctx = TestContext::new();
-        test_ctx.mem = GuestMemoryMmap::new(&[
+        test_ctx.mem = GuestMemoryMmap::from_ranges(&[
             (GuestAddress(0), 8 * MIB),
             (GuestAddress((GAP_START_ADDR - MIB) as u64), MIB),
             (GuestAddress(FIRST_AFTER_GAP as u64), MIB),

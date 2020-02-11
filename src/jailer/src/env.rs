@@ -306,7 +306,7 @@ impl Env {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use build_app;
+    use build_arg_parser;
 
     #[derive(Clone)]
     struct ArgVals<'a> {
@@ -373,8 +373,8 @@ mod tests {
             daemonize: true,
         };
 
-        let app = build_app();
-        let mut args = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        let mut args = arg_parser.arguments().clone();
         args.parse(&make_args(&good_arg_vals)).unwrap();
         // This should be fine.
         let good_env =
@@ -398,8 +398,8 @@ mod tests {
             ..good_arg_vals
         };
 
-        let app = build_app();
-        args = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
         args.parse(&make_args(&another_good_arg_vals)).unwrap();
         let another_good_env = Env::new(&args, 0, 0)
             .expect("This another new environment should be created successfully.");
@@ -415,8 +415,8 @@ mod tests {
             ..base_invalid_arg_vals.clone()
         };
 
-        let app = build_app();
-        args = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_node_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
@@ -425,8 +425,8 @@ mod tests {
             ..base_invalid_arg_vals.clone()
         };
 
-        let app = build_app();
-        args = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_id_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
@@ -435,8 +435,8 @@ mod tests {
             ..base_invalid_arg_vals.clone()
         };
 
-        let app = build_app();
-        args = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
         args.parse(&make_args(&inexistent_exec_file_arg_vals))
             .unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
@@ -446,8 +446,8 @@ mod tests {
             ..base_invalid_arg_vals.clone()
         };
 
-        let app = build_app();
-        args = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_uid_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
@@ -456,8 +456,8 @@ mod tests {
             ..base_invalid_arg_vals.clone()
         };
 
-        let app = build_app();
-        args = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_gid_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 

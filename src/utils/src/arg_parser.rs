@@ -48,59 +48,34 @@ impl fmt::Display for Error {
     }
 }
 
-/// Keep information about the application.
+/// Keep information about the argument parser.
 #[derive(Clone, Default)]
-pub struct App<'a> {
+pub struct ArgParser<'a> {
     arguments: Arguments<'a>,
-    name: &'a str,
-    version: &'a str,
-    header: &'a str,
 }
 
-impl<'a> App<'a> {
-    /// Add an argument with its associated `ArgInfo` in `arguments`.
-    pub fn arg(mut self, arg_info: ArgInfo<'a>) -> Self {
-        self.arguments.insert_arg(arg_info);
-        self
-    }
-
-    /// Create a new App instance.
+impl<'a> ArgParser<'a> {
+    /// Create a new ArgParser instance.
     pub fn new() -> Self {
-        App::default()
+        ArgParser::default()
     }
 
-    /// Set the name of the running application.
-    pub fn name(mut self, name: &'a str) -> Self {
-        self.name = name;
-        self
-    }
-
-    /// Set the version of the running application.
-    pub fn version(mut self, version: &'a str) -> Self {
-        self.version = version;
-        self
-    }
-
-    /// Set general information about the running application.
-    pub fn header(mut self, header: &'a str) -> Self {
-        self.header = header;
+    /// Add an argument with its associated `Argument` in `arguments`.
+    pub fn arg(mut self, argument: Argument<'a>) -> Self {
+        self.arguments.insert_arg(argument);
         self
     }
 
     /// Parse the command line arguments.
-    pub fn parse_cmdline_args(&mut self) -> Result<()> {
+    pub fn parse_from_cmdline(&mut self) -> Result<()> {
         self.arguments.parse_from_cmdline()
     }
 
     /// Concatenate the `help` information of every possible argument
     /// in a message that represents the correct command line usage
     /// for the application.
-    pub fn format_help(&self) -> String {
+    pub fn formatted_help(&self) -> String {
         let mut help_builder = vec![];
-
-        help_builder.push(format!("{} v{}.\n", self.name, self.version));
-
-        help_builder.push(format!("{}\n\n", self.header));
 
         for arg in self.arguments.args.values() {
             help_builder.push(format!("{}\n", arg.format_help()));
@@ -117,7 +92,7 @@ impl<'a> App<'a> {
 
 /// Stores the characteristics of the `name` command line argument.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ArgInfo<'a> {
+pub struct Argument<'a> {
     name: &'a str,
     required: bool,
     requires: Option<&'a str>,
@@ -127,10 +102,10 @@ pub struct ArgInfo<'a> {
     user_value: Option<Value>,
 }
 
-impl<'a> ArgInfo<'a> {
-    /// Create a new `ArgInfo` that keeps the necessary information for an argument.
-    pub fn new(name: &'a str) -> ArgInfo<'a> {
-        ArgInfo {
+impl<'a> Argument<'a> {
+    /// Create a new `Argument` that keeps the necessary information for an argument.
+    pub fn new(name: &'a str) -> Argument<'a> {
+        Argument {
             name,
             required: false,
             requires: None,
@@ -214,29 +189,29 @@ impl Value {
     }
 }
 
-/// Stores the arguments of the application.
+/// Stores the arguments of the parser.
 #[derive(Clone, Default)]
 pub struct Arguments<'a> {
-    // A Hash Map in which the key is an argument and the value is its associated `ArgInfo`.
-    args: HashMap<&'a str, ArgInfo<'a>>,
+    // A Hash Map in which the key is an argument and the value is its associated `Argument`.
+    args: HashMap<&'a str, Argument<'a>>,
     // The arguments specified after `--` (i.e. end of command options).
     extra_args: Vec<String>,
 }
 
 impl<'a> Arguments<'a> {
-    /// Add an argument with its associated `ArgInfo` in `args`.
-    fn insert_arg(&mut self, arg_info: ArgInfo<'a>) {
-        self.args.insert(arg_info.name, arg_info);
+    /// Add an argument with its associated `Argument` in `args`.
+    fn insert_arg(&mut self, argument: Argument<'a>) {
+        self.args.insert(argument.name, argument);
     }
 
     /// Get the value for the argument specified by `arg_name`.
     fn value_of(&self, arg_name: &'static str) -> Option<&Value> {
-        if let Some(arg_info) = self.args.get(arg_name) {
-            match &arg_info.user_value {
+        if let Some(argument) = self.args.get(arg_name) {
+            match &argument.user_value {
                 Some(val) => {
                     return Some(val);
                 }
-                None => return arg_info.default_value.as_ref(),
+                None => return argument.default_value.as_ref(),
             }
         }
 
@@ -296,7 +271,7 @@ impl<'a> Arguments<'a> {
         // command line arguments by adding just the help argument to the parsed list and
         // returning.
         if args.contains(&HELP_ARG.to_string()) {
-            let mut help_arg = ArgInfo::new("help");
+            let mut help_arg = Argument::new("help").help("Show the help message.");
             help_arg.user_value = Some(Value::Bool(true));
             self.insert_arg(help_arg);
             return Ok(());
@@ -308,15 +283,15 @@ impl<'a> Arguments<'a> {
 
     // Check if `required` and `requires` field rules are indeed followed by every argument.
     fn validate_requirements(&self, args: &[String]) -> Result<()> {
-        for arg_info in self.args.values() {
+        for argument in self.args.values() {
             // The arguments that are marked `required` must be provided by user.
-            if arg_info.required && arg_info.user_value.is_none() {
-                return Err(Error::MissingArgument(arg_info.name.to_string()));
+            if argument.required && argument.user_value.is_none() {
+                return Err(Error::MissingArgument(argument.name.to_string()));
             }
             // For the arguments that require a specific argument to be also present in the list
             // of arguments provided by user, search for that argument.
-            if arg_info.user_value.is_some() {
-                if let Some(arg_name) = arg_info.requires {
+            if argument.user_value.is_some() {
+                if let Some(arg_name) = argument.requires {
                     if !args.contains(&(format!("--{}", arg_name))) {
                         return Err(Error::MissingArgument(arg_name.to_string()));
                     }
@@ -348,7 +323,7 @@ impl<'a> Arguments<'a> {
     }
 
     /// Validate the arguments provided by user and their values. Insert those
-    /// values in the `ArgInfo` instances of the corresponding arguments.
+    /// values in the `Argument` instances of the corresponding arguments.
     fn populate_args(&mut self, args: &[String]) -> Result<()> {
         let mut iter = args.iter();
 
@@ -357,23 +332,23 @@ impl<'a> Arguments<'a> {
 
             // If the `arg` argument is indeed an expected one, set the value provided by user
             // if it's a valid one.
-            let arg_info = self
+            let argument = self
                 .args
                 .get_mut(&arg[ARG_PREFIX.len()..])
                 .ok_or_else(|| Error::UnexpectedArgument(arg[ARG_PREFIX.len()..].to_string()))?;
 
-            let arg_val = if arg_info.takes_value {
+            let arg_val = if argument.takes_value {
                 let val = iter
                     .next()
                     .filter(|v| !v.starts_with(ARG_PREFIX))
-                    .ok_or_else(|| Error::MissingValue(arg_info.name.to_string()))?
+                    .ok_or_else(|| Error::MissingValue(argument.name.to_string()))?
                     .clone();
                 Value::String(val)
             } else {
                 Value::Bool(true)
             };
 
-            arg_info.user_value = Some(arg_val);
+            argument.user_value = Some(arg_val);
         }
 
         // Check the constraints for the `required` and `requires` fields of all arguments.
@@ -388,40 +363,40 @@ mod tests {
     use super::*;
     use crate::arg_parser::Value;
 
-    fn build_app() -> App<'static> {
-        App::new()
+    fn build_arg_parser() -> ArgParser<'static> {
+        ArgParser::new()
             .arg(
-                ArgInfo::new("exec-file")
+                Argument::new("exec-file")
                     .required(true)
                     .takes_value(true)
                     .help("'exec-file' info."),
             )
             .arg(
-                ArgInfo::new("no-api")
+                Argument::new("no-api")
                     .requires("config-file")
                     .takes_value(false)
                     .help("'no-api' info."),
             )
             .arg(
-                ArgInfo::new("api-sock")
+                Argument::new("api-sock")
                     .takes_value(true)
                     .default_value("socket")
                     .help("'api-sock' info."),
             )
             .arg(
-                ArgInfo::new("id")
+                Argument::new("id")
                     .takes_value(true)
                     .default_value("instance")
                     .help("'id' info."),
             )
             .arg(
-                ArgInfo::new("seccomp-level")
+                Argument::new("seccomp-level")
                     .takes_value(true)
                     .default_value("2")
                     .help("'seccomp-level' info."),
             )
             .arg(
-                ArgInfo::new("config-file")
+                Argument::new("config-file")
                     .takes_value(true)
                     .help("'config-file' info."),
             )
@@ -430,50 +405,46 @@ mod tests {
     #[test]
     fn test_arg_help() {
         // Checks help format for an argument.
-        let mut arg_info = ArgInfo::new("exec-file").required(true).takes_value(true);
+        let mut argument = Argument::new("exec-file").required(true).takes_value(true);
 
-        assert_eq!(arg_info.format_help(), "--exec-file <exec-file>");
+        assert_eq!(argument.format_help(), "--exec-file <exec-file>");
 
-        arg_info = ArgInfo::new("exec-file")
+        argument = Argument::new("exec-file")
             .required(true)
             .takes_value(true)
             .help("'exec-file' info.");
 
         assert_eq!(
-            arg_info.format_help(),
+            argument.format_help(),
             "--exec-file <exec-file>: 'exec-file' info."
         );
 
-        arg_info = ArgInfo::new("no-api")
+        argument = Argument::new("no-api")
             .requires("config-file")
             .takes_value(false);
 
-        assert_eq!(arg_info.format_help(), "--no-api");
+        assert_eq!(argument.format_help(), "--no-api");
 
-        arg_info = ArgInfo::new("no-api")
+        argument = Argument::new("no-api")
             .requires("config-file")
             .takes_value(false)
             .help("'no-api' info.");
 
-        assert_eq!(arg_info.format_help(), "--no-api: 'no-api' info.");
+        assert_eq!(argument.format_help(), "--no-api: 'no-api' info.");
     }
 
     #[test]
-    fn test_app_help() {
+    fn test_arg_parser_help() {
         // Checks help information when user passes `--help` flag.
-        let app = App::new()
-            .name("name")
-            .version("0.x.0")
-            .header("App info")
-            .arg(
-                ArgInfo::new("exec-file")
-                    .required(true)
-                    .takes_value(true)
-                    .help("'exec-file' info."),
-            );
+        let arg_parser = ArgParser::new().arg(
+            Argument::new("exec-file")
+                .required(true)
+                .takes_value(true)
+                .help("'exec-file' info."),
+        );
         assert_eq!(
-            app.format_help(),
-            "name v0.x.0.\nApp info\n\n--exec-file <exec-file>: \'exec-file\' info.\n"
+            arg_parser.formatted_help(),
+            "--exec-file <exec-file>: 'exec-file' info.\n"
         );
     }
 
@@ -493,8 +464,8 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        let app = build_app();
-        let mut arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        let mut arguments = arg_parser.arguments().clone();
 
         // Test different scenarios for the command line arguments provided by user.
         let args = vec!["binary-name", "--exec-file", "foo", "--help"]
@@ -505,8 +476,8 @@ mod tests {
         assert!(arguments.parse(&args).is_ok());
         assert!(arguments.args.contains_key("help"));
 
-        let app = build_app();
-        arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
 
         let args = vec![
             "binary-name",
@@ -525,8 +496,8 @@ mod tests {
             Err(Error::MissingValue("api-sock".to_string()))
         );
 
-        let app = build_app();
-        arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
 
         let args = vec![
             "binary-name",
@@ -546,8 +517,8 @@ mod tests {
             Err(Error::DuplicateArgument("api-sock".to_string()))
         );
 
-        let app = build_app();
-        arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
 
         let args = vec!["binary-name", "--api-sock", "foo"]
             .into_iter()
@@ -559,8 +530,8 @@ mod tests {
             Err(Error::MissingArgument("exec-file".to_string()))
         );
 
-        let app = build_app();
-        arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
 
         let args = vec![
             "binary-name",
@@ -579,8 +550,8 @@ mod tests {
             Err(Error::UnexpectedArgument("invalid-arg".to_string()))
         );
 
-        let app = build_app();
-        arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
 
         let args = vec![
             "binary-name",
@@ -601,8 +572,8 @@ mod tests {
             Err(Error::MissingArgument("config-file".to_string()))
         );
 
-        let app = build_app();
-        arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
 
         let args = vec![
             "binary-name",
@@ -621,8 +592,8 @@ mod tests {
             Err(Error::MissingValue("id".to_string()))
         );
 
-        let app = build_app();
-        arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
 
         let args = vec![
             "binary-name",
@@ -642,8 +613,8 @@ mod tests {
             Err(Error::UnexpectedArgument("foobar".to_string()))
         );
 
-        let app = build_app();
-        arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
 
         let args = vec![
             "binary-name",
@@ -662,8 +633,8 @@ mod tests {
             Err(Error::UnexpectedArgument("foobar".to_string()))
         );
 
-        let app = build_app();
-        arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
 
         let args = vec!["binary-name", "foo"]
             .into_iter()
@@ -675,8 +646,8 @@ mod tests {
             Err(Error::UnexpectedArgument("foo".to_string()))
         );
 
-        let app = build_app();
-        arguments = app.arguments().clone();
+        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
 
         let args = vec![
             "binary-name",

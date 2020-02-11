@@ -393,7 +393,7 @@ pub struct Vmm {
     // Guest VM core resources.
     kernel_config: Option<KernelConfig>,
     vcpus_handles: Vec<VcpuHandle>,
-    exit_evt: Option<EventFd>,
+    exit_evt: EventFd,
     vm: Vm,
 
     // Guest VM devices.
@@ -438,6 +438,20 @@ impl Vmm {
         let kvm = KvmContext::new().map_err(Error::KvmContext)?;
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
+        #[cfg(target_arch = "x86_64")]
+        let pio_device_manager = PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?;
+
+        #[cfg(target_arch = "x86_64")]
+        let exit_evt = pio_device_manager
+            .i8042
+            .lock()
+            .expect("Failed to create a vmm due to poisoned i8042 lock")
+            .get_reset_evt_clone()
+            .map_err(Error::CloneEventFd)?;
+
+        #[cfg(target_arch = "aarch64")]
+        let exit_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+
         Ok(Vmm {
             kvm,
             vm_config: VmConfig::default(),
@@ -445,11 +459,11 @@ impl Vmm {
             stdin_handle: io::stdin(),
             kernel_config: None,
             vcpus_handles: vec![],
-            exit_evt: None,
+            exit_evt,
             vm,
             mmio_device_manager: None,
             #[cfg(target_arch = "x86_64")]
-            pio_device_manager: PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?,
+            pio_device_manager,
             device_configs,
             epoll_context,
             write_metrics_event_fd,
@@ -698,7 +712,7 @@ impl Vmm {
 
         self.vm
             .memory_init(
-                GuestMemoryMmap::new(&arch_mem_regions)
+                GuestMemoryMmap::from_ranges(&arch_mem_regions)
                     .map_err(StartMicrovmError::GuestMemoryMmap)?,
                 &self.kvm,
             )
@@ -882,7 +896,11 @@ impl Vmm {
             }
             #[cfg(target_arch = "aarch64")]
             {
-                vcpu = Vcpu::new_aarch64(cpu_index, self.vm.fd(), request_ts.clone())
+                let exit_evt = self
+                    .exit_evt
+                    .try_clone()
+                    .map_err(|_| StartMicrovmError::EventFd)?;
+                vcpu = Vcpu::new_aarch64(cpu_index, self.vm.fd(), exit_evt, request_ts.clone())
                     .map_err(StartMicrovmError::Vcpu)?;
 
                 vcpu.configure_aarch64(self.vm.fd(), vm_memory, entry_addr)
@@ -1089,24 +1107,9 @@ impl Vmm {
     }
 
     fn register_events(&mut self) -> std::result::Result<(), StartMicrovmError> {
-        #[cfg(target_arch = "x86_64")]
-        {
-            use StartMicrovmError::*;
-            // If the lock is poisoned, it's OK to panic.
-            let exit_poll_evt_fd = self
-                .pio_device_manager
-                .i8042
-                .lock()
-                .expect("Failed to register events on the event fd due to poisoned lock")
-                .get_reset_evt_clone()
-                .map_err(|_| EventFd)?;
-
-            self.epoll_context
-                .add_epollin_event(&exit_poll_evt_fd, EpollDispatch::Exit)
-                .map_err(|_| RegisterEvent)?;
-
-            self.exit_evt = Some(exit_poll_evt_fd);
-        }
+        self.epoll_context
+            .add_epollin_event(&self.exit_evt, EpollDispatch::Exit)
+            .map_err(|_| StartMicrovmError::RegisterEvent)?;
 
         self.epoll_context.enable_stdin_event();
 
@@ -1266,12 +1269,7 @@ impl Vmm {
 
             match self.epoll_context.dispatch_table[event.data as usize] {
                 Some(EpollDispatch::Exit) => {
-                    match self.exit_evt {
-                        Some(ref ev) => {
-                            ev.read().map_err(Error::EventFd)?;
-                        }
-                        None => warn!("leftover exit-evt in epollcontext!"),
-                    }
+                    self.exit_evt.read().map_err(Error::EventFd)?;
                     self.stop(i32::from(FC_EXIT_CODE_OK));
                 }
                 Some(EpollDispatch::Stdin) => {
@@ -2826,13 +2824,13 @@ mod tests {
     }
 
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        GuestMemoryMmap::new(&[(at, size)]).unwrap()
+        GuestMemoryMmap::from_ranges(&[(at, size)]).unwrap()
     }
 
     fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
         const MEM_START: GuestAddress = GuestAddress(0x0);
 
-        GuestMemoryMmap::new(&[(MEM_START, size)]).unwrap()
+        GuestMemoryMmap::from_ranges(&[(MEM_START, size)]).unwrap()
     }
 
     fn make_test_bin() -> Vec<u8> {

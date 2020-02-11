@@ -782,7 +782,7 @@ mod tests {
         bad_qlen: bool,
         bad_evtlen: bool,
     ) -> ActivateResult {
-        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
         let ievt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let stat = Arc::new(AtomicUsize::new(0));
 
@@ -825,7 +825,7 @@ mod tests {
 
     #[test]
     fn test_read_request_header() {
-        let mem = GuestMemoryMmap::new(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
         let addr = GuestAddress(0);
         let sector = 123_454_321;
 
@@ -864,7 +864,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        let m = &GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), &m, 16);
 
         assert!(vq.end().0 < 0x1000);
@@ -1088,7 +1088,7 @@ mod tests {
 
     #[test]
     fn test_invalid_event_handler() {
-        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _vq) = default_test_blockepollhandler(&m);
         let r = h.handle_event(BLOCK_EVENTS_COUNT as DeviceEventT, EPOLLIN);
         match r {
@@ -1107,7 +1107,7 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_handler() {
-        let m = GuestMemoryMmap::new(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, vq) = default_test_blockepollhandler(&m);
 
         let blk_metadata = h.disk_image.metadata();

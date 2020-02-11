@@ -27,7 +27,7 @@ use api_server::{ApiServer, Error, VmmRequest, VmmResponse};
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
 use seccomp::{BpfInstructionSlice, BpfProgram, SeccompLevel};
-use utils::arg_parser::{App, ArgInfo};
+use utils::arg_parser::{ArgParser, Argument};
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
@@ -81,24 +81,21 @@ fn main() {
         }
     }));
 
-    let mut app = App::new()
-        .name("Firecracker")
-        .version(FIRECRACKER_VERSION)
-        .header("Launch a microVM.")
+    let mut arg_parser = ArgParser::new()
         .arg(
-            ArgInfo::new("api-sock")
+            Argument::new("api-sock")
                 .takes_value(true)
                 .default_value(DEFAULT_API_SOCK_PATH)
-                .help("Path to unix domain socket used by the API"),
+                .help("Path to unix domain socket used by the API."),
         )
         .arg(
-            ArgInfo::new("id")
+            Argument::new("id")
                 .takes_value(true)
                 .default_value(DEFAULT_INSTANCE_ID)
-                .help("MicroVM unique identifier"),
+                .help("MicroVM unique identifier."),
         )
         .arg(
-            ArgInfo::new("seccomp-level")
+            Argument::new("seccomp-level")
                 .takes_value(true)
                 .default_value("2")
                 .help(
@@ -111,26 +108,26 @@ fn main() {
                 ),
         )
         .arg(
-            ArgInfo::new("start-time-us")
+            Argument::new("start-time-us")
                 .takes_value(true),
         )
         .arg(
-            ArgInfo::new("start-time-cpu-us")
+            Argument::new("start-time-cpu-us")
                 .takes_value(true),
         )
         .arg(
-            ArgInfo::new("config-file")
+            Argument::new("config-file")
                 .takes_value(true)
                 .help("Path to a file that contains the microVM configuration in JSON format."),
         )
         .arg(
-            ArgInfo::new("no-api")
+            Argument::new("no-api")
                 .takes_value(false)
                 .requires("config-file")
                 .help("Optional parameter which allows starting and using a microVM without an active API socket.")
         );
 
-    let arguments = match app.parse_cmdline_args() {
+    let arguments = match arg_parser.parse_from_cmdline() {
         Err(err) => {
             error!(
                 "Arguments parsing error: {} \n\n\
@@ -140,13 +137,14 @@ fn main() {
             process::exit(i32::from(vmm::FC_EXIT_CODE_ARG_PARSING));
         }
         _ => {
-            if let Some(help) = app.arguments().value_as_bool("help") {
+            if let Some(help) = arg_parser.arguments().value_as_bool("help") {
                 if help {
-                    println!("{}", app.format_help());
+                    println!("Firecracker v{}\n", FIRECRACKER_VERSION);
+                    println!("{}", arg_parser.formatted_help());
                     process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
                 }
             }
-            app.arguments()
+            arg_parser.arguments()
         }
     };
 
