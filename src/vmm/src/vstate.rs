@@ -1011,11 +1011,6 @@ impl Vcpu {
 
         // Break this emulation loop on any transition request/external event.
         match self.event_receiver.try_recv() {
-            // Running ---- Exit ----> Exited
-            Ok(VcpuEvent::Exit) => {
-                // Move to 'exited' state.
-                state = StateMachine::next(Self::exited);
-            }
             // Running ---- Pause ----> Paused
             Ok(VcpuEvent::Pause) => {
                 // Nothing special to do.
@@ -1049,12 +1044,6 @@ impl Vcpu {
     // This is the main loop of the `Paused` state.
     fn paused(&mut self) -> StateMachine<Self> {
         match self.event_receiver.recv() {
-            // Paused ---- Exit ----> Exited
-            #[cfg(target_arch = "x86_64")]
-            Ok(VcpuEvent::Exit) => {
-                // Move to 'exited' state.
-                StateMachine::next(Self::exited)
-            }
             // Paused ---- Resume ----> Running
             Ok(VcpuEvent::Resume) => {
                 // Nothing special to do.
@@ -1111,8 +1100,6 @@ pub struct VcpuState {
 #[derive(Debug)]
 /// List of events that the Vcpu can receive.
 pub enum VcpuEvent {
-    /// Kill the Vcpu.
-    Exit,
     /// Pause the Vcpu.
     Pause,
     /// Event that should resume the Vcpu.
@@ -1574,17 +1561,6 @@ mod tests {
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
-
-        // Stop it by sending exit.
-        assert!(vcpu_handle.send_event(VcpuEvent::Exit).is_ok());
-
-        // Validate vCPU thread ends execution.
-        vcpu_handle
-            .join_vcpu_thread()
-            .expect("failed to join thread");
-
-        // Validate that the vCPU signaled its exit.
-        assert_eq!(vcpu_exit_evt.read().unwrap(), 1);
     }
 
     #[test]
