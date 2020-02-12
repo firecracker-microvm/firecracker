@@ -411,7 +411,11 @@ pub struct Vmm {
 
 impl Vmm {
     /// Creates a new VMM object.
-    pub fn new(shared_info: Arc<RwLock<InstanceInfo>>, control_fd: &dyn AsRawFd) -> Result<Self> {
+    pub fn new(
+        shared_info: Arc<RwLock<InstanceInfo>>,
+        control_fd: &dyn AsRawFd,
+        serial_sink: Box<dyn io::Write + Send>,
+    ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
         epoll_context
@@ -439,7 +443,8 @@ impl Vmm {
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
         #[cfg(target_arch = "x86_64")]
-        let pio_device_manager = PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?;
+        let pio_device_manager =
+            PortIODeviceManager::new(serial_sink).map_err(Error::CreateLegacyDevice)?;
 
         #[cfg(target_arch = "x86_64")]
         let exit_evt = pio_device_manager
@@ -1677,6 +1682,7 @@ mod tests {
     }
 
     use std::fs::File;
+    use std::io::stdout;
     use std::io::BufRead;
     use std::io::BufReader;
     use std::io::Cursor;
@@ -1839,6 +1845,7 @@ mod tests {
         Vmm::new(
             shared_info,
             &EventFd::new(libc::EFD_NONBLOCK).expect("Cannot create eventFD"),
+            Box::new(stdout()),
         )
         .expect("Cannot Create VMM")
     }

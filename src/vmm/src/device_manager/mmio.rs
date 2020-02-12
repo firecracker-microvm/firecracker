@@ -333,6 +333,7 @@ mod tests {
     use arch;
     use devices::virtio::{ActivateResult, VirtioDevice, TYPE_BLOCK};
     use kernel_cmdline;
+    use std::io::stdout;
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, RwLock};
     use utils::errno;
@@ -417,6 +418,7 @@ mod tests {
         Vmm::new(
             shared_info,
             &EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD"),
+            Box::new(stdout()),
         )
         .expect("Cannot Create VMM")
     }

@@ -7,7 +7,7 @@
 #![cfg(target_arch = "x86_64")]
 
 use std::fmt;
-use std::io::{self, stdout};
+use std::io;
 use std::sync::{Arc, Mutex};
 
 use devices;
@@ -50,14 +50,14 @@ pub struct PortIODeviceManager {
 
 impl PortIODeviceManager {
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
-    pub fn new() -> Result<Self> {
+    pub fn new(serial_sink: Box<dyn io::Write + Send>) -> Result<Self> {
         let io_bus = devices::Bus::new();
         let com_evt_1_3 = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let kbd_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let stdio_serial = Arc::new(Mutex::new(devices::legacy::Serial::new_out(
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
-            Box::new(stdout()),
+            Box::new(serial_sink),
         )));
 
         // Create exit event for i8042
@@ -120,11 +120,12 @@ impl PortIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::stdout;
 
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_register_legacy_devices() {
-        let ldm = PortIODeviceManager::new();
+        let ldm = PortIODeviceManager::new(Box::new(stdout()));
         assert!(ldm.is_ok());
         assert!(&ldm.unwrap().register_devices().is_ok());
     }

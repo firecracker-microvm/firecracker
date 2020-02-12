@@ -15,7 +15,7 @@ extern crate vmm;
 use backtrace::Backtrace;
 
 use std::fs;
-use std::io;
+use std::io::{self, stdout};
 use std::panic;
 use std::path::PathBuf;
 use std::process;
@@ -270,7 +270,8 @@ fn start_vmm(
     config_json: Option<String>,
 ) {
     // If this fails, consider it fatal. Use expect().
-    let mut vmm = Vmm::new(api_shared_info, &api_event_fd).expect("Cannot create VMM");
+    let mut vmm =
+        Vmm::new(api_shared_info, &api_event_fd, Box::new(stdout())).expect("Cannot create VMM");
     let vmm_seccomp_filter = seccomp_filter.clone();
     let vcpu_seccomp_filter = seccomp_filter.clone();
 
