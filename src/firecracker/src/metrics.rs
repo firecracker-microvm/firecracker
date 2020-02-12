@@ -4,7 +4,7 @@
 use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
-use logger::{Metric, LOGGER, METRICS};
+use logger::{Metric, METRICS};
 use polly::epoll::{EpollEvent, EventSet};
 use polly::event_manager::{EventManager, Subscriber};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
@@ -41,16 +41,16 @@ impl PeriodicMetrics {
         self.write_metrics_event_fd
             .set_state(timer_state, SetTimeFlags::Default);
 
-        // Log the metrics straight away to check the process startup time.
-        self.log_metrics();
+        // Write the metrics straight away to check the process startup time.
+        self.write_metrics();
     }
 
-    fn log_metrics(&mut self) {
-        // Please note that, if LOGGER has no output file configured yet, it will write to
-        // stdout, so logging will interfere with console output.
-        if let Err(e) = LOGGER.log_metrics() {
+    fn write_metrics(&mut self) {
+        // Please note that, if METRICS has no output file configured yet, it will write to
+        // stdout, so metrics writing will interfere with console output.
+        if let Err(e) = METRICS.write() {
             METRICS.logger.missed_metrics_count.inc();
-            error!("Failed to log metrics: {}", e);
+            error!("Failed to write metrics: {}", e);
         }
 
         #[cfg(test)]
@@ -79,7 +79,7 @@ impl Subscriber for PeriodicMetrics {
 
         if source == self.write_metrics_event_fd.as_raw_fd() {
             self.write_metrics_event_fd.read();
-            self.log_metrics();
+            self.write_metrics();
         } else {
             error!("Spurious METRICS event!");
         }

@@ -204,7 +204,6 @@ class Logger:
     @staticmethod
     def create_json(
             log_fifo=None,
-            metrics_fifo=None,
             level=None,
             show_level=None,
             show_log_origin=None
@@ -213,14 +212,56 @@ class Logger:
         datax = {}
         if log_fifo is not None:
             datax['log_fifo'] = log_fifo
-        if metrics_fifo is not None:
-            datax['metrics_fifo'] = metrics_fifo
         if level is not None:
             datax['level'] = level
         if show_level is not None:
             datax['show_level'] = show_level
         if show_log_origin is not None:
             datax['show_log_origin'] = show_log_origin
+        return datax
+
+
+class Metrics:
+    """Facility for setting up the metrics system and sending API requests."""
+
+    METRICS_CFG_RESOURCE = 'metrics'
+
+    __metrics_cfg_url = None
+    __api_session = None
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        type(self).__metrics_cfg_url = api_url + self.METRICS_CFG_RESOURCE
+        type(self).__api_session = api_session
+
+    @classmethod
+    def put(cls, **args):
+        """Configure or update the settings of the metrics system."""
+        datax = cls.create_json(**args)
+        return Metrics.__api_session.put(
+            "{}".format(Metrics.__metrics_cfg_url),
+            json=datax
+        )
+
+    @classmethod
+    def patch(cls, **args):
+        """Configure or update the settings of the metrics system."""
+        datax = cls.create_json(**args)
+        return Metrics.__api_session.patch(
+            "{}".format(Metrics.__metrics_cfg_url),
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(
+            metrics_fifo=None,
+    ):
+        """Compose the json associated to this type of API request."""
+        datax = {}
+        if metrics_fifo is not None:
+            datax['metrics_fifo'] = metrics_fifo
         return datax
 
 

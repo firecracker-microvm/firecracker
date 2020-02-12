@@ -3,7 +3,7 @@
 
 use libc::{_exit, c_int, c_void, siginfo_t, SIGBUS, SIGSEGV, SIGSYS};
 
-use logger::{Metric, LOGGER, METRICS};
+use logger::{Metric, METRICS};
 use utils::signal::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
@@ -38,9 +38,9 @@ extern "C" fn sigsys_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_v
         "Shutting down VM after intercepting a bad syscall ({}).",
         syscall
     );
-    // Log the metrics before exiting.
-    if let Err(e) = LOGGER.log_metrics() {
-        error!("Failed to log metrics while stopping: {}", e);
+    // Write the metrics before exiting.
+    if let Err(e) = METRICS.write() {
+        error!("Failed to write metrics while stopping: {}", e);
     }
 
     // Safe because we're terminating the process anyway. We don't actually do anything when
@@ -77,9 +77,9 @@ extern "C" fn sigbus_sigsegv_handler(num: c_int, info: *mut siginfo_t, _unused: 
         "Shutting down VM after intercepting signal {}, code {}.",
         si_signo, si_code
     );
-    // Log the metrics before exiting.
-    if let Err(e) = LOGGER.log_metrics() {
-        error!("Failed to log metrics while stopping: {}", e);
+    // Write the metrics before exiting.
+    if let Err(e) = METRICS.write() {
+        error!("Failed to write metrics while stopping: {}", e);
     }
 
     // Safe because we're terminating the process anyway. We don't actually do anything when

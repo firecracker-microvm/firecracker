@@ -7,6 +7,7 @@ pub mod drive;
 pub mod instance_info;
 pub mod logger;
 pub mod machine_configuration;
+pub mod metrics;
 pub mod mmds;
 pub mod net;
 pub mod vsock;
