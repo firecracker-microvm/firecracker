@@ -75,9 +75,9 @@ fn main() {
         let bt = Backtrace::new();
         error!("{:?}", bt);
 
-        // Log the metrics before aborting.
-        if let Err(e) = LOGGER.log_metrics() {
-            error!("Failed to log metrics while panicking: {}", e);
+        // Write the metrics before aborting.
+        if let Err(e) = METRICS.write() {
+            error!("Failed to write metrics while panicking: {}", e);
         }
     }));
 

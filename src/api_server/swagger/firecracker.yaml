@@ -150,7 +150,7 @@ paths:
 
   /logger:
       put:
-        summary: Initializes the logger by specifying two named pipes (i.e. for the logs and metrics output).
+        summary: Initializes the logger by specifying a named pipe or a file for the logs output.
         operationId: putLogger
         parameters:
         - name: body
@@ -237,6 +237,29 @@ paths:
             $ref: "#/definitions/Error"
         default:
           description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /metrics:
+    put:
+      summary: Initializes the metrics system by specifying a named pipe or a file for the metrics output.
+      operationId: putMetrics
+      parameters:
+        - name: body
+          in: body
+          description: Metrics system description
+          required: true
+          schema:
+            $ref: "#/definitions/Metrics"
+      responses:
+        204:
+          description: Metrics system created.
+        400:
+          description: Metrics system cannot be initialized due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
           schema:
             $ref: "#/definitions/Error"
 
@@ -487,14 +510,10 @@ definitions:
       Describes the configuration option for the logging capability.
     required:
       - log_fifo
-      - metrics_fifo
     properties:
       log_fifo:
         type: string
-        description: The named pipe for the human readable log output.
-      metrics_fifo:
-        type: string
-        description: The named pipe where the JSON-formatted metrics will be flushed.
+        description: The named pipe or file for the human readable log output.
       level:
         type: string
         description: Set the level.
@@ -532,6 +551,17 @@ definitions:
         description: Flag for enabling/disabling Hyperthreading
       cpu_template:
         $ref: "#/definitions/CpuTemplate"
+
+  Metrics:
+    type: object
+    description:
+      Describes the configuration option for the metrics capability.
+    required:
+      - metrics_fifo
+    properties:
+      metrics_fifo:
+        type: string
+        description: The named pipe or file where the JSON-formatted metrics will be flushed.
 
   NetworkInterface:
     type: object

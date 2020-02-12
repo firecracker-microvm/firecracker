@@ -5,62 +5,11 @@
 
 extern crate logger as logger_crate;
 
-use libc::O_NONBLOCK;
 use std::fmt::{Display, Formatter};
-use std::fs::{File, OpenOptions};
-use std::io::{LineWriter, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard};
 
 use self::logger_crate::{AppInfo, Level, LOGGER};
-
-type Result<T> = std::result::Result<T, std::io::Error>;
-
-/// Structure `LoggerWriter` used for writing to a FIFO.
-pub struct LoggerWriter {
-    line_writer: Mutex<LineWriter<File>>,
-}
-
-impl LoggerWriter {
-    /// Create and open a FIFO for writing to it.
-    /// In order to not block the instance if nobody is consuming the logs that are flushed to the
-    /// two pipes, we are opening them with `O_NONBLOCK` flag. In this case, writing to a pipe will
-    /// start failing when reaching 64K of unconsumed content. Simultaneously,
-    /// the `missed_metrics_count` metric will get increased.
-    pub fn new(fifo_path: &str) -> Result<LoggerWriter> {
-        let fifo = PathBuf::from(fifo_path);
-        OpenOptions::new()
-            .custom_flags(O_NONBLOCK)
-            .read(true)
-            .write(true)
-            .open(&fifo)
-            .map(|t| LoggerWriter {
-                line_writer: Mutex::new(LineWriter::new(t)),
-            })
-    }
-
-    fn get_line_writer(&self) -> MutexGuard<LineWriter<File>> {
-        match self.line_writer.lock() {
-            Ok(guard) => guard,
-            // If a thread panics while holding this lock, the writer within should still be usable.
-            // (we might get an incomplete log line or something like that).
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
-}
-
-impl Write for LoggerWriter {
-    fn write(&mut self, msg: &[u8]) -> Result<(usize)> {
-        let mut line_writer = self.get_line_writer();
-        line_writer.write_all(msg).map(|()| msg.len())
-    }
-
-    fn flush(&mut self) -> Result<()> {
-        let mut line_writer = self.get_line_writer();
-        line_writer.flush()
-    }
-}
+use super::Writer;
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -83,9 +32,7 @@ pub enum LoggerLevel {
 #[serde(deny_unknown_fields)]
 pub struct LoggerConfig {
     /// Named pipe used as output for logs.
-    pub log_fifo: String,
-    /// Named pipe used as output for metrics.
-    pub metrics_fifo: String,
+    pub log_fifo: PathBuf,
     /// The level of the Logger.
     #[serde(default = "default_level")]
     pub level: LoggerLevel,
@@ -106,8 +53,6 @@ fn default_level() -> LoggerLevel {
 pub enum LoggerConfigError {
     /// Cannot initialize the logger due to bad user input.
     InitializationFailure(String),
-    /// Cannot flush the metrics.
-    FlushMetrics(String),
 }
 
 impl Display for LoggerConfigError {
@@ -115,7 +60,6 @@ impl Display for LoggerConfigError {
         use self::LoggerConfigError::*;
         match *self {
             InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
-            FlushMetrics(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
         }
     }
 }
@@ -139,11 +83,7 @@ pub fn init_logger(
         .init(
             &AppInfo::new("Firecracker", firecracker_version),
             Box::new(
-                LoggerWriter::new(&logger_cfg.log_fifo)
-                    .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
-            ),
-            Box::new(
-                LoggerWriter::new(&logger_cfg.metrics_fifo)
+                Writer::new(logger_cfg.log_fifo)
                     .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
             ),
         )
@@ -153,20 +93,80 @@ pub fn init_logger(
 #[cfg(test)]
 mod tests {
 
+    use std::fs::File;
+    use std::io::BufRead;
+    use std::io::BufReader;
+
     use super::*;
     use utils::tempfile::TempFile;
+    use utils::time::TimestampUs;
+
+    use Vmm;
 
     #[test]
-    fn test_log_writer() {
-        let log_file_temp =
-            TempFile::new().expect("Failed to create temporary output logging file.");
-        let good_file = String::from(log_file_temp.as_path().to_path_buf().to_str().unwrap());
-        let res = LoggerWriter::new(&good_file);
-        assert!(res.is_ok());
+    fn test_init_logger() {
+        // Error case: initializing logger with invalid pipe returns error.
+        let desc = LoggerConfig {
+            log_fifo: PathBuf::from("not_found_file_log"),
+            level: LoggerLevel::Debug,
+            show_level: false,
+            show_log_origin: false,
+        };
+        assert!(init_logger(desc, "some_version").is_err());
 
-        let mut fw = res.unwrap();
-        let msg = String::from("some message");
-        assert!(fw.write(&msg.as_bytes()).is_ok());
-        assert!(fw.flush().is_ok());
+        // Initializing logger with valid pipe is ok.
+        let log_file = TempFile::new().unwrap();
+        let desc = LoggerConfig {
+            log_fifo: log_file.as_path().to_path_buf(),
+            level: LoggerLevel::Info,
+            show_level: true,
+            show_log_origin: true,
+        };
+
+        assert!(init_logger(desc.clone(), "some_version").is_ok());
+        assert!(init_logger(desc, "some_version").is_err());
+
+        // Validate logfile works.
+        warn!("this is a test");
+
+        let f = File::open(log_file.as_path()).unwrap();
+        let mut reader = BufReader::new(f);
+
+        let mut line = String::new();
+        loop {
+            if line.contains("this is a test") {
+                break;
+            }
+            if reader.read_line(&mut line).unwrap() == 0 {
+                // If it ever gets here, this assert will fail.
+                assert!(line.contains("this is a test"));
+            }
+        }
+
+        // Validate logging the boot time works.
+        Vmm::log_boot_time(&TimestampUs::default());
+        let mut line = String::new();
+        loop {
+            if line.contains("Guest-boot-time =") {
+                break;
+            }
+            if reader.read_line(&mut line).unwrap() == 0 {
+                // If it ever gets here, this assert will fail.
+                assert!(line.contains("Guest-boot-time ="));
+            }
+        }
+    }
+
+    #[test]
+    fn test_error_display() {
+        assert_eq!(
+            format!(
+                "{}",
+                LoggerConfigError::InitializationFailure(String::from(
+                    "Failed to initialize logger"
+                ))
+            ),
+            "Failed to initialize logger"
+        );
     }
 }
