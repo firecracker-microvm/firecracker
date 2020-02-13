@@ -1271,7 +1271,21 @@ impl Vmm {
             match self.epoll_context.dispatch_table[event.data as usize] {
                 Some(EpollDispatch::Exit) => {
                     self.exit_evt.read().map_err(Error::EventFd)?;
-                    self.stop(i32::from(FC_EXIT_CODE_OK));
+
+                    // Query each vcpu for the exit_code.
+                    // If the exit_code can't be found on any vcpu, it means that the exit signal
+                    // has been issued by the i8042 controller in which case we exit with
+                    // FC_EXIT_CODE_OK.
+                    let exit_code = self
+                        .vcpus_handles
+                        .iter()
+                        .find_map(|handle| match handle.response_receiver().try_recv() {
+                            Ok(VcpuResponse::Exited(exit_code)) => Some(exit_code),
+                            _ => None,
+                        })
+                        .unwrap_or(FC_EXIT_CODE_OK);
+
+                    self.stop(i32::from(exit_code));
                 }
                 Some(EpollDispatch::Stdin) => {
                     let mut out = [0u8; 64];

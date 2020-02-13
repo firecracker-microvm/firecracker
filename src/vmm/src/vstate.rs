@@ -14,7 +14,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 
 use super::TimestampUs;
-use arch;
+use super::FC_EXIT_CODE_GENERIC_ERROR;
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "x86_64")]
@@ -30,6 +30,7 @@ use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{Metric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
+use std::sync::Barrier;
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
@@ -1002,7 +1003,7 @@ impl Vcpu {
                 // Emulation was interrupted, check external events.
                 Ok(VcpuEmulation::Interrupted) => break,
                 // Emulation errors lead to vCPU exit.
-                Err(_) => return StateMachine::next(Self::exited),
+                Err(_) => return self.exit(FC_EXIT_CODE_GENERIC_ERROR),
             }
         }
 
@@ -1032,7 +1033,7 @@ impl Vcpu {
             // Unhandled exit of the other end.
             Err(TryRecvError::Disconnected) => {
                 // Move to 'exited' state.
-                state = StateMachine::next(Self::exited);
+                state = self.exit(FC_EXIT_CODE_GENERIC_ERROR);
             }
             // All other events or lack thereof have no effect on current 'running' state.
             Err(TryRecvError::Empty) => (),
@@ -1058,18 +1059,33 @@ impl Vcpu {
             // Unhandled exit of the other end.
             Err(_) => {
                 // Move to 'exited' state.
-                StateMachine::next(Self::exited)
+                self.exit(FC_EXIT_CODE_GENERIC_ERROR)
             }
         }
     }
 
-    // This is the main loop of the `Exited` state.
-    fn exited(&mut self) -> StateMachine<Self> {
+    // Transition to the exited state
+    fn exit(&mut self, exit_code: u8) -> StateMachine<Self> {
+        self.response_sender
+            .send(VcpuResponse::Exited(exit_code))
+            .expect("failed to send Exited status");
+
         if let Err(e) = self.exit_evt.write(1) {
             METRICS.vcpu.failures.inc();
             error!("Failed signaling vcpu exit event: {}", e);
         }
+
         // State machine reached its end.
+        StateMachine::next(Self::exited)
+    }
+
+    // This is the main loop of the `Exited` state.
+    fn exited(&mut self) -> StateMachine<Self> {
+        // Wait indefinitely.
+        // The VMM thread will kill the entire process.
+        let barrier = Barrier::new(2);
+        barrier.wait();
+
         StateMachine::finish(Self::exited)
     }
 }
@@ -1114,6 +1130,8 @@ pub enum VcpuResponse {
     Paused,
     /// Vcpu is resumed.
     Resumed,
+    /// Vcpu is stopped.
+    Exited(u8),
 }
 
 /// Wrapper over Vcpu that hides the underlying interactions with the Vcpu thread.
