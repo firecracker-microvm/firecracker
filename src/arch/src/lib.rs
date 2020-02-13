@@ -52,7 +52,6 @@ pub enum DeviceType {
 }
 
 /// Type for passing information about the initrd in the guest memory.
-#[derive(Clone)]
 pub struct InitrdConfig {
     /// Load address of initrd in guest memory
     pub address: vm_memory::GuestAddress,
