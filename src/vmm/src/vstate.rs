@@ -14,7 +14,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 
 use super::TimestampUs;
-use super::FC_EXIT_CODE_GENERIC_ERROR;
+use super::{FC_EXIT_CODE_GENERIC_ERROR, FC_EXIT_CODE_OK};
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "x86_64")]
@@ -926,11 +926,11 @@ impl Vcpu {
                 }
                 VcpuExit::Hlt => {
                     info!("Received KVM_EXIT_HLT signal");
-                    Err(Error::VcpuUnhandledKvmExit)
+                    Ok(VcpuEmulation::Stopped)
                 }
                 VcpuExit::Shutdown => {
                     info!("Received KVM_EXIT_SHUTDOWN signal");
-                    Err(Error::VcpuUnhandledKvmExit)
+                    Ok(VcpuEmulation::Stopped)
                 }
                 // Documentation specifies that below kvm exits are considered
                 // errors.
@@ -1002,6 +1002,14 @@ impl Vcpu {
                 Ok(VcpuEmulation::Handled) => (),
                 // Emulation was interrupted, check external events.
                 Ok(VcpuEmulation::Interrupted) => break,
+                // If the guest was rebooted or halted:
+                // - vCPU0 will always exit out of `KVM_RUN` with KVM_EXIT_SHUTDOWN or
+                //   KVM_EXIT_HLT.
+                // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
+                // Moreover if we allow the vCPU0 thread to finish execution, this might generate a
+                // seccomp failure because musl calls `sigprocmask` as part of `pthread_exit`.
+                // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
+                Ok(VcpuEmulation::Stopped) => return self.exit(FC_EXIT_CODE_OK),
                 // Emulation errors lead to vCPU exit.
                 Err(_) => return self.exit(FC_EXIT_CODE_GENERIC_ERROR),
             }
@@ -1167,6 +1175,7 @@ impl VcpuHandle {
 enum VcpuEmulation {
     Handled,
     Interrupted,
+    Stopped,
 }
 
 #[cfg(test)]
