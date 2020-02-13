@@ -13,6 +13,8 @@
 - Fixed #1469 - Broken GitHub location for Firecracker release binary.
 - The jailer allows changing the default api socket path by using the extra
   arguments passed to firecracker.
+- Fixed #1456 - Occasional KVM_EXIT_SHUTDOWN and bad syscall (14) during 
+  VM shutdown
 
 ### Changed
   
