@@ -302,7 +302,7 @@ impl VsockBackend for VsockMuxer {}
 impl VsockMuxer {
     /// Muxer constructor.
     pub fn new(cid: u64, host_sock_path: String) -> Result<Self> {
-        // Open/bind/listen on the host Unix socket, so we can accept host-initiated
+        // Open/bind on the host Unix socket, so we can accept host-initiated
         // connections.
         let host_sock = UnixListener::bind(&host_sock_path)
             .and_then(|sock| sock.set_nonblocking(true).map(|_| sock))
@@ -321,6 +321,7 @@ impl VsockMuxer {
             local_port_set: HashSet::with_capacity(defs::MAX_CONNECTIONS),
         };
 
+        // Listen on the host initiated socket, for incomming connections.
         muxer.add_listener(muxer.host_sock.as_raw_fd(), EpollListener::HostSock)?;
         Ok(muxer)
     }
