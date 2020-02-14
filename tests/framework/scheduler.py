@@ -94,6 +94,10 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
 
         Called in the server process context.
         """
+        # Don't run tests on test discovery
+        if session.config.option.collectonly:
+            return True
+
         max_concurrency = self.session.config.option.concurrency
         schedule = [
             {

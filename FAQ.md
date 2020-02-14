@@ -101,9 +101,10 @@ to create new Firecracker releases.
 ## Technical FAQ & Troubleshooting
 
 ### I tried using an initrd for boot but it doesn't seem to be used. Is initrd supported?
-Right now, initrd is not supported in Firecracker. You can track issue
-[#228](https://github.com/firecracker-microvm/firecracker/issues/208) for news on this
-topic.
+
+Initrds are only recently supported in Firecracker. If your release predates
+issue [#228](https://github.com/firecracker-microvm/firecracker/issues/208)
+being resolved, please update.
 
 ### Firecracker is not showing any output on the console.
 
