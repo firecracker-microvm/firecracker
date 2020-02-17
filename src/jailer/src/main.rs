@@ -19,7 +19,7 @@ use std::process;
 use std::result;
 
 use env::Env;
-use utils::arg_parser::{App, ArgInfo, Error as ParsingError};
+use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
 use utils::validators;
 
 const JAILER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -214,60 +214,57 @@ impl fmt::Display for Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-/// Create an App object which contains info about the application and populate it with the expected
-/// arguments and their characteristics.
-pub fn build_app() -> App<'static> {
-    App::new()
-        .name("Jailer")
-        .version(JAILER_VERSION)
-        .header("Jail a microVM.")
+/// Create an ArgParser object which contains info about the command line argument parser and populate
+/// it with the expected arguments and their characteristics.
+pub fn build_arg_parser() -> ArgParser<'static> {
+    ArgParser::new()
         .arg(
-            ArgInfo::new("id")
+            Argument::new("id")
                 .required(true)
                 .takes_value(true)
-                .help("Jail ID"),
+                .help("Jail ID."),
         )
         .arg(
-            ArgInfo::new("exec-file")
+            Argument::new("exec-file")
                 .required(true)
                 .takes_value(true)
                 .help("File path to exec into."),
         )
         .arg(
-            ArgInfo::new("node")
+            Argument::new("node")
                 .required(true)
                 .takes_value(true)
                 .help("NUMA node to assign this microVM to."),
         )
         .arg(
-            ArgInfo::new("uid")
+            Argument::new("uid")
                 .required(true)
                 .takes_value(true)
                 .help("The user identifier the jailer switches to after exec."),
         )
         .arg(
-            ArgInfo::new("gid")
+            Argument::new("gid")
                 .required(true)
                 .takes_value(true)
                 .help("The group identifier the jailer switches to after exec."),
         )
         .arg(
-            ArgInfo::new("chroot-base-dir")
+            Argument::new("chroot-base-dir")
                 .takes_value(true)
                 .default_value("/srv/jailer")
                 .help("The base folder where chroot jails are located."),
         )
         .arg(
-            ArgInfo::new("netns")
+            Argument::new("netns")
                 .takes_value(true)
                 .help("Path to the network namespace this microVM should join."),
         )
-        .arg(ArgInfo::new("daemonize").takes_value(false).help(
+        .arg(Argument::new("daemonize").takes_value(false).help(
             "Daemonize the jailer before exec, by invoking setsid(), and redirecting \
              the standard I/O file descriptors to /dev/null.",
         ))
         .arg(
-            ArgInfo::new("extra-args")
+            Argument::new("extra-args")
                 .takes_value(true)
                 .help("Arguments that will be passed verbatim to the exec file."),
         )
@@ -310,9 +307,9 @@ fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
 fn main() {
     sanitize_process();
 
-    let mut app = build_app();
+    let mut arg_parser = build_arg_parser();
 
-    match app.parse_cmdline_args() {
+    match arg_parser.parse_from_cmdline() {
         Err(err) => {
             println!(
                 "Arguments parsing error: {} \n\n\
@@ -322,9 +319,10 @@ fn main() {
             process::exit(1);
         }
         _ => {
-            if let Some(help) = app.arguments().value_as_bool("help") {
+            if let Some(help) = arg_parser.arguments().value_as_bool("help") {
                 if help {
-                    println!("{}", app.format_help());
+                    println!("Jailer v{}\n", JAILER_VERSION);
+                    println!("{}", arg_parser.formatted_help());
                     process::exit(0);
                 }
             }
@@ -332,7 +330,7 @@ fn main() {
     }
 
     Env::new(
-        app.arguments(),
+        arg_parser.arguments(),
         utils::time::get_time(utils::time::ClockType::Monotonic) / 1000,
         utils::time::get_time(utils::time::ClockType::ProcessCpu) / 1000,
     )

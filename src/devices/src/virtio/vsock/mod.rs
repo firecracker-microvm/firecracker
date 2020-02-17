@@ -299,7 +299,7 @@ mod tests {
             let (sender, _handler_receiver) = mpsc::channel();
             Self {
                 cid: CID,
-                mem: GuestMemoryMmap::new(&[(GuestAddress(0), MEM_SIZE)]).unwrap(),
+                mem: GuestMemoryMmap::from_ranges(&[(GuestAddress(0), MEM_SIZE)]).unwrap(),
                 mem_size: MEM_SIZE,
                 device: Vsock::new(
                     CID,
