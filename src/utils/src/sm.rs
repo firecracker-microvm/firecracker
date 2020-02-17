@@ -1,8 +1,6 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::ops::Deref;
-
 /// Simple abstraction of a state machine.
 ///
 /// `StateMachine<T>` is a wrapper over `T` that also encodes state information for `T`.
@@ -13,8 +11,7 @@ use std::ops::Deref;
 /// `StateFn<T>` returns exactly one other `StateMachine<T>` thus each state gets clearly
 /// defined transitions to other states.
 pub struct StateMachine<T> {
-    function: StateFn<T>,
-    end_state: bool,
+    function: Option<StateFn<T>>,
 }
 
 /// Type representing a state handler of a `StateMachine<T>` machine. Each state handler
@@ -27,13 +24,9 @@ impl<T> StateMachine<T> {
     /// # Arguments
     ///
     /// `function` - the state handler for this state.
-    /// `end_state` - whether this state is final.
     ///
-    pub fn new(function: StateFn<T>, end_state: bool) -> StateMachine<T> {
-        StateMachine {
-            function,
-            end_state,
-        }
+    pub fn new(function: Option<StateFn<T>>) -> StateMachine<T> {
+        StateMachine { function }
     }
 
     /// Creates a new state wrapper that has further possible transitions.
@@ -43,7 +36,7 @@ impl<T> StateMachine<T> {
     /// `function` - the state handler for this state.
     ///
     pub fn next(function: StateFn<T>) -> StateMachine<T> {
-        StateMachine::new(function, false)
+        StateMachine::new(Some(function))
     }
 
     /// Creates a new state wrapper that has no further transitions. The state machine
@@ -53,8 +46,8 @@ impl<T> StateMachine<T> {
     ///
     /// `function` - the state handler for this last state.
     ///
-    pub fn finish(function: StateFn<T>) -> StateMachine<T> {
-        StateMachine::new(function, true)
+    pub fn finish() -> StateMachine<T> {
+        StateMachine::new(None)
     }
 
     /// Runs a state machine for `T` starting from the provided state.
@@ -67,20 +60,12 @@ impl<T> StateMachine<T> {
     ///
     pub fn run(machine: &mut T, starting_state_fn: StateFn<T>) {
         // Start off in the `starting_state` state.
-        let mut sf = StateMachine::new(starting_state_fn, false);
+        let mut state_machine = StateMachine::new(Some(starting_state_fn));
         // While current state is not a final/end state, keep churning.
-        while !sf.end_state {
+        while let Some(state_fn) = state_machine.function {
             // Run the current state handler, and get the next one.
-            sf = sf(machine);
+            state_machine = state_fn(machine);
         }
-    }
-}
-
-// Implement Deref of `StateMachine<T>` so that we can directly call its underlying state handler.
-impl<T> Deref for StateMachine<T> {
-    type Target = StateFn<T>;
-    fn deref(&self) -> &Self::Target {
-        &self.function
     }
 }
 
@@ -141,7 +126,7 @@ mod tests {
             assert!(!self.private_data_s3);
             self.private_data_s3 = true;
             // The machine ends here, adding `s1` as next state to validate this.
-            StateMachine::finish(Self::s1)
+            StateMachine::finish()
         }
     }
 
