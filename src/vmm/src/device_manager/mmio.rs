@@ -14,9 +14,6 @@ use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
 use devices;
 
-use devices::virtio::block::Block;
-use devices::virtio::TYPE_BLOCK;
-
 use devices::BusDevice;
 use kernel::cmdline as kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
@@ -83,7 +80,6 @@ pub struct MMIODeviceManager {
     irq: u32,
     last_irq: u32,
     id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
-    block_devices: HashMap<String, Arc<Mutex<Block>>>,
 }
 
 impl MMIODeviceManager {
@@ -98,103 +94,7 @@ impl MMIODeviceManager {
             last_irq: irq_interval.1,
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
-            block_devices: HashMap::new(),
         }
-    }
-
-    // Common function for registering mmio transport resources: mmio io events, interrupts
-    // Also attaches the transport device to the I/O Bus.
-    fn register_device_resources(
-        &mut self,
-        vm: &VmFd,
-        transport_device: devices::virtio::MmioTransport,
-        cmdline: &mut kernel_cmdline::Cmdline,
-        device_id: &str,
-        device_type: u32,
-    ) -> Result<()> {
-        if self.irq > self.last_irq {
-            return Err(Error::IrqsExhausted);
-        }
-
-        let queue_evts = transport_device
-            .locked_device()
-            .get_queue_events()
-            .map_err(Error::EventFd)?;
-
-        for (i, queue_evt) in queue_evts.iter().enumerate() {
-            let io_addr = IoEventAddress::Mmio(
-                self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
-            );
-
-            vm.register_ioevent(queue_evt, &io_addr, i as u32)
-                .map_err(Error::RegisterIoEvent)?;
-        }
-
-        let interrupt_evt = transport_device
-            .locked_device()
-            .get_interrupt()
-            .map_err(Error::EventFd)?;
-        vm.register_irqfd(&interrupt_evt, self.irq)
-            .map_err(Error::RegisterIrqFd)?;
-
-        self.bus
-            .insert(
-                Arc::new(Mutex::new(transport_device)),
-                self.mmio_base,
-                MMIO_LEN,
-            )
-            .map_err(Error::BusError)?;
-
-        // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
-        // to kernel commandline for virtio mmio devices to get recognized
-        // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
-        // bytes to 1024; further, the '{}' formatting rust construct will automatically
-        // transform it to decimal
-
-        #[cfg(target_arch = "x86_64")]
-        cmdline
-            .insert(
-                "virtio_mmio.device",
-                &format!("{}K@0x{:08x}:{}", MMIO_LEN / 1024, self.mmio_base, self.irq),
-            )
-            .map_err(Error::Cmdline)?;
-
-        let ret = self.mmio_base;
-
-        self.id_to_dev_info.insert(
-            (DeviceType::Virtio(device_type), device_id.to_string()),
-            MMIODeviceInfo {
-                addr: ret,
-                len: MMIO_LEN,
-                irq: self.irq,
-            },
-        );
-
-        self.mmio_base += MMIO_LEN;
-        self.irq += 1;
-
-        Ok(())
-    }
-
-    // This is the secondary path for registering devices.
-    // TODO: Replace with a generic path for all devices insted of being
-    // Block specific.
-    //
-    // Register a new block device using Mmio as transport.
-    pub fn register_block_device(
-        &mut self,
-        vm: &VmFd,
-        transport_device: devices::virtio::MmioTransport,
-        device: Arc<Mutex<devices::virtio::Block>>,
-        cmdline: &mut kernel_cmdline::Cmdline,
-        device_id: &str,
-    ) -> Result<()> {
-        self.register_device_resources(vm, transport_device, cmdline, device_id, TYPE_BLOCK)?;
-        // Temporarly use this hashmap. It is used to retrieve the Block object
-        // in update_drive_handler().
-        self.block_devices.insert(device_id.to_owned(), device);
-
-        Ok(())
     }
 
     /// Register an already created MMIO device to be used via MMIO transport.
@@ -357,10 +257,6 @@ impl MMIODeviceManager {
             }
         }
         None
-    }
-
-    pub fn get_block_device(&self, device_id: &str) -> Option<&Arc<Mutex<Block>>> {
-        self.block_devices.get(device_id)
     }
 }
 

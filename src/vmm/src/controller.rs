@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
-use devices::virtio::{MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
+use devices::virtio;
+use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
 use logger::LOGGER;
 use resources::VmResources;
 use rpc_interface::VmmActionError;
@@ -113,16 +114,31 @@ impl VmmController {
         drive_id: &str,
         disk_image: File,
     ) -> result::Result<(), DriveError> {
-        if let Some(block) = self
+        if let Some(busdev) = self
             .vmm
             .lock()
             .unwrap()
-            .mmio_device_manager
-            .get_block_device(drive_id)
+            .get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id)
         {
-            block
+            let virtio_device = busdev
                 .lock()
                 .expect("Poisoned device lock")
+                .as_any()
+                .downcast_ref::<MmioTransport>()
+                // Only MmioTransport implements BusDevice at this point.
+                .expect("Unexpected BusDevice type")
+                .device();
+
+            // This call wraps the temporary `virtio_device` inside a `MutexGuard`.
+            let mut lock = virtio_device.lock().expect("Poisoned device lock");
+
+            // Downcast the inner virtio_device to a Block.
+            let block_device: &mut Block = lock
+                .as_mut_any()
+                .downcast_mut::<Block>()
+                .expect("Unexpected Block type");
+
+            block_device
                 .update_disk_image(disk_image)
                 .map_err(|_| DriveError::BlockDeviceUpdateFailed)
         } else {
