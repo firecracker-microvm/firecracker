@@ -1094,7 +1094,7 @@ impl Vcpu {
         let barrier = Barrier::new(2);
         barrier.wait();
 
-        StateMachine::finish(Self::exited)
+        StateMachine::finish()
     }
 }
 
