@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.21.0]
 
 ### Added
 
@@ -14,7 +14,12 @@
 - The jailer allows changing the default api socket path by using the extra
   arguments passed to firecracker.
 - Fixed #1456 - Occasional KVM_EXIT_SHUTDOWN and bad syscall (14) during 
-  VM shutdown
+  VM shutdown.
+- Updated the production host setup guide with steps for addressing
+  CVE-2019-18960.
+- The HTTP header parsing is now case insensitive.
+- The `put_api_requests` and `patch_api_requests` metrics for net devices were
+  un-swapped.
 
 ### Changed
   
