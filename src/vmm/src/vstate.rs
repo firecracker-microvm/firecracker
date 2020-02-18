@@ -14,17 +14,23 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 
 use super::TimestampUs;
-use arch;
+use super::{FC_EXIT_CODE_GENERIC_ERROR, FC_EXIT_CODE_OK};
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "x86_64")]
 use cpuid::{c3, filter_cpuid, t2, VmSpec};
 #[cfg(target_arch = "x86_64")]
-use kvm_bindings::{kvm_pit_config, CpuId, KVM_MAX_CPUID_ENTRIES, KVM_PIT_SPEAKER_DUMMY};
+use kvm_bindings::{
+    kvm_clock_data, kvm_debugregs, kvm_irqchip, kvm_lapic_state, kvm_mp_state, kvm_pit_config,
+    kvm_pit_state2, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs, kvm_xsave, CpuId, MsrList,
+    Msrs, KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
+    KVM_MAX_CPUID_ENTRIES, KVM_PIT_SPEAKER_DUMMY,
+};
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{Metric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
+use std::sync::Barrier;
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
@@ -49,52 +55,116 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// A call to cpuid instruction failed.
     CpuId(cpuid::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Error configuring the floating point related registers
+    FPUConfiguration(arch::x86_64::regs::Error),
     /// Invalid guest memory configuration.
     GuestMemoryMmap(GuestMemoryError),
+    #[cfg(target_arch = "x86_64")]
+    /// Retrieving supported guest MSRs fails.
+    GuestMSRs(arch::x86_64::msr::Error),
     /// Hyperthreading flag is not initialized.
     HTNotInitialized,
+    /// Cannot configure the IRQ.
+    Irq(kvm_ioctls::Error),
     /// The host kernel reports an invalid KVM API version.
     KvmApiVersion(i32),
     /// Cannot initialize the KVM context due to missing capabilities.
     KvmCap(kvm_ioctls::Cap),
-    /// vCPU count is not initialized.
-    VcpuCountNotInitialized,
-    /// Cannot open the VM file descriptor.
-    VmFd(kvm_ioctls::Error),
-    /// Cannot open the VCPU file descriptor.
-    VcpuFd(kvm_ioctls::Error),
-    /// Cannot configure the microvm.
-    VmSetup(kvm_ioctls::Error),
-    /// Cannot run the VCPUs.
-    VcpuRun(kvm_ioctls::Error),
-    /// The call to KVM_SET_CPUID2 failed.
-    SetSupportedCpusFailed(kvm_ioctls::Error),
-    /// The number of configured slots is bigger than the maximum reported by KVM.
-    NotEnoughMemorySlots,
     #[cfg(target_arch = "x86_64")]
     /// Cannot set the local interruption due to bad configuration.
     LocalIntConfiguration(arch::x86_64::interrupts::Error),
-    /// Cannot set the memory regions.
-    SetUserMemoryRegion(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the MSR registers
     MSRSConfiguration(arch::x86_64::msr::Error),
+    /// The number of configured slots is bigger than the maximum reported by KVM.
+    NotEnoughMemorySlots,
     #[cfg(target_arch = "aarch64")]
     /// Error configuring the general purpose aarch64 registers.
     REGSConfiguration(arch::aarch64::regs::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the general purpose registers
     REGSConfiguration(arch::x86_64::regs::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Error setting up the global interrupt controller.
+    SetupGIC(arch::aarch64::gic::Error),
+    /// Cannot set the memory regions.
+    SetUserMemoryRegion(kvm_ioctls::Error),
+    /// Failed to signal Vcpu.
+    SignalVcpu(utils::errno::Error),
     #[cfg(target_arch = "x86_64")]
     /// Error configuring the special registers
     SREGSConfiguration(arch::x86_64::regs::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Error doing Vcpu Init on Arm.
+    VcpuArmInit(kvm_ioctls::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Error getting the Vcpu preferred target on Arm.
+    VcpuArmPreferredTarget(kvm_ioctls::Error),
+    /// vCPU count is not initialized.
+    VcpuCountNotInitialized,
+    /// Cannot open the VCPU file descriptor.
+    VcpuFd(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Error configuring the floating point related registers
-    FPUConfiguration(arch::x86_64::regs::Error),
-    /// Cannot configure the IRQ.
-    Irq(kvm_ioctls::Error),
-    /// Failed to signal Vcpu.
-    SignalVcpu(utils::errno::Error),
+    /// Failed to get KVM vcpu debug regs.
+    VcpuGetDebugRegs(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vcpu lapic.
+    VcpuGetLapic(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vcpu mp state.
+    VcpuGetMpState(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vcpu msrs.
+    VcpuGetMsrs(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vcpu regs.
+    VcpuGetRegs(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vcpu sregs.
+    VcpuGetSregs(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vcpu evenct.
+    VcpuGetVcpuEvents(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vcpu xcrs.
+    VcpuGetXcrs(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vcpu xsave.
+    VcpuGetXsave(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Cannot run the VCPUs.
+    VcpuRun(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vcpu cpuid.
+    VcpuSetCpuid(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vcpu debug regs.
+    VcpuSetDebugRegs(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vcpu lapic.
+    VcpuSetLapic(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vcpu mp state.
+    VcpuSetMpState(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vcpu msrs.
+    VcpuSetMsrs(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vcpu regs.
+    VcpuSetRegs(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vcpu sregs.
+    VcpuSetSregs(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vcpu evenct.
+    VcpuSetVcpuEvents(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vcpu xcrs.
+    VcpuSetXcrs(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vcpu xsave.
+    VcpuSetXsave(kvm_ioctls::Error),
     /// Cannot spawn a new vCPU thread.
     VcpuSpawn(io::Error),
     /// Cannot cleanly initialize vcpu TLS.
@@ -103,15 +173,28 @@ pub enum Error {
     VcpuTlsNotPresent,
     /// Unexpected KVM_RUN exit reason
     VcpuUnhandledKvmExit,
-    #[cfg(target_arch = "aarch64")]
-    /// Error setting up the global interrupt controller.
-    SetupGIC(arch::aarch64::gic::Error),
-    #[cfg(target_arch = "aarch64")]
-    /// Error getting the Vcpu preferred target on Arm.
-    VcpuArmPreferredTarget(kvm_ioctls::Error),
-    #[cfg(target_arch = "aarch64")]
-    /// Error doing Vcpu Init on Arm.
-    VcpuArmInit(kvm_ioctls::Error),
+    /// Cannot open the VM file descriptor.
+    VmFd(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vm pit state.
+    VmGetPit2(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vm clock.
+    VmGetClock(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vm irqchip.
+    VmGetIrqChip(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vm pit state.
+    VmSetPit2(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vm clock.
+    VmSetClock(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Failed to set KVM vm irqchip.
+    VmSetIrqChip(kvm_ioctls::Error),
+    /// Cannot configure the microvm.
+    VmSetup(kvm_ioctls::Error),
 }
 pub type Result<T> = result::Result<T, Error>;
 
@@ -172,6 +255,8 @@ pub struct Vm {
     // X86 specific fields.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     supported_cpuid: CpuId,
+    #[cfg(target_arch = "x86_64")]
+    supported_msrs: MsrList,
 
     // Arm specific fields.
     // On aarch64 we need to keep around the fd obtained by creating the VGIC device.
@@ -189,10 +274,16 @@ impl Vm {
         let supported_cpuid = kvm
             .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
             .map_err(Error::VmFd)?;
+        #[cfg(target_arch = "x86_64")]
+        let supported_msrs =
+            arch::x86_64::msr::supported_guest_msrs(kvm).map_err(Error::GuestMSRs)?;
+
         Ok(Vm {
             fd: vm_fd,
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             supported_cpuid,
+            #[cfg(target_arch = "x86_64")]
+            supported_msrs,
             guest_mem: None,
             #[cfg(target_arch = "aarch64")]
             irqchip_handle: None,
@@ -203,6 +294,12 @@ impl Vm {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn supported_cpuid(&self) -> &CpuId {
         &self.supported_cpuid
+    }
+
+    /// Returns a ref to the supported `MsrList` for this Vm.
+    #[cfg(target_arch = "x86_64")]
+    pub fn supported_msrs(&self) -> &MsrList {
+        &self.supported_msrs
     }
 
     /// Initializes the guest memory.
@@ -280,6 +377,74 @@ impl Vm {
     pub fn fd(&self) -> &VmFd {
         &self.fd
     }
+
+    #[allow(unused)]
+    #[cfg(target_arch = "x86_64")]
+    /// Saves and returns the Kvm Vm state.
+    pub fn save_state(&self) -> Result<VmState> {
+        let pitstate = self.fd.get_pit2().map_err(Error::VmGetPit2)?;
+
+        let mut clock = self.fd.get_clock().map_err(Error::VmGetClock)?;
+        // This bit is not accepted in SET_CLOCK, clear it.
+        clock.flags &= !KVM_CLOCK_TSC_STABLE;
+
+        let mut pic_master = kvm_irqchip::default();
+        pic_master.chip_id = KVM_IRQCHIP_PIC_MASTER;
+        self.fd
+            .get_irqchip(&mut pic_master)
+            .map_err(Error::VmGetIrqChip)?;
+
+        let mut pic_slave = kvm_irqchip::default();
+        pic_slave.chip_id = KVM_IRQCHIP_PIC_SLAVE;
+        self.fd
+            .get_irqchip(&mut pic_slave)
+            .map_err(Error::VmGetIrqChip)?;
+
+        let mut ioapic = kvm_irqchip::default();
+        ioapic.chip_id = KVM_IRQCHIP_IOAPIC;
+        self.fd
+            .get_irqchip(&mut ioapic)
+            .map_err(Error::VmGetIrqChip)?;
+
+        Ok(VmState {
+            pitstate,
+            clock,
+            pic_master,
+            pic_slave,
+            ioapic,
+        })
+    }
+
+    #[allow(unused)]
+    #[cfg(target_arch = "x86_64")]
+    /// Restores the Kvm Vm state.
+    pub fn restore_state(&self, state: &VmState) -> Result<()> {
+        self.fd
+            .set_pit2(&state.pitstate)
+            .map_err(Error::VmSetPit2)?;
+        self.fd.set_clock(&state.clock).map_err(Error::VmSetClock)?;
+        self.fd
+            .set_irqchip(&state.pic_master)
+            .map_err(Error::VmSetIrqChip)?;
+        self.fd
+            .set_irqchip(&state.pic_slave)
+            .map_err(Error::VmSetIrqChip)?;
+        self.fd
+            .set_irqchip(&state.ioapic)
+            .map_err(Error::VmSetIrqChip)?;
+        Ok(())
+    }
+}
+
+#[allow(unused)]
+#[cfg(target_arch = "x86_64")]
+/// Structure holding VM kvm state.
+pub struct VmState {
+    pitstate: kvm_pit_state2,
+    clock: kvm_clock_data,
+    pic_master: kvm_irqchip,
+    pic_slave: kvm_irqchip,
+    ioapic: kvm_irqchip,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
@@ -291,13 +456,14 @@ pub struct Vcpu {
     id: u8,
     create_ts: TimestampUs,
     mmio_bus: Option<devices::Bus>,
+    exit_evt: EventFd,
 
     #[cfg(target_arch = "x86_64")]
     io_bus: devices::Bus,
     #[cfg(target_arch = "x86_64")]
     cpuid: CpuId,
-
-    exit_evt: EventFd,
+    #[cfg(target_arch = "x86_64")]
+    msr_list: MsrList,
 
     #[cfg(target_arch = "aarch64")]
     mpidr: u64,
@@ -402,6 +568,7 @@ impl Vcpu {
     /// * `id` - Represents the CPU number between [0, max vcpus).
     /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
     /// * `cpuid` - The `CpuId` listing the supported capabilities of this vcpu.
+    /// * `msr_list` - The `MsrList` listing the supported MSRs for this vcpu.
     /// * `io_bus` - The io-bus used to access port-io devices.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
     /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
@@ -410,6 +577,7 @@ impl Vcpu {
         id: u8,
         vm_fd: &VmFd,
         cpuid: CpuId,
+        msr_list: MsrList,
         io_bus: devices::Bus,
         exit_evt: EventFd,
         create_ts: TimestampUs,
@@ -424,9 +592,10 @@ impl Vcpu {
             id,
             create_ts,
             mmio_bus: None,
+            exit_evt,
             io_bus,
             cpuid,
-            exit_evt,
+            msr_list,
             event_receiver,
             event_sender: Some(event_sender),
             response_receiver: Some(response_receiver),
@@ -458,8 +627,8 @@ impl Vcpu {
             id,
             create_ts,
             mmio_bus: None,
-            mpidr: 0,
             exit_evt,
+            mpidr: 0,
             event_receiver,
             event_sender: Some(event_sender),
             response_receiver: Some(response_receiver),
@@ -525,7 +694,7 @@ impl Vcpu {
 
         self.fd
             .set_cpuid2(&self.cpuid)
-            .map_err(Error::SetSupportedCpusFailed)?;
+            .map_err(Error::VcpuSetCpuid)?;
 
         arch::x86_64::msr::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
         arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)
@@ -602,6 +771,122 @@ impl Vcpu {
         }
     }
 
+    #[allow(unused)]
+    #[cfg(target_arch = "x86_64")]
+    fn save_state(&self) -> Result<VcpuState> {
+        /*
+         * Ordering requirements:
+         *
+         * KVM_GET_MP_STATE calls kvm_apic_accept_events(), which might modify
+         * vCPU/LAPIC state. As such, it must be done before most everything
+         * else, otherwise we cannot restore everything and expect it to work.
+         *
+         * KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
+         * still running.
+         *
+         * KVM_GET_LAPIC may change state of LAPIC before returning it.
+         *
+         * GET_VCPU_EVENTS should probably be last to save. The code looks as
+         * it might as well be affected by internal state modifications of the
+         * GET ioctls.
+         *
+         * SREGS saves/restores a pending interrupt, similar to what
+         * VCPU_EVENTS also does.
+         *
+         * GET_MSRS requires a pre-populated data structure to do something
+         * meaningful. For SET_MSRS it will then contain good data.
+         */
+
+        // Build the list of MSRs we want to save.
+        let num_msrs = self.msr_list.as_fam_struct_ref().nmsrs as usize;
+        let mut msrs = Msrs::new(num_msrs);
+        {
+            let indices = self.msr_list.as_slice();
+            let msr_entries = msrs.as_mut_slice();
+            assert_eq!(indices.len(), msr_entries.len());
+            for (pos, index) in indices.iter().enumerate() {
+                msr_entries[pos].index = *index;
+            }
+        }
+        let mp_state = self.fd.get_mp_state().map_err(Error::VcpuGetMpState)?;
+        let regs = self.fd.get_regs().map_err(Error::VcpuGetRegs)?;
+        let sregs = self.fd.get_sregs().map_err(Error::VcpuGetSregs)?;
+        let xsave = self.fd.get_xsave().map_err(Error::VcpuGetXsave)?;
+        let xcrs = self.fd.get_xcrs().map_err(Error::VcpuGetXcrs)?;
+        let debug_regs = self.fd.get_debug_regs().map_err(Error::VcpuGetDebugRegs)?;
+        let lapic = self.fd.get_lapic().map_err(Error::VcpuGetLapic)?;
+        let nmsrs = self.fd.get_msrs(&mut msrs).map_err(Error::VcpuGetMsrs)?;
+        assert_eq!(nmsrs, num_msrs);
+        let vcpu_events = self
+            .fd
+            .get_vcpu_events()
+            .map_err(Error::VcpuGetVcpuEvents)?;
+        Ok(VcpuState {
+            cpuid: self.cpuid.clone(),
+            msrs,
+            debug_regs,
+            lapic,
+            mp_state,
+            regs,
+            sregs,
+            vcpu_events,
+            xcrs,
+            xsave,
+        })
+    }
+
+    #[allow(unused)]
+    #[cfg(target_arch = "x86_64")]
+    fn restore_state(&self, state: VcpuState) -> Result<()> {
+        /*
+         * Ordering requirements:
+         *
+         * KVM_GET_VCPU_EVENTS/KVM_SET_VCPU_EVENTS is unsafe if other vCPUs are
+         * still running.
+         *
+         * Some SET ioctls (like set_mp_state) depend on kvm_vcpu_is_bsp(), so
+         * if we ever change the BSP, we have to do that before restoring anything.
+         * The same seems to be true for CPUID stuff.
+         *
+         * SREGS saves/restores a pending interrupt, similar to what
+         * VCPU_EVENTS also does.
+         *
+         * SET_REGS clears pending exceptions unconditionally, thus, it must be
+         * done before SET_VCPU_EVENTS, which restores it.
+         *
+         * SET_LAPIC must come after SET_SREGS, because the latter restores
+         * the apic base msr.
+         *
+         * SET_LAPIC must come before SET_MSRS, because the TSC deadline MSR
+         * only restores successfully, when the LAPIC is correctly configured.
+         */
+        self.fd
+            .set_cpuid2(&state.cpuid)
+            .map_err(Error::VcpuSetCpuid)?;
+        self.fd
+            .set_mp_state(state.mp_state)
+            .map_err(Error::VcpuSetMpState)?;
+        self.fd.set_regs(&state.regs).map_err(Error::VcpuSetRegs)?;
+        self.fd
+            .set_sregs(&state.sregs)
+            .map_err(Error::VcpuSetSregs)?;
+        self.fd
+            .set_xsave(&state.xsave)
+            .map_err(Error::VcpuSetXsave)?;
+        self.fd.set_xcrs(&state.xcrs).map_err(Error::VcpuSetXcrs)?;
+        self.fd
+            .set_debug_regs(&state.debug_regs)
+            .map_err(Error::VcpuSetDebugRegs)?;
+        self.fd
+            .set_lapic(&state.lapic)
+            .map_err(Error::VcpuSetLapic)?;
+        self.fd.set_msrs(&state.msrs).map_err(Error::VcpuSetMsrs)?;
+        self.fd
+            .set_vcpu_events(&state.vcpu_events)
+            .map_err(Error::VcpuSetVcpuEvents)?;
+        Ok(())
+    }
+
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
@@ -641,11 +926,11 @@ impl Vcpu {
                 }
                 VcpuExit::Hlt => {
                     info!("Received KVM_EXIT_HLT signal");
-                    Err(Error::VcpuUnhandledKvmExit)
+                    Ok(VcpuEmulation::Stopped)
                 }
                 VcpuExit::Shutdown => {
                     info!("Received KVM_EXIT_SHUTDOWN signal");
-                    Err(Error::VcpuUnhandledKvmExit)
+                    Ok(VcpuEmulation::Stopped)
                 }
                 // Documentation specifies that below kvm exits are considered
                 // errors.
@@ -717,8 +1002,16 @@ impl Vcpu {
                 Ok(VcpuEmulation::Handled) => (),
                 // Emulation was interrupted, check external events.
                 Ok(VcpuEmulation::Interrupted) => break,
+                // If the guest was rebooted or halted:
+                // - vCPU0 will always exit out of `KVM_RUN` with KVM_EXIT_SHUTDOWN or
+                //   KVM_EXIT_HLT.
+                // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
+                // Moreover if we allow the vCPU0 thread to finish execution, this might generate a
+                // seccomp failure because musl calls `sigprocmask` as part of `pthread_exit`.
+                // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
+                Ok(VcpuEmulation::Stopped) => return self.exit(FC_EXIT_CODE_OK),
                 // Emulation errors lead to vCPU exit.
-                Err(_) => return StateMachine::next(Self::exited),
+                Err(_) => return self.exit(FC_EXIT_CODE_GENERIC_ERROR),
             }
         }
 
@@ -727,11 +1020,6 @@ impl Vcpu {
 
         // Break this emulation loop on any transition request/external event.
         match self.event_receiver.try_recv() {
-            // Running ---- Exit ----> Exited
-            Ok(VcpuEvent::Exit) => {
-                // Move to 'exited' state.
-                state = StateMachine::next(Self::exited);
-            }
             // Running ---- Pause ----> Paused
             Ok(VcpuEvent::Pause) => {
                 // Nothing special to do.
@@ -753,7 +1041,7 @@ impl Vcpu {
             // Unhandled exit of the other end.
             Err(TryRecvError::Disconnected) => {
                 // Move to 'exited' state.
-                state = StateMachine::next(Self::exited);
+                state = self.exit(FC_EXIT_CODE_GENERIC_ERROR);
             }
             // All other events or lack thereof have no effect on current 'running' state.
             Err(TryRecvError::Empty) => (),
@@ -765,12 +1053,6 @@ impl Vcpu {
     // This is the main loop of the `Paused` state.
     fn paused(&mut self) -> StateMachine<Self> {
         match self.event_receiver.recv() {
-            // Paused ---- Exit ----> Exited
-            #[cfg(target_arch = "x86_64")]
-            Ok(VcpuEvent::Exit) => {
-                // Move to 'exited' state.
-                StateMachine::next(Self::exited)
-            }
             // Paused ---- Resume ----> Running
             Ok(VcpuEvent::Resume) => {
                 // Nothing special to do.
@@ -785,20 +1067,56 @@ impl Vcpu {
             // Unhandled exit of the other end.
             Err(_) => {
                 // Move to 'exited' state.
-                StateMachine::next(Self::exited)
+                self.exit(FC_EXIT_CODE_GENERIC_ERROR)
             }
         }
     }
 
-    // This is the main loop of the `Exited` state.
-    fn exited(&mut self) -> StateMachine<Self> {
+    // Transition to the exited state
+    fn exit(&mut self, exit_code: u8) -> StateMachine<Self> {
+        self.response_sender
+            .send(VcpuResponse::Exited(exit_code))
+            .expect("failed to send Exited status");
+
         if let Err(e) = self.exit_evt.write(1) {
             METRICS.vcpu.failures.inc();
             error!("Failed signaling vcpu exit event: {}", e);
         }
+
         // State machine reached its end.
-        StateMachine::finish(Self::exited)
+        StateMachine::next(Self::exited)
     }
+
+    // This is the main loop of the `Exited` state.
+    fn exited(&mut self) -> StateMachine<Self> {
+        // Wait indefinitely.
+        // The VMM thread will kill the entire process.
+        let barrier = Barrier::new(2);
+        barrier.wait();
+
+        StateMachine::finish()
+    }
+}
+
+impl Drop for Vcpu {
+    fn drop(&mut self) {
+        let _ = self.reset_thread_local_data();
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+/// Structure holding VCPU kvm state.
+pub struct VcpuState {
+    cpuid: CpuId,
+    msrs: Msrs,
+    debug_regs: kvm_debugregs,
+    lapic: kvm_lapic_state,
+    mp_state: kvm_mp_state,
+    regs: kvm_regs,
+    sregs: kvm_sregs,
+    vcpu_events: kvm_vcpu_events,
+    xcrs: kvm_xcrs,
+    xsave: kvm_xsave,
 }
 
 // Allow currently unused Pause and Exit events. These will be used by the vmm later on.
@@ -806,8 +1124,6 @@ impl Vcpu {
 #[derive(Debug)]
 /// List of events that the Vcpu can receive.
 pub enum VcpuEvent {
-    /// Kill the Vcpu.
-    Exit,
     /// Pause the Vcpu.
     Pause,
     /// Event that should resume the Vcpu.
@@ -822,6 +1138,8 @@ pub enum VcpuResponse {
     Paused,
     /// Vcpu is resumed.
     Resumed,
+    /// Vcpu is stopped.
+    Exited(u8),
 }
 
 /// Wrapper over Vcpu that hides the underlying interactions with the Vcpu thread.
@@ -854,30 +1172,28 @@ impl VcpuHandle {
     }
 }
 
-impl Drop for Vcpu {
-    fn drop(&mut self) {
-        let _ = self.reset_thread_local_data();
-    }
-}
-
 enum VcpuEmulation {
     Handled,
     Interrupted,
+    Stopped,
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_arch = "x86_64")]
     use std::convert::TryInto;
     use std::fs::File;
+    #[cfg(target_arch = "x86_64")]
+    use std::os::unix::io::AsRawFd;
+    #[cfg(target_arch = "x86_64")]
     use std::path::PathBuf;
     use std::sync::{mpsc, Arc, Barrier};
+    #[cfg(target_arch = "x86_64")]
     use std::time::Duration;
 
     use super::super::devices;
     use super::*;
 
-    use kernel::cmdline as kernel_cmdline;
-    use kernel::loader as kernel_loader;
     use utils::signal::validate_signal_num;
 
     // Auxiliary function being used throughout the tests.
@@ -897,6 +1213,7 @@ mod tests {
                 1,
                 vm.fd(),
                 vm.supported_cpuid().clone(),
+                vm.supported_msrs().clone(),
                 devices::Bus::new(),
                 exit_evt,
                 super::super::TimestampUs::default(),
@@ -969,6 +1286,7 @@ mod tests {
             1,
             vm.fd(),
             vm.supported_cpuid().clone(),
+            vm.supported_msrs().clone(),
             devices::Bus::new(),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
             super::super::TimestampUs::default(),
@@ -1171,20 +1489,20 @@ mod tests {
         let vm_memory = vm.memory().expect("vm memory not initialized");
 
         let mut kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
-        let mut cmdline = kernel_cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
+        let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
         assert!(cmdline
             .insert_str(super::super::DEFAULT_KERNEL_CMDLINE)
             .is_ok());
         let cmdline_addr = GuestAddress(arch::x86_64::layout::CMDLINE_START);
 
-        let entry_addr = kernel_loader::load_kernel(
+        let entry_addr = kernel::loader::load_kernel(
             vm_memory,
             &mut kernel_file,
             arch::x86_64::layout::HIMEM_START,
         )
         .expect("failed to load kernel");
 
-        kernel_loader::load_cmdline(
+        kernel::loader::load_cmdline(
             vm_memory,
             cmdline_addr,
             &cmdline.as_cstring().expect("failed to convert to cstring"),
@@ -1194,6 +1512,7 @@ mod tests {
         entry_addr
     }
 
+    #[cfg(target_arch = "x86_64")]
     // Sends an event to a vcpu and expects a particular response.
     fn queue_event_expect_response(handle: &VcpuHandle, event: VcpuEvent, response: VcpuResponse) {
         handle
@@ -1208,6 +1527,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "x86_64")]
     // Sends an event to a vcpu and expects no response.
     fn queue_event_expect_timeout(handle: &VcpuHandle, event: VcpuEvent) {
         handle
@@ -1268,21 +1588,58 @@ mod tests {
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
-
-        // Stop it by sending exit.
-        assert!(vcpu_handle.send_event(VcpuEvent::Exit).is_ok());
-
-        // Validate vCPU thread ends execution.
-        vcpu_handle
-            .join_vcpu_thread()
-            .expect("failed to join thread");
-
-        // Validate that the vCPU signaled its exit.
-        assert_eq!(vcpu_exit_evt.read().unwrap(), 1);
     }
 
     #[test]
     fn test_vcpu_rtsig_offset() {
         assert!(validate_signal_num(sigrtmin() + VCPU_RTSIG_OFFSET).is_ok());
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_vm_save_restore_state() {
+        let kvm_fd = Kvm::new().unwrap();
+        let vm = Vm::new(&kvm_fd).expect("new vm failed");
+        // Irqchips, clock and pitstate are not configured so trying to save state should fail.
+        assert!(vm.save_state().is_err());
+
+        let (vm, _) = setup_vcpu(0x1000);
+        let vm_state = vm.save_state().unwrap();
+        assert_eq!(
+            vm_state.pitstate.flags | KVM_PIT_SPEAKER_DUMMY,
+            KVM_PIT_SPEAKER_DUMMY
+        );
+        assert_eq!(vm_state.clock.flags & KVM_CLOCK_TSC_STABLE, 0);
+        assert_eq!(vm_state.pic_master.chip_id, KVM_IRQCHIP_PIC_MASTER);
+        assert_eq!(vm_state.pic_slave.chip_id, KVM_IRQCHIP_PIC_SLAVE);
+        assert_eq!(vm_state.ioapic.chip_id, KVM_IRQCHIP_IOAPIC);
+
+        let (vm, _) = setup_vcpu(0x1000);
+        assert!(vm.restore_state(&vm_state).is_ok());
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_vcpu_save_restore_state() {
+        let (_vm, vcpu) = setup_vcpu(0x1000);
+        let state = vcpu.save_state();
+        assert!(state.is_ok());
+        assert!(vcpu.restore_state(state.unwrap()).is_ok());
+
+        unsafe { libc::close(vcpu.fd.as_raw_fd()) };
+        let state = VcpuState {
+            cpuid: CpuId::new(1),
+            msrs: Msrs::new(1),
+            debug_regs: Default::default(),
+            lapic: Default::default(),
+            mp_state: Default::default(),
+            regs: Default::default(),
+            sregs: Default::default(),
+            vcpu_events: Default::default(),
+            xcrs: Default::default(),
+            xsave: Default::default(),
+        };
+        // Setting default state should always fail.
+        assert!(vcpu.restore_state(state).is_err());
     }
 }
