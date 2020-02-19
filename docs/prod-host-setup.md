@@ -216,7 +216,7 @@ EAX Bit 9: KVM_FEATURE_PV_TLB_FLUSH = 1
 The vulnerability is fixed by the following host kernel 
 [patches](https://lkml.org/lkml/2020/1/30/482).
 
-The fix was integrated in the mainline kernel, and in 5.5.3 and 5.4.19 kernel
-stable releases. Please follow [kernel.org](https://www.kernel.org/) and
+The fix was integrated in the mainline kernel and in 4.19.103, 5.4.19, 5.5.3
+stable kernel releases. Please follow [kernel.org](https://www.kernel.org/) and
 once the fix is available in your stable release please update the host kernel. 
 If you are not using a vanilla kernel, please check with Linux distro provider.
