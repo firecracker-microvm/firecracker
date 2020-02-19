@@ -710,9 +710,11 @@ mod tests {
         frame_bytes_from_buf, frame_bytes_from_buf_mut, init_vnet_hdr, vnet_hdr_len,
     };
 
+    use crate::virtio::net::QUEUE_SIZES;
     use crate::virtio::queue::tests::VirtQueue;
     use crate::virtio::{
-        Net, Queue, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTQ_DESC_F_WRITE,
+        Net, Queue, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET,
+        VIRTIO_MMIO_INT_VRING, VIRTQ_DESC_F_WRITE,
     };
     use dumbo::{
         EthIPv4ArpFrame, EthernetFrame, MacAddr, ETHERTYPE_ARP, ETH_IPV4_FRAME_LEN, MAC_ADDR_LEN,
@@ -1636,5 +1638,35 @@ mod tests {
         assert_eq!(txq.used.idx.get(), 1);
         // Check if interrupt was triggered.
         assert_eq!(net.interrupt_evt.read().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_virtio_device() {
+        let mut net = Net::default_net(TestMutators::default());
+        let mem_clone = net.mem.clone();
+        let (rxq, txq) = Net::virtqueues(&mem_clone);
+        net.assign_queues(rxq.create_queue(), txq.create_queue());
+
+        // Test queues count (TX and RX).
+        let queues = net.get_queues();
+        assert_eq!(queues.len(), QUEUE_SIZES.len());
+        assert_eq!(queues[RX_INDEX].size, rxq.size());
+        assert_eq!(queues[TX_INDEX].size, txq.size());
+
+        // Test corresponding queues events.
+        let queues_evts = net.get_queue_events().unwrap();
+        assert_eq!(queues_evts.len(), QUEUE_SIZES.len());
+
+        // Test interrupts.
+        let interrupt_status = net.get_interrupt_status();
+        interrupt_status.fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
+        assert_eq!(
+            interrupt_status.load(Ordering::SeqCst),
+            VIRTIO_MMIO_INT_VRING as usize
+        );
+
+        let interrupt_evt = net.get_interrupt().unwrap();
+        interrupt_evt.write(1).unwrap();
+        assert_eq!(interrupt_evt.read().unwrap() as usize, 1);
     }
 }
