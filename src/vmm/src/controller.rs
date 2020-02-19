@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
-use devices::virtio;
 use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
 use logger::LOGGER;
 use resources::VmResources;

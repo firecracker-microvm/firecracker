@@ -302,7 +302,6 @@ impl Subscriber for Serial {
                 }
             }
         }
-        error!("Spurious Serial input event!");
     }
 
     /// Initial registration of pollable objects.
