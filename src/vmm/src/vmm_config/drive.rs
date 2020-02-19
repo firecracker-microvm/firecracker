@@ -580,4 +580,27 @@ mod tests {
             .is_ok());
         assert!(block_devices_configs.has_partuuid_root);
     }
+
+    #[test]
+    fn test_block_config() {
+        let dummy_block_file = TempFile::new().unwrap();
+        let expected_partuuid = "0eaa91a0-01".to_string();
+        let expected_is_read_only = true;
+
+        let block_config = BlockDeviceConfig {
+            drive_id: "dummy_drive".to_string(),
+            path_on_host: dummy_block_file.as_path().to_path_buf(),
+            is_root_device: false,
+            partuuid: Some("0eaa91a0-01".to_string()),
+            is_read_only: true,
+            rate_limiter: None,
+        };
+
+        assert_eq!(
+            block_config.get_partuuid().unwrap().to_string(),
+            expected_partuuid
+        );
+        assert_eq!(block_config.path_on_host(), dummy_block_file.as_path());
+        assert_eq!(block_config.is_read_only(), expected_is_read_only);
+    }
 }
