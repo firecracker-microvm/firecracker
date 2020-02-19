@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+## Changed
+- Updated CVE-2019-3016 mitigation information in [Production Host Setup](docs/prod-host-setup.md)
+
 ## [0.21.0]
 
 ### Added
