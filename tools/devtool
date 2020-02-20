@@ -174,14 +174,17 @@ ok_or_die() {
 # Upon returning from this call, the caller can be certain Docker is available.
 #
 ensure_docker() {
-    which docker > /dev/null 2>&1
+    NEWLINE=$'\n'
+    output=$(which docker 2>&1)
     ok_or_die "Docker not found. Aborting." \
         "Please make sure you have Docker (http://docker.com) installed" \
-        "and properly configured."
+        "and properly configured.${NEWLINE}" \
+        "Error: $?, command output: ${output}"
 
-    docker ps > /dev/null 2>&1
+    output=$(docker ps 2>&1)
     ok_or_die "Error accessing Docker. Please make sure the Docker daemon" \
-        "is running and that you are part of the docker group." \
+        "is running and that you are part of the docker group.${NEWLINE}" \
+        "Error: $?, command output: ${output}${NEWLINE}" \
         "For more information, see" \
         "https://docs.docker.com/install/linux/linux-postinstall/"
 }
