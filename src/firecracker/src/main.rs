@@ -45,7 +45,7 @@ const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     LOGGER
-        .preinit(Some(DEFAULT_INSTANCE_ID.to_string()))
+        .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
     if let Err(e) = register_signal_handlers() {

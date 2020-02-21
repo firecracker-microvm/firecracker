@@ -8,9 +8,10 @@
 //! # Enabling logging
 //! There are 2 ways to enable the logging functionality:
 //!
-//! 1) Calling `LOGGER.preinit()`. This will enable the logger to work in limited mode.
+//! 1) Calling `LOGGER.configure()`. This will enable the logger to work in limited mode.
 //! In this mode the logger can only write messages to stdout or stderr.
-//! The logger can be preinitialized any number of times before calling `LOGGER.init()`.
+
+//! The logger can be configured in this way any number of times before calling `LOGGER.init()`.
 //!
 //! 2) Calling `LOGGER.init()`. This will enable the logger to work in full mode.
 //! In this mode the logger can write messages to arbitrary buffers.
@@ -26,9 +27,9 @@
 //! use std::ops::Deref;
 //!
 //! fn main() {
-//!     // Optionally preinitialize the logger.
-//!     if let Err(e) = LOGGER.deref().preinit(Some("MY-INSTANCE".to_string())) {
-//!         println!("Could not preinitialize the log subsystem: {}", e);
+//!     // Optionally do an initial configuration for the logger.
+//!     if let Err(e) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
+//!         println!("Could not configure the log subsystem: {}", e);
 //!         return;
 //!     }
 //!     warn!("this is a warning");
@@ -112,9 +113,8 @@ const DEFAULT_LEVEL: Level = Level::Warn;
 
 // Synchronization primitives used to run a one-time global initialization.
 const UNINITIALIZED: usize = 0;
-const PREINITIALIZING: usize = 1;
-const INITIALIZING: usize = 2;
-const INITIALIZED: usize = 3;
+const INITIALIZING: usize = 1;
+const INITIALIZED: usize = 2;
 
 static STATE: AtomicUsize = AtomicUsize::new(0);
 
@@ -188,7 +188,7 @@ impl Logger {
     /// fn main() {
     ///     let l = LOGGER.deref();
     ///     l.set_include_level(true);
-    ///     assert!(l.preinit(Some("MY-INSTANCE".to_string())).is_ok());
+    ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
     ///     warn!("A warning log message with level included");
     /// }
     /// ```
@@ -221,7 +221,7 @@ impl Logger {
     /// fn main() {
     ///     let l = LOGGER.deref();
     ///     l.set_include_origin(false, false);
-    ///     assert!(l.preinit(Some("MY-INSTANCE".to_string())).is_ok());
+    ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
     ///
     ///     warn!("A warning log message with log origin disabled");
     /// }
@@ -266,7 +266,7 @@ impl Logger {
     /// fn main() {
     ///     let l = LOGGER.deref();
     ///     l.set_level(log::Level::Info);
-    ///     assert!(l.preinit(Some("MY-INSTANCE".to_string())).is_ok());
+    ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
     ///     info!("An informational log message");
     /// }
     /// ```
@@ -318,11 +318,6 @@ impl Logger {
     /// This method will succeed only if the logger is UNINITIALIZED.
     fn try_lock(&self, locked_state: usize) -> Result<()> {
         match STATE.compare_and_swap(UNINITIALIZED, locked_state, Ordering::SeqCst) {
-            PREINITIALIZING => {
-                // If the logger is preinitializing, an error will be returned.
-                METRICS.logger.log_fails.inc();
-                return Err(LoggerError::IsPreinitializing);
-            }
             INITIALIZING => {
                 // If the logger is initializing, an error will be returned.
                 METRICS.logger.log_fails.inc();
@@ -360,12 +355,12 @@ impl Logger {
     /// fn main() {
     ///     LOGGER
     ///         .deref()
-    ///         .preinit(Some("MY-INSTANCE".to_string()))
+    ///         .configure(Some("MY-INSTANCE".to_string()))
     ///         .unwrap();
     /// }
     /// ```
-    pub fn preinit(&self, instance_id: Option<String>) -> Result<()> {
-        self.try_lock(PREINITIALIZING)?;
+    pub fn configure(&self, instance_id: Option<String>) -> Result<()> {
+        self.try_lock(INITIALIZING)?;
 
         if let Some(some_instance_id) = instance_id {
             self.set_instance_id(some_instance_id);
@@ -449,8 +444,6 @@ impl Logger {
 pub enum LoggerError {
     /// First attempt at initialization failed.
     NeverInitialized(String),
-    /// The logger is locked while preinitializing.
-    IsPreinitializing,
     /// The logger is locked while initializing.
     IsInitializing,
     /// The logger does not allow reinitialization.
@@ -463,10 +456,6 @@ impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
             LoggerError::NeverInitialized(ref e) => e.to_string(),
-            LoggerError::IsPreinitializing => {
-                "The logger is preinitializing. Can't perform the requested action right now."
-                    .to_string()
-            }
             LoggerError::IsInitializing => {
                 "The logger is initializing. Can't perform the requested action right now."
                     .to_string()
@@ -567,10 +556,10 @@ mod tests {
 
         l.set_instance_id(TEST_INSTANCE_ID.to_string());
 
-        // Assert that preinitialization works any number of times.
-        assert!(l.preinit(Some(TEST_INSTANCE_ID.to_string())).is_ok());
-        assert!(l.preinit(None).is_ok());
-        assert!(l.preinit(Some(TEST_INSTANCE_ID.to_string())).is_ok());
+        // Assert that the initial configuration works any number of times.
+        assert!(l.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
+        assert!(l.configure(None).is_ok());
+        assert!(l.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
 
         info!("info");
         warn!("warning");
@@ -665,11 +654,6 @@ mod tests {
         assert_eq!(
             format!("{}", LoggerError::AlreadyInitialized),
             "Reinitialization of logger not allowed."
-        );
-
-        assert_eq!(
-            format!("{}", LoggerError::IsPreinitializing),
-            "The logger is preinitializing. Can't perform the requested action right now."
         );
 
         assert_eq!(
