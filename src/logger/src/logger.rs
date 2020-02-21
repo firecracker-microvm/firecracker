@@ -46,7 +46,7 @@
 //!
 //! #[macro_use]
 //! extern crate logger;
-//! use logger::{AppInfo, LOGGER};
+//! use logger::LOGGER;
 //!
 //! fn main() {
 //!     let mut logs = Cursor::new(vec![0; 15]);
@@ -54,7 +54,7 @@
 //!     // Initialize the logger to log to a FIFO that was created beforehand.
 //!     assert!(LOGGER
 //!         .init(
-//!             &AppInfo::new("Firecracker", "1.0"),
+//!              "Running Firecracker v.x".to_string(),
 //!             Box::new(logs),
 //!         )
 //!         .is_ok());
@@ -126,26 +126,6 @@ lazy_static! {
         set_logger(_LOGGER_INNER.deref()).expect("Failed to set logger");
         _LOGGER_INNER.deref()
     };
-}
-
-/// A structure containing info about the App that uses the logger.
-pub struct AppInfo {
-    name: String,
-    version: String,
-}
-
-impl AppInfo {
-    /// Creates a new instance of AppInfo.
-    /// # Arguments
-    ///
-    /// * `name` - Name of the application using this logger.
-    /// * `version` - Version of the application using this logger.
-    pub fn new(name: &str, version: &str) -> AppInfo {
-        AppInfo {
-            name: name.to_string(),
-            version: version.to_string(),
-        }
-    }
 }
 
 /// Logger representing the logging subsystem.
@@ -403,14 +383,14 @@ impl Logger {
     ///
     /// # Arguments
     ///
-    /// * `app_info` - Info about the app that uses the logger.
+    /// * `header` - Info about the app that uses the logger.
     /// * `log_dest` - Buffer for plain text logs. Needs to implements `Write` and `Send`.
     ///
     /// # Example
     ///
     /// ```
     /// extern crate logger;
-    /// use logger::{AppInfo, LOGGER};
+    /// use logger::LOGGER;
     ///
     /// use std::io::Cursor;
     ///
@@ -418,12 +398,12 @@ impl Logger {
     ///     let mut logs = Cursor::new(vec![0; 15]);
     ///
     ///     LOGGER.init(
-    ///         &AppInfo::new("Firecracker", "1.0"),
+    ///         "Running Firecracker v.x".to_string(),
     ///         Box::new(logs),
     ///     );
     /// }
     /// ```
-    pub fn init(&self, app_info: &AppInfo, log_dest: Box<dyn Write + Send>) -> Result<()> {
+    pub fn init(&self, header: String, log_dest: Box<dyn Write + Send>) -> Result<()> {
         self.try_lock(INITIALIZING)?;
         {
             let mut g = buf_guard(&self.log_buf);
@@ -434,10 +414,7 @@ impl Logger {
         set_max_level(Level::Trace.to_level_filter());
 
         STATE.store(INITIALIZED, Ordering::SeqCst);
-        self.write_log(
-            format!("Running {} v{}", app_info.name, app_info.version),
-            Level::Info,
-        );
+        self.write_log(header, Level::Info);
 
         Ok(())
     }
@@ -542,8 +519,7 @@ mod tests {
     use utils::tempfile::TempFile;
 
     const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
-    const TEST_APP_NAME: &str = "Firecracker";
-    const TEST_APP_VERSION: &str = "1.0";
+    const TEST_APP_HEADER: &str = "App header";
     const LOG_SOURCE: &str = "logger.rs";
 
     fn validate_logs(log_path: &str, expected: &[(&'static str, &'static str)]) -> bool {
@@ -553,7 +529,7 @@ mod tests {
         let mut line = String::new();
         // The first line should contain the app header.
         reader.read_line(&mut line).unwrap();
-        assert!(line.contains(TEST_APP_VERSION));
+        assert!(line.contains(TEST_APP_HEADER));
         for tuple in expected {
             line.clear();
             // Read an actual log line.
@@ -577,7 +553,6 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_init() {
-        let app_info = AppInfo::new(TEST_APP_NAME, TEST_APP_VERSION);
         let l = LOGGER.deref();
 
         l.set_include_origin(false, true);
@@ -609,7 +584,7 @@ mod tests {
         l.set_instance_id(TEST_INSTANCE_ID.to_string());
         assert!(l
             .init(
-                &app_info,
+                TEST_APP_HEADER.to_string(),
                 Box::new(
                     OpenOptions::new()
                         .read(true)
@@ -627,7 +602,7 @@ mod tests {
 
         assert!(l
             .init(
-                &app_info,
+                TEST_APP_HEADER.to_string(),
                 Box::new(
                     OpenOptions::new()
                         .read(true)

@@ -503,6 +503,9 @@ definitions:
       vmm_version:
         description: MicroVM hypervisor build version.
         type: string
+      app_name:
+        description: Application name.
+        type: string
 
   Logger:
     type: object
