@@ -130,7 +130,7 @@ pub struct AmdCpuidTransformer {}
 
 impl CpuidTransformer for AmdCpuidTransformer {
     fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
-        use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, false)?;
+        use_host_cpuid_function(cpuid, leaf_0x8000001e::LEAF_NUM, false)?;
         use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)?;
         self.process_entries(cpuid, vm_spec)
     }
