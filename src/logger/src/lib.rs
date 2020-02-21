@@ -20,7 +20,7 @@ mod logger;
 mod metrics;
 
 pub use log::*;
-pub use logger::{AppInfo, LoggerError, LOGGER};
+pub use logger::{LoggerError, LOGGER};
 pub use metrics::{Metric, MetricsError, METRICS};
 
 use std::io::Write;

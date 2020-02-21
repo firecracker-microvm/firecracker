@@ -6,6 +6,8 @@
 
 - Added a new API call, `PUT /metrics`, for configuring the metrics
   system.
+- Added `app_name` field in InstanceInfo struct for storing the
+  application name.
 
 ## Changed
 - Updated CVE-2019-3016 mitigation information in

@@ -191,6 +191,7 @@ fn main() {
             id: instance_id,
             started: false,
             vmm_version: FIRECRACKER_VERSION.to_string(),
+            app_name: "Firecracker".to_string(),
         };
         api_server_adapter::run_with_api(
             seccomp_filter,

@@ -8,7 +8,7 @@ extern crate logger as logger_crate;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use self::logger_crate::{AppInfo, Level, LOGGER};
+use self::logger_crate::{Level, LOGGER};
 use super::Writer;
 
 /// Enum used for setting the log level.
@@ -81,7 +81,7 @@ pub fn init_logger(
 
     LOGGER
         .init(
-            &AppInfo::new("Firecracker", firecracker_version),
+            format!("Running {} v{}", "Firecracker", firecracker_version),
             Box::new(
                 Writer::new(logger_cfg.log_fifo)
                     .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
