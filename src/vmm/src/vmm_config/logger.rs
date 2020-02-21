@@ -69,15 +69,15 @@ pub fn init_logger(
     logger_cfg: LoggerConfig,
     firecracker_version: &str,
 ) -> std::result::Result<(), LoggerConfigError> {
-    LOGGER.set_level(match logger_cfg.level {
-        LoggerLevel::Error => Level::Error,
-        LoggerLevel::Warning => Level::Warn,
-        LoggerLevel::Info => Level::Info,
-        LoggerLevel::Debug => Level::Debug,
-    });
-
-    LOGGER.set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin);
-    LOGGER.set_include_level(logger_cfg.show_level);
+    LOGGER
+        .set_level(match logger_cfg.level {
+            LoggerLevel::Error => Level::Error,
+            LoggerLevel::Warning => Level::Warn,
+            LoggerLevel::Info => Level::Info,
+            LoggerLevel::Debug => Level::Debug,
+        })
+        .set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin)
+        .set_include_level(logger_cfg.show_level);
 
     LOGGER
         .init(

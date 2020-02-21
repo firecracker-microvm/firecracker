@@ -197,8 +197,9 @@ impl Logger {
     /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:WARN:logger/src/lib.rs:290] A warning log
     /// message with level included
     /// ```
-    pub fn set_include_level(&self, option: bool) {
+    pub fn set_include_level(&self, option: bool) -> &Self {
         self.show_level.store(option, Ordering::Relaxed);
+        self
     }
 
     /// Enables or disables including the file path and the line numbers in the tag of
@@ -231,20 +232,22 @@ impl Logger {
     /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:WARN] A warning log message with log origin
     /// disabled
     /// ```
-    pub fn set_include_origin(&self, file_path: bool, line_numbers: bool) {
+    pub fn set_include_origin(&self, file_path: bool, line_numbers: bool) -> &Self {
         self.show_file_path.store(file_path, Ordering::Relaxed);
         // If the file path is not shown, do not show line numbers either.
         self.show_line_numbers
             .store(file_path && line_numbers, Ordering::Relaxed);
+        self
     }
 
     /// Sets the ID for this logger session.
-    pub fn set_instance_id(&self, instance_id: String) {
+    pub fn set_instance_id(&self, instance_id: String) -> &Self {
         let mut id_guard = match self.instance_id.write() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
         *id_guard = instance_id;
+        self
     }
 
     /// Explicitly sets the log level for the Logger.
@@ -275,8 +278,9 @@ impl Logger {
     /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:INFO:logger/src/lib.rs:389] An informational log
     /// message
     /// ```
-    pub fn set_level(&self, level: Level) {
+    pub fn set_level(&self, level: Level) -> &Self {
         self.level.store(level as usize, Ordering::Relaxed);
+        self
     }
 
     /// Creates the first portion (to the left of the separator)
@@ -547,9 +551,9 @@ mod tests {
         l.set_include_origin(false, true);
         assert_eq!(l.show_line_numbers(), false);
 
-        l.set_include_origin(true, true);
-        l.set_include_level(true);
-        l.set_level(log::Level::Info);
+        l.set_include_origin(true, true)
+            .set_include_level(true)
+            .set_level(log::Level::Info);
         assert_eq!(l.show_line_numbers(), true);
         assert_eq!(l.show_file_path(), true);
         assert_eq!(l.show_level(), true);
@@ -621,8 +625,7 @@ mod tests {
 
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
 
-        l.set_include_level(true);
-        l.set_include_origin(false, false);
+        l.set_include_level(true).set_include_origin(false, false);
         let error_metadata = MetadataBuilder::new().level(Level::Error).build();
         let log_record = log::Record::builder().metadata(error_metadata).build();
         Logger::log(&l, &log_record);
@@ -631,8 +634,7 @@ mod tests {
         assert_eq!(l.show_file_path(), false);
         assert_eq!(l.show_line_numbers(), false);
 
-        l.set_include_level(false);
-        l.set_include_origin(true, true);
+        l.set_include_level(false).set_include_origin(true, true);
         let error_metadata = MetadataBuilder::new().level(Level::Info).build();
         let log_record = log::Record::builder().metadata(error_metadata).build();
         Logger::log(&l, &log_record);
