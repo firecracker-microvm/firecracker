@@ -56,7 +56,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemoryMmap,
     cmdline_cstring: &CStr,
     vcpu_mpidr: Vec<u64>,
-    device_info: Option<&HashMap<(DeviceType, String), T>>,
+    device_info: &HashMap<(DeviceType, String), T>,
     gic_device: &Box<dyn GICDevice>,
     initrd: &Option<super::InitrdConfig>,
 ) -> super::Result<()> {

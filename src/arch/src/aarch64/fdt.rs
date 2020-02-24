@@ -86,7 +86,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
     cmdline: &CStr,
-    device_info: Option<&HashMap<(DeviceType, String), T>>,
+    device_info: &HashMap<(DeviceType, String), T>,
     gic_device: &Box<dyn GICDevice>,
     initrd: &Option<InitrdConfig>,
 ) -> Result<(Vec<u8>)> {
@@ -116,7 +116,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     create_timer_node(&mut fdt)?;
     create_clock_node(&mut fdt)?;
     create_psci_node(&mut fdt)?;
-    device_info.map_or(Ok(()), |v| create_devices_node(&mut fdt, v))?;
+    create_devices_node(&mut fdt, device_info)?;
 
     // End Header node.
     append_end_node(&mut fdt)?;
@@ -594,7 +594,7 @@ mod tests {
             &mem,
             vec![0],
             &CString::new("console=tty0").unwrap(),
-            Some(&dev_info),
+            &dev_info,
             &gic,
             &None,
         )
@@ -612,7 +612,7 @@ mod tests {
             &mem,
             vec![0],
             &CString::new("console=tty0").unwrap(),
-            None::<&std::collections::HashMap<(DeviceType, std::string::String), MMIODeviceInfo>>,
+            &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
             &gic,
             &None,
         )
@@ -662,7 +662,7 @@ mod tests {
             &mem,
             vec![0],
             &CString::new("console=tty0").unwrap(),
-            None::<&std::collections::HashMap<(DeviceType, std::string::String), MMIODeviceInfo>>,
+            &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
             &gic,
             &Some(initrd),
         )

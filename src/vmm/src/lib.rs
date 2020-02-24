@@ -231,11 +231,6 @@ impl Vmm {
         self.mmio_device_manager.get_device(device_type, device_id)
     }
 
-    #[cfg(target_arch = "aarch64")]
-    fn get_mmio_device_info(&self) -> Option<&HashMap<(DeviceType, String), MMIODeviceInfo>> {
-        Some(self.mmio_device_manager.get_device_info())
-    }
-
     fn start_vcpus(
         &mut self,
         mut vcpus: Vec<Vcpu>,
@@ -312,7 +307,7 @@ impl Vmm {
                     .as_cstring()
                     .map_err(Error::LoadCommandline)?,
                 vcpu_mpidr,
-                self.get_mmio_device_info(),
+                self.mmio_device_manager.get_device_info(),
                 self.vm.get_irqchip(),
                 initrd,
             )
