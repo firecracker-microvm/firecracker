@@ -231,7 +231,8 @@ impl Vmm {
         self.mmio_device_manager.get_device(device_type, device_id)
     }
 
-    fn start_vcpus(
+    /// Starts the microVM vcpus.
+    pub fn start_vcpus(
         &mut self,
         mut vcpus: Vec<Vcpu>,
         vmm_seccomp_filter: BpfProgram,
@@ -267,7 +268,8 @@ impl Vmm {
         Ok(())
     }
 
-    fn resume_vcpus(&mut self) -> Result<()> {
+    /// Sends a resume command to the vcpus.
+    pub fn resume_vcpus(&mut self) -> Result<()> {
         for handle in self.vcpus_handles.iter() {
             handle
                 .send_event(VcpuEvent::Resume)
@@ -285,8 +287,8 @@ impl Vmm {
         Ok(())
     }
 
-    #[allow(unused_variables)]
-    fn configure_system(&self, vcpus: &[Vcpu], initrd: &Option<InitrdConfig>) -> Result<()> {
+    /// Configures the system for boot.
+    pub fn configure_system(&self, vcpus: &[Vcpu], initrd: &Option<InitrdConfig>) -> Result<()> {
         #[cfg(target_arch = "x86_64")]
         arch::x86_64::configure_system(
             &self.guest_memory,
