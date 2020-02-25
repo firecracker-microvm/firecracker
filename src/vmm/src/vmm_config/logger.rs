@@ -27,6 +27,23 @@ pub enum LoggerLevel {
     Debug,
 }
 
+impl Default for LoggerLevel {
+    fn default() -> LoggerLevel {
+        LoggerLevel::Warning
+    }
+}
+
+impl Into<Level> for LoggerLevel {
+    fn into(self) -> Level {
+        match self {
+            LoggerLevel::Error => Level::Error,
+            LoggerLevel::Warning => Level::Warn,
+            LoggerLevel::Info => Level::Info,
+            LoggerLevel::Debug => Level::Debug,
+        }
+    }
+}
+
 /// Strongly typed structure used to describe the logger.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -34,7 +51,7 @@ pub struct LoggerConfig {
     /// Named pipe used as output for logs.
     pub log_fifo: PathBuf,
     /// The level of the Logger.
-    #[serde(default = "default_level")]
+    #[serde(default = "LoggerLevel::default")]
     pub level: LoggerLevel,
     /// When enabled, the logger will append to the output the severity of the log entry.
     #[serde(default)]
@@ -42,10 +59,6 @@ pub struct LoggerConfig {
     /// When enabled, the logger will append the origin of the log entry.
     #[serde(default)]
     pub show_log_origin: bool,
-}
-
-fn default_level() -> LoggerLevel {
-    LoggerLevel::Warning
 }
 
 /// Errors associated with actions on the `LoggerConfig`.
@@ -70,12 +83,7 @@ pub fn init_logger(
     firecracker_version: &str,
 ) -> std::result::Result<(), LoggerConfigError> {
     LOGGER
-        .set_level(match logger_cfg.level {
-            LoggerLevel::Error => Level::Error,
-            LoggerLevel::Warning => Level::Warn,
-            LoggerLevel::Info => Level::Info,
-            LoggerLevel::Debug => Level::Debug,
-        })
+        .set_level(logger_cfg.level.into())
         .set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin)
         .set_include_level(logger_cfg.show_level);
 
