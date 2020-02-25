@@ -19,6 +19,7 @@ extern crate utils;
 mod logger;
 mod metrics;
 
+pub use log::Level::*;
 pub use log::*;
 pub use logger::{LoggerError, LOGGER};
 pub use metrics::{Metric, MetricsError, METRICS};
