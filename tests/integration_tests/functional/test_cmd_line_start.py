@@ -3,9 +3,13 @@
 """Tests microvm start with configuration file as command line parameter."""
 
 import os
-from subprocess import run, PIPE
+import re
+
+from retry.api import retry_call
 
 import pytest
+
+import framework.utils as utils
 
 import host_tools.logging as log_tools
 
@@ -79,13 +83,20 @@ def test_config_start_no_api(test_microvm_with_ssh, vm_config_file):
     cmd = 'ps -T --no-headers -p {} | awk \'{{print $5}}\''.format(
         firecracker_pid
     )
-    process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True, check=True)
-    threads_out_lines = process.stdout.decode('utf-8').splitlines()
 
-    # Check that API server thread was not created.
-    assert 'fc_api' not in threads_out_lines
-    # Sanity check that main thread was created.
-    assert 'firecracker' in threads_out_lines
+    # Retry running 'ps' in case it failed to list the firecracker process
+    # The regex matches any expression that contains 'firecracker' and does
+    # not contain 'fc_api'
+    retry_call(
+        utils.search_output_from_cmd,
+        fkwargs={
+            "cmd": cmd,
+            "find_regex": re.compile("^(?!.*fc_api)(?:.*)?firecracker",
+                                     re.DOTALL)
+            },
+        exceptions=RuntimeError,
+        tries=10,
+        delay=1)
 
     # Check that microvm was successfully booted.
     lines = log_fifo.sequential_reader(1)
