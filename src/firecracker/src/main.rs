@@ -144,6 +144,14 @@ fn main() {
                     process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
                 }
             }
+
+            if let Some(version) = arg_parser.arguments().value_as_bool("version") {
+                if version {
+                    println!("Firecracker v{}\n", FIRECRACKER_VERSION);
+                    process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+                }
+            }
+
             arg_parser.arguments()
         }
     };
