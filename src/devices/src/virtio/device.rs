@@ -78,7 +78,6 @@ pub trait VirtioDevice: AsAny + Send {
             // Don't count these features as acked.
             v &= !unrequested_features;
         }
-
         self.set_acked_features(self.acked_features() | v);
     }
 
