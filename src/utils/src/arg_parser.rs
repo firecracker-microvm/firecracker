@@ -11,6 +11,7 @@ pub type Result<T> = result::Result<T, Error>;
 const ARG_PREFIX: &str = "--";
 const ARG_SEPARATOR: &str = "--";
 const HELP_ARG: &str = "--help";
+const VERSION_ARG: &str = "--version";
 
 /// Errors associated with parsing and validating arguments.
 #[derive(Debug, PartialEq)]
@@ -267,6 +268,16 @@ impl<'a> Arguments<'a> {
             return Ok(());
         }
 
+        // If `--version` is provided as a parameter, we artificially skip the parsing of other
+        // command line arguments by adding just the version argument to the parsed list and
+        // returning.
+        if args.contains(&VERSION_ARG.to_string()) {
+            let mut version_arg = Argument::new("version").help("Print the binary version number.");
+            version_arg.user_value = Some(Value::Bool(true));
+            self.insert_arg(version_arg);
+            return Ok(());
+        }
+
         // Otherwise, we continue the parsing of the other arguments.
         self.populate_args(args)
     }
@@ -455,9 +466,10 @@ mod tests {
     #[test]
     fn test_parse() {
         let arg_parser = build_arg_parser();
-        let mut arguments = arg_parser.arguments().clone();
 
         // Test different scenarios for the command line arguments provided by user.
+        let mut arguments = arg_parser.arguments().clone();
+
         let args = vec!["binary-name", "--exec-file", "foo", "--help"]
             .into_iter()
             .map(String::from)
@@ -466,7 +478,16 @@ mod tests {
         assert!(arguments.parse(&args).is_ok());
         assert!(arguments.args.contains_key("help"));
 
-        let arg_parser = build_arg_parser();
+        arguments = arg_parser.arguments().clone();
+
+        let args = vec!["binary-name", "--exec-file", "foo", "--version"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert!(arguments.parse(&args).is_ok());
+        assert!(arguments.args.contains_key("version"));
+
         arguments = arg_parser.arguments().clone();
 
         let args = vec![
@@ -486,7 +507,6 @@ mod tests {
             Err(Error::MissingValue("api-sock".to_string()))
         );
 
-        let arg_parser = build_arg_parser();
         arguments = arg_parser.arguments().clone();
 
         let args = vec![
@@ -507,7 +527,6 @@ mod tests {
             Err(Error::DuplicateArgument("api-sock".to_string()))
         );
 
-        let arg_parser = build_arg_parser();
         arguments = arg_parser.arguments().clone();
 
         let args = vec!["binary-name", "--api-sock", "foo"]
@@ -520,7 +539,6 @@ mod tests {
             Err(Error::MissingArgument("exec-file".to_string()))
         );
 
-        let arg_parser = build_arg_parser();
         arguments = arg_parser.arguments().clone();
 
         let args = vec![
@@ -540,7 +558,6 @@ mod tests {
             Err(Error::UnexpectedArgument("invalid-arg".to_string()))
         );
 
-        let arg_parser = build_arg_parser();
         arguments = arg_parser.arguments().clone();
 
         let args = vec![
@@ -562,7 +579,6 @@ mod tests {
             Err(Error::MissingArgument("config-file".to_string()))
         );
 
-        let arg_parser = build_arg_parser();
         arguments = arg_parser.arguments().clone();
 
         let args = vec![
@@ -582,7 +598,6 @@ mod tests {
             Err(Error::MissingValue("id".to_string()))
         );
 
-        let arg_parser = build_arg_parser();
         arguments = arg_parser.arguments().clone();
 
         let args = vec![
@@ -603,7 +618,6 @@ mod tests {
             Err(Error::UnexpectedArgument("foobar".to_string()))
         );
 
-        let arg_parser = build_arg_parser();
         arguments = arg_parser.arguments().clone();
 
         let args = vec![
@@ -623,7 +637,6 @@ mod tests {
             Err(Error::UnexpectedArgument("foobar".to_string()))
         );
 
-        let arg_parser = build_arg_parser();
         arguments = arg_parser.arguments().clone();
 
         let args = vec!["binary-name", "foo"]
@@ -636,7 +649,6 @@ mod tests {
             Err(Error::UnexpectedArgument("foo".to_string()))
         );
 
-        let arg_parser = build_arg_parser();
         arguments = arg_parser.arguments().clone();
 
         let args = vec![

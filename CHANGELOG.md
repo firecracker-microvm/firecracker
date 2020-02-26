@@ -9,7 +9,10 @@
 - Added `app_name` field in InstanceInfo struct for storing the
   application name.
 
-## Changed
+### Fixed
+- Added `--version` flag to both Firecracker and Jailer.
+
+### Changed
 - Updated CVE-2019-3016 mitigation information in
   [Production Host Setup](docs/prod-host-setup.md)
 - In case of using an invalid JSON as a 'config-file' for Firecracker,
