@@ -343,541 +343,558 @@ impl BusDevice for MmioTransport {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-
-//     use super::*;
-
-//     struct DummyDevice {
-//         acked_features: u64,
-//         avail_features: u64,
-//         interrupt_evt: Option<EventFd>,
-//         queue_evts: Option<Vec<EventFd>>,
-//         config_bytes: [u8; 0xeff],
-//     }
-
-//     impl DummyDevice {
-//         fn new() -> Self {
-//             DummyDevice {
-//                 acked_features: 0,
-//                 avail_features: 0,
-//                 interrupt_evt: None,
-//                 queue_evts: None,
-//                 config_bytes: [0; 0xeff],
-//             }
-//         }
-
-//         fn set_avail_features(&mut self, avail_features: u64) {
-//             self.avail_features = avail_features;
-//         }
-//     }
-
-//     impl VirtioDevice for DummyDevice {
-//         fn device_type(&self) -> u32 {
-//             123
-//         }
-
-//         fn queue_max_sizes(&self) -> &[u16] {
-//             &[16, 32]
-//         }
-
-//         fn read_config(&self, offset: u64, data: &mut [u8]) {
-//             data.copy_from_slice(&self.config_bytes[offset as usize..]);
-//         }
-
-//         fn write_config(&mut self, offset: u64, data: &[u8]) {
-//             for (i, item) in data.iter().enumerate() {
-//                 self.config_bytes[offset as usize + i] = *item;
-//             }
-//         }
-
-//         fn avail_features(&self) -> u64 {
-//             self.avail_features
-//         }
-
-//         fn acked_features(&self) -> u64 {
-//             self.acked_features
-//         }
-
-//         fn set_acked_features(&mut self, acked_features: u64) {
-//             self.acked_features = acked_features;
-//         }
-
-//         fn activate(
-//             &mut self,
-//             _mem: GuestMemoryMmap,
-//             interrupt_evt: EventFd,
-//             _status: Arc<AtomicUsize>,
-//             _queues: Vec<Queue>,
-//             queue_evts: Vec<EventFd>,
-//         ) -> ActivateResult {
-//             self.interrupt_evt = Some(interrupt_evt);
-//             self.queue_evts = Some(queue_evts);
-//             Ok(())
-//         }
-//     }
-
-//     fn set_device_status(d: &mut MmioTransport, status: u32) {
-//         let mut buf = vec![0; 4];
-//         byte_order::write_le_u32(&mut buf[..], status);
-//         d.write(0x70, &buf[..]);
-//     }
-
-//     #[test]
-//     fn test_new() {
-//         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-//         let mut dummy = DummyDevice::new();
-//         // Validate reset is no-op.
-//         assert!(dummy.reset().is_none());
-//         let mut d = MmioTransport::new(m, Box::new(dummy)).unwrap();
-
-//         // We just make sure here that the implementation of a mmio device behaves as we expect,
-//         // given a known virtio device implementation (the dummy device).
-
-//         assert_eq!(d.queue_evts().len(), 2);
-
-//         assert!(d.interrupt_evt().is_some());
-
-//         assert!(!d.are_queues_valid());
-
-//         set_device_status(&mut d, device_status::ACKNOWLEDGE);
-//         set_device_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
-//         set_device_status(
-//             &mut d,
-//             device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
-//         );
-
-//         d.queue_select = 0;
-//         assert_eq!(d.with_queue(0, Queue::get_max_size), 16);
-//         assert!(d.with_queue_mut(|q| q.size = 16));
-//         assert_eq!(d.queues[d.queue_select as usize].size, 16);
-
-//         d.queue_select = 1;
-//         assert_eq!(d.with_queue(0, Queue::get_max_size), 32);
-//         assert!(d.with_queue_mut(|q| q.size = 16));
-//         assert_eq!(d.queues[d.queue_select as usize].size, 16);
-
-//         d.queue_select = 2;
-//         assert_eq!(d.with_queue(0, Queue::get_max_size), 0);
-//         assert!(!d.with_queue_mut(|q| q.size = 16));
-
-//         d.mem.take().unwrap();
-//         assert!(!d.are_queues_valid());
-//     }
-
-//     #[test]
-//     fn test_bus_device_read() {
-//         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-//         let mut d = MmioTransport::new(m, Box::new(DummyDevice::new())).unwrap();
-
-//         let mut buf = vec![0xff, 0, 0xfe, 0];
-//         let buf_copy = buf.to_vec();
-
-//         // The following read shouldn't be valid, because the length of the buf is not 4.
-//         buf.push(0);
-//         d.read(0, &mut buf[..]);
-//         assert_eq!(buf[..4], buf_copy[..]);
-
-//         // the length is ok again
-//         buf.pop();
-
-//         // Now we test that reading at various predefined offsets works as intended.
-
-//         d.read(0, &mut buf[..]);
-//         assert_eq!(byte_order::read_le_u32(&buf[..]), MMIO_MAGIC_VALUE);
-
-//         d.read(0x04, &mut buf[..]);
-//         assert_eq!(byte_order::read_le_u32(&buf[..]), MMIO_VERSION);
-
-//         d.read(0x08, &mut buf[..]);
-//         assert_eq!(byte_order::read_le_u32(&buf[..]), d.device.device_type());
-
-//         d.read(0x0c, &mut buf[..]);
-//         assert_eq!(byte_order::read_le_u32(&buf[..]), VENDOR_ID);
-
-//         d.features_select = 0;
-//         d.read(0x10, &mut buf[..]);
-//         assert_eq!(
-//             byte_order::read_le_u32(&buf[..]),
-//             d.device.avail_features_by_page(0)
-//         );
-
-//         d.features_select = 1;
-//         d.read(0x10, &mut buf[..]);
-//         assert_eq!(
-//             byte_order::read_le_u32(&buf[..]),
-//             d.device.avail_features_by_page(0) | 0x1
-//         );
-
-//         d.read(0x34, &mut buf[..]);
-//         assert_eq!(byte_order::read_le_u32(&buf[..]), 16);
-
-//         d.read(0x44, &mut buf[..]);
-//         assert_eq!(byte_order::read_le_u32(&buf[..]), false as u32);
-
-//         d.interrupt_status.store(111, Ordering::SeqCst);
-//         d.read(0x60, &mut buf[..]);
-//         assert_eq!(byte_order::read_le_u32(&buf[..]), 111);
-
-//         d.read(0x70, &mut buf[..]);
-//         assert_eq!(byte_order::read_le_u32(&buf[..]), 0);
-
-//         d.config_generation = 5;
-//         d.read(0xfc, &mut buf[..]);
-//         assert_eq!(byte_order::read_le_u32(&buf[..]), 5);
-
-//         // This read shouldn't do anything, as it's past the readable generic registers, and
-//         // before the device specific configuration space. Btw, reads from the device specific
-//         // conf space are going to be tested a bit later, alongside writes.
-//         buf = buf_copy.to_vec();
-//         d.read(0xfd, &mut buf[..]);
-//         assert_eq!(buf[..], buf_copy[..]);
-
-//         // Read from an invalid address in generic register range.
-//         d.read(0xfb, &mut buf[..]);
-//         assert_eq!(buf[..], buf_copy[..]);
-
-//         // Read from an invalid length in generic register range.
-//         d.read(0xfc, &mut buf[..3]);
-//         assert_eq!(buf[..], buf_copy[..]);
-//     }
-
-//     #[test]
-//     #[allow(clippy::cognitive_complexity)]
-//     fn test_bus_device_write() {
-//         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-
-//         let mut dummy_box = Box::new(DummyDevice::new());
-//         let dummy_dev_acked_features = &dummy_box.acked_features as *const u64;
-//         let dummy_dev_avail_features = &mut dummy_box.avail_features as *mut u64;
-
-//         let mut d = MmioTransport::new(m, dummy_box).unwrap();
-
-//         let mut buf = vec![0; 5];
-//         byte_order::write_le_u32(&mut buf[..4], 1);
-
-//         // Nothing should happen, because the slice len > 4.
-//         d.features_select = 0;
-//         d.write(0x14, &buf[..]);
-//         assert_eq!(d.features_select, 0);
-
-//         buf.pop();
-
-//         assert_eq!(d.device_status, device_status::INIT);
-//         set_device_status(&mut d, device_status::ACKNOWLEDGE);
-
-//         // Acking features in invalid state shouldn't take effect.
-//         assert_eq!(unsafe { *dummy_dev_acked_features }, 0x0);
-//         d.acked_features_select = 0x0;
-//         byte_order::write_le_u32(&mut buf[..], 1);
-//         d.write(0x20, &buf[..]);
-//         assert_eq!(unsafe { *dummy_dev_acked_features }, 0x0);
-
-//         // Write to device specific configuration space should be ignored before setting device_status::DRIVER
-//         let buf1 = vec![1; 0xeff];
-//         for i in (0..0xeff).rev() {
-//             let mut buf2 = vec![0; 0xeff];
-
-//             d.write(0x100 + i as u64, &buf1[i..]);
-//             d.read(0x100, &mut buf2[..]);
-
-//             for item in buf2.iter().take(0xeff) {
-//                 assert_eq!(*item, 0);
-//             }
-//         }
-
-//         set_device_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
-//         assert_eq!(
-//             d.device_status,
-//             device_status::ACKNOWLEDGE | device_status::DRIVER
-//         );
-
-//         // now writes should work
-//         d.features_select = 0;
-//         byte_order::write_le_u32(&mut buf[..], 1);
-//         d.write(0x14, &buf[..]);
-//         assert_eq!(d.features_select, 1);
-
-//         // Test acknowledging features on bus.
-//         d.acked_features_select = 0;
-//         byte_order::write_le_u32(&mut buf[..], 0x124);
-//         // Set the device available features in order to
-//         // make acknowledging possible.
-//         unsafe {
-//             *dummy_dev_avail_features = 0x124;
-//         };
-//         d.write(0x20, &buf[..]);
-//         assert_eq!(unsafe { *dummy_dev_acked_features }, 0x124);
-
-//         d.acked_features_select = 0;
-//         byte_order::write_le_u32(&mut buf[..], 2);
-//         d.write(0x24, &buf[..]);
-//         assert_eq!(d.acked_features_select, 2);
-
-//         set_device_status(
-//             &mut d,
-//             device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
-//         );
-
-//         // Acking features in invalid state shouldn't take effect.
-//         assert_eq!(unsafe { *dummy_dev_acked_features }, 0x124);
-//         d.acked_features_select = 0x0;
-//         byte_order::write_le_u32(&mut buf[..], 1);
-//         d.write(0x20, &buf[..]);
-//         assert_eq!(unsafe { *dummy_dev_acked_features }, 0x124);
-
-//         // Setup queues
-//         d.queue_select = 0;
-//         byte_order::write_le_u32(&mut buf[..], 3);
-//         d.write(0x30, &buf[..]);
-//         assert_eq!(d.queue_select, 3);
-
-//         d.queue_select = 0;
-//         assert_eq!(d.queues[0].size, 0);
-//         byte_order::write_le_u32(&mut buf[..], 16);
-//         d.write(0x38, &buf[..]);
-//         assert_eq!(d.queues[0].size, 16);
-
-//         assert!(!d.queues[0].ready);
-//         byte_order::write_le_u32(&mut buf[..], 1);
-//         d.write(0x44, &buf[..]);
-//         assert!(d.queues[0].ready);
-
-//         assert_eq!(d.queues[0].desc_table.0, 0);
-//         byte_order::write_le_u32(&mut buf[..], 123);
-//         d.write(0x80, &buf[..]);
-//         assert_eq!(d.queues[0].desc_table.0, 123);
-//         d.write(0x84, &buf[..]);
-//         assert_eq!(d.queues[0].desc_table.0, 123 + (123 << 32));
-
-//         assert_eq!(d.queues[0].avail_ring.0, 0);
-//         byte_order::write_le_u32(&mut buf[..], 124);
-//         d.write(0x90, &buf[..]);
-//         assert_eq!(d.queues[0].avail_ring.0, 124);
-//         d.write(0x94, &buf[..]);
-//         assert_eq!(d.queues[0].avail_ring.0, 124 + (124 << 32));
-
-//         assert_eq!(d.queues[0].used_ring.0, 0);
-//         byte_order::write_le_u32(&mut buf[..], 125);
-//         d.write(0xa0, &buf[..]);
-//         assert_eq!(d.queues[0].used_ring.0, 125);
-//         d.write(0xa4, &buf[..]);
-//         assert_eq!(d.queues[0].used_ring.0, 125 + (125 << 32));
-
-//         set_device_status(
-//             &mut d,
-//             device_status::ACKNOWLEDGE
-//                 | device_status::DRIVER
-//                 | device_status::FEATURES_OK
-//                 | device_status::DRIVER_OK,
-//         );
-
-//         d.interrupt_status.store(0b10_1010, Ordering::Relaxed);
-//         byte_order::write_le_u32(&mut buf[..], 0b111);
-//         d.write(0x64, &buf[..]);
-//         assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b10_1000);
-
-//         // Write to an invalid address in generic register range.
-//         byte_order::write_le_u32(&mut buf[..], 0xf);
-//         d.config_generation = 0;
-//         d.write(0xfb, &buf[..]);
-//         assert_eq!(d.config_generation, 0);
-
-//         // Write to an invalid length in generic register range.
-//         d.write(0xfc, &buf[..2]);
-//         assert_eq!(d.config_generation, 0);
-
-//         // Here we test writes/read into/from the device specific configuration space.
-//         let buf1 = vec![1; 0xeff];
-//         for i in (0..0xeff).rev() {
-//             let mut buf2 = vec![0; 0xeff];
-
-//             d.write(0x100 + i as u64, &buf1[i..]);
-//             d.read(0x100, &mut buf2[..]);
-
-//             for item in buf2.iter().take(i) {
-//                 assert_eq!(*item, 0);
-//             }
-
-//             assert_eq!(buf1[i..], buf2[i..]);
-//         }
-//     }
-
-//     #[test]
-//     fn test_bus_device_activate() {
-//         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-//         let mut d = MmioTransport::new(m, Box::new(DummyDevice::new())).unwrap();
-
-//         assert!(!d.are_queues_valid());
-//         assert!(!d.device_activated);
-//         assert_eq!(d.device_status, device_status::INIT);
-
-//         set_device_status(&mut d, device_status::ACKNOWLEDGE);
-//         set_device_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
-//         assert_eq!(
-//             d.device_status,
-//             device_status::ACKNOWLEDGE | device_status::DRIVER
-//         );
-
-//         // invalid state transition should have no effect
-//         set_device_status(
-//             &mut d,
-//             device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::DRIVER_OK,
-//         );
-//         assert_eq!(
-//             d.device_status,
-//             device_status::ACKNOWLEDGE | device_status::DRIVER
-//         );
-
-//         set_device_status(
-//             &mut d,
-//             device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
-//         );
-//         assert_eq!(
-//             d.device_status,
-//             device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK
-//         );
-
-//         let mut buf = vec![0; 4];
-//         for q in 0..d.queues.len() {
-//             d.queue_select = q as u32;
-//             byte_order::write_le_u32(&mut buf[..], 16);
-//             d.write(0x38, &buf[..]);
-//             byte_order::write_le_u32(&mut buf[..], 1);
-//             d.write(0x44, &buf[..]);
-//         }
-//         assert!(d.are_queues_valid());
-//         assert!(!d.device_activated);
-
-//         // Device should be ready for activation now.
-
-//         // A couple of invalid writes; will trigger warnings; shouldn't activate the device.
-//         d.write(0xa8, &buf[..]);
-//         d.write(0x1000, &buf[..]);
-//         assert!(!d.device_activated);
-
-//         set_device_status(
-//             &mut d,
-//             device_status::ACKNOWLEDGE
-//                 | device_status::DRIVER
-//                 | device_status::FEATURES_OK
-//                 | device_status::DRIVER_OK,
-//         );
-//         assert_eq!(
-//             d.device_status,
-//             device_status::ACKNOWLEDGE
-//                 | device_status::DRIVER
-//                 | device_status::FEATURES_OK
-//                 | device_status::DRIVER_OK
-//         );
-//         assert!(d.device_activated);
-
-//         // A write which changes the size of a queue after activation; currently only triggers
-//         // a warning path and have no effect on queue state.
-//         byte_order::write_le_u32(&mut buf[..], 0);
-//         d.queue_select = 0;
-//         d.write(0x44, &buf[..]);
-//         d.read(0x44, &mut buf[..]);
-//         assert_eq!(byte_order::read_le_u32(&buf[..]), 1);
-//     }
-
-//     fn activate_device(d: &mut MmioTransport) {
-//         set_device_status(d, device_status::ACKNOWLEDGE);
-//         set_device_status(d, device_status::ACKNOWLEDGE | device_status::DRIVER);
-//         set_device_status(
-//             d,
-//             device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
-//         );
-
-//         // Setup queue data structures
-//         let mut buf = vec![0; 4];
-//         for q in 0..d.queues.len() {
-//             d.queue_select = q as u32;
-//             byte_order::write_le_u32(&mut buf[..], 16);
-//             d.write(0x38, &buf[..]);
-//             byte_order::write_le_u32(&mut buf[..], 1);
-//             d.write(0x44, &buf[..]);
-//         }
-//         assert!(d.are_queues_valid());
-//         assert!(!d.device_activated);
-
-//         // Device should be ready for activation now.
-//         set_device_status(
-//             d,
-//             device_status::ACKNOWLEDGE
-//                 | device_status::DRIVER
-//                 | device_status::FEATURES_OK
-//                 | device_status::DRIVER_OK,
-//         );
-//         assert_eq!(
-//             d.device_status,
-//             device_status::ACKNOWLEDGE
-//                 | device_status::DRIVER
-//                 | device_status::FEATURES_OK
-//                 | device_status::DRIVER_OK
-//         );
-//         assert!(d.device_activated);
-//     }
-
-//     #[test]
-//     fn test_bus_device_reset() {
-//         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-//         let mut d = MmioTransport::new(m, Box::new(DummyDevice::new())).unwrap();
-//         let mut buf = vec![0; 4];
-
-//         assert!(!d.are_queues_valid());
-//         assert!(!d.device_activated);
-//         assert_eq!(d.device_status, 0);
-//         activate_device(&mut d);
-
-//         // Marking device as FAILED should not affect device_activated state
-//         byte_order::write_le_u32(&mut buf[..], 0x8f);
-//         d.write(0x70, &buf[..]);
-//         assert_eq!(d.device_status, 0x8f);
-//         assert!(d.device_activated);
-
-//         // Nothing happens when backend driver doesn't support reset
-//         byte_order::write_le_u32(&mut buf[..], 0x0);
-//         d.write(0x70, &buf[..]);
-//         assert_eq!(d.device_status, 0x8f);
-//         assert!(d.device_activated);
-//     }
-
-//     #[test]
-//     fn test_get_avail_features() {
-//         let dummy_dev = DummyDevice::new();
-//         assert_eq!(dummy_dev.avail_features(), dummy_dev.avail_features);
-//     }
-
-//     #[test]
-//     fn test_get_acked_features() {
-//         let dummy_dev = DummyDevice::new();
-//         assert_eq!(dummy_dev.acked_features(), dummy_dev.acked_features);
-//     }
-
-//     #[test]
-//     fn test_set_acked_features() {
-//         let mut dummy_dev = DummyDevice::new();
-
-//         assert_eq!(dummy_dev.acked_features(), 0);
-//         dummy_dev.set_acked_features(16);
-//         assert_eq!(dummy_dev.acked_features(), dummy_dev.acked_features);
-//     }
-
-//     #[test]
-//     fn test_ack_features_by_page() {
-//         let mut dummy_dev = DummyDevice::new();
-//         dummy_dev.set_acked_features(16);
-//         dummy_dev.set_avail_features(8);
-//         dummy_dev.ack_features_by_page(0, 8);
-//         assert_eq!(dummy_dev.acked_features(), 24);
-//     }
-
-//     #[test]
-//     fn test_set_avail_features() {
-//         let mut dummy_dev = DummyDevice::new();
-//         assert_eq!(dummy_dev.avail_features(), 0);
-//         dummy_dev.set_avail_features(4);
-//         assert_eq!(dummy_dev.avail_features(), 4);
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use utils::byte_order::{read_le_u32, write_le_u32};
+
+    use super::*;
+    use std::result;
+    use utils::eventfd::EventFd;
+    use vm_memory::GuestMemoryMmap;
+
+    struct DummyDevice {
+        acked_features: u64,
+        avail_features: u64,
+        interrupt_evt: EventFd,
+        interrupt_status: Arc<AtomicUsize>,
+        queue_evts: Vec<EventFd>,
+        queues: Vec<Queue>,
+        device_activated: bool,
+        config_bytes: [u8; 0xeff],
+    }
+
+    impl DummyDevice {
+        fn new() -> Self {
+            DummyDevice {
+                acked_features: 0,
+                avail_features: 0,
+                interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                interrupt_status: Arc::new(AtomicUsize::new(0)),
+                queue_evts: vec![
+                    EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                    EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                ],
+                queues: vec![Queue::new(16), Queue::new(32)],
+                device_activated: false,
+                config_bytes: [0; 0xeff],
+            }
+        }
+
+        fn set_avail_features(&mut self, avail_features: u64) {
+            self.avail_features = avail_features;
+        }
+    }
+
+    impl VirtioDevice for DummyDevice {
+        fn device_type(&self) -> u32 {
+            123
+        }
+
+        fn read_config(&self, offset: u64, data: &mut [u8]) {
+            data.copy_from_slice(&self.config_bytes[offset as usize..]);
+        }
+
+        fn write_config(&mut self, offset: u64, data: &[u8]) {
+            for (i, item) in data.iter().enumerate() {
+                self.config_bytes[offset as usize + i] = *item;
+            }
+        }
+
+        fn avail_features(&self) -> u64 {
+            self.avail_features
+        }
+
+        fn acked_features(&self) -> u64 {
+            self.acked_features
+        }
+
+        fn set_acked_features(&mut self, acked_features: u64) {
+            self.acked_features = acked_features;
+        }
+
+        fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
+            Ok(())
+        }
+
+        fn get_queues(&mut self) -> &mut Vec<Queue> {
+            &mut self.queues
+        }
+
+        fn get_queue_events(&self) -> result::Result<Vec<EventFd>, std::io::Error> {
+            self.queue_evts.iter().map(|evt| evt.try_clone()).collect()
+        }
+
+        fn get_interrupt(&self) -> result::Result<EventFd, std::io::Error> {
+            self.interrupt_evt.try_clone()
+        }
+
+        fn get_interrupt_status(&self) -> Arc<AtomicUsize> {
+            self.interrupt_status.clone()
+        }
+
+        fn is_activated(&self) -> bool {
+            self.device_activated
+        }
+
+        fn set_device_activated(&mut self, device_activated: bool) {
+            self.device_activated = device_activated;
+        }
+    }
+
+    fn set_device_status(d: &mut MmioTransport, status: u32) {
+        let mut buf = vec![0; 4];
+        write_le_u32(&mut buf[..], status);
+        d.write(0x70, &buf[..]);
+    }
+
+    #[test]
+    fn test_new() {
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mut dummy = DummyDevice::new();
+        // Validate reset is no-op.
+        assert!(dummy.reset().is_none());
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy))).unwrap();
+
+        // We just make sure here that the implementation of a mmio device behaves as we expect,
+        // given a known virtio device implementation (the dummy device).
+
+        assert_eq!(d.locked_device().get_queue_events().unwrap().len(), 2);
+
+        assert!(d.locked_device().get_interrupt().is_ok());
+
+        assert!(!d.are_queues_valid());
+
+        d.queue_select = 0;
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 16);
+        assert!(d.with_queue_mut(|q| q.size = 16));
+        assert_eq!(
+            d.locked_device().get_queues()[d.queue_select as usize].size,
+            16
+        );
+
+        d.queue_select = 1;
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 32);
+        assert!(d.with_queue_mut(|q| q.size = 16));
+        assert_eq!(
+            d.locked_device().get_queues()[d.queue_select as usize].size,
+            16
+        );
+
+        d.queue_select = 2;
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 0);
+        assert!(!d.with_queue_mut(|q| q.size = 16));
+
+        assert!(!d.are_queues_valid());
+    }
+
+    #[test]
+    fn test_bus_device_read() {
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new()))).unwrap();
+
+        let mut buf = vec![0xff, 0, 0xfe, 0];
+        let buf_copy = buf.to_vec();
+
+        // The following read shouldn't be valid, because the length of the buf is not 4.
+        buf.push(0);
+        d.read(0, &mut buf[..]);
+        assert_eq!(buf[..4], buf_copy[..]);
+
+        // the length is ok again
+        buf.pop();
+
+        // Now we test that reading at various predefined offsets works as intended.
+
+        d.read(0, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), MMIO_MAGIC_VALUE);
+
+        d.read(0x04, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), MMIO_VERSION);
+
+        d.read(0x08, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), d.locked_device().device_type());
+
+        d.read(0x0c, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), VENDOR_ID);
+
+        d.features_select = 0;
+        d.read(0x10, &mut buf[..]);
+        assert_eq!(
+            read_le_u32(&buf[..]),
+            d.locked_device().avail_features_by_page(0)
+        );
+
+        d.features_select = 1;
+        d.read(0x10, &mut buf[..]);
+        assert_eq!(
+            read_le_u32(&buf[..]),
+            d.locked_device().avail_features_by_page(0) | 0x1
+        );
+
+        d.read(0x34, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), 16);
+
+        d.read(0x44, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), false as u32);
+
+        d.interrupt_status.store(111, Ordering::SeqCst);
+        d.read(0x60, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), 111);
+
+        d.read(0x70, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), 0);
+
+        d.config_generation = 5;
+        d.read(0xfc, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), 5);
+
+        // This read shouldn't do anything, as it's past the readable generic registers, and
+        // before the device specific configuration space. Btw, reads from the device specific
+        // conf space are going to be tested a bit later, alongside writes.
+        buf = buf_copy.to_vec();
+        d.read(0xfd, &mut buf[..]);
+        assert_eq!(buf[..], buf_copy[..]);
+
+        // Read from an invalid address in generic register range.
+        d.read(0xfb, &mut buf[..]);
+        assert_eq!(buf[..], buf_copy[..]);
+
+        // Read from an invalid length in generic register range.
+        d.read(0xfc, &mut buf[..3]);
+        assert_eq!(buf[..], buf_copy[..]);
+    }
+
+    #[test]
+    #[allow(clippy::cognitive_complexity)]
+    fn test_bus_device_write() {
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let dummy_dev = Arc::new(Mutex::new(DummyDevice::new()));
+        let mut d = MmioTransport::new(m, dummy_dev.clone()).unwrap();
+        let mut buf = vec![0; 5];
+        write_le_u32(&mut buf[..4], 1);
+
+        // Nothing should happen, because the slice len > 4.
+        d.features_select = 0;
+        d.write(0x14, &buf[..]);
+        assert_eq!(d.features_select, 0);
+
+        buf.pop();
+
+        assert_eq!(d.device_status, device_status::INIT);
+        set_device_status(&mut d, device_status::ACKNOWLEDGE);
+
+        // Acking features in invalid state shouldn't take effect.
+        assert_eq!(d.locked_device().acked_features(), 0x0);
+        d.acked_features_select = 0x0;
+        write_le_u32(&mut buf[..], 1);
+        d.write(0x20, &buf[..]);
+        assert_eq!(d.locked_device().acked_features(), 0x0);
+
+        // Write to device specific configuration space should be ignored before setting device_status::DRIVER
+        let buf1 = vec![1; 0xeff];
+        for i in (0..0xeff).rev() {
+            let mut buf2 = vec![0; 0xeff];
+
+            d.write(0x100 + i as u64, &buf1[i..]);
+            d.read(0x100, &mut buf2[..]);
+
+            for item in buf2.iter().take(0xeff) {
+                assert_eq!(*item, 0);
+            }
+        }
+
+        set_device_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
+        assert_eq!(
+            d.device_status,
+            device_status::ACKNOWLEDGE | device_status::DRIVER
+        );
+
+        // now writes should work
+        d.features_select = 0;
+        write_le_u32(&mut buf[..], 1);
+        d.write(0x14, &buf[..]);
+        assert_eq!(d.features_select, 1);
+
+        // Test acknowledging features on bus.
+        d.acked_features_select = 0;
+        write_le_u32(&mut buf[..], 0x124);
+
+        // Set the device available features in order to make acknowledging possible.
+        dummy_dev.lock().unwrap().set_avail_features(0x124);
+        d.write(0x20, &buf[..]);
+        assert_eq!(d.locked_device().acked_features(), 0x124);
+
+        d.acked_features_select = 0;
+        write_le_u32(&mut buf[..], 2);
+        d.write(0x24, &buf[..]);
+        assert_eq!(d.acked_features_select, 2);
+        set_device_status(
+            &mut d,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
+        );
+
+        // Acking features in invalid state shouldn't take effect.
+        assert_eq!(d.locked_device().acked_features(), 0x124);
+        d.acked_features_select = 0x0;
+        write_le_u32(&mut buf[..], 1);
+        d.write(0x20, &buf[..]);
+        assert_eq!(d.locked_device().acked_features(), 0x124);
+
+        // Setup queues
+        d.queue_select = 0;
+        write_le_u32(&mut buf[..], 3);
+        d.write(0x30, &buf[..]);
+        assert_eq!(d.queue_select, 3);
+
+        d.queue_select = 0;
+        assert_eq!(d.locked_device().get_queues()[0].size, 0);
+        write_le_u32(&mut buf[..], 16);
+        d.write(0x38, &buf[..]);
+        assert_eq!(d.locked_device().get_queues()[0].size, 16);
+
+        assert!(!d.locked_device().get_queues()[0].ready);
+        write_le_u32(&mut buf[..], 1);
+        d.write(0x44, &buf[..]);
+        assert!(d.locked_device().get_queues()[0].ready);
+
+        assert_eq!(d.locked_device().get_queues()[0].desc_table.0, 0);
+        write_le_u32(&mut buf[..], 123);
+        d.write(0x80, &buf[..]);
+        assert_eq!(d.locked_device().get_queues()[0].desc_table.0, 123);
+        d.write(0x84, &buf[..]);
+        assert_eq!(
+            d.locked_device().get_queues()[0].desc_table.0,
+            123 + (123 << 32)
+        );
+
+        assert_eq!(d.locked_device().get_queues()[0].avail_ring.0, 0);
+        write_le_u32(&mut buf[..], 124);
+        d.write(0x90, &buf[..]);
+        assert_eq!(d.locked_device().get_queues()[0].avail_ring.0, 124);
+        d.write(0x94, &buf[..]);
+        assert_eq!(
+            d.locked_device().get_queues()[0].avail_ring.0,
+            124 + (124 << 32)
+        );
+
+        assert_eq!(d.locked_device().get_queues()[0].used_ring.0, 0);
+        write_le_u32(&mut buf[..], 125);
+        d.write(0xa0, &buf[..]);
+        assert_eq!(d.locked_device().get_queues()[0].used_ring.0, 125);
+        d.write(0xa4, &buf[..]);
+        assert_eq!(
+            d.locked_device().get_queues()[0].used_ring.0,
+            125 + (125 << 32)
+        );
+
+        set_device_status(
+            &mut d,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK,
+        );
+
+        d.interrupt_status.store(0b10_1010, Ordering::Relaxed);
+        write_le_u32(&mut buf[..], 0b111);
+        d.write(0x64, &buf[..]);
+        assert_eq!(d.interrupt_status.load(Ordering::Relaxed), 0b10_1000);
+
+        // Write to an invalid address in generic register range.
+        write_le_u32(&mut buf[..], 0xf);
+        d.config_generation = 0;
+        d.write(0xfb, &buf[..]);
+        assert_eq!(d.config_generation, 0);
+
+        // Write to an invalid length in generic register range.
+        d.write(0xfc, &buf[..2]);
+        assert_eq!(d.config_generation, 0);
+
+        // Here we test writes/read into/from the device specific configuration space.
+        let buf1 = vec![1; 0xeff];
+        for i in (0..0xeff).rev() {
+            let mut buf2 = vec![0; 0xeff];
+
+            d.write(0x100 + i as u64, &buf1[i..]);
+            d.read(0x100, &mut buf2[..]);
+
+            for item in buf2.iter().take(i) {
+                assert_eq!(*item, 0);
+            }
+
+            assert_eq!(buf1[i..], buf2[i..]);
+        }
+    }
+
+    #[test]
+    fn test_bus_device_activate() {
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new()))).unwrap();
+
+        assert!(!d.are_queues_valid());
+        assert!(!d.locked_device().is_activated());
+        assert_eq!(d.device_status, device_status::INIT);
+
+        set_device_status(&mut d, device_status::ACKNOWLEDGE);
+        set_device_status(&mut d, device_status::ACKNOWLEDGE | device_status::DRIVER);
+        assert_eq!(
+            d.device_status,
+            device_status::ACKNOWLEDGE | device_status::DRIVER
+        );
+
+        // invalid state transition should have no effect
+        set_device_status(
+            &mut d,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::DRIVER_OK,
+        );
+        assert_eq!(
+            d.device_status,
+            device_status::ACKNOWLEDGE | device_status::DRIVER
+        );
+
+        set_device_status(
+            &mut d,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
+        );
+        assert_eq!(
+            d.device_status,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK
+        );
+
+        let mut buf = vec![0; 4];
+        let queue_len = d.locked_device().get_queues().len();
+        for q in 0..queue_len {
+            d.queue_select = q as u32;
+            write_le_u32(&mut buf[..], 16);
+            d.write(0x38, &buf[..]);
+            write_le_u32(&mut buf[..], 1);
+            d.write(0x44, &buf[..]);
+        }
+        assert!(d.are_queues_valid());
+        assert!(!d.locked_device().is_activated());
+
+        // Device should be ready for activation now.
+
+        // A couple of invalid writes; will trigger warnings; shouldn't activate the device.
+        d.write(0xa8, &buf[..]);
+        d.write(0x1000, &buf[..]);
+        assert!(!d.locked_device().is_activated());
+
+        set_device_status(
+            &mut d,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK,
+        );
+        assert_eq!(
+            d.device_status,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK
+        );
+        assert!(d.locked_device().is_activated());
+
+        // A write which changes the size of a queue after activation; currently only triggers
+        // a warning path and have no effect on queue state.
+        write_le_u32(&mut buf[..], 0);
+        d.queue_select = 0;
+        d.write(0x44, &buf[..]);
+        d.read(0x44, &mut buf[..]);
+        assert_eq!(read_le_u32(&buf[..]), 1);
+    }
+
+    fn activate_device(d: &mut MmioTransport) {
+        set_device_status(d, device_status::ACKNOWLEDGE);
+        set_device_status(d, device_status::ACKNOWLEDGE | device_status::DRIVER);
+        set_device_status(
+            d,
+            device_status::ACKNOWLEDGE | device_status::DRIVER | device_status::FEATURES_OK,
+        );
+
+        // Setup queue data structures
+        let mut buf = vec![0; 4];
+        let queues_count = d.locked_device().get_queues().len();
+        for q in 0..queues_count {
+            d.queue_select = q as u32;
+            write_le_u32(&mut buf[..], 16);
+            d.write(0x38, &buf[..]);
+            write_le_u32(&mut buf[..], 1);
+            d.write(0x44, &buf[..]);
+        }
+        assert!(d.are_queues_valid());
+        assert!(!d.locked_device().is_activated());
+
+        // Device should be ready for activation now.
+        set_device_status(
+            d,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK,
+        );
+        assert_eq!(
+            d.device_status,
+            device_status::ACKNOWLEDGE
+                | device_status::DRIVER
+                | device_status::FEATURES_OK
+                | device_status::DRIVER_OK
+        );
+        assert!(d.locked_device().is_activated());
+    }
+
+    #[test]
+    fn test_bus_device_reset() {
+        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new()))).unwrap();
+        let mut buf = vec![0; 4];
+
+        assert!(!d.are_queues_valid());
+        assert!(!d.locked_device().is_activated());
+        assert_eq!(d.device_status, 0);
+        activate_device(&mut d);
+
+        // Marking device as FAILED should not affect device_activated state
+        write_le_u32(&mut buf[..], 0x8f);
+        d.write(0x70, &buf[..]);
+        assert_eq!(d.device_status, 0x8f);
+        assert!(d.locked_device().is_activated());
+
+        // Nothing happens when backend driver doesn't support reset
+        write_le_u32(&mut buf[..], 0x0);
+        d.write(0x70, &buf[..]);
+        assert_eq!(d.device_status, 0x8f);
+        assert!(d.locked_device().is_activated());
+    }
+
+    #[test]
+    fn test_get_avail_features() {
+        let dummy_dev = DummyDevice::new();
+        assert_eq!(dummy_dev.avail_features(), dummy_dev.avail_features);
+    }
+
+    #[test]
+    fn test_get_acked_features() {
+        let dummy_dev = DummyDevice::new();
+        assert_eq!(dummy_dev.acked_features(), dummy_dev.acked_features);
+    }
+
+    #[test]
+    fn test_set_acked_features() {
+        let mut dummy_dev = DummyDevice::new();
+
+        assert_eq!(dummy_dev.acked_features(), 0);
+        dummy_dev.set_acked_features(16);
+        assert_eq!(dummy_dev.acked_features(), dummy_dev.acked_features);
+    }
+
+    #[test]
+    fn test_ack_features_by_page() {
+        let mut dummy_dev = DummyDevice::new();
+        dummy_dev.set_acked_features(16);
+        dummy_dev.set_avail_features(8);
+        dummy_dev.ack_features_by_page(0, 8);
+        assert_eq!(dummy_dev.acked_features(), 24);
+    }
+}
