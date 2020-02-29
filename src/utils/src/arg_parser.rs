@@ -206,36 +206,26 @@ impl<'a> Arguments<'a> {
 
     /// Get the value for the argument specified by `arg_name`.
     fn value_of(&self, arg_name: &'static str) -> Option<&Value> {
-        if let Some(argument) = self.args.get(arg_name) {
-            match &argument.user_value {
-                Some(val) => {
-                    return Some(val);
-                }
-                None => return argument.default_value.as_ref(),
-            }
-        }
-
-        None
+        self.args.get(arg_name).and_then(|argument| {
+            argument
+                .user_value
+                .as_ref()
+                .or_else(|| argument.default_value.as_ref())
+        })
     }
 
     /// Return the value of an argument if the argument exists and has the type
     /// String. Otherwise return None.
     pub fn value_as_string(&self, arg_name: &'static str) -> Option<String> {
-        if let Some(arg_value) = self.value_of(arg_name) {
-            return arg_value.as_string();
-        }
-
-        None
+        self.value_of(arg_name)
+            .and_then(|arg_value| arg_value.as_string())
     }
 
     /// Return the value of an argument if the argument exists and has the type
     /// bool. Otherwise return None.
     pub fn value_as_bool(&self, arg_name: &'static str) -> Option<bool> {
-        if let Some(arg_value) = self.value_of(arg_name) {
-            return arg_value.as_bool();
-        }
-
-        None
+        self.value_of(arg_name)
+            .and_then(|arg_value| arg_value.as_bool())
     }
 
     /// Get the extra arguments (all arguments after `--`).
