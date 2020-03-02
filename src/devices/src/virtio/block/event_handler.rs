@@ -16,7 +16,7 @@ impl Subscriber for Block {
             return;
         }
 
-        let queue_evt = self.queue_evt.as_raw_fd();
+        let queue_evt = self.queue_evts[0].as_raw_fd();
         let rate_limiter_evt = self.rate_limiter.as_raw_fd();
 
         let source = event.fd();
@@ -45,7 +45,7 @@ impl Subscriber for Block {
     fn interest_list(&self) -> Vec<EpollEvent> {
         vec![
             EpollEvent::new(EventSet::IN, self.rate_limiter.as_raw_fd() as u64),
-            EpollEvent::new(EventSet::IN, self.queue_evt.as_raw_fd() as u64),
+            EpollEvent::new(EventSet::IN, self.queue_evts[0].as_raw_fd() as u64),
         ]
     }
 }

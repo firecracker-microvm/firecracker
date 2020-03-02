@@ -33,16 +33,16 @@ pub trait VirtioDevice: AsAny + Send {
     fn device_type(&self) -> u32;
 
     /// Returns the device queues.
-    fn get_queues(&mut self) -> &mut Vec<Queue>;
+    fn queues(&mut self) -> &mut [Queue];
 
     /// Returns the device queues event fds.
-    fn get_queue_events(&self) -> Result<Vec<EventFd>, std::io::Error>;
+    fn queue_events(&self) -> &[EventFd];
 
     /// Returns the device interrupt eventfd.
-    fn get_interrupt(&self) -> Result<EventFd, std::io::Error>;
+    fn interrupt_evt(&self) -> &EventFd;
 
     /// Returns the current device interrupt status.
-    fn get_interrupt_status(&self) -> Arc<AtomicUsize>;
+    fn interrupt_status(&self) -> Arc<AtomicUsize>;
 
     /// The set of feature bits shifted by `page * 32`.
     fn avail_features_by_page(&self, page: u32) -> u32 {
