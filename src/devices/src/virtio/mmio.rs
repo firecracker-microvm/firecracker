@@ -138,7 +138,6 @@ impl MmioTransport {
     fn reset(&mut self) {
         if self.locked_device().is_activated() {
             warn!("reset device while it's still in active state");
-            return;
         }
         self.features_select = 0;
         self.acked_features_select = 0;
@@ -180,9 +179,8 @@ impl MmioTransport {
                 let device_activated = self.locked_device().is_activated();
                 if !device_activated && self.are_queues_valid() {
                     self.locked_device()
-                        .activate(self.mem.clone())
+                        .activate()
                         .expect("Failed to activate device");
-                    self.locked_device().set_device_activated(true);
                 }
             }
             _ if (status & FAILED) != 0 => {
@@ -191,20 +189,14 @@ impl MmioTransport {
             }
             _ if status == 0 => {
                 if self.locked_device().is_activated() {
-                    let mut device_activated = true;
                     let mut device_status = self.device_status;
                     let reset_result = self.locked_device().reset();
                     match reset_result {
-                        Some((_interrupt_evt, mut _queue_evts)) => {
-                            device_activated = false;
-                        }
-
+                        Some((_interrupt_evt, mut _queue_evts)) => {}
                         None => {
                             device_status |= FAILED;
                         }
                     }
-
-                    self.locked_device().set_device_activated(device_activated);
                     self.device_status = device_status;
                 }
 
@@ -411,7 +403,8 @@ mod tests {
             self.acked_features = acked_features;
         }
 
-        fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
+        fn activate(&mut self) -> ActivateResult {
+            self.device_activated = true;
             Ok(())
         }
 
@@ -433,10 +426,6 @@ mod tests {
 
         fn is_activated(&self) -> bool {
             self.device_activated
-        }
-
-        fn set_device_activated(&mut self, device_activated: bool) {
-            self.device_activated = device_activated;
         }
     }
 

@@ -317,12 +317,8 @@ impl VirtioDevice for Block {
         self.device_activated
     }
 
-    fn set_device_activated(&mut self, device_activated: bool) {
-        self.device_activated = device_activated;
-    }
-
-    fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
-        // TODO: to be removed
+    fn activate(&mut self) -> ActivateResult {
+        self.device_activated = true;
         Ok(())
     }
 }
@@ -499,7 +495,7 @@ mod tests {
         let mem = block.mem.clone();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
-        block.set_device_activated(true);
+        block.activate().unwrap();
         initialize_virtqueue(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -524,7 +520,7 @@ mod tests {
         let mem = block.mem.clone();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
-        block.set_device_activated(true);
+        block.activate().unwrap();
         initialize_virtqueue(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -582,7 +578,7 @@ mod tests {
         let mem = block.mem.clone();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
-        block.set_device_activated(true);
+        block.activate().unwrap();
         initialize_virtqueue(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -612,7 +608,7 @@ mod tests {
         let mem = block.mem.clone();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
-        block.set_device_activated(true);
+        block.activate().unwrap();
         initialize_virtqueue(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -671,7 +667,7 @@ mod tests {
         let mem = block.mem.clone();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
-        block.set_device_activated(true);
+        block.activate().unwrap();
         initialize_virtqueue(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -714,7 +710,7 @@ mod tests {
         let mem = block.mem.clone();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
-        block.set_device_activated(true);
+        block.activate().unwrap();
         initialize_virtqueue(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -780,7 +776,7 @@ mod tests {
         let mem = block.mem.clone();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
-        block.set_device_activated(true);
+        block.activate().unwrap();
         initialize_virtqueue(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
@@ -845,7 +841,7 @@ mod tests {
         let mem = block.mem.clone();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
-        block.set_device_activated(true);
+        block.activate().unwrap();
         initialize_virtqueue(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
