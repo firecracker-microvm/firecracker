@@ -93,7 +93,7 @@ pub struct Block {
     queues: Vec<Queue>,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
-    pub(crate) queue_evt: EventFd,
+    pub(crate) queue_evts: [EventFd; 1],
     mem: GuestMemoryMmap,
 
     device_activated: bool,
@@ -120,7 +120,7 @@ impl Block {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
         };
 
-        let queue_evt = EventFd::new(libc::EFD_NONBLOCK)?;
+        let queue_evts = [EventFd::new(libc::EFD_NONBLOCK)?];
 
         let queues = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
@@ -135,7 +135,7 @@ impl Block {
             mem,
             interrupt_status: Arc::new(AtomicUsize::new(0)),
             interrupt_evt: EventFd::new(libc::EFD_NONBLOCK)?,
-            queue_evt,
+            queue_evts,
             queues,
             device_activated: false,
         })
@@ -143,7 +143,7 @@ impl Block {
 
     pub(crate) fn process_queue_event(&mut self) {
         METRICS.block.queue_event_count.inc();
-        if let Err(e) = self.queue_evt.read() {
+        if let Err(e) = self.queue_evts[0].read() {
             error!("Failed to get queue event: {:?}", e);
             METRICS.block.event_fails.inc();
         } else if !self.rate_limiter.is_blocked() && self.process_queue(0) {
@@ -258,20 +258,20 @@ impl VirtioDevice for Block {
         TYPE_BLOCK
     }
 
-    fn get_queues(&mut self) -> &mut Vec<Queue> {
+    fn queues(&mut self) -> &mut [Queue] {
         &mut self.queues
     }
 
-    fn get_queue_events(&self) -> Result<Vec<EventFd>, std::io::Error> {
-        Ok(vec![self.queue_evt.try_clone()?])
+    fn queue_events(&self) -> &[EventFd] {
+        &self.queue_evts
     }
 
-    fn get_interrupt(&self) -> Result<EventFd, std::io::Error> {
-        Ok(self.interrupt_evt.try_clone()?)
+    fn interrupt_evt(&self) -> &EventFd {
+        &self.interrupt_evt
     }
 
     /// Returns the current device interrupt status.
-    fn get_interrupt_status(&self) -> Arc<AtomicUsize> {
+    fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.interrupt_status.clone()
     }
 
@@ -418,10 +418,10 @@ mod tests {
 
     fn invoke_handler_for_queue_event(b: &mut Block) {
         // Trigger the queue event.
-        b.queue_evt.write(1).unwrap();
+        b.queue_evts[0].write(1).unwrap();
         // Handle event.
         b.process(
-            &EpollEvent::new(EventSet::IN, b.queue_evt.as_raw_fd() as u64),
+            &EpollEvent::new(EventSet::IN, b.queue_evts[0].as_raw_fd() as u64),
             &mut EventManager::new().unwrap(),
         );
         // Validate the queue operation finished successfully.
@@ -788,7 +788,7 @@ mod tests {
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
         let mut event_manager = EventManager::new().unwrap();
-        let queue_evt = EpollEvent::new(EventSet::IN, block.queue_evt.as_raw_fd() as u64);
+        let queue_evt = EpollEvent::new(EventSet::IN, block.queue_evts[0].as_raw_fd() as u64);
 
         // Create bandwidth rate limiter that allows only 80 bytes/s with bucket size of 8 bytes.
         let mut rl = RateLimiter::new(8, None, 100, 0, None, 0).unwrap();
@@ -808,7 +808,7 @@ mod tests {
         // Following write procedure should fail because of bandwidth rate limiting.
         {
             // Trigger the attempt to write.
-            block.queue_evt.write(1).unwrap();
+            block.queue_evts[0].write(1).unwrap();
             block.process(&queue_evt, &mut event_manager);
 
             // Assert that limiter is blocked.
@@ -853,7 +853,7 @@ mod tests {
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
         let mut event_manager = EventManager::new().unwrap();
-        let queue_evt = EpollEvent::new(EventSet::IN, block.queue_evt.as_raw_fd() as u64);
+        let queue_evt = EpollEvent::new(EventSet::IN, block.queue_evts[0].as_raw_fd() as u64);
 
         // Create ops rate limiter that allows only 10 ops/s with bucket size of 1 ops.
         let mut rl = RateLimiter::new(0, None, 0, 1, None, 100).unwrap();
@@ -873,7 +873,7 @@ mod tests {
         // Following write procedure should fail because of ops rate limiting.
         {
             // Trigger the attempt to write.
-            block.queue_evt.write(1).unwrap();
+            block.queue_evts[0].write(1).unwrap();
             block.process(&queue_evt, &mut event_manager);
 
             // Assert that limiter is blocked.
@@ -887,7 +887,7 @@ mod tests {
         // Do a second write that still fails but this time on the fast path.
         {
             // Trigger the attempt to write.
-            block.queue_evt.write(1).unwrap();
+            block.queue_evts[0].write(1).unwrap();
             block.process(&queue_evt, &mut event_manager);
 
             // Assert that limiter is blocked.

@@ -110,12 +110,12 @@ impl MMIODeviceManager {
             return Err(Error::IrqsExhausted);
         }
 
-        let queue_evts = mmio_device
+        for (i, queue_evt) in mmio_device
             .locked_device()
-            .get_queue_events()
-            .map_err(Error::EventFd)?;
-
-        for (i, queue_evt) in queue_evts.iter().enumerate() {
+            .queue_events()
+            .iter()
+            .enumerate()
+        {
             let io_addr = IoEventAddress::Mmio(
                 self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
             );
@@ -124,12 +124,7 @@ impl MMIODeviceManager {
                 .map_err(Error::RegisterIoEvent)?;
         }
 
-        let interrupt_evt = mmio_device
-            .locked_device()
-            .get_interrupt()
-            .map_err(Error::EventFd)?;
-
-        vm.register_irqfd(&interrupt_evt, self.irq)
+        vm.register_irqfd(mmio_device.locked_device().interrupt_evt(), self.irq)
             .map_err(Error::RegisterIrqFd)?;
 
         self.bus
@@ -333,7 +328,7 @@ mod tests {
     struct DummyDevice {
         dummy: u32,
         queues: Vec<Queue>,
-        queue_evt: EventFd,
+        queue_evts: [EventFd; 1],
         interrupt_evt: EventFd,
     }
 
@@ -342,7 +337,7 @@ mod tests {
             DummyDevice {
                 dummy: 0,
                 queues: QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect(),
-                queue_evt: EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD"),
+                queue_evts: [EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD")],
                 interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).expect("cannot create eventFD"),
             }
         }
@@ -363,19 +358,19 @@ mod tests {
             0
         }
 
-        fn get_queues(&mut self) -> &mut Vec<Queue> {
+        fn queues(&mut self) -> &mut [Queue] {
             &mut self.queues
         }
 
-        fn get_queue_events(&self) -> std::result::Result<Vec<EventFd>, std::io::Error> {
-            Ok(vec![self.queue_evt.try_clone()?])
+        fn queue_events(&self) -> &[EventFd] {
+            &self.queue_evts
         }
 
-        fn get_interrupt(&self) -> std::result::Result<EventFd, std::io::Error> {
-            Ok(self.interrupt_evt.try_clone()?)
+        fn interrupt_evt(&self) -> &EventFd {
+            &self.interrupt_evt
         }
 
-        fn get_interrupt_status(&self) -> Arc<AtomicUsize> {
+        fn interrupt_status(&self) -> Arc<AtomicUsize> {
             Arc::new(AtomicUsize::new(0))
         }
 
@@ -479,7 +474,7 @@ mod tests {
     fn test_dummy_device() {
         let mut dummy = DummyDevice::new();
         assert_eq!(dummy.device_type(), 0);
-        assert_eq!(dummy.get_queues().len(), QUEUE_SIZES.len());
+        assert_eq!(dummy.queues().len(), QUEUE_SIZES.len());
 
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);

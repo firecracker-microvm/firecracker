@@ -621,24 +621,19 @@ impl VirtioDevice for Net {
         TYPE_NET
     }
 
-    fn get_queues(&mut self) -> &mut Vec<Queue> {
+    fn queues(&mut self) -> &mut [Queue] {
         &mut self.queues
     }
 
-    fn get_queue_events(&self) -> result::Result<Vec<EventFd>, std::io::Error> {
-        let mut queue_evts_copy: Vec<EventFd> = Vec::new();
-        for event_fd in &self.queue_evts {
-            queue_evts_copy.push(event_fd.try_clone()?);
-        }
-
-        Ok(queue_evts_copy)
+    fn queue_events(&self) -> &[EventFd] {
+        &self.queue_evts
     }
 
-    fn get_interrupt(&self) -> std::io::Result<EventFd> {
-        Ok(self.interrupt_evt.try_clone()?)
+    fn interrupt_evt(&self) -> &EventFd {
+        &self.interrupt_evt
     }
 
-    fn get_interrupt_status(&self) -> Arc<AtomicUsize> {
+    fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.interrupt_status.clone()
     }
 
@@ -1640,25 +1635,23 @@ mod tests {
         net.assign_queues(rxq.create_queue(), txq.create_queue());
 
         // Test queues count (TX and RX).
-        let queues = net.get_queues();
+        let queues = net.queues();
         assert_eq!(queues.len(), QUEUE_SIZES.len());
         assert_eq!(queues[RX_INDEX].size, rxq.size());
         assert_eq!(queues[TX_INDEX].size, txq.size());
 
         // Test corresponding queues events.
-        let queues_evts = net.get_queue_events().unwrap();
-        assert_eq!(queues_evts.len(), QUEUE_SIZES.len());
+        assert_eq!(net.queue_events().len(), QUEUE_SIZES.len());
 
         // Test interrupts.
-        let interrupt_status = net.get_interrupt_status();
+        let interrupt_status = net.interrupt_status();
         interrupt_status.fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         assert_eq!(
             interrupt_status.load(Ordering::SeqCst),
             VIRTIO_MMIO_INT_VRING as usize
         );
 
-        let interrupt_evt = net.get_interrupt().unwrap();
-        interrupt_evt.write(1).unwrap();
-        assert_eq!(interrupt_evt.read().unwrap() as usize, 1);
+        net.interrupt_evt().write(1).unwrap();
+        assert_eq!(net.interrupt_evt().read().unwrap() as usize, 1);
     }
 }
