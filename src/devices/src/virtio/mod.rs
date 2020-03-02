@@ -9,22 +9,21 @@
 use std;
 use std::any::Any;
 use std::io::Error as IOError;
-use std::os::unix::io::RawFd;
-use std::sync::mpsc;
 
 pub mod block;
+pub mod device;
 mod mmio;
 pub mod net;
 mod queue;
 pub mod vsock;
 
 pub use self::block::*;
+pub use self::device::*;
 pub use self::mmio::*;
+pub use self::net::*;
 pub use self::net::*;
 pub use self::queue::*;
 pub use self::vsock::*;
-
-use super::EpollHandler;
 
 /// When the driver initializes the device, it lets the device know about the
 /// completed stages using the Device Status Field.
@@ -64,14 +63,6 @@ pub enum ActivateError {
 }
 
 pub type ActivateResult = std::result::Result<(), ActivateError>;
-
-pub trait EpollConfigConstructor {
-    fn new(
-        first_token: u64,
-        epoll_raw_fd: RawFd,
-        sender: mpsc::Sender<Box<dyn EpollHandler>>,
-    ) -> Self;
-}
 
 /// Trait that helps in upcasting an object to Any
 pub trait AsAny {

@@ -5,10 +5,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::result;
 /// This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
 /// device logic: feature negociation, device configuration, and device activation.
-/// The run-time device logic (i.e. event-driven data handling) is implemented by
-/// `super::epoll_handler::EpollHandler`.
 ///
 /// We aim to conform to the VirtIO v1.1 spec:
 /// https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
@@ -16,54 +15,179 @@
 /// The vsock device has two input parameters: a CID to identify the device, and a `VsockBackend`
 /// to use for offloading vsock traffic.
 ///
-/// Upon its activation, the vsock device creates its `EpollHandler`, passes it the event-interested
-/// file descriptors, and registers these descriptors with the VMM `EpollContext`. Going forward,
-/// the `EpollHandler` will get notified whenever an event occurs on the just-registered FDs:
+/// Upon its activation, the vsock device registers handlers for the following events/FDs:
 /// - an RX queue FD;
 /// - a TX queue FD;
 /// - an event queue FD; and
 /// - a backend FD.
-use std::os::unix::io::AsRawFd;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use utils::byte_order;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;
 
-use super::super::{ActivateError, ActivateResult, Queue as VirtQueue, VirtioDevice};
-use super::epoll_handler::VsockEpollHandler;
+use super::super::super::Error as DeviceError;
+use super::super::{
+    ActivateError, ActivateResult, Queue as VirtQueue, VirtioDevice, VsockError,
+    VIRTIO_MMIO_INT_VRING,
+};
+use super::packet::VsockPacket;
 use super::VsockBackend;
-use super::{defs, defs::uapi, EpollConfig};
+use super::{defs, defs::uapi};
+
+pub(crate) const RXQ_INDEX: usize = 0;
+pub(crate) const TXQ_INDEX: usize = 1;
+pub(crate) const EVQ_INDEX: usize = 2;
 
 /// The virtio features supported by our vsock device:
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
 /// - VIRTIO_F_IN_ORDER: the device returns used buffers in the same order that the driver makes
 ///   them available.
-const AVAIL_FEATURES: u64 =
+pub(crate) const AVAIL_FEATURES: u64 =
     1 << uapi::VIRTIO_F_VERSION_1 as u64 | 1 << uapi::VIRTIO_F_IN_ORDER as u64;
 
-pub struct Vsock<B: VsockBackend> {
+pub struct Vsock<B> {
     cid: u64,
-    backend: Option<B>,
+    pub(crate) queues: Vec<VirtQueue>,
+    pub(crate) queue_events: Vec<EventFd>,
+    mem: GuestMemoryMmap,
+    pub(crate) backend: B,
     avail_features: u64,
     acked_features: u64,
-    epoll_config: EpollConfig,
+    pub(crate) interrupt_status: Arc<AtomicUsize>,
+    pub(crate) interrupt_evt: EventFd,
+    // This EventFd is the only one initially registered for a vsock device, and is used to convert
+    // a VirtioDevice::activate call into an EventHandler read event which allows the other events
+    // (queue and backend related) to be registered post virtio device activation. That's
+    // mostly something we wanted to happen for the backend events, to prevent (potentially)
+    // continuous triggers from happening before the device gets activated.
+    pub(crate) activate_evt: EventFd,
+    device_activated: bool,
 }
+
+// TODO: Detect / handle queue deadlock:
+// 1. If the driver halts RX queue processing, we'll need to notify `self.backend`, so that it
+//    can unregister any EPOLLIN listeners, since otherwise it will keep spinning, unable to consume
+//    its EPOLLIN events.
 
 impl<B> Vsock<B>
 where
     B: VsockBackend,
 {
-    /// Create a new virtio-vsock device with the given VM CID and vsock backend.
-    pub fn new(cid: u64, epoll_config: EpollConfig, backend: B) -> super::Result<Vsock<B>> {
+    pub(crate) fn with_queues(
+        cid: u64,
+        mem: GuestMemoryMmap,
+        backend: B,
+        queues: Vec<VirtQueue>,
+    ) -> super::Result<Vsock<B>> {
+        let mut queue_events = Vec::new();
+        for _ in 0..queues.len() {
+            queue_events.push(EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?);
+        }
+
         Ok(Vsock {
             cid,
+            queues,
+            queue_events,
+            mem,
+            backend,
             avail_features: AVAIL_FEATURES,
             acked_features: 0,
-            epoll_config,
-            backend: Some(backend),
+            interrupt_status: Arc::new(AtomicUsize::new(0)),
+            interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
+            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
+            device_activated: false,
         })
+    }
+
+    /// Create a new virtio-vsock device with the given VM CID and vsock backend.
+    pub fn new(cid: u64, mem: GuestMemoryMmap, backend: B) -> super::Result<Vsock<B>> {
+        let queues: Vec<VirtQueue> = defs::QUEUE_SIZES
+            .iter()
+            .map(|&max_size| VirtQueue::new(max_size))
+            .collect();
+        Self::with_queues(cid, mem, backend, queues)
+    }
+
+    pub fn cid(&self) -> u64 {
+        self.cid
+    }
+
+    /// Signal the guest driver that we've used some virtio buffers that it had previously made
+    /// available.
+    pub fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
+        debug!("vsock: raising IRQ");
+        self.interrupt_status
+            .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
+        self.interrupt_evt.write(1).map_err(|e| {
+            error!("Failed to signal used queue: {:?}", e);
+            DeviceError::FailedSignalingUsedQueue(e)
+        })
+    }
+
+    /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
+    /// have pending. Return `true` if descriptors have been added to the used ring, and `false`
+    /// otherwise.
+    pub fn process_rx(&mut self) -> bool {
+        debug!("vsock: process_rx()");
+
+        let mut have_used = false;
+
+        while let Some(head) = self.queues[RXQ_INDEX].pop(&self.mem) {
+            let used_len = match VsockPacket::from_rx_virtq_head(&head) {
+                Ok(mut pkt) => {
+                    if self.backend.recv_pkt(&mut pkt).is_ok() {
+                        pkt.hdr().len() as u32 + pkt.len()
+                    } else {
+                        // We are using a consuming iterator over the virtio buffers, so, if we can't
+                        // fill in this buffer, we'll need to undo the last iterator step.
+                        self.queues[RXQ_INDEX].undo_pop();
+                        break;
+                    }
+                }
+                Err(e) => {
+                    warn!("vsock: RX queue error: {:?}", e);
+                    0
+                }
+            };
+
+            have_used = true;
+            self.queues[RXQ_INDEX].add_used(&self.mem, head.index, used_len);
+        }
+
+        have_used
+    }
+
+    /// Walk the driver-provided TX queue buffers, package them up as vsock packets, and send them
+    /// to the backend for processing. Return `true` if descriptors have been added to the used
+    /// ring, and `false` otherwise.
+    pub fn process_tx(&mut self) -> bool {
+        debug!("vsock::process_tx()");
+
+        let mut have_used = false;
+
+        while let Some(head) = self.queues[TXQ_INDEX].pop(&self.mem) {
+            let pkt = match VsockPacket::from_tx_virtq_head(&head) {
+                Ok(pkt) => pkt,
+                Err(e) => {
+                    error!("vsock: error reading TX packet: {:?}", e);
+                    have_used = true;
+                    self.queues[TXQ_INDEX].add_used(&self.mem, head.index, 0);
+                    continue;
+                }
+            };
+
+            if self.backend.send_pkt(&pkt).is_err() {
+                self.queues[TXQ_INDEX].undo_pop();
+                break;
+            }
+
+            have_used = true;
+            self.queues[TXQ_INDEX].add_used(&self.mem, head.index, 0);
+        }
+
+        have_used
     }
 }
 
@@ -71,14 +195,6 @@ impl<B> VirtioDevice for Vsock<B>
 where
     B: VsockBackend + 'static,
 {
-    fn device_type(&self) -> u32 {
-        uapi::VIRTIO_ID_VSOCK
-    }
-
-    fn queue_max_sizes(&self) -> &[u16] {
-        defs::QUEUE_SIZES
-    }
-
     fn avail_features(&self) -> u64 {
         self.avail_features
     }
@@ -91,12 +207,39 @@ where
         self.acked_features = acked_features
     }
 
+    fn device_type(&self) -> u32 {
+        uapi::VIRTIO_ID_VSOCK
+    }
+
+    fn get_queues(&mut self) -> &mut Vec<VirtQueue> {
+        &mut self.queues
+    }
+
+    fn get_queue_events(&self) -> std::io::Result<Vec<EventFd>> {
+        let mut queue_evts_copy = Vec::new();
+        for evt in self.queue_events.iter() {
+            queue_evts_copy.push(evt.try_clone()?);
+        }
+
+        Ok(queue_evts_copy)
+    }
+
+    fn get_interrupt(&self) -> std::io::Result<EventFd> {
+        Ok(self.interrupt_evt.try_clone()?)
+    }
+
+    fn get_interrupt_status(&self) -> Arc<AtomicUsize> {
+        self.interrupt_status.clone()
+    }
+
     fn read_config(&self, offset: u64, data: &mut [u8]) {
         match offset {
-            0 if data.len() == 8 => byte_order::write_le_u64(data, self.cid),
-            0 if data.len() == 4 => byte_order::write_le_u32(data, (self.cid & 0xffff_ffff) as u32),
+            0 if data.len() == 8 => byte_order::write_le_u64(data, self.cid()),
+            0 if data.len() == 4 => {
+                byte_order::write_le_u32(data, (self.cid() & 0xffff_ffff) as u32)
+            }
             4 if data.len() == 4 => {
-                byte_order::write_le_u32(data, ((self.cid >> 32) & 0xffff_ffff) as u32)
+                byte_order::write_le_u32(data, ((self.cid() >> 32) & 0xffff_ffff) as u32)
             }
             _ => warn!(
                 "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
@@ -114,90 +257,30 @@ where
         );
     }
 
-    fn activate(
-        &mut self,
-        mem: GuestMemoryMmap,
-        interrupt_evt: EventFd,
-        interrupt_status: Arc<AtomicUsize>,
-        mut queues: Vec<VirtQueue>,
-        mut queue_evts: Vec<EventFd>,
-    ) -> ActivateResult {
-        if queues.len() != defs::NUM_QUEUES || queue_evts.len() != defs::NUM_QUEUES {
+    fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
+        if self.queues.len() != defs::NUM_QUEUES {
             error!(
                 "Cannot perform activate. Expected {} queue(s), got {}",
                 defs::NUM_QUEUES,
-                queues.len()
+                self.queues.len()
             );
             return Err(ActivateError::BadActivate);
         }
 
-        let rxvq = queues.remove(0);
-        let txvq = queues.remove(0);
-        let evvq = queues.remove(0);
-
-        let rxvq_evt = queue_evts.remove(0);
-        let txvq_evt = queue_evts.remove(0);
-        let evvq_evt = queue_evts.remove(0);
-
-        let backend = self.backend.take().unwrap();
-        let backend_fd = backend.get_polled_fd();
-        let backend_evset = backend.get_polled_evset();
-
-        let handler: VsockEpollHandler<B> = VsockEpollHandler {
-            rxvq,
-            rxvq_evt,
-            txvq,
-            txvq_evt,
-            evvq,
-            evvq_evt,
-            mem,
-            cid: self.cid,
-            interrupt_status,
-            interrupt_evt,
-            backend,
-        };
-        let rx_queue_rawfd = handler.rxvq_evt.as_raw_fd();
-        let tx_queue_rawfd = handler.txvq_evt.as_raw_fd();
-        let ev_queue_rawfd = handler.evvq_evt.as_raw_fd();
-
-        self.epoll_config
-            .sender
-            .send(Box::new(handler))
-            .expect("Failed to send handler through channel");
-
-        epoll::ctl(
-            self.epoll_config.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            rx_queue_rawfd,
-            epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.rxq_token),
-        )
-        .map_err(ActivateError::EpollCtl)?;
-
-        epoll::ctl(
-            self.epoll_config.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            tx_queue_rawfd,
-            epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.txq_token),
-        )
-        .map_err(ActivateError::EpollCtl)?;
-
-        epoll::ctl(
-            self.epoll_config.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            ev_queue_rawfd,
-            epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.evq_token),
-        )
-        .map_err(ActivateError::EpollCtl)?;
-
-        epoll::ctl(
-            self.epoll_config.epoll_raw_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            backend_fd,
-            epoll::Event::new(backend_evset, self.epoll_config.backend_token),
-        )
-        .map_err(ActivateError::EpollCtl)?;
+        if self.activate_evt.write(1).is_err() {
+            error!("Cannot write to activate_evt",);
+            return Err(ActivateError::BadActivate);
+        }
 
         Ok(())
+    }
+
+    fn is_activated(&self) -> bool {
+        self.device_activated
+    }
+
+    fn set_device_activated(&mut self, device_activated: bool) {
+        self.device_activated = device_activated;
     }
 }
 
@@ -222,7 +305,6 @@ mod tests {
             (driver_features >> 32) as u32,
         ];
         assert_eq!(ctx.device.device_type(), uapi::VIRTIO_ID_VSOCK);
-        assert_eq!(ctx.device.queue_max_sizes(), defs::QUEUE_SIZES);
         assert_eq!(ctx.device.avail_features_by_page(0), device_pages[0]);
         assert_eq!(ctx.device.avail_features_by_page(1), device_pages[1]);
         assert_eq!(ctx.device.avail_features_by_page(2), 0);
@@ -267,35 +349,15 @@ mod tests {
         ctx.device.write_config(0, &data[..4]);
 
         // Test a bad activation.
-        let bad_activate = ctx.device.activate(
-            ctx.mem.clone(),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            Arc::new(AtomicUsize::new(0)),
-            Vec::new(),
-            Vec::new(),
-        );
-        match bad_activate {
-            Err(ActivateError::BadActivate) => (),
-            other => panic!("{:?}", other),
-        }
+        // let bad_activate = ctx.device.activate(
+        //     ctx.mem.clone(),
+        // );
+        // match bad_activate {
+        //     Err(ActivateError::BadActivate) => (),
+        //     other => panic!("{:?}", other),
+        // }
 
         // Test a correct activation.
-        ctx.device
-            .activate(
-                ctx.mem.clone(),
-                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-                Arc::new(AtomicUsize::new(0)),
-                vec![
-                    VirtQueue::new(256),
-                    VirtQueue::new(256),
-                    VirtQueue::new(256),
-                ],
-                vec![
-                    EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-                    EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-                    EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-                ],
-            )
-            .unwrap();
+        ctx.device.activate(ctx.mem.clone()).unwrap();
     }
 }

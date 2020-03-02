@@ -7,11 +7,9 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 kvm-bindings = { version = ">=0.2", features = ["fam-wrappers"] }
 kvm-ioctls = ">=0.4"
 libc = ">=0.2.39"
-epoll = ">=4.0.1"
 serde = ">=1.0.27"
 serde_derive = ">=1.0.27"
 serde_json = ">=1.0.9"
-timerfd = ">=1.0"
 
 arch = { path = "../arch" }
 devices = { path = "../devices" }
@@ -23,9 +21,7 @@ mmds = { path = "../mmds" }
 utils = { path = "../utils"}
 rate_limiter = { path = "../rate_limiter" }
 seccomp = { path = "../seccomp" }
+polly = { path = "../polly" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }
-
-[dev-dependencies]
-libc = ">=0.2.39"

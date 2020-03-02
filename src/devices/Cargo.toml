@@ -5,12 +5,12 @@ authors = ["The Chromium OS Authors"]
 edition = "2018"
 
 [dependencies]
-epoll = ">=4.0.1"
 libc = ">=0.2.39"
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }
 vm-memory = { path = "../vm-memory" }
 utils = { path = "../utils" }
 net_gen = { path = "../net_gen" }
+polly = { path = "../polly" }
 rate_limiter = { path = "../rate_limiter" }
 virtio_gen = { path = "../virtio_gen" }

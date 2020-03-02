@@ -7,6 +7,7 @@
 
 use libc::{c_int, c_void, siginfo_t};
 use std::cell::Cell;
+use std::fmt::{Display, Formatter};
 use std::io;
 use std::result;
 use std::sync::atomic::{fence, Ordering};
@@ -15,6 +16,8 @@ use std::thread;
 
 use super::TimestampUs;
 use super::{FC_EXIT_CODE_GENERIC_ERROR, FC_EXIT_CODE_OK};
+
+use arch;
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "x86_64")]
@@ -37,8 +40,7 @@ use utils::sm::StateMachine;
 use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
 };
-#[cfg(target_arch = "x86_64")]
-use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig};
+use vmm_config::machine_config::CpuFeaturesTemplate;
 
 #[cfg(target_arch = "x86_64")]
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x03f0;
@@ -124,7 +126,7 @@ pub enum Error {
     /// Failed to get KVM vcpu sregs.
     VcpuGetSregs(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to get KVM vcpu evenct.
+    /// Failed to get KVM vcpu event.
     VcpuGetVcpuEvents(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to get KVM vcpu xcrs.
@@ -132,7 +134,6 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// Failed to get KVM vcpu xsave.
     VcpuGetXsave(kvm_ioctls::Error),
-    #[cfg(target_arch = "x86_64")]
     /// Cannot run the VCPUs.
     VcpuRun(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
@@ -157,7 +158,7 @@ pub enum Error {
     /// Failed to set KVM vcpu sregs.
     VcpuSetSregs(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
-    /// Failed to set KVM vcpu evenct.
+    /// Failed to set KVM vcpu event.
     VcpuSetVcpuEvents(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
     /// Failed to set KVM vcpu xcrs.
@@ -196,6 +197,134 @@ pub enum Error {
     /// Cannot configure the microvm.
     VmSetup(kvm_ioctls::Error),
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::Error::*;
+
+        match self {
+            #[cfg(target_arch = "x86_64")]
+            CpuId(e) => write!(f, "Cpuid error: {:?}", e),
+            GuestMemoryMmap(e) => write!(f, "Guest memory error: {:?}", e),
+            #[cfg(target_arch = "x86_64")]
+            GuestMSRs(e) => write!(f, "Retrieving supported guest MSRs fails: {:?}", e),
+            HTNotInitialized => write!(f, "Hyperthreading flag is not initialized"),
+            KvmApiVersion(v) => write!(
+                f,
+                "The host kernel reports an invalid KVM API version: {}",
+                v
+            ),
+            KvmCap(cap) => write!(f, "Missing KVM capabilities: {:?}", cap),
+            VcpuCountNotInitialized => write!(f, "vCPU count is not initialized"),
+            VmFd(e) => write!(f, "Cannot open the VM file descriptor: {}", e),
+            VcpuFd(e) => write!(f, "Cannot open the VCPU file descriptor: {}", e),
+            VmSetup(e) => write!(f, "Cannot configure the microvm: {}", e),
+            VcpuRun(e) => write!(f, "Cannot run the VCPUs: {}", e),
+            NotEnoughMemorySlots => write!(
+                f,
+                "The number of configured slots is bigger than the maximum reported by KVM"
+            ),
+            #[cfg(target_arch = "x86_64")]
+            LocalIntConfiguration(e) => write!(
+                f,
+                "Cannot set the local interruption due to bad configuration: {:?}",
+                e
+            ),
+            SetUserMemoryRegion(e) => write!(f, "Cannot set the memory regions: {}", e),
+            SignalVcpu(e) => write!(f, "Failed to signal Vcpu: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            MSRSConfiguration(e) => write!(f, "Error configuring the MSR registers: {:?}", e),
+            #[cfg(target_arch = "aarch64")]
+            REGSConfiguration(e) => write!(
+                f,
+                "Error configuring the general purpose aarch64 registers: {:?}",
+                e
+            ),
+            #[cfg(target_arch = "x86_64")]
+            REGSConfiguration(e) => write!(
+                f,
+                "Error configuring the general purpose registers: {:?}",
+                e
+            ),
+            #[cfg(target_arch = "x86_64")]
+            SREGSConfiguration(e) => write!(f, "Error configuring the special registers: {:?}", e),
+            #[cfg(target_arch = "x86_64")]
+            FPUConfiguration(e) => write!(
+                f,
+                "Error configuring the floating point related registers: {:?}",
+                e
+            ),
+            Irq(e) => write!(f, "Cannot configure the IRQ: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetDebugRegs(e) => write!(f, "Failed to get KVM vcpu debug regs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetLapic(e) => write!(f, "Failed to get KVM vcpu lapic: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetMpState(e) => write!(f, "Failed to get KVM vcpu mp state: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetMsrs(e) => write!(f, "Failed to get KVM vcpu msrs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetRegs(e) => write!(f, "Failed to get KVM vcpu regs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetSregs(e) => write!(f, "Failed to get KVM vcpu sregs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetVcpuEvents(e) => write!(f, "Failed to get KVM vcpu event: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetXcrs(e) => write!(f, "Failed to get KVM vcpu xcrs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetXsave(e) => write!(f, "Failed to get KVM vcpu xsave: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetCpuid(e) => write!(f, "Failed to set KVM vcpu cpuid: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetDebugRegs(e) => write!(f, "Failed to set KVM vcpu debug regs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetLapic(e) => write!(f, "Failed to set KVM vcpu lapic: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetMpState(e) => write!(f, "Failed to set KVM vcpu mp state: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetMsrs(e) => write!(f, "Failed to set KVM vcpu msrs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetRegs(e) => write!(f, "Failed to set KVM vcpu regs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetSregs(e) => write!(f, "Failed to set KVM vcpu sregs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetVcpuEvents(e) => write!(f, "Failed to set KVM vcpu event: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetXcrs(e) => write!(f, "Failed to set KVM vcpu xcrs: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuSetXsave(e) => write!(f, "Failed to set KVM vcpu xsave: {}", e),
+            VcpuSpawn(e) => write!(f, "Cannot spawn a new vCPU thread: {}", e),
+            VcpuTlsInit => write!(f, "Cannot clean init vcpu TLS"),
+            VcpuTlsNotPresent => write!(f, "Vcpu not present in TLS"),
+            VcpuUnhandledKvmExit => write!(f, "Unexpected KVM_RUN exit reason"),
+            #[cfg(target_arch = "x86_64")]
+            VmGetPit2(e) => write!(f, "Failed to get KVM vm pit state: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VmGetClock(e) => write!(f, "Failed to get KVM vm clock: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VmGetIrqChip(e) => write!(f, "Failed to get KVM vm irqchip: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VmSetPit2(e) => write!(f, "Failed to set KVM vm pit state: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VmSetClock(e) => write!(f, "Failed to set KVM vm clock: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VmSetIrqChip(e) => write!(f, "Failed to set KVM vm irqchip: {}", e),
+            #[cfg(target_arch = "aarch64")]
+            SetupGIC(e) => write!(
+                f,
+                "Error setting up the global interrupt controller: {:?}",
+                e
+            ),
+            #[cfg(target_arch = "aarch64")]
+            VcpuArmPreferredTarget(e) => {
+                write!(f, "Error getting the Vcpu preferred target on Arm: {}", e)
+            }
+            #[cfg(target_arch = "aarch64")]
+            VcpuArmInit(e) => write!(f, "Error doing Vcpu Init on Arm: {}", e),
+        }
+    }
+}
+
 pub type Result<T> = result::Result<T, Error>;
 
 /// Describes a KVM context that gets attached to the microVM.
@@ -242,7 +371,7 @@ impl KvmContext {
     }
 
     /// Get the maximum number of memory slots reported by this KVM context.
-    fn max_memslots(&self) -> usize {
+    pub fn max_memslots(&self) -> usize {
         self.max_memslots
     }
 }
@@ -250,7 +379,6 @@ impl KvmContext {
 /// A wrapper around creating and using a VM.
 pub struct Vm {
     fd: VmFd,
-    guest_mem: Option<GuestMemoryMmap>,
 
     // X86 specific fields.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -284,7 +412,6 @@ impl Vm {
             supported_cpuid,
             #[cfg(target_arch = "x86_64")]
             supported_msrs,
-            guest_mem: None,
             #[cfg(target_arch = "aarch64")]
             irqchip_handle: None,
         })
@@ -305,10 +432,10 @@ impl Vm {
     /// Initializes the guest memory.
     pub fn memory_init(
         &mut self,
-        guest_mem: GuestMemoryMmap,
-        kvm_context: &KvmContext,
+        guest_mem: &GuestMemoryMmap,
+        kvm_max_memslots: usize,
     ) -> Result<()> {
-        if guest_mem.num_regions() > kvm_context.max_memslots() {
+        if guest_mem.num_regions() > kvm_max_memslots {
             return Err(Error::NotEnoughMemorySlots);
         }
         guest_mem
@@ -329,7 +456,6 @@ impl Vm {
                 unsafe { self.fd.set_user_memory_region(memory_region) }
             })
             .map_err(Error::SetUserMemoryRegion)?;
-        self.guest_mem = Some(guest_mem);
 
         #[cfg(target_arch = "x86_64")]
         self.fd
@@ -363,14 +489,6 @@ impl Vm {
     #[cfg(target_arch = "aarch64")]
     pub fn get_irqchip(&self) -> &Box<dyn GICDevice> {
         &self.irqchip_handle.as_ref().unwrap()
-    }
-
-    /// Gets a reference to the guest memory owned by this VM.
-    ///
-    /// Note that `GuestMemoryMmap` does not include any device memory that may have been added after
-    /// this VM was constructed.
-    pub fn memory(&self) -> Option<&GuestMemoryMmap> {
-        self.guest_mem.as_ref()
     }
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
@@ -445,6 +563,16 @@ pub struct VmState {
     pic_master: kvm_irqchip,
     pic_slave: kvm_irqchip,
     ioapic: kvm_irqchip,
+}
+
+/// Encapsulates configuration parameters for the guest vCPUS.
+pub struct VcpuConfig {
+    /// Number of guest VCPUs.
+    pub vcpu_count: u8,
+    /// Enable hyperthreading in the CPUID configuration.
+    pub ht_enabled: bool,
+    /// CPUID template to use.
+    pub cpu_template: Option<CpuFeaturesTemplate>,
 }
 
 // Using this for easier explicit type-casting to help IDEs interpret the code.
@@ -662,18 +790,12 @@ impl Vcpu {
     /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
     pub fn configure_x86_64(
         &mut self,
-        machine_config: &VmConfig,
         guest_mem: &GuestMemoryMmap,
         kernel_start_addr: GuestAddress,
+        vcpu_config: &VcpuConfig,
     ) -> Result<()> {
-        let cpuid_vm_spec = VmSpec::new(
-            self.id,
-            machine_config
-                .vcpu_count
-                .ok_or(Error::VcpuCountNotInitialized)?,
-            machine_config.ht_enabled.ok_or(Error::HTNotInitialized)?,
-        )
-        .map_err(Error::CpuId)?;
+        let cpuid_vm_spec = VmSpec::new(self.id, vcpu_config.vcpu_count, vcpu_config.ht_enabled)
+            .map_err(Error::CpuId)?;
 
         filter_cpuid(&mut self.cpuid, &cpuid_vm_spec).map_err(|e| {
             METRICS.vcpu.filter_cpuid.inc();
@@ -681,7 +803,7 @@ impl Vcpu {
             Error::CpuId(e)
         })?;
 
-        if let Some(template) = machine_config.cpu_template {
+        if let Some(template) = vcpu_config.cpu_template {
             match template {
                 CpuFeaturesTemplate::T2 => {
                     t2::set_cpuid_entries(&mut self.cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
@@ -1195,13 +1317,14 @@ mod tests {
     use super::*;
 
     use utils::signal::validate_signal_num;
+    use vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
 
     // Auxiliary function being used throughout the tests.
-    fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu) {
+    fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu, GuestMemoryMmap) {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), mem_size)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-        assert!(vm.memory_init(gm, &kvm).is_ok());
+        assert!(vm.memory_init(&gm, kvm.max_memslots()).is_ok());
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
@@ -1227,12 +1350,12 @@ mod tests {
             vm.setup_irqchip(1).expect("Cannot setup irqchip");
         }
 
-        (vm, vcpu)
+        (vm, vcpu, gm)
     }
 
     #[test]
     fn test_set_mmio_bus() {
-        let (_, mut vcpu) = setup_vcpu(0x1000);
+        let (_, mut vcpu, _) = setup_vcpu(0x1000);
         assert!(vcpu.mmio_bus.is_none());
         vcpu.set_mmio_bus(devices::Bus::new());
         assert!(vcpu.mmio_bus.is_some());
@@ -1257,7 +1380,7 @@ mod tests {
 
         // Create valid memory region and test that the initialization is successful.
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        assert!(vm.memory_init(gm, &kvm_context).is_ok());
+        assert!(vm.memory_init(&gm, kvm_context.max_memslots()).is_ok());
 
         // Set the maximum number of memory slots to 1 in KvmContext to check the error
         // path of memory_init. Create 2 non-overlapping memory slots.
@@ -1267,7 +1390,7 @@ mod tests {
             (GuestAddress(0x1001), 0x2000),
         ])
         .unwrap();
-        assert!(vm.memory_init(gm, &kvm_context).is_err());
+        assert!(vm.memory_init(&gm, kvm_context.max_memslots()).is_err());
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1319,26 +1442,28 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_configure_vcpu() {
-        let (vm, mut vcpu) = setup_vcpu(0x10000);
+        let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
-        let vm_config = VmConfig::default();
-        let vm_mem = vm.memory().unwrap();
+        let mut vcpu_config = VcpuConfig {
+            vcpu_count: 1,
+            ht_enabled: false,
+            cpu_template: None,
+        };
+
         assert!(vcpu
-            .configure_x86_64(&vm_config, vm_mem, GuestAddress(0))
+            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
 
         // Test configure while using the T2 template.
-        let mut vm_config = VmConfig::default();
-        vm_config.cpu_template = Some(CpuFeaturesTemplate::T2);
+        vcpu_config.cpu_template = Some(CpuFeaturesTemplate::T2);
         assert!(vcpu
-            .configure_x86_64(&vm_config, vm_mem, GuestAddress(0))
+            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
 
         // Test configure while using the C3 template.
-        let mut vm_config = VmConfig::default();
-        vm_config.cpu_template = Some(CpuFeaturesTemplate::C3);
+        vcpu_config.cpu_template = Some(CpuFeaturesTemplate::C3);
         assert!(vcpu
-            .configure_x86_64(&vm_config, vm_mem, GuestAddress(0))
+            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
     }
 
@@ -1348,8 +1473,7 @@ mod tests {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
-        assert!(vm.memory_init(gm, &kvm).is_ok());
-        let vm_mem = vm.memory().unwrap();
+        assert!(vm.memory_init(&gm, kvm.max_memslots()).is_ok());
 
         // Try it for when vcpu id is 0.
         let mut vcpu = Vcpu::new_aarch64(
@@ -1361,7 +1485,7 @@ mod tests {
         .unwrap();
 
         assert!(vcpu
-            .configure_aarch64(vm.fd(), vm_mem, GuestAddress(0))
+            .configure_aarch64(vm.fd(), &gm, GuestAddress(0))
             .is_ok());
 
         // Try it for when vcpu id is NOT 0.
@@ -1374,7 +1498,7 @@ mod tests {
         .unwrap();
 
         assert!(vcpu
-            .configure_aarch64(vm.fd(), vm_mem, GuestAddress(0))
+            .configure_aarch64(vm.fd(), &gm, GuestAddress(0))
             .is_ok());
     }
 
@@ -1398,7 +1522,7 @@ mod tests {
 
     #[test]
     fn test_vcpu_tls() {
-        let (_, mut vcpu) = setup_vcpu(0x1000);
+        let (_, mut vcpu, _) = setup_vcpu(0x1000);
 
         // Running on the TLS vcpu should fail before we actually initialize it.
         unsafe {
@@ -1429,7 +1553,7 @@ mod tests {
 
     #[test]
     fn test_invalid_tls() {
-        let (_, mut vcpu) = setup_vcpu(0x1000);
+        let (_, mut vcpu, _) = setup_vcpu(0x1000);
         // Initialize vcpu TLS.
         vcpu.init_thread_local_data().unwrap();
         // Trying to initialize non-empty TLS should error.
@@ -1439,7 +1563,7 @@ mod tests {
     #[test]
     fn test_vcpu_kick() {
         Vcpu::register_kick_signal_handler();
-        let (vm, mut vcpu) = setup_vcpu(0x1000);
+        let (vm, mut vcpu, _mem) = setup_vcpu(0x1000);
 
         let kvm_run =
             KvmRunWrapper::mmap_from_fd(&vcpu.fd, vm.fd.run_size()).expect("cannot mmap kvm-run");
@@ -1478,7 +1602,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn load_good_kernel(vm: &Vm) -> GuestAddress {
+    fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let parent = path.parent().unwrap();
 
@@ -1486,13 +1610,9 @@ mod tests {
             .iter()
             .collect();
 
-        let vm_memory = vm.memory().expect("vm memory not initialized");
-
         let mut kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
         let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-        assert!(cmdline
-            .insert_str(super::super::DEFAULT_KERNEL_CMDLINE)
-            .is_ok());
+        assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
         let cmdline_addr = GuestAddress(arch::x86_64::layout::CMDLINE_START);
 
         let entry_addr = kernel::loader::load_kernel(
@@ -1547,16 +1667,19 @@ mod tests {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
         let mem_size = 64 << 20;
-        let (vm, mut vcpu) = setup_vcpu(mem_size);
+        let (_vm, mut vcpu, vm_mem) = setup_vcpu(mem_size);
 
         let vcpu_exit_evt = vcpu.exit_evt.try_clone().unwrap();
 
         // Needs a kernel since we'll actually run this vcpu.
-        let entry_addr = load_good_kernel(&vm);
+        let entry_addr = load_good_kernel(&vm_mem);
 
-        let vm_config = VmConfig::default();
-        let vm_mem = vm.memory().unwrap();
-        vcpu.configure_x86_64(&vm_config, vm_mem, entry_addr)
+        let vcpu_config = VcpuConfig {
+            vcpu_count: 1,
+            ht_enabled: false,
+            cpu_template: None,
+        };
+        vcpu.configure_x86_64(&vm_mem, entry_addr, &vcpu_config)
             .expect("failed to configure vcpu");
 
         let seccomp_filter = seccomp::SeccompFilter::empty().try_into().unwrap();
@@ -1603,7 +1726,7 @@ mod tests {
         // Irqchips, clock and pitstate are not configured so trying to save state should fail.
         assert!(vm.save_state().is_err());
 
-        let (vm, _) = setup_vcpu(0x1000);
+        let (vm, _, _mem) = setup_vcpu(0x1000);
         let vm_state = vm.save_state().unwrap();
         assert_eq!(
             vm_state.pitstate.flags | KVM_PIT_SPEAKER_DUMMY,
@@ -1614,14 +1737,14 @@ mod tests {
         assert_eq!(vm_state.pic_slave.chip_id, KVM_IRQCHIP_PIC_SLAVE);
         assert_eq!(vm_state.ioapic.chip_id, KVM_IRQCHIP_IOAPIC);
 
-        let (vm, _) = setup_vcpu(0x1000);
+        let (vm, _, _mem) = setup_vcpu(0x1000);
         assert!(vm.restore_state(&vm_state).is_ok());
     }
 
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vcpu_save_restore_state() {
-        let (_vm, vcpu) = setup_vcpu(0x1000);
+        let (_vm, vcpu, _mem) = setup_vcpu(0x1000);
         let state = vcpu.save_state();
         assert!(state.is_ok());
         assert!(vcpu.restore_state(state.unwrap()).is_ok());

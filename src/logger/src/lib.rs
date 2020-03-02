@@ -568,11 +568,11 @@ impl Logger {
                 Ok(msg) => {
                     if let Some(guard) = self.metrics_buf_guard().as_mut() {
                         return write_to_destination(msg, guard)
+                            .map(|()| true)
                             .map_err(|e| {
                                 METRICS.logger.missed_metrics_count.inc();
                                 e
-                            })
-                            .map(|_| true);
+                            });
                     } else {
                         // We have not incremented `missed_metrics_count` as there is no way to push metrics
                         // if destination lock got poisoned.

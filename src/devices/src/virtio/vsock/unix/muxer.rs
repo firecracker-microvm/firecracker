@@ -35,6 +35,8 @@ use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
+use polly::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
+
 use super::super::csm::ConnState;
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
@@ -69,10 +71,7 @@ enum EpollListener {
     /// The listener is a `MuxerConnection`, identified by `key`, and interested in the events
     /// in `evset`. Since `MuxerConnection` implements `VsockEpollListener`, notifications will
     /// be forwarded to the listener via `VsockEpollListener::notify()`.
-    Connection {
-        key: ConnMapKey,
-        evset: epoll::Events,
-    },
+    Connection { key: ConnMapKey, evset: EventSet },
     /// A listener interested in new host-initiated connections.
     HostSock,
     /// A listener interested in reading host "connect <port>" commands from a freshly
@@ -102,8 +101,8 @@ pub struct VsockMuxer {
     /// The file system path of the host-side Unix socket. This is used to figure out the path
     /// to Unix sockets listening on specific ports. I.e. "<this path>_<port number>".
     host_sock_path: String,
-    /// The nested epoll FD, used to register epoll listeners.
-    epoll_fd: RawFd,
+    /// The nested epoll event set, used to register epoll listeners.
+    epoll: Epoll,
     /// A hash set used to keep track of used host-side (local) ports, in order to assign local
     /// ports to host-initiated connections.
     local_port_set: HashSet<u32>,
@@ -252,37 +251,42 @@ impl VsockChannel for VsockMuxer {
     }
 }
 
-impl VsockEpollListener for VsockMuxer {
+impl AsRawFd for VsockMuxer {
     /// Get the FD to be registered for polling upstream (in the main VMM epoll loop, in this
     /// case).
     ///
     /// This will be the muxer's nested epoll FD.
-    fn get_polled_fd(&self) -> RawFd {
-        self.epoll_fd
+    fn as_raw_fd(&self) -> RawFd {
+        self.epoll.as_raw_fd()
     }
+}
 
+impl VsockEpollListener for VsockMuxer {
     /// Get the epoll events to be polled upstream.
     ///
     /// Since the polled FD is a nested epoll FD, we're only interested in EPOLLIN events (i.e.
     /// some event occured on one of the FDs registered under our epoll FD).
-    fn get_polled_evset(&self) -> epoll::Events {
-        epoll::Events::EPOLLIN
+    fn get_polled_evset(&self) -> EventSet {
+        EventSet::IN
     }
 
     /// Notify the muxer about a pending event having occured under its nested epoll FD.
-    fn notify(&mut self, _: epoll::Events) {
+    fn notify(&mut self, _: EventSet) {
         debug!("vsock: muxer received kick");
 
-        let mut epoll_events = vec![epoll::Event::new(epoll::Events::empty(), 0); 32];
-        match epoll::wait(self.epoll_fd, 0, epoll_events.as_mut_slice()) {
+        let mut epoll_events = vec![EpollEvent::new(EventSet::empty(), 0); 32];
+        match self
+            .epoll
+            .wait(epoll_events.len(), 0, epoll_events.as_mut_slice())
+        {
             Ok(ev_cnt) => {
                 for ev in &epoll_events[0..ev_cnt] {
                     self.handle_event(
-                        ev.data as RawFd,
+                        ev.fd(),
                         // It's ok to unwrap here, since the `epoll_events[i].events` is filled
                         // in by `epoll::wait()`, and therefore contains only valid epoll
                         // flags.
-                        epoll::Events::from_bits(ev.events).unwrap(),
+                        EventSet::from_bits(ev.events).unwrap(),
                     );
                 }
             }
@@ -298,11 +302,7 @@ impl VsockBackend for VsockMuxer {}
 impl VsockMuxer {
     /// Muxer constructor.
     pub fn new(cid: u64, host_sock_path: String) -> Result<Self> {
-        // Create the nested epoll FD. This FD will be added to the VMM `EpollContext`, at
-        // device activation time.
-        let epoll_fd = epoll::create(true).map_err(Error::EpollFdCreate)?;
-
-        // Open/bind/listen on the host Unix socket, so we can accept host-initiated
+        // Open/bind on the host Unix socket, so we can accept host-initiated
         // connections.
         let host_sock = UnixListener::bind(&host_sock_path)
             .and_then(|sock| sock.set_nonblocking(true).map(|_| sock))
@@ -312,7 +312,7 @@ impl VsockMuxer {
             cid,
             host_sock,
             host_sock_path,
-            epoll_fd,
+            epoll: Epoll::new().map_err(Error::EpollFdCreate)?,
             rxq: MuxerRxQ::new(),
             conn_map: HashMap::with_capacity(defs::MAX_CONNECTIONS),
             listener_map: HashMap::with_capacity(defs::MAX_CONNECTIONS + 1),
@@ -321,12 +321,13 @@ impl VsockMuxer {
             local_port_set: HashSet::with_capacity(defs::MAX_CONNECTIONS),
         };
 
+        // Listen on the host initiated socket, for incomming connections.
         muxer.add_listener(muxer.host_sock.as_raw_fd(), EpollListener::HostSock)?;
         Ok(muxer)
     }
 
     /// Handle/dispatch an epoll event to its listener.
-    fn handle_event(&mut self, fd: RawFd, evset: epoll::Events) {
+    fn handle_event(&mut self, fd: RawFd, evset: EventSet) {
         debug!(
             "vsock: muxer processing event: fd={}, evset={:?}",
             fd, evset
@@ -471,7 +472,7 @@ impl VsockMuxer {
         }
 
         self.add_listener(
-            conn.get_polled_fd(),
+            conn.as_raw_fd(),
             EpollListener::Connection {
                 key,
                 evset: conn.get_polled_evset(),
@@ -492,7 +493,7 @@ impl VsockMuxer {
     /// Remove a connection from the active connection poll.
     fn remove_connection(&mut self, key: ConnMapKey) {
         if let Some(conn) = self.conn_map.remove(&key) {
-            self.remove_listener(conn.get_polled_fd());
+            self.remove_listener(conn.as_raw_fd());
         }
         self.free_local_port(key.local_port);
     }
@@ -520,21 +521,21 @@ impl VsockMuxer {
     fn add_listener(&mut self, fd: RawFd, listener: EpollListener) -> Result<()> {
         let evset = match listener {
             EpollListener::Connection { evset, .. } => evset,
-            EpollListener::LocalStream(_) => epoll::Events::EPOLLIN,
-            EpollListener::HostSock => epoll::Events::EPOLLIN,
+            EpollListener::LocalStream(_) => EventSet::IN,
+            EpollListener::HostSock => EventSet::IN,
         };
 
-        epoll::ctl(
-            self.epoll_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            fd,
-            epoll::Event::new(evset, fd as u64),
-        )
-        .and_then(|_| {
-            self.listener_map.insert(fd, listener);
-            Ok(())
-        })
-        .map_err(Error::EpollAdd)?;
+        self.epoll
+            .ctl(
+                ControlOperation::Add,
+                fd,
+                &EpollEvent::new(evset, fd as u64),
+            )
+            .and_then(|_| {
+                self.listener_map.insert(fd, listener);
+                Ok(())
+            })
+            .map_err(Error::EpollAdd)?;
 
         Ok(())
     }
@@ -544,18 +545,14 @@ impl VsockMuxer {
         let maybe_listener = self.listener_map.remove(&fd);
 
         if maybe_listener.is_some() {
-            epoll::ctl(
-                self.epoll_fd,
-                epoll::ControlOptions::EPOLL_CTL_DEL,
-                fd,
-                epoll::Event::new(epoll::Events::empty(), 0),
-            )
-            .unwrap_or_else(|err| {
-                warn!(
-                    "vosck muxer: error removing epoll listener for fd {:?}: {:?}",
-                    fd, err
-                );
-            });
+            self.epoll
+                .ctl(ControlOperation::Delete, fd, &EpollEvent::default())
+                .unwrap_or_else(|err| {
+                    warn!(
+                        "vosck muxer: error removing epoll listener for fd {:?}: {:?}",
+                        fd, err
+                    );
+                });
         }
 
         maybe_listener
@@ -653,7 +650,7 @@ impl VsockMuxer {
                 self.killq.push(key, conn.expiry().unwrap());
             }
 
-            let fd = conn.get_polled_fd();
+            let fd = conn.as_raw_fd();
             let new_evset = conn.get_polled_evset();
             if new_evset.is_empty() {
                 // If the connection no longer needs epoll notifications, remove its listener
@@ -671,21 +668,21 @@ impl VsockMuxer {
                     );
 
                     *evset = new_evset;
-                    epoll::ctl(
-                        self.epoll_fd,
-                        epoll::ControlOptions::EPOLL_CTL_MOD,
-                        fd,
-                        epoll::Event::new(new_evset, fd as u64),
-                    )
-                    .unwrap_or_else(|err| {
-                        // This really shouldn't happen, like, ever. However, "famous last
-                        // words" and all that, so let's just kill it with fire, and walk away.
-                        self.kill_connection(key);
-                        error!(
-                            "vsock: error updating epoll listener for (lp={}, pp={}): {:?}",
-                            key.local_port, key.peer_port, err
-                        );
-                    });
+                    self.epoll
+                        .ctl(
+                            ControlOperation::Modify,
+                            fd,
+                            &EpollEvent::new(new_evset, fd as u64),
+                        )
+                        .unwrap_or_else(|err| {
+                            // This really shouldn't happen, like, ever. However, "famous last
+                            // words" and all that, so let's just kill it with fire, and walk away.
+                            self.kill_connection(key);
+                            error!(
+                                "vsock: error updating epoll listener for (lp={}, pp={}): {:?}",
+                                key.local_port, key.peer_port, err
+                            );
+                        });
                 }
             } else {
                 // The connection had previously asked to be removed from the listener map (by
@@ -762,6 +759,8 @@ mod tests {
     use super::super::super::tests::TestContext as VsockTestContext;
     use super::*;
 
+    use crate::virtio::vsock::device::RXQ_INDEX;
+
     const PEER_CID: u64 = 3;
     const PEER_BUF_ALLOC: u32 = 64 * 1024;
 
@@ -780,9 +779,11 @@ mod tests {
     impl MuxerTestContext {
         fn new(name: &str) -> Self {
             let vsock_test_ctx = VsockTestContext::new();
-            let mut handler_ctx = vsock_test_ctx.create_epoll_handler_context();
+            let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let pkt = VsockPacket::from_rx_virtq_head(
-                &handler_ctx.handler.rxvq.pop(&vsock_test_ctx.mem).unwrap(),
+                &handler_ctx.device.queues[RXQ_INDEX]
+                    .pop(&vsock_test_ctx.mem)
+                    .unwrap(),
             )
             .unwrap();
             let uds_path = format!("test_vsock_{}.sock", name);
@@ -831,7 +832,7 @@ mod tests {
         }
 
         fn notify_muxer(&mut self) {
-            self.muxer.notify(epoll::Events::EPOLLIN);
+            self.muxer.notify(EventSet::IN);
         }
 
         fn count_epoll_listeners(&self) -> (usize, usize) {
@@ -934,8 +935,8 @@ mod tests {
     #[test]
     fn test_muxer_epoll_listener() {
         let ctx = MuxerTestContext::new("muxer_epoll_listener");
-        assert_eq!(ctx.muxer.get_polled_fd(), ctx.muxer.epoll_fd);
-        assert_eq!(ctx.muxer.get_polled_evset(), epoll::Events::EPOLLIN);
+        assert_eq!(ctx.muxer.as_raw_fd(), ctx.muxer.epoll.as_raw_fd());
+        assert_eq!(ctx.muxer.get_polled_evset(), EventSet::IN);
     }
 
     #[test]
