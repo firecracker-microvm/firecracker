@@ -3,9 +3,11 @@
 ## [Unreleased]
 
 ## Changed
-- Updated CVE-2019-3016 mitigation information in [Production Host Setup](docs/prod-host-setup.md)
+- Updated CVE-2019-3016 mitigation information in
+  [Production Host Setup](docs/prod-host-setup.md)
 - In case of using an invalid JSON as a 'config-file' for Firecracker,
   the process will exit with return code 152.
+- Removed the `testrun.sh` wrapper.
 
 ## [0.21.0]
 

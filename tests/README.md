@@ -197,19 +197,9 @@ Add a `conftest.py` file in your test directory, and place your fixtures there.
 *I want to use more/other microvm test images, but I don't want to add them to
 the common s3 bucket.*
 `A4:`
-There are two options to achieve this:
-
-1. Pass the `-i` / `--local-images-path` option to `testrun.sh`. This will use
-   local versions of the images found in the common s3 bucket.
-2. Leverage pytest to build a self-contained set of tests that use your own test
-   bucket.
-   - Create the s3 test bucket.
-   - Create a new test directory as per `A2`, and a fixture file as per `A3`.
-   - Within the new fixture, instantiate a `MicrovmImageS3Fetcher` for your s3
-     bucket.
-   - Using that `MicrovmImageS3Fetcher` object, create a fixture
-     similar to the `test_microvm_*` fixtures in in `conftest.py`, and pass that
-     as an argument to your tests.
+Add your custom images to the `build/img` subdirectory in the Firecracker
+source tree. This directory is bind-mounted in the container and used as a
+local image cache.
 
 `Q5:`
 *Is there a way to speed up integration tests execution time?*
