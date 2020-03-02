@@ -10,7 +10,6 @@ use std::sync::{atomic::AtomicUsize, Arc};
 use super::{ActivateResult, Queue};
 use crate::virtio::AsAny;
 use utils::eventfd::EventFd;
-use vm_memory::GuestMemoryMmap;
 
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
@@ -87,15 +86,11 @@ pub trait VirtioDevice: AsAny + Send {
     /// Writes to this device configuration space at `offset`.
     fn write_config(&mut self, offset: u64, data: &[u8]);
 
-    // TODO: this method is not necessary anymore, and is
-    // kept only for vsock case, which is not ported on polly yet.
-    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult;
+    /// Performs the formal activation for a device, which can be verified also with `is_activated`.
+    fn activate(&mut self) -> ActivateResult;
 
     /// Checks if the resources of this device are activated.
     fn is_activated(&self) -> bool;
-
-    /// Performs the formal activation for a device, which can be verified also with `is_activated`.
-    fn set_device_activated(&mut self, device_activated: bool);
 
     /// Optionally deactivates this device and returns ownership of the guest memory map, interrupt
     /// event, and queue events.

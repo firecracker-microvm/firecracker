@@ -389,17 +389,13 @@ mod tests {
             let _ = data;
         }
 
-        #[allow(unused_variables)]
-        #[allow(unused_mut)]
-        fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+        fn activate(&mut self) -> ActivateResult {
             Ok(())
         }
 
         fn is_activated(&self) -> bool {
             false
         }
-
-        fn set_device_activated(&mut self, _device_activated: bool) {}
     }
 
     #[test]
@@ -475,15 +471,7 @@ mod tests {
         let mut dummy = DummyDevice::new();
         assert_eq!(dummy.device_type(), 0);
         assert_eq!(dummy.queues().len(), QUEUE_SIZES.len());
-
-        let start_addr1 = GuestAddress(0x0);
-        let start_addr2 = GuestAddress(0x1000);
-        let guest_mem =
-            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-
-        // test activate
-        let result = dummy.activate(guest_mem);
-        assert!(result.is_ok());
+        dummy.activate().unwrap();
     }
 
     #[test]

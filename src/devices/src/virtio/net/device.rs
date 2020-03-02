@@ -679,12 +679,8 @@ impl VirtioDevice for Net {
         self.device_activated
     }
 
-    fn set_device_activated(&mut self, device_activated: bool) {
-        self.device_activated = device_activated;
-    }
-
-    fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
-        // TODO: to be removed
+    fn activate(&mut self) -> ActivateResult {
+        self.device_activated = true;
         Ok(())
     }
 }
@@ -816,7 +812,7 @@ mod tests {
             self.queues.clear();
             self.queues.push(rxq);
             self.queues.push(txq);
-            self.set_device_activated(true);
+            self.activate().unwrap();
         }
     }
 
