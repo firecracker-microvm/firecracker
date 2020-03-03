@@ -424,4 +424,18 @@ mod tests {
             ))
         );
     }
+
+    #[test]
+    fn test_net_config() {
+        let net_id = "id";
+        let host_dev_name = "dev";
+        let guest_mac = "01:23:45:67:89:0b";
+
+        let net_if = create_netif(net_id, host_dev_name, guest_mac);
+        assert_eq!(
+            *net_if.guest_mac().unwrap(),
+            MacAddr::parse_str(guest_mac).unwrap()
+        );
+        assert_eq!(net_if.allow_mmds_requests(), false);
+    }
 }

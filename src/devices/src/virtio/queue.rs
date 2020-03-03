@@ -568,7 +568,7 @@ pub mod tests {
             }
         }
 
-        fn size(&self) -> u16 {
+        pub fn size(&self) -> u16 {
             self.dtable.len() as u16
         }
 

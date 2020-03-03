@@ -658,30 +658,6 @@ fn attach_mmio_device(
     Ok(())
 }
 
-/// Secondary path for attaching devices to the Bus and EventManager.
-/// TODO: Remove this and have a single generic path for all devices.
-/// Adds a virtio device to the MmioDeviceManager using the specified transport.
-fn attach_block_device(
-    vmm: &mut Vmm,
-    id: String,
-    transport_device: MmioTransport,
-    block_device: Arc<Mutex<devices::virtio::Block>>,
-) -> std::result::Result<(), StartMicrovmError> {
-    let cmdline = &mut vmm.kernel_cmdline;
-
-    vmm.mmio_device_manager
-        .register_block_device(
-            vmm.vm.fd(),
-            transport_device,
-            block_device,
-            cmdline,
-            id.as_str(),
-        )
-        .map_err(StartMicrovmError::RegisterBlockDevice)?;
-
-    Ok(())
-}
-
 fn attach_block_devices(
     vmm: &mut Vmm,
     blocks: &BlockDeviceConfigs,
@@ -750,13 +726,13 @@ fn attach_block_devices(
             .add_subscriber(block_device.clone())
             .map_err(StartMicrovmError::RegisterEvent)?;
 
-        attach_block_device(
+        attach_mmio_device(
             vmm,
             drive_config.drive_id.clone(),
             MmioTransport::new(vmm.guest_memory().clone(), block_device.clone())
                 .map_err(CreateBlockDevice)?,
-            block_device,
-        )?;
+        )
+        .map_err(RegisterBlockDevice)?;
     }
 
     Ok(())
