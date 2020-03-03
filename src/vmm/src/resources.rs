@@ -93,7 +93,7 @@ impl VmResources {
         let mut resources: Self = Self::default();
         if let Some(machine_config) = vmm_config.machine_config {
             resources
-                .set_vm_config(machine_config)
+                .set_vm_config(&machine_config)
                 .map_err(Error::VmConfig)?;
         }
         resources
@@ -132,7 +132,7 @@ impl VmResources {
     }
 
     /// Set the machine configuration of the microVM.
-    pub fn set_vm_config(&mut self, machine_config: VmConfig) -> Result<VmConfigError> {
+    pub fn set_vm_config(&mut self, machine_config: &VmConfig) -> Result<VmConfigError> {
         if machine_config.vcpu_count == Some(0) {
             return Err(VmConfigError::InvalidVcpuCount);
         }
@@ -290,10 +290,104 @@ impl VmResources {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+    use std::os::linux::fs::MetadataExt;
 
     use super::*;
+    use dumbo::MacAddr;
     use resources::VmResources;
     use utils::tempfile::TempFile;
+    use vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
+    use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
+    use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
+    use vmm_config::net::{
+        NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
+        NetworkInterfaceUpdateConfig,
+    };
+    use vmm_config::vsock::VsockDeviceConfig;
+    use vmm_config::{RateLimiterConfig, TokenBucketConfig};
+    use vstate::VcpuConfig;
+
+    fn default_net_cfgs() -> NetworkInterfaceConfigs {
+        let mut net_if_cfgs = NetworkInterfaceConfigs::new();
+        net_if_cfgs
+            .insert(NetworkInterfaceConfig {
+                iface_id: "net_if1".to_string(),
+                // TempFile::new_with_prefix("") generates a random file name used as random net_if name.
+                host_dev_name: TempFile::new_with_prefix("")
+                    .unwrap()
+                    .as_path()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+                guest_mac: Some(MacAddr::parse_str("01:23:45:67:89:0a").unwrap()),
+                rx_rate_limiter: Some(RateLimiterConfig::default()),
+                tx_rate_limiter: Some(RateLimiterConfig::default()),
+                allow_mmds_requests: false,
+            })
+            .unwrap();
+
+        net_if_cfgs
+    }
+
+    fn default_block_cfgs() -> BlockDeviceConfigs {
+        let mut block_cfgs = BlockDeviceConfigs::new();
+        block_cfgs
+            .insert(BlockDeviceConfig {
+                drive_id: "block1".to_string(),
+                path_on_host: TempFile::new().unwrap().as_path().to_path_buf(),
+                is_root_device: false,
+                partuuid: Some("0eaa91a0-01".to_string()),
+                is_read_only: false,
+                rate_limiter: Some(RateLimiterConfig::default()),
+            })
+            .unwrap();
+
+        block_cfgs
+    }
+
+    fn default_boot_cfg() -> BootConfig {
+        let mut kernel_cmdline = kernel::cmdline::Cmdline::new(4096);
+        kernel_cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
+        let tmp_file = TempFile::new().unwrap();
+        BootConfig {
+            cmdline: kernel_cmdline,
+            kernel_file: File::open(tmp_file.as_path()).unwrap(),
+            initrd_file: Some(File::open(tmp_file.as_path()).unwrap()),
+        }
+    }
+
+    fn default_vm_resources() -> VmResources {
+        VmResources {
+            vm_config: VmConfig::default(),
+            boot_config: Some(default_boot_cfg()),
+            block: default_block_cfgs(),
+            network_interface: default_net_cfgs(),
+            vsock: None,
+        }
+    }
+
+    impl PartialEq for BootConfig {
+        fn eq(&self, other: &Self) -> bool {
+            self.cmdline.as_str().eq(other.cmdline.as_str())
+                && self.kernel_file.metadata().unwrap().st_ino()
+                    == other.kernel_file.metadata().unwrap().st_ino()
+                && self
+                    .initrd_file
+                    .as_ref()
+                    .unwrap()
+                    .metadata()
+                    .unwrap()
+                    .st_ino()
+                    == other
+                        .initrd_file
+                        .as_ref()
+                        .unwrap()
+                        .metadata()
+                        .unwrap()
+                        .st_ino()
+        }
+    }
 
     #[test]
     fn test_from_json() {
@@ -538,5 +632,241 @@ mod tests {
         );
 
         assert!(VmResources::from_json(json.as_str(), "some_version").is_ok());
+    }
+
+    #[test]
+    fn test_vcpu_config() {
+        let vm_resources = default_vm_resources();
+        let expected_vcpu_config = VcpuConfig {
+            vcpu_count: vm_resources.vm_config().vcpu_count.unwrap(),
+            ht_enabled: vm_resources.vm_config().ht_enabled.unwrap(),
+            cpu_template: vm_resources.vm_config().cpu_template,
+        };
+
+        let vcpu_config = vm_resources.vcpu_config();
+        assert_eq!(vcpu_config, expected_vcpu_config);
+    }
+
+    #[test]
+    fn test_vm_config() {
+        let vm_resources = default_vm_resources();
+        let expected_vm_cfg = VmConfig::default();
+
+        assert_eq!(vm_resources.vm_config(), &expected_vm_cfg);
+    }
+
+    #[test]
+    fn test_set_vm_config() {
+        let mut vm_resources = default_vm_resources();
+        let mut aux_vm_config = VmConfig {
+            vcpu_count: Some(32),
+            mem_size_mib: Some(512),
+            ht_enabled: Some(true),
+            cpu_template: Some(CpuFeaturesTemplate::T2),
+        };
+
+        assert_ne!(vm_resources.vm_config, aux_vm_config);
+        vm_resources.set_vm_config(&aux_vm_config).unwrap();
+        assert_eq!(vm_resources.vm_config, aux_vm_config);
+
+        // Invalid vcpu count.
+        aux_vm_config.vcpu_count = Some(0);
+        assert_eq!(
+            vm_resources.set_vm_config(&aux_vm_config),
+            Err(VmConfigError::InvalidVcpuCount)
+        );
+        aux_vm_config.vcpu_count = Some(33);
+        assert_eq!(
+            vm_resources.set_vm_config(&aux_vm_config),
+            Err(VmConfigError::InvalidVcpuCount)
+        );
+        aux_vm_config.vcpu_count = Some(32);
+
+        // Invalid mem_size_mib.
+        aux_vm_config.mem_size_mib = Some(0);
+        assert_eq!(
+            vm_resources.set_vm_config(&aux_vm_config),
+            Err(VmConfigError::InvalidMemorySize)
+        );
+    }
+
+    #[test]
+    fn test_boot_config() {
+        let vm_resources = default_vm_resources();
+        let expected_boot_cfg = vm_resources.boot_config.as_ref().unwrap();
+        let actual_boot_cfg = vm_resources.boot_source().unwrap();
+
+        assert_eq!(actual_boot_cfg, expected_boot_cfg);
+    }
+
+    #[test]
+    fn test_set_boot_source() {
+        let tmp_file = TempFile::new().unwrap();
+        let cmdline = "reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0";
+        let expected_boot_cfg = BootSourceConfig {
+            kernel_image_path: String::from(tmp_file.as_path().to_str().unwrap()),
+            initrd_path: Some(String::from(tmp_file.as_path().to_str().unwrap())),
+            boot_args: Some(cmdline.to_string()),
+        };
+
+        let mut vm_resources = default_vm_resources();
+        let boot_cfg = vm_resources.boot_source().unwrap();
+        let tmp_ino = tmp_file.as_file().metadata().unwrap().st_ino();
+
+        assert_ne!(boot_cfg.cmdline.as_str(), cmdline);
+        assert_ne!(boot_cfg.kernel_file.metadata().unwrap().st_ino(), tmp_ino);
+        assert_ne!(
+            boot_cfg
+                .initrd_file
+                .as_ref()
+                .unwrap()
+                .metadata()
+                .unwrap()
+                .st_ino(),
+            tmp_ino
+        );
+
+        vm_resources.set_boot_source(expected_boot_cfg).unwrap();
+        let boot_cfg = vm_resources.boot_source().unwrap();
+        assert_eq!(boot_cfg.cmdline.as_str(), cmdline);
+        assert_eq!(boot_cfg.kernel_file.metadata().unwrap().st_ino(), tmp_ino);
+        assert_eq!(
+            boot_cfg
+                .initrd_file
+                .as_ref()
+                .unwrap()
+                .metadata()
+                .unwrap()
+                .st_ino(),
+            tmp_ino
+        );
+    }
+
+    #[test]
+    fn test_set_block_device() {
+        let mut vm_resources = default_vm_resources();
+
+        // Clone the existing block config in order to obtain a new one.
+        let mut new_block_device_cfg = vm_resources.block.config_list.get(0).unwrap().clone();
+        let tmp_file = TempFile::new().unwrap();
+        new_block_device_cfg.drive_id = "block2".to_string();
+        new_block_device_cfg.path_on_host = tmp_file.as_path().to_path_buf();
+        assert_eq!(vm_resources.block.config_list.len(), 1);
+
+        vm_resources.set_block_device(new_block_device_cfg).unwrap();
+        assert_eq!(vm_resources.block.config_list.len(), 2);
+    }
+
+    #[test]
+    fn test_set_vsock_device() {
+        let mut vm_resources = default_vm_resources();
+        let new_vsock_cfg = VsockDeviceConfig {
+            vsock_id: "new_vsock".to_string(),
+            guest_cid: 1,
+            uds_path: String::from("uds_path"),
+        };
+        assert!(vm_resources.vsock.is_none());
+        vm_resources.set_vsock_device(new_vsock_cfg.clone());
+        let actual_vsock_cfg = vm_resources.vsock.as_ref().unwrap().clone();
+        assert_eq!(actual_vsock_cfg, new_vsock_cfg);
+    }
+
+    #[test]
+    fn test_set_net_device() {
+        let mut vm_resources = default_vm_resources();
+
+        // Clone the existing net config in order to obtain a new one.
+        let mut new_net_device_cfg = vm_resources
+            .network_interface
+            .iter()
+            .next()
+            .unwrap()
+            .clone();
+        new_net_device_cfg.iface_id = "new_net_if".to_string();
+        new_net_device_cfg.guest_mac = Some(MacAddr::parse_str("01:23:45:67:89:0c").unwrap());
+        new_net_device_cfg.host_dev_name = "dummy_path2".to_string();
+        assert_eq!(vm_resources.network_interface.len(), 1);
+
+        vm_resources.set_net_device(new_net_device_cfg).unwrap();
+        assert_eq!(vm_resources.network_interface.len(), 2);
+    }
+
+    #[test]
+    fn test_update_block_device() {
+        let tmp_file = TempFile::new().unwrap();
+        let mut vm_resources = default_vm_resources();
+        let expected_file_path = tmp_file.as_path().to_path_buf();
+        let block_cfg_to_be_updated = vm_resources.block.config_list.get(0).unwrap().clone();
+        assert_ne!(block_cfg_to_be_updated.path_on_host, expected_file_path);
+        vm_resources
+            .update_block_device_path(
+                block_cfg_to_be_updated.drive_id.clone(),
+                String::from(expected_file_path.to_str().unwrap()),
+            )
+            .unwrap();
+        let updated_block_cfg = vm_resources.block.config_list.get(0).unwrap();
+        assert_eq!(updated_block_cfg.path_on_host, expected_file_path);
+
+        // InvalidBlockDeviceId.
+        assert_eq!(
+            vm_resources.update_block_device_path("id_does_not_exist".to_string(), "".to_string()),
+            Err(DriveError::InvalidBlockDeviceID)
+        );
+
+        // CannotOpenBlockDevice.
+        assert!(vm_resources
+            .update_block_device_path(
+                block_cfg_to_be_updated.drive_id.clone(),
+                "/does/not/exist".to_string()
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn test_update_net_rate_limiters() {
+        let bw_tb = TokenBucketConfig {
+            size: 15,
+            one_time_burst: Some(5),
+            refill_time: 5,
+        };
+
+        let ops_tb = TokenBucketConfig {
+            size: 10,
+            one_time_burst: Some(2),
+            refill_time: 2,
+        };
+
+        let expected_rl_cfg = RateLimiterConfig {
+            bandwidth: Some(bw_tb),
+            ops: Some(ops_tb),
+        };
+
+        let mut vm_resources = default_vm_resources();
+        let actual_net_cfg = vm_resources.network_interface.iter().next().unwrap();
+        let actual_rx_rl_cfg = actual_net_cfg.rx_rate_limiter.unwrap();
+        let actual_tx_rl_cfg = actual_net_cfg.tx_rate_limiter.unwrap();
+        assert_ne!(actual_rx_rl_cfg, expected_rl_cfg);
+        assert_ne!(actual_tx_rl_cfg, expected_rl_cfg);
+
+        let mut net_if_cfg_update = NetworkInterfaceUpdateConfig {
+            iface_id: actual_net_cfg.iface_id.clone(),
+            rx_rate_limiter: Some(expected_rl_cfg),
+            tx_rate_limiter: Some(expected_rl_cfg),
+        };
+        vm_resources
+            .update_net_rate_limiters(net_if_cfg_update.clone())
+            .unwrap();
+        let actual_net_cfg = vm_resources.network_interface.iter().next().unwrap();
+        let actual_rx_rl_cfg = actual_net_cfg.rx_rate_limiter.unwrap();
+        let actual_tx_rl_cfg = actual_net_cfg.tx_rate_limiter.unwrap();
+        assert_eq!(actual_rx_rl_cfg, expected_rl_cfg);
+        assert_eq!(actual_tx_rl_cfg, expected_rl_cfg);
+
+        // DeviceIdNotFound.
+        net_if_cfg_update.iface_id = "net_if_does_not_exist".to_string();
+        match vm_resources.update_net_rate_limiters(net_if_cfg_update) {
+            Err(NetworkInterfaceError::DeviceIdNotFound { .. }) => (),
+            _ => unreachable!(),
+        }
     }
 }

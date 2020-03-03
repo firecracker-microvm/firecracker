@@ -67,6 +67,7 @@ impl Display for BootSourceConfigError {
 }
 
 /// Holds the kernel configuration.
+#[derive(Debug)]
 pub struct BootConfig {
     /// The commandline validated against correctness.
     pub cmdline: kernel::cmdline::Cmdline,
