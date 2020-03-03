@@ -17,7 +17,6 @@ DEFAULT_USOCKET_NAME = 'run/firecracker.socket'
 # The default location for the chroot.
 DEFAULT_CHROOT_PATH = '/srv/jailer'
 
-
 class JailerContext:
     """Represents jailer configuration and contains jailer helper functions.
 
