@@ -1,0 +1,24 @@
+[package]
+name = "snapshot"
+version = "0.0.1"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+serde = ">=1.0.27"
+serde_derive = ">=1.0.27"
+bincode = "1.2.1"
+utils = { path="../utils" }
+snapshot_derive = { path = "../snapshot_derive" }
+
+[dev-dependencies]
+criterion = "0.3.0"
+
+[build-dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "1.0.13", features=["default","full"]}
+snapshot_derive = { path = "../snapshot_derive" }
+
+[[bench]]
+name = "basic"
+harness = false
