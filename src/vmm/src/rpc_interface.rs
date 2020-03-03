@@ -241,7 +241,7 @@ impl<'a> PrebootApiController<'a> {
             }
             SetVmConfiguration(machine_config_body) => self
                 .vm_resources
-                .set_vm_config(machine_config_body)
+                .set_vm_config(&machine_config_body)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::MachineConfig),
             UpdateBlockDevicePath(drive_id, path_on_host) => self

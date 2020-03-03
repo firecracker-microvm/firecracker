@@ -60,7 +60,7 @@ impl NetworkInterfaceConfig {
 
 /// The data fed into a network iface update request. Currently, only the RX and TX rate limiters
 /// can be updated.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceUpdateConfig {
     /// The net iface ID, as provided by the user at iface creation time.
@@ -250,6 +250,16 @@ impl NetworkInterfaceConfigs {
         self.if_list.push(netif_config);
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.if_list.len()
+    }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.if_list.len() == 0
     }
 }
 

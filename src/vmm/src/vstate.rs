@@ -566,6 +566,7 @@ pub struct VmState {
 }
 
 /// Encapsulates configuration parameters for the guest vCPUS.
+#[derive(Debug, PartialEq)]
 pub struct VcpuConfig {
     /// Number of guest VCPUs.
     pub vcpu_count: u8,
