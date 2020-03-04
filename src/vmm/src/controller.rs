@@ -16,7 +16,7 @@ use rpc_interface::VmmActionError;
 use vmm_config;
 use vmm_config::drive::DriveError;
 use vmm_config::machine_config::VmConfig;
-use vmm_config::net::NetworkInterfaceUpdateConfig;
+use vmm_config::net::{NetworkInterfaceError, NetworkInterfaceUpdateConfig};
 use Vmm;
 
 /// Shorthand result type for external VMM commands.
@@ -54,11 +54,6 @@ impl VmmController {
             .unwrap()
             .send_ctrl_alt_del()
             .map_err(VmmActionError::InternalVmm)
-    }
-
-    /// Stops the inner Vmm and exits the process with the provided exit_code.
-    pub fn stop(&mut self, exit_code: i32) {
-        self.vmm.lock().unwrap().stop(exit_code)
     }
 
     /// Creates a new `VmmController`.
@@ -222,7 +217,9 @@ impl VmmController {
                     get_handler_arg!(tx_rate_limiter, ops),
                 );
         } else {
-            // TODO: Update this error after all devices have been ported.
+            return Err(VmmActionError::NetworkConfig(
+                NetworkInterfaceError::DeviceIdNotFound,
+            ));
         }
 
         Ok(())
