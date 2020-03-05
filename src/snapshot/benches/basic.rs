@@ -49,6 +49,7 @@ impl Test {
     fn field4_default(_: u16) -> Vec<u64> {
         vec![1, 2, 3, 4]
     }
+
     fn field4_serialize(&mut self, target_version: u16) -> Result<()> {
         // Fail if semantic serialization is called for the latest version.
         assert_ne!(target_version, Test::version());
@@ -59,6 +60,7 @@ impl Test {
         }
         Ok(())
     }
+
     fn field4_deserialize(&mut self, source_version: u16) -> Result<()> {
         // Fail if semantic deserialization is called for the latest version.
         assert_ne!(source_version, Test::version());
@@ -104,7 +106,7 @@ pub fn bench_snapshot_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize{
         field1: 1,
         field2: 2,
         field3: "test".to_owned(),
-        field4: vec![4; 1024],
+        field4: vec![4; 1024*10],
         field_x: 0,
     };
     
@@ -115,9 +117,41 @@ pub fn bench_snapshot_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize{
     size
 }
 
+#[inline]
+pub fn bench_restore_crc_v1(mut snapshot_mem: &[u8], vm: VersionMap) {
+    let mut loaded_snapshot = Snapshot::load_with_crc64(&mut snapshot_mem, vm).unwrap();
+
+    if let Some(mut state) = loaded_snapshot
+        .read_section::<Test>("test")
+        .unwrap()
+    {
+        state.field2 += 1;
+    }
+}
+
+#[inline]
+pub fn bench_snapshot_crc_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize{
+    let state = Test {
+        dummy: vec![Dummy{ dummy: 123, string: "xxx".to_owned()}; 100],
+        field0: 0,
+        field1: 1,
+        field2: 2,
+        field3: "test".to_owned(),
+        field4: vec![4; 1024*10],
+        field_x: 0,
+    };
+    
+    // Serialize as v4.
+    let mut snapshot = Snapshot::new(vm.clone(), 4);
+    let size = snapshot.write_section("test", &state).unwrap();
+    snapshot.save_with_crc64(&mut snapshot_mem).unwrap();
+    size
+}
+
 pub fn criterion_benchmark(c: &mut Criterion) {
-    let mut snapshot_mem = vec![0u8; 10240];
+    let mut snapshot_mem = vec![0u8; 1024*1024*128];
     let mut vm = VersionMap::new();
+
     vm.new_version()
         .set_type_version(Test::name(), 2)
         .new_version()
@@ -125,13 +159,24 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .new_version()
         .set_type_version(Test::name(), 4);
     
-    let mut slice = &mut snapshot_mem.as_mut_slice();
-    let snapshot_len = bench_snapshot_v1(&mut slice, vm.clone());
+    let mut snapshot_len = bench_snapshot_v1(&mut snapshot_mem.as_mut_slice(), vm.clone());
     println!("Snapshot len {}", snapshot_len);
     
-    c.bench_function("bench serialize", |b| b.iter(|| bench_snapshot_v1(&mut snapshot_mem.as_mut_slice(), vm.clone())));
-    c.bench_function("bench deserialize", |b| b.iter(|| bench_restore_v1(&mut snapshot_mem.as_slice(), vm.clone())));
+    c.bench_function("Serialize to v4", |b| b.iter(|| bench_snapshot_v1(&mut snapshot_mem.as_mut_slice(), vm.clone())));
+    c.bench_function("Deserialize to v4", |b| b.iter(|| bench_restore_v1(&mut snapshot_mem.as_slice(), vm.clone())));
+    
+    snapshot_len = bench_snapshot_crc_v1(&mut snapshot_mem.as_mut_slice(), vm.clone());
+    println!("Snapshot with crc64 len {}", snapshot_len);
+
+    c.bench_function("Serialize with crc64 to v4", |b| b.iter(|| bench_snapshot_crc_v1(&mut snapshot_mem.as_mut_slice(), vm.clone())));
+    c.bench_function("Deserialize with crc64 from v4", |b| b.iter(|| bench_restore_crc_v1(&mut snapshot_mem.as_slice(), vm.clone())));
+
 }
 
-criterion_group!(benches, criterion_benchmark);
+criterion_group! {
+    name = benches;
+    config = Criterion::default().sample_size(50);
+    targets = criterion_benchmark
+}
+
 criterion_main!(benches);

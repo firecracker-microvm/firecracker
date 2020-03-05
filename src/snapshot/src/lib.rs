@@ -1,6 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 extern crate bincode;
+extern crate crc64;
 extern crate serde;
 extern crate serde_derive;
 extern crate snapshot_derive;
@@ -8,6 +9,7 @@ extern crate snapshot_derive;
 pub mod primitives;
 pub mod version_map;
 
+use crc64::crc64;
 use serde_derive::{Deserialize, Serialize};
 use snapshot_derive::Versionize;
 use std::collections::hash_map::HashMap;
@@ -83,6 +85,7 @@ pub enum Error {
     Serialize(String),
     Deserialize(String),
     Semantic(String),
+    Crc64
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -94,6 +97,8 @@ impl fmt::Display for Error {
             Error::Serialize(ref err) => write!(f, "Serialization error: {}", err),
             Error::Deserialize(ref err) => write!(f, "Deserialization error: {}", err),
             Error::Semantic(ref err) => write!(f, "Semantic error: {}", err),
+            Error::Crc64 => write!(f, "Crc64 check failed"),
+
         }
     }
 }
@@ -105,6 +110,7 @@ impl fmt::Debug for Error {
             Error::Serialize(ref err) => write!(f, "Serialization error: {}", err),
             Error::Deserialize(ref err) => write!(f, "Deserialization error: {}", err),
             Error::Semantic(ref err) => write!(f, "Semantic error: {}", err),
+            Error::Crc64 => write!(f, "Crc64 check failed"),
         }
     }
 }
@@ -132,6 +138,52 @@ pub trait Versionize {
     fn name() -> String;
     // Returns latest struct version.
     fn version() -> u16;
+}
+
+struct CRC64Reader<T> {
+    reader: T,
+    crc64: u64
+}
+
+impl<T> CRC64Reader<T> where T: Read {
+    pub fn new(reader: T) -> Self {
+        CRC64Reader { crc64: 0, reader }
+    }
+    
+    pub fn checksum(&self) -> u64 { self.crc64 }
+}
+
+impl<T> Read for CRC64Reader<T> where T: Read {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let bytes_read = self.reader.read(buf)?;
+        self.crc64 = crc64(self.crc64, &buf[..bytes_read]);
+        Ok(bytes_read)
+    }
+}
+
+struct CRC64Writer<T> {
+    writer: T,
+    crc64: u64
+}
+
+impl<T> CRC64Writer<T> where T: Write {
+    pub fn new(writer: T) -> Self {
+        CRC64Writer { crc64: 0, writer }
+    }
+    
+    pub fn checksum(&self) -> u64 { self.crc64 }
+}
+
+impl<T> Write for CRC64Writer<T> where T: Write {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize>{
+        let bytes_written = self.writer.write(buf)?;
+        self.crc64 = crc64(self.crc64, &buf[..bytes_written]);
+        Ok(bytes_written)
+    }
+    
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
 }
 
 impl Snapshot {
@@ -175,6 +227,38 @@ impl Snapshot {
             // Not used when loading a snapshot.
             target_version: 0,
         })
+    }
+
+    // Loads an existing snapshot and validates CRC 64.
+    pub fn load_with_crc64<T>(reader: &mut T, version_map: VersionMap) -> Result<Snapshot>
+    where
+        T: Read
+    {
+        let mut crc_reader = CRC64Reader::new(reader);
+        
+        // Read entire buffer in memory.
+        let snapshot = Snapshot::load(&mut crc_reader, version_map.clone())?; 
+        let computed_checksum = crc_reader.checksum();
+        let stored_checksum: u64 = Versionize::deserialize(&mut crc_reader, &snapshot.version_map, 0)?;
+
+        if computed_checksum != stored_checksum {
+            println!("Computed = {}, stored = {}",computed_checksum, stored_checksum);
+            return Err(Error::Crc64);
+        }
+
+        Ok(snapshot)
+    }
+
+    pub fn save_with_crc64<T>(&mut self, writer: &mut T) -> Result<()>
+    where
+        T: std::io::Write,
+    {
+        let mut crc_writer = CRC64Writer::new(writer);
+        self.save(&mut crc_writer)?;
+        
+        let checksum = crc_writer.checksum();
+        checksum.serialize(&mut crc_writer, &Self::format_version_map(), 0)?;
+        Ok(())
     }
 
     // Save a snapshot.
@@ -523,6 +607,45 @@ mod tests {
         assert_eq!(snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap_err(), Error::Serialize("io error: failed to write whole buffer".to_owned()));
     }
 
+    #[test]
+    fn test_crc_ok() {
+        let vm = VersionMap::new();
+        let state_1 = Test1 {
+            field_x: 0,
+            field0: 0,
+            field1: 1,
+        };
+
+        let mut snapshot_mem = vec![0u8; 1024];
+
+        // Serialize as v1.
+        let mut snapshot = Snapshot::new(vm.clone(), 1);
+        // The section will succesfully be serialized.
+        snapshot.write_section("test", &state_1).unwrap();
+        snapshot.save_with_crc64(&mut snapshot_mem.as_mut_slice()).unwrap();
+        Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+    }
+
+    #[test]
+    fn test_corrupted_snapshot() {
+        let vm = VersionMap::new();
+        let state_1 = Test1 {
+            field_x: 0,
+            field0: 0,
+            field1: 1,
+        };
+
+        let mut snapshot_mem = vec![0u8; 1024];
+
+        // Serialize as v1.
+        let mut snapshot = Snapshot::new(vm.clone(), 1);
+        // The section will succesfully be serialized.
+        snapshot.write_section("test", &state_1).unwrap();
+        snapshot.save_with_crc64(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot_mem[20] = 123;
+        assert_eq!(Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err(), Error::Crc64);
+    }
+    
     #[test]
     fn test_deserialize_error() {
         let mut vm = VersionMap::new();
