@@ -10,8 +10,8 @@ use std::io;
 use std::os::unix::io::AsRawFd;
 
 use logger::{Metric, METRICS};
-use polly::epoll::{EpollEvent, EventSet};
 use polly::event_manager::{EventManager, Subscriber};
+use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 
 use crate::bus::BusDevice;

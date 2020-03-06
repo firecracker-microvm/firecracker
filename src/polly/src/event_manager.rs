@@ -7,7 +7,7 @@ use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
-use epoll::{self, Epoll, EpollEvent};
+use utils::epoll::{self, Epoll, EpollEvent};
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type Pollable = RawFd;
@@ -214,7 +214,7 @@ impl EventManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use epoll::EventSet;
+    use utils::epoll::EventSet;
     use utils::eventfd::EventFd;
 
     struct DummySubscriber {

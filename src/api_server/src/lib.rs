@@ -5,7 +5,6 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 
-extern crate epoll;
 #[macro_use]
 extern crate logger;
 extern crate micro_http;

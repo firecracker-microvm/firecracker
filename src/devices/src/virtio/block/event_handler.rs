@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 use std::os::unix::io::AsRawFd;
 
-use polly::epoll::{EpollEvent, EventSet};
 use polly::event_manager::{EventManager, Subscriber};
+use utils::epoll::{EpollEvent, EventSet};
 
 use crate::virtio::block::device::Block;
 use crate::virtio::VirtioDevice;
