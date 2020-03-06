@@ -41,7 +41,7 @@ pub fn build_config_space(disk_size: u64) -> Vec<u8> {
     }
     let mut config = Vec::with_capacity(CONFIG_SPACE_SIZE);
     let num_sectors = disk_size >> SECTOR_SHIFT;
-    for i in 0..8 {
+    for i in 0..CONFIG_SPACE_SIZE {
         config.push((num_sectors >> (8 * i)) as u8);
     }
     config
