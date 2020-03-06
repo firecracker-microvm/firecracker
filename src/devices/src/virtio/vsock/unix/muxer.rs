@@ -35,7 +35,7 @@ use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use polly::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
+use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 
 use super::super::csm::ConnState;
 use super::super::defs::uapi;
