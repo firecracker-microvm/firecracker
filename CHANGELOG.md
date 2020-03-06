@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.21.1]
+
+### Fixed
+
+- Added `--version` flag to both Firecracker and Jailer.
+
 ## [0.21.0]
 
 ### Added
