@@ -12,6 +12,7 @@ use vmm_config::boot_source::{
 use vmm_config::drive::*;
 use vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
+use vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use vmm_config::net::*;
 use vmm_config::vsock::*;
 use vstate::VcpuConfig;
@@ -31,6 +32,8 @@ pub enum Error {
     BootSource(BootSourceConfigError),
     /// Logger configuration error.
     Logger(LoggerConfigError),
+    /// Metrics system configuration error.
+    Metrics(MetricsConfigError),
     /// microVM vCpus or memory configuration error.
     VmConfig(VmConfigError),
 }
@@ -48,6 +51,8 @@ pub struct VmmConfig {
     logger: Option<LoggerConfig>,
     #[serde(rename = "machine-config")]
     machine_config: Option<VmConfig>,
+    #[serde(rename = "metrics")]
+    metrics: Option<MetricsConfig>,
     #[serde(rename = "vsock")]
     vsock_device: Option<VsockDeviceConfig>,
 }
@@ -79,6 +84,10 @@ impl VmResources {
 
         if let Some(logger) = vmm_config.logger {
             init_logger(logger, firecracker_version).map_err(Error::Logger)?;
+        }
+
+        if let Some(metrics) = vmm_config.metrics {
+            init_metrics(metrics).map_err(Error::Metrics)?;
         }
 
         let mut resources: Self = Self::default();
@@ -276,5 +285,258 @@ impl VmResources {
     /// Sets a vsock device to be attached when the VM starts.
     pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) {
         self.vsock = Some(config);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use resources::VmResources;
+    use utils::tempfile::TempFile;
+
+    #[test]
+    fn test_from_json() {
+        let kernel_file = TempFile::new().unwrap();
+        let rootfs_file = TempFile::new().unwrap();
+
+        // We will test different scenarios with invalid resources configuration and
+        // check the expected errors. We include configuration for the kernel and rootfs
+        // in every json because they are mandatory fields. If we don't configure
+        // these resources, it is considered an invalid json and the test will crash.
+
+        // Invalid kernel path.
+        let mut json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "/invalid/path",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ]
+            }}"#,
+            rootfs_file.as_path().to_str().unwrap()
+        );
+
+        match VmResources::from_json(json.as_str(), "some_version") {
+            Err(Error::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
+            _ => unreachable!(),
+        }
+
+        // Invalid rootfs path.
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "/invalid/path",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ]
+            }}"#,
+            kernel_file.as_path().to_str().unwrap()
+        );
+
+        match VmResources::from_json(json.as_str(), "some_version") {
+            Err(Error::BlockDevice(DriveError::InvalidBlockDevicePath)) => (),
+            _ => unreachable!(),
+        }
+
+        // Invalid vCPU number.
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "machine-config": {{
+                        "vcpu_count": 0,
+                        "mem_size_mib": 1024,
+                        "ht_enabled": false
+                    }}
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
+        );
+
+        match VmResources::from_json(json.as_str(), "some_version") {
+            Err(Error::VmConfig(VmConfigError::InvalidVcpuCount)) => (),
+            _ => unreachable!(),
+        }
+
+        // Invalid memory size.
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "machine-config": {{
+                        "vcpu_count": 2,
+                        "mem_size_mib": 0,
+                        "ht_enabled": false
+                    }}
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
+        );
+
+        match VmResources::from_json(json.as_str(), "some_version") {
+            Err(Error::VmConfig(VmConfigError::InvalidMemorySize)) => (),
+            _ => unreachable!(),
+        }
+
+        // Invalid path for logger pipe.
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "logger": {{
+	                    "log_fifo": "/invalid/path"
+                    }}
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
+        );
+
+        match VmResources::from_json(json.as_str(), "some_version") {
+            Err(Error::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
+            _ => unreachable!(),
+        }
+
+        // Invalid path for metrics pipe.
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "metrics": {{
+	                    "metrics_fifo": "/invalid/path"
+                    }}
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
+        );
+
+        match VmResources::from_json(json.as_str(), "some_version") {
+            Err(Error::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
+            _ => unreachable!(),
+        }
+
+        // Reuse of a host name.
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "network-interfaces": [
+                        {{
+                            "iface_id": "netif1",
+                            "host_dev_name": "hostname7"
+                        }},
+                        {{
+                            "iface_id": "netif2",
+                            "host_dev_name": "hostname7"
+                        }}
+                    ]
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap()
+        );
+
+        match VmResources::from_json(json.as_str(), "some_version") {
+            Err(Error::NetDevice(NetworkInterfaceError::HostDeviceNameInUse { .. })) => (),
+            _ => unreachable!(),
+        }
+
+        // Let's try now passing a valid configuration. We won't include any logger
+        // or metrics configuration because these were already initialized in other
+        // tests of this module and the reinitialization of them will cause crashing.
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "network-interfaces": [
+                        {{
+                            "iface_id": "netif",
+                            "host_dev_name": "hostname8"
+                        }}
+                    ],
+                     "machine-config": {{
+                            "vcpu_count": 2,
+                            "mem_size_mib": 1024,
+                            "ht_enabled": false
+                     }}
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap(),
+        );
+
+        assert!(VmResources::from_json(json.as_str(), "some_version").is_ok());
     }
 }

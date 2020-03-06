@@ -18,6 +18,8 @@ pub fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use vmm::vmm_config::logger::LoggerLevel;
 
@@ -25,24 +27,31 @@ mod tests {
     fn test_parse_put_logger_request() {
         let body = r#"{
                 "log_fifo": "log",
-                "metrics_fifo": "metrics",
                 "level": "Warning",
                 "show_level": false,
                 "show_log_origin": false
               }"#;
 
-        let desc_clone = LoggerConfig {
-            log_fifo: String::from("log"),
-            metrics_fifo: String::from("metrics"),
+        let expected_cfg = LoggerConfig {
+            log_fifo: PathBuf::from("log"),
             level: LoggerLevel::Warning,
             show_level: false,
             show_log_origin: false,
         };
         match parse_put_logger(&Body::new(body)) {
-            Ok(ParsedRequest::Sync(VmmAction::ConfigureLogger(desc))) => {
-                assert_eq!(desc, desc_clone)
+            Ok(ParsedRequest::Sync(VmmAction::ConfigureLogger(cfg))) => {
+                assert_eq!(cfg, expected_cfg)
             }
             _ => panic!("Test failed."),
         }
+
+        let invalid_body = r#"{
+                "invalid_field": "log",
+                "level": "Warning",
+                "show_level": false,
+                "show_log_origin": false
+              }"#;
+
+        assert!(parse_put_logger(&Body::new(invalid_body)).is_err());
     }
 }

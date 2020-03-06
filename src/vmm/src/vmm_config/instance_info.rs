@@ -10,4 +10,6 @@ pub struct InstanceInfo {
     pub started: bool,
     /// The version of the VMM that runs the microVM.
     pub vmm_version: String,
+    /// The name of the application that runs the microVM.
+    pub app_name: String,
 }

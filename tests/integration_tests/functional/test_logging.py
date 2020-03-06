@@ -126,7 +126,6 @@ def test_log_config_failure(test_microvm_with_api):
 
     response = microvm.logger.put(
         log_fifo='invalid log fifo',
-        metrics_fifo='invalid metrics fifo',
         level='Info',
         show_level=True,
         show_log_origin=True,
@@ -161,13 +160,10 @@ def test_api_requests_logs(test_microvm_with_api):
 
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = microvm.logger.put(
         log_fifo=microvm.create_jailed_resource(log_fifo.path),
-        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
         level='Info',
         show_level=True,
         show_log_origin=True,
@@ -249,37 +245,6 @@ def test_api_requests_logs(test_microvm_with_api):
     assert log_file_contains_strings(log_fifo, expected_log_strings)
 
 
-def test_flush_metrics(test_microvm_with_api):
-    """Check the `FlushMetrics` vmm action."""
-    microvm = test_microvm_with_api
-    microvm.spawn()
-    microvm.basic_config()
-
-    # Configure logging.
-    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
-    log_fifo = log_tools.Fifo(log_fifo_path)
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-
-    response = microvm.logger.put(
-        log_fifo=microvm.create_jailed_resource(log_fifo.path),
-        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path)
-    )
-    assert microvm.api_session.is_status_no_content(response.status_code)
-
-    microvm.start()
-
-    # Empty fifo before triggering `FlushMetrics` so that we get accurate data.
-    _ = metrics_fifo.sequential_reader(100)
-
-    how_many_flushes = 3
-    for _ in range(how_many_flushes):
-        response = microvm.actions.put(action_type='FlushMetrics')
-        assert microvm.api_session.is_status_no_content(response.status_code)
-    lines = metrics_fifo.sequential_reader(how_many_flushes)
-    assert len(lines) == how_many_flushes
-
-
 # pylint: disable=W0102
 def _test_log_config(
         microvm,
@@ -294,13 +259,10 @@ def _test_log_config(
 
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(microvm.path, 'metrics_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
     if platform.machine() == 'x86_64':
         response = microvm.logger.put(
             log_fifo=microvm.create_jailed_resource(log_fifo.path),
-            metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
             level=log_level,
             show_level=show_level,
             show_log_origin=show_origin
@@ -308,7 +270,6 @@ def _test_log_config(
     else:
         response = microvm.logger.put(
             log_fifo=microvm.create_jailed_resource(log_fifo.path),
-            metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
             level=log_level,
             show_level=show_level,
             show_log_origin=show_origin,

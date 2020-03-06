@@ -65,11 +65,8 @@ def test_config_start_no_api(test_microvm_with_ssh, vm_config_file):
     test_microvm = test_microvm_with_ssh
 
     log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
     test_microvm.create_jailed_resource(log_fifo.path, create_jail=True)
-    test_microvm.create_jailed_resource(metrics_fifo.path, create_jail=True)
 
     _configure_vm_from_json(test_microvm, vm_config_file)
     test_microvm.jailer.extra_args.update({'no-api': None})

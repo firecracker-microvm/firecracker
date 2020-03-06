@@ -45,7 +45,7 @@ const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     LOGGER
-        .preinit(Some(DEFAULT_INSTANCE_ID.to_string()))
+        .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
     if let Err(e) = register_signal_handlers() {
@@ -75,9 +75,9 @@ fn main() {
         let bt = Backtrace::new();
         error!("{:?}", bt);
 
-        // Log the metrics before aborting.
-        if let Err(e) = LOGGER.log_metrics() {
-            error!("Failed to log metrics while panicking: {}", e);
+        // Write the metrics before aborting.
+        if let Err(e) = METRICS.write() {
+            error!("Failed to write metrics while panicking: {}", e);
         }
     }));
 
@@ -191,6 +191,7 @@ fn main() {
             id: instance_id,
             started: false,
             vmm_version: FIRECRACKER_VERSION.to_string(),
+            app_name: "Firecracker".to_string(),
         };
         api_server_adapter::run_with_api(
             seccomp_filter,
