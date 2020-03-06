@@ -66,8 +66,7 @@ use device_manager::mmio::MMIODeviceInfo;
 use device_manager::mmio::MMIODeviceManager;
 use devices::BusDevice;
 use kernel::cmdline::Cmdline as KernelCmdline;
-use logger::error::LoggerError;
-use logger::LOGGER;
+use logger::{LoggerError, MetricsError, METRICS};
 use polly::epoll::{EpollEvent, EventSet};
 use polly::event_manager::{self, EventManager, Subscriber};
 use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
@@ -122,6 +121,8 @@ pub enum Error {
     LoadCommandline(kernel::cmdline::Error),
     /// Internal logger error.
     Logger(LoggerError),
+    /// Internal metrics system error.
+    Metrics(MetricsError),
     /// Cannot add a device to the MMIO Bus.
     RegisterMMIODevice(device_manager::mmio::Error),
     /// Cannot build seccomp filters.
@@ -165,6 +166,7 @@ impl Display for Error {
             LegacyIOBus(e) => write!(f, "Cannot add devices to the legacy I/O Bus. {}", e),
             LoadCommandline(e) => write!(f, "Cannot load command line: {}", e),
             Logger(e) => write!(f, "Logger error: {}", e),
+            Metrics(e) => write!(f, "Metrics error: {}", e),
             RegisterMMIODevice(e) => write!(f, "Cannot add a device to the MMIO Bus. {}", e),
             SeccompFilters(e) => write!(f, "Cannot build seccomp filters: {}", e),
             Serial(e) => write!(f, "Error writing to the serial console: {:?}", e),
@@ -344,9 +346,9 @@ impl Vmm {
             }
         }
 
-        // Log the metrics before exiting.
-        if let Err(e) = LOGGER.log_metrics() {
-            error!("Failed to log metrics while stopping: {}", e);
+        // Write the metrics before exiting.
+        if let Err(e) = METRICS.write() {
+            error!("Failed to write metrics while stopping: {}", e);
         }
 
         // Exit from Firecracker using the provided exit code. Safe because we're terminating

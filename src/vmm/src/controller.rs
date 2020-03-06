@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
-use logger::LOGGER;
+use logger::METRICS;
 use resources::VmResources;
 use rpc_interface::VmmActionError;
 use vmm_config;
@@ -34,15 +34,16 @@ impl VmmController {
         self.vm_resources.vm_config()
     }
 
-    /// Flush metrics. Defer to inner Vmm. We'll move to a variant where the Vmm
-    /// simply exposes functionality like getting the dirty pages, and then we'll have the
-    /// metrics flushing logic entirely on the outside.
+    /// Write the metrics on user demand (flush). We use the word `flush` here to highlight the fact
+    /// that the metrics will be written immediately.
+    /// Defer to inner Vmm. We'll move to a variant where the Vmm simply exposes functionality like
+    /// getting the dirty pages, and then we'll have the metrics flushing logic entirely on the outside.
     pub fn flush_metrics(&mut self) -> ActionResult {
         // FIXME: we're losing the bool saying whether metrics were actually written.
-        LOGGER
-            .log_metrics()
+        METRICS
+            .write()
             .map(|_| ())
-            .map_err(super::Error::Logger)
+            .map_err(super::Error::Metrics)
             .map_err(VmmActionError::InternalVmm)
     }
 

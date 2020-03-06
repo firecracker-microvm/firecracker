@@ -27,13 +27,10 @@ def test_sigbus_sigsegv(test_microvm_with_api, signum):
 
     # Configure logging.
     log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = test_microvm.logger.put(
         log_fifo=test_microvm.create_jailed_resource(log_fifo.path),
-        metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path),
         level='Error',
         show_level=False,
         show_log_origin=False

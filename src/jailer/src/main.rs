@@ -326,6 +326,13 @@ fn main() {
                     process::exit(0);
                 }
             }
+
+            if let Some(version) = arg_parser.arguments().value_as_bool("version") {
+                if version {
+                    println!("Jailer v{}\n", JAILER_VERSION);
+                    process::exit(0);
+                }
+            }
         }
     }
 

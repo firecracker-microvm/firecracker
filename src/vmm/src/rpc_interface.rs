@@ -17,6 +17,7 @@ use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::drive::{BlockDeviceConfig, DriveError};
 use vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
+use vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
@@ -32,6 +33,9 @@ pub enum VmmAction {
     /// Configure the logger using as input the `LoggerConfig`. This action can only be called
     /// before the microVM has booted.
     ConfigureLogger(LoggerConfig),
+    /// Configure the metrics using as input the `MetricsConfig`. This action can only be called
+    /// before the microVM has booted.
+    ConfigureMetrics(MetricsConfig),
     /// Get the configuration of the microVM.
     GetVmConfiguration,
     /// Flush the metrics. This action can only be called after the logger has been configured.
@@ -67,17 +71,19 @@ pub enum VmmAction {
 /// Wrapper for all errors associated with VMM actions.
 #[derive(Debug)]
 pub enum VmmActionError {
-    /// The action `ConfigureBootSource` failed either because of bad user input.
+    /// The action `ConfigureBootSource` failed because of bad user input.
     BootSource(BootSourceConfigError),
     /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
     /// failed because of bad user input.
     DriveConfig(DriveError),
     /// Internal Vmm error.
     InternalVmm(VmmError),
-    /// The action `ConfigureLogger` failed either because of bad user input.
+    /// The action `ConfigureLogger` failed because of bad user input.
     Logger(LoggerConfigError),
     /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed because of bad input.
     MachineConfig(VmConfigError),
+    /// The action `ConfigureMetrics` failed because of bad user input.
+    Metrics(MetricsConfigError),
     /// The action `InsertNetworkDevice` failed because of bad user input.
     NetworkConfig(NetworkInterfaceError),
     /// The requested operation is not supported after starting the microVM.
@@ -103,6 +109,7 @@ impl Display for VmmActionError {
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
                 Logger(err) => err.to_string(),
                 MachineConfig(err) => err.to_string(),
+                Metrics(err) => err.to_string(),
                 NetworkConfig(err) => err.to_string(),
                 OperationNotSupportedPostBoot => {
                     "The requested operation is not supported after starting the microVM."
@@ -207,11 +214,14 @@ impl<'a> PrebootApiController<'a> {
                 .set_boot_source(boot_source_body)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::BootSource),
-            ConfigureLogger(logger_description) => {
-                vmm_config::logger::init_logger(logger_description, &self.firecracker_version)
+            ConfigureLogger(logger_cfg) => {
+                vmm_config::logger::init_logger(logger_cfg, &self.firecracker_version)
                     .map(|_| VmmData::Empty)
                     .map_err(VmmActionError::Logger)
             }
+            ConfigureMetrics(metrics_cfg) => vmm_config::metrics::init_metrics(metrics_cfg)
+                .map(|_| VmmData::Empty)
+                .map_err(VmmActionError::Metrics),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
@@ -290,6 +300,7 @@ impl RuntimeApiController {
             // Operations not allowed post-boot.
             ConfigureBootSource(_)
             | ConfigureLogger(_)
+            | ConfigureMetrics(_)
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
             | SetVsockDevice(_)

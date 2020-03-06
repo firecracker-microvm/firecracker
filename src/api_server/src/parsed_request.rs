@@ -13,6 +13,7 @@ use request::logger::parse_put_logger;
 use request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
+use request::metrics::parse_put_metrics;
 use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use request::net::{parse_patch_net, parse_put_net};
 use request::vsock::parse_put_vsock;
@@ -54,6 +55,7 @@ impl ParsedRequest {
             (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.get(1)),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
+            (Method::Put, "metrics", Some(body)) => parse_put_metrics(body),
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body),
             (Method::Put, "network-interfaces", Some(body)) => {
                 parse_put_net(body, path_tokens.get(1))
@@ -599,9 +601,8 @@ mod tests {
 
         let req_as_bytes = b"PUT /logger HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
-                Content-Length: 117\r\n\r\n{ \
+                Content-Length: 91\r\n\r\n{ \
                 \"log_fifo\": \"string\", \
-                \"metrics_fifo\": \"string\", \
                 \"level\": \"Warning\", \
                 \"show_level\": false, \
                 \"show_log_origin\": false \
@@ -629,6 +630,23 @@ mod tests {
             }",
             )
             .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_metrics() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+
+        let req_as_bytes = b"PUT /metrics HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 28\r\n\r\n{ \
+                \"metrics_fifo\": \"string\" \
+            }";
+
+        sender.write_all(req_as_bytes).unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());

@@ -457,12 +457,18 @@ def test_api_patch_pre_boot(test_microvm_with_api):
 
     # Configure logging.
     log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = test_microvm.logger.put(
-        log_fifo=test_microvm.create_jailed_resource(log_fifo.path),
+        log_fifo=test_microvm.create_jailed_resource(log_fifo.path)
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Configure metrics.
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+
+    response = test_microvm.metrics.put(
         metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -518,12 +524,18 @@ def test_api_patch_post_boot(test_microvm_with_api):
 
     # Configure logging.
     log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
-    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = test_microvm.logger.put(
-        log_fifo=test_microvm.create_jailed_resource(log_fifo.path),
+        log_fifo=test_microvm.create_jailed_resource(log_fifo.path)
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Configure metrics.
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+
+    response = test_microvm.metrics.put(
         metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)

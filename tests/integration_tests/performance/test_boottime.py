@@ -141,16 +141,10 @@ def _configure_vm(microvm, network_info=None, initrd=False):
         microvm.path,
         'log_fifo' + microvm.id.split('-')[0]
     )
-    metrics_fifo_path = os.path.join(
-        microvm.path,
-        'metrics_fifo' + microvm.id.split('-')[0]
-    )
     log_fifo = log_tools.Fifo(log_fifo_path)
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = microvm.logger.put(
         log_fifo=microvm.create_jailed_resource(log_fifo.path),
-        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path),
         level='Info',
         show_level=False,
         show_log_origin=False
