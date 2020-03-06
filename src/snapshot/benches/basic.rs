@@ -2,7 +2,7 @@ extern crate criterion;
 extern crate snapshot;
 extern crate snapshot_derive;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion, black_box};
 use snapshot::{Snapshot, Result, Error};
 use snapshot::version_map::VersionMap;
 use snapshot::Versionize;
@@ -162,14 +162,14 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut snapshot_len = bench_snapshot_v1(&mut snapshot_mem.as_mut_slice(), vm.clone());
     println!("Snapshot len {}", snapshot_len);
     
-    c.bench_function("Serialize to v4", |b| b.iter(|| bench_snapshot_v1(&mut snapshot_mem.as_mut_slice(), vm.clone())));
-    c.bench_function("Deserialize to v4", |b| b.iter(|| bench_restore_v1(&mut snapshot_mem.as_slice(), vm.clone())));
+    c.bench_function("Serialize to v4", |b| b.iter(|| bench_snapshot_v1(black_box(&mut snapshot_mem.as_mut_slice()), black_box(vm.clone()))));
+    c.bench_function("Deserialize to v4", |b| b.iter(|| bench_restore_v1(black_box(&mut snapshot_mem.as_slice()), black_box(vm.clone()))));
     
     snapshot_len = bench_snapshot_crc_v1(&mut snapshot_mem.as_mut_slice(), vm.clone());
     println!("Snapshot with crc64 len {}", snapshot_len);
 
-    c.bench_function("Serialize with crc64 to v4", |b| b.iter(|| bench_snapshot_crc_v1(&mut snapshot_mem.as_mut_slice(), vm.clone())));
-    c.bench_function("Deserialize with crc64 from v4", |b| b.iter(|| bench_restore_crc_v1(&mut snapshot_mem.as_slice(), vm.clone())));
+    c.bench_function("Serialize with crc64 to v4", |b| b.iter(|| bench_snapshot_crc_v1(black_box(&mut snapshot_mem.as_mut_slice()), black_box(vm.clone()))));
+    c.bench_function("Deserialize with crc64 from v4", |b| b.iter(|| bench_restore_crc_v1(black_box(&mut snapshot_mem.as_slice()), black_box(vm.clone()))));
 
 }
 
