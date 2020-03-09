@@ -1,3 +1,6 @@
+[workspace]
+members = []
+
 [package]
 name = "snapshot"
 version = "0.0.1"
@@ -10,6 +13,7 @@ bincode = "1.2.1"
 utils = { path="../utils" }
 snapshot_derive = { path = "../snapshot_derive" }
 crc64 = "1.0.0"
+vmm-sys-util = "0.4.0"
 
 [dev-dependencies]
 criterion = "0.3.0"

@@ -5,6 +5,7 @@ extern crate crc64;
 extern crate serde;
 extern crate serde_derive;
 extern crate snapshot_derive;
+extern crate vmm_sys_util;
 
 pub mod primitives;
 pub mod version_map;
