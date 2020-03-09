@@ -337,8 +337,8 @@ mod tests {
 
     use super::*;
     use crate::virtio::queue::tests::*;
-    use polly::epoll::{EpollEvent, EventSet};
     use polly::event_manager::{EventManager, Subscriber};
+    use utils::epoll::{EpollEvent, EventSet};
     use utils::tempfile::TempFile;
     use vm_memory::GuestAddress;
 

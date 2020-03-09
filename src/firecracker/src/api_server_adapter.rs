@@ -9,9 +9,9 @@ use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
 use mmds::MMDS;
-use polly::epoll::{EpollEvent, EventSet};
 use polly::event_manager::{EventManager, Subscriber};
 use seccomp::BpfProgram;
+use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use vmm::controller::VmmController;
 use vmm::rpc_interface::{PrebootApiController, RuntimeApiController};

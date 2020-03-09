@@ -109,6 +109,8 @@
 //! }
 //! ```
 
+extern crate utils;
+
 mod common;
 mod connection;
 mod request;

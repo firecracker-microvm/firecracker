@@ -1,6 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-extern crate epoll;
 
 use std::io::{Read, Write};
 use std::os::unix::io::AsRawFd;
@@ -14,6 +13,8 @@ use connection::HttpConnection;
 use request::Request;
 use response::{Response, StatusCode};
 use std::collections::HashMap;
+
+use utils::epoll;
 
 static SERVER_FULL_ERROR_MESSAGE: &[u8] = b"HTTP/1.1 503\r\n\
                                             Server: Firecracker API\r\n\
@@ -202,11 +203,11 @@ impl<T: Read + Write> ClientConnection<T> {
 /// requests and sends responses for awaiting requests is `requests`.
 /// It can be called in a loop, which will render the thread that the
 /// server runs on incapable of performing other operations, or it can
-/// be used in another `EPOLL` structure, as it provides its `epoll_fd`,
-/// the file descriptor of the epoll structure used within the server,
-/// and it can be added to another one using the `EPOLLIN` flag. Whenever
-/// there is a notification on that fd, `requests` should be
-/// called once.
+/// be used in another `EPOLL` structure, as it provides its `epoll`,
+/// which is a wrapper over the file descriptor of the epoll structure
+/// used within the server, and it can be added to another one using
+/// the `EPOLLIN` flag. Whenever there is a notification on that fd,
+/// `requests` should be called once.
 ///
 /// # Example
 ///
@@ -241,8 +242,8 @@ impl<T: Read + Write> ClientConnection<T> {
 pub struct HttpServer {
     /// Socket on which we listen for new connections.
     socket: UnixListener,
-    /// File descriptor of the server's epoll structure.
-    epoll_fd: RawFd,
+    /// Server's epoll instance.
+    epoll: epoll::Epoll,
     /// Holds the token-connection pairs of the server.
     /// Each connection has an associated identification token, which is
     /// the file descriptor of the underlying stream.
@@ -260,10 +261,10 @@ impl HttpServer {
     /// Returns an `IOError` when binding or `epoll::create` fails.
     pub fn new<P: AsRef<Path>>(path_to_socket: P) -> Result<Self> {
         let socket = UnixListener::bind(path_to_socket).map_err(ServerError::IOError)?;
-        let epoll_fd = epoll::create(true).map_err(ServerError::IOError)?;
+        let epoll = epoll::Epoll::new().map_err(ServerError::IOError)?;
         Ok(Self {
             socket,
-            epoll_fd,
+            epoll,
             connections: HashMap::new(),
         })
     }
@@ -272,7 +273,7 @@ impl HttpServer {
     pub fn start_server(&mut self) -> Result<()> {
         // Add the socket on which we listen for new connections to the
         // `epoll` structure.
-        Self::epoll_add(self.epoll_fd, self.socket.as_raw_fd())
+        Self::epoll_add(&self.epoll, self.socket.as_raw_fd())
     }
 
     /// This function is responsible for the data exchange with the clients and should
@@ -294,14 +295,15 @@ impl HttpServer {
     /// on a connection on which it is not possible.
     pub fn requests(&mut self) -> Result<Vec<ServerRequest>> {
         let mut parsed_requests: Vec<ServerRequest> = vec![];
-        let mut events = vec![epoll::Event::new(epoll::Events::empty(), 0); MAX_CONNECTIONS];
-
+        let mut events = vec![epoll::EpollEvent::default(); MAX_CONNECTIONS];
         // This is a wrapper over the syscall `epoll_wait` and it will block the
         // current thread until at least one event is received.
         // The received notifications will then populate the `events` array with
         // `event_count` elements, where 1 <= event_count <= MAX_CONNECTIONS.
-        let event_count =
-            epoll::wait(self.epoll_fd, -1, &mut events[..]).map_err(ServerError::IOError)?;
+        let event_count = self
+            .epoll
+            .wait(MAX_CONNECTIONS, -1, &mut events[..])
+            .map_err(ServerError::IOError)?;
         // We use `take()` on the iterator over `events` as, even though only
         // `events_count` events have been inserted into `events`, the size of
         // the array is still `MAX_CONNECTIONS`, so we discard empty elements
@@ -310,7 +312,7 @@ impl HttpServer {
             // Check the file descriptor which produced the notification `e`.
             // It could be that we have a new connection, or one of our open
             // connections is ready to exchange data with a client.
-            if e.data as RawFd == self.socket.as_raw_fd() {
+            if e.fd() == self.socket.as_raw_fd() {
                 // We have received a notification on the listener socket, which
                 // means we have a new connection to accept.
                 match self.handle_new_connection() {
@@ -333,9 +335,9 @@ impl HttpServer {
                 };
             } else {
                 // We have a notification on one of our open connections.
-                let fd = e.data as RawFd;
+                let fd = e.fd();
                 let client_connection = self.connections.get_mut(&fd).unwrap();
-                if e.events & epoll::Events::EPOLLIN.bits() != 0 {
+                if e.event_set().contains(epoll::EventSet::IN) {
                     // We have bytes to read from this connection.
                     // If our `read` yields `Request` objects, we wrap them with an ID before
                     // handing them to the user.
@@ -343,23 +345,23 @@ impl HttpServer {
                         &mut client_connection
                             .read()?
                             .into_iter()
-                            .map(|request| ServerRequest::new(request, fd as u64))
+                            .map(|request| ServerRequest::new(request, e.data()))
                             .collect(),
                     );
                     // If the connection was incoming before we read and we now have to write
                     // either an error message or an `expect` response, we change its `epoll`
                     // event set to notify us when the stream is ready for writing.
                     if client_connection.state == ClientConnectionState::AwaitingOutgoing {
-                        Self::epoll_mod(self.epoll_fd, fd, epoll::Events::EPOLLOUT)?;
+                        Self::epoll_mod(&self.epoll, fd, epoll::EventSet::OUT)?;
                     }
-                } else if e.events & epoll::Events::EPOLLOUT.bits() != 0 {
+                } else if e.event_set().contains(epoll::EventSet::OUT) {
                     // We have bytes to write on this connection.
                     client_connection.write()?;
                     // If the connection was outgoing before we tried to write the responses
                     // and we don't have any more responses to write, we change the `epoll`
                     // event set to notify us when we have bytes to read from the stream.
                     if client_connection.state == ClientConnectionState::AwaitingIncoming {
-                        Self::epoll_mod(self.epoll_fd, fd, epoll::Events::EPOLLIN)?;
+                        Self::epoll_mod(&self.epoll, fd, epoll::EventSet::IN)?;
                     }
                 }
             }
@@ -375,18 +377,21 @@ impl HttpServer {
     /// The file descriptor of the `epoll` structure can enable the server to become
     /// a non-blocking structure in an application.
     ///
-    /// Returns the file descriptor of the server's internal `epoll` structure.
+    /// Returns a reference to the instance of the server's internal `epoll` structure.
     ///
     /// # Example
     ///
     /// ## Non-blocking server
     /// ```
-    /// extern crate epoll;
+    /// extern crate utils;
+    ///
+    /// use std::os::unix::io::AsRawFd;
     ///
     /// use micro_http::{HttpServer, Response, StatusCode};
+    /// use utils::epoll;
     ///
     /// // Create our epoll manager.
-    /// let epoll_fd = epoll::create(true).unwrap();
+    /// let epoll = epoll::Epoll::new().unwrap();
     ///
     /// let path_to_socket = "/tmp/epoll_example.sock";
     /// std::fs::remove_file(path_to_socket).unwrap_or_default();
@@ -396,11 +401,10 @@ impl HttpServer {
     /// server.start_server().unwrap();
     ///
     /// // Add our server to the `epoll` manager.
-    /// epoll::ctl(
-    ///     epoll_fd,
-    ///     epoll::ControlOptions::EPOLL_CTL_ADD,
-    ///     server.epoll_fd(),
-    ///     epoll::Event::new(epoll::Events::EPOLLIN, 1234u64),
+    /// epoll.ctl(
+    ///     epoll::ControlOperation::Add,
+    ///     server.epoll().as_raw_fd(),
+    ///     &epoll::EpollEvent::new(epoll::EventSet::IN, 1234u64),
     /// )
     /// .unwrap();
     ///
@@ -410,9 +414,9 @@ impl HttpServer {
     /// // Control loop of the application.
     /// let mut events = Vec::with_capacity(10);
     /// loop {
-    ///     let num_ev = epoll::wait(epoll_fd, -1, events.as_mut_slice());
+    ///     let num_ev = epoll.wait(10, -1, events.as_mut_slice());
     ///     for event in events {
-    ///         match event.data {
+    ///         match event.data() {
     ///             // The server notification.
     ///             1234 => {
     ///                 let request = server.requests();
@@ -428,8 +432,8 @@ impl HttpServer {
     ///     break;
     /// }
     /// ```
-    pub fn epoll_fd(&self) -> RawFd {
-        self.epoll_fd
+    pub fn epoll(&self) -> &epoll::Epoll {
+        &self.epoll
     }
 
     /// Enqueues the provided responses in the outgoing connection.
@@ -454,7 +458,7 @@ impl HttpServer {
             // `epoll` event set to notify us when the stream is ready for writing.
             if let ClientConnectionState::AwaitingIncoming = client_connection.state {
                 client_connection.state = ClientConnectionState::AwaitingOutgoing;
-                Self::epoll_mod(self.epoll_fd, response.id as RawFd, epoll::Events::EPOLLOUT)?;
+                Self::epoll_mod(&self.epoll, response.id as RawFd, epoll::EventSet::OUT)?;
             }
             client_connection.enqueue_response(response.response);
         }
@@ -485,7 +489,7 @@ impl HttpServer {
             })
             .and_then(|stream| {
                 // Add the stream to the `epoll` structure and listen for bytes to be read.
-                Self::epoll_add(self.epoll_fd, stream.as_raw_fd())?;
+                Self::epoll_add(&self.epoll, stream.as_raw_fd())?;
                 // Then add it to our open connections.
                 self.connections.insert(
                     stream.as_raw_fd(),
@@ -500,29 +504,25 @@ impl HttpServer {
     ///
     /// # Errors
     /// `IOError` is returned when an `EPOLL_CTL_MOD` control operation fails.
-    fn epoll_mod(epoll_fd: RawFd, stream_fd: RawFd, evset: epoll::Events) -> Result<()> {
-        let event = epoll::Event::new(evset, stream_fd as u64);
-        epoll::ctl(
-            epoll_fd,
-            epoll::ControlOptions::EPOLL_CTL_MOD,
-            stream_fd,
-            event,
-        )
-        .map_err(ServerError::IOError)
+    fn epoll_mod(epoll: &epoll::Epoll, stream_fd: RawFd, evset: epoll::EventSet) -> Result<()> {
+        let event = epoll::EpollEvent::new(evset, stream_fd as u64);
+        epoll
+            .ctl(epoll::ControlOperation::Modify, stream_fd, &event)
+            .map_err(ServerError::IOError)
     }
 
     /// Adds a stream to the `epoll` notification structure with the `EPOLLIN` event set.
     ///
     /// # Errors
     /// `IOError` is returned when an `EPOLL_CTL_ADD` control operation fails.
-    fn epoll_add(epoll_fd: RawFd, stream_fd: RawFd) -> Result<()> {
-        epoll::ctl(
-            epoll_fd,
-            epoll::ControlOptions::EPOLL_CTL_ADD,
-            stream_fd,
-            epoll::Event::new(epoll::Events::EPOLLIN, stream_fd as u64),
-        )
-        .map_err(ServerError::IOError)
+    fn epoll_add(epoll: &epoll::Epoll, stream_fd: RawFd) -> Result<()> {
+        epoll
+            .ctl(
+                epoll::ControlOperation::Add,
+                stream_fd,
+                &epoll::EpollEvent::new(epoll::EventSet::IN, stream_fd as u64),
+            )
+            .map_err(ServerError::IOError)
     }
 }
 
@@ -530,11 +530,10 @@ impl HttpServer {
 mod tests {
     use super::*;
     use std::fs;
+    use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
 
     use common::Body;
-    use std::io::Read;
-    use std::io::Write;
 
     #[test]
     fn test_wait_one_connection() {

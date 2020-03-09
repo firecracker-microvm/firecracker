@@ -696,8 +696,13 @@ impl VirtioDevice for Net {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::net::Ipv4Addr;
+    use std::os::unix::io::AsRawFd;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+    use std::{io, mem, thread};
 
+    use super::*;
     use crate::virtio::net::device::{
         frame_bytes_from_buf, frame_bytes_from_buf_mut, init_vnet_hdr, vnet_hdr_len,
     };
@@ -712,14 +717,9 @@ mod tests {
         EthIPv4ArpFrame, EthernetFrame, MacAddr, ETHERTYPE_ARP, ETH_IPV4_FRAME_LEN, MAC_ADDR_LEN,
     };
     use logger::{Metric, METRICS};
-    use polly::epoll::{EpollEvent, EventSet};
     use polly::event_manager::{EventManager, Subscriber};
     use rate_limiter::{RateLimiter, TokenBucket, TokenType};
-    use std::net::Ipv4Addr;
-    use std::os::unix::io::AsRawFd;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
-    use std::{io, mem, thread};
+    use utils::epoll::{EpollEvent, EventSet};
     use utils::net::Tap;
     use virtio_gen::virtio_net::{
         virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,

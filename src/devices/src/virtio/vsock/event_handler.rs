@@ -24,8 +24,8 @@
 ///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX buffers.
 use std::os::unix::io::AsRawFd;
 
-use polly::epoll::{EpollEvent, EventSet};
 use polly::event_manager::{EventManager, Subscriber};
+use utils::epoll::{EpollEvent, EventSet};
 
 use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
 use super::VsockBackend;

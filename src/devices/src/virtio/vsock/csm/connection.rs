@@ -83,7 +83,7 @@ use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
-use polly::epoll::EventSet;
+use utils::epoll::EventSet;
 
 use super::super::defs::uapi;
 use super::super::packet::VsockPacket;
