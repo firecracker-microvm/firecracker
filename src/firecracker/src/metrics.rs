@@ -5,9 +5,9 @@ use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
 use logger::{Metric, METRICS};
-use polly::epoll::{EpollEvent, EventSet};
 use polly::event_manager::{EventManager, Subscriber};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+use utils::epoll::{EpollEvent, EventSet};
 
 /// Metrics reporting period.
 pub const WRITE_METRICS_PERIOD_MS: u64 = 60000;
