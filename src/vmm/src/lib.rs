@@ -411,6 +411,3 @@ impl Subscriber for Vmm {
         )]
     }
 }
-
-#[cfg(test)]
-mod tests {}
