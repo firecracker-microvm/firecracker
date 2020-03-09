@@ -49,7 +49,7 @@ impl<T> Write for CRC64Writer<T> where T: Write {
 }
 
 mod tests {
-    use super::*;
+    use super::{CRC64Writer, CRC64Reader, Write, Read};
     
     #[test]
     fn test_crc_read() {
