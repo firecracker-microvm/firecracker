@@ -1,5 +1,6 @@
 use common::*;
 use quote::{format_ident, quote};
+use super::{DEFAULT_FN, SEMANTIC_SER_FN, SEMANTIC_DE_FN};
 use std::collections::hash_map::HashMap;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -9,6 +10,22 @@ pub(crate) struct StructField {
     start_version: u16,
     end_version: u16,
     attrs: HashMap<String, syn::Lit>,
+}
+
+impl Exists for StructField {
+    fn start_version(&self) -> u16 {
+        self.start_version
+    }
+
+    fn end_version(&self) -> u16 {
+        self.end_version
+    }
+}
+
+impl FieldType for StructField {
+    fn ty(&self) -> syn::Type {
+        self.ty.clone()
+    }
 }
 
 impl StructField {
@@ -28,61 +45,16 @@ impl StructField {
 
         parse_field_attributes(&mut field.attrs, &ast_field.value().attrs);
 
-        // Adjust version based on attributes.
-        if let Some(start_version) = field.get_attr("start_version") {
-            match start_version {
-                syn::Lit::Int(lit_int) => field.start_version = lit_int.base10_parse().unwrap(),
-                _ => panic!("Field start/end version number must be an integer"),
-            }
-        }
-
-        if let Some(end_version) = field.get_attr("end_version") {
-            match end_version {
-                syn::Lit::Int(lit_int) => field.end_version = lit_int.base10_parse().unwrap(),
-                _ => panic!("Field start/end version number must be an integer"),
-            }
-        }
+        field.start_version = get_start_version(&field.attrs).unwrap_or(base_version);
+        field.end_version = get_end_version(&field.attrs).unwrap_or_default();
 
         field
     }
 
-    fn get_default(&self) -> Option<syn::Ident> {
-        get_ident_attr(&self.attrs, "default_fn")
-    }
-
-    fn get_semantic_ser(&self) -> Option<syn::Ident> {
-        get_ident_attr(&self.attrs, "semantic_ser_fn")
-    }
-
-    fn get_semantic_de(&self) -> Option<syn::Ident> {
-        get_ident_attr(&self.attrs, "semantic_de_fn")
-    }
-
-    fn get_attr(&self, attr: &str) -> Option<&syn::Lit> {
-        self.attrs.get(attr)
-    }
-
-    pub fn get_start_version(&self) -> u16 {
-        self.start_version
-    }
-
-    pub fn get_end_version(&self) -> u16 {
-        self.end_version
-    }
-
-    pub fn is_array(&self) -> bool {
-        match self.ty {
-            syn::Type::Array(_) => true,
-            _ => false,
-        }
-    }
-
     pub fn generate_semantic_serializer(&self, target_version: u16) -> proc_macro2::TokenStream {
         // Generate semantic serializer for this field only if it does not exist in target_version.
-        if target_version < self.start_version
-            || (self.end_version > 0 && target_version > self.end_version)
-        {
-            if let Some(semantic_ser_fn) = self.get_semantic_ser() {
+        if !self.exists_at(target_version) {
+            if let Some(semantic_ser_fn) = get_ident_attr(&self.attrs, SEMANTIC_SER_FN) {
                 return quote! {
                     copy_of_self.#semantic_ser_fn(version)?;
                 };
@@ -93,13 +65,11 @@ impl StructField {
 
     // !! Semantic deserialization not supported for enums.
     pub fn generate_semantic_deserializer(&self, source_version: u16) -> proc_macro2::TokenStream {
-        // Generate semantic deserializer for this field only if it does not exist in target_version.
-        if source_version < self.start_version
-            || (self.end_version > 0 && source_version > self.end_version)
-        {
-            if let Some(semantic_de_fn) = self.get_semantic_de() {
+        // Generate semantic deserializer for this field only if it does not exist in source_version.
+        if !self.exists_at(source_version) {
+            if let Some(semantic_de_fn) = get_ident_attr(&self.attrs, SEMANTIC_DE_FN) {
+                // Object is an instance of the structure.
                 return quote! {
-                    // Object is an instance of the structure.
                     object.#semantic_de_fn(version)?;
                 };
             }
@@ -112,9 +82,7 @@ impl StructField {
         let field_ident = format_ident!("{}", self.name);
 
         // Generate serializer for this field only if it exists in target_version.
-        if target_version < self.start_version
-            || (self.end_version > 0 && target_version > self.end_version)
-        {
+        if !self.exists_at(target_version) {
             return proc_macro2::TokenStream::new();
         }
 
@@ -137,10 +105,8 @@ impl StructField {
         let field_ident = format_ident!("{}", self.name);
 
         // If the field does not exist in source version, use default annotation or Default trait.
-        if source_version < self.start_version
-            || (self.end_version > 0 && source_version > self.end_version)
-        {
-            if let Some(default_fn) = self.get_default() {
+        if !self.exists_at(source_version) {
+            if let Some(default_fn) = get_ident_attr(&self.attrs, DEFAULT_FN) {
                 return quote! {
                     // The default_fn is called with source version of the struct:
                     // - `version` is set to version_map.get_type_version(app_version, &Self::name());

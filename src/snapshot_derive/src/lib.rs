@@ -18,39 +18,31 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
+pub(crate) const DEFAULT_FN: &str = "default_fn";
+pub(crate) const SEMANTIC_SER_FN: &str = "semantic_ser_fn";
+pub(crate) const SEMANTIC_DE_FN: &str = "semantic_de_fn";
+pub(crate) const START_VERSION: &str = "start_version";
+pub(crate) const END_VERSION: &str = "end_version";
+
+
 #[proc_macro_derive(Versionize, attributes(snapshot))]
 pub fn generate_versionizer(input: TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let ident = input.ident.clone();
     let generics = input.generics.clone();
-    let serializer;
-    let deserializer;
-    let name;
-    let version;
 
-    match &input.data {
+    let descriptor: Box<dyn Descriptor> = match &input.data {
         syn::Data::Struct(data_struct) => {
-            let descriptor = StructDescriptor::new(&data_struct, ident.clone());
-            name = descriptor.ty.to_string();
-            version = descriptor.version;
-            serializer = descriptor.generate_serializer();
-            deserializer = descriptor.generate_deserializer(); 
+            Box::new(StructDescriptor::new(&data_struct, ident.clone()))
         }
-        syn::Data::Enum(data_enum) => {
-            let descriptor = EnumDescriptor::new(&data_enum, ident.clone());
-            name = descriptor.ty.to_string();
-            version = descriptor.version;
-            serializer = descriptor.generate_serializer();
-            deserializer = descriptor.generate_deserializer(); 
-        }
-        syn::Data::Union(data_union) => {
-            let descriptor = UnionDescriptor::new(&data_union, ident.clone());
-            name = descriptor.ty.to_string();
-            version = descriptor.version;
-            serializer = descriptor.generate_serializer();
-            deserializer = descriptor.generate_deserializer(); 
-        }
-    }
+        syn::Data::Enum(data_enum) => Box::new(EnumDescriptor::new(&data_enum, ident.clone())),
+        syn::Data::Union(data_union) => Box::new(UnionDescriptor::new(&data_union, ident.clone())),
+    };
+
+    let name = descriptor.ty().to_string();
+    let version = descriptor.version();
+    let serializer = descriptor.generate_serializer();
+    let deserializer = descriptor.generate_deserializer();
 
     (quote! {
         impl Versionize for #ident #generics {

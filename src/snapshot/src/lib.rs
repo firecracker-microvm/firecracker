@@ -7,9 +7,9 @@ extern crate serde_derive;
 extern crate snapshot_derive;
 extern crate vmm_sys_util;
 
+pub mod crc;
 pub mod primitives;
 pub mod version_map;
-pub mod crc;
 
 use crc::{CRC64Reader, CRC64Writer};
 use serde_derive::{Deserialize, Serialize};
@@ -87,7 +87,7 @@ pub enum Error {
     Serialize(String),
     Deserialize(String),
     Semantic(String),
-    Crc64
+    Crc64,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -100,7 +100,6 @@ impl fmt::Display for Error {
             Error::Deserialize(ref err) => write!(f, "Deserialization error: {}", err),
             Error::Semantic(ref err) => write!(f, "Semantic error: {}", err),
             Error::Crc64 => write!(f, "Crc64 check failed"),
-
         }
     }
 }
@@ -188,17 +187,21 @@ impl Snapshot {
     // Loads an existing snapshot and validates CRC 64.
     pub fn load_with_crc64<T>(reader: &mut T, version_map: VersionMap) -> Result<Snapshot>
     where
-        T: Read
+        T: Read,
     {
         let mut crc_reader = CRC64Reader::new(reader);
-        
+
         // Read entire buffer in memory.
-        let snapshot = Snapshot::load(&mut crc_reader, version_map.clone())?; 
+        let snapshot = Snapshot::load(&mut crc_reader, version_map.clone())?;
         let computed_checksum = crc_reader.checksum();
-        let stored_checksum: u64 = Versionize::deserialize(&mut crc_reader, &snapshot.version_map, 0)?;
+        let stored_checksum: u64 =
+            Versionize::deserialize(&mut crc_reader, &snapshot.version_map, 0)?;
 
         if computed_checksum != stored_checksum {
-            println!("Computed = {}, stored = {}",computed_checksum, stored_checksum);
+            println!(
+                "Computed = {}, stored = {}",
+                computed_checksum, stored_checksum
+            );
             return Err(Error::Crc64);
         }
 
@@ -211,7 +214,7 @@ impl Snapshot {
     {
         let mut crc_writer = CRC64Writer::new(writer);
         self.save(&mut crc_writer)?;
-        
+
         let checksum = crc_writer.checksum();
         checksum.serialize(&mut crc_writer, &Self::format_version_map(), 0)?;
         Ok(())
@@ -248,7 +251,9 @@ impl Snapshot {
                 format_version_map.get_latest_version(),
             )?;
         }
-        writer.flush().map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(0)))?;
+        writer
+            .flush()
+            .map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(0)))?;
 
         Ok(())
     }
@@ -291,15 +296,14 @@ impl Snapshot {
 
     // Returns the current snapshot format version.
     // Not to be confused with data version which refers to the aplication
-    // defined structures. 
-    // This version map allows us to change the underlying storage format - 
+    // defined structures.
+    // This version map allows us to change the underlying storage format -
     // for example the way we encode vectors or moving to something else than bincode.
     fn format_version_map() -> VersionMap {
         // Firecracker snapshot format version 1.
         VersionMap::new()
     }
 }
-
 
 mod tests {
     #![allow(non_upper_case_globals)]
@@ -493,7 +497,7 @@ mod tests {
             .set_type_version(Test::name(), 3)
             .new_version()
             .set_type_version(Test::name(), 4);
-        
+
         let state = Test {
             field0: 0,
             field1: 1,
@@ -502,14 +506,17 @@ mod tests {
             field4: vec![6000, 600, 60, 6],
             field_x: 0,
         };
-        
+
         let mut snapshot = Snapshot::new(vm.clone(), 4);
         // The section will succesfully be serialized.
         assert!(snapshot.write_section("test", &state).is_ok());
 
         snapshot = Snapshot::new(vm.clone(), 1);
         // The section will fail due to a custom semantic error.
-        assert_eq!(snapshot.write_section("test", &state), Err(Error::Semantic("field4 element sum is 6666".to_owned())));
+        assert_eq!(
+            snapshot.write_section("test", &state),
+            Err(Error::Semantic("field4 element sum is 6666".to_owned()))
+        );
     }
 
     #[test]
@@ -521,7 +528,7 @@ mod tests {
             .set_type_version(Test::name(), 3)
             .new_version()
             .set_type_version(Test::name(), 4);
-        
+
         let state = Test {
             field0: 6666,
             field1: 1,
@@ -532,7 +539,7 @@ mod tests {
         };
 
         let mut snapshot_mem = vec![0u8; 1024];
-        
+
         let mut snapshot = Snapshot::new(vm.clone(), 2);
         // The section will succesfully be serialized.
         assert!(snapshot.write_section("test", &state).is_ok());
@@ -541,10 +548,12 @@ mod tests {
         snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
         // The section load will fail due to a custom semantic error.
         let section_read_error = snapshot.read_section::<Test>("test").unwrap_err();
-        assert_eq!(section_read_error, Error::Semantic("field0 is 7777".to_owned()));
-
+        assert_eq!(
+            section_read_error,
+            Error::Semantic("field0 is 7777".to_owned())
+        );
     }
-    
+
     #[test]
     fn test_serialize_error() {
         let vm = VersionMap::new();
@@ -560,7 +569,10 @@ mod tests {
         let mut snapshot = Snapshot::new(vm.clone(), 1);
         // The section will succesfully be serialized.
         assert!(snapshot.write_section("test", &state_1).is_ok());
-        assert_eq!(snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap_err(), Error::Serialize("io error: failed to write whole buffer".to_owned()));
+        assert_eq!(
+            snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap_err(),
+            Error::Serialize("io error: failed to write whole buffer".to_owned())
+        );
     }
 
     #[test]
@@ -578,7 +590,9 @@ mod tests {
         let mut snapshot = Snapshot::new(vm.clone(), 1);
         // The section will succesfully be serialized.
         snapshot.write_section("test", &state_1).unwrap();
-        snapshot.save_with_crc64(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot
+            .save_with_crc64(&mut snapshot_mem.as_mut_slice())
+            .unwrap();
         Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
     }
 
@@ -597,11 +611,16 @@ mod tests {
         let mut snapshot = Snapshot::new(vm.clone(), 1);
         // The section will succesfully be serialized.
         snapshot.write_section("test", &state_1).unwrap();
-        snapshot.save_with_crc64(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot
+            .save_with_crc64(&mut snapshot_mem.as_mut_slice())
+            .unwrap();
         snapshot_mem[20] = 123;
-        assert_eq!(Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err(), Error::Crc64);
+        assert_eq!(
+            Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err(),
+            Error::Crc64
+        );
     }
-    
+
     #[test]
     fn test_deserialize_error() {
         let mut vm = VersionMap::new();
@@ -628,8 +647,12 @@ mod tests {
         assert_eq!(snapshot.save(&mut snapshot_mem.as_mut_slice()), Ok(()));
 
         snapshot_mem.truncate(10);
-        let snapshot_load_error = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err();
-        assert_eq!(snapshot_load_error, Error::Deserialize("io error: failed to fill whole buffer".to_owned()));
+        let snapshot_load_error =
+            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err();
+        assert_eq!(
+            snapshot_load_error,
+            Error::Deserialize("io error: failed to fill whole buffer".to_owned())
+        );
     }
 
     #[test]
@@ -781,7 +804,7 @@ mod tests {
     fn test_basic_add_remove_field() {
         #[derive(Versionize, Debug, PartialEq, Clone)]
         pub struct A {
-            #[snapshot(start_version = 1, end_version = 1)]
+            #[snapshot(start_version = 1, end_version = 2)]
             x: u32,
             y: String,
             #[snapshot(start_version = 2, default_fn = "default_A_z")]

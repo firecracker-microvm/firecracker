@@ -1,5 +1,5 @@
 use self::super::{Error, Result, VersionMap, Versionize};
-use vmm_sys_util::fam::{FamStructWrapper, FamStruct};
+use vmm_sys_util::fam::{FamStruct, FamStructWrapper};
 use vmm_sys_util::generate_fam_struct_impl;
 
 macro_rules! primitive_versionize {
@@ -114,10 +114,10 @@ where
     }
 }
 
-
 impl<T: Default + FamStruct + Versionize> Versionize for FamStructWrapper<T>
 where
-    <T as FamStruct>::Entry: Versionize, T: std::fmt::Debug,
+    <T as FamStruct>::Entry: Versionize,
+    T: std::fmt::Debug,
 {
     #[inline]
     fn serialize<W: std::io::Write>(
@@ -126,9 +126,11 @@ where
         version_map: &VersionMap,
         app_version: u16,
     ) -> Result<()> {
-
-        self.as_fam_struct_ref().serialize(&mut writer, version_map, app_version)?;
-        self.as_slice().to_vec().serialize(&mut writer, version_map, app_version)?;
+        self.as_fam_struct_ref()
+            .serialize(&mut writer, version_map, app_version)?;
+        self.as_slice()
+            .to_vec()
+            .serialize(&mut writer, version_map, app_version)?;
 
         Ok(())
     }
@@ -139,10 +141,13 @@ where
         version_map: &VersionMap,
         app_version: u16,
     ) -> Result<Self> {
-        let header = T::deserialize(reader, version_map, app_version).map_err(|ref err| Error::Deserialize(format!("{}", err)))?;
-        let entries: Vec<<T as FamStruct>::Entry>= Vec::deserialize(reader, version_map, app_version).map_err(|ref err| Error::Deserialize(format!("{}", err)))?;
+        let header = T::deserialize(reader, version_map, app_version)
+            .map_err(|ref err| Error::Deserialize(format!("{}", err)))?;
+        let entries: Vec<<T as FamStruct>::Entry> =
+            Vec::deserialize(reader, version_map, app_version)
+                .map_err(|ref err| Error::Deserialize(format!("{}", err)))?;
         let mut object = FamStructWrapper::from_entries(&entries);
-        std::mem::replace(object.as_mut_fam_struct(), header); 
+        std::mem::replace(object.as_mut_fam_struct(), header);
         Ok(object)
     }
 
@@ -157,13 +162,12 @@ where
     }
 }
 
-
 mod tests {
     #![allow(non_upper_case_globals)]
     #![allow(non_camel_case_types)]
     #![allow(non_snake_case)]
+    use super::super::{Result, Snapshot, VersionMap, Versionize};
     use super::*;
-    use super::super::{Snapshot, Versionize, VersionMap, Result};
 
     #[repr(C)]
     #[derive(Default, Debug, Versionize)]
@@ -171,7 +175,7 @@ mod tests {
         pub len: u32,
         pub padding: u32,
         pub value: u32,
-        #[snapshot(start_version = 2, default_fn="default_extra_value")]
+        #[snapshot(start_version = 2, default_fn = "default_extra_value")]
         pub extra_value: u16,
         pub entries: __IncompleteArrayField<u32>,
     }
@@ -192,9 +196,12 @@ mod tests {
                 let mut snapshot_mem = vec![0u8; 64];
 
                 let store: $ty = std::$ty::MAX;
-                store.serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1).unwrap();
-                let restore = <$ty as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
-               
+                store
+                    .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+                    .unwrap();
+                let restore =
+                    <$ty as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+
                 assert_eq!(store, restore);
             }
         };
@@ -212,6 +219,7 @@ mod tests {
     primitive_int_test!(i64, test_ser_de_i64);
     primitive_int_test!(f32, test_ser_de_f32);
     primitive_int_test!(f64, test_ser_de_f64);
+    primitive_int_test!(char, test_ser_de_char);
 
     #[test]
     fn test_ser_de_bool() {
@@ -219,21 +227,27 @@ mod tests {
         let mut snapshot_mem = vec![0u8; 64];
 
         let store = true;
-        store.serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1).unwrap();
-        let restore = <bool as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
-       
+        store
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restore =
+            <bool as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+
         assert_eq!(store, restore);
     }
-    
+
     #[test]
     fn test_ser_de_string() {
         let vm = VersionMap::new();
         let mut snapshot_mem = vec![0u8; 64];
 
         let store = String::from("test string");
-        store.serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1).unwrap();
-        let restore = <String as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
-       
+        store
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restore =
+            <String as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+
         assert_eq!(store, restore);
     }
 
@@ -247,12 +261,15 @@ mod tests {
         store.push("test 2".to_owned());
         store.push("test 3".to_owned());
 
-        store.serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1).unwrap();
-        let restore = <Vec<String> as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
-       
+        store
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restore =
+            <Vec<String> as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+
         assert_eq!(store, restore);
     }
-    
+
     #[test]
     fn test_ser_de_vec_version() {
         type MessageFamStructWrapper = FamStructWrapper<Message>;
@@ -269,10 +286,17 @@ mod tests {
         store.push(f.clone());
         store.push(f.clone());
 
-        store.serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1).unwrap();
-        let restore = <Vec<MessageFamStructWrapper> as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        store
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restore = <Vec<MessageFamStructWrapper> as Versionize>::deserialize(
+            &mut snapshot_mem.as_slice(),
+            &vm,
+            1,
+        )
+        .unwrap();
         let eq = store == restore;
-        // This is important to test separately as we rely on the default_fn to 
+        // This is important to test separately as we rely on the default_fn to
         // override the u16 default value.
         assert_eq!(321, restore[0].as_fam_struct_ref().extra_value);
         assert!(eq);
@@ -303,6 +327,7 @@ mod tests {
             ::std::slice::from_raw_parts_mut(self.as_mut_ptr(), len)
         }
     }
+
     impl<T> ::std::fmt::Debug for __IncompleteArrayField<T> {
         fn fmt(&self, fmt: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
             fmt.write_str("__IncompleteArrayField")
@@ -345,8 +370,6 @@ mod tests {
             1
         }
     }
-    
-    
 
     #[test]
     fn test_famstruct() {
@@ -367,13 +390,22 @@ mod tests {
         snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
 
         snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let restored_state = snapshot.read_section::<MessageFamStructWrapper>("test").unwrap().unwrap();    
+        let restored_state = snapshot
+            .read_section::<MessageFamStructWrapper>("test")
+            .unwrap()
+            .unwrap();
         let original_values = f.as_slice();
         let restored_values = restored_state.as_slice();
 
-        assert_eq!(f.as_fam_struct_ref().padding, restored_state.as_fam_struct_ref().padding);
+        assert_eq!(
+            f.as_fam_struct_ref().padding,
+            restored_state.as_fam_struct_ref().padding
+        );
         assert_eq!(original_values, restored_values);
-        assert_eq!(f.as_fam_struct_ref().extra_value, restored_state.as_fam_struct_ref().extra_value);
+        assert_eq!(
+            f.as_fam_struct_ref().extra_value,
+            restored_state.as_fam_struct_ref().extra_value
+        );
     }
 
     #[test]
@@ -411,11 +443,17 @@ mod tests {
         snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
 
         snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let restored_state = snapshot.read_section::<MessageFamStructWrapper>("test").unwrap().unwrap();    
+        let restored_state = snapshot
+            .read_section::<MessageFamStructWrapper>("test")
+            .unwrap()
+            .unwrap();
         let original_values = f.as_slice();
         let restored_values = restored_state.as_slice();
 
-        assert_eq!(f.as_fam_struct_ref().padding, restored_state.as_fam_struct_ref().padding);
+        assert_eq!(
+            f.as_fam_struct_ref().padding,
+            restored_state.as_fam_struct_ref().padding
+        );
         assert_eq!(original_values, restored_values);
     }
 }

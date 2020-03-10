@@ -2,12 +2,11 @@ extern crate criterion;
 extern crate snapshot;
 extern crate snapshot_derive;
 
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
-use snapshot::{Snapshot, Result, Error};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use snapshot::version_map::VersionMap;
 use snapshot::Versionize;
+use snapshot::{Error, Result, Snapshot};
 use snapshot_derive::Versionize;
-
 
 #[derive(Versionize, Clone, Default, Debug)]
 struct Test {
@@ -90,26 +89,29 @@ impl Test {
 pub fn bench_restore_v1(mut snapshot_mem: &[u8], vm: VersionMap) {
     let mut loaded_snapshot = Snapshot::load(&mut snapshot_mem, vm).unwrap();
 
-    if let Some(mut state) = loaded_snapshot
-        .read_section::<Test>("test")
-        .unwrap()
-    {
+    if let Some(mut state) = loaded_snapshot.read_section::<Test>("test").unwrap() {
         state.field2 += 1;
     }
 }
 
 #[inline]
-pub fn bench_snapshot_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize{
+pub fn bench_snapshot_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize {
     let state = Test {
-        dummy: vec![Dummy{ dummy: 123, string: "xxx".to_owned()}; 100],
+        dummy: vec![
+            Dummy {
+                dummy: 123,
+                string: "xxx".to_owned()
+            };
+            100
+        ],
         field0: 0,
         field1: 1,
         field2: 2,
         field3: "test".to_owned(),
-        field4: vec![4; 1024*10],
+        field4: vec![4; 1024 * 10],
         field_x: 0,
     };
-    
+
     // Serialize as v4.
     let mut snapshot = Snapshot::new(vm.clone(), 4);
     let size = snapshot.write_section("test", &state).unwrap();
@@ -121,26 +123,29 @@ pub fn bench_snapshot_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize{
 pub fn bench_restore_crc_v1(mut snapshot_mem: &[u8], vm: VersionMap) {
     let mut loaded_snapshot = Snapshot::load_with_crc64(&mut snapshot_mem, vm).unwrap();
 
-    if let Some(mut state) = loaded_snapshot
-        .read_section::<Test>("test")
-        .unwrap()
-    {
+    if let Some(mut state) = loaded_snapshot.read_section::<Test>("test").unwrap() {
         state.field2 += 1;
     }
 }
 
 #[inline]
-pub fn bench_snapshot_crc_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize{
+pub fn bench_snapshot_crc_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize {
     let state = Test {
-        dummy: vec![Dummy{ dummy: 123, string: "xxx".to_owned()}; 100],
+        dummy: vec![
+            Dummy {
+                dummy: 123,
+                string: "xxx".to_owned()
+            };
+            100
+        ],
         field0: 0,
         field1: 1,
         field2: 2,
         field3: "test".to_owned(),
-        field4: vec![4; 1024*10],
+        field4: vec![4; 1024 * 10],
         field_x: 0,
     };
-    
+
     // Serialize as v4.
     let mut snapshot = Snapshot::new(vm.clone(), 4);
     let size = snapshot.write_section("test", &state).unwrap();
@@ -149,7 +154,7 @@ pub fn bench_snapshot_crc_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usi
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    let mut snapshot_mem = vec![0u8; 1024*1024*128];
+    let mut snapshot_mem = vec![0u8; 1024 * 1024 * 128];
     let mut vm = VersionMap::new();
 
     vm.new_version()
@@ -158,19 +163,46 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .set_type_version(Test::name(), 3)
         .new_version()
         .set_type_version(Test::name(), 4);
-    
+
     let mut snapshot_len = bench_snapshot_v1(&mut snapshot_mem.as_mut_slice(), vm.clone());
     println!("Snapshot len {}", snapshot_len);
-    
-    c.bench_function("Serialize to v4", |b| b.iter(|| bench_snapshot_v1(black_box(&mut snapshot_mem.as_mut_slice()), black_box(vm.clone()))));
-    c.bench_function("Deserialize to v4", |b| b.iter(|| bench_restore_v1(black_box(&mut snapshot_mem.as_slice()), black_box(vm.clone()))));
-    
+
+    c.bench_function("Serialize to v4", |b| {
+        b.iter(|| {
+            bench_snapshot_v1(
+                black_box(&mut snapshot_mem.as_mut_slice()),
+                black_box(vm.clone()),
+            )
+        })
+    });
+    c.bench_function("Deserialize to v4", |b| {
+        b.iter(|| {
+            bench_restore_v1(
+                black_box(&mut snapshot_mem.as_slice()),
+                black_box(vm.clone()),
+            )
+        })
+    });
+
     snapshot_len = bench_snapshot_crc_v1(&mut snapshot_mem.as_mut_slice(), vm.clone());
     println!("Snapshot with crc64 len {}", snapshot_len);
 
-    c.bench_function("Serialize with crc64 to v4", |b| b.iter(|| bench_snapshot_crc_v1(black_box(&mut snapshot_mem.as_mut_slice()), black_box(vm.clone()))));
-    c.bench_function("Deserialize with crc64 from v4", |b| b.iter(|| bench_restore_crc_v1(black_box(&mut snapshot_mem.as_slice()), black_box(vm.clone()))));
-
+    c.bench_function("Serialize with crc64 to v4", |b| {
+        b.iter(|| {
+            bench_snapshot_crc_v1(
+                black_box(&mut snapshot_mem.as_mut_slice()),
+                black_box(vm.clone()),
+            )
+        })
+    });
+    c.bench_function("Deserialize with crc64 from v4", |b| {
+        b.iter(|| {
+            bench_restore_crc_v1(
+                black_box(&mut snapshot_mem.as_slice()),
+                black_box(vm.clone()),
+            )
+        })
+    });
 }
 
 criterion_group! {

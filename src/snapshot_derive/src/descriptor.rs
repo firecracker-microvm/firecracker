@@ -1,9 +1,17 @@
+use common::{compute_version, generate_deserializer_header, Exists, FieldType};
 use enum_field::*;
 use quote::{format_ident, quote};
-use std::cmp::max;
 use struct_field::*;
 use union_field::*;
 
+// An interface for generating serialzer and deserializers based on
+// field descriptions.
+pub trait Descriptor {
+    fn generate_serializer(&self) -> proc_macro2::TokenStream;
+    fn generate_deserializer(&self) -> proc_macro2::TokenStream;
+    fn version(&self) -> u16;
+    fn ty(&self) -> String;
+}
 
 // Describes a structure and it's fields.
 pub(crate) struct StructDescriptor {
@@ -26,42 +34,9 @@ pub(crate) struct UnionDescriptor {
     fields: Vec<UnionField>,
 }
 
-
-impl StructDescriptor {
-    pub fn new(input: &syn::DataStruct, ident: syn::Ident) -> Self {
-        let mut descriptor = StructDescriptor {
-            ty: ident,
-            version: 1, // struct start at version 1.
-            fields: vec![],
-        };
-
-        descriptor.parse_struct_fields(&input.fields);
-
-        // Compute current struct version.
-        for field in &descriptor.fields {
-            descriptor.version = max(
-                descriptor.version,
-                max(field.get_start_version(), field.get_end_version()),
-            );
-        }
-        descriptor
-    }
-
-    // Parses the struct field by field.
-    fn parse_struct_fields(&mut self, fields: &syn::Fields) {
-        match fields {
-            syn::Fields::Named(ref named_fields) => {
-                let pairs = named_fields.named.pairs();
-                for field in pairs.into_iter() {
-                    self.fields.push(StructField::new(self.version, field));
-                }
-            }
-            _ => panic!("Only named fields are supported."),
-        }
-    }
-
+impl Descriptor for StructDescriptor {
     // Returns a token stream containing the serializer body.
-    pub fn generate_serializer(&self) -> proc_macro2::TokenStream {
+    fn generate_serializer(&self) -> proc_macro2::TokenStream {
         let mut versioned_serializers = proc_macro2::TokenStream::new();
 
         for i in 1..=self.version {
@@ -93,39 +68,14 @@ impl StructDescriptor {
                 _ => panic!("Unknown {} version {}.", &Self::name(), version)
             }
         };
-
         result
     }
 
-    fn generate_deserializer_header(&self) -> proc_macro2::TokenStream {
-        // Just checking if there are any array fields present.
-        // If so, include the vec2array macro.
-        if let Some(_) = self.fields.iter().find(|&field| field.is_array()) {
-            return quote! {
-                use std::convert::TryInto;
-
-                // This macro will generate a function that copies a vec to an array.
-                // We serialize arrays as vecs.
-                macro_rules! vec_to_arr_func {
-                    ($name:ident, $type:ty, $size:expr) => {
-                        pub fn $name(data: &std::vec::Vec<$type>) -> [$type; $size] {
-                            let mut arr = [<$type as Default>::default(); $size];
-                            arr.copy_from_slice(&data[0..$size]);
-                            arr
-                        }
-                    };
-                }
-            };
-        }
-
-        quote! {}
-    }
-
     // Returns a token stream containing the serializer body.
-    pub fn generate_deserializer(&self) -> proc_macro2::TokenStream {
+    fn generate_deserializer(&self) -> proc_macro2::TokenStream {
         let mut versioned_deserializers = proc_macro2::TokenStream::new();
         let struct_ident = format_ident!("{}", self.ty);
-        let header = self.generate_deserializer_header();
+        let header = generate_deserializer_header(&self.fields);
 
         for i in 1..=self.version {
             let mut versioned_deserializer = proc_macro2::TokenStream::new();
@@ -156,39 +106,45 @@ impl StructDescriptor {
             }
         }
     }
+    fn version(&self) -> u16 {
+        self.version
+    }
+
+    fn ty(&self) -> String {
+        self.ty.to_string()
+    }
 }
 
-impl EnumDescriptor {
-    pub fn new(input: &syn::DataEnum, ident: syn::Ident) -> Self {
-        let mut descriptor = EnumDescriptor {
+impl StructDescriptor {
+    pub fn new(input: &syn::DataStruct, ident: syn::Ident) -> Self {
+        let mut descriptor = StructDescriptor {
             ty: ident,
             version: 1, // struct start at version 1.
             fields: vec![],
         };
 
-        descriptor.parse_enum_variants(&input.variants);
-     
-        // Compute current struct version.
-        for field in &descriptor.fields {
-            descriptor.version = max(
-                descriptor.version,
-                max(field.get_start_version(), field.get_end_version()),
-            );
-        }
+        // Fills self.fields.
+        descriptor.parse_struct_fields(&input.fields);
+        descriptor.version = compute_version(&descriptor.fields);
         descriptor
     }
 
-    fn parse_enum_variants(
-        &mut self,
-        variants: &syn::punctuated::Punctuated<syn::Variant, syn::token::Comma>,
-    ) {
-        for variant in variants.iter() {
-            self.fields.push(EnumVariant::new(self.version, variant));
+    // Parses the struct field by field.
+    fn parse_struct_fields(&mut self, fields: &syn::Fields) {
+        match fields {
+            syn::Fields::Named(ref named_fields) => {
+                let pairs = named_fields.named.pairs();
+                for field in pairs.into_iter() {
+                    self.fields.push(StructField::new(self.version, field));
+                }
+            }
+            _ => panic!("Only named fields are supported."),
         }
     }
+}
 
-    // Returns a token stream containing the serializer body.
-    pub fn generate_serializer(&self) -> proc_macro2::TokenStream {
+impl Descriptor for EnumDescriptor {
+    fn generate_serializer(&self) -> proc_macro2::TokenStream {
         let mut versioned_serializers = proc_macro2::TokenStream::new();
 
         for i in 1..=self.version {
@@ -224,13 +180,112 @@ impl EnumDescriptor {
 
     // Returns a token stream containing the deserializer body.
     // Versioned/semantic deserialization is not implemented for enums.
-    pub fn generate_deserializer(&self) -> proc_macro2::TokenStream {
+    fn generate_deserializer(&self) -> proc_macro2::TokenStream {
         let ident = format_ident!("{}", self.ty);
 
         quote! {
             let variant: #ident = bincode::deserialize_from(&mut reader).map_err(|ref err| Error::Deserialize(format!("{}", err)))?;
             Ok(variant)
         }
+    }
+
+    fn version(&self) -> u16 {
+        self.version
+    }
+
+    fn ty(&self) -> String {
+        self.ty.to_string()
+    }
+}
+
+impl EnumDescriptor {
+    pub fn new(input: &syn::DataEnum, ident: syn::Ident) -> Self {
+        let mut descriptor = EnumDescriptor {
+            ty: ident,
+            version: 1,
+            fields: vec![],
+        };
+
+        descriptor.parse_enum_variants(&input.variants);
+        descriptor.version = compute_version(&descriptor.fields);
+        descriptor
+    }
+
+    fn parse_enum_variants(
+        &mut self,
+        variants: &syn::punctuated::Punctuated<syn::Variant, syn::token::Comma>,
+    ) {
+        for variant in variants.iter() {
+            self.fields.push(EnumVariant::new(self.version, variant));
+        }
+    }
+}
+
+impl Descriptor for UnionDescriptor {
+    fn generate_serializer(&self) -> proc_macro2::TokenStream {
+        let mut versioned_serializers = proc_macro2::TokenStream::new();
+
+        for i in 1..=self.version {
+            let mut versioned_serializer = proc_macro2::TokenStream::new();
+            for field in &self.fields {
+                versioned_serializer.extend(field.generate_serializer(i));
+            }
+
+            let union_serializer = self.generate_union_serializer(i);
+
+            // We aim here to serialize the largest field in the structure only.
+            versioned_serializers.extend(quote! {
+                #i => {
+                    #union_serializer
+                }
+            });
+        }
+
+        let result = quote! {
+            // Get the struct version for the input app_version.
+            let version = version_map.get_type_version(app_version, &Self::name());
+            // We will use this copy to perform semantic serialization.
+            let mut copy_of_self = self.clone();
+            match version {
+                #versioned_serializers
+                _ => panic!("Unknown {} version {}.", &Self::name(), version)
+            }
+        };
+
+        result
+    }
+
+    // Returns a token stream containing the deserializer body.
+    fn generate_deserializer(&self) -> proc_macro2::TokenStream {
+        let mut versioned_deserializers = proc_macro2::TokenStream::new();
+
+        for i in 1..=self.version {
+            let union_serializer = self.generate_union_deserializer(i);
+
+            versioned_deserializers.extend(quote! {
+                #i => {
+                    let mut object = Self::default();
+                    #union_serializer;
+                    Ok(object)
+                }
+            });
+        }
+
+        quote! {
+            let version = version_map.get_type_version(app_version, &Self::name());
+            match version {
+                #versioned_deserializers
+                _ => panic!("Unknown {} version {}.", Self::name(), version)
+            }
+        }
+    }
+
+    fn version(&self) -> u16 {
+        self.version
+    }
+
+    fn ty(&self) -> String {
+        self.ty.to_string()
     }
 }
 
@@ -243,50 +298,15 @@ impl UnionDescriptor {
         };
 
         descriptor.parse_union_fields(&input.fields);
-
-        // TODO: deduplicate this snippet - it is present in all descriptor
-        // constructors.
-        for field in &descriptor.fields {
-            descriptor.version = max(
-                descriptor.version,
-                max(field.get_start_version(), field.get_end_version()),
-            );
-        }
+        descriptor.version = compute_version(&descriptor.fields);
         descriptor
     }
-
 
     fn parse_union_fields(&mut self, fields: &syn::FieldsNamed) {
         let pairs = fields.named.pairs();
         for field in pairs.into_iter() {
             self.fields.push(UnionField::new(self.version, field));
         }
-    }
-    
-    // TODO: This code is duplicated in StructDescriptor. Refactor to
-    // have a single implementation.
-    fn generate_deserializer_header(&self) -> proc_macro2::TokenStream {
-        // Just checking if there are any array fields present.
-        // If so, include the vec2array macro.
-        if let Some(_) = self.fields.iter().find(|&field| field.is_array()) {
-            return quote! {
-                use std::convert::TryInto;
-
-                // This macro will generate a function that copies a vec to an array.
-                // We serialize arrays as vecs.
-                macro_rules! vec_to_arr_func {
-                    ($name:ident, $type:ty, $size:expr) => {
-                        pub fn $name(data: &std::vec::Vec<$type>) -> [$type; $size] {
-                            let mut arr = [<$type as Default>::default(); $size];
-                            arr.copy_from_slice(&data[0..$size]);
-                            arr
-                        }
-                    };
-                }
-            };
-        }
-
-        quote! {}
     }
 
     fn generate_union_serializer(&self, target_version: u16) -> proc_macro2::TokenStream {
@@ -295,10 +315,8 @@ impl UnionDescriptor {
 
         let mut index: usize = 0;
         for field in &self.fields {
-            if target_version >= field.get_start_version()
-                || (field.get_end_version() > 0 && target_version <= field.get_end_version())
-            {
-                let field_type = field.get_type();
+            if field.exists_at(target_version) {
+                let field_type = field.ty();
                 let field_serializer = field.generate_serializer(target_version);
 
                 // Now generate code that compares each size of the fields and selects the largest one.
@@ -337,26 +355,29 @@ impl UnionDescriptor {
     fn generate_union_deserializer(&self, source_version: u16) -> proc_macro2::TokenStream {
         let mut sizes = proc_macro2::TokenStream::new();
         let mut matcher = proc_macro2::TokenStream::new();
-        let header = self.generate_deserializer_header();
+        let header = generate_deserializer_header(&self.fields);
 
         let mut index: usize = 0;
-        for field in &self.fields {
-            if source_version >= field.get_start_version()
-                || (field.get_end_version() > 0 && source_version <= field.get_end_version())
-            {
-                let field_type = field.get_type();
-                let field_deserializer = field.generate_deserializer(source_version);
 
-                // Now generate code that compares each size of the fields and selects the largest one.
-                sizes.extend(quote! {
-                    std::mem::size_of::<#field_type> as usize,
-                });
+        let deserializable_fields: Vec<&UnionField> = self
+            .fields
+            .iter()
+            .filter(|field| field.exists_at(source_version))
+            .collect();
 
-                matcher.extend(quote! {
-                    #index => #field_deserializer,
-                });
-                index += 1;
-            }
+        for field in &deserializable_fields {
+            let field_type = field.ty();
+            let field_deserializer = field.generate_deserializer(source_version);
+
+            // Now generate code that compares each size of the fields and selects the largest one.
+            sizes.extend(quote! {
+                std::mem::size_of::<#field_type> as usize,
+            });
+
+            matcher.extend(quote! {
+                #index => #field_deserializer,
+            });
+            index += 1;
         }
 
         quote! {
@@ -376,67 +397,5 @@ impl UnionDescriptor {
                 _ => panic!("Cannot find largest union field index")
             }
         }
-    }
-
-    // Returns a token stream containing the serializer body.
-    pub fn generate_serializer(&self) -> proc_macro2::TokenStream {
-        let mut versioned_serializers = proc_macro2::TokenStream::new();
-
-        for i in 1..=self.version {
-            let mut versioned_serializer = proc_macro2::TokenStream::new();
-
-            for field in &self.fields {
-                versioned_serializer.extend(field.generate_serializer(i));
-            }
-
-            let union_serializer = self.generate_union_serializer(i);
-
-            // We aim here to serialize the largest field in the structure only.
-            versioned_serializers.extend(quote! {
-                #i => {
-                    #union_serializer
-                }
-            });
-            
-        }
-
-        let result = quote! {
-            // Get the struct version for the input app_version.
-            let version = version_map.get_type_version(app_version, &Self::name());
-            // We will use this copy to perform semantic serialization.
-            let mut copy_of_self = self.clone();
-            match version {
-                #versioned_serializers
-                _ => panic!("Unknown {} version {}.", &Self::name(), version)
-            }
-        };
-
-        result
-    }
-
-    // Returns a token stream containing the deserializer body.
-    pub fn generate_deserializer(&self) -> proc_macro2::TokenStream {
-        let mut versioned_deserializers = proc_macro2::TokenStream::new();
-       
-        for i in 1..=self.version {
-            let union_serializer = self.generate_union_deserializer(i);
-
-            versioned_deserializers.extend(quote! {
-                #i => {
-                    let mut object = Self::default();
-                    #union_serializer;
-                    Ok(object)
-                }
-            });
-        }
-
-        quote! {
-            let version = version_map.get_type_version(app_version, &Self::name());
-            match version {
-                #versioned_deserializers
-                _ => panic!("Unknown {} version {}.", Self::name(), version)
-            }
-        }
-
     }
 }
