@@ -48,8 +48,8 @@ impl Into<Level> for LoggerLevel {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LoggerConfig {
-    /// Named pipe used as output for logs.
-    pub log_fifo: PathBuf,
+    /// Named pipe or file used as output for logs.
+    pub log_path: PathBuf,
     /// The level of the Logger.
     #[serde(default = "LoggerLevel::default")]
     pub level: LoggerLevel,
@@ -91,7 +91,7 @@ pub fn init_logger(
         .init(
             format!("Running {} v{}", "Firecracker", firecracker_version),
             Box::new(
-                Writer::new(logger_cfg.log_fifo)
+                Writer::new(logger_cfg.log_path)
                     .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
             ),
         )
@@ -114,7 +114,7 @@ mod tests {
     fn test_init_logger() {
         // Error case: initializing logger with invalid pipe returns error.
         let desc = LoggerConfig {
-            log_fifo: PathBuf::from("not_found_file_log"),
+            log_path: PathBuf::from("not_found_file_log"),
             level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
@@ -124,7 +124,7 @@ mod tests {
         // Initializing logger with valid pipe is ok.
         let log_file = TempFile::new().unwrap();
         let desc = LoggerConfig {
-            log_fifo: log_file.as_path().to_path_buf(),
+            log_path: log_file.as_path().to_path_buf(),
             level: LoggerLevel::Info,
             show_level: true,
             show_log_origin: true,

@@ -14,8 +14,8 @@ use super::Writer;
 /// Strongly typed structure used to describe the metrics system.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct MetricsConfig {
-    /// Named pipe used as output for metrics.
-    pub metrics_fifo: PathBuf,
+    /// Named pipe or file used as output for metrics.
+    pub metrics_path: PathBuf,
 }
 
 /// Errors associated with actions on the `MetricsConfig`.
@@ -40,7 +40,7 @@ impl Display for MetricsConfigError {
 /// Configures the metrics as described in `metrics_cfg`.
 pub fn init_metrics(metrics_cfg: MetricsConfig) -> std::result::Result<(), MetricsConfigError> {
     METRICS
-        .init(Box::new(Writer::new(metrics_cfg.metrics_fifo).map_err(
+        .init(Box::new(Writer::new(metrics_cfg.metrics_path).map_err(
             |e| MetricsConfigError::InitializationFailure(e.to_string()),
         )?))
         .map_err(|e| MetricsConfigError::InitializationFailure(e.to_string()))
@@ -55,14 +55,14 @@ mod tests {
     fn test_init_metrics() {
         // Error case: initializing metrics with invalid pipe returns error.
         let desc = MetricsConfig {
-            metrics_fifo: PathBuf::from("not_found_file_metrics"),
+            metrics_path: PathBuf::from("not_found_file_metrics"),
         };
         assert!(init_metrics(desc).is_err());
 
         // Initializing metrics with valid pipe is ok.
         let metrics_file = TempFile::new().unwrap();
         let desc = MetricsConfig {
-            metrics_fifo: metrics_file.as_path().to_path_buf(),
+            metrics_path: metrics_file.as_path().to_path_buf(),
         };
 
         assert!(init_metrics(desc.clone()).is_ok());

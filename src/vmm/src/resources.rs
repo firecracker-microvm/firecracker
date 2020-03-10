@@ -523,7 +523,7 @@ mod tests {
                         }}
                     ],
                     "logger": {{
-	                    "log_fifo": "/invalid/path"
+	                    "log_path": "/invalid/path"
                     }}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),
@@ -551,7 +551,7 @@ mod tests {
                         }}
                     ],
                     "metrics": {{
-	                    "metrics_fifo": "/invalid/path"
+	                    "metrics_path": "/invalid/path"
                     }}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),

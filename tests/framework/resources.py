@@ -199,19 +199,15 @@ class Logger():
 
     @staticmethod
     def create_json(
-            log_fifo=None,
-            metrics_fifo=None,
+            log_path=None,
             level=None,
             show_level=None,
             show_log_origin=None):
         """Compose the json associated to this type of API request."""
         datax = {}
 
-        if log_fifo is not None:
-            datax['log_fifo'] = log_fifo
-
-        if metrics_fifo is not None:
-            datax['metrics_fifo'] = metrics_fifo
+        if log_path is not None:
+            datax['log_path'] = log_path
 
         if level is not None:
             datax['level'] = level
@@ -256,12 +252,12 @@ class Metrics:
 
     @staticmethod
     def create_json(
-            metrics_fifo=None,
+            metrics_path=None,
     ):
         """Compose the json associated to this type of API request."""
         datax = {}
-        if metrics_fifo is not None:
-            datax['metrics_fifo'] = metrics_fifo
+        if metrics_path is not None:
+            datax['metrics_path'] = metrics_path
         return datax
 
 

@@ -26,7 +26,7 @@ def test_startup_time(test_microvm_with_api):
     log_fifo = log_tools.Fifo(log_fifo_path)
 
     response = microvm.logger.put(
-        log_fifo=microvm.create_jailed_resource(log_fifo.path)
+        log_path=microvm.create_jailed_resource(log_fifo.path)
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
 
@@ -35,7 +35,7 @@ def test_startup_time(test_microvm_with_api):
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = microvm.metrics.put(
-        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path)
+        metrics_path=microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
 

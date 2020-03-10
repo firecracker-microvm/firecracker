@@ -17,7 +17,7 @@ def test_flush_metrics(test_microvm_with_api):
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = microvm.metrics.put(
-        metrics_fifo=microvm.create_jailed_resource(metrics_fifo.path)
+        metrics_path=microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
 

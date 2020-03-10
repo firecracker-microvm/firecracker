@@ -4,7 +4,7 @@
     "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
   },
   "logger": {
-    "log_fifo": "log_fifo"
+    "log_path": "log_fifo"
   },
   "drives": [
     {

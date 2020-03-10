@@ -512,11 +512,11 @@ definitions:
     description:
       Describes the configuration option for the logging capability.
     required:
-      - log_fifo
+      - log_path
     properties:
-      log_fifo:
+      log_path:
         type: string
-        description: The named pipe or file for the human readable log output.
+        description: Path to the named pipe or file for the human readable log output.
       level:
         type: string
         description: Set the level.
@@ -560,11 +560,11 @@ definitions:
     description:
       Describes the configuration option for the metrics capability.
     required:
-      - metrics_fifo
+      - metrics_path
     properties:
-      metrics_fifo:
+      metrics_path:
         type: string
-        description: The named pipe or file where the JSON-formatted metrics will be flushed.
+        description: Path to the named pipe or file where the JSON-formatted metrics will be flushed.
 
   NetworkInterface:
     type: object

@@ -125,7 +125,7 @@ def test_log_config_failure(test_microvm_with_api):
     microvm.basic_config()
 
     response = microvm.logger.put(
-        log_fifo='invalid log fifo',
+        log_path='invalid log fifo',
         level='Info',
         show_level=True,
         show_log_origin=True,
@@ -135,7 +135,7 @@ def test_log_config_failure(test_microvm_with_api):
 
 
 def log_file_contains_strings(log_fifo, string_list):
-    """Check if the log file contains all strings in string_list.
+    """Check if the log fifo contains all strings in string_list.
 
     We search for each string in the string_list array only in the
     first 100 lines of the log.
@@ -163,7 +163,7 @@ def test_api_requests_logs(test_microvm_with_api):
     log_fifo = log_tools.Fifo(log_fifo_path)
 
     response = microvm.logger.put(
-        log_fifo=microvm.create_jailed_resource(log_fifo.path),
+        log_path=microvm.create_jailed_resource(log_fifo.path),
         level='Info',
         show_level=True,
         show_log_origin=True,
@@ -262,14 +262,14 @@ def _test_log_config(
     log_fifo = log_tools.Fifo(log_fifo_path)
     if platform.machine() == 'x86_64':
         response = microvm.logger.put(
-            log_fifo=microvm.create_jailed_resource(log_fifo.path),
+            log_path=microvm.create_jailed_resource(log_fifo.path),
             level=log_level,
             show_level=show_level,
             show_log_origin=show_origin
            )
     else:
         response = microvm.logger.put(
-            log_fifo=microvm.create_jailed_resource(log_fifo.path),
+            log_path=microvm.create_jailed_resource(log_fifo.path),
             level=log_level,
             show_level=show_level,
             show_log_origin=show_origin,

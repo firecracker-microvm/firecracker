@@ -26,14 +26,14 @@ mod tests {
     #[test]
     fn test_parse_put_logger_request() {
         let body = r#"{
-                "log_fifo": "log",
+                "log_path": "log",
                 "level": "Warning",
                 "show_level": false,
                 "show_log_origin": false
               }"#;
 
         let expected_cfg = LoggerConfig {
-            log_fifo: PathBuf::from("log"),
+            log_path: PathBuf::from("log"),
             level: LoggerLevel::Warning,
             show_level: false,
             show_log_origin: false,
