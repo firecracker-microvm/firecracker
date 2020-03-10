@@ -1,5 +1,6 @@
-use common::{get_ident_attr, parse_field_attributes};
+use common::{get_end_version, get_ident_attr, get_start_version, parse_field_attributes, Exists};
 use quote::quote;
+use super::{DEFAULT_FN};
 use std::collections::hash_map::HashMap;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -9,6 +10,16 @@ pub(crate) struct EnumVariant {
     start_version: u16,
     end_version: u16,
     attrs: HashMap<String, syn::Lit>,
+}
+
+impl Exists for EnumVariant {
+    fn start_version(&self) -> u16 {
+        self.start_version
+    }
+
+    fn end_version(&self) -> u16 {
+        self.end_version
+    }
 }
 
 impl EnumVariant {
@@ -39,49 +50,17 @@ impl EnumVariant {
         }
 
         parse_field_attributes(&mut variant.attrs, &ast_variant.attrs);
-
-        // TODO: This code is duplicated in StructField, UnionField and EnumFields.
-        if let Some(start_version) = variant.get_attr("start_version") {
-            match start_version {
-                syn::Lit::Int(lit_int) => variant.start_version = lit_int.base10_parse().unwrap(),
-                _ => panic!("Field start/end version number must be an integer"),
-            }
-        }
-
-        if let Some(end_version) = variant.get_attr("end_version") {
-            match end_version {
-                syn::Lit::Int(lit_int) => variant.end_version = lit_int.base10_parse().unwrap(),
-                _ => panic!("Field start/end version number must be an integer"),
-            }
-        }
-
+        variant.start_version = get_start_version(&variant.attrs).unwrap_or(base_version);
+        variant.end_version = get_end_version(&variant.attrs).unwrap_or_default();
         variant
-    }
-
-    fn get_default(&self) -> Option<syn::Ident> {
-        get_ident_attr(&self.attrs, "default_fn")
-    }
-
-    fn get_attr(&self, attr: &str) -> Option<&syn::Lit> {
-        self.attrs.get(attr)
-    }
-
-    pub fn get_start_version(&self) -> u16 {
-        self.start_version
-    }
-
-    pub fn get_end_version(&self) -> u16 {
-        self.end_version
     }
 
     // Emits code that serializes an enum variant.
     pub fn generate_serializer(&self, target_version: u16) -> proc_macro2::TokenStream {
         let field_ident = &self.ident;
 
-        if target_version < self.start_version
-            || (self.end_version > 0 && target_version > self.end_version)
-        {
-            if let Some(default_fn_ident) = self.get_default() {
+        if !self.exists_at(target_version) {
+            if let Some(default_fn_ident) = get_ident_attr(&self.attrs, DEFAULT_FN) {
                 return quote! {
                     Self::#field_ident => {
                         let variant = self.#default_fn_ident(version);

@@ -1,3 +1,6 @@
+[workspace]
+members = []
+
 [package]
 name = "snapshot_derive"
 version = "0.0.1"
