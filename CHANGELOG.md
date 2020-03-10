@@ -19,6 +19,8 @@
   the process will exit with return code 152.
 - Removed the `testrun.sh` wrapper.
 - Removed `metrics_fifo` field from the logger configuration.
+- Renamed `log_fifo` field from LoggerConfig to `log_path` and
+  `metrics_fifo` field from MetricsConfig to `metrics_path`.
 
 ## [0.21.0]
 

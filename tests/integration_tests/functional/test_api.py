@@ -460,7 +460,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     log_fifo = log_tools.Fifo(log_fifo_path)
 
     response = test_microvm.logger.put(
-        log_fifo=test_microvm.create_jailed_resource(log_fifo.path)
+        log_path=test_microvm.create_jailed_resource(log_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -469,7 +469,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = test_microvm.metrics.put(
-        metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path)
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -527,7 +527,7 @@ def test_api_patch_post_boot(test_microvm_with_api):
     log_fifo = log_tools.Fifo(log_fifo_path)
 
     response = test_microvm.logger.put(
-        log_fifo=test_microvm.create_jailed_resource(log_fifo.path)
+        log_path=test_microvm.create_jailed_resource(log_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -536,7 +536,7 @@ def test_api_patch_post_boot(test_microvm_with_api):
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = test_microvm.metrics.put(
-        metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path)
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 

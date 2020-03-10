@@ -24,7 +24,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -H "accept: application/json" \
     -H "Content-Type: application/json" \
     -d "{
-             \"log_fifo\": \"logs.fifo\"
+             \"log_path\": \"logs.fifo\"
     }"
 
 # Configure the Metrics system.
@@ -33,7 +33,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -H "accept: application/json" \
     -H "Content-Type: application/json" \
     -d "{
-             \"metrics_fifo\": \"metrics.fifo\"
+             \"metrics_path\": \"metrics.fifo\"
     }"
 ```
 
