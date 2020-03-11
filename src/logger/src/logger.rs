@@ -501,7 +501,6 @@ impl Log for Logger {
 
 #[cfg(test)]
 mod tests {
-
     use std::fs::{File, OpenOptions};
     use std::io::{BufRead, BufReader, ErrorKind};
     use std::ops::Deref;

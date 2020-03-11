@@ -9,8 +9,6 @@
 //! [here]: https://en.wikipedia.org/wiki/Address_Resolution_Protocol
 
 use std::convert::From;
-#[cfg(test)]
-use std::fmt;
 use std::net::Ipv4Addr;
 use std::result::Result;
 
@@ -341,6 +339,7 @@ pub fn test_speculative_tpa(buf: &[u8], addr: Ipv4Addr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt;
 
     impl<'a, T: NetworkBytes> fmt::Debug for EthIPv4ArpFrame<'a, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
