@@ -298,6 +298,12 @@ mod tests {
     use pdu::tcp::Flags as TcpFlags;
     use tcp::connection::tests::ConnectionTester;
 
+    impl Endpoint {
+        pub fn set_eviction_threshold(&mut self, value: u64) {
+            self.eviction_threshold = value;
+        }
+    }
+
     impl fmt::Debug for Endpoint {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "(Endpoint)")
@@ -504,12 +510,5 @@ mod tests {
                 .unwrap();
             assert_eq!(s.inner().flags_after_ns(), TcpFlags::RST);
         }
-    }
-}
-
-#[cfg(test)]
-impl Endpoint {
-    pub fn set_eviction_threshold(&mut self, value: u64) {
-        self.eviction_threshold = value;
     }
 }
