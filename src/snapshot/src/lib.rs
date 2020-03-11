@@ -1,5 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
 extern crate bincode;
 extern crate crc64;
 extern crate serde;
@@ -261,7 +262,7 @@ impl Snapshot {
     // Reads a section (deserialize/translate) from a snapshot.
     pub fn read_section<T>(&mut self, name: &str) -> Result<Option<T>>
     where
-        T: Versionize + 'static,
+        T: Versionize,
     {
         if self.sections.contains_key(name) {
             let section = &mut self.sections.get_mut(name).unwrap();
@@ -277,7 +278,7 @@ impl Snapshot {
     // Write a section (serialize/translate) to a snapshot.
     pub fn write_section<T>(&mut self, name: &str, object: &T) -> Result<usize>
     where
-        T: Versionize + 'static,
+        T: Versionize,
     {
         let mut new_section = Section {
             name: name.to_owned(),

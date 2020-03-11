@@ -1,8 +1,11 @@
+// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use self::super::{Error, Result, VersionMap, Versionize};
 use vmm_sys_util::fam::{FamStruct, FamStructWrapper};
 use vmm_sys_util::generate_fam_struct_impl;
 
-macro_rules! primitive_versionize {
+macro_rules! impl_versionize {
     ($ty:ident) => {
         impl Versionize for $ty {
             #[inline]
@@ -41,28 +44,22 @@ macro_rules! primitive_versionize {
     };
 }
 
-primitive_versionize!(bool);
-primitive_versionize!(isize);
-primitive_versionize!(i8);
-primitive_versionize!(i16);
-primitive_versionize!(i32);
-primitive_versionize!(i64);
-primitive_versionize!(usize);
-primitive_versionize!(u8);
-primitive_versionize!(u16);
-primitive_versionize!(u32);
-primitive_versionize!(u64);
-primitive_versionize!(f32);
-primitive_versionize!(f64);
-primitive_versionize!(char);
+impl_versionize!(bool);
+impl_versionize!(isize);
+impl_versionize!(i8);
+impl_versionize!(i16);
+impl_versionize!(i32);
+impl_versionize!(i64);
+impl_versionize!(usize);
+impl_versionize!(u8);
+impl_versionize!(u16);
+impl_versionize!(u32);
+impl_versionize!(u64);
+impl_versionize!(f32);
+impl_versionize!(f64);
+impl_versionize!(char);
+impl_versionize!(String);
 
-primitive_versionize!(String);
-// primitive_versionize!(Option<T>);
-
-#[cfg(feature = "std")]
-primitive_versionize!(CStr);
-#[cfg(feature = "std")]
-primitive_versionize!(CString);
 
 impl<T> Versionize for Vec<T>
 where

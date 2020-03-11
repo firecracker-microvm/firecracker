@@ -1,3 +1,6 @@
+// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use quote::{format_ident, quote};
 use super::{START_VERSION, END_VERSION};
 use std::cmp::max;
@@ -130,4 +133,30 @@ where
     }
 
     quote! {}
+}
+
+
+mod tests {
+    use super::{Exists};
+    use syn::*;
+
+    #[test]
+    fn test_exists_at() {
+        impl Exists for u32 {
+            fn start_version(&self) -> u16 {
+                3
+            }
+
+            fn end_version(&self) -> u16 {
+                5
+            }
+        }
+
+        let test = 1234;
+        assert!(!test.exists_at(2));
+        assert!(test.exists_at(3));
+        assert!(test.exists_at(4));
+        assert!(!test.exists_at(5));
+        assert!(!test.exists_at(6));
+    }
 }
