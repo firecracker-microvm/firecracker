@@ -1,3 +1,6 @@
+// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use common::{get_end_version, get_ident_attr, get_start_version, parse_field_attributes, Exists};
 use quote::quote;
 use super::{DEFAULT_FN};

@@ -1,3 +1,6 @@
+// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use common::{compute_version, generate_deserializer_header, Exists, FieldType};
 use enum_field::*;
 use quote::{format_ident, quote};

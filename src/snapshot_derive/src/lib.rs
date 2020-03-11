@@ -1,7 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// The `quote!` macro requires deep recursion.
 extern crate proc_macro;
 extern crate proc_macro2;
 extern crate quote;
@@ -18,6 +17,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
+/// Struct annotation constants.
 pub(crate) const DEFAULT_FN: &str = "default_fn";
 pub(crate) const SEMANTIC_SER_FN: &str = "semantic_ser_fn";
 pub(crate) const SEMANTIC_DE_FN: &str = "semantic_de_fn";

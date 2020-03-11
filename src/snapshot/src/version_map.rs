@@ -1,3 +1,6 @@
+// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::collections::hash_map::HashMap;
 
 const BASE_VERSION: u16 = 1;
