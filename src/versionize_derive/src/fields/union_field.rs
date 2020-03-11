@@ -1,7 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use common::*;
+use common::{Exists, FieldType};
+use helpers::{get_end_version, get_start_version, is_array, parse_field_attributes};
 use quote::{format_ident, quote};
 use std::collections::hash_map::HashMap;
 
@@ -35,30 +36,25 @@ impl UnionField {
         base_version: u16,
         ast_field: syn::punctuated::Pair<&syn::Field, &syn::token::Comma>,
     ) -> Self {
-        let name = ast_field.value().ident.as_ref().unwrap().to_string();
-        let mut field = UnionField {
+        let attrs = parse_field_attributes(&ast_field.value().attrs);
+
+        UnionField {
             ty: ast_field.value().ty.clone(),
-            name,
-            start_version: base_version,
-            end_version: 0,
+            name: ast_field.value().ident.as_ref().unwrap().to_string(),
+            start_version: get_start_version(&attrs).unwrap_or(base_version),
+            end_version: get_end_version(&attrs).unwrap_or_default(),
             attrs: HashMap::new(),
-        };
-
-        parse_field_attributes(&mut field.attrs, &ast_field.value().attrs);
-
-        field.start_version = get_start_version(&field.attrs).unwrap_or(base_version);
-        field.end_version = get_end_version(&field.attrs).unwrap_or_default();
-
-        field
+        }
     }
 
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    // Emits code that serializes a union field.
     pub fn generate_serializer(&self, _target_version: u16) -> proc_macro2::TokenStream {
         let field_ident = format_ident!("{}", self.name());
+
+        // If the field is an array then serialize as a Vec<T>.
         if is_array(&self.ty()) {
             return quote! {
                 unsafe {
@@ -79,6 +75,10 @@ impl UnionField {
         let ty = &self.ty;
 
         match ty {
+            // Array deserialization is more verbose than serialization as we have to
+            // extract the array type and length from the AST.
+            // TODO!: Find a more efficient way to deserialize this array: currently we
+            // deserialize a Vec<T> and then copy the elements to the target array.
             syn::Type::Array(array) => {
                 let array_type_token;
                 let array_len: usize;
@@ -103,7 +103,7 @@ impl UnionField {
                         object.#field_ident = {
                             let v: Vec<#array_type_token> = <Vec<#array_type_token> as Versionize>::deserialize(&mut reader, version_map, app_version)?;
                             vec_to_arr_func!(transform_vec, #array_type_token, #array_len);
-                            transform_vec(&v)
+                            transform_vec(v)
                         }
                     }
                 }

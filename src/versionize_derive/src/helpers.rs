@@ -1,29 +1,11 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use super::{ATTRIBUTE_NAME, END_VERSION, START_VERSION};
+use common::{Exists, FieldType};
 use quote::{format_ident, quote};
-use super::{START_VERSION, END_VERSION};
 use std::cmp::max;
 use std::collections::hash_map::HashMap;
-
-// A trait that defines an interface to check if a certain field
-// exists at a specified version.
-pub(crate) trait Exists {
-    fn exists_at(&self, version: u16) -> bool {
-        // All fields have a start version.
-        // Some field do not have an end version specified.
-        version >= self.start_version()
-            && (0 == self.end_version() || (self.end_version() > 0 && version < self.end_version()))
-    }
-
-    fn start_version(&self) -> u16;
-    fn end_version(&self) -> u16;
-}
-
-// A trait that defines an interface for exposing a field type.
-pub(crate) trait FieldType {
-    fn ty(&self) -> syn::Type;
-}
 
 // Returns a string literal attribute as an Ident.
 pub(crate) fn get_ident_attr(
@@ -58,15 +40,14 @@ pub(crate) fn get_end_version(attrs: &HashMap<String, syn::Lit>) -> Option<u16> 
     None
 }
 
-// Parses field annotations.
-pub(crate) fn parse_field_attributes(
-    attrs: &mut HashMap<String, syn::Lit>,
-    attributes: &Vec<syn::Attribute>,
-) {
+// Returns an attribute hash_map constructed by processing a vector of syn::Attribute.
+pub(crate) fn parse_field_attributes(attributes: &[syn::Attribute]) -> HashMap<String, syn::Lit> {
+    let mut attrs = HashMap::new();
+
     for nested_attr in attributes
         .iter()
         .flat_map(|attr| -> Result<Vec<syn::NestedMeta>, ()> {
-            if !attr.path.is_ident("snapshot") {
+            if !attr.path.is_ident(ATTRIBUTE_NAME) {
                 return Ok(Vec::new());
             }
 
@@ -81,12 +62,14 @@ pub(crate) fn parse_field_attributes(
         if let syn::NestedMeta::Meta(nested_meta) = nested_attr {
             if let syn::Meta::NameValue(attr_name_value) = nested_meta {
                 attrs.insert(
-                    attr_name_value.path.segments[0].ident.to_string(),
+                    attr_name_value.path.get_ident().unwrap().to_string(),
                     attr_name_value.lit,
                 );
             }
         }
     }
+
+    attrs
 }
 
 pub fn is_array(ty: &syn::Type) -> bool {
@@ -96,8 +79,8 @@ pub fn is_array(ty: &syn::Type) -> bool {
     }
 }
 
-// Compute current struct version.
-pub(crate) fn compute_version<T>(fields: &Vec<T>) -> u16
+// Compute current struct version by finding the latest field change version.
+pub(crate) fn compute_version<T>(fields: &[T]) -> u16
 where
     T: Exists,
 {
@@ -108,13 +91,13 @@ where
     version
 }
 
-pub(crate) fn generate_deserializer_header<T>(fields: &Vec<T>) -> proc_macro2::TokenStream
+// Just checking if there are any array fields present.
+// If so, return a token stream with the vec2array macro.
+pub(crate) fn generate_deserializer_header<T>(fields: &[T]) -> proc_macro2::TokenStream
 where
     T: FieldType,
 {
-    // Just checking if there are any array fields present.
-    // If so, include the vec2array macro.
-    if let Some(_) = fields.iter().find(|&field| is_array(&field.ty())) {
+    if fields.iter().any(|field| is_array(&field.ty())) {
         return quote! {
             use std::convert::TryInto;
 
@@ -122,7 +105,7 @@ where
             // We serialize arrays as vecs.
             macro_rules! vec_to_arr_func {
                 ($name:ident, $type:ty, $size:expr) => {
-                    pub fn $name(data: &std::vec::Vec<$type>) -> [$type; $size] {
+                    pub fn $name(data: std::vec::Vec<$type>) -> [$type; $size] {
                         let mut arr = [<$type as Default>::default(); $size];
                         arr.copy_from_slice(&data[0..$size]);
                         arr
@@ -133,30 +116,4 @@ where
     }
 
     quote! {}
-}
-
-
-mod tests {
-    use super::{Exists};
-    use syn::*;
-
-    #[test]
-    fn test_exists_at() {
-        impl Exists for u32 {
-            fn start_version(&self) -> u16 {
-                3
-            }
-
-            fn end_version(&self) -> u16 {
-                5
-            }
-        }
-
-        let test = 1234;
-        assert!(!test.exists_at(2));
-        assert!(test.exists_at(3));
-        assert!(test.exists_at(4));
-        assert!(!test.exists_at(5));
-        assert!(!test.exists_at(6));
-    }
 }

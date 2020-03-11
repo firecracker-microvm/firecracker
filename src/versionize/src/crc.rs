@@ -1,10 +1,14 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Implements readers and writers that compute a CRC64 checksum on the bytes
+//! read/written.
+
 use crc64::crc64;
 use std::io::{Read, Write};
 
-pub(crate) struct CRC64Reader<T> {
+/// Computes CRC64 checksums from read bytes.
+pub struct CRC64Reader<T> {
     reader: T,
     crc64: u64,
 }
@@ -13,10 +17,11 @@ impl<T> CRC64Reader<T>
 where
     T: Read,
 {
+    /// Create a new reader.
     pub fn new(reader: T) -> Self {
         CRC64Reader { crc64: 0, reader }
     }
-
+    /// Returns the current checksum value.
     pub fn checksum(&self) -> u64 {
         self.crc64
     }
@@ -33,7 +38,8 @@ where
     }
 }
 
-pub(crate) struct CRC64Writer<T> {
+/// Computes CRC64 checksums from written bytes.
+pub struct CRC64Writer<T> {
     writer: T,
     crc64: u64,
 }
@@ -42,10 +48,12 @@ impl<T> CRC64Writer<T>
 where
     T: Write,
 {
+    /// Create a new writer.
     pub fn new(writer: T) -> Self {
         CRC64Writer { crc64: 0, writer }
     }
 
+    /// Returns the current checksum value.
     pub fn checksum(&self) -> u64 {
         self.crc64
     }
@@ -66,6 +74,7 @@ where
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::{CRC64Reader, CRC64Writer, Read, Write};
 
@@ -77,7 +86,7 @@ mod tests {
         let mut slice = buf.as_slice();
         let mut crc_reader = CRC64Reader::new(&mut slice);
         crc_reader.read_to_end(&mut read_buf).unwrap();
-        assert_eq!(crc_reader.checksum(), 0xFB0460DE06383654);
+        assert_eq!(crc_reader.checksum(), 0xFB04_60DE_0638_3654);
     }
 
     #[test]
@@ -95,8 +104,8 @@ mod tests {
 
         let mut slice = buf.as_mut_slice();
         let mut crc_writer = CRC64Writer::new(&mut slice);
-        crc_writer.write_all(&mut write_buf.as_slice()).unwrap();
+        crc_writer.write_all(&write_buf.as_slice()).unwrap();
         crc_writer.flush().unwrap();
-        assert_eq!(crc_writer.checksum(), 0x29D5357216326566);
+        assert_eq!(crc_writer.checksum(), 0x29D5_3572_1632_6566);
     }
 }

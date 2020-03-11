@@ -1,38 +1,38 @@
 extern crate criterion;
 extern crate snapshot;
-extern crate snapshot_derive;
+extern crate versionize;
+extern crate versionize_derive;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use snapshot::version_map::VersionMap;
-use snapshot::Versionize;
-use snapshot::{Error, Result, Snapshot};
-use snapshot_derive::Versionize;
+use snapshot::Snapshot;
+use versionize::{Error, Result, VersionMap, Versionize};
+use versionize_derive::Versionize;
 
-#[derive(Versionize, Clone, Default, Debug)]
+#[derive(Clone, Debug, Default, Versionize)]
 struct Test {
     dummy: Vec<Dummy>,
     field_x: u64,
     field0: u64,
     field1: u32,
-    #[snapshot(start_version = 2, default_fn = "field2_default")]
+    #[version(start = 2, default_fn = "field2_default")]
     field2: u64,
-    #[snapshot(
-        start_version = 3,
+    #[version(
+        start = 3,
         default_fn = "field3_default",
-        semantic_ser_fn = "field3_serialize",
-        semantic_de_fn = "field3_deserialize"
+        ser_fn = "field3_serialize",
+        de_fn = "field3_deserialize"
     )]
     field3: String,
-    #[snapshot(
-        start_version = 4,
+    #[version(
+        start = 4,
         default_fn = "field4_default",
-        semantic_ser_fn = "field4_serialize",
-        semantic_de_fn = "field4_deserialize"
+        ser_fn = "field4_serialize",
+        de_fn = "field4_deserialize"
     )]
     field4: Vec<u64>,
 }
 
-#[derive(Versionize, Clone, Default, Debug)]
+#[derive(Clone, Debug, Default, Versionize)]
 struct Dummy {
     dummy: u64,
     string: String,
@@ -89,9 +89,7 @@ impl Test {
 pub fn bench_restore_v1(mut snapshot_mem: &[u8], vm: VersionMap) {
     let mut loaded_snapshot = Snapshot::load(&mut snapshot_mem, vm).unwrap();
 
-    if let Some(mut state) = loaded_snapshot.read_section::<Test>("test").unwrap() {
-        state.field2 += 1;
-    }
+    loaded_snapshot.read_section::<Test>("test").unwrap();
 }
 
 #[inline]
@@ -122,10 +120,7 @@ pub fn bench_snapshot_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize {
 #[inline]
 pub fn bench_restore_crc_v1(mut snapshot_mem: &[u8], vm: VersionMap) {
     let mut loaded_snapshot = Snapshot::load_with_crc64(&mut snapshot_mem, vm).unwrap();
-
-    if let Some(mut state) = loaded_snapshot.read_section::<Test>("test").unwrap() {
-        state.field2 += 1;
-    }
+    loaded_snapshot.read_section::<Test>("test").unwrap();
 }
 
 #[inline]
@@ -158,11 +153,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut vm = VersionMap::new();
 
     vm.new_version()
-        .set_type_version(Test::name(), 2)
+        .set_type_version(Test::type_id(), 2)
         .new_version()
-        .set_type_version(Test::name(), 3)
+        .set_type_version(Test::type_id(), 3)
         .new_version()
-        .set_type_version(Test::name(), 4);
+        .set_type_version(Test::type_id(), 4);
 
     let mut snapshot_len = bench_snapshot_v1(&mut snapshot_mem.as_mut_slice(), vm.clone());
     println!("Snapshot len {}", snapshot_len);
