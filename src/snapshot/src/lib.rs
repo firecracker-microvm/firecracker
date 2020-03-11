@@ -837,48 +837,36 @@ mod tests {
             .new_version()
             .set_type_version(A::name(), 3);
 
-        let state = B {
-            a: A {
-                x: 0,
-                y: "test".to_owned(),
-                z: "basic".to_owned(),
-                q: 1234,
-            },
-            b: 20,
-        };
-        let mut snapshot_mem = vec![0u8; 1024 * 2];
+        // The blobs have been serialized from this state:
+        // let state = B {
+        //     a: A {
+        //         x: 0,
+        //         y: "test".to_owned(),
+        //         z: "basic".to_owned(),
+        //         q: 1234,
+        //     },
+        //     b: 20,
+        // };
+        let mut snapshot_blob = std::fs::File::open("blobs/basic_add_remove_field_v1.bin").unwrap();
 
-        // Serialize as v1.
-        let mut snapshot = Snapshot::new(vm.clone(), 1);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        let mut snapshot = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
         let mut restored_state = snapshot.read_section::<B>("test").unwrap().unwrap();
         println!("State: {:?}", restored_state);
         // Check if we serialized x correctly, that is if semantic_x() was called.
         assert_eq!(restored_state.a.x, 1234);
         assert_eq!(restored_state.a.z, stringify!(whatever));
 
-        // Serialize as v2.
-        snapshot = Snapshot::new(vm.clone(), 2);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        snapshot_blob = std::fs::File::open("blobs/basic_add_remove_field_v2.bin").unwrap();
+        snapshot = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
         restored_state = snapshot.read_section::<B>("test").unwrap().unwrap();
         println!("State: {:?}", restored_state);
         // Check if x was not serialized, it should be 0.
         assert_eq!(restored_state.a.x, 0);
         // z field was added in version to, make sure it contains the original value
         assert_eq!(restored_state.a.z, stringify!(basic));
-
-        // Serialize as v3.
-        snapshot = Snapshot::new(vm.clone(), 3);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+       
+        snapshot_blob = std::fs::File::open("blobs/basic_add_remove_field_v3.bin").unwrap();
+        snapshot = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
         restored_state = snapshot.read_section::<B>("test").unwrap().unwrap();
         println!("State: {:?}", restored_state);
         // Check if x was not serialized, it should be 0.
