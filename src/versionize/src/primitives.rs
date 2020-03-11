@@ -1,10 +1,15 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+#![allow(clippy::float_cmp)]
 
 use self::super::{Error, Result, VersionMap, Versionize};
 use vmm_sys_util::fam::{FamStruct, FamStructWrapper};
-use vmm_sys_util::generate_fam_struct_impl;
 
+/// Implements the Versionize trait for primitive types that also implement
+/// serde's Serialize/Deserialize: use serde_bincode as a backend for
+/// serialization.
+///
+/// !TODO: Implement a backend abstraction layer so we can easily plug in different backends.
 macro_rules! impl_versionize {
     ($ty:ident) => {
         impl Versionize for $ty {
@@ -16,9 +21,10 @@ macro_rules! impl_versionize {
                 _version: u16,
             ) -> Result<()> {
                 bincode::serialize_into(writer, &self)
-                    .map_err(|ref err| Error::Serialize(format!("{}", err)))?;
+                    .map_err(|ref err| Error::Serialize(format!("{:?}", err)))?;
                 Ok(())
             }
+
             #[inline]
             fn deserialize<R: std::io::Read>(
                 mut reader: &mut R,
@@ -29,13 +35,9 @@ macro_rules! impl_versionize {
                 Self: Sized,
             {
                 Ok(bincode::deserialize_from(&mut reader)
-                    .map_err(|ref err| Error::Deserialize(format!("{}", err)))?)
+                    .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?)
             }
 
-            // Not used.
-            fn name() -> String {
-                String::new()
-            }
             // Not used.
             fn version() -> u16 {
                 1
@@ -60,6 +62,111 @@ impl_versionize!(f64);
 impl_versionize!(char);
 impl_versionize!(String);
 
+impl<T> Versionize for Box<T>
+where
+    T: Versionize,
+{
+    #[inline]
+    fn serialize<W: std::io::Write>(
+        &self,
+        writer: &mut W,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> Result<()> {
+        self.as_ref().serialize(writer, version_map, app_version)
+    }
+
+    #[inline]
+    fn deserialize<R: std::io::Read>(
+        reader: &mut R,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> Result<Self> {
+        Ok(Box::new(T::deserialize(reader, version_map, app_version)?))
+    }
+
+    // Not used yet.
+    fn version() -> u16 {
+        1
+    }
+}
+
+impl<T> Versionize for std::num::Wrapping<T>
+where
+    T: Versionize,
+{
+    #[inline]
+    fn serialize<W: std::io::Write>(
+        &self,
+        writer: &mut W,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> Result<()> {
+        self.0.serialize(writer, version_map, app_version)
+    }
+
+    #[inline]
+    fn deserialize<R: std::io::Read>(
+        reader: &mut R,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> Result<Self> {
+        Ok(std::num::Wrapping(T::deserialize(
+            reader,
+            version_map,
+            app_version,
+        )?))
+    }
+
+    // Not used yet.
+    fn version() -> u16 {
+        1
+    }
+}
+
+impl<T> Versionize for Option<T>
+where
+    T: Versionize,
+{
+    #[inline]
+    fn serialize<W: std::io::Write>(
+        &self,
+        writer: &mut W,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> Result<()> {
+        // Serialize an Option just like bincode does: u8, T.
+        match &*self {
+            Some(value) => {
+                1u8.serialize(writer, version_map, app_version)?;
+                value.serialize(writer, version_map, app_version)
+            }
+            None => 0u8.serialize(writer, version_map, app_version),
+        }
+    }
+
+    #[inline]
+    fn deserialize<R: std::io::Read>(
+        reader: &mut R,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> Result<Self> {
+        let option = u8::deserialize(reader, version_map, app_version)?;
+        match option {
+            0u8 => Ok(None),
+            1u8 => Ok(Some(T::deserialize(reader, version_map, app_version)?)),
+            value => Err(Error::Deserialize(format!(
+                "Invalind option value {}",
+                value
+            ))),
+        }
+    }
+
+    // Not used yet.
+    fn version() -> u16 {
+        1
+    }
+}
 
 impl<T> Versionize for Vec<T>
 where
@@ -73,12 +180,14 @@ where
         app_version: u16,
     ) -> Result<()> {
         // Serialize in the same fashion as bincode:
-        // len, T, T, ...
+        // Write len.
         bincode::serialize_into(&mut writer, &self.len())
-            .map_err(|ref err| Error::Serialize(format!("{}", err)))?;
-        for obj in self {
-            obj.serialize(writer, version_map, app_version)
-                .map_err(|ref err| Error::Serialize(format!("{}", err)))?;
+            .map_err(|ref err| Error::Serialize(format!("{:?}", err)))?;
+        // Walk the vec and write each elemenet.
+        for element in self {
+            element
+                .serialize(writer, version_map, app_version)
+                .map_err(|ref err| Error::Serialize(format!("{:?}", err)))?;
         }
         Ok(())
     }
@@ -91,26 +200,22 @@ where
     ) -> Result<Self> {
         let mut v = Vec::new();
         let len: u64 = bincode::deserialize_from(&mut reader)
-            .map_err(|ref err| Error::Deserialize(format!("{}", err)))?;
+            .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?;
         for _ in 0..len {
-            let obj: T = T::deserialize(reader, version_map, app_version)
-                .map_err(|ref err| Error::Deserialize(format!("{}", err)))?;
-            v.push(obj);
+            let element: T = T::deserialize(reader, version_map, app_version)
+                .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?;
+            v.push(element);
         }
         Ok(v)
     }
 
-    // Not used.
-    fn name() -> String {
-        String::new()
-    }
-
-    // Not used.
+    // Not used yet.
     fn version() -> u16 {
         1
     }
 }
 
+// Implement versioning for FAM structures by using the FamStructWrapper interface.
 impl<T: Default + FamStruct + Versionize> Versionize for FamStructWrapper<T>
 where
     <T as FamStruct>::Entry: Versionize,
@@ -123,8 +228,10 @@ where
         version_map: &VersionMap,
         app_version: u16,
     ) -> Result<()> {
+        // Write the fixed size header.
         self.as_fam_struct_ref()
             .serialize(&mut writer, version_map, app_version)?;
+        // Write the array.
         self.as_slice()
             .to_vec()
             .serialize(&mut writer, version_map, app_version)?;
@@ -139,18 +246,16 @@ where
         app_version: u16,
     ) -> Result<Self> {
         let header = T::deserialize(reader, version_map, app_version)
-            .map_err(|ref err| Error::Deserialize(format!("{}", err)))?;
+            .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?;
         let entries: Vec<<T as FamStruct>::Entry> =
             Vec::deserialize(reader, version_map, app_version)
-                .map_err(|ref err| Error::Deserialize(format!("{}", err)))?;
+                .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?;
+        // Construct the object from the array items.
+        // Header(T) fields will be initialized by Default trait impl.
         let mut object = FamStructWrapper::from_entries(&entries);
+        // Update Default T with the deserialized header.
         std::mem::replace(object.as_mut_fam_struct(), header);
         Ok(object)
-    }
-
-    // Not used.
-    fn name() -> String {
-        String::new()
     }
 
     // Not used.
@@ -159,12 +264,14 @@ where
     }
 }
 
+#[cfg(test)]
 mod tests {
     #![allow(non_upper_case_globals)]
     #![allow(non_camel_case_types)]
     #![allow(non_snake_case)]
-    use super::super::{Result, Snapshot, VersionMap, Versionize};
     use super::*;
+    use super::{Result, VersionMap, Versionize};
+    use vmm_sys_util::generate_fam_struct_impl;
 
     #[repr(C)]
     #[derive(Default, Debug, Versionize)]
@@ -172,7 +279,7 @@ mod tests {
         pub len: u32,
         pub padding: u32,
         pub value: u32,
-        #[snapshot(start_version = 2, default_fn = "default_extra_value")]
+        #[version(start = 2, default_fn = "default_extra_value")]
         pub extra_value: u16,
         pub entries: __IncompleteArrayField<u32>,
     }
@@ -217,6 +324,116 @@ mod tests {
     primitive_int_test!(f32, test_ser_de_f32);
     primitive_int_test!(f64, test_ser_de_f64);
     primitive_int_test!(char, test_ser_de_char);
+
+    #[repr(u32)]
+    #[derive(Debug, Versionize, PartialEq, Clone)]
+    pub enum TestState {
+        Zero,
+        One(u32, String),
+        #[version(start = 2, default_fn = "test_state_default_one")]
+        Two(u32),
+        #[version(start = 3, default_fn = "test_state_default_two")]
+        Three(u32),
+    }
+
+    impl Default for TestState {
+        fn default() -> Self {
+            Self::One(1, "Default".to_owned())
+        }
+    }
+
+    impl TestState {
+        fn test_state_default_one(&self, target_version: u16) -> Result<TestState> {
+            match target_version {
+                2 => Ok(TestState::Two(2)),
+                1 => Ok(TestState::Two(2)),
+                i => Err(Error::Serialize(format!("Unknown target version: {}", i))),
+            }
+        }
+
+        fn test_state_default_two(&self, target_version: u16) -> Result<TestState> {
+            match target_version {
+                3 => Ok(TestState::Three(3)),
+                2 => Ok(TestState::Two(2)),
+                1 => Ok(TestState::One(1, "Test".to_owned())),
+                i => Err(Error::Serialize(format!("Unknown target version: {}", i))),
+            }
+        }
+    }
+
+    #[test]
+    fn test_enum_basic() {
+        let mut snapshot_mem = vec![0u8; 64];
+        let mut vm = VersionMap::new();
+        vm.new_version()
+            .set_type_version(TestState::type_id(), 2)
+            .new_version()
+            .set_type_version(TestState::type_id(), 3)
+            .new_version()
+            .set_type_version(TestState::type_id(), 4);
+
+        // Test trivial case.
+        let state = TestState::One(1337, "a string".to_owned());
+        state
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restored_state =
+            <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        assert_eq!(state, restored_state);
+    }
+
+    #[test]
+    fn test_enum_rollback() {
+        let mut snapshot_mem = vec![0u8; 64];
+        let mut vm = VersionMap::new();
+        vm.new_version()
+            .set_type_version(TestState::type_id(), 2)
+            .new_version()
+            .set_type_version(TestState::type_id(), 3)
+            .new_version()
+            .set_type_version(TestState::type_id(), 4);
+
+        // Test default_fn for serialization of enum variants that don't exist in previous versions.
+        let state = TestState::Three(1337);
+        state
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 2)
+            .unwrap();
+        let restored_state =
+            <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        assert_eq!(restored_state, TestState::Two(2));
+
+        let state = TestState::Three(1337);
+        state
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restored_state =
+            <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        assert_eq!(restored_state, TestState::One(1, "Test".to_owned()));
+
+        let state = TestState::Three(1337);
+        state
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 3)
+            .unwrap();
+        let restored_state =
+            <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        assert_eq!(restored_state, state);
+
+        let state = TestState::Two(1234);
+        state
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 2)
+            .unwrap();
+        let restored_state =
+            <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        assert_eq!(restored_state, state);
+
+        let state = TestState::Zero;
+        state
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 2)
+            .unwrap();
+        let restored_state =
+            <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        assert_eq!(restored_state, state);
+    }
 
     #[test]
     fn test_ser_de_bool() {
@@ -268,6 +485,59 @@ mod tests {
     }
 
     #[test]
+    fn test_ser_de_option() {
+        let vm = VersionMap::new();
+        let mut snapshot_mem = vec![0u8; 64];
+
+        let store = Some("test".to_owned());
+
+        store
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restore =
+            <Option<String> as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1)
+                .unwrap();
+
+        assert_eq!(store, restore);
+    }
+
+    #[test]
+    fn test_ser_de_box() {
+        let vm = VersionMap::new();
+        let mut snapshot_mem = vec![0u8; 64];
+
+        let store = Box::new("test".to_owned());
+
+        store
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restore =
+            <Box<String> as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+
+        assert_eq!(store, restore);
+    }
+
+    #[test]
+    fn test_ser_de_wrapping() {
+        let vm = VersionMap::new();
+        let mut snapshot_mem = vec![0u8; 64];
+
+        let store = std::num::Wrapping(1337u32);
+
+        store
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restore = <std::num::Wrapping<u32> as Versionize>::deserialize(
+            &mut snapshot_mem.as_slice(),
+            &vm,
+            1,
+        )
+        .unwrap();
+
+        assert_eq!(store, restore);
+    }
+
+    #[test]
     fn test_ser_de_vec_version() {
         type MessageFamStructWrapper = FamStructWrapper<Message>;
         let vm = VersionMap::new();
@@ -309,11 +579,11 @@ mod tests {
         }
         #[inline]
         pub unsafe fn as_ptr(&self) -> *const T {
-            ::std::mem::transmute(self)
+            self as *const __IncompleteArrayField<T> as *const T
         }
         #[inline]
         pub unsafe fn as_mut_ptr(&mut self) -> *mut T {
-            ::std::mem::transmute(self)
+            self as *mut __IncompleteArrayField<T> as *mut T
         }
         #[inline]
         pub unsafe fn as_slice(&self, len: usize) -> &[T] {
@@ -358,11 +628,6 @@ mod tests {
         }
 
         // Not used.
-        fn name() -> String {
-            String::new()
-        }
-
-        // Not used.
         fn version() -> u16 {
             1
         }
@@ -381,16 +646,11 @@ mod tests {
         f.push(20).unwrap();
 
         let mut snapshot_mem = vec![0u8; 64];
-
-        let mut snapshot = Snapshot::new(vm.clone(), 1);
-        snapshot.write_section("test", &f).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let restored_state = snapshot
-            .read_section::<MessageFamStructWrapper>("test")
-            .unwrap()
+        f.serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
             .unwrap();
+        let restored_state =
+            MessageFamStructWrapper::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+
         let original_values = f.as_slice();
         let restored_values = restored_state.as_slice();
 
@@ -419,9 +679,9 @@ mod tests {
 
         let mut snapshot_mem = vec![0u8; 16];
 
-        let mut snapshot = Snapshot::new(vm.clone(), 1);
-        snapshot.write_section("test", &f).unwrap();
-        assert!(snapshot.save(&mut snapshot_mem.as_mut_slice()).is_err());
+        assert!(f
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .is_err());
     }
     #[test]
     fn test_famstruct_version() {
@@ -434,16 +694,11 @@ mod tests {
         f.push(20).unwrap();
 
         let mut snapshot_mem = vec![0u8; 64];
-
-        let mut snapshot = Snapshot::new(vm.clone(), 1);
-        snapshot.write_section("test", &f).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let restored_state = snapshot
-            .read_section::<MessageFamStructWrapper>("test")
-            .unwrap()
+        f.serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
             .unwrap();
+        let restored_state =
+            MessageFamStructWrapper::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+
         let original_values = f.as_slice();
         let restored_values = restored_state.as_slice();
 

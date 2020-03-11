@@ -1,5 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+#![deny(missing_docs)]
+
+//! Exports the Versionize derive proc macro that generates the Versionize implementation
+//! for structs, enums and unions by using structure annotations.
 
 extern crate proc_macro;
 extern crate proc_macro2;
@@ -7,26 +11,30 @@ extern crate quote;
 extern crate syn;
 
 mod common;
-mod descriptor;
-mod enum_field;
-mod struct_field;
-mod union_field;
+mod descriptors;
+mod fields;
+mod helpers;
 
-use descriptor::*;
+use common::Descriptor;
+use descriptors::{
+    enum_desc::EnumDescriptor, struct_desc::StructDescriptor, union_desc::UnionDescriptor,
+};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
+pub(crate) const ATTRIBUTE_NAME: &str = "version";
+
 /// Struct annotation constants.
 pub(crate) const DEFAULT_FN: &str = "default_fn";
-pub(crate) const SEMANTIC_SER_FN: &str = "semantic_ser_fn";
-pub(crate) const SEMANTIC_DE_FN: &str = "semantic_de_fn";
-pub(crate) const START_VERSION: &str = "start_version";
-pub(crate) const END_VERSION: &str = "end_version";
+pub(crate) const SEMANTIC_SER_FN: &str = "ser_fn";
+pub(crate) const SEMANTIC_DE_FN: &str = "de_fn";
+pub(crate) const START_VERSION: &str = "start";
+pub(crate) const END_VERSION: &str = "end";
 
-
-#[proc_macro_derive(Versionize, attributes(snapshot))]
-pub fn generate_versionizer(input: TokenStream) -> proc_macro::TokenStream {
+/// Implements the derive proc macro.
+#[proc_macro_derive(Versionize, attributes(version))]
+pub fn impl_versionize(input: TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let ident = input.ident.clone();
     let generics = input.generics.clone();
@@ -39,31 +47,30 @@ pub fn generate_versionizer(input: TokenStream) -> proc_macro::TokenStream {
         syn::Data::Union(data_union) => Box::new(UnionDescriptor::new(&data_union, ident.clone())),
     };
 
-    let name = descriptor.ty().to_string();
     let version = descriptor.version();
-    let serializer = descriptor.generate_serializer();
+    let versioned_serializer = descriptor.generate_serializer();
     let deserializer = descriptor.generate_deserializer();
-
+    let serializer = quote! {
+        // Get the struct version for the input app_version.
+        let version = version_map.get_type_version(app_version, Self::type_id());
+        // We will use this copy to perform semantic serialization.
+        let mut copy_of_self = self.clone();
+        match version {
+            #versioned_serializer
+            _ => panic!("Unknown {:?} version {}.", &Self::type_id(), version)
+        }
+    };
     (quote! {
         impl Versionize for #ident #generics {
-            #[inline]
             fn serialize<W: std::io::Write>(&self, writer: &mut W, version_map: &VersionMap, app_version: u16) -> Result<()> {
                 #serializer
                 Ok(())
             }
 
-            #[inline]
             fn deserialize<R: std::io::Read>(mut reader: &mut R, version_map: &VersionMap, app_version: u16) -> Result<Self> {
                 #deserializer
             }
 
-            #[inline]
-            // Returns struct name as string.
-            fn name() -> String {
-                #name.to_owned()
-            }
-
-            #[inline]
             // Returns struct current version.
             fn version() -> u16 {
                 #version

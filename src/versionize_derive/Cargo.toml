@@ -1,0 +1,16 @@
+[package]
+name = "versionize_derive"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+proc-macro2 = ">=1.0"
+quote = ">=1.0"
+syn = { version = ">=1.0.13", features=["full", "extra-traits"]}
+
+[lib]
+proc-macro = true
+
+[dev-dependencies]
+versionize = { path="../versionize"}
+
