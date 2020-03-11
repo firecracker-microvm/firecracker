@@ -211,24 +211,19 @@ where
         uapi::VIRTIO_ID_VSOCK
     }
 
-    fn get_queues(&mut self) -> &mut Vec<VirtQueue> {
+    fn queues(&mut self) -> &mut [VirtQueue] {
         &mut self.queues
     }
 
-    fn get_queue_events(&self) -> std::io::Result<Vec<EventFd>> {
-        let mut queue_evts_copy = Vec::new();
-        for evt in self.queue_events.iter() {
-            queue_evts_copy.push(evt.try_clone()?);
-        }
-
-        Ok(queue_evts_copy)
+    fn queue_events(&self) -> &[EventFd] {
+        &self.queue_events
     }
 
-    fn get_interrupt(&self) -> std::io::Result<EventFd> {
-        Ok(self.interrupt_evt.try_clone()?)
+    fn interrupt_evt(&self) -> &EventFd {
+        &self.interrupt_evt
     }
 
-    fn get_interrupt_status(&self) -> Arc<AtomicUsize> {
+    fn interrupt_status(&self) -> Arc<AtomicUsize> {
         self.interrupt_status.clone()
     }
 
@@ -257,7 +252,7 @@ where
         );
     }
 
-    fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
+    fn activate(&mut self) -> ActivateResult {
         if self.queues.len() != defs::NUM_QUEUES {
             error!(
                 "Cannot perform activate. Expected {} queue(s), got {}",
@@ -272,15 +267,13 @@ where
             return Err(ActivateError::BadActivate);
         }
 
+        self.device_activated = true;
+
         Ok(())
     }
 
     fn is_activated(&self) -> bool {
         self.device_activated
-    }
-
-    fn set_device_activated(&mut self, device_activated: bool) {
-        self.device_activated = device_activated;
     }
 }
 
@@ -358,6 +351,6 @@ mod tests {
         // }
 
         // Test a correct activation.
-        ctx.device.activate(ctx.mem.clone()).unwrap();
+        ctx.device.activate().unwrap();
     }
 }

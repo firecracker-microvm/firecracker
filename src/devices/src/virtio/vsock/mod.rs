@@ -17,7 +17,7 @@ pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::device::Vsock;
 pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
 
-use polly::epoll::EventSet;
+use utils::epoll::EventSet;
 use vm_memory::GuestMemoryError;
 
 use packet::VsockPacket;
@@ -160,7 +160,7 @@ mod tests {
 
     use crate::virtio::queue::tests::VirtQueue as GuestQ;
     use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use polly::epoll::EpollEvent;
+    use utils::epoll::EpollEvent;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     pub struct TestBackend {

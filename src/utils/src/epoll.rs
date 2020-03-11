@@ -11,7 +11,7 @@ use libc::{
     EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD,
 };
 
-use utils::syscall::SyscallReturnCode;
+use crate::syscall::SyscallReturnCode;
 
 /// Wrapper over EPOLL_CTL_* operations that can be performed on a file descriptor.
 #[repr(i32)]
@@ -110,7 +110,7 @@ impl EpollEvent {
     /// Panics if `libc::epoll_event` contains invalid events.
     pub fn event_set(&self) -> EventSet {
         // This unwrap is safe because `epoll_events` can only be user created or
-        // initialized by the kernel.We trust the kernel to only send us valid
+        // initialized by the kernel. We trust the kernel to only send us valid
         // events. The user can only initialize `epoll_events` using valid events.
         EventSet::from_bits(self.events()).unwrap()
     }
@@ -226,7 +226,7 @@ impl std::ops::Drop for Epoll {
 mod tests {
     use super::*;
 
-    use utils::eventfd::EventFd;
+    use crate::eventfd::EventFd;
 
     #[test]
     fn test_event_ops() {
