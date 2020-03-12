@@ -673,21 +673,6 @@ fn attach_block_devices(
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    // If no PARTUUID was specified for the root device, try with the /dev/vda.
-    if blocks.has_root_block_device() && !blocks.has_partuuid_root() {
-        let kernel_cmdline = &mut vmm.kernel_cmdline;
-
-        kernel_cmdline.insert_str("root=/dev/vda")?;
-
-        let flags = if blocks.has_read_only_root() {
-            "ro"
-        } else {
-            "rw"
-        };
-
-        kernel_cmdline.insert_str(flags)?;
-    }
-
     for drive_config in blocks.config_list.iter() {
         // Add the block device from file.
         let block_file = OpenOptions::new()
@@ -696,14 +681,15 @@ fn attach_block_devices(
             .open(&drive_config.path_on_host)
             .map_err(OpenBlockDevice)?;
 
-        if drive_config.is_root_device && drive_config.get_partuuid().is_some() {
+        if drive_config.is_root_device {
             let kernel_cmdline = &mut vmm.kernel_cmdline;
 
-            kernel_cmdline.insert_str(format!(
-                "root=PARTUUID={}",
-                //The unwrap is safe as we are firstly checking that partuuid is_some().
-                drive_config.get_partuuid().unwrap()
-            ))?;
+            kernel_cmdline.insert_str(if let Some(partuuid) = drive_config.get_partuuid() {
+                format!("root=PARTUUID={}", partuuid)
+            } else {
+                // If no PARTUUID was specified for the root device, try with the /dev/vda.
+                "root=/dev/vda".to_string()
+            })?;
 
             let flags = if drive_config.is_read_only() {
                 "ro"

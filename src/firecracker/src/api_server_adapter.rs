@@ -59,7 +59,6 @@ impl Subscriber for ApiServerAdapter {
         let event_set = event.event_set();
 
         if source == self.api_event_fd.as_raw_fd() && event_set == EventSet::IN {
-            let _ = self.api_event_fd.read();
             match self.from_api.try_recv() {
                 Ok(api_request) => {
                     let response = self.controller.handle_request(*api_request);
@@ -76,6 +75,7 @@ impl Subscriber for ApiServerAdapter {
                     panic!("The channel's sending half was disconnected. Cannot receive data.");
                 }
             };
+            let _ = self.api_event_fd.read();
         } else {
             error!("Spurious EventManager event for handler: ApiServerAdapter");
         }
@@ -97,8 +97,10 @@ pub fn run_with_api(
     start_time_us: Option<u64>,
     start_time_cpu_us: Option<u64>,
 ) {
-    // FD to notify of API events.
-    let api_event_fd = EventFd::new(libc::EFD_NONBLOCK).expect("Cannot create API Eventfd.");
+    // FD to notify of API events. This is a blocking eventfd by design.
+    // It is used in the config/pre-boot loop which is a simple blocking loop
+    // which only consumes API events.
+    let api_event_fd = EventFd::new(0).expect("Cannot create API Eventfd.");
     // Channels for both directions between Vmm and Api threads.
     let (to_vmm, from_api) = channel();
     let (to_api, from_vmm) = channel();
@@ -166,7 +168,7 @@ pub fn run_with_api(
                     .recv()
                     .expect("The channel's sending half was disconnected. Cannot receive data.");
                 // Also consume the API event along with the message. It is safe to unwrap()
-                // since communication between this thread and the API thread is synchronous.
+                // because this event_fd is blocking.
                 api_event_fd
                     .read()
                     .expect("VMM: Failed to read the API event_fd");

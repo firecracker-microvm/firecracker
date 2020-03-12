@@ -21,7 +21,6 @@ pub use self::block::*;
 pub use self::device::*;
 pub use self::mmio::*;
 pub use self::net::*;
-pub use self::net::*;
 pub use self::queue::*;
 pub use self::vsock::*;
 
