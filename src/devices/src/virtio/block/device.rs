@@ -325,7 +325,7 @@ impl VirtioDevice for Block {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{metadata, OpenOptions};
+    use std::fs::metadata;
     use std::os::unix::io::AsRawFd;
     use std::thread;
     use std::time::Duration;
@@ -926,12 +926,7 @@ mod tests {
         id[..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize)]
             .clone_from_slice(&part_id[..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize)]);
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)
-            .unwrap();
-        block.update_disk_image(file).unwrap();
+        block.update_disk_image(f.into_file()).unwrap();
 
         assert_eq!(
             block.disk_image.metadata().unwrap().st_ino(),

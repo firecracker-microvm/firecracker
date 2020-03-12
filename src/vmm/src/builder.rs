@@ -1017,8 +1017,7 @@ pub mod tests {
     #[test]
     fn test_setup_serial_device() {
         let read_tempfile = TempFile::new().unwrap();
-        let read_file = File::open(read_tempfile.as_path()).unwrap();
-        let read_handle = SerialInput(read_file);
+        let read_handle = SerialInput(read_tempfile.into_file());
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
         assert!(setup_serial_device(

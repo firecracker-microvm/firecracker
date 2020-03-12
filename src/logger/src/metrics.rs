@@ -571,7 +571,6 @@ mod tests {
     extern crate serde_json;
     use super::*;
 
-    use std::fs::OpenOptions;
     use std::io::ErrorKind;
     use std::sync::Arc;
     use std::thread;
@@ -586,30 +585,14 @@ mod tests {
         let res = m.write();
         assert!(res.is_ok() && !res.unwrap());
 
-        let metrics_file_temp = TempFile::new().expect("Failed to create temporary metrics file.");
-        assert!(m
-            .init(Box::new(
-                OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .open(metrics_file_temp.as_path())
-                    .unwrap()
-            ),)
-            .is_ok());
+        let f = TempFile::new().expect("Failed to create temporary metrics file");
+        assert!(m.init(Box::new(f.into_file()),).is_ok());
 
         assert!(m.write().is_ok());
 
-        let metrics_file_temp2 = TempFile::new().unwrap();
+        let f = TempFile::new().expect("Failed to create temporary metrics file");
 
-        assert!(m
-            .init(Box::new(
-                OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .open(metrics_file_temp2.as_path())
-                    .unwrap()
-            ),)
-            .is_err());
+        assert!(m.init(Box::new(f.into_file()),).is_err());
     }
 
     #[test]
