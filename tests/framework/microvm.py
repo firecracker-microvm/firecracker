@@ -10,6 +10,7 @@ destroy microvms.
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
 
+import logging
 import os
 from queue import Queue
 import re
@@ -20,6 +21,7 @@ from subprocess import run, PIPE
 from retry import retry
 from retry.api import retry_call
 
+import host_tools.logging as log_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 
@@ -30,7 +32,10 @@ from framework.jailer import JailerContext
 from framework.resources import Actions, BootSource, Drive, Logger, MMDS, \
     MachineConfigure, Metrics, Network, Vsock
 
+LOG = logging.getLogger("microvm")
 
+
+# pylint: disable=R0904
 class Microvm:
     """Class to represent a Firecracker microvm.
 
@@ -100,6 +105,10 @@ class Microvm:
         self.machine_cfg = None
         self.vsock = None
 
+        # Initialize the logging subsystem.
+        self.logging_thread = None
+        self._log_data = ""
+
         # The ssh config dictionary is populated with information about how
         # to connect to a microVM that has ssh capability. The path of the
         # private key is populated by microvms with ssh capabilities and the
@@ -121,6 +130,8 @@ class Microvm:
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
+        if self.logging_thread is not None:
+            self.logging_thread.stop()
         if self._jailer.daemonize:
             if self.jailer_clone_pid:
                 run('kill -9 {}'.format(self.jailer_clone_pid), shell=True)
@@ -187,6 +198,11 @@ class Microvm:
         self._initrd_file = path
 
     @property
+    def log_data(self):
+        """Return the log data."""
+        return self._log_data
+
+    @property
     def rootfs_file(self):
         """Return the path to the image this microVM can boot into."""
         return self._rootfs_file
@@ -220,6 +236,10 @@ class Microvm:
     def memory_events_queue(self, queue):
         """Set the memory usage events queue."""
         self._memory_events_queue = queue
+
+    def append_to_log_data(self, data):
+        """Append a message to the log data."""
+        self._log_data += data
 
     def create_jailed_resource(self, path, create_jail=False):
         """Create a hard link to some resource inside this microvm."""
@@ -259,7 +279,7 @@ class Microvm:
         os.makedirs(self._kernel_path, exist_ok=True)
         os.makedirs(self._fsfiles_path, exist_ok=True)
 
-    def spawn(self):
+    def spawn(self, create_logger=True):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
         self._jailer.setup()
@@ -278,6 +298,17 @@ class Microvm:
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
+
+        if create_logger:
+            log_fifo_path = os.path.join(self.path, 'log_fifo')
+            log_fifo = log_tools.Fifo(log_fifo_path)
+            self.create_jailed_resource(log_fifo.path, create_jail=True)
+            # The default value for `level`, when configuring the
+            # logger via cmd line, is `Warning`. We set the level
+            # to `Info` to also have the boot time printed in fifo.
+            self.jailer.extra_args.update({'log-path': 'log_fifo',
+                                           'level': 'Info'})
+            self.start_console_logger(log_fifo)
 
         jailer_param_list = self._jailer.construct_param_list()
 
@@ -371,11 +402,18 @@ class Microvm:
         # and leave 0.2 delay between them.
         if 'no-api' not in self._jailer.extra_args:
             self._wait_create()
+        if create_logger:
+            self.check_log_message("Running Firecracker")
 
     @retry(delay=0.2, tries=5)
     def _wait_create(self):
         """Wait until the API socket and chroot folder are available."""
         os.stat(self._jailer.api_socket_path())
+
+    @retry(delay=0.1, tries=5)
+    def check_log_message(self, message):
+        """Wait until `message` appears in logging output."""
+        assert message in self._log_data
 
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
@@ -496,6 +534,33 @@ class Microvm:
         """
         response = self.actions.put(action_type='InstanceStart')
         assert self._api_session.is_status_no_content(response.status_code)
+
+    def start_console_logger(self, log_fifo):
+        """
+        Start a thread that monitors the microVM console.
+
+        The console output will be redirected to the log file.
+        """
+        def monitor_fd(microvm, path):
+            try:
+                fd = open(path, "r")
+                while True:
+                    if microvm.logging_thread.stopped():
+                        return
+                    data = fd.readline()
+                    if data:
+                        microvm.append_to_log_data(data)
+            except IOError as error:
+                LOG.error("[%s] IOError while monitoring fd:"
+                          " %s", microvm.id, error)
+                microvm.append_to_log_data(str(error))
+                return
+
+        self.logging_thread = utils.StoppableThread(
+            target=monitor_fd,
+            args=(self, log_fifo.path),
+            daemon=True)
+        self.logging_thread.start()
 
 
 class Serial:
