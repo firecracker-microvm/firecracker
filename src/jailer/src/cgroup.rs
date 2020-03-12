@@ -261,25 +261,18 @@ mod tests {
         // 2. If parent file exists and is empty, will go one level up, and return error because
         // the grandparent file does not exist.
         let named_file = TempFile::new_in(dir.as_path()).expect("Cannot create named file.");
-        let result = inherit_from_parent(
-            &mut path2.clone(),
-            named_file.as_path().file_name().unwrap().to_str().unwrap(),
-        );
+        let result =
+            inherit_from_parent(&mut path2.clone(), named_file.as_path().to_str().unwrap());
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("CgroupInheritFromParent"));
 
-        let child_file = dir2
-            .as_path()
-            .join(named_file.as_path().file_name().unwrap().to_str().unwrap());
+        let child_file = dir2.as_path().join(named_file.as_path().to_str().unwrap());
 
         // 3. If parent file exists and is not empty, will return ok and child file will have its
         // contents.
         let some_line = "Parent line";
         writeln!(named_file.as_file(), "{}", some_line).expect("Cannot write to file.");
-        let result = inherit_from_parent(
-            &mut path2,
-            named_file.as_path().file_name().unwrap().to_str().unwrap(),
-        );
+        let result = inherit_from_parent(&mut path2, named_file.as_path().to_str().unwrap());
         assert!(result.is_ok());
         let res = readln_special(&child_file).expect("Cannot read from file.");
         assert!(res == some_line);

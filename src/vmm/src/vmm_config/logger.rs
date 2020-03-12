@@ -101,7 +101,6 @@ pub fn init_logger(
 #[cfg(test)]
 mod tests {
 
-    use std::fs::File;
     use std::io::BufRead;
     use std::io::BufReader;
 
@@ -137,8 +136,7 @@ mod tests {
         // Validate logfile works.
         warn!("this is a test");
 
-        let f = File::open(log_file.as_path()).unwrap();
-        let mut reader = BufReader::new(f);
+        let mut reader = BufReader::new(log_file.into_file());
 
         let mut line = String::new();
         loop {
