@@ -121,7 +121,7 @@ def test_error_logs(test_microvm_with_ssh):
 def test_log_config_failure(test_microvm_with_api):
     """Check passing invalid FIFOs is detected and reported as an error."""
     microvm = test_microvm_with_api
-    microvm.spawn()
+    microvm.spawn(create_logger=False)
     microvm.basic_config()
 
     response = microvm.logger.put(
@@ -134,13 +134,13 @@ def test_log_config_failure(test_microvm_with_api):
     assert response.json()['fault_message']
 
 
-def log_file_contains_strings(log_fifo, string_list):
+def log_file_contains_strings(log_data, string_list):
     """Check if the log fifo contains all strings in string_list.
 
     We search for each string in the string_list array only in the
     first 100 lines of the log.
     """
-    log_lines = log_fifo.sequential_reader(100)
+    log_lines = log_data.splitlines()
     for log_line in log_lines:
         for text in string_list:
             if text in log_line:
@@ -155,7 +155,7 @@ def log_file_contains_strings(log_fifo, string_list):
 def test_api_requests_logs(test_microvm_with_api):
     """Test that API requests are logged."""
     microvm = test_microvm_with_api
-    microvm.spawn()
+    microvm.spawn(create_logger=False)
     microvm.basic_config()
 
     # Configure logging.
@@ -169,6 +169,7 @@ def test_api_requests_logs(test_microvm_with_api):
         show_log_origin=True,
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
+    microvm.start_console_logger(log_fifo)
 
     expected_log_strings = []
 
@@ -242,23 +243,7 @@ def test_api_requests_logs(test_microvm_with_api):
                                 "Status code: 400 Bad Request. "
                                 "Message: {}".format(fault_message))
 
-    assert log_file_contains_strings(log_fifo, expected_log_strings)
-
-
-def test_cmd_line_logger(test_microvm_with_api):
-    """Test logger configuration with fifo parameter."""
-    microvm = test_microvm_with_api
-
-    log_fifo_path = os.path.join(microvm.path, 'log_fifo')
-    log_fifo = log_tools.Fifo(log_fifo_path)
-    microvm.create_jailed_resource(log_fifo.path, create_jail=True)
-
-    microvm.jailer.extra_args = {'log-path': 'log_fifo'}
-    microvm.spawn()
-
-    # Check that the logger was indeed configured.
-    lines = log_fifo.sequential_reader(1)
-    assert lines[0].startswith('Running Firecracker')
+    assert log_file_contains_strings(microvm.log_data, expected_log_strings)
 
 
 # pylint: disable=W0102
@@ -269,9 +254,7 @@ def _test_log_config(
         show_origin=True
 ):
     """Exercises different scenarios for testing the logging config."""
-    microvm.spawn()
-
-    microvm.basic_config()
+    microvm.spawn(create_logger=False)
 
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, 'log_fifo')
@@ -293,9 +276,12 @@ def _test_log_config(
 
     assert microvm.api_session.is_status_no_content(response.status_code)
 
+    microvm.start_console_logger(log_fifo)
+
+    microvm.basic_config()
     microvm.start()
 
-    lines = log_fifo.sequential_reader(20)
+    lines = microvm.log_data.splitlines()
     for idx, line in enumerate(lines):
         if idx == 0:
             assert line.startswith("Running Firecracker")

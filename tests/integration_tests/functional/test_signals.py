@@ -8,7 +8,6 @@ from time import sleep
 
 import pytest
 
-import host_tools.logging as log_tools
 import host_tools.network as net_tools
 
 
@@ -26,17 +25,6 @@ def test_sigbus_sigsegv(test_microvm_with_api, signum):
 
     test_microvm.basic_config()
 
-    # Configure logging.
-    log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
-    log_fifo = log_tools.Fifo(log_fifo_path)
-    response = test_microvm.logger.put(
-        log_path=test_microvm.create_jailed_resource(log_fifo_path),
-        level='Error',
-        show_level=False,
-        show_log_origin=False
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
     test_microvm.start()
     firecracker_pid = int(test_microvm.jailer_clone_pid)
 
@@ -44,15 +32,8 @@ def test_sigbus_sigsegv(test_microvm_with_api, signum):
     os.kill(firecracker_pid, signum)
 
     msg = 'Shutting down VM after intercepting signal {}'.format(signum)
-    log_fifo.flags = log_fifo.flags & ~os.O_NONBLOCK
-    lines = log_fifo.sequential_reader(5)
 
-    msg_found = False
-    for line in lines:
-        if msg in line:
-            msg_found = True
-            break
-    assert msg_found
+    test_microvm.check_log_message(msg)
 
 
 def test_handled_signals(test_microvm_with_ssh, network_config):

@@ -440,8 +440,8 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
-    # Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface, a
-    # root file system with the rw permission and logging enabled.
+    # Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network interface
+    # and a root file system with the rw permission.
     test_microvm.basic_config()
 
     fs1 = drive_tools.FilesystemFile(
@@ -452,15 +452,6 @@ def test_api_patch_pre_boot(test_microvm_with_api):
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Configure logging.
-    log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
-    log_fifo = log_tools.Fifo(log_fifo_path)
-
-    response = test_microvm.logger.put(
-        log_path=test_microvm.create_jailed_resource(log_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -519,15 +510,6 @@ def test_api_patch_post_boot(test_microvm_with_api):
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Configure logging.
-    log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
-    log_fifo = log_tools.Fifo(log_fifo_path)
-
-    response = test_microvm.logger.put(
-        log_path=test_microvm.create_jailed_resource(log_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
