@@ -15,13 +15,17 @@ class Fifo:
     """Facility for creating and working with named pipes (FIFOs)."""
 
     path = None
+    fifo = None
 
     def __init__(self, path):
         """Create a new named pipe."""
         if os.path.exists(path):
             raise FileExistsError("Named pipe {} already exists.".format(path))
-        cmd = 'mkfifo ' + path
-        run(cmd, shell=True, check=True)
+        os.mkfifo(path)
+        
+	# Open the FIFO and set O_NONBLOCK flag.
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        self.fifo = os.fdopen(fd, "r")
         self.path = path
 
     def sequential_reader(self, max_lines):
@@ -29,8 +33,7 @@ class Fifo:
 
         :return: A list containing the read lines.
         """
-        fifo = self._open_nonblocking()
-        return fifo.readlines()[:max_lines]
+        return self.fifo.readlines()[:max_lines]
 
     def threaded_reader(self, check_func, *args):
         """Start a thread to read fifo.
@@ -48,14 +51,6 @@ class Fifo:
         )
         metric_reader_thread.start()
         return exceptions_queue
-
-    def _open_nonblocking(self):
-        """Open a FIFO as read-only and non-blocking."""
-        fifo = open(self.path, "r")
-        fd = fifo.fileno()
-        flag = fcntl.fcntl(fd, fcntl.F_GETFL)
-        fcntl.fcntl(fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
-        return fifo
 
     def _do_thread_reader(self, exceptions_queue, check_func, *args):
         """Read from a FIFO opened as read-only.
