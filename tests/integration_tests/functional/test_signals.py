@@ -28,9 +28,8 @@ def test_sigbus_sigsegv(test_microvm_with_api, signum):
     # Configure logging.
     log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
-
     response = test_microvm.logger.put(
-        log_fifo=test_microvm.create_jailed_resource(log_fifo.path),
+        log_fifo=test_microvm.create_jailed_resource(log_fifo_path),
         level='Error',
         show_level=False,
         show_log_origin=False
@@ -44,7 +43,9 @@ def test_sigbus_sigsegv(test_microvm_with_api, signum):
     os.kill(firecracker_pid, signum)
 
     msg = 'Shutting down VM after intercepting signal {}'.format(signum)
+    log_fifo.flags = log_fifo.flags & ~os.O_NONBLOCK
     lines = log_fifo.sequential_reader(5)
+
     msg_found = False
     for line in lines:
         if msg in line:
