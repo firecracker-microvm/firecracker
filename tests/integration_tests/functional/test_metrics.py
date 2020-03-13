@@ -3,7 +3,6 @@
 """Tests the metrics system."""
 
 import os
-
 import host_tools.logging as log_tools
 
 
