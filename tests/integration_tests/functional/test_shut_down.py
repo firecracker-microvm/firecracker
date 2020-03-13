@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests scenarios for shutting down Firecracker/VM."""
 import os
-
 from subprocess import run, PIPE
 import time
 
+import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 
@@ -24,6 +24,14 @@ def test_reboot(test_microvm_with_ssh, network_config):
     test_microvm.basic_config(vcpu_count=4)
     _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
+    # Configure metrics system.
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    response = test_microvm.metrics.put(
+        metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path)
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
     test_microvm.start()
 
     # Get Firecracker PID so we can count the number of threads.
@@ -37,6 +45,9 @@ def test_reboot(test_microvm_with_ssh, network_config):
     nr_of_threads = process.stdout.decode('utf-8').rstrip()
     assert int(nr_of_threads) == 6
 
+    # Consume existing metrics
+    lines = metrics_fifo.sequential_reader(100)
+    assert len(lines) == 1
     # Rebooting Firecracker sends an exit event and should gracefully kill.
     # the instance.
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
@@ -49,3 +60,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
             time.sleep(0.01)
         except OSError:
             break
+
+    # Consume existing metrics
+    lines = metrics_fifo.sequential_reader(100)
+    assert len(lines) == 1

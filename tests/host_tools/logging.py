@@ -2,12 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Utilities for testing the logging system (metrics, common logs)."""
 
-import fcntl
 import os
 import sys
 
 from queue import Queue
-from subprocess import run
 from threading import Thread
 
 
@@ -22,8 +20,7 @@ class Fifo:
         if os.path.exists(path):
             raise FileExistsError("Named pipe {} already exists.".format(path))
         os.mkfifo(path)
-        
-	# Open the FIFO and set O_NONBLOCK flag.
+        # Open the FIFO and set O_NONBLOCK flag.
         fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
         self.fifo = os.fdopen(fd, "r")
         self.path = path
@@ -60,10 +57,9 @@ class Fifo:
         Failures and exceptions are propagated to the main thread
         through the `exceptions_queue`.
         """
-        fifo = self._open_nonblocking()
         max_iter = 20
         while max_iter > 0:
-            data = fifo.readline()
+            data = self.fifo.readline()
             if not data:
                 break
             try:
