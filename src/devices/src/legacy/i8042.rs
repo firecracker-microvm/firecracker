@@ -123,6 +123,7 @@ impl I8042Device {
 
     pub fn trigger_kbd_interrupt(&self) -> Result<()> {
         if (self.control & CB_KBD_INT) == 0 {
+            warn!("Failed to trigger i8042 kbd interrupt (disabled by guest OS)");
             return Err(Error::KbdInterruptDisabled);
         }
         self.kbd_interrupt_evt
@@ -141,10 +142,7 @@ impl I8042Device {
         self.push_byte((key & 0xff) as u8)?;
 
         match self.trigger_kbd_interrupt() {
-            Ok(_) | Err(Error::KbdInterruptDisabled) => {
-                warn!("Failed to trigger i8042 kbd interrupt (disabled by guest OS)");
-                Ok(())
-            }
+            Ok(_) | Err(Error::KbdInterruptDisabled) => Ok(()),
             Err(e) => Err(e),
         }
     }
