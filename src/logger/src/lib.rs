@@ -5,10 +5,7 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate libc;
-#[cfg(test)]
-#[macro_use]
-extern crate log;
-#[cfg(not(test))]
+#[cfg_attr(test, macro_use)]
 extern crate log;
 extern crate serde;
 #[macro_use]
