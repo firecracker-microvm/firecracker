@@ -109,6 +109,7 @@
 //! }
 //! ```
 
+extern crate libc;
 extern crate utils;
 
 mod common;
