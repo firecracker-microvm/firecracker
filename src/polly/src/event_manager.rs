@@ -178,14 +178,15 @@ impl EventManager {
     /// Wait for events for a maximum timeout of `miliseconds`. Dispatch the events to the
     /// registered signal handlers.
     pub fn run_with_timeout(&mut self, milliseconds: i32) -> Result<usize> {
-        let event_count = self
-            .epoll
-            .wait(
-                EventManager::EVENT_BUFFER_SIZE,
-                milliseconds,
-                &mut self.ready_events[..],
-            )
-            .map_err(Error::Poll)?;
+        let event_count = match self.epoll.wait(
+            EventManager::EVENT_BUFFER_SIZE,
+            milliseconds,
+            &mut self.ready_events[..],
+        ) {
+            Ok(event_count) => event_count,
+            Err(e) if e.raw_os_error() == Some(libc::EINTR) => 0,
+            Err(e) => return Err(Error::Poll(e)),
+        };
         self.dispatch_events(event_count);
 
         Ok(event_count)
