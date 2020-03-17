@@ -213,6 +213,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "micro_http"
 version = "0.1.0"
 dependencies = [
+ "libc 0.2.66 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
 ]
 

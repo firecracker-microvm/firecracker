@@ -300,10 +300,11 @@ impl HttpServer {
         // current thread until at least one event is received.
         // The received notifications will then populate the `events` array with
         // `event_count` elements, where 1 <= event_count <= MAX_CONNECTIONS.
-        let event_count = self
-            .epoll
-            .wait(MAX_CONNECTIONS, -1, &mut events[..])
-            .map_err(ServerError::IOError)?;
+        let event_count = match self.epoll.wait(MAX_CONNECTIONS, -1, &mut events[..]) {
+            Ok(event_count) => event_count,
+            Err(e) if e.raw_os_error() == Some(libc::EINTR) => 0,
+            Err(e) => return Err(ServerError::IOError(e)),
+        };
         // We use `take()` on the iterator over `events` as, even though only
         // `events_count` events have been inserted into `events`, the size of
         // the array is still `MAX_CONNECTIONS`, so we discard empty elements
