@@ -3,12 +3,13 @@
 """Tests scenarios for Firecracker signal handling."""
 
 import os
-from signal import SIGBUS, SIGSEGV
+from signal import SIGBUS, SIGRTMIN, SIGSEGV
 from time import sleep
 
 import pytest
 
 import host_tools.logging as log_tools
+import host_tools.network as net_tools
 
 
 @pytest.mark.parametrize(
@@ -52,3 +53,36 @@ def test_sigbus_sigsegv(test_microvm_with_api, signum):
             msg_found = True
             break
     assert msg_found
+
+
+def test_handled_signals(test_microvm_with_ssh, network_config):
+    """Test that handled signals don't kill the microVM."""
+    microvm = test_microvm_with_ssh
+    microvm.spawn()
+
+    # We don't need to monitor the memory for this test.
+    microvm.memory_events_queue = None
+
+    microvm.basic_config(vcpu_count=2)
+
+    # Configure a network interface.
+    _tap, _, _ = microvm.ssh_network_config(network_config, '1')
+
+    microvm.start()
+    firecracker_pid = int(microvm.jailer_clone_pid)
+
+    # Open a SSH connection to validate the microVM stays alive.
+    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+    # Just validate a simple command: `nproc`
+    cmd = "nproc"
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read().decode("utf-8") == ""
+    assert int(stdout.read().decode("utf-8")) == 2
+
+    # We have a handler installed for this signal.
+    os.kill(firecracker_pid, SIGRTMIN+1)
+
+    # Validate the microVM is still up and running.
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read().decode("utf-8") == ""
+    assert int(stdout.read().decode("utf-8")) == 2
