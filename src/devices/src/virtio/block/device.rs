@@ -224,6 +224,10 @@ impl Block {
             used_any = true;
         }
 
+        if !used_any {
+            METRICS.block.no_avail_buffer.inc();
+        }
+
         used_any
     }
 

@@ -222,6 +222,7 @@ impl Net {
         let rx_queue = &mut self.queues[RX_INDEX];
         let mut next_desc = rx_queue.pop(&self.mem);
         if next_desc.is_none() {
+            METRICS.net.no_rx_avail_buffer.inc();
             return false;
         }
 
@@ -248,9 +249,7 @@ impl Net {
                         }
                         Err(e) => {
                             error!("Failed to write slice: {:?}", e);
-
                             METRICS.net.rx_fails.inc();
-
                             if let GuestMemoryError::PartialBuffer { completed, .. } = e {
                                 write_count += completed;
                             }
@@ -379,6 +378,7 @@ impl Net {
                 }
             }
         }
+
         if self.rx_deferred_irqs {
             self.rx_deferred_irqs = false;
             self.signal_used_queue()
@@ -471,7 +471,6 @@ impl Net {
                     Err(e) => {
                         error!("Failed to read slice: {:?}", e);
                         METRICS.net.tx_fails.inc();
-
                         if let GuestMemoryError::PartialBuffer { completed, .. } = e {
                             read_count += completed;
                         }
@@ -498,6 +497,8 @@ impl Net {
 
         if raise_irq {
             self.signal_used_queue()?;
+        } else {
+            METRICS.net.no_tx_avail_buffer.inc();
         }
 
         // An incoming frame for the MMDS may trigger the transmission of a new message.
@@ -543,8 +544,7 @@ impl Net {
     pub fn process_tap_rx_event(&mut self) {
         METRICS.net.rx_tap_event_count.inc();
         if self.queues[RX_INDEX].is_empty(&self.mem) {
-            error!("The RX queue is empty, there is no available buffer.");
-            METRICS.net.event_fails.inc();
+            METRICS.net.no_rx_avail_buffer.inc();
             return;
         }
 
@@ -593,8 +593,8 @@ impl Net {
                 self.resume_rx().unwrap_or_else(report_net_event_fail);
             }
             Err(e) => {
-                METRICS.net.event_fails.inc();
                 error!("Failed to get rx rate-limiter event: {:?}", e);
+                METRICS.net.event_fails.inc();
             }
         }
     }
@@ -609,8 +609,8 @@ impl Net {
                 self.process_tx().unwrap_or_else(report_net_event_fail);
             }
             Err(e) => {
-                METRICS.net.event_fails.inc();
                 error!("Failed to get tx rate-limiter event: {:?}", e);
+                METRICS.net.event_fails.inc();
             }
         }
     }
@@ -1272,7 +1272,7 @@ mod tests {
         // The RX queue is empty.
         let tap_event = EpollEvent::new(EventSet::IN, net.tap.as_raw_fd() as u64);
         check_metric_after_block!(
-            &METRICS.net.event_fails,
+            &METRICS.net.no_rx_avail_buffer,
             1,
             net.process(&tap_event, &mut event_manager)
         );
