@@ -252,7 +252,7 @@ where
         );
     }
 
-    fn activate(&mut self) -> ActivateResult {
+    fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
         if self.queues.len() != defs::NUM_QUEUES {
             error!(
                 "Cannot perform activate. Expected {} queue(s), got {}",
@@ -351,6 +351,6 @@ mod tests {
         // }
 
         // Test a correct activation.
-        ctx.device.activate().unwrap();
+        ctx.device.activate(ctx.mem.clone()).unwrap();
     }
 }
