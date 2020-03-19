@@ -21,7 +21,7 @@ use virtio_gen::virtio_blk::*;
 use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::{
-    super::{ActivateResult, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING},
+    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING},
     request::*,
     Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
 };
@@ -88,15 +88,15 @@ pub struct Block {
     avail_features: u64,
     acked_features: u64,
     config_space: Vec<u8>,
+    pub(crate) activate_evt: EventFd,
 
     // Transport related fields.
     queues: Vec<Queue>,
     interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
     pub(crate) queue_evts: [EventFd; 1],
-    mem: GuestMemoryMmap,
 
-    device_activated: bool,
+    pub(crate) device_state: DeviceState,
 
     // Implementation specific fields.
     pub(crate) rate_limiter: RateLimiter,
@@ -107,7 +107,6 @@ impl Block {
     ///
     /// The given file must be seekable and sizable.
     pub fn new(
-        mem: GuestMemoryMmap,
         mut disk_image: File,
         is_disk_read_only: bool,
         rate_limiter: RateLimiter,
@@ -132,12 +131,12 @@ impl Block {
             acked_features: 0u64,
             config_space: build_config_space(disk_size),
             rate_limiter,
-            mem,
             interrupt_status: Arc::new(AtomicUsize::new(0)),
             interrupt_evt: EventFd::new(libc::EFD_NONBLOCK)?,
             queue_evts,
             queues,
-            device_activated: false,
+            device_state: DeviceState::Inactive,
+            activate_evt: EventFd::new(libc::EFD_NONBLOCK)?,
         })
     }
 
@@ -161,11 +160,16 @@ impl Block {
     }
 
     pub(crate) fn process_queue(&mut self, queue_index: usize) -> bool {
+        let mem = match self.device_state {
+            DeviceState::Activated(ref mem) => mem,
+            // This should never happen, it's been already validated in the event handler.
+            DeviceState::Inactive => unreachable!(),
+        };
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
-        while let Some(head) = queue.pop(&self.mem) {
+        while let Some(head) = queue.pop(mem) {
             let len;
-            match Request::parse(&head, &self.mem) {
+            match Request::parse(&head, mem) {
                 Ok(request) => {
                     // If limiter.consume() fails it means there is no more TokenType::Ops
                     // budget and rate limiting is in effect.
@@ -196,7 +200,7 @@ impl Block {
                     let status = match request.execute(
                         &mut self.disk_image,
                         self.disk_nsectors,
-                        &self.mem,
+                        mem,
                         &self.disk_image_id,
                     ) {
                         Ok(l) => {
@@ -212,7 +216,7 @@ impl Block {
                     };
                     // We use unwrap because the request parsing process already checked that the
                     // status_addr was valid.
-                    self.mem.write_obj(status, request.status_addr).unwrap();
+                    mem.write_obj(status, request.status_addr).unwrap();
                 }
                 Err(e) => {
                     error!("Failed to parse available descriptor chain: {:?}", e);
@@ -220,7 +224,7 @@ impl Block {
                     len = 0;
                 }
             }
-            queue.add_used(&self.mem, head.index, len);
+            queue.add_used(mem, head.index, len);
             used_any = true;
         }
 
@@ -318,17 +322,24 @@ impl VirtioDevice for Block {
     }
 
     fn is_activated(&self) -> bool {
-        self.device_activated
+        match self.device_state {
+            DeviceState::Inactive => false,
+            DeviceState::Activated(_) => true,
+        }
     }
 
-    fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
-        self.device_activated = true;
+    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+        if self.activate_evt.write(1).is_err() {
+            error!("Block: Cannot write to activate_evt");
+            return Err(super::super::ActivateError::BadActivate);
+        }
+        self.device_state = DeviceState::Activated(mem);
         Ok(())
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fs::metadata;
     use std::os::unix::io::AsRawFd;
     use std::thread;
@@ -352,7 +363,7 @@ mod tests {
     }
 
     impl Block {
-        fn set_queue(&mut self, idx: usize, q: Queue) {
+        pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {
             self.queues[idx] = q;
         }
 
@@ -366,7 +377,7 @@ mod tests {
     }
 
     /// Create a default Block instance to be used in tests.
-    fn default_block() -> Block {
+    pub fn default_block() -> Block {
         // Create backing file.
         let f = TempFile::new().unwrap();
         let block_file = f.into_file();
@@ -375,12 +386,14 @@ mod tests {
         // Rate limiting is enabled but with a high operation rate (10 million ops/s).
         let rate_limiter = RateLimiter::new(0, None, 0, 100_000, None, 10).unwrap();
 
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-
-        Block::new(mem, block_file, true, rate_limiter).unwrap()
+        Block::new(block_file, true, rate_limiter).unwrap()
     }
 
-    fn initialize_virtqueue(vq: &VirtQueue) {
+    pub fn default_mem() -> GuestMemoryMmap {
+        GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap()
+    }
+
+    pub fn initialize_virtqueue(vq: &VirtQueue) {
         let request_type_desc: usize = 0;
         let data_desc: usize = 1;
         let status_desc: usize = 2;
@@ -496,7 +509,7 @@ mod tests {
     #[test]
     fn test_invalid_request() {
         let mut block = default_block();
-        let mem = block.mem.clone();
+        let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
@@ -521,7 +534,7 @@ mod tests {
     #[test]
     fn test_request_execute_failures() {
         let mut block = default_block();
-        let mem = block.mem.clone();
+        let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
@@ -579,7 +592,7 @@ mod tests {
     #[test]
     fn test_unsupported_request_type() {
         let mut block = default_block();
-        let mem = block.mem.clone();
+        let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
@@ -609,7 +622,7 @@ mod tests {
     #[test]
     fn test_read_write() {
         let mut block = default_block();
-        let mem = block.mem.clone();
+        let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
@@ -668,7 +681,7 @@ mod tests {
     #[test]
     fn test_flush() {
         let mut block = default_block();
-        let mem = block.mem.clone();
+        let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
@@ -711,7 +724,7 @@ mod tests {
     #[test]
     fn test_get_device_id() {
         let mut block = default_block();
-        let mem = block.mem.clone();
+        let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
@@ -777,7 +790,7 @@ mod tests {
     #[test]
     fn test_bandwidth_rate_limiter() {
         let mut block = default_block();
-        let mem = block.mem.clone();
+        let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
@@ -842,7 +855,7 @@ mod tests {
     #[test]
     fn test_ops_rate_limiter() {
         let mut block = default_block();
-        let mem = block.mem.clone();
+        let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         block.set_queue(0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
