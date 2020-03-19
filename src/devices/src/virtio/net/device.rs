@@ -679,7 +679,7 @@ impl VirtioDevice for Net {
         self.device_activated
     }
 
-    fn activate(&mut self) -> ActivateResult {
+    fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
         self.device_activated = true;
         Ok(())
     }
@@ -812,7 +812,7 @@ mod tests {
             self.queues.clear();
             self.queues.push(rxq);
             self.queues.push(txq);
-            self.activate().unwrap();
+            self.activate(self.mem.clone()).unwrap();
         }
     }
 

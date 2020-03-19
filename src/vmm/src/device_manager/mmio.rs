@@ -389,7 +389,7 @@ mod tests {
             let _ = data;
         }
 
-        fn activate(&mut self) -> ActivateResult {
+        fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
             Ok(())
         }
 
@@ -471,7 +471,6 @@ mod tests {
         let mut dummy = DummyDevice::new();
         assert_eq!(dummy.device_type(), 0);
         assert_eq!(dummy.queues().len(), QUEUE_SIZES.len());
-        dummy.activate().unwrap();
     }
 
     #[test]
