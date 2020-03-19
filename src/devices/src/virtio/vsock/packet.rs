@@ -17,7 +17,7 @@
 use std::result;
 
 use utils::byte_order;
-use vm_memory::{self, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryRegion};
+use vm_memory::{self, GuestAddress, GuestMemory, GuestMemoryError};
 
 use super::super::DescriptorChain;
 use super::defs;
@@ -102,18 +102,7 @@ fn get_host_address<T: GuestMemory>(
     guest_addr: GuestAddress,
     size: usize,
 ) -> result::Result<*mut u8, GuestMemoryError> {
-    let region = mem
-        .find_region(guest_addr)
-        .ok_or(GuestMemoryError::InvalidGuestAddress(guest_addr))?;
-    let region_addr = region
-        .to_region_addr(guest_addr)
-        .ok_or(GuestMemoryError::InvalidGuestAddress(guest_addr))?;
-
-    if size > 0 && region.checked_offset(region_addr, size - 1).is_none() {
-        return Err(GuestMemoryError::InvalidGuestAddress(guest_addr));
-    }
-
-    Ok(region.get_host_address(region_addr)?)
+    Ok(mem.get_slice(guest_addr, size)?.as_ptr())
 }
 
 impl VsockPacket {
