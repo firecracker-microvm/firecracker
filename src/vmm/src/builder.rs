@@ -684,14 +684,14 @@ fn attach_block_devices(
         if drive_config.is_root_device {
             let kernel_cmdline = &mut vmm.kernel_cmdline;
 
-            kernel_cmdline.insert_str(if let Some(partuuid) = drive_config.get_partuuid() {
+            kernel_cmdline.insert_str(if let Some(partuuid) = &drive_config.partuuid {
                 format!("root=PARTUUID={}", partuuid)
             } else {
                 // If no PARTUUID was specified for the root device, try with the /dev/vda.
                 "root=/dev/vda".to_string()
             })?;
 
-            let flags = if drive_config.is_read_only() {
+            let flags = if drive_config.is_read_only {
                 "ro"
             } else {
                 "rw"
