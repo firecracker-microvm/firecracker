@@ -160,7 +160,7 @@ impl VmmController {
         // Try to open the file specified by path_on_host using the permissions of the block_device.
         let disk_file = OpenOptions::new()
             .read(true)
-            .write(!self.vm_resources.block.config_list[block_device_index].is_read_only())
+            .write(!self.vm_resources.block.config_list[block_device_index].is_read_only)
             .open(&file_path)
             .map_err(DriveError::CannotOpenBlockDevice)
             .map_err(VmmActionError::DriveConfig)?;
