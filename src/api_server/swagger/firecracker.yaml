@@ -62,11 +62,10 @@ paths:
 
   /boot-source:
     put:
-      summary: Creates or updates the boot source.
+      summary: Creates or updates the boot source. Pre-boot only.
       description:
         Creates new boot source if one does not already exist, otherwise updates it.
         Will fail if update is not possible.
-        Note that the only currently supported boot source is LocalImage.
       operationId: putGuestBootSource
       parameters:
       - name: body
@@ -89,7 +88,7 @@ paths:
 
   /drives/{drive_id}:
     put:
-      summary: Creates or updates a drive.
+      summary: Creates or updates a drive. Pre-boot only.
       description:
         Creates new drive with ID specified by drive_id path parameter.
         If a drive with the specified ID already exists, updates its state based on new input.
@@ -119,7 +118,7 @@ paths:
           schema:
             $ref: "#/definitions/Error"
     patch:
-      summary: Updates the properties of a drive.
+      summary: Updates the properties of a drive. Post-boot only.
       description:
         Updates the properties of the drive with the ID specified by drive_id path parameter.
         Will fail if update is not possible.
@@ -190,7 +189,7 @@ paths:
             $ref: "#/definitions/Error"
 
     put:
-      summary: Updates the Machine Configuration of the VM.
+      summary: Updates the Machine Configuration of the VM. Pre-boot only.
       description:
         Updates the Virtual Machine Configuration with the specified input.
         Firecracker starts with default values for vCPU count (=1) and memory size (=128 MiB).
@@ -217,7 +216,7 @@ paths:
             $ref: "#/definitions/Error"
 
     patch:
-      summary: Partially updates the Machine Configuration of the VM.
+      summary: Partially updates the Machine Configuration of the VM. Pre-boot only.
       description:
         Partially updates the Virtual Machine Configuration with the specified input.
         If any of the parameters has an incorrect value, the whole update fails.
@@ -320,7 +319,7 @@ paths:
 
   /network-interfaces/{iface_id}:
     put:
-      summary: Creates a network interface.
+      summary: Creates a network interface. Pre-boot only.
       description:
         Creates new network interface with ID specified by iface_id path parameter.
       operationId: putGuestNetworkInterfaceByID
@@ -348,7 +347,7 @@ paths:
           schema:
             $ref: "#/definitions/Error"
     patch:
-      summary: Updates the rate limiters applied to a network interface.
+      summary: Updates the rate limiters applied to a network interface. Post-boot only.
       description:
         Updates the rate limiters applied to a network interface.
       operationId: patchGuestNetworkInterfaceByID
@@ -378,7 +377,7 @@ paths:
 
   /vsock:
     put:
-      summary: Creates/updates a vsock device.
+      summary: Creates/updates a vsock device. Pre-boot only.
       description:
         The first call creates the device with the configuration specified
         in body. Subsequent calls will update the device configuration.
