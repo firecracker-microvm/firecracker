@@ -98,7 +98,7 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         if session.config.option.collectonly:
             return True
 
-        # max_concurrency = self.session.config.option.concurrency
+        max_concurrency = self.session.config.option.concurrency
         schedule = [
             {
                 # Performance batch: tests that measure performance, and need
@@ -128,10 +128,7 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
                 # Safe batch: tests that can be run safely in a concurrent
                 # environment.
                 'name': 'safe',
-                # FIXME: we still have some framework concurrency issues
-                # which prevent us from successfully using `max_concurrency`.
-                # 'concurrency': max_concurrency,
-                'concurrency': 1,
+                'concurrency': max_concurrency,
                 'patterns': [
                     "/functional/.+",
                     "/build/.+",
