@@ -5,7 +5,7 @@ pub mod device;
 pub mod event_handler;
 pub mod request;
 
-pub use self::device::{build_config_space, Block};
+pub use self::device::Block;
 pub use self::event_handler::*;
 pub use self::request::*;
 
