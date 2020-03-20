@@ -89,6 +89,38 @@ macro_rules! arm64_core_reg {
     };
 }
 
+macro_rules! arm64_core_reg_id {
+    ($size: tt, $offset: tt) => {
+        // The core registers of an arm64 machine are represented
+        // in kernel by the `kvm_regs` structure. This structure is a
+        // mix of 32, 64 and 128 bit fields:
+        // struct kvm_regs {
+        //     struct user_pt_regs      regs;
+        //
+        //     __u64                    sp_el1;
+        //     __u64                    elr_el1;
+        //
+        //     __u64                    spsr[KVM_NR_SPSR];
+        //
+        //     struct user_fpsimd_state fp_regs;
+        // };
+        // struct user_pt_regs {
+        //     __u64 regs[31];
+        //     __u64 sp;
+        //     __u64 pc;
+        //     __u64 pstate;
+        // };
+        // The id of a core register can be obtained like this:
+        // offset = id & ~(KVM_REG_ARCH_MASK | KVM_REG_SIZE_MASK | KVM_REG_ARM_CORE). Thus,
+        // id = KVM_REG_ARM64 | KVM_REG_SIZE_U64/KVM_REG_SIZE_U32/KVM_REG_SIZE_U128 | KVM_REG_ARM_CORE | offset
+        // Obs! This macro intends to replace the deprecated limited one: arm64_core_reg but in an ulterior commit.
+        KVM_REG_ARM64 as u64
+            | u64::from(KVM_REG_ARM_CORE)
+            | $size
+            | (($offset / mem::size_of::<u32>()) as u64)
+    };
+}
+
 // This macro computes the ID of a specific ARM64 system register similar to how
 // the kernel C macro does.
 // https://elixir.bootlin.com/linux/v4.20.17/source/arch/arm64/include/uapi/asm/kvm.h#L203
