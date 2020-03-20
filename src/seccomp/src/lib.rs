@@ -1159,7 +1159,7 @@ impl Display for SeccompError {
 
 /// Possible values for seccomp level.
 #[repr(u8)]
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SeccompLevel {
     /// Seccomp filtering disabled.
     None = 0,
