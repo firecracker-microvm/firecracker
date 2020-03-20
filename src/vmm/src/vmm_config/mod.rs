@@ -6,7 +6,6 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard};
 
 use libc::O_NONBLOCK;
 
@@ -100,7 +99,7 @@ type Result<T> = std::result::Result<T, std::io::Error>;
 
 /// Structure `Writer` used for writing to a FIFO.
 pub struct Writer {
-    line_writer: Mutex<io::LineWriter<File>>,
+    line_writer: io::LineWriter<File>,
 }
 
 impl Writer {
@@ -116,29 +115,18 @@ impl Writer {
             .write(true)
             .open(&fifo_path)
             .map(|t| Writer {
-                line_writer: Mutex::new(io::LineWriter::new(t)),
+                line_writer: io::LineWriter::new(t),
             })
-    }
-
-    fn get_line_writer(&self) -> MutexGuard<io::LineWriter<File>> {
-        match self.line_writer.lock() {
-            Ok(guard) => guard,
-            // If a thread panics while holding this lock, the writer within should still be usable.
-            // (we might get an incomplete log line or something like that).
-            Err(poisoned) => poisoned.into_inner(),
-        }
     }
 }
 
 impl io::Write for Writer {
     fn write(&mut self, msg: &[u8]) -> Result<(usize)> {
-        let mut line_writer = self.get_line_writer();
-        line_writer.write_all(msg).map(|()| msg.len())
+        self.line_writer.write_all(msg).map(|()| msg.len())
     }
 
     fn flush(&mut self) -> Result<()> {
-        let mut line_writer = self.get_line_writer();
-        line_writer.flush()
+        self.line_writer.flush()
     }
 }
 
