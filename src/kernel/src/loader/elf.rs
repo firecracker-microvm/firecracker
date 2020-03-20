@@ -20,6 +20,7 @@ pub const ELFMAG0: ::std::os::raw::c_uint = 127;
 
 pub const ELFDATA2LSB: ::std::os::raw::c_uint = 1;
 pub const PT_LOAD: ::std::os::raw::c_uint = 1;
+pub const PT_NOTE: ::std::os::raw::c_uint = 4;
 
 pub const ELFMAG1: u8 = b'E';
 pub const ELFMAG2: u8 = b'L';
@@ -84,6 +85,15 @@ impl Clone for elf64_phdr {
     }
 }
 pub type Elf64_Phdr = elf64_phdr;
+
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct elf64_note {
+    pub n_namesz: Elf64_Word,
+    pub n_descsz: Elf64_Word,
+    pub n_type: Elf64_Word,
+}
+pub type Elf64_Nhdr = elf64_note;
 
 #[cfg(test)]
 mod tests {
@@ -333,6 +343,50 @@ mod tests {
                 stringify!(elf64_hdr),
                 "::",
                 stringify!(e_shstrndx)
+            )
+        );
+    }
+
+    #[test]
+    fn bindgen_test_layout_elf64_note() {
+        assert_eq!(
+            ::std::mem::size_of::<elf64_note>(),
+            12usize,
+            concat!("Size of: ", stringify!(elf64_note))
+        );
+        assert_eq!(
+            ::std::mem::align_of::<elf64_note>(),
+            4usize,
+            concat!("Alignment of ", stringify!(elf64_note))
+        );
+        assert_eq!(
+            unsafe { &(*(::std::ptr::null::<elf64_note>())).n_namesz as *const _ as usize },
+            0usize,
+            concat!(
+                "Offset of field: ",
+                stringify!(elf64_note),
+                "::",
+                stringify!(n_namesz)
+            )
+        );
+        assert_eq!(
+            unsafe { &(*(::std::ptr::null::<elf64_note>())).n_descsz as *const _ as usize },
+            4usize,
+            concat!(
+                "Offset of field: ",
+                stringify!(elf64_note),
+                "::",
+                stringify!(n_descsz)
+            )
+        );
+        assert_eq!(
+            unsafe { &(*(::std::ptr::null::<elf64_note>())).n_type as *const _ as usize },
+            8usize,
+            concat!(
+                "Offset of field: ",
+                stringify!(elf64_note),
+                "::",
+                stringify!(n_type)
             )
         );
     }
