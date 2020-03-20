@@ -25,6 +25,8 @@
 - Removed `metrics_fifo` field from the logger configuration.
 - Renamed `log_fifo` field from LoggerConfig to `log_path` and
   `metrics_fifo` field from MetricsConfig to `metrics_path`.
+- `PATCH /drives/{id}` only allowed post-boot. Use `PUT` for pre-boot
+  updates to existing configurations.
 
 ## [0.21.0]
 

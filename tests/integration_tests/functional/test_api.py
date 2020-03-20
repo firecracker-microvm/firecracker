@@ -575,7 +575,14 @@ def test_drive_patch(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    _drive_patch(test_microvm)
+    # Patching drive before boot is not allowed.
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        path_on_host='foo.bar'
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The requested operation is not supported before starting the " \
+        "microVM." in response.text
 
     test_microvm.start()
 
