@@ -9,7 +9,7 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 use self::logger_crate::METRICS;
-use super::Writer;
+use super::{open_file_nonblock, FcLineWriter};
 
 /// Strongly typed structure used to describe the metrics system.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -39,10 +39,12 @@ impl Display for MetricsConfigError {
 
 /// Configures the metrics as described in `metrics_cfg`.
 pub fn init_metrics(metrics_cfg: MetricsConfig) -> std::result::Result<(), MetricsConfigError> {
+    let writer = FcLineWriter::new(
+        open_file_nonblock(&metrics_cfg.metrics_path)
+            .map_err(|e| MetricsConfigError::InitializationFailure(e.to_string()))?,
+    );
     METRICS
-        .init(Box::new(Writer::new(metrics_cfg.metrics_path).map_err(
-            |e| MetricsConfigError::InitializationFailure(e.to_string()),
-        )?))
+        .init(Box::new(writer))
         .map_err(|e| MetricsConfigError::InitializationFailure(e.to_string()))
 }
 

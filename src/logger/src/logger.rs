@@ -430,7 +430,7 @@ impl Logger {
                 // No need to explicitly call flush because the underlying LineWriter flushes
                 // automatically whenever a newline is detected (and we always end with a
                 // newline the current write).
-                if guard.write(&(format!("{}\n", msg)).as_bytes()).is_err() {
+                if guard.write_all(&(format!("{}\n", msg)).as_bytes()).is_err() {
                     // No reason to log the error to stderr here, just increment the metric.
                     METRICS.logger.missed_log_count.inc();
                 }

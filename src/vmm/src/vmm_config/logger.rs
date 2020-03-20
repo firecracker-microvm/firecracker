@@ -9,7 +9,7 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 use self::logger_crate::{LevelFilter, LOGGER};
-use super::Writer;
+use super::{open_file_nonblock, FcLineWriter};
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -120,13 +120,14 @@ pub fn init_logger(
         .set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin)
         .set_include_level(logger_cfg.show_level);
 
+    let writer = FcLineWriter::new(
+        open_file_nonblock(&logger_cfg.log_path)
+            .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
+    );
     LOGGER
         .init(
             format!("Running {} v{}", "Firecracker", firecracker_version),
-            Box::new(
-                Writer::new(logger_cfg.log_path)
-                    .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
-            ),
+            Box::new(writer),
         )
         .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))
 }
