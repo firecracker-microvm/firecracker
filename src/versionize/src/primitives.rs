@@ -156,7 +156,7 @@ where
             0u8 => Ok(None),
             1u8 => Ok(Some(T::deserialize(reader, version_map, app_version)?)),
             value => Err(Error::Deserialize(format!(
-                "Invalind option value {}",
+                "Invalid option value {}",
                 value
             ))),
         }
@@ -488,17 +488,43 @@ mod tests {
     fn test_ser_de_option() {
         let vm = VersionMap::new();
         let mut snapshot_mem = vec![0u8; 64];
-
-        let store = Some("test".to_owned());
+        let mut store = Some("test".to_owned());
 
         store
             .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
             .unwrap();
-        let restore =
+        let mut restore =
             <Option<String> as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1)
                 .unwrap();
-
         assert_eq!(store, restore);
+
+        // Check that ser_de also works for `None` variant.
+        store = None;
+        store
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        restore = <Option<String> as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1)
+            .unwrap();
+        assert_eq!(store, restore);
+
+        store = Some("test".to_owned());
+        store
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        // Corrupt `snapshot_mem` by changing the most significant bit to a value different than 0 or 1.
+        snapshot_mem[0] = 2;
+        let restore_err =
+            <Option<String> as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1)
+                .unwrap_err();
+        assert_eq!(
+            restore_err,
+            Error::Deserialize("Invalid option value 2".to_string())
+        );
+        // Corrupt `snapshot_mem` by changing the most significant bit from 1 (`Some(type)`) to 0 (`None`).
+        snapshot_mem[0] = 0;
+        restore = <Option<String> as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1)
+            .unwrap();
+        assert_ne!(store, restore);
     }
 
     #[test]
