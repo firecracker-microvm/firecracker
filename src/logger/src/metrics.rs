@@ -126,7 +126,7 @@ impl<T: Serialize> Metrics<T> {
                         // automatically whenever a newline is detected (and we always end with a
                         // newline the current write).
                         return guard
-                            .write(&(format!("{}\n", msg)).as_bytes())
+                            .write_all(&(format!("{}\n", msg)).as_bytes())
                             .map_err(MetricsError::Write)
                             .map(|_| true);
                     } else {
