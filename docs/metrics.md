@@ -32,7 +32,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
 ```
 
 Details about this configuration can be found in the
-[swagger definition](../../src/api_server/swagger/firecracker.yaml).
+[swagger definition](../src/api_server/swagger/firecracker.yaml).
 
 The metrics are written to the `metrics_path` in JSON format.
 
@@ -42,7 +42,7 @@ The metrics get flushed in two ways:
 
 * without user intervention every 60 seconds;
 * upon user demand, by issuing a `FlushMetrics` request. You can
-find how to use this request in the [actions API](../api_requests/actions.md).
+find how to use this request in the [actions API](api_requests/actions.md).
 
 If the path provided is a named pipe, you can use the script below to
 read from it:

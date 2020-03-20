@@ -37,7 +37,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
 ```
 
 Details about the required and optional fields can be found in the
-[swagger definition](../../src/api_server/swagger/firecracker.yaml).
+[swagger definition](../src/api_server/swagger/firecracker.yaml).
 
 ## Using command line parameters for configuration
 
