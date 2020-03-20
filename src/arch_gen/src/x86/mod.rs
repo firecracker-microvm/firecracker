@@ -14,3 +14,4 @@ pub mod bootparam;
 pub mod mpspec;
 #[allow(non_upper_case_globals)]
 pub mod msr_index;
+pub mod start_info;
