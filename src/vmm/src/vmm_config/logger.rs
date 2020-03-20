@@ -8,7 +8,7 @@ extern crate logger as logger_crate;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use self::logger_crate::{Level, LOGGER};
+use self::logger_crate::{LevelFilter, LOGGER};
 use super::Writer;
 
 /// Enum used for setting the log level.
@@ -49,13 +49,13 @@ impl Default for LoggerLevel {
     }
 }
 
-impl Into<Level> for LoggerLevel {
-    fn into(self) -> Level {
+impl Into<LevelFilter> for LoggerLevel {
+    fn into(self) -> LevelFilter {
         match self {
-            LoggerLevel::Error => Level::Error,
-            LoggerLevel::Warning => Level::Warn,
-            LoggerLevel::Info => Level::Info,
-            LoggerLevel::Debug => Level::Debug,
+            LoggerLevel::Error => LevelFilter::Error,
+            LoggerLevel::Warning => LevelFilter::Warn,
+            LoggerLevel::Info => LevelFilter::Info,
+            LoggerLevel::Debug => LevelFilter::Debug,
         }
     }
 }
