@@ -97,7 +97,7 @@ use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, RwLock};
 
-use log::{set_logger, set_max_level, Level, Log, Metadata, Record};
+use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
 use metrics::{Metric, METRICS};
 use utils::time::LocalTime;
 
@@ -109,7 +109,7 @@ pub type Result<T> = result::Result<T, LoggerError>;
 // Values used by the Logger.
 const IN_PREFIX_SEPARATOR: &str = ":";
 const MSG_SEPARATOR: &str = " ";
-const DEFAULT_LEVEL: Level = Level::Warn;
+const DEFAULT_LEVEL: LevelFilter = LevelFilter::Warn;
 
 // Synchronization primitives used to run a one-time global initialization.
 const UNINITIALIZED: usize = 0;
@@ -137,23 +137,17 @@ pub struct Logger {
     show_level: AtomicBool,
     show_file_path: AtomicBool,
     show_line_numbers: AtomicBool,
-    level: AtomicUsize,
     instance_id: RwLock<String>,
 }
 
 impl Logger {
-    // Creates a new instance of the current logger.
-    //
-    // The default log level is `WARN` and the default destination is stdout/stderr based on level.
+    /// Creates a new instance of the current logger.
     fn new() -> Logger {
         Logger {
             log_buf: Mutex::new(None),
             show_level: AtomicBool::new(true),
             show_line_numbers: AtomicBool::new(true),
             show_file_path: AtomicBool::new(true),
-            level:
-            // DEFAULT_LEVEL is warn so the destination output is stderr.
-            AtomicUsize::new(DEFAULT_LEVEL as usize),
             instance_id: RwLock::new(String::new()),
         }
     }
@@ -250,7 +244,7 @@ impl Logger {
         self
     }
 
-    /// Explicitly sets the log level for the Logger.
+    /// Explicitly sets the max log level for the Logger.
     /// The default level is WARN. So, ERROR and WARN statements will be shown (i.e. all that is
     /// bigger than the level code).
     ///
@@ -268,18 +262,19 @@ impl Logger {
     ///
     /// fn main() {
     ///     let l = LOGGER.deref();
-    ///     l.set_level(log::Level::Info);
+    ///     l.set_level(log::LevelFilter::Warn);
     ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
     ///     info!("An informational log message");
+    ///     warn!("A test warning message");
     /// }
     /// ```
     /// The code above will more or less print:
     /// ```bash
-    /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:INFO:logger/src/lib.rs:389] An informational log
+    /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:INFO:logger/src/lib.rs:389] A test warning
     /// message
     /// ```
-    pub fn set_level(&self, level: Level) -> &Self {
-        self.level.store(level as usize, Ordering::Relaxed);
+    pub fn set_level(&self, level: LevelFilter) -> &Self {
+        set_max_level(level);
         self
     }
 
@@ -338,6 +333,14 @@ impl Logger {
         Ok(())
     }
 
+    /// if the max level hasn't been configured yet, set it to default
+    fn try_init_level(&self) {
+        // if the max level hasn't been configured yet, set it to default
+        if max_level() == LevelFilter::Off {
+            self.set_level(DEFAULT_LEVEL);
+        }
+    }
+
     /// Preconfigure the logger prior to initialization.
     /// Performs the most basic steps in order to enable the logger to write to stdout or stderr
     /// even before calling LOGGER.init(). Calling this method is optional.
@@ -370,7 +373,7 @@ impl Logger {
             self.set_instance_id(some_instance_id);
         }
 
-        set_max_level(Level::Trace.to_level_filter());
+        self.try_init_level();
 
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
 
@@ -410,7 +413,7 @@ impl Logger {
             *g = Some(log_dest);
         }
 
-        set_max_level(Level::Trace.to_level_filter());
+        self.try_init_level();
 
         STATE.store(INITIALIZED, Ordering::SeqCst);
         self.write_log(header, Level::Info);
@@ -475,24 +478,20 @@ impl fmt::Display for LoggerError {
 
 /// Implements the "Log" trait from the externally used "log" crate.
 impl Log for Logger {
-    // Test whether the level of the log line should be outputted or not based on the currently
-    // configured level. If the configured level is "warning" but the line is logged through "info!"
-    // marco then it will not get logged.
-    fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() as usize <= self.level.load(Ordering::SeqCst)
+    // This is currently not used.
+    fn enabled(&self, _metadata: &Metadata) -> bool {
+        true
     }
 
     fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            let msg = format!(
-                "{}{}{}{}",
-                LocalTime::now(),
-                self.create_prefix(&record),
-                MSG_SEPARATOR,
-                record.args()
-            );
-            self.write_log(msg, record.metadata().level());
-        }
+        let msg = format!(
+            "{}{}{}{}",
+            LocalTime::now(),
+            self.create_prefix(&record),
+            MSG_SEPARATOR,
+            record.args()
+        );
+        self.write_log(msg, record.metadata().level());
     }
 
     // This is currently not used.
@@ -537,7 +536,6 @@ mod tests {
     #[test]
     fn test_default_values() {
         let l = Logger::new();
-        assert_eq!(l.level.load(Ordering::Relaxed), log::Level::Warn as usize);
         assert_eq!(l.show_line_numbers(), true);
         assert_eq!(l.show_level(), true);
     }
@@ -552,7 +550,7 @@ mod tests {
 
         l.set_include_origin(true, true)
             .set_include_level(true)
-            .set_level(log::Level::Info);
+            .set_level(log::LevelFilter::Info);
         assert_eq!(l.show_line_numbers(), true);
         assert_eq!(l.show_file_path(), true);
         assert_eq!(l.show_level(), true);

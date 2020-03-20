@@ -295,6 +295,7 @@ mod tests {
 
     use super::*;
     use dumbo::MacAddr;
+    use logger::{LevelFilter, LOGGER};
     use resources::VmResources;
     use utils::tempfile::TempFile;
     use vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
@@ -534,6 +535,9 @@ mod tests {
             Err(Error::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
+
+        // The previous call enables the logger. We need to disable it.
+        LOGGER.set_level(LevelFilter::Off);
 
         // Invalid path for metrics pipe.
         json = format!(
