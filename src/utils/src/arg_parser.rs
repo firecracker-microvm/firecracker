@@ -222,11 +222,11 @@ impl<'a> Arguments<'a> {
             .and_then(|arg_value| arg_value.as_string())
     }
 
-    /// Return the value of an argument if the argument exists and has the type
-    /// bool. Otherwise return None.
+    /// Return true if the argument exists and has the type bool. 
+    /// Otherwise return false.
     pub fn value_as_bool(&self, arg_name: &'static str) -> Option<bool> {
         self.value_of(arg_name)
-            .and_then(|arg_value| arg_value.as_bool())
+            .map_or(Some(false), |arg_value| arg_value.as_bool())
     }
 
     /// Get the extra arguments (all arguments after `--`).
