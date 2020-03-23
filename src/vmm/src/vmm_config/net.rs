@@ -45,17 +45,6 @@ impl NetworkInterfaceConfig {
     pub fn open_tap(&self) -> result::Result<Tap, NetworkInterfaceError> {
         Tap::open_named(self.host_dev_name.as_str()).map_err(NetworkInterfaceError::OpenTap)
     }
-
-    /// Returns a reference to the mac address. It the mac address is not configured, it
-    /// return None.
-    pub fn guest_mac(&self) -> Option<&MacAddr> {
-        self.guest_mac.as_ref()
-    }
-
-    /// Checks whether the interface is supposed to respond to MMDS requests.
-    pub fn allow_mmds_requests(&self) -> bool {
-        self.allow_mmds_requests
-    }
 }
 
 /// The data fed into a network iface update request. Currently, only the RX and TX rate limiters
@@ -84,8 +73,6 @@ pub enum NetworkInterfaceError {
     DeviceIdNotFound,
     /// Cannot open/create tap device.
     OpenTap(TapError),
-    /// Error updating (patching) the rate limiters.
-    RateLimiterUpdateFailed(devices::Error),
 }
 
 impl Display for NetworkInterfaceError {
@@ -116,7 +103,6 @@ impl Display for NetworkInterfaceError {
                     tap_err
                 )
             }
-            RateLimiterUpdateFailed(ref e) => write!(f, "Unable to update rate limiter: {:?}", e),
         }
     }
 }
@@ -152,103 +138,33 @@ impl NetworkInterfaceConfigs {
         &mut self,
         netif_config: NetworkInterfaceConfig,
     ) -> result::Result<(), NetworkInterfaceError> {
+        // Validate there is no Mac or HostDevName conflict.
+        if let Some(cfg) = self.if_list.iter().find(|&cfg| {
+            // Check that no other config has same MAC or host_dev_name.
+            cfg.iface_id != netif_config.iface_id
+                && (cfg.host_dev_name == netif_config.host_dev_name
+                    || (cfg.guest_mac.is_some() && cfg.guest_mac == netif_config.guest_mac))
+        }) {
+            // MAC or HostDevName conflict found.
+            return if cfg.host_dev_name == netif_config.host_dev_name {
+                Err(NetworkInterfaceError::HostDeviceNameInUse(
+                    netif_config.host_dev_name,
+                ))
+            } else {
+                Err(NetworkInterfaceError::GuestMacAddressInUse(
+                    netif_config.guest_mac.unwrap().to_string(),
+                ))
+            };
+        }
+
         match self
             .if_list
             .iter()
             .position(|netif_from_list| netif_from_list.iface_id == netif_config.iface_id)
         {
-            Some(index) => self.update(index, netif_config),
-            None => self.create(netif_config),
-        }
-    }
-
-    fn get_index_of_mac(&self, mac: MacAddr) -> Option<usize> {
-        self.if_list
-            .iter()
-            .position(|netif| netif.guest_mac == Some(mac))
-    }
-
-    fn get_index_of_dev_name(&self, host_dev_name: &str) -> Option<usize> {
-        self.if_list
-            .iter()
-            .position(|netif| netif.host_dev_name == host_dev_name)
-    }
-
-    fn validate_update(
-        &self,
-        index: usize,
-        new_config: &NetworkInterfaceConfig,
-    ) -> result::Result<(), NetworkInterfaceError> {
-        // Check that the mac address is unique. In order to do so, we search for the
-        // network interface that has the same mac address as the one specified in new_config.
-        // If the same mac is used in another network interface config, return error.
-        if new_config.guest_mac.is_some() {
-            let mac_index = self.get_index_of_mac(new_config.guest_mac.unwrap());
-            if mac_index.is_some() && mac_index.unwrap() != index {
-                return Err(NetworkInterfaceError::GuestMacAddressInUse(
-                    new_config.guest_mac.unwrap().to_string(),
-                ));
-            }
-        }
-        // Check that the host_dev_name is unique.
-        let dev_name_index = self.get_index_of_dev_name(&new_config.host_dev_name);
-        if dev_name_index.is_some() && dev_name_index.unwrap() != index {
-            return Err(NetworkInterfaceError::HostDeviceNameInUse(
-                new_config.host_dev_name.clone(),
-            ));
-        }
-
-        Ok(())
-    }
-
-    fn update(
-        &mut self,
-        index: usize,
-        updated_netif_config: NetworkInterfaceConfig,
-    ) -> result::Result<(), NetworkInterfaceError> {
-        self.validate_update(index, &updated_netif_config)?;
-        self.if_list[index] = updated_netif_config;
-
-        // Check that the tap can be opened.
-        self.if_list[index].open_tap().map(|_| ())
-    }
-
-    fn validate_create(
-        &self,
-        new_config: &NetworkInterfaceConfig,
-    ) -> result::Result<(), NetworkInterfaceError> {
-        // Check that there is no other interface in the list that has the same mac.
-        if new_config.guest_mac.is_some()
-            && self
-                .get_index_of_mac(new_config.guest_mac.unwrap())
-                .is_some()
-        {
-            return Err(NetworkInterfaceError::GuestMacAddressInUse(
-                new_config.guest_mac.unwrap().to_string(),
-            ));
-        }
-
-        // Check that there is no other interface in the list that has the same host_dev_name.
-        if self
-            .get_index_of_dev_name(&new_config.host_dev_name)
-            .is_some()
-        {
-            return Err(NetworkInterfaceError::HostDeviceNameInUse(
-                new_config.host_dev_name.clone(),
-            ));
-        }
-
-        // Check that the tap refered to in `new_config` can be opened.
-        new_config.open_tap().map(|_| ())
-    }
-
-    fn create(
-        &mut self,
-        netif_config: NetworkInterfaceConfig,
-    ) -> result::Result<(), NetworkInterfaceError> {
-        self.validate_create(&netif_config)?;
-        self.if_list.push(netif_config);
-
+            Some(index) => self.if_list[index] = netif_config,
+            None => self.if_list.push(netif_config),
+        };
         Ok(())
     }
 
@@ -424,15 +340,6 @@ mod tests {
             NetworkInterfaceError::OpenTap(TapError::InvalidIfname),
             NetworkInterfaceError::OpenTap(TapError::InvalidIfname)
         );
-        let _ = format!(
-            "{}{:?}",
-            NetworkInterfaceError::RateLimiterUpdateFailed(devices::Error::IoError(
-                io::Error::last_os_error()
-            )),
-            NetworkInterfaceError::RateLimiterUpdateFailed(devices::Error::IoError(
-                io::Error::last_os_error()
-            ))
-        );
     }
 
     #[test]
@@ -443,9 +350,9 @@ mod tests {
 
         let net_if = create_netif(net_id, host_dev_name, guest_mac);
         assert_eq!(
-            *net_if.guest_mac().unwrap(),
+            net_if.guest_mac.unwrap(),
             MacAddr::parse_str(guest_mac).unwrap()
         );
-        assert_eq!(net_if.allow_mmds_requests(), false);
+        assert_eq!(net_if.allow_mmds_requests, false);
     }
 }

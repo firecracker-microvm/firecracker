@@ -739,8 +739,6 @@ fn attach_net_devices(
     use self::StartMicrovmError::*;
 
     for cfg in network_ifaces.iter() {
-        let allow_mmds_requests = cfg.allow_mmds_requests();
-
         let rx_rate_limiter = cfg
             .rx_rate_limiter
             .map(vmm_config::RateLimiterConfig::try_into)
@@ -757,10 +755,10 @@ fn attach_net_devices(
         let net_device = Arc::new(Mutex::new(
             devices::virtio::net::Net::new_with_tap(
                 tap,
-                cfg.guest_mac(),
+                cfg.guest_mac.as_ref(),
                 rx_rate_limiter.unwrap_or_default(),
                 tx_rate_limiter.unwrap_or_default(),
-                allow_mmds_requests,
+                cfg.allow_mmds_requests,
             )
             .map_err(CreateNetDevice)?,
         ));
