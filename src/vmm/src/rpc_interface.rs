@@ -244,11 +244,6 @@ impl<'a> PrebootApiController<'a> {
                 .set_vm_config(&machine_config_body)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::MachineConfig),
-            UpdateNetworkInterface(netif_update) => self
-                .vm_resources
-                .update_net_rate_limiters(netif_update)
-                .map(|_| VmmData::Empty)
-                .map_err(VmmActionError::NetworkConfig),
             StartMicroVm => super::builder::build_microvm(
                 &self.vm_resources,
                 &mut self.event_manager,
@@ -261,7 +256,7 @@ impl<'a> PrebootApiController<'a> {
             .map_err(VmmActionError::StartMicrovm),
 
             // Operations not allowed pre-boot.
-            UpdateBlockDevicePath(_, _) | FlushMetrics => {
+            UpdateBlockDevicePath(_, _) | UpdateNetworkInterface(_) | FlushMetrics => {
                 Err(VmmActionError::OperationNotSupportedPreBoot)
             }
             #[cfg(target_arch = "x86_64")]

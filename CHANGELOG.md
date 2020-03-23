@@ -27,6 +27,8 @@
   `metrics_fifo` field from MetricsConfig to `metrics_path`.
 - `PATCH /drives/{id}` only allowed post-boot. Use `PUT` for pre-boot
   updates to existing configurations.
+- `PATCH /network-interfaces/{id}` only allowed post-boot. Use `PUT` for
+  pre-boot updates to existing configurations.
 
 ## [0.21.0]
 

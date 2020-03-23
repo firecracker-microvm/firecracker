@@ -447,8 +447,9 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     fs1 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, 'scratch')
     )
+    drive_id = 'scratch'
     response = test_microvm.drive.put(
-        drive_id='scratch',
+        drive_id=drive_id,
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False
@@ -491,6 +492,23 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     response = test_microvm.logger.patch(level='Error')
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
+
+    # Patching drive before boot is not allowed.
+    response = test_microvm.drive.patch(
+        drive_id=drive_id,
+        path_on_host='foo.bar'
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The requested operation is not supported before starting the " \
+           "microVM." in response.text
+
+    # Patching net before boot is not allowed.
+    response = test_microvm.network.patch(
+        iface_id=iface_id
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The requested operation is not supported before starting the " \
+           "microVM." in response.text
 
 
 def test_api_patch_post_boot(test_microvm_with_api):
