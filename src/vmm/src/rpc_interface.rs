@@ -21,7 +21,7 @@ use vmm_config::metrics::{MetricsConfig, MetricsConfigError};
 use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
-use vmm_config::vsock::{VsockDeviceConfig, VsockError};
+use vmm_config::vsock::VsockDeviceConfig;
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -92,8 +92,6 @@ pub enum VmmActionError {
     OperationNotSupportedPreBoot,
     /// The action `StartMicroVm` failed because of an internal error.
     StartMicrovm(StartMicrovmError),
-    /// The action `set_vsock_device` failed because of bad user input.
-    VsockConfig(VsockError),
 }
 
 impl Display for VmmActionError {
@@ -120,7 +118,6 @@ impl Display for VmmActionError {
                         .to_string()
                 }
                 StartMicrovm(err) => err.to_string(),
-                VsockConfig(err) => err.to_string(),
             }
         )
     }

@@ -41,8 +41,6 @@ pub enum BootSourceConfigError {
     InvalidInitrdPath(io::Error),
     /// The kernel command line is invalid.
     InvalidKernelCommandLine(String),
-    /// The boot source cannot be update post boot.
-    UpdateNotAllowedPostBoot,
 }
 
 impl Display for BootSourceConfigError {
@@ -58,9 +56,6 @@ impl Display for BootSourceConfigError {
             ),
             InvalidKernelCommandLine(ref e) => {
                 write!(f, "The kernel command line is invalid: {}", e.as_str())
-            }
-            UpdateNotAllowedPostBoot => {
-                write!(f, "The update operation is not allowed after boot.")
             }
         }
     }
