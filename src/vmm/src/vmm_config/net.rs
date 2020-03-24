@@ -5,7 +5,6 @@ use std::fmt::{Display, Formatter, Result};
 use std::result;
 
 use super::RateLimiterConfig;
-use devices;
 use dumbo::MacAddr;
 use utils::net::{Tap, TapError};
 
@@ -181,7 +180,6 @@ impl NetworkInterfaceConfigs {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::str;
 
     use super::*;

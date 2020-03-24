@@ -25,8 +25,6 @@ use utils::eventfd::EventFd;
 pub enum Error {
     /// Failed to perform an operation on the bus.
     BusError(devices::BusError),
-    /// Could not create the mmio device to wrap a VirtioDevice.
-    CreateMmioDevice(io::Error),
     /// Appending to kernel command line failed.
     Cmdline(kernel_cmdline::Error),
     /// Failure in creating or cloning an event fd.
@@ -47,7 +45,6 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::BusError(ref e) => write!(f, "failed to perform bus operation: {}", e),
-            Error::CreateMmioDevice(ref e) => write!(f, "failed to create mmio device: {}", e),
             Error::Cmdline(ref e) => {
                 write!(f, "unable to add device to kernel command line: {}", e)
             }
@@ -300,9 +297,7 @@ mod tests {
             type_id: u32,
             device_id: &str,
         ) -> Result<u64> {
-            let mmio_device = devices::virtio::MmioTransport::new(guest_mem, device)
-                .map_err(Error::CreateMmioDevice)?;
-
+            let mmio_device = devices::virtio::MmioTransport::new(guest_mem, device);
             self.register_mmio_device(vm, mmio_device, cmdline, type_id, device_id)
         }
 
@@ -507,16 +502,6 @@ mod tests {
             format!(
                 "failed to perform bus operation: {}",
                 devices::BusError::Overlap
-            )
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                Error::CreateMmioDevice(io::Error::from_raw_os_error(0))
-            ),
-            format!(
-                "failed to create mmio device: {}",
-                io::Error::from_raw_os_error(0)
             )
         );
         assert_eq!(
