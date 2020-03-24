@@ -53,16 +53,13 @@ pub struct MmioTransport {
 
 impl MmioTransport {
     /// Constructs a new MMIO transport for the given virtio device.
-    pub fn new(
-        mem: GuestMemoryMmap,
-        device: Arc<Mutex<dyn VirtioDevice>>,
-    ) -> std::io::Result<MmioTransport> {
+    pub fn new(mem: GuestMemoryMmap, device: Arc<Mutex<dyn VirtioDevice>>) -> MmioTransport {
         let interrupt_status = device
             .lock()
             .expect("Poisoned device lock")
             .interrupt_status();
 
-        Ok(MmioTransport {
+        MmioTransport {
             device,
             features_select: 0,
             acked_features_select: 0,
@@ -71,7 +68,7 @@ impl MmioTransport {
             config_generation: 0,
             mem,
             interrupt_status,
-        })
+        }
     }
 
     pub fn locked_device(&self) -> MutexGuard<dyn VirtioDevice + 'static> {
@@ -441,7 +438,7 @@ mod tests {
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
         assert!(dummy.reset().is_none());
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy))).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy)));
 
         // We just make sure here that the implementation of a mmio device behaves as we expect,
         // given a known virtio device implementation (the dummy device).
@@ -470,7 +467,7 @@ mod tests {
     #[test]
     fn test_bus_device_read() {
         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new()))).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
 
         let mut buf = vec![0xff, 0, 0xfe, 0];
         let buf_copy = buf.to_vec();
@@ -549,7 +546,7 @@ mod tests {
     fn test_bus_device_write() {
         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
         let dummy_dev = Arc::new(Mutex::new(DummyDevice::new()));
-        let mut d = MmioTransport::new(m, dummy_dev.clone()).unwrap();
+        let mut d = MmioTransport::new(m, dummy_dev.clone());
         let mut buf = vec![0; 5];
         write_le_u32(&mut buf[..4], 1);
 
@@ -706,7 +703,7 @@ mod tests {
     #[test]
     fn test_bus_device_activate() {
         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new()))).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
 
         assert!(!d.are_queues_valid());
         assert!(!d.locked_device().is_activated());
@@ -824,7 +821,7 @@ mod tests {
     #[test]
     fn test_bus_device_reset() {
         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new()))).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
         let mut buf = vec![0; 4];
 
         assert!(!d.are_queues_valid());

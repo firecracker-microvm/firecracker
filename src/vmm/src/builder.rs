@@ -722,8 +722,7 @@ fn attach_block_devices(
         attach_mmio_device(
             vmm,
             drive_config.drive_id.clone(),
-            MmioTransport::new(vmm.guest_memory().clone(), block_device.clone())
-                .map_err(CreateBlockDevice)?,
+            MmioTransport::new(vmm.guest_memory().clone(), block_device.clone()),
         )
         .map_err(RegisterBlockDevice)?;
     }
@@ -769,9 +768,7 @@ fn attach_net_devices(
         attach_mmio_device(
             vmm,
             cfg.iface_id.clone(),
-            MmioTransport::new(vmm.guest_memory().clone(), net_device).map_err(|e| {
-                RegisterNetDevice(super::device_manager::mmio::Error::CreateMmioDevice(e))
-            })?,
+            MmioTransport::new(vmm.guest_memory().clone(), net_device),
         )
         .map_err(RegisterNetDevice)?;
     }
@@ -803,9 +800,7 @@ fn attach_vsock_device(
     attach_mmio_device(
         vmm,
         vsock.vsock_id.clone(),
-        MmioTransport::new(vmm.guest_memory().clone(), vsock_device)
-            .map_err(device_manager::mmio::Error::CreateMmioDevice)
-            .map_err(RegisterVsockDevice)?,
+        MmioTransport::new(vmm.guest_memory().clone(), vsock_device),
     )
     .map_err(RegisterVsockDevice)?;
 
