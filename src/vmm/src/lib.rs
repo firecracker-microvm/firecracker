@@ -34,8 +34,6 @@ extern crate vm_memory;
 
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
-/// Handles runtime configuration of a `Vmm` object.
-pub mod controller;
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
 pub(crate) mod device_manager;
