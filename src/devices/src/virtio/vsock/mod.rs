@@ -159,7 +159,7 @@ mod tests {
     use utils::eventfd::EventFd;
 
     use crate::virtio::queue::tests::VirtQueue as GuestQ;
-    use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::virtio::{VirtioDevice, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use utils::epoll::EpollEvent;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
@@ -258,9 +258,9 @@ mod tests {
             let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), MEM_SIZE)]).unwrap();
             Self {
                 cid: CID,
-                mem: mem.clone(),
+                mem,
                 mem_size: MEM_SIZE,
-                device: Vsock::new(CID, mem, TestBackend::new()).unwrap(),
+                device: Vsock::new(CID, TestBackend::new()).unwrap(),
             }
         }
 
@@ -296,13 +296,8 @@ mod tests {
                 guest_rxvq,
                 guest_txvq,
                 guest_evvq,
-                device: Vsock::with_queues(
-                    self.cid,
-                    self.mem.clone(),
-                    TestBackend::new(),
-                    vec![rxvq, txvq, evvq],
-                )
-                .unwrap(),
+                device: Vsock::with_queues(self.cid, TestBackend::new(), vec![rxvq, txvq, evvq])
+                    .unwrap(),
             }
         }
     }
@@ -315,6 +310,11 @@ mod tests {
     }
 
     impl<'a> EventHandlerContext<'a> {
+        pub fn mock_activate(&mut self, mem: GuestMemoryMmap) {
+            // Artificially activate the device.
+            self.device.activate(mem).unwrap();
+        }
+
         pub fn signal_txq_event(&mut self) {
             self.device.queue_events[TXQ_INDEX].write(1).unwrap();
             self.device

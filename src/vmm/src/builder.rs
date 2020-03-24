@@ -794,12 +794,8 @@ fn attach_vsock_device(
     .map_err(CreateVsockBackend)?;
 
     let vsock_device = Arc::new(Mutex::new(
-        devices::virtio::Vsock::new(
-            u64::from(vsock.guest_cid),
-            vmm.guest_memory().clone(),
-            backend,
-        )
-        .map_err(CreateVsockDevice)?,
+        devices::virtio::Vsock::new(u64::from(vsock.guest_cid), backend)
+            .map_err(CreateVsockDevice)?,
     ));
 
     event_manager
