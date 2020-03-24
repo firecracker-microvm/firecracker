@@ -24,11 +24,11 @@ use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
-use vmm_config;
 use vmm_config::boot_source::BootConfig;
 use vmm_config::drive::BlockDeviceConfigs;
-use vmm_config::net::NetworkInterfaceConfigs;
+use vmm_config::net::NetBuilder;
 use vmm_config::vsock::VsockDeviceConfig;
+use vmm_config::RateLimiterConfig;
 use vstate::{KvmContext, Vcpu, VcpuConfig, Vm};
 use {device_manager, VmmEventsObserver};
 
@@ -702,7 +702,7 @@ fn attach_block_devices(
 
         let rate_limiter = drive_config
             .rate_limiter
-            .map(vmm_config::RateLimiterConfig::try_into)
+            .map(RateLimiterConfig::try_into)
             .transpose()
             .map_err(CreateRateLimiter)?;
 
@@ -732,44 +732,22 @@ fn attach_block_devices(
 
 fn attach_net_devices(
     vmm: &mut Vmm,
-    network_ifaces: &NetworkInterfaceConfigs,
+    network_ifaces: &NetBuilder,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    for cfg in network_ifaces.iter() {
-        let rx_rate_limiter = cfg
-            .rx_rate_limiter
-            .map(vmm_config::RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(CreateRateLimiter)?;
-
-        let tx_rate_limiter = cfg
-            .tx_rate_limiter
-            .map(vmm_config::RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(CreateRateLimiter)?;
-
-        let tap = cfg.open_tap().map_err(|_| NetDeviceNotConfigured)?;
-        let net_device = Arc::new(Mutex::new(
-            devices::virtio::net::Net::new_with_tap(
-                cfg.iface_id.clone(),
-                tap,
-                cfg.guest_mac.as_ref(),
-                rx_rate_limiter.unwrap_or_default(),
-                tx_rate_limiter.unwrap_or_default(),
-                cfg.allow_mmds_requests,
-            )
-            .map_err(CreateNetDevice)?,
-        ));
+    for net_device in network_ifaces.iter() {
         event_manager
             .add_subscriber(net_device.clone())
-            .map_err(StartMicrovmError::RegisterEvent)?;
+            .map_err(RegisterEvent)?;
 
+        let id = net_device.lock().unwrap().id().clone();
+        // The device mutex mustn't be locked here otherwise it will deadlock.
         attach_mmio_device(
             vmm,
-            cfg.iface_id.clone(),
-            MmioTransport::new(vmm.guest_memory().clone(), net_device),
+            id,
+            MmioTransport::new(vmm.guest_memory().clone(), net_device.clone()),
         )
         .map_err(RegisterNetDevice)?;
     }
@@ -1099,7 +1077,7 @@ pub mod tests {
             allow_mmds_requests: false,
         };
 
-        let mut network_interface_configs = NetworkInterfaceConfigs::new();
+        let mut network_interface_configs = NetBuilder::new();
         network_interface_configs.insert(network_interface).unwrap();
 
         assert!(
