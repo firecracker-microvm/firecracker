@@ -109,7 +109,7 @@ pub type Result<T> = result::Result<T, LoggerError>;
 // Values used by the Logger.
 const IN_PREFIX_SEPARATOR: &str = ":";
 const MSG_SEPARATOR: &str = " ";
-const DEFAULT_LEVEL: LevelFilter = LevelFilter::Warn;
+const DEFAULT_MAX_LEVEL: LevelFilter = LevelFilter::Warn;
 
 // Synchronization primitives used to run a one-time global initialization.
 const UNINITIALIZED: usize = 0;
@@ -262,7 +262,7 @@ impl Logger {
     ///
     /// fn main() {
     ///     let l = LOGGER.deref();
-    ///     l.set_level(log::LevelFilter::Warn);
+    ///     l.set_max_level(log::LevelFilter::Warn);
     ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
     ///     info!("An informational log message");
     ///     warn!("A test warning message");
@@ -273,7 +273,7 @@ impl Logger {
     /// 2018-11-07T05:34:25.180751152 [MY-INSTANCE:INFO:logger/src/lib.rs:389] A test warning
     /// message
     /// ```
-    pub fn set_level(&self, level: LevelFilter) -> &Self {
+    pub fn set_max_level(&self, level: LevelFilter) -> &Self {
         set_max_level(level);
         self
     }
@@ -334,10 +334,10 @@ impl Logger {
     }
 
     /// if the max level hasn't been configured yet, set it to default
-    fn try_init_level(&self) {
+    fn try_init_max_level(&self) {
         // if the max level hasn't been configured yet, set it to default
         if max_level() == LevelFilter::Off {
-            self.set_level(DEFAULT_LEVEL);
+            self.set_max_level(DEFAULT_MAX_LEVEL);
         }
     }
 
@@ -373,7 +373,7 @@ impl Logger {
             self.set_instance_id(some_instance_id);
         }
 
-        self.try_init_level();
+        self.try_init_max_level();
 
         STATE.store(UNINITIALIZED, Ordering::SeqCst);
 
@@ -413,7 +413,7 @@ impl Logger {
             *g = Some(log_dest);
         }
 
-        self.try_init_level();
+        self.try_init_max_level();
 
         STATE.store(INITIALIZED, Ordering::SeqCst);
         self.write_log(header, Level::Info);
@@ -550,7 +550,7 @@ mod tests {
 
         l.set_include_origin(true, true)
             .set_include_level(true)
-            .set_level(log::LevelFilter::Info);
+            .set_max_level(log::LevelFilter::Info);
         assert_eq!(l.show_line_numbers(), true);
         assert_eq!(l.show_file_path(), true);
         assert_eq!(l.show_level(), true);

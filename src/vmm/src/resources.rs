@@ -537,7 +537,7 @@ mod tests {
         }
 
         // The previous call enables the logger. We need to disable it.
-        LOGGER.set_level(LevelFilter::Off);
+        LOGGER.set_max_level(LevelFilter::Off);
 
         // Invalid path for metrics pipe.
         json = format!(
