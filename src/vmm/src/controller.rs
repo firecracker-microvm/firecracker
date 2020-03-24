@@ -1,9 +1,9 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom};
-use std::path::PathBuf;
+use std::path::Path;
 use std::result;
 use std::sync::{Arc, Mutex};
 
@@ -62,10 +62,10 @@ impl VmmController {
         VmmController { vm_resources, vmm }
     }
 
-    fn update_drive_disk_image(
+    fn update_drive_disk_image<P: AsRef<Path>>(
         &mut self,
         drive_id: &str,
-        mut disk_image: File,
+        disk_image_path: P,
     ) -> result::Result<(), DriveError> {
         if let Some(busdev) = self
             .vmm
@@ -73,34 +73,49 @@ impl VmmController {
             .unwrap()
             .get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id)
         {
-            // Use seek() instead of stat() (std::fs::Metadata) to support block devices.
-            let new_size = disk_image
-                .seek(SeekFrom::End(0))
-                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-            // Return cursor to the start of the file.
-            disk_image
-                .seek(SeekFrom::Start(0))
-                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+            let new_size;
+            // Call the update_disk_image() handler on Block. Release the lock when done.
+            {
+                let virtio_dev = busdev
+                    .lock()
+                    .expect("Poisoned device lock")
+                    .as_any()
+                    // Only MmioTransport implements BusDevice at this point.
+                    .downcast_ref::<MmioTransport>()
+                    .expect("Unexpected BusDevice type")
+                    // Here we get a *new* clone of Arc<Mutex<dyn VirtioDevice>>.
+                    .device();
 
-            // Call the update_disk_image() handler on Block.
-            busdev
-                .lock()
-                .expect("Poisoned device lock")
-                .as_any()
-                // Only MmioTransport implements BusDevice at this point.
-                .downcast_ref::<MmioTransport>()
-                .expect("Unexpected BusDevice type")
-                .device()
-                // Here we get a new clone of Arc<Mutex<dyn VirtioDevice>>.
-                .lock()
-                .expect("Poisoned device lock")
-                .as_mut_any()
-                // We know this is a block device from the HashMap.
-                .downcast_mut::<Block>()
-                .expect("Unexpected VirtioDevice type")
+                // We need this bound to a variable so that it lives as long as the 'block' ref.
+                let mut locked_device = virtio_dev.lock().expect("Poisoned device lock");
+                // Get a '&mut Block' ref from the above MutexGuard<dyn VirtioDevice>.
+                let block = locked_device
+                    .as_mut_any()
+                    // We know this is a block device from the HashMap.
+                    .downcast_mut::<Block>()
+                    .expect("Unexpected VirtioDevice type");
+
+                // Try to open the file specified by path_on_host using the permissions of the block_device.
+                let mut disk_image = OpenOptions::new()
+                    .read(true)
+                    .write(!block.is_read_only())
+                    .open(disk_image_path)
+                    .map_err(DriveError::OpenBlockDevice)?;
+
+                // Use seek() instead of stat() (std::fs::Metadata) to support block devices.
+                new_size = disk_image
+                    .seek(SeekFrom::End(0))
+                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                // Return cursor to the start of the file.
+                disk_image
+                    .seek(SeekFrom::Start(0))
+                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+
                 // Now we have a Block, so call its update handler.
-                .update_disk_image(disk_image)
-                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                block
+                    .update_disk_image(disk_image)
+                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+            }
 
             // Update the virtio config space and kick the driver to pick up the changes.
             let new_cfg = devices::virtio::block::device::build_config_space(new_size);
@@ -122,29 +137,8 @@ impl VmmController {
         drive_id: String,
         path_on_host: String,
     ) -> ActionResult {
-        // Get the block device configuration specified by drive_id.
-        let block_device_index = self
-            .vm_resources
-            .block
-            .get_index_of_drive_id(&drive_id)
-            .ok_or(VmmActionError::DriveConfig(
-                DriveError::InvalidBlockDeviceID,
-            ))?;
-
-        let file_path = PathBuf::from(path_on_host);
-        // Try to open the file specified by path_on_host using the permissions of the block_device.
-        let disk_file = OpenOptions::new()
-            .read(true)
-            .write(!self.vm_resources.block.config_list[block_device_index].is_read_only)
-            .open(&file_path)
-            .map_err(DriveError::CannotOpenBlockDevice)
-            .map_err(VmmActionError::DriveConfig)?;
-
-        // Update the path of the block device with the specified path_on_host.
-        self.vm_resources.block.config_list[block_device_index].path_on_host = file_path;
-
         // We need to update the disk image on the device and its virtio configuration.
-        self.update_drive_disk_image(&drive_id, disk_file)
+        self.update_drive_disk_image(&drive_id, path_on_host)
             .map_err(VmmActionError::DriveConfig)?;
         Ok(())
     }

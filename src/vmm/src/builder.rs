@@ -3,9 +3,7 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
-use std::convert::TryInto;
 use std::fmt::{Display, Formatter};
-use std::fs::OpenOptions;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
@@ -25,18 +23,16 @@ use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 use vmm_config::boot_source::BootConfig;
-use vmm_config::drive::BlockDeviceConfigs;
+use vmm_config::drive::BlockBuilder;
 use vmm_config::net::NetBuilder;
-use vmm_config::RateLimiterConfig;
 use vstate::{KvmContext, Vcpu, VcpuConfig, Vm};
 use {device_manager, VmmEventsObserver};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
 pub enum StartMicrovmError {
-    /// Unable to seek the block device backing file due to invalid permissions or
-    /// the file was deleted/corrupted.
-    CreateBlockDevice(io::Error),
+    /// Unable to attach block device to Vmm.
+    AttachBlockDevice(io::Error),
     /// Internal errors are due to resource exhaustion.
     CreateNetDevice(devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
@@ -87,12 +83,9 @@ impl Display for StartMicrovmError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::StartMicrovmError::*;
         match *self {
-            CreateBlockDevice(ref err) => write!(
-                f,
-                "Unable to seek the block device backing file due to invalid permissions or \
-                 the file was deleted/corrupted. Error number: {}",
-                err
-            ),
+            AttachBlockDevice(ref err) => {
+                write!(f, "Unable to attach block device to Vmm. Error: {}", err)
+            }
             CreateRateLimiter(ref err) => write!(f, "Cannot create RateLimiter: {}", err),
             CreateNetDevice(ref err) => {
                 let mut err_msg = format!("{:?}", err);
@@ -646,77 +639,47 @@ fn attach_mmio_device(
         .device_type();
     let cmdline = &mut vmm.kernel_cmdline;
 
-    vmm.mmio_device_manager.register_mmio_device(
-        vmm.vm.fd(),
-        device,
-        cmdline,
-        type_id,
-        id.as_str(),
-    )?;
+    vmm.mmio_device_manager
+        .register_mmio_device(vmm.vm.fd(), device, cmdline, type_id, id)?;
 
     Ok(())
 }
 
 fn attach_block_devices(
     vmm: &mut Vmm,
-    blocks: &BlockDeviceConfigs,
+    blocks: &BlockBuilder,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    for drive_config in blocks.config_list.iter() {
-        // Add the block device from file.
-        let block_file = OpenOptions::new()
-            .read(true)
-            .write(!drive_config.is_read_only)
-            .open(&drive_config.path_on_host)
-            .map_err(OpenBlockDevice)?;
+    for block in blocks.list.iter() {
+        let id;
+        {
+            let locked = block.lock().unwrap();
+            if locked.is_root_device() {
+                let kernel_cmdline = &mut vmm.kernel_cmdline;
+                kernel_cmdline.insert_str(if let Some(partuuid) = locked.partuuid() {
+                    format!("root=PARTUUID={}", partuuid)
+                } else {
+                    // If no PARTUUID was specified for the root device, try with the /dev/vda.
+                    "root=/dev/vda".to_string()
+                })?;
 
-        if drive_config.is_root_device {
-            let kernel_cmdline = &mut vmm.kernel_cmdline;
-
-            kernel_cmdline.insert_str(if let Some(partuuid) = &drive_config.partuuid {
-                format!("root=PARTUUID={}", partuuid)
-            } else {
-                // If no PARTUUID was specified for the root device, try with the /dev/vda.
-                "root=/dev/vda".to_string()
-            })?;
-
-            let flags = if drive_config.is_read_only {
-                "ro"
-            } else {
-                "rw"
-            };
-
-            kernel_cmdline.insert_str(flags)?;
+                let flags = if locked.is_read_only() { "ro" } else { "rw" };
+                kernel_cmdline.insert_str(flags)?;
+            }
+            id = locked.id().clone();
         }
 
-        let rate_limiter = drive_config
-            .rate_limiter
-            .map(RateLimiterConfig::try_into)
-            .transpose()
-            .map_err(CreateRateLimiter)?;
-
-        let block_device = Arc::new(Mutex::new(
-            devices::virtio::Block::new(
-                drive_config.drive_id.clone(),
-                block_file,
-                drive_config.partuuid.clone(),
-                drive_config.is_read_only,
-                drive_config.is_root_device,
-                rate_limiter.unwrap_or_default(),
-            )
-            .map_err(CreateBlockDevice)?,
-        ));
-
         event_manager
-            .add_subscriber(block_device.clone())
-            .map_err(StartMicrovmError::RegisterEvent)?;
+            .add_subscriber(block.clone())
+            .map_err(RegisterEvent)?;
 
+        // The device mutex mustn't be locked here otherwise it will deadlock.
         attach_mmio_device(
             vmm,
-            drive_config.drive_id.clone(),
-            MmioTransport::new(vmm.guest_memory().clone(), block_device.clone()),
+            id,
+            MmioTransport::new(vmm.guest_memory().clone(), block.clone()),
         )
         .map_err(RegisterBlockDevice)?;
     }
@@ -888,7 +851,7 @@ pub mod tests {
         #[cfg(target_arch = "aarch64")]
         setup_interrupt_controller(&mut vmm.vm, 1).unwrap();
 
-        let mut block_dev_configs = BlockDeviceConfigs::new();
+        let mut block_dev_configs = BlockBuilder::new();
         let mut block_files = Vec::new();
         for custom_block_cfg in &custom_block_cfgs {
             block_files.push(TempFile::new().unwrap());
@@ -1232,12 +1195,11 @@ pub mod tests {
     #[test]
     fn test_error_messages() {
         use builder::StartMicrovmError::*;
-        let err = CreateBlockDevice(io::Error::from_raw_os_error(0));
+        let err = AttachBlockDevice(io::Error::from_raw_os_error(0));
         assert_eq!(
             format!("{}", err),
             format!(
-                "Unable to seek the block device backing file due to invalid permissions or \
-                 the file was deleted/corrupted. Error number: {}",
+                "Unable to attach block device to Vmm. Error: {}",
                 io::Error::from_raw_os_error(0)
             )
         );
