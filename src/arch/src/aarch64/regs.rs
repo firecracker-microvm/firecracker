@@ -122,7 +122,7 @@ macro_rules! arm64_sys_reg {
 // https://elixir.bootlin.com/linux/v4.20.17/source/arch/arm64/include/asm/sysreg.h#L135
 arm64_sys_reg!(MPIDR_EL1, 3, 0, 0, 0, 5);
 
-/// Configure core registers for a given CPU.
+/// Configure relevant boot registers for a given vCPU.
 ///
 /// # Arguments
 ///
@@ -130,7 +130,12 @@ arm64_sys_reg!(MPIDR_EL1, 3, 0, 0, 0, 5);
 /// * `cpu_id` - Index of current vcpu.
 /// * `boot_ip` - Starting instruction pointer.
 /// * `mem` - Reserved DRAM for current VM.
-pub fn setup_regs(vcpu: &VcpuFd, cpu_id: u8, boot_ip: u64, mem: &GuestMemoryMmap) -> Result<()> {
+pub fn setup_boot_regs(
+    vcpu: &VcpuFd,
+    cpu_id: u8,
+    boot_ip: u64,
+    mem: &GuestMemoryMmap,
+) -> Result<()> {
     let kreg_off = offset__of!(kvm_regs, regs);
 
     // Get the register index of the PSTATE (Processor State) register.
@@ -185,7 +190,7 @@ mod tests {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
         let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
 
-        let res = setup_regs(&vcpu, 0, 0x0, &mem);
+        let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);
         assert!(res.is_err());
         assert_eq!(
             format!("{}", res.unwrap_err()),
@@ -196,7 +201,7 @@ mod tests {
         vm.get_preferred_target(&mut kvi).unwrap();
         vcpu.vcpu_init(&kvi).unwrap();
 
-        assert!(setup_regs(&vcpu, 0, 0x0, &mem).is_ok());
+        assert!(setup_boot_regs(&vcpu, 0, 0x0, &mem).is_ok());
     }
     #[test]
     fn test_read_mpidr() {
