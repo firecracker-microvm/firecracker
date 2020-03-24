@@ -367,6 +367,13 @@ mod tests {
     }
 
     #[test]
+    fn test_tap_exclusive_open() {
+        let _tap1 = Tap::open_named("exclusivetap").unwrap();
+        // Opening same tap device a second time should not be permitted.
+        Tap::open_named("exclusivetap").unwrap_err();
+    }
+
+    #[test]
     fn test_tap_partial_eq() {
         assert_ne!(Tap::new().unwrap(), Tap::new().unwrap());
     }
