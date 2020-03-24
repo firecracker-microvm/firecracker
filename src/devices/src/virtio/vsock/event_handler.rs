@@ -268,6 +268,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
 
             ctx.device.backend.set_pending_rx(false);
             ctx.signal_txq_event();
@@ -284,6 +285,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.signal_txq_event();
@@ -299,6 +301,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
 
             ctx.device.backend.set_pending_rx(false);
             ctx.device.backend.set_tx_err(Some(VsockError::NoData));
@@ -314,6 +317,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
 
             // Invalidate the packet header descriptor, by setting its length to 0.
             ctx.guest_txvq.dtable[0].len.set(0);
@@ -329,6 +333,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
 
             assert!(!ctx
                 .device
@@ -345,6 +350,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.device.backend.set_rx_err(Some(VsockError::NoData));
@@ -361,6 +367,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.signal_rxq_event();
@@ -373,6 +380,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
 
             // Invalidate the packet header descriptor, by setting its length to 0.
             ctx.guest_rxvq.dtable[0].len.set(0);
@@ -387,6 +395,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
             ctx.device.backend.set_pending_rx(false);
             assert!(!ctx
                 .device
@@ -415,6 +424,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
 
             ctx.device.backend.set_pending_rx(true);
             ctx.device.notify_backend(&EpollEvent::new(EventSet::IN, 0));
@@ -433,6 +443,7 @@ mod tests {
         {
             let test_ctx = TestContext::new();
             let mut ctx = test_ctx.create_event_handler_context();
+            ctx.mock_activate(test_ctx.mem.clone());
 
             ctx.device.backend.set_pending_rx(false);
             ctx.device.notify_backend(&EpollEvent::new(EventSet::IN, 0));
