@@ -35,6 +35,8 @@ pub enum Error {
     Metrics(MetricsConfigError),
     /// microVM vCpus or memory configuration error.
     VmConfig(VmConfigError),
+    /// Vsock device configuration error.
+    VsockDevice(VsockConfigError),
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
@@ -66,10 +68,10 @@ pub struct VmResources {
     boot_config: Option<BootConfig>,
     /// The configurations for block devices.
     pub block: BlockDeviceConfigs,
-    /// The configurations for network interface devices.
+    /// The network interface devices.
     pub network_interface: NetBuilder,
-    /// The configurations for vsock devices.
-    pub vsock: Option<VsockDeviceConfig>,
+    /// The vsock device.
+    pub vsock: VsockBuilder,
 }
 
 impl VmResources {
@@ -109,7 +111,9 @@ impl VmResources {
                 .map_err(Error::NetDevice)?;
         }
         if let Some(vsock_config) = vmm_config.vsock_device {
-            resources.set_vsock_device(vsock_config);
+            resources
+                .set_vsock_device(vsock_config)
+                .map_err(Error::VsockDevice)?;
         }
         Ok(resources)
     }
@@ -226,8 +230,8 @@ impl VmResources {
     }
 
     /// Sets a vsock device to be attached when the VM starts.
-    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) {
-        self.vsock = Some(config);
+    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<VsockConfigError> {
+        self.vsock.insert(config)
     }
 }
 
@@ -245,7 +249,7 @@ mod tests {
     use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
     use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
     use vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
-    use vmm_config::vsock::VsockDeviceConfig;
+    use vmm_config::vsock::tests::{default_config, TempSockFile};
     use vmm_config::RateLimiterConfig;
     use vstate::VcpuConfig;
 
@@ -306,7 +310,7 @@ mod tests {
             boot_config: Some(default_boot_cfg()),
             block: default_block_cfgs(),
             network_interface: default_net_devs(),
-            vsock: None,
+            vsock: Default::default(),
         }
     }
 
@@ -706,15 +710,17 @@ mod tests {
     #[test]
     fn test_set_vsock_device() {
         let mut vm_resources = default_vm_resources();
-        let new_vsock_cfg = VsockDeviceConfig {
-            vsock_id: "new_vsock".to_string(),
-            guest_cid: 1,
-            uds_path: String::from("uds_path"),
-        };
-        assert!(vm_resources.vsock.is_none());
-        vm_resources.set_vsock_device(new_vsock_cfg.clone());
-        let actual_vsock_cfg = vm_resources.vsock.as_ref().unwrap().clone();
-        assert_eq!(actual_vsock_cfg, new_vsock_cfg);
+        let tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
+        let new_vsock_cfg = default_config(&tmp_sock_file);
+        assert!(vm_resources.vsock.get().is_none());
+        vm_resources
+            .set_vsock_device(new_vsock_cfg.clone())
+            .unwrap();
+        let actual_vsock_cfg = vm_resources.vsock.get().unwrap();
+        assert_eq!(
+            actual_vsock_cfg.lock().unwrap().id(),
+            &new_vsock_cfg.vsock_id
+        );
     }
 
     #[test]

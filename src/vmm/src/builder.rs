@@ -17,7 +17,7 @@ use arch::InitrdConfig;
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::Serial;
-use devices::virtio::MmioTransport;
+use devices::virtio::{MmioTransport, Vsock, VsockUnixBackend};
 use polly::event_manager::{Error as EventManagerError, EventManager};
 use seccomp::BpfProgramRef;
 use utils::eventfd::EventFd;
@@ -27,7 +27,6 @@ use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 use vmm_config::boot_source::BootConfig;
 use vmm_config::drive::BlockDeviceConfigs;
 use vmm_config::net::NetBuilder;
-use vmm_config::vsock::VsockDeviceConfig;
 use vmm_config::RateLimiterConfig;
 use vstate::{KvmContext, Vcpu, VcpuConfig, Vm};
 use {device_manager, VmmEventsObserver};
@@ -42,10 +41,6 @@ pub enum StartMicrovmError {
     CreateNetDevice(devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(io::Error),
-    /// Failed to create the backend for the vsock device.
-    CreateVsockBackend(devices::virtio::vsock::VsockUnixBackendError),
-    /// Failed to create the vsock device.
-    CreateVsockDevice(devices::virtio::vsock::VsockError),
     /// Memory regions are overlapping or mmap fails.
     GuestMemoryMmap(vm_memory::Error),
     /// Cannot load initrd due to an invalid memory configuration.
@@ -99,10 +94,6 @@ impl Display for StartMicrovmError {
                 err
             ),
             CreateRateLimiter(ref err) => write!(f, "Cannot create RateLimiter: {}", err),
-            CreateVsockBackend(ref err) => {
-                write!(f, "Cannot create backend for vsock device: {:?}", err)
-            }
-            CreateVsockDevice(ref err) => write!(f, "Cannot create vsock device: {:?}", err),
             CreateNetDevice(ref err) => {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
@@ -356,8 +347,8 @@ pub fn build_microvm(
 
     attach_block_devices(&mut vmm, &vm_resources.block, event_manager)?;
     attach_net_devices(&mut vmm, &vm_resources.network_interface, event_manager)?;
-    if let Some(vsock) = vm_resources.vsock.as_ref() {
-        attach_vsock_device(&mut vmm, vsock, event_manager)?;
+    if let Some(vsock) = vm_resources.vsock.get() {
+        attach_unixsock_vsock_device(&mut vmm, vsock, event_manager)?;
     }
 
     // Write the kernel command line to guest memory. This is x86_64 specific, since on
@@ -755,31 +746,23 @@ fn attach_net_devices(
     Ok(())
 }
 
-fn attach_vsock_device(
+fn attach_unixsock_vsock_device(
     vmm: &mut Vmm,
-    vsock: &VsockDeviceConfig,
+    unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
-    let backend = devices::virtio::vsock::VsockUnixBackend::new(
-        u64::from(vsock.guest_cid),
-        vsock.uds_path.clone(),
-    )
-    .map_err(CreateVsockBackend)?;
-
-    let vsock_device = Arc::new(Mutex::new(
-        devices::virtio::Vsock::new(u64::from(vsock.guest_cid), backend)
-            .map_err(CreateVsockDevice)?,
-    ));
 
     event_manager
-        .add_subscriber(vsock_device.clone())
-        .map_err(StartMicrovmError::RegisterEvent)?;
+        .add_subscriber(unix_vsock.clone())
+        .map_err(RegisterEvent)?;
 
+    let id = String::from(unix_vsock.lock().unwrap().id());
+    // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_mmio_device(
         vmm,
-        vsock.vsock_id.clone(),
-        MmioTransport::new(vmm.guest_memory().clone(), vsock_device),
+        id,
+        MmioTransport::new(vmm.guest_memory().clone(), unix_vsock.clone()),
     )
     .map_err(RegisterVsockDevice)?;
 
@@ -788,7 +771,7 @@ fn attach_vsock_device(
 
 #[cfg(test)]
 pub mod tests {
-    use std::fs::{remove_file, File};
+    use std::fs::File;
     use std::io::Cursor;
 
     use super::*;
@@ -800,6 +783,8 @@ pub mod tests {
     use vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use vmm_config::drive::BlockDeviceConfig;
     use vmm_config::net::NetworkInterfaceConfig;
+    use vmm_config::vsock::tests::{default_config, TempSockFile};
+    use vmm_config::vsock::VsockBuilder;
 
     struct SerialInput(File);
     impl io::Read for SerialInput {
@@ -1218,26 +1203,6 @@ pub mod tests {
 
     #[test]
     fn test_attach_vsock_device() {
-        // Placeholder for the path where a socket file will be created.
-        // The socket file will be removed when the scope ends.
-        struct TempSockFile {
-            path: String,
-        }
-
-        impl TempSockFile {
-            fn new(tmp_file: TempFile) -> Self {
-                TempSockFile {
-                    path: String::from(tmp_file.as_path().to_str().unwrap()),
-                }
-            }
-        }
-
-        impl Drop for TempSockFile {
-            fn drop(&mut self) {
-                let _ = remove_file(&self.path);
-            }
-        }
-
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let mut vmm = default_vmm();
 
@@ -1248,18 +1213,16 @@ pub mod tests {
         setup_interrupt_controller(&mut vmm.vm, 1).unwrap();
 
         let tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
-        let vsock_dev_id = "vsock_1";
-        let vsock_config = VsockDeviceConfig {
-            vsock_id: vsock_dev_id.to_string(),
-            guest_cid: 3,
-            uds_path: tmp_sock_file.path.clone(),
-        };
+        let vsock_config = default_config(&tmp_sock_file);
 
-        assert!(attach_vsock_device(&mut vmm, &vsock_config, &mut event_manager).is_ok());
+        let vsock_dev_id = vsock_config.vsock_id.clone();
+        let vsock = VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
+        let vsock = Arc::new(Mutex::new(vsock));
+        assert!(attach_unixsock_vsock_device(&mut vmm, &vsock, &mut event_manager).is_ok());
 
         assert!(vmm
             .mmio_device_manager
-            .get_device(DeviceType::Virtio(TYPE_VSOCK), vsock_dev_id)
+            .get_device(DeviceType::Virtio(TYPE_VSOCK), &vsock_dev_id)
             .is_some());
     }
 
@@ -1295,30 +1258,6 @@ pub mod tests {
             format!(
                 "Cannot create RateLimiter: {}",
                 io::Error::from_raw_os_error(0)
-            )
-        );
-
-        let err = CreateVsockBackend(devices::virtio::vsock::VsockUnixBackendError::EpollAdd(
-            io::Error::from_raw_os_error(0),
-        ));
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Cannot create backend for vsock device: {:?}",
-                devices::virtio::vsock::VsockUnixBackendError::EpollAdd(
-                    io::Error::from_raw_os_error(0)
-                )
-            )
-        );
-
-        let err = CreateVsockDevice(devices::virtio::vsock::VsockError::EventFd(
-            io::Error::from_raw_os_error(0),
-        ));
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Cannot create vsock device: {:?}",
-                devices::virtio::vsock::VsockError::EventFd(io::Error::from_raw_os_error(0))
             )
         );
 
