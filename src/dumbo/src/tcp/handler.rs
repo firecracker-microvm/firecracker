@@ -56,8 +56,6 @@ pub enum WriteEvent {
 /// [`TcpIPv4Handler`]: struct.TcpIPv4Handler.html
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum RecvError {
-    /// The packet has an invalid destination address.
-    InvalidAddress,
     /// The inner segment has an invalid destination port.
     InvalidPort,
     /// The handler encountered an error while parsing the inner TCP segment.
@@ -122,7 +120,9 @@ impl ConnectionTuple {
 /// [`write_next_packet`]: ../handler/struct.TcpIPv4Handler.html#method.write_next_packet
 /// [`next_segment_status`]: ../handler/struct.TcpIPv4Handler.html#method.next_segment_status
 pub struct TcpIPv4Handler {
-    local_addr: Ipv4Addr,
+    // Handler IPv4 address used for every connection.
+    local_ipv4_addr: Ipv4Addr,
+    // Handler TCP port used for every connection.
     local_port: u16,
     // This map holds the currently active endpoints, identified by their connection tuple.
     connections: HashMap<ConnectionTuple, Endpoint>,
@@ -156,7 +156,7 @@ impl TcpIPv4Handler {
     /// segments are placed in a queue which is at most `max_pending_resets` long.
     #[inline]
     pub fn new(
-        local_addr: Ipv4Addr,
+        local_ipv4_addr: Ipv4Addr,
         local_port: u16,
         max_connections: NonZeroUsize,
         max_pending_resets: NonZeroUsize,
@@ -164,7 +164,7 @@ impl TcpIPv4Handler {
         let max_connections = max_connections.get();
         let max_pending_resets = max_pending_resets.get();
         TcpIPv4Handler {
-            local_addr,
+            local_ipv4_addr,
             local_port,
             connections: HashMap::with_capacity(max_connections),
             max_connections,
@@ -175,6 +175,16 @@ impl TcpIPv4Handler {
         }
     }
 
+    /// Setter for the local IPv4 address of this TCP handler.
+    pub fn set_local_ipv4_addr(&mut self, ipv4_addr: Ipv4Addr) {
+        self.local_ipv4_addr = ipv4_addr;
+    }
+
+    #[cfg(test)]
+    pub fn local_ipv4_addr(&self) -> Ipv4Addr {
+        self.local_ipv4_addr
+    }
+
     /// Contains logic for handling incoming segments.
     ///
     /// Any changes to the state if the handler are communicated through an `Ok(RecvEvent)`.
@@ -182,10 +192,6 @@ impl TcpIPv4Handler {
         &mut self,
         packet: &IPv4Packet<T>,
     ) -> Result<RecvEvent, RecvError> {
-        if packet.destination_address() != self.local_addr {
-            return Err(RecvError::InvalidAddress);
-        }
-
         // TODO: We skip verifying the checksum, just in case the device model relies on offloading
         // checksum computation from the guest to some other entity. Clear this up at some point!
         // (Issue #520)
@@ -306,6 +312,7 @@ impl TcpIPv4Handler {
             NextSegmentStatus::Timeout(value) => self.check_timeout(value, tuple),
             NextSegmentStatus::Nothing => (),
         };
+
         false
     }
 
@@ -362,11 +369,9 @@ impl TcpIPv4Handler {
         let mut writer_status = None;
         let mut event = WriteEvent::Nothing;
 
-        // We use self.local_addr for the dst_addr parameter also just as a placeholder value. The
-        // actual destination address is written below, after deciding which endpoint is allowed
-        // to send the next packet.
+        // Write an incomplete Ipv4 packet and complete it afterwards with missing information.
         let mut packet =
-            IPv4Packet::write_header(buf, PROTOCOL_TCP, self.local_addr, self.local_addr)
+            IPv4Packet::write_header(buf, PROTOCOL_TCP, Ipv4Addr::LOCALHOST, Ipv4Addr::LOCALHOST)
                 .map_err(WriteNextError::IPv4Packet)?;
 
         // We set mss_used to 0, because we don't add any IP options.
@@ -392,12 +397,13 @@ impl TcpIPv4Handler {
             .finalize(
                 self.local_port,
                 tuple.remote_port,
-                Some((self.local_addr, tuple.remote_addr)),
+                Some((self.local_ipv4_addr, tuple.remote_addr)),
             )
             .len();
 
             packet
                 .inner_mut()
+                .set_source_address(self.local_ipv4_addr)
                 .set_destination_address(tuple.remote_addr);
 
             let packet_len = packet.with_payload_len_unchecked(segment_len, true).len();
@@ -427,7 +433,7 @@ impl TcpIPv4Handler {
                         .finalize(
                             self.local_port,
                             tuple.remote_port,
-                            Some((self.local_addr, tuple.remote_addr)),
+                            Some((self.local_ipv4_addr, tuple.remote_addr)),
                         )
                         .len(),
                     None => continue,
@@ -436,13 +442,13 @@ impl TcpIPv4Handler {
 
             packet
                 .inner_mut()
+                .set_source_address(self.local_ipv4_addr)
                 .set_destination_address(tuple.remote_addr);
 
             let ip_len = packet.with_payload_len_unchecked(segment_len, true).len();
 
             // The unwrap is safe because ip_len > 0.
             len = Some(NonZeroUsize::new(ip_len).unwrap());
-
             writer_status = Some((*tuple, endpoint.is_done()));
 
             break;
@@ -528,6 +534,7 @@ mod tests {
     // to check the packets are sent to the appropriate destination.
     fn drain_packets(
         h: &mut TcpIPv4Handler,
+        src_addr: Ipv4Addr,
         remote_addr: Ipv4Addr,
     ) -> Result<usize, WriteNextError> {
         let mut buf = [0u8; 2000];
@@ -536,7 +543,7 @@ mod tests {
             let (o, _) = write_next(h, buf.as_mut())?;
             if let Some(packet) = o {
                 count += 1;
-                assert_eq!(packet.source_address(), h.local_addr);
+                assert_eq!(packet.source_address(), src_addr);
                 assert_eq!(packet.destination_address(), remote_addr);
             } else {
                 break;
@@ -596,11 +603,10 @@ mod tests {
 
         // The handler should have nothing to send at this point.
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Nothing);
-        assert_eq!(drain_packets(&mut h, remote_addr), Ok(0));
+        assert_eq!(drain_packets(&mut h, local_addr, remote_addr), Ok(0));
 
         let mut p = p.with_payload_len_unchecked(s_len, false);
 
-        assert_eq!(h.receive_packet(&p).unwrap_err(), RecvError::InvalidAddress);
         p.set_destination_address(local_addr);
         assert_eq!(h.receive_packet(&p).unwrap_err(), RecvError::InvalidPort);
 
@@ -631,7 +637,7 @@ mod tests {
 
         // Drain the resets.
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Available);
-        assert_eq!(drain_packets(&mut h, remote_addr), Ok(2));
+        assert_eq!(drain_packets(&mut h, local_addr, remote_addr), Ok(2));
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Nothing);
 
         // Ok now let's send a valid SYN.
@@ -660,7 +666,7 @@ mod tests {
 
         // There will be a SYNACK in response.
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Available);
-        assert_eq!(drain_packets(&mut h, remote_addr), Ok(1));
+        assert_eq!(drain_packets(&mut h, local_addr, remote_addr), Ok(1));
 
         let remote_tuple = ConnectionTuple::new(remote_addr, remote_port);
         let remote_tuple2 = ConnectionTuple::new(remote_addr, remote_port + 1);
@@ -679,7 +685,7 @@ mod tests {
         assert_eq!(h.receive_packet(&p), Ok(RecvEvent::Nothing));
         assert_eq!(h.connections.len(), 1);
         // SYNACK retransmission.
-        assert_eq!(drain_packets(&mut h, remote_addr), Ok(1));
+        assert_eq!(drain_packets(&mut h, local_addr, remote_addr), Ok(1));
 
         // The timeout value should've gotten updated.
         assert_eq!(h.active_connections.len(), 0);
@@ -716,7 +722,7 @@ mod tests {
         assert_eq!(h.connections.len(), 2);
         assert_eq!(h.active_connections.len(), 1);
         // SYNACK
-        assert_eq!(drain_packets(&mut h, remote_addr), Ok(1));
+        assert_eq!(drain_packets(&mut h, local_addr, remote_addr), Ok(1));
 
         // The timeout associated with the SYNACK of the second connection should be next.
         assert_eq!(h.active_connections.len(), 0);
@@ -725,6 +731,7 @@ mod tests {
         } else {
             panic!("missing third expected timeout");
         }
+
         // No more room for another one.
         {
             let port = remote_port + 2;
@@ -752,7 +759,7 @@ mod tests {
 
         // One SYNACK for the new connection, and one RST for the old one.
         assert_eq!(h.rst_queue.len(), 1);
-        assert_eq!(drain_packets(&mut h, remote_addr), Ok(2));
+        assert_eq!(drain_packets(&mut h, local_addr, remote_addr), Ok(2));
         assert_eq!(h.rst_queue.len(), 0);
         assert_eq!(h.active_connections.len(), 0);
 
@@ -762,7 +769,7 @@ mod tests {
         inner_tcp_mut(&mut p).set_source_port(remote_port);
         assert_eq!(h.receive_packet(&p), Ok(RecvEvent::Nothing));
         assert_eq!(h.active_connections.len(), 1);
-        assert_eq!(drain_packets(&mut h, remote_addr), Ok(1));
+        assert_eq!(drain_packets(&mut h, local_addr, remote_addr), Ok(1));
         assert_eq!(h.connections.len(), 1);
         assert_eq!(h.active_connections.len(), 0);
     }

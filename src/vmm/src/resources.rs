@@ -12,6 +12,7 @@ use vmm_config::drive::*;
 use vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
+use vmm_config::mmds::MmdsConfig;
 use vmm_config::net::*;
 use vmm_config::vsock::*;
 use vstate::VcpuConfig;
@@ -56,6 +57,8 @@ pub struct VmmConfig {
     metrics: Option<MetricsConfig>,
     #[serde(rename = "vsock")]
     vsock_device: Option<VsockDeviceConfig>,
+    #[serde(rename = "mmds-config")]
+    mmds_config: Option<MmdsConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -68,10 +71,12 @@ pub struct VmResources {
     boot_config: Option<BootConfig>,
     /// The block devices.
     pub block: BlockBuilder,
-    /// The network interface devices.
-    pub network_interface: NetBuilder,
     /// The vsock device.
     pub vsock: VsockBuilder,
+    /// The network devices builder.
+    pub net_builder: NetBuilder,
+    /// The configuration for `MmdsNetworkStack`.
+    pub mmds_config: Option<MmdsConfig>,
 }
 
 impl VmResources {
@@ -107,13 +112,17 @@ impl VmResources {
         }
         for net_config in vmm_config.net_devices.into_iter() {
             resources
-                .set_net_device(net_config)
+                .build_net_device(net_config)
                 .map_err(Error::NetDevice)?;
         }
         if let Some(vsock_config) = vmm_config.vsock_device {
             resources
                 .set_vsock_device(vsock_config)
                 .map_err(Error::VsockDevice)?;
+        }
+
+        if let Some(mmds_config) = vmm_config.mmds_config {
+            resources.set_mmds_config(mmds_config);
         }
         Ok(resources)
     }
@@ -221,17 +230,42 @@ impl VmResources {
         self.block.insert(block_device_config)
     }
 
-    /// Inserts a network device to be attached when the VM starts.
-    pub fn set_net_device(
+    /// Builds a network device to be attached when the VM starts.
+    pub fn build_net_device(
         &mut self,
         body: NetworkInterfaceConfig,
     ) -> Result<NetworkInterfaceError> {
-        self.network_interface.insert(body)
+        self.net_builder.build(body).map(|net_device| {
+            // Update `Net` device `MmdsNetworkStack` IPv4 address.
+            match &self.mmds_config {
+                Some(cfg) => cfg.ipv4_addr().map_or((), |ipv4_addr| {
+                    if let Some(mmds_ns) = net_device.lock().unwrap().mmds_ns_mut() {
+                        mmds_ns.set_ipv4_addr(ipv4_addr);
+                    };
+                }),
+                None => (),
+            };
+        })
     }
 
     /// Sets a vsock device to be attached when the VM starts.
     pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<VsockConfigError> {
         self.vsock.insert(config)
+    }
+
+    /// Settter for mmds config.
+    pub fn set_mmds_config(&mut self, config: MmdsConfig) {
+        // Update existing built network device `MmdsNetworkStack` IPv4 address.
+        for net_device in self.net_builder.iter_mut() {
+            if let Some(mmds_ns) = net_device.lock().unwrap().mmds_ns_mut() {
+                match config.ipv4_addr() {
+                    Some(ipv4_addr) => mmds_ns.set_ipv4_addr(ipv4_addr),
+                    None => mmds_ns.set_default_ipv4_addr(),
+                }
+            }
+        }
+
+        self.mmds_config = Some(config);
     }
 }
 
@@ -270,11 +304,11 @@ mod tests {
         }
     }
 
-    fn default_net_devs() -> NetBuilder {
-        let mut net_if_cfgs = NetBuilder::new();
-        net_if_cfgs.insert(default_net_cfg()).unwrap();
+    fn default_net_builder() -> NetBuilder {
+        let mut net_builder = NetBuilder::new();
+        net_builder.build(default_net_cfg()).unwrap();
 
-        net_if_cfgs
+        net_builder
     }
 
     fn default_block_cfg() -> (BlockDeviceConfig, TempFile) {
@@ -315,8 +349,9 @@ mod tests {
             vm_config: VmConfig::default(),
             boot_config: Some(default_boot_cfg()),
             block: default_blocks(),
-            network_interface: default_net_devs(),
             vsock: Default::default(),
+            net_builder: default_net_builder(),
+            mmds_config: None,
         }
     }
 
@@ -574,19 +609,58 @@ mod tests {
                     "network-interfaces": [
                         {{
                             "iface_id": "netif",
-                            "host_dev_name": "hostname8"
+                            "host_dev_name": "hostname8",
+                            "allow_mmds_requests": true
                         }}
                     ],
-                     "machine-config": {{
-                            "vcpu_count": 2,
-                            "mem_size_mib": 1024,
-                            "ht_enabled": false
-                     }}
+                    "machine-config": {{
+                        "vcpu_count": 2,
+                        "mem_size_mib": 1024,
+                        "ht_enabled": false
+                    }},
+                    "mmds-config": {{
+                        "ipv4_address": "169.254.170.2"
+                    }}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),
             rootfs_file.as_path().to_str().unwrap(),
         );
+        assert!(VmResources::from_json(json.as_str(), "some_version").is_ok());
 
+        // Test all configuration, this time trying to configure the MMDS with an
+        // empty body. It will make it access the code path in which it sets the
+        // default MMDS configuration.
+        json = format!(
+            r#"{{
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "network-interfaces": [
+                        {{
+                            "iface_id": "netif",
+                            "host_dev_name": "hostname8",
+                            "allow_mmds_requests": true
+                        }}
+                    ],
+                    "machine-config": {{
+                        "vcpu_count": 2,
+                        "mem_size_mib": 1024,
+                        "ht_enabled": false
+                    }},
+                    "mmds-config": {{}}
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap(),
+        );
         assert!(VmResources::from_json(json.as_str(), "some_version").is_ok());
     }
 
@@ -735,9 +809,9 @@ mod tests {
         new_net_device_cfg.iface_id = "new_net_if".to_string();
         new_net_device_cfg.guest_mac = Some(MacAddr::parse_str("01:23:45:67:89:0c").unwrap());
         new_net_device_cfg.host_dev_name = "dummy_path2".to_string();
-        assert_eq!(vm_resources.network_interface.len(), 1);
+        assert_eq!(vm_resources.net_builder.len(), 1);
 
-        vm_resources.set_net_device(new_net_device_cfg).unwrap();
-        assert_eq!(vm_resources.network_interface.len(), 2);
+        vm_resources.build_net_device(new_net_device_cfg).unwrap();
+        assert_eq!(vm_resources.net_builder.len(), 2);
     }
 }

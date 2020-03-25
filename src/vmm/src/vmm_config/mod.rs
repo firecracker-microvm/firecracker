@@ -23,6 +23,8 @@ pub mod logger;
 pub mod machine_config;
 /// Wrapper for configuring the metrics.
 pub mod metrics;
+/// Wrapper for configuring the MMDS.
+pub mod mmds;
 /// Wrapper for configuring the network devices attached to the microVM.
 pub mod net;
 /// Wrapper for configuring the vsock devices attached to the microVM.

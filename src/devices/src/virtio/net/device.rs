@@ -142,11 +142,10 @@ impl Net {
         let queues = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
         let mmds_ns = if allow_mmds_requests {
-            Some(MmdsNetworkStack::new_with_defaults())
+            Some(MmdsNetworkStack::new_with_defaults(None))
         } else {
             None
         };
-
         Ok(Net {
             id,
             tap,
@@ -183,6 +182,11 @@ impl Net {
     /// Provides the MAC of this net device.
     pub fn guest_mac(&self) -> Option<&MacAddr> {
         self.guest_mac.as_ref()
+    }
+
+    /// Provides a mutable reference to the `MmdsNetworkStack`.
+    pub fn mmds_ns_mut(&mut self) -> Option<&mut MmdsNetworkStack> {
+        self.mmds_ns.as_mut()
     }
 
     fn signal_used_queue(&self) -> result::Result<(), DeviceError> {

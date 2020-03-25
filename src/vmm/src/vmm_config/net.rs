@@ -110,34 +110,34 @@ impl fmt::Display for NetworkInterfaceError {
 
 type Result<T> = result::Result<T, NetworkInterfaceError>;
 
-/// A list of the Network Interfaces that the microvm has configured.
+/// Builder for a list of network devices.
 #[derive(Default)]
 pub struct NetBuilder {
-    if_list: Vec<Arc<Mutex<Net>>>,
+    net_devices: Vec<Arc<Mutex<Net>>>,
 }
 
 impl NetBuilder {
-    /// Creates an empty list of Network Interfaces.
+    /// Creates an empty list of Network Devices.
     pub fn new() -> Self {
         NetBuilder {
             /// List of built network devices.
-            if_list: Vec::new(),
+            net_devices: Vec::new(),
         }
     }
 
-    /// Returns a immutable iterator over the network interfaces.
+    /// Returns a immutable iterator over the network devices.
     pub fn iter(&self) -> ::std::slice::Iter<Arc<Mutex<Net>>> {
-        self.if_list.iter()
+        self.net_devices.iter()
     }
 
-    /// Returns a mutable iterator over the network interfaces.
+    /// Returns a mutable iterator over the network devices.
     pub fn iter_mut(&mut self) -> ::std::slice::IterMut<Arc<Mutex<Net>>> {
-        self.if_list.iter_mut()
+        self.net_devices.iter_mut()
     }
 
-    /// Inserts `netif_config` in the network interfaces list.
-    /// If an entry with the same id already exists, it will overwrite it.
-    pub fn insert(&mut self, netif_config: NetworkInterfaceConfig) -> Result<()> {
+    /// Builds a network device based on a network interface config. Keeps a device reference
+    /// in the builder's internal list.
+    pub fn build(&mut self, netif_config: NetworkInterfaceConfig) -> Result<Arc<Mutex<Net>>> {
         let mac_conflict = |net: &Arc<Mutex<Net>>| {
             let net = net.lock().unwrap();
             // Check if another net dev has same MAC.
@@ -148,7 +148,7 @@ impl NetBuilder {
         // Validate there is no Mac conflict.
         // No need to validate host_dev_name conflict. In such a case,
         // an error will be thrown during device creation anyway.
-        if self.if_list.iter().any(mac_conflict) {
+        if self.net_devices.iter().any(mac_conflict) {
             return Err(NetworkInterfaceError::GuestMacAddressInUse(
                 netif_config.guest_mac.unwrap().to_string(),
             ));
@@ -156,16 +156,18 @@ impl NetBuilder {
 
         // If this is an update, just remove the old one.
         if let Some(index) = self
-            .if_list
+            .net_devices
             .iter()
             .position(|net| net.lock().unwrap().id() == &netif_config.iface_id)
         {
-            self.if_list.swap_remove(index);
+            self.net_devices.swap_remove(index);
         }
+
         // Add new device.
         let net = Arc::new(Mutex::new(Self::create_net(netif_config)?));
-        self.if_list.push(net);
-        Ok(())
+        self.net_devices.push(net.clone());
+
+        Ok(net)
     }
 
     /// Creates a Net device from a NetworkInterfaceConfig.
@@ -197,12 +199,12 @@ impl NetBuilder {
 
     #[cfg(test)]
     pub fn len(&self) -> usize {
-        self.if_list.len()
+        self.net_devices.len()
     }
 
     #[cfg(test)]
     pub fn is_empty(&self) -> bool {
-        self.if_list.len() == 0
+        self.net_devices.len() == 0
     }
 }
 
@@ -238,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_insert() {
-        let mut netif_configs = NetBuilder::new();
+        let mut net_builder = NetBuilder::new();
 
         let id_1 = "id_1";
         let mut host_dev_name_1 = "dev1";
@@ -246,26 +248,26 @@ mod tests {
 
         // Test create.
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
-        assert!(netif_configs.insert(netif_1).is_ok());
-        assert_eq!(netif_configs.if_list.len(), 1);
+        assert!(net_builder.build(netif_1).is_ok());
+        assert_eq!(net_builder.net_devices.len(), 1);
 
         // Test update mac address (this test does not modify the tap).
         guest_mac_1 = "01:23:45:67:89:0b";
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
 
-        assert!(netif_configs.insert(netif_1.clone()).is_ok());
-        assert_eq!(netif_configs.if_list.len(), 1);
+        assert!(net_builder.build(netif_1.clone()).is_ok());
+        assert_eq!(net_builder.net_devices.len(), 1);
 
         // Test update host_dev_name (the tap will be updated).
         host_dev_name_1 = "dev2";
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
-        assert!(netif_configs.insert(netif_1.clone()).is_ok());
-        assert_eq!(netif_configs.if_list.len(), 1);
+        assert!(net_builder.build(netif_1.clone()).is_ok());
+        assert_eq!(net_builder.net_devices.len(), 1);
     }
 
     #[test]
     fn test_insert_error_cases() {
-        let mut netif_configs = NetBuilder::new();
+        let mut net_builder = NetBuilder::new();
 
         let id_1 = "id_1";
         let host_dev_name_1 = "dev3";
@@ -273,7 +275,7 @@ mod tests {
 
         // Adding the first valid network config.
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
-        assert!(netif_configs.insert(netif_1.clone()).is_ok());
+        assert!(net_builder.build(netif_1.clone()).is_ok());
 
         // Error Cases for CREATE
         // Error Case: Add new network config with the same mac as netif_1.
@@ -287,31 +289,33 @@ mod tests {
             guest_mac_1.to_string()
         );
         assert_eq!(
-            netif_configs
-                .insert(netif_2.clone())
-                .unwrap_err()
+            net_builder
+                .build(netif_2.clone())
+                .err()
+                .unwrap()
                 .to_string(),
             expected_error
         );
-        assert_eq!(netif_configs.if_list.len(), 1);
+        assert_eq!(net_builder.net_devices.len(), 1);
 
         // Error Case: Add new network config with the same dev_host_name as netif_1.
         let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
         assert_eq!(
-            netif_configs
-                .insert(netif_2.clone())
-                .unwrap_err()
+            net_builder
+                .build(netif_2.clone())
+                .err()
+                .unwrap()
                 .to_string(),
             NetworkInterfaceError::OpenTap(TapError::CreateTap(std::io::Error::from_raw_os_error(
                 16
             )))
             .to_string()
         );
-        assert_eq!(netif_configs.if_list.len(), 1);
+        assert_eq!(net_builder.net_devices.len(), 1);
 
         // Adding the second valid network config.
         let netif_2 = create_netif(id_2, host_dev_name_2, guest_mac_2);
-        assert!(netif_configs.insert(netif_2.clone()).is_ok());
+        assert!(net_builder.build(netif_2.clone()).is_ok());
 
         // Error Cases for UPDATE
         // Error Case: Update netif_2 mac using the same mac as netif_1.
@@ -321,9 +325,10 @@ mod tests {
             guest_mac_1.to_string()
         );
         assert_eq!(
-            netif_configs
-                .insert(netif_2.clone())
-                .unwrap_err()
+            net_builder
+                .build(netif_2.clone())
+                .err()
+                .unwrap()
                 .to_string(),
             expected_error
         );
@@ -331,9 +336,10 @@ mod tests {
         // Error Case: Update netif_2 dev_host_name using the same dev_host_name as netif_1.
         let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
         assert_eq!(
-            netif_configs
-                .insert(netif_2.clone())
-                .unwrap_err()
+            net_builder
+                .build(netif_2.clone())
+                .err()
+                .unwrap()
                 .to_string(),
             NetworkInterfaceError::OpenTap(TapError::CreateTap(std::io::Error::from_raw_os_error(
                 16
