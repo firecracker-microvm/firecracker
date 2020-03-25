@@ -341,6 +341,13 @@ class MMDS():
             json=args['json']
         )
 
+    def put_config(self, **args):
+        """Send a new MMDS config request."""
+        return self._api_session.put(
+            "{}".format(self._mmds_cfg_url + "/config"),
+            json=args['json']
+        )
+
     def patch(self, **args):
         """Update the details of some MMDS request."""
         return self._api_session.patch(
