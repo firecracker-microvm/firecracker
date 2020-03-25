@@ -5,7 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{mem, result};
+use std::{fmt, mem, result};
 
 use super::get_fdt_addr;
 use kvm_bindings::{
@@ -16,7 +16,6 @@ use kvm_bindings::{
     KVM_REG_ARM_CORE, KVM_REG_SIZE_U64,
 };
 use kvm_ioctls::VcpuFd;
-
 use vm_memory::GuestMemoryMmap;
 
 /// Errors thrown while setting aarch64 registers.
@@ -28,6 +27,15 @@ pub enum Error {
     GetSysRegister(kvm_ioctls::Error),
 }
 type Result<T> = result::Result<T, Error>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            self::Error::SetCoreRegister(ref e) => write!(f, "Failed to set core register: {}", e),
+            self::Error::GetSysRegister(ref e) => write!(f, "Failed to get system register: {}", e),
+        }
+    }
+}
 
 #[allow(non_upper_case_globals)]
 // PSR (Processor State Register) bits.
@@ -177,10 +185,13 @@ mod tests {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
         let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
 
-        match setup_regs(&vcpu, 0, 0x0, &mem).unwrap_err() {
-            Error::SetCoreRegister(ref e) => assert_eq!(e.errno(), libc::ENOEXEC),
-            _ => panic!("Expected to receive Error::SetCoreRegister"),
-        }
+        let res = setup_regs(&vcpu, 0, 0x0, &mem);
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Failed to set core register: Exec format error (os error 8)"
+        );
+
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
         vm.get_preferred_target(&mut kvi).unwrap();
         vcpu.vcpu_init(&kvi).unwrap();
@@ -196,7 +207,12 @@ mod tests {
         vm.get_preferred_target(&mut kvi).unwrap();
 
         // Must fail when vcpu is not initialized yet.
-        assert!(read_mpidr(&vcpu).is_err());
+        let res = read_mpidr(&vcpu);
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Failed to get system register: Exec format error (os error 8)"
+        );
 
         vcpu.vcpu_init(&kvi).unwrap();
         assert_eq!(read_mpidr(&vcpu).unwrap(), 0x8000_0000);
