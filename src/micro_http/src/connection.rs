@@ -130,7 +130,6 @@ impl<T: Read + Write> HttpConnection<T> {
         if bytes_read == 0 {
             return Err(ConnectionError::ConnectionClosed);
         }
-
         Ok(bytes_read + self.read_cursor)
     }
 

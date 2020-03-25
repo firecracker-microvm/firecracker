@@ -56,7 +56,7 @@ impl ParsedRequest {
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
             (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
             (Method::Put, "metrics", Some(body)) => parse_put_metrics(body),
-            (Method::Put, "mmds", Some(body)) => parse_put_mmds(body),
+            (Method::Put, "mmds", Some(body)) => parse_put_mmds(body, path_tokens.get(1)),
             (Method::Put, "network-interfaces", Some(body)) => {
                 parse_put_net(body, path_tokens.get(1))
             }
@@ -169,7 +169,7 @@ pub enum Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match *self {
+        match self {
             Error::Generic(_, ref desc) => write!(f, "{}", desc),
             Error::EmptyID => write!(f, "The ID cannot be empty."),
             Error::InvalidID => write!(
@@ -349,7 +349,6 @@ mod tests {
              {}",
             ApiServer::basic_json_body("fault_message", "message")
         );
-
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Empty ID error.
@@ -661,6 +660,17 @@ mod tests {
                 b"PUT /mmds HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
                 Content-Length: 2\r\n\r\n{}",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+
+        sender
+            .write_all(
+                b"PUT /mmds/config HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 26\r\n\r\n{\"ipv4_address\":\"1.1.1.1\"}",
             )
             .unwrap();
         assert!(connection.try_read().is_ok());

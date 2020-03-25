@@ -18,6 +18,7 @@ use vmm_config::drive::{BlockDeviceConfig, DriveError};
 use vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::metrics::{MetricsConfig, MetricsConfigError};
+use vmm_config::mmds::MmdsConfig;
 use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
@@ -66,6 +67,8 @@ pub enum VmmAction {
     /// Update a network interface, after microVM start. Currently, the only updatable properties
     /// are the RX and TX rate limiters.
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
+    /// Set the MMDS configuration.
+    SetMmdsConfiguration(MmdsConfig),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -143,7 +146,6 @@ pub struct PrebootApiController<'a> {
     firecracker_version: String,
     vm_resources: &'a mut VmResources,
     event_manager: &'a mut EventManager,
-
     built_vmm: Option<Arc<Mutex<Vmm>>>,
 }
 
@@ -233,7 +235,7 @@ impl<'a> PrebootApiController<'a> {
                 .map_err(VmmActionError::DriveConfig),
             InsertNetworkDevice(netif_body) => self
                 .vm_resources
-                .set_net_device(netif_body)
+                .build_net_device(netif_body)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::NetworkConfig),
             SetVsockDevice(vsock_cfg) => self
@@ -246,6 +248,10 @@ impl<'a> PrebootApiController<'a> {
                 .set_vm_config(&machine_config_body)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::MachineConfig),
+            SetMmdsConfiguration(mmds_config) => {
+                self.vm_resources.set_mmds_config(mmds_config);
+                Ok(VmmData::Empty)
+            }
             StartMicroVm => super::builder::build_microvm(
                 &self.vm_resources,
                 &mut self.event_manager,
@@ -256,7 +262,6 @@ impl<'a> PrebootApiController<'a> {
                 VmmData::Empty
             })
             .map_err(VmmActionError::StartMicrovm),
-
             // Operations not allowed pre-boot.
             UpdateBlockDevicePath(_, _) | UpdateNetworkInterface(_) | FlushMetrics => {
                 Err(VmmActionError::OperationNotSupportedPreBoot)
@@ -298,6 +303,7 @@ impl RuntimeApiController {
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
             | SetVsockDevice(_)
+            | SetMmdsConfiguration(_)
             | SetVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
             StartMicroVm => Err(VmmActionError::StartMicrovm(
                 StartMicrovmError::MicroVMAlreadyRunning,

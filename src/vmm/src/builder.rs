@@ -339,10 +339,10 @@ pub fn build_microvm(
     };
 
     attach_block_devices(&mut vmm, &vm_resources.block, event_manager)?;
-    attach_net_devices(&mut vmm, &vm_resources.network_interface, event_manager)?;
     if let Some(vsock) = vm_resources.vsock.get() {
         attach_unixsock_vsock_device(&mut vmm, vsock, event_manager)?;
     }
+    attach_net_devices(&mut vmm, &vm_resources.net_builder, event_manager)?;
 
     // Write the kernel command line to guest memory. This is x86_64 specific, since on
     // aarch64 the command line will be specified through the FDT.
@@ -689,16 +689,15 @@ fn attach_block_devices(
 
 fn attach_net_devices(
     vmm: &mut Vmm,
-    network_ifaces: &NetBuilder,
+    net_builder: &NetBuilder,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    for net_device in network_ifaces.iter() {
+    for net_device in net_builder.iter() {
         event_manager
             .add_subscriber(net_device.clone())
             .map_err(RegisterEvent)?;
-
         let id = net_device.lock().unwrap().id().clone();
         // The device mutex mustn't be locked here otherwise it will deadlock.
         attach_mmio_device(
@@ -1025,20 +1024,15 @@ pub mod tests {
             guest_mac: None,
             rx_rate_limiter: None,
             tx_rate_limiter: None,
-            allow_mmds_requests: false,
+            allow_mmds_requests: true,
         };
 
-        let mut network_interface_configs = NetBuilder::new();
-        network_interface_configs.insert(network_interface).unwrap();
-
-        assert!(
-            attach_net_devices(&mut vmm, &network_interface_configs, &mut event_manager).is_ok()
-        );
+        let mut net_builder = NetBuilder::new();
+        net_builder.build(network_interface).unwrap();
+        assert!(attach_net_devices(&mut vmm, &net_builder, &mut event_manager).is_ok());
 
         // We can not attach it once more.
-        assert!(
-            attach_net_devices(&mut vmm, &network_interface_configs, &mut event_manager).is_err()
-        );
+        assert!(attach_net_devices(&mut vmm, &net_builder, &mut event_manager).is_err());
     }
 
     #[test]
