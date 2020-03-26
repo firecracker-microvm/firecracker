@@ -55,6 +55,36 @@ maximum size bound for MMDS contents; the users are free to provide arbitrarily
 large inputs. However, the HTTP server is likely to encounter/become a
 bottleneck first, which means any API resource may have this potential issue.
 
+#### MMDS Configuration
+
+Users can set up a custom IPv4 address for MMDS. This can be achieved through a
+`PUT` request to the API server, before booting up the guest, with the path 
+`/mmds/config`. An example of MMDS configuration is the following:
+
+```json
+{
+"ipv4_address": "169.254.169.200"
+}
+```
+
+The `ipv4_address` value must be a valid IPv4 address. The configured IPv4 address
+can be used from within the microVM to issue `GET` requests  to the MMDS. An
+example of MMDS request from within the guest might look like the following:
+
+```bash
+curl -s "http://169.254.169.200/latest/meta-data/ami-id"
+```
+
+Depending on which configured network interface a user wants to communicate
+with the MMDS, an additional IP route is needed. E.g.:
+
+```bash
+ip route add 169.254.169.200 dev eth0
+```
+
+If MMDS configuration is not provided before booting up the guest, the MMDS
+IPv4 address defaults to `169.254.169.254`.
+
 ### Example use case: credential rotation
 
 For this example, the guest expects to find some sort of credentials (say, a
