@@ -13,6 +13,8 @@
   for configuring the Logger when starting the process. When using
   this method for configuration, only `--log-path` is mandatory.
 - Added a [guide](docs/devctr-image.md) for updating the dev container image.
+- Added a new API call, `PUT /mmds/config`, for configuring the
+  `MMDS` with a custom IPv4 address.
 
 ### Fixed
 - Added `--version` flag to both Firecracker and Jailer.

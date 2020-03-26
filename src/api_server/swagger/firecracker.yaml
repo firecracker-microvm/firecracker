@@ -317,6 +317,30 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /mmds/config:
+    put:
+      summary: Set MMDS configuration. Pre-boot only.
+      description:
+        Creates MMDS configuration to be used by the MMDS network stack.
+      parameters:
+        - name: body
+          in: body
+          description: The MMDS configuration as JSON.
+          required: true
+          schema:
+            type: "#/definitions/MmdsConfig"
+      responses:
+        204:
+          description: MMDS configuration was created/updated.
+        400:
+          description: MMDS configuration cannot be updated due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /network-interfaces/{iface_id}:
     put:
       summary: Creates a network interface. Pre-boot only.
@@ -564,6 +588,14 @@ definitions:
       metrics_path:
         type: string
         description: Path to the named pipe or file where the JSON-formatted metrics are flushed.
+
+  MmdsConfig:
+    type: object
+    description:
+      Defines the MMDS configuration.
+    properties:
+      ipv4_address:
+        type: string
 
   NetworkInterface:
     type: object
