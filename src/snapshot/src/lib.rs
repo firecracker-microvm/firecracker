@@ -42,11 +42,11 @@ extern crate versionize_derive;
 use std::collections::hash_map::HashMap;
 use std::io::Read;
 use versionize::crc::{CRC64Reader, CRC64Writer};
-use versionize::{Error, Result, VersionMap, Versionize};
+use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-// 256k max section size.
-const SNAPSHOT_MAX_SECTION_SIZE: usize = 0x40000;
+// 128k max section size.
+const SNAPSHOT_MAX_SECTION_SIZE: usize = 0x20000;
 const SNAPSHOT_FORMAT_VERSION: u16 = 1;
 const BASE_MAGIC_ID_MASK: u64 = !0xFFFFu64;
 
@@ -55,6 +55,21 @@ const BASE_MAGIC_ID: u64 = 0x0710_1984_8664_0000u64;
 
 #[cfg(target_arch = "aarch64")]
 const BASE_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
+
+/// Error definitions for the Snapshot API.
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    /// An IO error occured.
+    Io(i32),
+    /// A versioned serialization/deserialization error occured.
+    Versionize(versionize::Error),
+    /// CRC64 validation failed.
+    Crc64(u64),
+    /// Magic value does not match arch.
+    InvalidMagic(u64),
+    /// Section does not exist.
+    SectionNotFound,
+}
 
 #[derive(Default, Debug, Versionize)]
 struct SnapshotHdr {
@@ -83,7 +98,7 @@ struct Section {
 }
 
 // Parse a magic_id and return the format version.
-fn get_format_version(magic_id: u64) -> Result<u16> {
+fn get_format_version(magic_id: u64) -> Result<u16, Error> {
     let magic_arch = magic_id & BASE_MAGIC_ID_MASK;
     if magic_arch == BASE_MAGIC_ID {
         return Ok((magic_id & !BASE_MAGIC_ID_MASK) as u16);
@@ -108,23 +123,24 @@ impl Snapshot {
     }
 
     /// Attempts to load an existing snapshot.
-    pub fn load<T>(mut reader: &mut T, version_map: VersionMap) -> Result<Snapshot>
+    pub fn load<T>(mut reader: &mut T, version_map: VersionMap) -> Result<Snapshot, Error>
     where
         T: Read,
     {
         let format_version_map = Self::format_version_map();
-        let magic_id = <u64 as Versionize>::deserialize(
-            &mut reader,
-            &format_version_map,
-            0, /* unused */
-        )?;
-        let format_version = get_format_version(magic_id).unwrap();
+        let magic_id =
+            <u64 as Versionize>::deserialize(&mut reader, &format_version_map, 0 /* unused */)
+                .map_err(Error::Versionize)?;
+
+        let format_version = get_format_version(magic_id)?;
         let hdr: SnapshotHdr =
-            SnapshotHdr::deserialize(&mut reader, &format_version_map, format_version)?;
+            SnapshotHdr::deserialize(&mut reader, &format_version_map, format_version)
+                .map_err(Error::Versionize)?;
         let mut sections = HashMap::new();
 
         for _ in 0..hdr.section_count {
-            let section = Section::deserialize(&mut reader, &format_version_map, format_version)?;
+            let section = Section::deserialize(&mut reader, &format_version_map, format_version)
+                .map_err(Error::Versionize)?;
             sections.insert(section.name.clone(), section);
         }
 
@@ -139,7 +155,7 @@ impl Snapshot {
     }
 
     /// Attempts to load an existing snapshot and validate CRC.
-    pub fn load_with_crc64<T>(reader: &mut T, version_map: VersionMap) -> Result<Snapshot>
+    pub fn load_with_crc64<T>(reader: &mut T, version_map: VersionMap) -> Result<Snapshot, Error>
     where
         T: Read,
     {
@@ -151,7 +167,8 @@ impl Snapshot {
         // Since the reader updates the checksum as bytes ar being read from it, the order of these 2 statements is
         // important, we first get the checksum computed on the read bytes then read the stored checksum.
         let computed_checksum = crc_reader.checksum();
-        let stored_checksum: u64 = Versionize::deserialize(&mut crc_reader, &format_vm, 0)?;
+        let stored_checksum: u64 =
+            Versionize::deserialize(&mut crc_reader, &format_vm, 0).map_err(Error::Versionize)?;
 
         if computed_checksum != stored_checksum {
             return Err(Error::Crc64(computed_checksum));
@@ -161,7 +178,7 @@ impl Snapshot {
     }
 
     /// Saves a snapshot and include a CRC64 checksum.
-    pub fn save_with_crc64<T>(&mut self, writer: &mut T) -> Result<()>
+    pub fn save_with_crc64<T>(&mut self, writer: &mut T) -> Result<(), Error>
     where
         T: std::io::Write,
     {
@@ -169,12 +186,14 @@ impl Snapshot {
         self.save(&mut crc_writer)?;
 
         let checksum = crc_writer.checksum();
-        checksum.serialize(&mut crc_writer, &Self::format_version_map(), 0)?;
+        checksum
+            .serialize(&mut crc_writer, &Self::format_version_map(), 0)
+            .map_err(Error::Versionize)?;
         Ok(())
     }
 
     /// Save a snapshot.
-    pub fn save<T>(&mut self, mut writer: &mut T) -> Result<()>
+    pub fn save<T>(&mut self, mut writer: &mut T) -> Result<(), Error>
     where
         T: std::io::Write,
     {
@@ -187,23 +206,30 @@ impl Snapshot {
         let magic_id = build_magic_id(format_version_map.latest_version());
 
         // Serialize magic id using the format version map.
-        magic_id.serialize(&mut writer, &format_version_map, 0 /* unused */)?;
+        magic_id
+            .serialize(&mut writer, &format_version_map, 0 /* unused */)
+            .map_err(Error::Versionize)?;
         // Serialize header using the format version map.
-        self.hdr.serialize(
-            &mut writer,
-            &format_version_map,
-            format_version_map.latest_version(),
-        )?;
+        self.hdr
+            .serialize(
+                &mut writer,
+                &format_version_map,
+                format_version_map.latest_version(),
+            )
+            .map_err(Error::Versionize)?;
 
         // Serialize all the sections.
         for section in self.sections.values() {
             // The sections are already serialized.
-            section.serialize(
-                &mut writer,
-                &format_version_map,
-                format_version_map.latest_version(),
-            )?;
+            section
+                .serialize(
+                    &mut writer,
+                    &format_version_map,
+                    format_version_map.latest_version(),
+                )
+                .map_err(Error::Versionize)?;
         }
+
         writer
             .flush()
             .map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(0)))?;
@@ -212,7 +238,7 @@ impl Snapshot {
     }
 
     /// Attempts to find and reads a section (deserialize/translate) from a snapshot.
-    pub fn read_section<T>(&mut self, name: &str) -> Result<T>
+    pub fn read_section<T>(&mut self, name: &str) -> Result<T, Error>
     where
         T: Versionize,
     {
@@ -221,14 +247,15 @@ impl Snapshot {
                 &mut section.data.as_mut_slice().as_ref(),
                 &self.version_map,
                 self.hdr.data_version,
-            )?)
+            )
+            .map_err(Error::Versionize)?)
         } else {
             Err(Error::SectionNotFound)
         }
     }
 
     /// Write a section (serialize/translate) to a snapshot.
-    pub fn write_section<T>(&mut self, name: &str, object: &T) -> Result<usize>
+    pub fn write_section<T>(&mut self, name: &str, object: &T) -> Result<usize, Error>
     where
         T: Versionize,
     {
@@ -238,7 +265,9 @@ impl Snapshot {
         };
 
         let slice = &mut new_section.data.as_mut_slice();
-        object.serialize(slice, &self.version_map, self.target_version)?;
+        object
+            .serialize(slice, &self.version_map, self.target_version)
+            .map_err(Error::Versionize)?;
         // Resize vec to serialized section len.
         let serialized_len =
             slice.as_ptr() as usize - new_section.data.as_slice().as_ptr() as usize;
@@ -305,36 +334,38 @@ mod tests {
         fn field4_default(_: u16) -> Vec<u64> {
             vec![1, 2, 3, 4]
         }
-        fn field4_serialize(&mut self, target_version: u16) -> Result<()> {
+        fn field4_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
             // Fail if semantic serialization is called for the latest version.
             assert_ne!(target_version, Test::version());
             self.field0 = self.field4.iter().sum();
 
             if self.field0 == 6666 {
-                return Err(Error::Semantic("field4 element sum is 6666".to_owned()));
+                return Err(versionize::Error::Semantic(
+                    "field4 element sum is 6666".to_owned(),
+                ));
             }
             Ok(())
         }
-        fn field4_deserialize(&mut self, source_version: u16) -> Result<()> {
+        fn field4_deserialize(&mut self, source_version: u16) -> VersionizeResult<()> {
             // Fail if semantic deserialization is called for the latest version.
             assert_ne!(source_version, Test::version());
             self.field4 = vec![self.field0; 4];
             Ok(())
         }
 
-        fn field3_serialize(&mut self, target_version: u16) -> Result<()> {
+        fn field3_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
             // Fail if semantic serialization is called for the previous versions only.
             assert!(target_version < 3);
             self.field_x += 1;
             Ok(())
         }
 
-        fn field3_deserialize(&mut self, source_version: u16) -> Result<()> {
+        fn field3_deserialize(&mut self, source_version: u16) -> VersionizeResult<()> {
             // Fail if semantic deserialization is called for the latest version.
             assert!(source_version < 3);
             self.field_x += 1;
             if self.field0 == 7777 {
-                return Err(Error::Semantic("field0 is 7777".to_owned()));
+                return Err(versionize::Error::Semantic("field0 is 7777".to_owned()));
             }
             Ok(())
         }
@@ -509,7 +540,9 @@ mod tests {
         // The section will fail due to a custom semantic error.
         assert_eq!(
             snapshot.write_section("test", &state),
-            Err(Error::Semantic("field4 element sum is 6666".to_owned()))
+            Err(Error::Versionize(versionize::Error::Semantic(
+                "field4 element sum is 6666".to_owned()
+            )))
         );
     }
 
@@ -544,7 +577,7 @@ mod tests {
         let section_read_error = snapshot.read_section::<Test>("test").unwrap_err();
         assert_eq!(
             section_read_error,
-            Error::Semantic("field0 is 7777".to_owned())
+            Error::Versionize(versionize::Error::Semantic("field0 is 7777".to_owned()))
         );
     }
 
@@ -566,11 +599,31 @@ mod tests {
         // Saving the snapshot will fail due to the small size of `snapshot_mem` vec.
         assert_eq!(
             snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap_err(),
-            Error::Serialize(
+            Error::Versionize(versionize::Error::Serialize(
                 "Io(Custom { kind: WriteZero, error: \"failed to write whole buffer\" })"
                     .to_owned()
-            )
+            ))
         );
+    }
+
+    #[test]
+    fn test_read_invalid_section() {
+        let vm = VersionMap::new();
+        let state = Test1 {
+            field_x: 0,
+            field0: 0,
+            field1: 1,
+        };
+
+        let mut snapshot_mem = vec![0u8; 1024];
+
+        let mut snapshot = Snapshot::new(vm.clone(), 1);
+        assert!(snapshot.write_section("test", &state).is_ok());
+        assert_eq!(snapshot.save(&mut snapshot_mem.as_mut_slice()), Ok(()));
+
+        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        let section_read_error = snapshot.read_section::<Test>("404").unwrap_err();
+        assert_eq!(section_read_error, Error::SectionNotFound);
     }
 
     #[test]
@@ -657,10 +710,10 @@ mod tests {
             Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err();
         assert_eq!(
             snapshot_load_error,
-            Error::Deserialize(
+            Error::Versionize(versionize::Error::Deserialize(
                 "Io(Custom { kind: UnexpectedEof, error: \"failed to fill whole buffer\" })"
                     .to_owned()
-            )
+            ))
         );
     }
 
@@ -881,7 +934,7 @@ mod tests {
                 "whatever".to_owned()
             }
 
-            fn semantic_x(&mut self, _target_version: u16) -> Result<()> {
+            fn semantic_x(&mut self, _target_version: u16) -> VersionizeResult<()> {
                 self.x = self.q as u32;
                 Ok(())
             }

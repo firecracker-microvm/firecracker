@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(clippy::float_cmp)]
 
-use self::super::{Error, Result, VersionMap, Versionize};
+use self::super::{Error, VersionMap, Versionize, VersionizeResult};
 use vmm_sys_util::fam::{FamStruct, FamStructWrapper};
 
 /// Implements the Versionize trait for primitive types that also implement
@@ -19,7 +19,7 @@ macro_rules! impl_versionize {
                 writer: &mut W,
                 _version_map: &VersionMap,
                 _version: u16,
-            ) -> Result<()> {
+            ) -> VersionizeResult<()> {
                 bincode::serialize_into(writer, &self)
                     .map_err(|ref err| Error::Serialize(format!("{:?}", err)))?;
                 Ok(())
@@ -30,7 +30,7 @@ macro_rules! impl_versionize {
                 mut reader: &mut R,
                 _version_map: &VersionMap,
                 _version: u16,
-            ) -> Result<Self>
+            ) -> VersionizeResult<Self>
             where
                 Self: Sized,
             {
@@ -72,7 +72,7 @@ where
         writer: &mut W,
         version_map: &VersionMap,
         app_version: u16,
-    ) -> Result<()> {
+    ) -> VersionizeResult<()> {
         self.as_ref().serialize(writer, version_map, app_version)
     }
 
@@ -81,7 +81,7 @@ where
         reader: &mut R,
         version_map: &VersionMap,
         app_version: u16,
-    ) -> Result<Self> {
+    ) -> VersionizeResult<Self> {
         Ok(Box::new(T::deserialize(reader, version_map, app_version)?))
     }
 
@@ -101,7 +101,7 @@ where
         writer: &mut W,
         version_map: &VersionMap,
         app_version: u16,
-    ) -> Result<()> {
+    ) -> VersionizeResult<()> {
         self.0.serialize(writer, version_map, app_version)
     }
 
@@ -110,7 +110,7 @@ where
         reader: &mut R,
         version_map: &VersionMap,
         app_version: u16,
-    ) -> Result<Self> {
+    ) -> VersionizeResult<Self> {
         Ok(std::num::Wrapping(T::deserialize(
             reader,
             version_map,
@@ -134,7 +134,7 @@ where
         writer: &mut W,
         version_map: &VersionMap,
         app_version: u16,
-    ) -> Result<()> {
+    ) -> VersionizeResult<()> {
         // Serialize an Option just like bincode does: u8, T.
         match &*self {
             Some(value) => {
@@ -150,7 +150,7 @@ where
         reader: &mut R,
         version_map: &VersionMap,
         app_version: u16,
-    ) -> Result<Self> {
+    ) -> VersionizeResult<Self> {
         let option = u8::deserialize(reader, version_map, app_version)?;
         match option {
             0u8 => Ok(None),
@@ -178,7 +178,7 @@ where
         mut writer: &mut W,
         version_map: &VersionMap,
         app_version: u16,
-    ) -> Result<()> {
+    ) -> VersionizeResult<()> {
         // Serialize in the same fashion as bincode:
         // Write len.
         bincode::serialize_into(&mut writer, &self.len())
@@ -197,7 +197,7 @@ where
         mut reader: &mut R,
         version_map: &VersionMap,
         app_version: u16,
-    ) -> Result<Self> {
+    ) -> VersionizeResult<Self> {
         let mut v = Vec::new();
         let len: u64 = bincode::deserialize_from(&mut reader)
             .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?;
@@ -227,7 +227,7 @@ where
         mut writer: &mut W,
         version_map: &VersionMap,
         app_version: u16,
-    ) -> Result<()> {
+    ) -> VersionizeResult<()> {
         // Write the fixed size header.
         self.as_fam_struct_ref()
             .serialize(&mut writer, version_map, app_version)?;
@@ -244,7 +244,7 @@ where
         reader: &mut R,
         version_map: &VersionMap,
         app_version: u16,
-    ) -> Result<Self> {
+    ) -> VersionizeResult<Self> {
         let header = T::deserialize(reader, version_map, app_version)
             .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?;
         let entries: Vec<<T as FamStruct>::Entry> =
@@ -270,7 +270,7 @@ mod tests {
     #![allow(non_camel_case_types)]
     #![allow(non_snake_case)]
     use super::*;
-    use super::{Result, VersionMap, Versionize};
+    use super::{VersionMap, Versionize, VersionizeResult};
     use vmm_sys_util::generate_fam_struct_impl;
 
     #[repr(C)]
@@ -343,7 +343,7 @@ mod tests {
     }
 
     impl TestState {
-        fn test_state_default_one(&self, target_version: u16) -> Result<TestState> {
+        fn test_state_default_one(&self, target_version: u16) -> Result<TestState, Error> {
             match target_version {
                 2 => Ok(TestState::Two(2)),
                 1 => Ok(TestState::Two(2)),
@@ -351,7 +351,7 @@ mod tests {
             }
         }
 
-        fn test_state_default_two(&self, target_version: u16) -> Result<TestState> {
+        fn test_state_default_two(&self, target_version: u16) -> Result<TestState, Error> {
             match target_version {
                 3 => Ok(TestState::Three(3)),
                 2 => Ok(TestState::Two(2)),
@@ -359,6 +359,109 @@ mod tests {
                 i => Err(Error::Serialize(format!("Unknown target version: {}", i))),
             }
         }
+    }
+
+    #[derive(Debug, serde_derive::Deserialize, PartialEq, serde_derive::Serialize, Versionize)]
+    enum CompatibleEnum {
+        A,
+        B(String),
+        C(u64, u64, char),
+    }
+
+    #[derive(Debug, serde_derive::Deserialize, PartialEq, serde_derive::Serialize, Versionize)]
+    struct TestCompatibility {
+        _string: String,
+        _array: [u8; 32],
+        _u8: u8,
+        _u16: u16,
+        _u32: u32,
+        _u64: u64,
+        _i8: i8,
+        _i16: i16,
+        _i32: i32,
+        _i64: i64,
+        _f32: f32,
+        _f64: f64,
+        _usize: usize,
+        _isize: isize,
+        _vec: Vec<u64>,
+        _option: Option<bool>,
+        _enums: Vec<CompatibleEnum>,
+        _box: Box<String>,
+    }
+
+    #[test]
+    fn test_bincode_deserialize_from_versionize() {
+        let mut snapshot_mem = vec![0u8; 4096];
+        let vm = VersionMap::new();
+
+        let test_struct = TestCompatibility {
+            _string: "String".to_owned(),
+            _array: [128u8; 32],
+            _u8: 1,
+            _u16: 32000,
+            _u32: 0x1234_5678,
+            _u64: 0x1234_5678_9875_4321,
+            _i8: -1,
+            _i16: -32000,
+            _i32: -0x1234_5678,
+            _i64: -0x1234_5678_9875_4321,
+            _usize: 0x1234_5678_9875_4321,
+            _isize: -0x1234_5678_9875_4321,
+            _f32: 0.123,
+            _f64: 0.123_456_789_000_000,
+            _vec: vec![33; 32],
+            _option: Some(true),
+            _enums: vec![
+                CompatibleEnum::A,
+                CompatibleEnum::B("abcd".to_owned()),
+                CompatibleEnum::C(1, 2, 'a'),
+            ],
+            _box: Box::new("Box".to_owned()),
+        };
+
+        Versionize::serialize(&test_struct, &mut snapshot_mem.as_mut_slice(), &vm, 1).unwrap();
+
+        let restored_state: TestCompatibility =
+            bincode::deserialize_from(snapshot_mem.as_slice()).unwrap();
+        assert_eq!(test_struct, restored_state);
+    }
+
+    #[test]
+    fn test_bincode_serialize_to_versionize() {
+        let mut snapshot_mem = vec![0u8; 4096];
+        let vm = VersionMap::new();
+
+        let test_struct = TestCompatibility {
+            _string: "String".to_owned(),
+            _array: [128u8; 32],
+            _u8: 1,
+            _u16: 32000,
+            _u32: 0x1234_5678,
+            _u64: 0x1234_5678_9875_4321,
+            _i8: -1,
+            _i16: -32000,
+            _i32: -0x1234_5678,
+            _i64: -0x1234_5678_9875_4321,
+            _usize: 0x1234_5678_9875_4321,
+            _isize: -0x1234_5678_9875_4321,
+            _f32: 0.123,
+            _f64: 0.123_456_789_000_000,
+            _vec: vec![33; 32],
+            _option: Some(true),
+            _enums: vec![
+                CompatibleEnum::A,
+                CompatibleEnum::B("abcd".to_owned()),
+                CompatibleEnum::C(1, 2, 'a'),
+            ],
+            _box: Box::new("Box".to_owned()),
+        };
+
+        bincode::serialize_into(&mut snapshot_mem.as_mut_slice(), &test_struct).unwrap();
+
+        let restored_state: TestCompatibility =
+            Versionize::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        assert_eq!(test_struct, restored_state);
     }
 
     #[test]
@@ -640,7 +743,7 @@ mod tests {
             _writer: &mut W,
             _version_map: &VersionMap,
             _app_version: u16,
-        ) -> Result<()> {
+        ) -> Result<(), Error> {
             Ok(())
         }
 
@@ -649,7 +752,7 @@ mod tests {
             _reader: &mut R,
             _version_map: &VersionMap,
             _app_version: u16,
-        ) -> Result<Self> {
+        ) -> Result<Self, Error> {
             Ok(Self::new())
         }
 

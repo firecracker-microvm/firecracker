@@ -28,8 +28,8 @@ use std::io::{Read, Write};
 pub use version_map::VersionMap;
 use versionize_derive::Versionize;
 
-/// Snapshot API errors.
-#[derive(PartialEq, Debug)]
+/// Versioned serialization error definitions.
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// An IO error occured.
     Io(i32),
@@ -39,16 +39,10 @@ pub enum Error {
     Deserialize(String),
     /// A user generated semantic error.
     Semantic(String),
-    /// CRC64 validation failed.
-    Crc64(u64),
-    /// Magic value does not match arch.
-    InvalidMagic(u64),
-    /// Section does not exist.
-    SectionNotFound,
 }
 
-/// Snapshot specific result type.
-pub type Result<T> = std::result::Result<T, Error>;
+/// Versioned serialization/deserialization result.
+pub type VersionizeResult<T> = std::result::Result<T, Error>;
 
 /// Trait that provides an interface for version aware serialization and deserialization.
 pub trait Versionize {
@@ -58,7 +52,7 @@ pub trait Versionize {
         writer: &mut W,
         version_map: &VersionMap,
         target_version: u16,
-    ) -> Result<()>;
+    ) -> VersionizeResult<()>;
 
     /// Returns a new instance of `Self` by deserialzing from `source_version` using the
     /// specficifed `reader` and `version_map`.
@@ -66,7 +60,7 @@ pub trait Versionize {
         reader: &mut R,
         version_map: &VersionMap,
         source_version: u16,
-    ) -> Result<Self>
+    ) -> VersionizeResult<Self>
     where
         Self: Sized;
 

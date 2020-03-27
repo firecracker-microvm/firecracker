@@ -5,7 +5,7 @@ extern crate versionize_derive;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use snapshot::Snapshot;
-use versionize::{Error, Result, VersionMap, Versionize};
+use versionize::{Error, VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 #[derive(Clone, Debug, Default, Versionize)]
@@ -49,7 +49,7 @@ impl Test {
         vec![1, 2, 3, 4]
     }
 
-    fn field4_serialize(&mut self, target_version: u16) -> Result<()> {
+    fn field4_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
         // Fail if semantic serialization is called for the latest version.
         assert_ne!(target_version, Test::version());
         self.field0 = self.field4.iter().sum();
@@ -60,21 +60,21 @@ impl Test {
         Ok(())
     }
 
-    fn field4_deserialize(&mut self, source_version: u16) -> Result<()> {
+    fn field4_deserialize(&mut self, source_version: u16) -> VersionizeResult<()> {
         // Fail if semantic deserialization is called for the latest version.
         assert_ne!(source_version, Test::version());
         self.field4 = vec![self.field0; 4];
         Ok(())
     }
 
-    fn field3_serialize(&mut self, target_version: u16) -> Result<()> {
+    fn field3_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
         // Fail if semantic serialization is called for the previous versions only.
         assert!(target_version < 3);
         self.field_x += 1;
         Ok(())
     }
 
-    fn field3_deserialize(&mut self, source_version: u16) -> Result<()> {
+    fn field3_deserialize(&mut self, source_version: u16) -> VersionizeResult<()> {
         // Fail if semantic deserialization is called for the latest version.
         assert!(source_version < 3);
         self.field_x += 1;

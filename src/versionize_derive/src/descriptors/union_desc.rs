@@ -3,7 +3,7 @@
 
 use common::{Descriptor, Exists, FieldType, GenericDescriptor};
 use fields::union_field::*;
-use helpers::{compute_version, generate_deserializer_header};
+use helpers::compute_version;
 use quote::quote;
 
 pub(crate) type UnionDescriptor = GenericDescriptor<UnionField>;
@@ -140,7 +140,6 @@ impl UnionDescriptor {
     fn generate_union_deserializer(&self, source_version: u16) -> proc_macro2::TokenStream {
         let mut sizes = proc_macro2::TokenStream::new();
         let mut matcher = proc_macro2::TokenStream::new();
-        let header = generate_deserializer_header(&self.fields);
 
         let deserializable_fields: Vec<&UnionField> = self
             .fields
@@ -163,7 +162,6 @@ impl UnionDescriptor {
 
         let finder = self.generate_field_finder(sizes, matcher);
         quote! {
-            #header
             #finder
         }
     }

@@ -62,12 +62,12 @@ pub fn impl_versionize(input: TokenStream) -> proc_macro::TokenStream {
     };
     (quote! {
         impl Versionize for #ident #generics {
-            fn serialize<W: std::io::Write>(&self, writer: &mut W, version_map: &VersionMap, app_version: u16) -> Result<()> {
+            fn serialize<W: std::io::Write>(&self, writer: &mut W, version_map: &VersionMap, app_version: u16) -> VersionizeResult<()> {
                 #serializer
                 Ok(())
             }
 
-            fn deserialize<R: std::io::Read>(mut reader: &mut R, version_map: &VersionMap, app_version: u16) -> Result<Self> {
+            fn deserialize<R: std::io::Read>(mut reader: &mut R, version_map: &VersionMap, app_version: u16) -> VersionizeResult<Self> {
                 #deserializer
             }
 
