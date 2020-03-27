@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::{ATTRIBUTE_NAME, END_VERSION, START_VERSION};
-use common::{Exists, FieldType};
-use quote::{format_ident, quote};
+use common::Exists;
+use quote::format_ident;
 use std::cmp::max;
 use std::collections::hash_map::HashMap;
 
@@ -89,31 +89,4 @@ where
         version = max(version, max(field.start_version(), field.end_version()));
     }
     version
-}
-
-// Just checking if there are any array fields present.
-// If so, return a token stream with the vec2array macro.
-pub(crate) fn generate_deserializer_header<T>(fields: &[T]) -> proc_macro2::TokenStream
-where
-    T: FieldType,
-{
-    if fields.iter().any(|field| is_array(&field.ty())) {
-        return quote! {
-            use std::convert::TryInto;
-
-            // This macro will generate a function that copies a vec to an array.
-            // We serialize arrays as vecs.
-            macro_rules! vec_to_arr_func {
-                ($name:ident, $type:ty, $size:expr) => {
-                    pub fn $name(data: std::vec::Vec<$type>) -> [$type; $size] {
-                        let mut arr = [<$type as Default>::default(); $size];
-                        arr.copy_from_slice(&data[0..$size]);
-                        arr
-                    }
-                };
-            }
-        };
-    }
-
-    quote! {}
 }
