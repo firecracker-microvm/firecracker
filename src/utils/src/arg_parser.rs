@@ -91,27 +91,47 @@ impl<'a> ArgParser<'a> {
     }
 }
 
+/// Type of argument.
+#[derive(Clone, Debug, PartialEq)]
+enum ArgumentType {
+    ValueArgument,
+    FlagArgument,
+}
+
 /// Stores the characteristics of the `name` command line argument.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Argument<'a> {
     name: &'a str,
     required: bool,
     requires: Option<&'a str>,
-    takes_value: bool,
+    arg_type: ArgumentType,
     default_value: Option<Value>,
     help: Option<&'a str>,
     user_value: Option<Value>,
 }
 
 impl<'a> Argument<'a> {
-    /// Create a new `Argument` that keeps the necessary information for an argument.
-    pub fn new(name: &'a str) -> Argument<'a> {
+    /// Create a new `ValueArgument` that keeps the necessary information for a value argument.
+    pub fn value_argument(name: &'a str) -> Argument<'a> {
         Argument {
             name,
             required: false,
             requires: None,
-            takes_value: false,
+            arg_type: ArgumentType::ValueArgument,
             default_value: None,
+            help: None,
+            user_value: None,
+        }
+    }
+
+    /// Create a new `FlagArgument` that keeps the necessary information for a flag argument.
+    pub fn flag_argument(name: &'a str) -> Argument<'a> {
+        Argument {
+            name,
+            required: false,
+            requires: None,
+            arg_type: ArgumentType::FlagArgument,
+            default_value: Some(Value::Bool(false)),
             help: None,
             user_value: None,
         }
@@ -129,17 +149,12 @@ impl<'a> Argument<'a> {
         self
     }
 
-    /// If `takes_value` is true, then the user *must* provide a value for the
-    /// argument, otherwise that argument is a flag.
-    pub fn takes_value(mut self, takes_value: bool) -> Self {
-        self.takes_value = takes_value;
-        self
-    }
-
     /// Keep a default value which will be used if the user didn't provide a value for
     /// the argument.
     pub fn default_value(mut self, default_value: &'a str) -> Self {
-        self.default_value = Some(Value::String(String::from(default_value)));
+        if self.arg_type == ArgumentType::ValueArgument {
+            self.default_value = Some(Value::String(String::from(default_value)));
+        }
         self
     }
 
@@ -155,7 +170,7 @@ impl<'a> Argument<'a> {
 
         help_builder.push(format!("--{}", self.name));
 
-        if self.takes_value {
+        if self.arg_type == ArgumentType::ValueArgument {
             help_builder.push(format!(" <{}>", self.name));
         }
 
@@ -262,7 +277,7 @@ impl<'a> Arguments<'a> {
         // command line arguments by adding just the help argument to the parsed list and
         // returning.
         if args.contains(&HELP_ARG.to_string()) {
-            let mut help_arg = Argument::new("help").help("Show the help message.");
+            let mut help_arg = Argument::flag_argument("help").help("Show the help message.");
             help_arg.user_value = Some(Value::Bool(true));
             self.insert_arg(help_arg);
             return Ok(());
@@ -272,7 +287,8 @@ impl<'a> Arguments<'a> {
         // command line arguments by adding just the version argument to the parsed list and
         // returning.
         if args.contains(&VERSION_ARG.to_string()) {
-            let mut version_arg = Argument::new("version").help("Print the binary version number.");
+            let mut version_arg =
+                Argument::flag_argument("version").help("Print the binary version number.");
             version_arg.user_value = Some(Value::Bool(true));
             self.insert_arg(version_arg);
             return Ok(());
@@ -338,7 +354,7 @@ impl<'a> Arguments<'a> {
                 .get_mut(&arg[ARG_PREFIX.len()..])
                 .ok_or_else(|| Error::UnexpectedArgument(arg[ARG_PREFIX.len()..].to_string()))?;
 
-            let arg_val = if argument.takes_value {
+            let arg_val = if argument.arg_type == ArgumentType::ValueArgument {
                 let val = iter
                     .next()
                     .filter(|v| !v.starts_with(ARG_PREFIX))
@@ -367,52 +383,42 @@ mod tests {
     fn build_arg_parser() -> ArgParser<'static> {
         ArgParser::new()
             .arg(
-                Argument::new("exec-file")
+                Argument::value_argument("exec-file")
                     .required(true)
-                    .takes_value(true)
                     .help("'exec-file' info."),
             )
             .arg(
-                Argument::new("no-api")
+                Argument::flag_argument("no-api")
                     .requires("config-file")
-                    .takes_value(false)
                     .help("'no-api' info."),
             )
             .arg(
-                Argument::new("api-sock")
-                    .takes_value(true)
+                Argument::value_argument("api-sock")
                     .default_value("socket")
                     .help("'api-sock' info."),
             )
             .arg(
-                Argument::new("id")
-                    .takes_value(true)
+                Argument::value_argument("id")
                     .default_value("instance")
                     .help("'id' info."),
             )
             .arg(
-                Argument::new("seccomp-level")
-                    .takes_value(true)
+                Argument::value_argument("seccomp-level")
                     .default_value("2")
                     .help("'seccomp-level' info."),
             )
-            .arg(
-                Argument::new("config-file")
-                    .takes_value(true)
-                    .help("'config-file' info."),
-            )
+            .arg(Argument::value_argument("config-file").help("'config-file' info."))
     }
 
     #[test]
     fn test_arg_help() {
         // Checks help format for an argument.
-        let mut argument = Argument::new("exec-file").required(true).takes_value(true);
+        let mut argument = Argument::value_argument("exec-file").required(true);
 
         assert_eq!(argument.format_help(), "--exec-file <exec-file>");
 
-        argument = Argument::new("exec-file")
+        argument = Argument::value_argument("exec-file")
             .required(true)
-            .takes_value(true)
             .help("'exec-file' info.");
 
         assert_eq!(
@@ -420,15 +426,12 @@ mod tests {
             "--exec-file <exec-file>: 'exec-file' info."
         );
 
-        argument = Argument::new("no-api")
-            .requires("config-file")
-            .takes_value(false);
+        argument = Argument::flag_argument("no-api").requires("config-file");
 
         assert_eq!(argument.format_help(), "--no-api");
 
-        argument = Argument::new("no-api")
+        argument = Argument::flag_argument("no-api")
             .requires("config-file")
-            .takes_value(false)
             .help("'no-api' info.");
 
         assert_eq!(argument.format_help(), "--no-api: 'no-api' info.");
@@ -438,9 +441,8 @@ mod tests {
     fn test_arg_parser_help() {
         // Checks help information when user passes `--help` flag.
         let arg_parser = ArgParser::new().arg(
-            Argument::new("exec-file")
+            Argument::value_argument("exec-file")
                 .required(true)
-                .takes_value(true)
                 .help("'exec-file' info."),
         );
         assert_eq!(

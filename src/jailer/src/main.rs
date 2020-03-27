@@ -219,53 +219,45 @@ pub type Result<T> = result::Result<T, Error>;
 pub fn build_arg_parser() -> ArgParser<'static> {
     ArgParser::new()
         .arg(
-            Argument::new("id")
+            Argument::value_argument("id")
                 .required(true)
-                .takes_value(true)
                 .help("Jail ID."),
         )
         .arg(
-            Argument::new("exec-file")
+            Argument::value_argument("exec-file")
                 .required(true)
-                .takes_value(true)
                 .help("File path to exec into."),
         )
         .arg(
-            Argument::new("node")
+            Argument::value_argument("node")
                 .required(true)
-                .takes_value(true)
                 .help("NUMA node to assign this microVM to."),
         )
         .arg(
-            Argument::new("uid")
+            Argument::value_argument("uid")
                 .required(true)
-                .takes_value(true)
                 .help("The user identifier the jailer switches to after exec."),
         )
         .arg(
-            Argument::new("gid")
+            Argument::value_argument("gid")
                 .required(true)
-                .takes_value(true)
                 .help("The group identifier the jailer switches to after exec."),
         )
         .arg(
-            Argument::new("chroot-base-dir")
-                .takes_value(true)
+            Argument::value_argument("chroot-base-dir")
                 .default_value("/srv/jailer")
                 .help("The base folder where chroot jails are located."),
         )
         .arg(
-            Argument::new("netns")
-                .takes_value(true)
+            Argument::value_argument("netns")
                 .help("Path to the network namespace this microVM should join."),
         )
-        .arg(Argument::new("daemonize").takes_value(false).help(
+        .arg(Argument::flag_argument("daemonize").help(
             "Daemonize the jailer before exec, by invoking setsid(), and redirecting \
              the standard I/O file descriptors to /dev/null.",
         ))
         .arg(
-            Argument::new("extra-args")
-                .takes_value(true)
+            Argument::value_argument("extra-args")
                 .help("Arguments that will be passed verbatim to the exec file."),
         )
 }

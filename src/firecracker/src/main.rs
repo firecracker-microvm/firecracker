@@ -84,20 +84,17 @@ fn main() {
 
     let mut arg_parser = ArgParser::new()
         .arg(
-            Argument::new("api-sock")
-                .takes_value(true)
+            Argument::value_argument("api-sock")
                 .default_value(DEFAULT_API_SOCK_PATH)
                 .help("Path to unix domain socket used by the API."),
         )
         .arg(
-            Argument::new("id")
-                .takes_value(true)
+            Argument::value_argument("id")
                 .default_value(DEFAULT_INSTANCE_ID)
                 .help("MicroVM unique identifier."),
         )
         .arg(
-            Argument::new("seccomp-level")
-                .takes_value(true)
+            Argument::value_argument("seccomp-level")
                 .default_value("2")
                 .help(
                     "Level of seccomp filtering that will be passed to executed path as \
@@ -109,45 +106,37 @@ fn main() {
                 ),
         )
         .arg(
-            Argument::new("start-time-us")
-                .takes_value(true),
+            Argument::value_argument("start-time-us")
         )
         .arg(
-            Argument::new("start-time-cpu-us")
-                .takes_value(true),
+            Argument::value_argument("start-time-cpu-us")
         )
         .arg(
-            Argument::new("config-file")
-                .takes_value(true)
+            Argument::value_argument("config-file")
                 .help("Path to a file that contains the microVM configuration in JSON format."),
         )
         .arg(
-            Argument::new("no-api")
-                .takes_value(false)
+            Argument::flag_argument("no-api")
                 .requires("config-file")
                 .help("Optional parameter which allows starting and using a microVM without an active API socket.")
         )
         .arg(
-            Argument::new("log-path")
-                .takes_value(true)
+            Argument::value_argument("log-path")
                 .help("Path to a fifo or a file used for configuring the logger on startup.")
         )
         .arg(
-            Argument::new("level")
-                .takes_value(true)
+            Argument::value_argument("level")
                 .requires("log-path")
                 .default_value("Warning")
                 .help("Set the logger level.")
         )
         .arg(
-            Argument::new("show-level")
-                .takes_value(false)
+            Argument::flag_argument("show-level")
                 .requires("log-path")
                 .help("Whether or not to output the level in the logs.")
         )
         .arg(
-            Argument::new("show-log-origin")
-                .takes_value(false)
+            Argument::flag_argument("show-log-origin")
                 .requires("log-path")
                 .help("Whether or not to include the file path and line number of the log's origin.")
         );
