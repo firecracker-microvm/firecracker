@@ -1657,7 +1657,7 @@ mod tests {
         assert!(cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).is_ok());
         let cmdline_addr = GuestAddress(arch::x86_64::layout::CMDLINE_START);
 
-        let entry_addr = kernel::loader::load_kernel(
+        let (entry_addr, _pvh_entry_pt) = kernel::loader::load_kernel(
             vm_memory,
             &mut kernel_file,
             arch::x86_64::layout::HIMEM_START,

@@ -35,6 +35,9 @@ pub enum Error {
     SeekKernelStart,
     SeekKernelImage,
     SeekProgramHeader,
+    SeekNoteHeader,
+    ReadNoteHeader,
+    InvalidPvhNote,
 }
 
 impl fmt::Display for Error {
@@ -56,6 +59,9 @@ impl fmt::Display for Error {
                 }
                 Error::SeekKernelImage => "Failed to seek to offset of kernel image",
                 Error::SeekProgramHeader => "Failed to seek to ELF program header",
+                Error::SeekNoteHeader => "Unable to seek to note header",
+                Error::ReadNoteHeader => "Unable to read note header",
+                Error::InvalidPvhNote => "Invalid PVH note header",
             }
         )
     }
@@ -71,13 +77,14 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// * `kernel_image` - Input vmlinux image.
 /// * `start_address` - For x86_64, this is the start of the high memory. Kernel should reside above it.
 ///
-/// Returns the entry address of the kernel.
+/// Returns the default entry address of the kernel and an optional field with a PVH entry point address
+/// if one exists.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn load_kernel<F>(
     guest_mem: &GuestMemoryMmap,
     kernel_image: &mut F,
     start_address: u64,
-) -> Result<GuestAddress>
+) -> Result<(GuestAddress, Option<GuestAddress>)>
 where
     F: Read + Seek,
 {
@@ -113,6 +120,10 @@ where
         return Err(Error::InvalidEntryAddress);
     }
 
+    // This field will optionally hold the address of a PVH entry point if
+    // the kernel binary supports the PVH boot protocol.
+    let mut pvh_entry_pt = None;
+
     kernel_image
         .seek(SeekFrom::Start(ehdr.e_phoff))
         .map_err(|_| Error::SeekProgramHeader)?;
@@ -125,6 +136,10 @@ where
     // Read in each section pointed to by the program headers.
     for phdr in &phdrs {
         if (phdr.p_type & elf::PT_LOAD) == 0 || phdr.p_filesz == 0 {
+            if phdr.p_type == elf::PT_NOTE {
+                // This segment describes a Note, check if PVH entry point is encoded.
+                pvh_entry_pt = parse_elf_note(phdr, kernel_image)?;
+            }
             continue;
         }
 
@@ -142,7 +157,96 @@ where
             .map_err(|_| Error::ReadKernelImage)?;
     }
 
-    Ok(GuestAddress(ehdr.e_entry))
+    Ok((GuestAddress(ehdr.e_entry), pvh_entry_pt))
+}
+
+/// Examines a supplied ELF program header of type `PT_NOTE` to determine if it contains an entry
+/// of name `Xen` and type `XEN_ELFNOTE_PHYS32_ENTRY` (0x12). Notes of this type encode a physical
+/// 32-bit entry point address into the kernel, which is used when launching guests in 32-bit
+/// (protected) mode with paging disabled, as described by the PVH boot protocol.
+///
+/// Returns the encoded entry point address, or `None` if no `XEN_ELFNOTE_PHYS32_ENTRY` entries are
+/// found in the note header.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn parse_elf_note<F>(phdr: &elf::Elf64_Phdr, kernel_image: &mut F) -> Result<Option<GuestAddress>>
+where
+    F: Read + Seek,
+{
+    // Type of note header that encodes a 32-bit entry point address
+    // to boot a guest kernel using the PVH boot protocol.
+    const XEN_ELFNOTE_PHYS32_ENTRY: u32 = 18;
+
+    // Size of string "PVHNote", including the terminating NULL.
+    const PVH_NOTE_STR_SZ: usize = 4;
+
+    let n_align = phdr.p_align;
+
+    // Seek to the beginning of the note segment
+    kernel_image
+        .seek(SeekFrom::Start(phdr.p_offset))
+        .map_err(|_| Error::SeekNoteHeader)?;
+
+    // Now that the segment has been found, we must locate an ELF note with the
+    // correct type that encodes the PVH entry point if there is one.
+    let mut nhdr: elf::Elf64_Nhdr = Default::default();
+    let mut read_size: usize = 0;
+
+    while read_size < phdr.p_filesz as usize {
+        unsafe {
+            // read_struct is safe when reading a POD struct.
+            // It can be used and dropped without issue.
+            utils::structs::read_struct(kernel_image, &mut nhdr)
+                .map_err(|_| Error::ReadNoteHeader)?;
+        }
+        // Check if the note header's name and type match the ones specified by the PVH ABI.
+        if nhdr.n_type == XEN_ELFNOTE_PHYS32_ENTRY && nhdr.n_namesz as usize == PVH_NOTE_STR_SZ {
+            let mut buf = [0u8; PVH_NOTE_STR_SZ];
+            kernel_image
+                .read_exact(&mut buf)
+                .map_err(|_| Error::ReadNoteHeader)?;
+            if buf == [b'X', b'e', b'n', b'\0'] {
+                break;
+            }
+        }
+
+        // Skip the note header plus the size of its fields (with alignment)
+        read_size += mem::size_of::<elf::Elf64_Nhdr>()
+            + align_up(u64::from(nhdr.n_namesz), n_align)
+            + align_up(u64::from(nhdr.n_descsz), n_align);
+
+        kernel_image
+            .seek(SeekFrom::Start(phdr.p_offset + read_size as u64))
+            .map_err(|_| Error::SeekNoteHeader)?;
+    }
+
+    if read_size >= phdr.p_filesz as usize {
+        return Ok(None); // PVH ELF note not found, nothing else to do.
+    }
+    // Otherwise the correct note type was found.
+    // The note header struct has already been read, so we can seek from the
+    // current position and just skip the name field contents.
+    kernel_image
+        .seek(SeekFrom::Current(
+            align_up(u64::from(nhdr.n_namesz), n_align) as i64 - PVH_NOTE_STR_SZ as i64,
+        ))
+        .map_err(|_| Error::SeekNoteHeader)?;
+
+    // The PVH entry point is a 32-bit address, so the descriptor field
+    // must be capable of storing all such addresses.
+    if (nhdr.n_descsz as usize) < mem::size_of::<u32>() {
+        return Err(Error::InvalidPvhNote);
+    }
+
+    let mut pvh_addr_bytes = [0; mem::size_of::<u32>()];
+
+    // Read 32-bit address stored in the PVH note descriptor field.
+    kernel_image
+        .read_exact(&mut pvh_addr_bytes)
+        .map_err(|_| Error::ReadNoteHeader)?;
+
+    Ok(Some(GuestAddress(
+        u32::from_le_bytes(pvh_addr_bytes).into(),
+    )))
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -150,7 +254,7 @@ pub fn load_kernel<F>(
     guest_mem: &GuestMemoryMmap,
     kernel_image: &mut F,
     start_address: u64,
-) -> Result<GuestAddress>
+) -> Result<(GuestAddress, Option<GuestAddress>)>
 where
     F: Read + Seek,
 {
@@ -224,7 +328,7 @@ where
         )
         .map_err(|_| Error::ReadKernelImage)?;
 
-    Ok(GuestAddress(kernel_load_offset))
+    Ok((GuestAddress(kernel_load_offset), None))
 }
 
 /// Writes the command line string to the given memory slice.
@@ -259,6 +363,22 @@ pub fn load_cmdline(
     Ok(())
 }
 
+/// Align address upwards. Taken from x86_64 crate:
+/// https://docs.rs/x86_64/latest/x86_64/fn.align_up.html
+///
+/// Returns the smallest x with alignment `align` so that x >= addr. The alignment must be
+/// a power of 2.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn align_up(addr: u64, align: u64) -> usize {
+    assert!(align.is_power_of_two(), "`align` must be a power of two");
+    let align_mask = align - 1;
+    if addr & align_mask == 0 {
+        addr as usize // already aligned
+    } else {
+        ((addr | align_mask) + 1) as usize
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::cmdline::Cmdline;
@@ -266,7 +386,7 @@ mod tests {
     use std::io::Cursor;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-    const MEM_SIZE: usize = 0x18_0000;
+    const MEM_SIZE: usize = 0x48_0000;
 
     fn create_guest_mem() -> GuestMemoryMmap {
         GuestMemoryMmap::from_ranges(&[(GuestAddress(0x0), MEM_SIZE)]).unwrap()
@@ -282,6 +402,21 @@ mod tests {
         include_bytes!("test_pe.bin").to_vec()
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn make_elfnote_bin() -> Vec<u8> {
+        include_bytes!("test_elfnote.bin").to_vec()
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn make_dummy_elfnote_bin() -> Vec<u8> {
+        include_bytes!("test_dummynote.bin").to_vec()
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn make_bad_elfnote_bin() -> Vec<u8> {
+        include_bytes!("test_badnote.bin").to_vec()
+    }
+
     #[test]
     // Tests that loading the kernel is successful on different archs.
     fn test_load_kernel() {
@@ -291,10 +426,11 @@ mod tests {
         let load_addr = 0x10_0000;
         #[cfg(target_arch = "aarch64")]
         let load_addr = 0x8_0000;
-        assert_eq!(
-            Ok(GuestAddress(load_addr)),
-            load_kernel(&gm, &mut Cursor::new(&image), 0)
-        );
+
+        let (entry_addr, pvh_addr) = load_kernel(&gm, &mut Cursor::new(&image), 0).unwrap();
+
+        assert!(pvh_addr.is_none());
+        assert_eq!(GuestAddress(load_addr), entry_addr);
     }
 
     #[test]
@@ -385,6 +521,38 @@ mod tests {
         );
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn test_load_pvh() {
+        let gm = create_guest_mem();
+        let pvhnote_image = make_elfnote_bin();
+        let (_, pvh_addr) = load_kernel(&gm, &mut Cursor::new(&pvhnote_image), 0).unwrap();
+
+        assert_eq!(pvh_addr.unwrap(), GuestAddress(0x1_e1f_e1f));
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn test_dummy_elfnote() {
+        let gm = create_guest_mem();
+        let dummynote_image = make_dummy_elfnote_bin();
+        let (entry_addr, pvh_addr) =
+            load_kernel(&gm, &mut Cursor::new(&dummynote_image), 0).unwrap();
+
+        assert!(pvh_addr.is_none());
+        assert_eq!(entry_addr, GuestAddress(0x40_00f0));
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[test]
+    fn test_bad_elfnote() {
+        let gm = create_guest_mem();
+        let badnote_image = make_bad_elfnote_bin();
+        assert_eq!(
+            Err(Error::InvalidPvhNote),
+            load_kernel(&gm, &mut Cursor::new(&badnote_image), 0)
+        );
+    }
     #[test]
     fn test_cmdline_overflow() {
         let gm = create_guest_mem();
