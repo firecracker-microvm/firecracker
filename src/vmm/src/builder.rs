@@ -758,7 +758,6 @@ fn attach_net_devices(
             devices::virtio::net::Net::new_with_tap(
                 tap,
                 cfg.guest_mac(),
-                vmm.guest_memory().clone(),
                 rx_rate_limiter.unwrap_or_default(),
                 tx_rate_limiter.unwrap_or_default(),
                 allow_mmds_requests,
