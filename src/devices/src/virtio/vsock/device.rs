@@ -131,7 +131,7 @@ where
         let mem = match self.device_state {
             DeviceState::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => return false,
+            DeviceState::Inactive => unreachable!(),
         };
 
         let mut have_used = false;
@@ -169,7 +169,7 @@ where
         let mem = match self.device_state {
             DeviceState::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => return false,
+            DeviceState::Inactive => unreachable!(),
         };
 
         let mut have_used = false;
