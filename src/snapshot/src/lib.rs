@@ -62,9 +62,9 @@ const BASE_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
 /// Error definitions for the Snapshot API.
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    /// An IO error occured.
+    /// An IO error occurred.
     Io(i32),
-    /// A versioned serialization/deserialization error occured.
+    /// A versioned serialization/deserialization error occurred.
     Versionize(versionize::Error),
     /// CRC64 validation failed.
     Crc64(u64),
@@ -375,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_format_version_x86() {
+    fn test_get_format_version() {
         // Check if `get_format_version()` returns indeed the format
         // version (the least significant 2 bytes) if the id is valid
         // (the other bytes == BASE_MAGIC_ID).

@@ -345,15 +345,13 @@ mod tests {
     impl TestState {
         fn test_state_default_one(&self, target_version: u16) -> Result<TestState, Error> {
             match target_version {
-                2 => Ok(TestState::Two(2)),
-                1 => Ok(TestState::Two(2)),
+                1 => Ok(TestState::Zero),
                 i => Err(Error::Serialize(format!("Unknown target version: {}", i))),
             }
         }
 
         fn test_state_default_two(&self, target_version: u16) -> Result<TestState, Error> {
             match target_version {
-                3 => Ok(TestState::Three(3)),
                 2 => Ok(TestState::Two(2)),
                 1 => Ok(TestState::One(1, "Test".to_owned())),
                 i => Err(Error::Serialize(format!("Unknown target version: {}", i))),
@@ -471,9 +469,7 @@ mod tests {
         vm.new_version()
             .set_type_version(TestState::type_id(), 2)
             .new_version()
-            .set_type_version(TestState::type_id(), 3)
-            .new_version()
-            .set_type_version(TestState::type_id(), 4);
+            .set_type_version(TestState::type_id(), 3);
 
         // Test trivial case.
         let state = TestState::One(1337, "a string".to_owned());
@@ -492,17 +488,15 @@ mod tests {
         vm.new_version()
             .set_type_version(TestState::type_id(), 2)
             .new_version()
-            .set_type_version(TestState::type_id(), 3)
-            .new_version()
-            .set_type_version(TestState::type_id(), 4);
+            .set_type_version(TestState::type_id(), 3);
 
-        // Test default_fn for serialization of enum variants that don't exist in previous versions.
+        // Test `default_fn` for serialization of enum variants that don't exist in previous versions.
         let state = TestState::Three(1337);
         state
             .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 2)
             .unwrap();
         let restored_state =
-            <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+            <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 2).unwrap();
         assert_eq!(restored_state, TestState::Two(2));
 
         let state = TestState::Three(1337);
@@ -513,29 +507,13 @@ mod tests {
             <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
         assert_eq!(restored_state, TestState::One(1, "Test".to_owned()));
 
-        let state = TestState::Three(1337);
-        state
-            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 3)
-            .unwrap();
-        let restored_state =
-            <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
-        assert_eq!(restored_state, state);
-
         let state = TestState::Two(1234);
         state
-            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 2)
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
             .unwrap();
         let restored_state =
             <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
-        assert_eq!(restored_state, state);
-
-        let state = TestState::Zero;
-        state
-            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 2)
-            .unwrap();
-        let restored_state =
-            <TestState as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
-        assert_eq!(restored_state, state);
+        assert_eq!(restored_state, TestState::Zero);
     }
 
     #[test]
