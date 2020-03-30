@@ -294,7 +294,7 @@ pub fn build_microvm(
             &vm,
             &vcpu_config,
             &guest_memory,
-            entry_point.entry_addr,
+            entry_point,
             request_ts,
             &pio_device_manager.io_bus,
             &exit_evt,
@@ -587,7 +587,7 @@ fn create_vcpus_x86_64(
     vm: &Vm,
     vcpu_config: &VcpuConfig,
     guest_mem: &GuestMemoryMmap,
-    entry_addr: GuestAddress,
+    entry_point: EntryPoint,
     request_ts: TimestampUs,
     io_bus: &devices::Bus,
     exit_evt: &EventFd,
@@ -605,7 +605,7 @@ fn create_vcpus_x86_64(
         )
         .map_err(Error::Vcpu)?;
 
-        vcpu.configure_x86_64(guest_mem, entry_addr, vcpu_config)
+        vcpu.configure_x86_64(guest_mem, entry_point, vcpu_config)
             .map_err(Error::Vcpu)?;
 
         vcpus.push(vcpu);
@@ -961,13 +961,16 @@ pub mod tests {
         };
 
         // Dummy entry_addr, vcpus will not boot.
-        let entry_addr = GuestAddress(0);
+        let entry_point = EntryPoint {
+            entry_addr: GuestAddress(0),
+            protocol: BootProtocol::LinuxBoot,
+        };
         let bus = devices::Bus::new();
         let vcpu_vec = create_vcpus_x86_64(
             &vm,
             &vcpu_config,
             &guest_memory,
-            entry_addr,
+            entry_point,
             TimestampUs::default(),
             &bus,
             &EventFd::new(libc::EFD_NONBLOCK).unwrap(),
