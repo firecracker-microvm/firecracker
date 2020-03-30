@@ -93,7 +93,7 @@
 use std::fmt;
 use std::io::{sink, stderr, stdout, Write};
 use std::result;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
 
 use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
@@ -101,6 +101,8 @@ use metrics::{Metric, METRICS};
 use utils::time::LocalTime;
 
 use super::extract_guard;
+use init;
+use init::Init;
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
@@ -122,7 +124,7 @@ lazy_static! {
 // All member fields have types which are Sync, and exhibit interior mutability, so
 // we can call logging operations using a non-mut static global variable.
 pub struct Logger {
-    state: AtomicUsize,
+    init: Init,
     // Human readable logs will be outputted here.
     log_buf: Mutex<Box<dyn Write + Send>>,
     show_level: AtomicBool,
@@ -132,14 +134,10 @@ pub struct Logger {
 }
 
 impl Logger {
-    const UNINITIALIZED: usize = 0;
-    const INITIALIZING: usize = 1;
-    const INITIALIZED: usize = 2;
-
     /// Creates a new instance of the current logger.
     fn new() -> Logger {
         Logger {
-            state: AtomicUsize::new(0),
+            init: Init::new(),
             log_buf: Mutex::new(Box::new(sink())),
             show_level: AtomicBool::new(true),
             show_line_numbers: AtomicBool::new(true),
@@ -298,29 +296,6 @@ impl Logger {
         format!("[{}]", prefix.join(":"))
     }
 
-    /// Try to change the state of the logger.
-    /// This method will succeed only if the logger is UNINITIALIZED.
-    fn try_lock(&self, locked_state: usize) -> Result<()> {
-        match self
-            .state
-            .compare_and_swap(Self::UNINITIALIZED, locked_state, Ordering::SeqCst)
-        {
-            Self::INITIALIZING => {
-                // If the logger is initializing, an error will be returned.
-                METRICS.logger.log_fails.inc();
-                return Err(LoggerError::IsInitializing);
-            }
-            Self::INITIALIZED => {
-                // If the logger was already initialized, an error will be returned.
-                METRICS.logger.log_fails.inc();
-                return Err(LoggerError::AlreadyInitialized);
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
-
     /// if the max level hasn't been configured yet, set it to default
     fn try_init_max_level(&self) {
         // if the max level hasn't been configured yet, set it to default
@@ -355,17 +330,18 @@ impl Logger {
     /// }
     /// ```
     pub fn configure(&self, instance_id: Option<String>) -> Result<()> {
-        self.try_lock(Self::INITIALIZING)?;
+        self.init
+            .call_init(|| {
+                if let Some(some_instance_id) = instance_id {
+                    self.set_instance_id(some_instance_id);
+                }
 
-        if let Some(some_instance_id) = instance_id {
-            self.set_instance_id(some_instance_id);
-        }
+                self.try_init_max_level();
 
-        self.try_init_max_level();
-
-        self.state.store(Self::UNINITIALIZED, Ordering::SeqCst);
-
-        Ok(())
+                // don't finish the initialization
+                false
+            })
+            .map_err(LoggerError::Init)
     }
 
     /// Initialize log system (once and only once).
@@ -394,16 +370,18 @@ impl Logger {
     /// }
     /// ```
     pub fn init(&self, header: String, log_dest: Box<dyn Write + Send>) -> Result<()> {
-        self.try_lock(Self::INITIALIZING)?;
-        {
-            let mut g = extract_guard(self.log_buf.lock());
+        self.init
+            .call_init(|| {
+                let mut g = extract_guard(self.log_buf.lock());
+                *g = log_dest;
 
-            *g = log_dest;
-        }
+                self.try_init_max_level();
 
-        self.try_init_max_level();
+                // finish init
+                true
+            })
+            .map_err(LoggerError::Init)?;
 
-        self.state.store(Self::INITIALIZED, Ordering::SeqCst);
         self.write_log(header, Level::Info);
 
         Ok(())
@@ -413,16 +391,15 @@ impl Logger {
     /// regular log messages.
     fn write_log(&self, mut msg: String, msg_level: Level) {
         let mut guard;
-        let mut dest: Box<dyn Write + Send> =
-            if self.state.load(Ordering::Relaxed) == Self::INITIALIZED {
-                guard = extract_guard(self.log_buf.lock());
-                Box::new(guard.as_mut())
-            } else {
-                match msg_level {
-                    Level::Error | Level::Warn => Box::new(stderr()),
-                    _ => Box::new(stdout()),
-                }
-            };
+        let mut dest: Box<dyn Write + Send> = if self.init.is_initialized() {
+            guard = extract_guard(self.log_buf.lock());
+            Box::new(guard.as_mut())
+        } else {
+            match msg_level {
+                Level::Error | Level::Warn => Box::new(stderr()),
+                _ => Box::new(stdout()),
+            }
+        };
 
         // No need to explicitly call flush because the underlying LineWriter flushes
         // automatically whenever a newline is detected (and we always end with a
@@ -438,25 +415,14 @@ impl Logger {
 /// Describes the errors which may occur while handling logging scenarios.
 #[derive(Debug)]
 pub enum LoggerError {
-    /// First attempt at initialization failed.
-    NeverInitialized(String),
-    /// The logger is locked while initializing.
-    IsInitializing,
-    /// The logger does not allow reinitialization.
-    AlreadyInitialized,
+    /// Initialization Error.
+    Init(init::Error),
 }
 
 impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
-            LoggerError::NeverInitialized(ref e) => e.to_string(),
-            LoggerError::IsInitializing => {
-                "The logger is initializing. Can't perform the requested action right now."
-                    .to_string()
-            }
-            LoggerError::AlreadyInitialized => {
-                "Reinitialization of logger not allowed.".to_string()
-            }
+            LoggerError::Init(ref e) => format!("Logger initialization failure: {}", e),
         };
         write!(f, "{}", printable)
     }
@@ -720,20 +686,8 @@ mod tests {
     #[test]
     fn test_error_messages() {
         assert_eq!(
-            format!(
-                "{}",
-                LoggerError::NeverInitialized(String::from("Bad Log Path Provided"))
-            ),
-            "Bad Log Path Provided"
-        );
-        assert_eq!(
-            format!("{}", LoggerError::AlreadyInitialized),
-            "Reinitialization of logger not allowed."
-        );
-
-        assert_eq!(
-            format!("{}", LoggerError::IsInitializing),
-            "The logger is initializing. Can't perform the requested action right now."
+            format!("{}", LoggerError::Init(init::Error::AlreadyInitialized)),
+            "Logger initialization failure: The component is already initialized."
         );
     }
 }
