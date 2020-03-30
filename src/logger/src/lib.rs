@@ -13,6 +13,7 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate utils;
 
+mod init;
 mod logger;
 mod metrics;
 
