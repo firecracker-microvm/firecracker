@@ -29,6 +29,7 @@ use utils::epoll::{EpollEvent, EventSet};
 
 use super::device::{Vsock, EVQ_INDEX, RXQ_INDEX, TXQ_INDEX};
 use super::VsockBackend;
+use crate::virtio::VirtioDevice;
 
 impl<B> Vsock<B>
 where
@@ -191,23 +192,28 @@ where
         let backend = self.backend.as_raw_fd();
         let activate_evt = self.activate_evt.as_raw_fd();
 
-        let mut raise_irq = false;
-
-        match source {
-            _ if source == rxq => raise_irq = self.handle_rxq_event(event),
-            _ if source == txq => raise_irq = self.handle_txq_event(event),
-            _ if source == evq => raise_irq = self.handle_evq_event(event),
-            _ if source == backend => {
-                raise_irq = self.notify_backend(event);
+        if self.is_activated() {
+            let mut raise_irq = false;
+            match source {
+                _ if source == rxq => raise_irq = self.handle_rxq_event(event),
+                _ if source == txq => raise_irq = self.handle_txq_event(event),
+                _ if source == evq => raise_irq = self.handle_evq_event(event),
+                _ if source == backend => {
+                    raise_irq = self.notify_backend(event);
+                }
+                _ if source == activate_evt => {
+                    self.handle_activate_event(event_manager);
+                }
+                _ => warn!("Unexpected vsock event received: {:?}", source),
             }
-            _ if source == activate_evt => {
-                self.handle_activate_event(event_manager);
+            if raise_irq {
+                self.signal_used_queue().unwrap_or_default();
             }
-            _ => warn!("Unexpected vsock event received: {:?}", source),
-        }
-
-        if raise_irq {
-            self.signal_used_queue().unwrap_or_default();
+        } else {
+            warn!(
+                "Vsock: The device is not yet activated. Spurious event received: {:?}",
+                source
+            );
         }
     }
 
@@ -222,11 +228,13 @@ where
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::Ordering;
+    use std::sync::{Arc, Mutex};
 
-    use super::super::tests::TestContext;
+    use super::super::tests::{EventHandlerContext, TestContext};
     use super::super::*;
     use super::*;
 
+    use crate::virtio::device::VirtioDevice;
     use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
     use crate::virtio::VIRTIO_MMIO_INT_VRING;
     use crate::Error as DeviceError;
@@ -557,5 +565,71 @@ mod tests {
             GAP_START_ADDR as u64 - 4,
             GAP_SIZE as u32 + 100,
         );
+    }
+
+    #[test]
+    fn test_event_handler() {
+        let mut event_manager = EventManager::new().unwrap();
+        let test_ctx = TestContext::new();
+        let EventHandlerContext {
+            device,
+            guest_rxvq,
+            guest_txvq,
+            ..
+        } = test_ctx.create_event_handler_context();
+
+        let vsock = Arc::new(Mutex::new(device));
+        event_manager.add_subscriber(vsock.clone()).unwrap();
+
+        // Push a queue event
+        // - the driver has something to send (there's data in the TX queue); and
+        // - the backend also has some pending RX data.
+        {
+            let mut device = vsock.lock().unwrap();
+            device.backend.set_pending_rx(true);
+            device.queue_events[TXQ_INDEX].write(1).unwrap();
+        }
+
+        // EventManager should report no events since vsock has only registered
+        // its activation event so far (even though there is also a queue event pending).
+        let ev_count = event_manager.run_with_timeout(50).unwrap();
+        assert_eq!(ev_count, 0);
+
+        // Manually force a queue event and check it's ignored pre-activation.
+        {
+            let mut device = vsock.lock().unwrap();
+
+            let raw_txq_evt = device.queue_events[TXQ_INDEX].as_raw_fd() as u64;
+            // Artificially push event.
+            device.process(
+                &EpollEvent::new(EventSet::IN, raw_txq_evt),
+                &mut event_manager,
+            );
+
+            // Both available RX and TX descriptors should be untouched.
+            assert_eq!(guest_rxvq.used.idx.get(), 0);
+            assert_eq!(guest_txvq.used.idx.get(), 0);
+        }
+
+        // Now activate the device.
+        vsock
+            .lock()
+            .unwrap()
+            .activate(test_ctx.mem.clone())
+            .unwrap();
+        // Process the activate event.
+        let ev_count = event_manager.run_with_timeout(50).unwrap();
+        assert_eq!(ev_count, 1);
+
+        // Handle the previously pushed queue event through EventManager.
+        {
+            let ev_count = event_manager
+                .run_with_timeout(100)
+                .expect("Metrics event timeout or error.");
+            assert_eq!(ev_count, 1);
+            // Both available RX and TX descriptors should have been used.
+            assert_eq!(guest_rxvq.used.idx.get(), 1);
+            assert_eq!(guest_txvq.used.idx.get(), 1);
+        }
     }
 }
