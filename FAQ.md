@@ -68,8 +68,7 @@ sharing of configuration data between the host and guest.
 
 ### What operating systems are supported by Firecracker?
 
-Firecracker supports Linux host and guest operating systems with kernel versions
-4.14 and above, as well as
+Firecracker supports Linux host and guest operating systems with kernel versions 4.14, 4.19 and 5.4, as well as
 [OSv](http://blog.osv.io/blog/2019/04/19/making-OSv-run-on-firecraker/) guests.
 The long-term support plan is still under discussion.
 
@@ -150,8 +149,20 @@ support:
 CONFIG_PTP_1588_CLOCK=y
 CONFIG_PTP_1588_CLOCK_KVM=y
 ```
-Our [recommended guest kernel config](resources/microvm-kernel-config) already
-has these included.
+Our recommended guest kernel configurations already
+has these included:
+
+#### AMD64
+
+- [Kernel config-amd64-4.14.166](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-amd64-4.14.166)
+- [Kernel config-amd64-4.19.97](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-amd64-4.19.97)
+- [Kernel config-amd64-5.4.13](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-amd64-5.4.13)
+
+#### ARM64
+
+- [Kernel config-arm64-4.14.166](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-arm64-4.14.166)
+- [Kernel config-arm64-4.19.97](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-arm64-4.19.97)
+- [Kernel config-arm64-5.4.13](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-arm64-5.4.13)
 
 Now `/dev/ptp0` should be available in the guest. Next you need to configure
 `/dev/ptp0` as a NTP time source.
