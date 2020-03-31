@@ -1,5 +1,9 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 #
-# Automatically generated file; DO NOT EDIT.
+# Firecracker kernel .config file.
+# Modifications were made to the .config file generated for:
+#
 # Linux/arm64 5.4.13 Kernel Configuration
 #
 
@@ -1147,7 +1151,7 @@ CONFIG_IP_VS_LBLC=m
 CONFIG_IP_VS_LBLCR=m
 CONFIG_IP_VS_DH=m
 CONFIG_IP_VS_SH=m
-# CONFIG_IP_VS_MH is not set
+CONFIG_IP_VS_MH=m
 CONFIG_IP_VS_SED=m
 CONFIG_IP_VS_NQ=m
 
@@ -1409,6 +1413,7 @@ CONFIG_DNS_RESOLVER=m
 # CONFIG_BATMAN_ADV is not set
 CONFIG_OPENVSWITCH=m
 CONFIG_OPENVSWITCH_GRE=m
+CONFIG_OPENVSWITCH_VXLAN=m
 CONFIG_VSOCKETS=y
 CONFIG_VSOCKETS_DIAG=y
 CONFIG_VIRTIO_VSOCKETS=y
@@ -1421,7 +1426,7 @@ CONFIG_MPLS_IPTUNNEL=m
 CONFIG_NET_NSH=m
 CONFIG_HSR=m
 # CONFIG_NET_SWITCHDEV is not set
-# CONFIG_NET_L3_MASTER_DEV is not set
+CONFIG_NET_L3_MASTER_DEV=y
 # CONFIG_NET_NCSI is not set
 CONFIG_RPS=y
 CONFIG_RFS_ACCEL=y
@@ -1746,22 +1751,26 @@ CONFIG_ISCSI_TARGET=m
 CONFIG_NETDEVICES=y
 CONFIG_NET_CORE=y
 # CONFIG_BONDING is not set
-# CONFIG_DUMMY is not set
+CONFIG_DUMMY=y
 # CONFIG_EQUALIZER is not set
 # CONFIG_IFB is not set
 # CONFIG_NET_TEAM is not set
 # CONFIG_MACVLAN is not set
-# CONFIG_IPVLAN is not set
-# CONFIG_VXLAN is not set
+CONFIG_IPVLAN_L3S=y
+CONFIG_IPVLAN=y
+CONFIG_IPVTAP=y
+CONFIG_VXLAN=m
 # CONFIG_GENEVE is not set
 # CONFIG_GTP is not set
 # CONFIG_MACSEC is not set
 # CONFIG_NETCONSOLE is not set
 CONFIG_TUN=y
+CONFIG_TAP=y
 # CONFIG_TUN_VNET_CROSS_LE is not set
 CONFIG_VETH=y
 CONFIG_VIRTIO_NET=y
 # CONFIG_NLMON is not set
+# CONFIG_NET_VRF is not set
 
 #
 # CAIF transport drivers
@@ -1818,7 +1827,7 @@ CONFIG_INPUT_EVDEV=m
 CONFIG_INPUT_KEYBOARD=y
 # CONFIG_KEYBOARD_ADP5588 is not set
 # CONFIG_KEYBOARD_ADP5589 is not set
-# CONFIG_KEYBOARD_ATKBD is not set
+CONFIG_KEYBOARD_ATKBD=y
 # CONFIG_KEYBOARD_QT1050 is not set
 # CONFIG_KEYBOARD_QT1070 is not set
 # CONFIG_KEYBOARD_QT2160 is not set
@@ -1862,7 +1871,16 @@ CONFIG_INPUT_UINPUT=m
 #
 # Hardware I/O ports
 #
-# CONFIG_SERIO is not set
+CONFIG_SERIO=y
+CONFIG_SERIO_SERPORT=y
+# CONFIG_SERIO_AMBAKMI is not set
+CONFIG_SERIO_LIBPS2=y
+# CONFIG_SERIO_RAW is not set
+# CONFIG_SERIO_ALTERA_PS2 is not set
+# CONFIG_SERIO_PS2MULT is not set
+# CONFIG_SERIO_ARC_PS2 is not set
+# CONFIG_SERIO_APBPS2 is not set
+# CONFIG_USERIO is not set
 # CONFIG_GAMEPORT is not set
 # end of Hardware I/O ports
 # end of Input device support
@@ -1994,7 +2012,7 @@ CONFIG_I2C_ALGOBIT=m
 # CONFIG_SPI is not set
 # CONFIG_SPMI is not set
 # CONFIG_HSI is not set
-CONFIG_PPS=m
+CONFIG_PPS=y
 CONFIG_PPS_DEBUG=y
 
 #
@@ -2011,7 +2029,7 @@ CONFIG_PPS_CLIENT_GPIO=m
 #
 # PTP clock support
 #
-CONFIG_PTP_1588_CLOCK=m
+CONFIG_PTP_1588_CLOCK=y
 
 #
 # Enable PHYLIB and NETWORK_PHY_TIMESTAMPING to see the additional clocks.
