@@ -123,7 +123,7 @@ impl UnionDescriptor {
 
             // Generate the vec initializer content.
             sizes.extend(quote! {
-                std::mem::size_of::<#field_type> as usize,
+                std::mem::size_of::<#field_type>() as usize,
             });
 
             // Generate match arms for select fields by index.
@@ -152,7 +152,7 @@ impl UnionDescriptor {
             let field_deserializer = field.generate_deserializer(source_version);
 
             sizes.extend(quote! {
-                std::mem::size_of::<#field_type> as usize,
+                std::mem::size_of::<#field_type>() as usize,
             });
 
             matcher.extend(quote! {
