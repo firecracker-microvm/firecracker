@@ -1,3 +1,5 @@
+// Copyright © 2020, Oracle and/or its affiliates.
+//
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -17,9 +19,12 @@ pub mod msr;
 pub mod regs;
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
+use arch_gen::x86::start_info::{hvm_memmap_table_entry, hvm_modlist_entry, hvm_start_info};
+use std::mem;
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
 };
+use BootProtocol;
 use InitrdConfig;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
@@ -33,6 +38,25 @@ struct BootParamsWrapper(boot_params);
 // It is safe to initialize BootParamsWrap which is a wrapper over `boot_params` (a series of ints).
 unsafe impl ByteValued for BootParamsWrapper {}
 
+// Workaround for the Rust orphan rules that guarantee trait coherence by wrapping the foreign type
+// in a tuple structure. Same approach is used by boot_params and BootParamsWrapper.
+#[derive(Copy, Clone, Default)]
+struct StartInfoWrapper(hvm_start_info);
+
+#[derive(Copy, Clone, Default)]
+struct MemmapTableEntryWrapper(hvm_memmap_table_entry);
+
+#[derive(Copy, Clone, Default)]
+struct ModlistEntryWrapper(hvm_modlist_entry);
+
+// It is safe to initialize the following structures. They are wrappers over the structures
+// defined by the start_info module, all of which are formed by fields of integer values.
+unsafe impl ByteValued for StartInfoWrapper {}
+unsafe impl ByteValued for MemmapTableEntryWrapper {}
+unsafe impl ByteValued for ModlistEntryWrapper {}
+
+const MEMMAP_TYPE_RAM: u32 = 1;
+
 /// Errors thrown while configuring x86_64 system.
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -44,6 +68,12 @@ pub enum Error {
     ZeroPageSetup,
     /// Failed to compute initrd address.
     InitrdAddress,
+    /// Error writing module entry to guest memory.
+    ModlistSetup,
+    /// Error writing memory map table to guest memory.
+    MemmapTableSetup,
+    /// Error writing hvm_start_info to guest memory.
+    StartInfoSetup,
 }
 
 // Where BIOS/VGA magic would live on a real PC.
@@ -101,12 +131,151 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> supe
 /// * `cmdline_size` - Size of the kernel command line in bytes including the null terminator.
 /// * `initrd` - Information about where the ramdisk image was loaded in the `guest_mem`.
 /// * `num_cpus` - Number of virtual CPUs the guest will have.
+/// * `boot_prot` - Boot protocol that will be used to boot the guest.
 pub fn configure_system(
     guest_mem: &GuestMemoryMmap,
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
     initrd: &Option<InitrdConfig>,
     num_cpus: u8,
+    boot_prot: BootProtocol,
+) -> super::Result<()> {
+    // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
+    mptable::setup_mptable(guest_mem, num_cpus).map_err(Error::MpTableSetup)?;
+
+    match boot_prot {
+        BootProtocol::PvhBoot => {
+            configure_pvh(guest_mem, cmdline_addr, initrd)?;
+        }
+        BootProtocol::LinuxBoot => {
+            configure_64bit_boot(guest_mem, cmdline_addr, cmdline_size, initrd)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn configure_pvh(
+    guest_mem: &GuestMemoryMmap,
+    cmdline_addr: GuestAddress,
+    initrd: &Option<InitrdConfig>,
+) -> super::Result<()> {
+    const XEN_HVM_START_MAGIC_VALUE: u32 = 0x336e_c578;
+    let first_addr_past_32bits = GuestAddress(FIRST_ADDR_PAST_32BITS);
+    let end_32bit_gap_start = GuestAddress(MMIO_MEM_START);
+    let himem_start = GuestAddress(layout::HIMEM_START);
+
+    let mut start_info: StartInfoWrapper = StartInfoWrapper(hvm_start_info::default());
+
+    start_info.0.magic = XEN_HVM_START_MAGIC_VALUE;
+    start_info.0.version = 1; // pvh has version 1
+    start_info.0.cmdline_paddr = cmdline_addr.raw_value();
+    start_info.0.memmap_paddr = layout::MEMMAP_START;
+
+    if let Some(initrd_config) = initrd {
+        // The initrd has been written to guest memory already, here we just need to
+        // create the module structure that describes it.
+        let ramdisk_mod: ModlistEntryWrapper = ModlistEntryWrapper(hvm_modlist_entry {
+            paddr: initrd_config.address.raw_value(),
+            size: initrd_config.size as u64,
+            ..Default::default()
+        });
+
+        start_info.0.nr_modules += 1;
+        start_info.0.modlist_paddr = layout::MODLIST_START;
+
+        // Write the modlist struct to guest memory.
+        guest_mem
+            .write_obj(ramdisk_mod, GuestAddress(layout::MODLIST_START))
+            .map_err(|_| Error::ModlistSetup)?;
+    }
+
+    // Vector to hold the memory maps which needs to be written to guest memory
+    // at MEMMAP_START after all of the mappings are recorded.
+    let mut memmap: Vec<hvm_memmap_table_entry> = Vec::new();
+
+    // Create the memory map entries.
+    add_memmap_entry(&mut memmap, 0, EBDA_START, MEMMAP_TYPE_RAM)?;
+
+    let last_addr = guest_mem.last_addr();
+    if last_addr < end_32bit_gap_start {
+        add_memmap_entry(
+            &mut memmap,
+            himem_start.raw_value() as u64,
+            last_addr.unchecked_offset_from(himem_start) as u64 + 1,
+            MEMMAP_TYPE_RAM,
+        )?;
+    } else {
+        add_memmap_entry(
+            &mut memmap,
+            himem_start.raw_value(),
+            end_32bit_gap_start.unchecked_offset_from(himem_start),
+            MEMMAP_TYPE_RAM,
+        )?;
+
+        if last_addr > first_addr_past_32bits {
+            add_memmap_entry(
+                &mut memmap,
+                first_addr_past_32bits.raw_value(),
+                last_addr.unchecked_offset_from(first_addr_past_32bits) + 1,
+                MEMMAP_TYPE_RAM,
+            )?;
+        }
+    }
+
+    start_info.0.memmap_entries = memmap.len() as u32;
+
+    // Copy the vector with the memmap table to the MEMMAP_START address
+    // which is already saved in the memmap_paddr field of hvm_start_info struct.
+    let mut memmap_start_addr = GuestAddress(layout::MEMMAP_START);
+
+    // For every entry in the memmap vector, create a MemmapTableEntryWrapper
+    // and write it to guest memory.
+    for memmap_entry in memmap {
+        let map_entry_wrapper: MemmapTableEntryWrapper = MemmapTableEntryWrapper(memmap_entry);
+
+        guest_mem
+            .write_obj(map_entry_wrapper, memmap_start_addr)
+            .map_err(|_| Error::MemmapTableSetup)?;
+        memmap_start_addr =
+            memmap_start_addr.unchecked_add(mem::size_of::<hvm_memmap_table_entry>() as u64);
+    }
+
+    // The hvm_start_info struct itself must be stored at PVH_START_INFO
+    // address, and %rbx will be initialized to contain PVH_INFO_START prior to
+    // starting the guest, as required by the PVH ABI.
+    let start_info_addr = GuestAddress(layout::PVH_INFO_START);
+
+    // Write the start_info struct to guest memory.
+    guest_mem
+        .write_obj(start_info, start_info_addr)
+        .map_err(|_| Error::StartInfoSetup)?;
+
+    Ok(())
+}
+
+fn add_memmap_entry(
+    memmap: &mut Vec<hvm_memmap_table_entry>,
+    addr: u64,
+    size: u64,
+    mem_type: u32,
+) -> super::Result<()> {
+    // Add the table entry to the vector
+    memmap.push(hvm_memmap_table_entry {
+        addr,
+        size,
+        type_: mem_type,
+        reserved: 0,
+    });
+
+    Ok(())
+}
+
+fn configure_64bit_boot(
+    guest_mem: &GuestMemoryMmap,
+    cmdline_addr: GuestAddress,
+    cmdline_size: usize,
+    initrd: &Option<InitrdConfig>,
 ) -> super::Result<()> {
     const KERNEL_BOOT_FLAG_MAGIC: u16 = 0xaa55;
     const KERNEL_HDR_MAGIC: u32 = 0x5372_6448;
@@ -116,9 +285,6 @@ pub fn configure_system(
     let end_32bit_gap_start = GuestAddress(MMIO_MEM_START);
 
     let himem_start = GuestAddress(layout::HIMEM_START);
-
-    // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
-    mptable::setup_mptable(guest_mem, num_cpus).map_err(Error::MpTableSetup)?;
 
     let mut params: BootParamsWrapper = BootParamsWrapper(boot_params::default());
 
@@ -220,7 +386,8 @@ mod tests {
     fn test_system_configuration() {
         let no_vcpus = 4;
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
+        let config_err =
+            configure_system(&gm, GuestAddress(0), 0, &None, 1, BootProtocol::LinuxBoot);
         assert!(config_err.is_err());
         assert_eq!(
             config_err.unwrap_err(),
@@ -231,19 +398,73 @@ mod tests {
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemoryMmap::from_ranges(&arch_mem_regions).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(
+            &gm,
+            GuestAddress(0),
+            0,
+            &None,
+            no_vcpus,
+            BootProtocol::LinuxBoot,
+        )
+        .unwrap();
+
+        configure_system(
+            &gm,
+            GuestAddress(0),
+            0,
+            &None,
+            no_vcpus,
+            BootProtocol::PvhBoot,
+        )
+        .unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemoryMmap::from_ranges(&arch_mem_regions).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(
+            &gm,
+            GuestAddress(0),
+            0,
+            &None,
+            no_vcpus,
+            BootProtocol::LinuxBoot,
+        )
+        .unwrap();
+
+        configure_system(
+            &gm,
+            GuestAddress(0),
+            0,
+            &None,
+            no_vcpus,
+            BootProtocol::PvhBoot,
+        )
+        .unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemoryMmap::from_ranges(&arch_mem_regions).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(
+            &gm,
+            GuestAddress(0),
+            0,
+            &None,
+            no_vcpus,
+            BootProtocol::LinuxBoot,
+        )
+        .unwrap();
+
+        configure_system(
+            &gm,
+            GuestAddress(0),
+            0,
+            &None,
+            no_vcpus,
+            BootProtocol::PvhBoot,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -284,5 +505,32 @@ mod tests {
             e820_map[0].type_
         )
         .is_err());
+    }
+
+    #[test]
+    fn test_add_memmap_entry() {
+        const MEMMAP_TYPE_RESERVED: u32 = 2;
+
+        let mut memmap: Vec<hvm_memmap_table_entry> = Vec::new();
+
+        let expected_memmap = vec![
+            hvm_memmap_table_entry {
+                addr: 0x0,
+                size: 0x1000,
+                type_: MEMMAP_TYPE_RAM,
+                ..Default::default()
+            },
+            hvm_memmap_table_entry {
+                addr: 0x10000,
+                size: 0xa000,
+                type_: MEMMAP_TYPE_RESERVED,
+                ..Default::default()
+            },
+        ];
+
+        add_memmap_entry(&mut memmap, 0, 0x1000, MEMMAP_TYPE_RAM).unwrap();
+        add_memmap_entry(&mut memmap, 0x10000, 0xa000, MEMMAP_TYPE_RESERVED).unwrap();
+
+        assert_eq!(format!("{:?}", memmap), format!("{:?}", expected_memmap));
     }
 }

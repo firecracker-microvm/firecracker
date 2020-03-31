@@ -54,7 +54,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use arch::DeviceType;
-use arch::InitrdConfig;
+use arch::{BootProtocol, InitrdConfig};
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -284,7 +284,12 @@ impl Vmm {
     }
 
     /// Configures the system for boot.
-    pub fn configure_system(&self, vcpus: &[Vcpu], initrd: &Option<InitrdConfig>) -> Result<()> {
+    pub fn configure_system(
+        &self,
+        vcpus: &[Vcpu],
+        initrd: &Option<InitrdConfig>,
+        _boot_prot: BootProtocol,
+    ) -> Result<()> {
         #[cfg(target_arch = "x86_64")]
         arch::x86_64::configure_system(
             &self.guest_memory,
@@ -292,6 +297,7 @@ impl Vmm {
             self.kernel_cmdline.len() + 1,
             initrd,
             vcpus.len() as u8,
+            _boot_prot,
         )
         .map_err(Error::ConfigureSystem)?;
 

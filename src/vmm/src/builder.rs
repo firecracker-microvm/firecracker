@@ -350,7 +350,7 @@ pub fn build_microvm(
     #[cfg(target_arch = "x86_64")]
     load_cmdline(&vmm)?;
 
-    vmm.configure_system(vcpus.as_slice(), &initrd)
+    vmm.configure_system(vcpus.as_slice(), &initrd, entry_point.protocol)
         .map_err(StartMicrovmError::Internal)?;
     // Firecracker uses the same seccomp filter for all threads.
     vmm.start_vcpus(vcpus, seccomp_filter.to_vec(), seccomp_filter)
