@@ -154,15 +154,15 @@ has these included:
 
 #### AMD64
 
-- [Kernel config-amd64-4.14.166](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-amd64-4.14.166)
-- [Kernel config-amd64-4.19.97](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-amd64-4.19.97)
-- [Kernel config-amd64-5.4.13](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-amd64-5.4.13)
+- [Kernel config-amd64-4.14.166](./resources/config-amd64-4.14.166)
+- [Kernel config-amd64-4.19.97](./resources/config-amd64-4.19.97)
+- [Kernel config-amd64-5.4.13](./resources/config-amd64-5.4.13)
 
 #### ARM64
 
-- [Kernel config-arm64-4.14.166](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-arm64-4.14.166)
-- [Kernel config-arm64-4.19.97](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-arm64-4.19.97)
-- [Kernel config-arm64-5.4.13](https://github.com/BegleyBrothers/firecracker-kernels/blob/master/weaveworks/images/kernel/versioned/config-arm64-5.4.13)
+- [Kernel config-arm64-4.14.166](./resources/config-arm64-4.14.166)
+- [Kernel config-arm64-4.19.97](./resources/config-arm64-4.19.97)
+- [Kernel config-arm64-5.4.13](./resources/config-arm64-5.4.13)
 
 Now `/dev/ptp0` should be available in the guest. Next you need to configure
 `/dev/ptp0` as a NTP time source.
