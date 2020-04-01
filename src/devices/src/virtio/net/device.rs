@@ -57,6 +57,8 @@ fn init_vnet_hdr(buf: &mut [u8]) {
 }
 
 pub struct Net {
+    id: String,
+
     pub(crate) tap: Tap,
     avail_features: u64,
     acked_features: u64,
@@ -94,6 +96,7 @@ pub struct Net {
 impl Net {
     /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
+        id: String,
         tap: Tap,
         guest_mac: Option<&MacAddr>,
         rx_rate_limiter: RateLimiter,
@@ -145,6 +148,7 @@ impl Net {
         };
 
         Ok(Net {
+            id,
             tap,
             avail_features,
             acked_features: 0u64,
@@ -169,6 +173,16 @@ impl Net {
             #[cfg(test)]
             test_mutators: tests::TestMutators::default(),
         })
+    }
+
+    /// Provides the ID of this net device.
+    pub fn id(&self) -> &String {
+        &self.id
+    }
+
+    /// Provides the MAC of this net device.
+    pub fn guest_mac(&self) -> Option<&MacAddr> {
+        self.guest_mac.as_ref()
     }
 
     fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
@@ -784,6 +798,7 @@ pub(crate) mod tests {
             let guest_mac = Net::default_guest_mac();
 
             let mut net = Net::new_with_tap(
+                format!("net-device{}", next_tap),
                 tap,
                 Some(&guest_mac),
                 RateLimiter::default(),
