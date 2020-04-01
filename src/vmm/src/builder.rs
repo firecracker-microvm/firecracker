@@ -1196,156 +1196,67 @@ pub mod tests {
     fn test_error_messages() {
         use builder::StartMicrovmError::*;
         let err = AttachBlockDevice(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Unable to attach block device to Vmm. Error: {}",
-                io::Error::from_raw_os_error(0)
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = CreateNetDevice(devices::virtio::net::Error::EventFd(
             io::Error::from_raw_os_error(0),
         ));
-        let mut inner_err_msg = format!(
-            "{:?}",
-            devices::virtio::net::Error::EventFd(io::Error::from_raw_os_error(0))
-        );
-        inner_err_msg = inner_err_msg.replace("\"", "");
-        assert_eq!(
-            format!("{}", err),
-            format!("Cannot create network device. {}", inner_err_msg)
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = CreateRateLimiter(io::Error::from_raw_os_error(0));
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Cannot create RateLimiter: {}",
-                io::Error::from_raw_os_error(0)
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = Internal(Error::Serial(io::Error::from_raw_os_error(0)));
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Internal error while starting microVM: {:?}",
-                Error::Serial(io::Error::from_raw_os_error(0))
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = KernelCmdline(String::from("dummy --cmdline"));
-        assert_eq!(
-            format!("{}", err),
-            "Invalid kernel command line: dummy --cmdline"
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = KernelLoader(kernel::loader::Error::InvalidElfMagicNumber);
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Cannot load kernel due to invalid memory configuration or invalid kernel \
-                 image. {}",
-                kernel::loader::Error::InvalidElfMagicNumber
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = LoadCommandline(kernel::cmdline::Error::TooLarge);
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Cannot load command line string. {}",
-                kernel::cmdline::Error::TooLarge
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = MicroVMAlreadyRunning;
-        assert_eq!(format!("{}", err), "Microvm already running.");
+        let _ = format!("{}{:?}", err, err);
 
         let err = MissingKernelConfig;
-        assert_eq!(
-            format!("{}", err),
-            "Cannot start microvm without kernel configuration."
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = MissingMemSizeConfig;
-        assert_eq!(
-            format!("{}", err),
-            "Cannot start microvm without guest mem_size config."
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = NetDeviceNotConfigured;
-        assert_eq!(
-            format!("{}", err),
-            "The net device configuration is missing the tap device."
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = OpenBlockDevice(io::Error::from_raw_os_error(0));
-        let mut inner_err_msg = format!("{:?}", io::Error::from_raw_os_error(0));
-        inner_err_msg = inner_err_msg.replace("\"", "");
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Cannot open the block device backing file. {}",
-                inner_err_msg
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = RegisterBlockDevice(device_manager::mmio::Error::EventFd(
             io::Error::from_raw_os_error(0),
         ));
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Cannot initialize a MMIO Block Device or add a device to the MMIO Bus. {}",
-                device_manager::mmio::Error::EventFd(io::Error::from_raw_os_error(0))
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = RegisterEvent(EventManagerError::EpollCreate(
             io::Error::from_raw_os_error(0),
         ));
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Cannot register EventHandler. {:?}",
-                EventManagerError::EpollCreate(io::Error::from_raw_os_error(0))
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = RegisterNetDevice(device_manager::mmio::Error::EventFd(
             io::Error::from_raw_os_error(0),
         ));
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Cannot initialize a MMIO Network Device or add a device to the MMIO Bus. {}",
-                device_manager::mmio::Error::EventFd(io::Error::from_raw_os_error(0))
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
 
         let err = RegisterVsockDevice(device_manager::mmio::Error::EventFd(
             io::Error::from_raw_os_error(0),
         ));
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Cannot initialize a MMIO Vsock Device or add a device to the MMIO Bus. {}",
-                device_manager::mmio::Error::EventFd(io::Error::from_raw_os_error(0))
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
     }
 
     #[test]
     fn test_kernel_cmdline_err_to_startuvm_err() {
         let err = StartMicrovmError::from(kernel::cmdline::Error::HasSpace);
-        assert_eq!(
-            format!("{}", err),
-            format!(
-                "Invalid kernel command line: {}",
-                kernel::cmdline::Error::HasSpace.to_string()
-            )
-        );
+        let _ = format!("{}{:?}", err, err);
     }
 }
