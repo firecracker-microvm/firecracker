@@ -153,11 +153,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut vm = VersionMap::new();
 
     vm.new_version()
-        .set_type_version(Test::type_id(), 2)
+        .set_type_version(Test::uid(), 2)
         .new_version()
-        .set_type_version(Test::type_id(), 3)
+        .set_type_version(Test::uid(), 3)
         .new_version()
-        .set_type_version(Test::type_id(), 4);
+        .set_type_version(Test::uid(), 4);
 
     let mut snapshot_len = bench_snapshot_v1(&mut snapshot_mem.as_mut_slice(), vm.clone());
     println!("Snapshot len {}", snapshot_len);

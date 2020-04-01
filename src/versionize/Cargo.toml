@@ -10,6 +10,7 @@ bincode = "1.2.1"
 versionize_derive = { path = "../versionize_derive" }
 crc64 = "1.0.0"
 vmm-sys-util = ">=0.4.0"
+vm-memory = { version = ">=0.2.0" }
 
 [build-dependencies]
 proc-macro2 = ">=1.0"

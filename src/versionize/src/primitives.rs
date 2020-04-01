@@ -3,6 +3,12 @@
 #![allow(clippy::float_cmp)]
 
 use self::super::{Error, VersionMap, Versionize, VersionizeResult};
+use std::sync::atomic::{
+    AtomicBool, AtomicI16, AtomicI32, AtomicI64, AtomicI8, AtomicIsize, AtomicU16, AtomicU32,
+    AtomicU64, AtomicU8, AtomicUsize, Ordering,
+};
+use std::sync::Arc;
+use vm_memory::{Address, GuestAddress};
 use vmm_sys_util::fam::{FamStruct, FamStructWrapper};
 
 /// Implements the Versionize trait for primitive types that also implement
@@ -61,6 +67,114 @@ impl_versionize!(f32);
 impl_versionize!(f64);
 impl_versionize!(char);
 impl_versionize!(String);
+
+macro_rules! impl_atomic_versionize {
+    ($ty:ident) => {
+        impl Versionize for $ty {
+            #[inline]
+            fn serialize<W: std::io::Write>(
+                &self,
+                writer: &mut W,
+                _version_map: &VersionMap,
+                _version: u16,
+            ) -> VersionizeResult<()> {
+                bincode::serialize_into(writer, &self.load(Ordering::SeqCst))
+                    .map_err(|ref err| Error::Serialize(format!("{:?}", err)))?;
+                Ok(())
+            }
+
+            #[inline]
+            fn deserialize<R: std::io::Read>(
+                mut reader: &mut R,
+                _version_map: &VersionMap,
+                _version: u16,
+            ) -> VersionizeResult<Self>
+            where
+                Self: Sized,
+            {
+                Ok($ty::new(bincode::deserialize_from(&mut reader).map_err(
+                    |ref err| Error::Deserialize(format!("{:?}", err)),
+                )?))
+            }
+
+            // Not used.
+            fn version() -> u16 {
+                1
+            }
+        }
+    };
+}
+
+impl_atomic_versionize!(AtomicU8);
+impl_atomic_versionize!(AtomicU16);
+impl_atomic_versionize!(AtomicU32);
+impl_atomic_versionize!(AtomicU64);
+impl_atomic_versionize!(AtomicI8);
+impl_atomic_versionize!(AtomicI16);
+impl_atomic_versionize!(AtomicI32);
+impl_atomic_versionize!(AtomicI64);
+impl_atomic_versionize!(AtomicIsize);
+impl_atomic_versionize!(AtomicUsize);
+impl_atomic_versionize!(AtomicBool);
+
+impl Versionize for GuestAddress {
+    #[inline]
+    fn serialize<W: std::io::Write>(
+        &self,
+        writer: &mut W,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> VersionizeResult<()> {
+        self.0.serialize(writer, version_map, app_version)
+    }
+
+    #[inline]
+    fn deserialize<R: std::io::Read>(
+        reader: &mut R,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> VersionizeResult<Self> {
+        Ok(GuestAddress::new(Versionize::deserialize(
+            reader,
+            version_map,
+            app_version,
+        )?))
+    }
+
+    // Not used yet.
+    fn version() -> u16 {
+        1
+    }
+}
+
+impl<T> Versionize for Arc<T>
+where
+    T: Versionize,
+{
+    #[inline]
+    fn serialize<W: std::io::Write>(
+        &self,
+        writer: &mut W,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> VersionizeResult<()> {
+        <T as Versionize>::serialize(&self, writer, version_map, app_version)
+    }
+
+    #[inline]
+    fn deserialize<R: std::io::Read>(
+        reader: &mut R,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> VersionizeResult<Self> {
+        Ok(Arc::new(T::deserialize(reader, version_map, app_version)?))
+    }
+
+    // Not used yet.
+    fn version() -> u16 {
+        1
+    }
+}
 
 impl<T> Versionize for Box<T>
 where
@@ -390,45 +504,33 @@ mod tests {
         _box: Box<String>,
     }
 
-    #[test]
-    fn test_bincode_deserialize_from_versionize() {
-        let mut snapshot_mem = vec![0u8; 4096];
-        let vm = VersionMap::new();
+    #[derive(Debug, serde_derive::Deserialize, serde_derive::Serialize, Versionize)]
+    struct TestAtomicCompatibility {
+        _atomic_u8: AtomicU8,
+        _atomic_u16: AtomicU16,
+        _atomic_u32: AtomicU32,
+        _atomic_u64: AtomicU64,
+        _atomic_i8: AtomicI8,
+        _atomic_i16: AtomicI16,
+        _atomic_i32: AtomicI32,
+        _atomic_i64: AtomicI64,
+        _atomic_isize: AtomicIsize,
+        _atomic_usize: AtomicUsize,
+        _atomic_bool: AtomicBool,
+    }
 
-        let test_struct = TestCompatibility {
-            _string: "String".to_owned(),
-            _array: [128u8; 32],
-            _u8: 1,
-            _u16: 32000,
-            _u32: 0x1234_5678,
-            _u64: 0x1234_5678_9875_4321,
-            _i8: -1,
-            _i16: -32000,
-            _i32: -0x1234_5678,
-            _i64: -0x1234_5678_9875_4321,
-            _usize: 0x1234_5678_9875_4321,
-            _isize: -0x1234_5678_9875_4321,
-            _f32: 0.123,
-            _f64: 0.123_456_789_000_000,
-            _vec: vec![33; 32],
-            _option: Some(true),
-            _enums: vec![
-                CompatibleEnum::A,
-                CompatibleEnum::B("abcd".to_owned()),
-                CompatibleEnum::C(1, 2, 'a'),
-            ],
-            _box: Box::new("Box".to_owned()),
+    // Generate an assert for an atomic field.
+    macro_rules! atomic_test_field {
+        ($a:ident, $b:ident, $field_name:ident) => {
+            assert_eq!(
+                $a.$field_name.load(Ordering::Relaxed),
+                $b.$field_name.load(Ordering::Relaxed)
+            );
         };
-
-        Versionize::serialize(&test_struct, &mut snapshot_mem.as_mut_slice(), &vm, 1).unwrap();
-
-        let restored_state: TestCompatibility =
-            bincode::deserialize_from(snapshot_mem.as_slice()).unwrap();
-        assert_eq!(test_struct, restored_state);
     }
 
     #[test]
-    fn test_bincode_serialize_to_versionize() {
+    fn test_bincode_vs_versionize() {
         let mut snapshot_mem = vec![0u8; 4096];
         let vm = VersionMap::new();
 
@@ -457,11 +559,136 @@ mod tests {
             _box: Box::new("Box".to_owned()),
         };
 
-        bincode::serialize_into(&mut snapshot_mem.as_mut_slice(), &test_struct).unwrap();
+        let test_atomic_struct = TestAtomicCompatibility {
+            _atomic_u8: AtomicU8::new(1),
+            _atomic_u16: AtomicU16::new(32000),
+            _atomic_u32: AtomicU32::new(0x1234_5678),
+            _atomic_u64: AtomicU64::new(0x1234_5678_9875_4321),
+            _atomic_i8: AtomicI8::new(-1),
+            _atomic_i16: AtomicI16::new(-32000),
+            _atomic_i32: AtomicI32::new(-0x1234_5678),
+            _atomic_i64: AtomicI64::new(-0x1234_5678_9875_4321),
+            _atomic_usize: AtomicUsize::new(0x1234_5678_9875_4321),
+            _atomic_isize: AtomicIsize::new(-0x1234_5678_9875_4321),
+            _atomic_bool: AtomicBool::new(true),
+        };
 
-        let restored_state: TestCompatibility =
-            Versionize::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        // serde::Deserialize(Versionize::Serialize)
+        Versionize::serialize(&test_struct, &mut snapshot_mem.as_mut_slice(), &vm, 1).unwrap();
+        let mut restored_state: TestCompatibility =
+            bincode::deserialize_from(snapshot_mem.as_slice()).unwrap();
         assert_eq!(test_struct, restored_state);
+
+        Versionize::serialize(
+            &test_atomic_struct,
+            &mut snapshot_mem.as_mut_slice(),
+            &vm,
+            1,
+        )
+        .unwrap();
+        let mut restored_atomic_state: TestAtomicCompatibility =
+            bincode::deserialize_from(snapshot_mem.as_slice()).unwrap();
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_bool);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_u8);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_u16);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_u32);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_u64);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_i8);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_i16);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_i32);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_i64);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_isize);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_usize);
+
+        // Versionize::Deserialize(serde::Serialize)
+        bincode::serialize_into(&mut snapshot_mem.as_mut_slice(), &test_struct).unwrap();
+        restored_state = Versionize::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        assert_eq!(test_struct, restored_state);
+
+        bincode::serialize_into(&mut snapshot_mem.as_mut_slice(), &test_atomic_struct).unwrap();
+        restored_atomic_state =
+            Versionize::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_bool);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_u8);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_u16);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_u32);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_u64);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_i8);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_i16);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_i32);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_i64);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_isize);
+        atomic_test_field!(test_atomic_struct, restored_atomic_state, _atomic_usize);
+    }
+
+    #[test]
+    fn test_guestaddress() {
+        let mut snapshot_mem = vec![0u8; 16];
+        let vm = VersionMap::new();
+
+        // Test trivial case.
+        let state = GuestAddress(1337);
+        state
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restored_state =
+            <GuestAddress as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1)
+                .unwrap();
+        assert_eq!(state, restored_state);
+    }
+
+    #[test]
+    fn test_atomic() {
+        let mut snapshot_mem = vec![0u8; 128];
+        let vm = VersionMap::new();
+
+        let state = TestAtomicCompatibility {
+            _atomic_u8: AtomicU8::new(1),
+            _atomic_u16: AtomicU16::new(32000),
+            _atomic_u32: AtomicU32::new(0x1234_5678),
+            _atomic_u64: AtomicU64::new(0x1234_5678_9875_4321),
+            _atomic_i8: AtomicI8::new(-1),
+            _atomic_i16: AtomicI16::new(-32000),
+            _atomic_i32: AtomicI32::new(-0x1234_5678),
+            _atomic_i64: AtomicI64::new(-0x1234_5678_9875_4321),
+            _atomic_usize: AtomicUsize::new(0x1234_5678_9875_4321),
+            _atomic_isize: AtomicIsize::new(-0x1234_5678_9875_4321),
+            _atomic_bool: AtomicBool::new(true),
+        };
+
+        state
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+
+        let restored_state: TestAtomicCompatibility =
+            Versionize::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+
+        atomic_test_field!(state, restored_state, _atomic_bool);
+        atomic_test_field!(state, restored_state, _atomic_u8);
+        atomic_test_field!(state, restored_state, _atomic_u16);
+        atomic_test_field!(state, restored_state, _atomic_u32);
+        atomic_test_field!(state, restored_state, _atomic_u64);
+        atomic_test_field!(state, restored_state, _atomic_i8);
+        atomic_test_field!(state, restored_state, _atomic_i16);
+        atomic_test_field!(state, restored_state, _atomic_i32);
+        atomic_test_field!(state, restored_state, _atomic_i64);
+        atomic_test_field!(state, restored_state, _atomic_isize);
+        atomic_test_field!(state, restored_state, _atomic_usize);
+    }
+
+    #[test]
+    fn test_arc() {
+        let mut snapshot_mem = vec![0u8; 16];
+        let vm = VersionMap::new();
+
+        // Test trivial case.
+        let state = Arc::new("Test".to_owned());
+        state
+            .serialize(&mut snapshot_mem.as_mut_slice(), &vm, 1)
+            .unwrap();
+        let restored_state =
+            <Arc<String> as Versionize>::deserialize(&mut snapshot_mem.as_slice(), &vm, 1).unwrap();
+        assert_eq!(state, restored_state);
     }
 
     #[test]
@@ -469,11 +696,11 @@ mod tests {
         let mut snapshot_mem = vec![0u8; 64];
         let mut vm = VersionMap::new();
         vm.new_version()
-            .set_type_version(TestState::type_id(), 2)
+            .set_type_version(TestState::uid(), 2)
             .new_version()
-            .set_type_version(TestState::type_id(), 3)
+            .set_type_version(TestState::uid(), 3)
             .new_version()
-            .set_type_version(TestState::type_id(), 4);
+            .set_type_version(TestState::uid(), 4);
 
         // Test trivial case.
         let state = TestState::One(1337, "a string".to_owned());
@@ -490,11 +717,11 @@ mod tests {
         let mut snapshot_mem = vec![0u8; 64];
         let mut vm = VersionMap::new();
         vm.new_version()
-            .set_type_version(TestState::type_id(), 2)
+            .set_type_version(TestState::uid(), 2)
             .new_version()
-            .set_type_version(TestState::type_id(), 3)
+            .set_type_version(TestState::uid(), 3)
             .new_version()
-            .set_type_version(TestState::type_id(), 4);
+            .set_type_version(TestState::uid(), 4);
 
         // Test default_fn for serialization of enum variants that don't exist in previous versions.
         let state = TestState::Three(1337);

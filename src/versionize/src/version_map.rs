@@ -117,36 +117,36 @@ mod tests {
 
     #[test]
     fn test_app_versions_with_gap() {
-        let my_type_id = TypeId::of::<MyType>();
-        let my_second_type_id = TypeId::of::<MySecondType>();
-        let my_third_type_id = TypeId::of::<MyThirdType>();
+        let myuid = TypeId::of::<MyType>();
+        let my_seconduid = TypeId::of::<MySecondType>();
+        let my_thirduid = TypeId::of::<MyThirdType>();
 
         let mut vm = VersionMap::new();
-        vm.set_type_version(my_type_id, 1);
-        vm.set_type_version(my_second_type_id, 1);
-        vm.set_type_version(my_third_type_id, 1);
+        vm.set_type_version(myuid, 1);
+        vm.set_type_version(my_seconduid, 1);
+        vm.set_type_version(my_thirduid, 1);
         vm.new_version();
-        vm.set_type_version(my_type_id, 2);
+        vm.set_type_version(myuid, 2);
         vm.new_version();
-        vm.set_type_version(my_third_type_id, 2);
+        vm.set_type_version(my_thirduid, 2);
         vm.new_version();
-        vm.set_type_version(my_second_type_id, 2);
+        vm.set_type_version(my_seconduid, 2);
 
-        assert_eq!(vm.get_type_version(1, my_type_id), 1);
-        assert_eq!(vm.get_type_version(1, my_second_type_id), 1);
-        assert_eq!(vm.get_type_version(1, my_third_type_id), 1);
+        assert_eq!(vm.get_type_version(1, myuid), 1);
+        assert_eq!(vm.get_type_version(1, my_seconduid), 1);
+        assert_eq!(vm.get_type_version(1, my_thirduid), 1);
 
-        assert_eq!(vm.get_type_version(2, my_type_id), 2);
-        assert_eq!(vm.get_type_version(2, my_second_type_id), 1);
-        assert_eq!(vm.get_type_version(2, my_third_type_id), 1);
+        assert_eq!(vm.get_type_version(2, myuid), 2);
+        assert_eq!(vm.get_type_version(2, my_seconduid), 1);
+        assert_eq!(vm.get_type_version(2, my_thirduid), 1);
 
-        assert_eq!(vm.get_type_version(3, my_type_id), 2);
-        assert_eq!(vm.get_type_version(3, my_second_type_id), 1);
-        assert_eq!(vm.get_type_version(3, my_third_type_id), 2);
+        assert_eq!(vm.get_type_version(3, myuid), 2);
+        assert_eq!(vm.get_type_version(3, my_seconduid), 1);
+        assert_eq!(vm.get_type_version(3, my_thirduid), 2);
 
-        assert_eq!(vm.get_type_version(4, my_type_id), 2);
-        assert_eq!(vm.get_type_version(4, my_second_type_id), 2);
-        assert_eq!(vm.get_type_version(4, my_third_type_id), 2);
+        assert_eq!(vm.get_type_version(4, myuid), 2);
+        assert_eq!(vm.get_type_version(4, my_seconduid), 2);
+        assert_eq!(vm.get_type_version(4, my_thirduid), 2);
     }
 
     #[test]

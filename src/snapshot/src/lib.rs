@@ -449,11 +449,11 @@ mod tests {
     fn test_struct_semantic_fn() {
         let mut vm = VersionMap::new();
         vm.new_version()
-            .set_type_version(Test::type_id(), 2)
+            .set_type_version(Test::uid(), 2)
             .new_version()
-            .set_type_version(Test::type_id(), 3)
+            .set_type_version(Test::uid(), 3)
             .new_version()
-            .set_type_version(Test::type_id(), 4);
+            .set_type_version(Test::uid(), 4);
         let state = Test {
             field0: 0,
             field1: 1,
@@ -517,11 +517,11 @@ mod tests {
     fn test_semantic_serialize_error() {
         let mut vm = VersionMap::new();
         vm.new_version()
-            .set_type_version(Test::type_id(), 2)
+            .set_type_version(Test::uid(), 2)
             .new_version()
-            .set_type_version(Test::type_id(), 3)
+            .set_type_version(Test::uid(), 3)
             .new_version()
-            .set_type_version(Test::type_id(), 4);
+            .set_type_version(Test::uid(), 4);
 
         let state = Test {
             field0: 0,
@@ -550,11 +550,11 @@ mod tests {
     fn test_semantic_deserialize_error() {
         let mut vm = VersionMap::new();
         vm.new_version()
-            .set_type_version(Test::type_id(), 2)
+            .set_type_version(Test::uid(), 2)
             .new_version()
-            .set_type_version(Test::type_id(), 3)
+            .set_type_version(Test::uid(), 3)
             .new_version()
-            .set_type_version(Test::type_id(), 4);
+            .set_type_version(Test::uid(), 4);
 
         let state = Test {
             field0: 6666,
@@ -682,11 +682,11 @@ mod tests {
     fn test_deserialize_error() {
         let mut vm = VersionMap::new();
         vm.new_version()
-            .set_type_version(Test::type_id(), 2)
+            .set_type_version(Test::uid(), 2)
             .new_version()
-            .set_type_version(Test::type_id(), 3)
+            .set_type_version(Test::uid(), 3)
             .new_version()
-            .set_type_version(Test::type_id(), 4);
+            .set_type_version(Test::uid(), 4);
         let state = Test {
             field0: 0,
             field1: 1,
@@ -721,11 +721,11 @@ mod tests {
     fn test_struct_default_fn() {
         let mut vm = VersionMap::new();
         vm.new_version()
-            .set_type_version(Test::type_id(), 2)
+            .set_type_version(Test::uid(), 2)
             .new_version()
-            .set_type_version(Test::type_id(), 3)
+            .set_type_version(Test::uid(), 3)
             .new_version()
-            .set_type_version(Test::type_id(), 4);
+            .set_type_version(Test::uid(), 4);
         let state = Test {
             field0: 0,
             field1: 1,
@@ -945,9 +945,9 @@ mod tests {
 
         let mut vm = VersionMap::new();
         vm.new_version()
-            .set_type_version(A::type_id(), 2)
+            .set_type_version(A::uid(), 2)
             .new_version()
-            .set_type_version(A::type_id(), 3);
+            .set_type_version(A::uid(), 3);
 
         // The blobs have been serialized from this state:
         // let state = B {

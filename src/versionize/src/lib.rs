@@ -17,6 +17,7 @@ extern crate crc64;
 extern crate serde;
 extern crate serde_derive;
 extern crate versionize_derive;
+extern crate vm_memory;
 extern crate vmm_sys_util;
 
 pub mod crc;
@@ -64,8 +65,8 @@ pub trait Versionize {
     where
         Self: Sized;
 
-    /// Returns the `Self` type id.
-    fn type_id() -> std::any::TypeId
+    /// Returns an unique indetifier for the type.
+    fn uid() -> std::any::TypeId
     where
         Self: 'static,
     {

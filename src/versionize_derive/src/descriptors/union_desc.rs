@@ -41,10 +41,10 @@ impl Descriptor for UnionDescriptor {
         }
 
         quote! {
-            let version = version_map.get_type_version(app_version, Self::type_id());
+            let version = version_map.get_type_version(app_version, Self::uid());
             match version {
                 #versioned_deserializers
-                _ => panic!("Unknown {:?} version {}.", Self::type_id(), version)
+                _ => panic!("Unknown {:?} version {}.", Self::uid(), version)
             }
         }
     }
