@@ -105,7 +105,7 @@ impl StructField {
             if let Some(default_fn) = get_ident_attr(&self.attrs, DEFAULT_FN) {
                 return quote! {
                     // The default_fn is called with source version of the struct:
-                    // - `version` is set to version_map.get_type_version(app_version, Self::type_id());
+                    // - `version` is set to version_map.get_type_version(app_version, Self::uid());
                     // - `app_version` is source application version.
                     #field_ident: Self::#default_fn(version),
                 };

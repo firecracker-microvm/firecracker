@@ -52,12 +52,12 @@ pub fn impl_versionize(input: TokenStream) -> proc_macro::TokenStream {
     let deserializer = descriptor.generate_deserializer();
     let serializer = quote! {
         // Get the struct version for the input app_version.
-        let version = version_map.get_type_version(app_version, Self::type_id());
+        let version = version_map.get_type_version(app_version, Self::uid());
         // We will use this copy to perform semantic serialization.
         let mut copy_of_self = self.clone();
         match version {
             #versioned_serializer
-            _ => panic!("Unknown {:?} version {}.", &Self::type_id(), version)
+            _ => panic!("Unknown {:?} version {}.", &Self::uid(), version)
         }
     };
     (quote! {
