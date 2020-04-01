@@ -795,6 +795,7 @@ mod tests {
         union kvm_irq_level__bindgen_ty_1 {
             pub irq: ::std::os::raw::c_uint,
             pub status: ::std::os::raw::c_int,
+            pub other_status: ::std::os::raw::c_longlong,
 
             #[version(start = 1, end = 1)]
             _bindgen_union_align: u32,
@@ -828,8 +829,10 @@ mod tests {
             .unwrap();
         unsafe {
             assert_eq!(restored_state.irq, 0x8765_4321);
+            assert_eq!(restored_state.other_status, 0x1234_5678_8765_4321);
         }
     }
+
     #[test]
     fn test_kvm_bindings_struct() {
         #[repr(C)]
