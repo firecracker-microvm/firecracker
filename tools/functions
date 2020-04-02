@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Firecracker devtool/rfstool common functions
+
+
+# Send a decorated message to stdout, followed by a new line
+#
+say() {
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
+        || echo "[$MY_NAME] $*"
+}
+
+# Send a decorated message to stdout, without a trailing new line
+#
+say_noln() {
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo -n "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
+        || echo "[$MY_NAME] $*"
+}
+
+# Send a text message to stderr
+#
+say_err() {
+    [ -t 2 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
+        || echo "[$MY_NAME] $*" 1>&2
+}
+
+# Send a warning-highlighted text to stdout
+say_warn() {
+    [ -t 1 ] && [ -n "$TERM" ] \
+        && echo "$(tput setaf 3)[$MY_NAME] $*$(tput sgr0)" \
+        || echo "[$MY_NAME] $*"
+}
+
+# Exit with an error message and (optional) code
+# Usage: die [-c <error code>] <error message>
+#
+die() {
+    code=1
+    [[ "$1" = "-c" ]] && {
+        code="$2"
+        shift 2
+    }
+    say_err "$@"
+    exit $code
+}
+
+# Exit with an error message if the last exit code is not 0
+#
+ok_or_die() {
+    code=$?
+    [[ $code -eq 0 ]] || die -c $code "$@"
+}
+
+# Check if Docker is available and exit if it's not.
+# Upon returning from this call, the caller can be certain Docker is available.
+#
+ensure_docker() {
+    NEWLINE=$'\n'
+    output=$(which docker 2>&1)
+    ok_or_die "Docker not found. Aborting." \
+        "Please make sure you have Docker (http://docker.com) installed" \
+        "and properly configured.${NEWLINE}" \
+        "Error: $?, command output: ${output}"
+
+    output=$(docker ps 2>&1)
+    ok_or_die "Error accessing Docker. Please make sure the Docker daemon" \
+        "is running and that you are part of the docker group.${NEWLINE}" \
+        "Error: $?, command output: ${output}${NEWLINE}" \
+        "For more information, see" \
+        "https://docs.docker.com/install/linux/linux-postinstall/"
+}
+
+# Prompt the user for confirmation before proceeding.
+# Args:
+#   $1  prompt text.
+#       Default: Continue? (y/n)
+#   $2  confirmation input.
+#       Default: y
+# Return:
+#   exit code 0 for successful confirmation
+#   exit code != 0 if the user declined
+#
+get_user_confirmation() {
+
+    # Pass if running unattended
+    [[ "$OPT_UNATTENDED" = true ]] && return 0
+
+    # Fail if STDIN is not a terminal (there's no user to confirm anything)
+    [[ -t 0 ]] || return 1
+
+    # Otherwise, ask the user
+    #
+    msg=$([ -n "$1" ] && echo -n "$1" || echo -n "Continue? (y/n) ")
+    yes=$([ -n "$2" ] && echo -n "$2" || echo -n "y")
+    say_noln "$msg"
+    read c && [ "$c" = "$yes" ] && return 0
+    return 1
+}
+
+# Make sure the build/ dirs are available. Exit if we can't create them.
+# Upon returning from this call, the caller can be certain the build/ dirs exist.
+#
+ensure_build_dir() {
+    for dir in "$FC_BUILD_DIR" "$CARGO_TARGET_DIR" \
+	    "$CARGO_REGISTRY_DIR" "$CARGO_GIT_REGISTRY_DIR"; do
+        [[ -n "${dir}" ]] || continue
+        mkdir -p "$dir" || die "Error: cannot create dir $dir"
+        [ -x "$dir" ] && [ -w "$dir" ] || \
+            {
+                say "Wrong permissions for $dir. Attempting to fix them ..."
+                chmod +x+w "$dir"
+            } || \
+            die "Error: wrong permissions for $dir. Should be +x+w"
+    done
+}
+
+# Attempt to download our Docker image. Exit if that fails.
+# Upon returning from this call, the caller can be certain our Docker image is
+# available on this system.
+#
+ensure_ctr() {
+
+    # We depend on having Docker present.
+    ensure_docker
+
+    # Check if we have the container image available locally. Attempt to
+    # download it, if we don't.
+    [[ $(docker images -q "$CTR_IMAGE" | wc -l) -gt 0 ]] || {
+        say "About to pull docker image $CTR_IMAGE"
+        get_user_confirmation || die "Aborted."
+
+        docker pull "${CTR_IMAGE}"
+
+        ok_or_die "Error pulling docker image. Aborting."
+    }
+}
+
+# Helper function to run the dev container.
+# Usage: run_ctr <docker args> -- <container args>
+# Example: run_ctr --privileged -- bash -c "echo 'hello world'"
+#
+run_ctr() {
+    docker_args=()
+    ctr_args=()
+    docker_args_done=false
+    while [[ $# -gt 0 ]]; do
+        [[ "$1" = "--" ]] && {
+            docker_args_done=true
+            shift
+            continue
+        }
+        [[ $docker_args_done = true ]] && ctr_args+=("$1") || docker_args+=("$1")
+        shift
+    done
+
+    # If we're running in a terminal, pass the terminal to Docker and run
+    # the container interactively
+    [[ -t 0 ]] && docker_args+=("-i")
+    [[ -t 1 ]] && docker_args+=("-t")
+
+    # Try to pass these environments from host into container for network proxies
+    proxies=(http_proxy HTTP_PROXY https_proxy HTTPS_PROXY no_proxy NO_PROXY)
+    for i in "${proxies[@]}"; do
+        if [[ ! -z ${!i} ]]; then
+            docker_args+=("--env") && docker_args+=("$i=${!i}")
+        fi
+    done
+
+    # Finally, run the dev container
+    # Use 'z' on the --volume parameter for docker to automatically relabel the
+    # content and allow sharing between containers.
+    docker run "${docker_args[@]}" \
+        --rm \
+        --volume /dev:/dev \
+        --volume "$FC_ROOT_DIR:$CTR_FC_ROOT_DIR:z" \
+        --env OPT_LOCAL_IMAGES_PATH="$(dirname "$CTR_MICROVM_IMAGES_DIR")" \
+        --env PYTHONDONTWRITEBYTECODE=1 \
+        "$CTR_IMAGE" "${ctr_args[@]}"
+}
+
+# `$0 shell` - drop to a shell prompt inside the dev container
+# Please see `$0 help` for more information.
+#
+cmd_shell() {
+
+    # By default, we run the container as the current user.
+    privileged=false
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")          { cmd_help; exit 1; } ;;
+            "-p"|"--privileged")    { privileged=true;  } ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
+    # Make sure we have what we need to continue.
+    ensure_ctr
+    ensure_build_dir 
+
+    if [[ $privileged = true ]]; then
+        # If requested, spin up a privileged container.
+        #
+        say "Dropping to a privileged shell prompt ..."
+        say "Note: $FC_ROOT_DIR is bind-mounted under $CTR_FC_ROOT_DIR"
+        say_warn "You are running as root; any files that get created under" \
+            "$CTR_FC_ROOT_DIR will be owned by root."
+        run_ctr \
+            --privileged \
+            --security-opt seccomp=unconfined \
+            --workdir "$CTR_FC_ROOT_DIR" \
+            -- \
+            bash
+        ret=$?
+
+        # Running as root may have created some root-owned files under the build
+        # dir. Let's fix that.
+        #
+        fix_build_dir_perms
+    else
+        say "Dropping to shell prompt as user $(whoami) ..."
+        say "Note: $FC_ROOT_DIR is bind-mounted under $CTR_FC_ROOT_DIR"
+        say_warn "You won't be able to run Firecracker via the jailer," \
+            "but you can still build it."
+        say "You can use \`$0 shell --privileged\` to get a root shell."
+
+        [ -w /dev/kvm ] || \
+            say_warn "WARNING: user $(whoami) doesn't have permission to" \
+                "access /dev/kvm. You won't be able to run Firecracker."
+
+        run_ctr \
+            --user "$(id -u):$(id -g)" \
+            --device=/dev/kvm:/dev/kvm \
+            --workdir "$CTR_FC_ROOT_DIR" \
+            --env PS1="$(whoami)@\h:\w\$ " \
+            -- \
+            bash --norc
+        ret=$?
+    fi
+
+    return $ret
+}
+
+main() {
+
+    if [ $# = 0 ]; then
+	die "No command provided. Please use \`$0 help\` for help."
+    fi
+
+    # Parse main command line args.
+    #
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h|--help)              { cmd_help; exit 1;     } ;;
+            -y|--unattended)        { OPT_UNATTENDED=true;  } ;;
+            -*)
+                die "Unknown arg: $1. Please use \`$0 help\` for help."
+            ;;
+            *)
+                break
+            ;;
+        esac
+        shift
+    done
+
+    # $1 is now a command name. Check if it is a valid command and, if so,
+    # run it.
+    #
+    declare -f "cmd_$1" > /dev/null
+    ok_or_die "Unknown command: $1. Please use \`$0 help\` for help."
+
+    cmd=cmd_$1
+    shift
+
+    # $@ is now a list of command-specific args
+    #
+    $cmd "$@"
+}
