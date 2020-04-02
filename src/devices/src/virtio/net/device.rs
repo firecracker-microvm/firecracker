@@ -9,7 +9,7 @@ use crate::virtio::net::Error;
 use crate::virtio::net::Result;
 use crate::virtio::net::{MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
 use crate::virtio::{
-    ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING,
+    ActivateResult, DeviceStatus, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING,
 };
 use crate::{report_net_event_fail, Error as DeviceError};
 use dumbo::ns::MmdsNetworkStack;
@@ -82,7 +82,7 @@ pub struct Net {
     config_space: Vec<u8>,
     guest_mac: Option<MacAddr>,
 
-    pub(crate) device_state: DeviceState,
+    pub(crate) device_status: DeviceStatus,
     pub(crate) activate_evt: EventFd,
 
     mmds_ns: Option<MmdsNetworkStack>,
@@ -160,7 +160,7 @@ impl Net {
             tx_iovec: Vec::with_capacity(QUEUE_SIZE as usize),
             interrupt_status: Arc::new(AtomicUsize::new(0)),
             interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
-            device_state: DeviceState::Inactive,
+            device_status: DeviceStatus::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
             config_space,
             guest_mac,
@@ -219,10 +219,10 @@ impl Net {
     // if a buffer was used, and false if the frame must be deferred until a buffer
     // is made available by the driver.
     fn rx_single_frame(&mut self) -> bool {
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
+        let mem = match self.device_status {
+            DeviceStatus::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
+            DeviceStatus::Inactive => unreachable!(),
         };
         let rx_queue = &mut self.queues[RX_INDEX];
         let mut next_desc = rx_queue.pop(mem);
@@ -411,10 +411,10 @@ impl Net {
     }
 
     fn process_tx(&mut self) -> result::Result<(), DeviceError> {
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
+        let mem = match self.device_status {
+            DeviceStatus::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
+            DeviceStatus::Inactive => unreachable!(),
         };
 
         // The MMDS network stack works like a state machine, based on synchronous calls, and
@@ -553,10 +553,10 @@ impl Net {
     }
 
     pub fn process_tap_rx_event(&mut self) {
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
+        let mem = match self.device_status {
+            DeviceStatus::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
+            DeviceStatus::Inactive => unreachable!(),
         };
         METRICS.net.rx_tap_event_count.inc();
         if self.queues[RX_INDEX].is_empty(mem) {
@@ -692,9 +692,9 @@ impl VirtioDevice for Net {
     }
 
     fn is_activated(&self) -> bool {
-        match self.device_state {
-            DeviceState::Inactive => false,
-            DeviceState::Activated(_) => true,
+        match self.device_status {
+            DeviceStatus::Inactive => false,
+            DeviceStatus::Activated(_) => true,
         }
     }
 
@@ -703,7 +703,7 @@ impl VirtioDevice for Net {
             error!("Net: Cannot write to activate_evt");
             return Err(super::super::ActivateError::BadActivate);
         }
-        self.device_state = DeviceState::Activated(mem);
+        self.device_status = DeviceStatus::Activated(mem);
         Ok(())
     }
 }

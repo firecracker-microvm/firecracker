@@ -341,14 +341,14 @@ impl VsockPacket {
 #[cfg(test)]
 mod tests {
 
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
-
     use super::super::tests::TestContext;
     use super::*;
     use crate::virtio::queue::tests::VirtqDesc as GuestQDesc;
     use crate::virtio::vsock::defs::MAX_PKT_BUF_SIZE;
     use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
+    use crate::virtio::VirtioDevice;
     use crate::virtio::VIRTQ_DESC_F_WRITE;
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     macro_rules! create_context {
         ($test_ctx:ident, $handler_ctx:ident) => {
@@ -368,7 +368,7 @@ mod tests {
         };
         ($test_ctx:expr, $handler_ctx:expr, $err:pat, $ctor:ident, $vq_index:ident) => {
             match VsockPacket::$ctor(
-                &$handler_ctx.device.queues[$vq_index]
+                &$handler_ctx.device.queues()[$vq_index]
                     .pop(&$test_ctx.mem)
                     .unwrap(),
             ) {
@@ -395,7 +395,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
 
             let pkt = VsockPacket::from_tx_virtq_head(
-                &handler_ctx.device.queues[TXQ_INDEX]
+                &handler_ctx.device.queues()[TXQ_INDEX]
                     .pop(&test_ctx.mem)
                     .unwrap(),
             )
@@ -430,7 +430,7 @@ mod tests {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(0, &handler_ctx.guest_txvq.dtable[0], &test_ctx.mem);
             let mut pkt = VsockPacket::from_tx_virtq_head(
-                &handler_ctx.device.queues[TXQ_INDEX]
+                &handler_ctx.device.queues()[TXQ_INDEX]
                     .pop(&test_ctx.mem)
                     .unwrap(),
             )
@@ -485,7 +485,7 @@ mod tests {
         {
             create_context!(test_ctx, handler_ctx);
             let pkt = VsockPacket::from_rx_virtq_head(
-                &handler_ctx.device.queues[RXQ_INDEX]
+                &handler_ctx.device.queues()[RXQ_INDEX]
                     .pop(&test_ctx.mem)
                     .unwrap(),
             )
@@ -539,7 +539,7 @@ mod tests {
 
         create_context!(test_ctx, handler_ctx);
         let mut pkt = VsockPacket::from_rx_virtq_head(
-            &handler_ctx.device.queues[RXQ_INDEX]
+            &handler_ctx.device.queues()[RXQ_INDEX]
                 .pop(&test_ctx.mem)
                 .unwrap(),
         )
@@ -627,7 +627,7 @@ mod tests {
     fn test_packet_buf() {
         create_context!(test_ctx, handler_ctx);
         let mut pkt = VsockPacket::from_rx_virtq_head(
-            &handler_ctx.device.queues[RXQ_INDEX]
+            &handler_ctx.device.queues()[RXQ_INDEX]
                 .pop(&test_ctx.mem)
                 .unwrap(),
         )

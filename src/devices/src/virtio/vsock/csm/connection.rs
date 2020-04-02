@@ -635,8 +635,8 @@ mod tests {
     use super::super::super::tests::TestContext;
     use super::super::defs as csm_defs;
     use super::*;
-
     use crate::virtio::vsock::device::RXQ_INDEX;
+    use crate::virtio::VirtioDevice;
 
     const LOCAL_CID: u64 = 2;
     const PEER_CID: u64 = 3;
@@ -757,7 +757,7 @@ mod tests {
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let stream = TestStream::new();
             let mut pkt = VsockPacket::from_rx_virtq_head(
-                &handler_ctx.device.queues[RXQ_INDEX]
+                &handler_ctx.device.queues()[RXQ_INDEX]
                     .pop(&vsock_test_ctx.mem)
                     .unwrap(),
             )

@@ -750,14 +750,14 @@ impl VsockMuxer {
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::csm::defs as csm_defs;
+    use super::super::super::tests::TestContext as VsockTestContext;
+    use super::*;
+    use crate::virtio::VirtioDevice;
     use std::io::{Read, Write};
     use std::ops::Drop;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
-
-    use super::super::super::csm::defs as csm_defs;
-    use super::super::super::tests::TestContext as VsockTestContext;
-    use super::*;
 
     use crate::virtio::vsock::device::RXQ_INDEX;
 
@@ -781,7 +781,7 @@ mod tests {
             let vsock_test_ctx = VsockTestContext::new();
             let mut handler_ctx = vsock_test_ctx.create_event_handler_context();
             let pkt = VsockPacket::from_rx_virtq_head(
-                &handler_ctx.device.queues[RXQ_INDEX]
+                &handler_ctx.device.queues()[RXQ_INDEX]
                     .pop(&vsock_test_ctx.mem)
                     .unwrap(),
             )

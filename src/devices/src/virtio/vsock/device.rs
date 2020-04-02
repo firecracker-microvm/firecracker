@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use snapshot::Persist;
 use std::result;
 /// This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
 /// device logic: feature negociation, device configuration, and device activation.
@@ -22,14 +23,15 @@ use std::result;
 /// - a backend FD.
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-
 use utils::byte_order;
 use utils::eventfd::EventFd;
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
 use super::super::super::Error as DeviceError;
 use super::super::{
-    ActivateError, ActivateResult, DeviceState, Queue as VirtQueue, VirtioDevice, VsockError,
+    ActivateError, ActivateResult, DeviceStatus, Queue as VirtQueue, VirtioDevice, VsockError,
     VIRTIO_MMIO_INT_VRING,
 };
 use super::packet::VsockPacket;
@@ -47,14 +49,9 @@ pub(crate) const EVQ_INDEX: usize = 2;
 pub(crate) const AVAIL_FEATURES: u64 =
     1 << uapi::VIRTIO_F_VERSION_1 as u64 | 1 << uapi::VIRTIO_F_IN_ORDER as u64;
 
-pub struct Vsock<B> {
-    cid: u64,
-    pub(crate) queues: Vec<VirtQueue>,
+pub struct Vsock<B: 'static> {
     pub(crate) queue_events: Vec<EventFd>,
     pub(crate) backend: B,
-    avail_features: u64,
-    acked_features: u64,
-    pub(crate) interrupt_status: Arc<AtomicUsize>,
     pub(crate) interrupt_evt: EventFd,
     // This EventFd is the only one initially registered for a vsock device, and is used to convert
     // a VirtioDevice::activate call into an EventHandler read event which allows the other events
@@ -62,7 +59,53 @@ pub struct Vsock<B> {
     // mostly something we wanted to happen for the backend events, to prevent (potentially)
     // continuous triggers from happening before the device gets activated.
     pub(crate) activate_evt: EventFd,
-    pub(crate) device_state: DeviceState,
+    pub(crate) device_status: DeviceStatus,
+    pub(crate) state: VsockState,
+}
+
+/// A helper structure that holds the usual constructor parameters that are not serialized in VsockState
+pub struct VsockConstructorArgs<B> {
+    mem: GuestMemoryMmap,
+    backend: B,
+}
+
+/// The Vsock serializable state.
+#[derive(Clone, Versionize)]
+pub struct VsockState {
+    cid: u64,
+    queues: Vec<VirtQueue>,
+    avail_features: u64,
+    acked_features: u64,
+    interrupt_status: Arc<AtomicUsize>,
+    activated: bool,
+}
+
+impl<B: VsockBackend> Persist for Vsock<B> {
+    type State = VsockState;
+    type ConstructorArgs = VsockConstructorArgs<B>;
+    type Error = VsockError;
+
+    fn save(&self) -> Self::State {
+        let mut state = self.state.clone();
+        match self.device_status {
+            DeviceStatus::Inactive => state.activated = false,
+            DeviceStatus::Activated(_) => state.activated = true,
+        }
+        state
+    }
+
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> Result<Self, Self::Error> {
+        let mut vsock =
+            Self::with_queues(state.cid, constructor_args.backend, state.queues.clone())?;
+        vsock.state = state.clone();
+        if vsock.state.activated {
+            vsock.device_status = DeviceStatus::Activated(constructor_args.mem);
+        }
+        Ok(vsock)
+    }
 }
 
 // TODO: Detect / handle queue deadlock:
@@ -85,16 +128,19 @@ where
         }
 
         Ok(Vsock {
-            cid,
-            queues,
             queue_events,
             backend,
-            avail_features: AVAIL_FEATURES,
-            acked_features: 0,
-            interrupt_status: Arc::new(AtomicUsize::new(0)),
             interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
-            device_state: DeviceState::Inactive,
+            device_status: DeviceStatus::Inactive,
+            state: VsockState {
+                cid,
+                queues,
+                acked_features: 0,
+                avail_features: AVAIL_FEATURES,
+                interrupt_status: Arc::new(AtomicUsize::new(0)),
+                activated: false,
+            },
         })
     }
 
@@ -108,14 +154,14 @@ where
     }
 
     pub fn cid(&self) -> u64 {
-        self.cid
+        self.state.cid
     }
 
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
     /// available.
     pub fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
         debug!("vsock: raising IRQ");
-        self.interrupt_status
+        self.interrupt_status()
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         self.interrupt_evt.write(1).map_err(|e| {
             error!("Failed to signal used queue: {:?}", e);
@@ -128,15 +174,16 @@ where
     /// otherwise.
     pub fn process_rx(&mut self) -> bool {
         debug!("vsock: process_rx()");
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
+        let queue = &mut self.state.queues[RXQ_INDEX];
+        let mem = match self.device_status {
+            DeviceStatus::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
+            DeviceStatus::Inactive => unreachable!(),
         };
 
         let mut have_used = false;
 
-        while let Some(head) = self.queues[RXQ_INDEX].pop(mem) {
+        while let Some(head) = queue.pop(mem) {
             let used_len = match VsockPacket::from_rx_virtq_head(&head) {
                 Ok(mut pkt) => {
                     if self.backend.recv_pkt(&mut pkt).is_ok() {
@@ -144,7 +191,7 @@ where
                     } else {
                         // We are using a consuming iterator over the virtio buffers, so, if we can't
                         // fill in this buffer, we'll need to undo the last iterator step.
-                        self.queues[RXQ_INDEX].undo_pop();
+                        queue.undo_pop();
                         break;
                     }
                 }
@@ -155,7 +202,7 @@ where
             };
 
             have_used = true;
-            self.queues[RXQ_INDEX].add_used(mem, head.index, used_len);
+            queue.add_used(mem, head.index, used_len);
         }
 
         have_used
@@ -166,32 +213,34 @@ where
     /// ring, and `false` otherwise.
     pub fn process_tx(&mut self) -> bool {
         debug!("vsock::process_tx()");
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
+        let queue = &mut self.state.queues[TXQ_INDEX];
+
+        let mem = match self.device_status {
+            DeviceStatus::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
+            DeviceStatus::Inactive => unreachable!(),
         };
 
         let mut have_used = false;
 
-        while let Some(head) = self.queues[TXQ_INDEX].pop(mem) {
+        while let Some(head) = queue.pop(mem) {
             let pkt = match VsockPacket::from_tx_virtq_head(&head) {
                 Ok(pkt) => pkt,
                 Err(e) => {
                     error!("vsock: error reading TX packet: {:?}", e);
                     have_used = true;
-                    self.queues[TXQ_INDEX].add_used(mem, head.index, 0);
+                    queue.add_used(mem, head.index, 0);
                     continue;
                 }
             };
 
             if self.backend.send_pkt(&pkt).is_err() {
-                self.queues[TXQ_INDEX].undo_pop();
+                queue.undo_pop();
                 break;
             }
 
             have_used = true;
-            self.queues[TXQ_INDEX].add_used(mem, head.index, 0);
+            queue.add_used(mem, head.index, 0);
         }
 
         have_used
@@ -203,15 +252,15 @@ where
     B: VsockBackend + 'static,
 {
     fn avail_features(&self) -> u64 {
-        self.avail_features
+        self.state.avail_features
     }
 
     fn acked_features(&self) -> u64 {
-        self.acked_features
+        self.state.acked_features
     }
 
     fn set_acked_features(&mut self, acked_features: u64) {
-        self.acked_features = acked_features
+        self.state.acked_features = acked_features
     }
 
     fn device_type(&self) -> u32 {
@@ -219,7 +268,7 @@ where
     }
 
     fn queues(&mut self) -> &mut [VirtQueue] {
-        &mut self.queues
+        &mut self.state.queues
     }
 
     fn queue_events(&self) -> &[EventFd] {
@@ -231,7 +280,7 @@ where
     }
 
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
-        self.interrupt_status.clone()
+        self.state.interrupt_status.clone()
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
@@ -260,11 +309,11 @@ where
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
-        if self.queues.len() != defs::NUM_QUEUES {
+        if self.queues().len() != defs::NUM_QUEUES {
             error!(
                 "Cannot perform activate. Expected {} queue(s), got {}",
                 defs::NUM_QUEUES,
-                self.queues.len()
+                self.queues().len()
             );
             return Err(ActivateError::BadActivate);
         }
@@ -274,25 +323,97 @@ where
             return Err(ActivateError::BadActivate);
         }
 
-        self.device_state = DeviceState::Activated(mem);
+        self.device_status = DeviceStatus::Activated(mem);
 
         Ok(())
     }
 
     fn is_activated(&self) -> bool {
-        match self.device_state {
-            DeviceState::Inactive => false,
-            DeviceState::Activated(_) => true,
+        match self.device_status {
+            DeviceStatus::Inactive => false,
+            DeviceStatus::Activated(_) => true,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::tests::{TestBackend, TestContext};
+    use super::*;
     use crate::virtio::vsock::defs::uapi;
 
-    use super::super::tests::TestContext;
-    use super::*;
+    #[test]
+    fn test_persistence() {
+        let ctx = TestContext::new();
+        let device_features = AVAIL_FEATURES;
+        let driver_features: u64 = AVAIL_FEATURES | 1 | (1 << 32);
+        let device_pages = [
+            (device_features & 0xffff_ffff) as u32,
+            (device_features >> 32) as u32,
+        ];
+        let driver_pages = [
+            (driver_features & 0xffff_ffff) as u32,
+            (driver_features >> 32) as u32,
+        ];
+
+        // Test serialization
+        let mut mem = vec![0; 4096];
+        let version_map = VersionMap::new();
+        ctx.device
+            .save()
+            .serialize(&mut mem.as_mut_slice(), &version_map, 1)
+            .unwrap();
+
+        let mut restored_device = Vsock::restore(
+            VsockConstructorArgs {
+                mem: ctx.mem.clone(),
+                backend: TestBackend::new(),
+            },
+            &VsockState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(restored_device.device_type(), uapi::VIRTIO_ID_VSOCK);
+        assert_eq!(restored_device.avail_features_by_page(0), device_pages[0]);
+        assert_eq!(restored_device.avail_features_by_page(1), device_pages[1]);
+        assert_eq!(restored_device.avail_features_by_page(2), 0);
+
+        restored_device.ack_features_by_page(0, driver_pages[0]);
+        restored_device.ack_features_by_page(1, driver_pages[1]);
+        restored_device.ack_features_by_page(2, 0);
+        restored_device.ack_features_by_page(0, !driver_pages[0]);
+        assert_eq!(
+            restored_device.acked_features(),
+            device_features & driver_features
+        );
+
+        // Test reading 32-bit chunks.
+        let mut data = [0u8; 8];
+        restored_device.read_config(0, &mut data[..4]);
+        assert_eq!(
+            u64::from(byte_order::read_le_u32(&data[..])),
+            ctx.cid & 0xffff_ffff
+        );
+        restored_device.read_config(4, &mut data[4..]);
+        assert_eq!(
+            u64::from(byte_order::read_le_u32(&data[4..])),
+            (ctx.cid >> 32) & 0xffff_ffff
+        );
+
+        // Test reading 64-bit.
+        let mut data = [0u8; 8];
+        restored_device.read_config(0, &mut data);
+        assert_eq!(byte_order::read_le_u64(&data), ctx.cid);
+
+        // Check that out-of-bounds reading doesn't mutate the destination buffer.
+        let mut data = [0u8, 1, 2, 3, 4, 5, 6, 7];
+        restored_device.read_config(2, &mut data);
+        assert_eq!(data, [0u8, 1, 2, 3, 4, 5, 6, 7]);
+
+        // Just covering lines here, since the vsock device has no writable config.
+        // A warning is, however, logged, if the guest driver attempts to write any config data.
+        restored_device.write_config(0, &data[..4]);
+    }
 
     #[test]
     fn test_virtio_device() {
@@ -322,7 +443,10 @@ mod tests {
         ctx.device.ack_features_by_page(0, !driver_pages[0]);
         // Check that no side effect are present, and that the acked features are exactly the same
         // as the device features.
-        assert_eq!(ctx.device.acked_features, device_features & driver_features);
+        assert_eq!(
+            ctx.device.acked_features(),
+            device_features & driver_features
+        );
 
         // Test reading 32-bit chunks.
         let mut data = [0u8; 8];

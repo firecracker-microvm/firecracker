@@ -21,7 +21,7 @@ use virtio_gen::virtio_blk::*;
 use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::{
-    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING},
+    super::{ActivateResult, DeviceStatus, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING},
     request::*,
     Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
 };
@@ -96,7 +96,7 @@ pub struct Block {
     interrupt_evt: EventFd,
     pub(crate) queue_evts: [EventFd; 1],
 
-    pub(crate) device_state: DeviceState,
+    pub(crate) device_status: DeviceStatus,
 
     // Implementation specific fields.
     pub(crate) rate_limiter: RateLimiter,
@@ -135,7 +135,7 @@ impl Block {
             interrupt_evt: EventFd::new(libc::EFD_NONBLOCK)?,
             queue_evts,
             queues,
-            device_state: DeviceState::Inactive,
+            device_status: DeviceStatus::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK)?,
         })
     }
@@ -160,10 +160,10 @@ impl Block {
     }
 
     pub(crate) fn process_queue(&mut self, queue_index: usize) -> bool {
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
+        let mem = match self.device_status {
+            DeviceStatus::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
+            DeviceStatus::Inactive => unreachable!(),
         };
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
@@ -322,9 +322,9 @@ impl VirtioDevice for Block {
     }
 
     fn is_activated(&self) -> bool {
-        match self.device_state {
-            DeviceState::Inactive => false,
-            DeviceState::Activated(_) => true,
+        match self.device_status {
+            DeviceStatus::Inactive => false,
+            DeviceStatus::Activated(_) => true,
         }
     }
 
@@ -333,7 +333,7 @@ impl VirtioDevice for Block {
             error!("Block: Cannot write to activate_evt");
             return Err(super::super::ActivateError::BadActivate);
         }
-        self.device_state = DeviceState::Activated(mem);
+        self.device_status = DeviceStatus::Activated(mem);
         Ok(())
     }
 }

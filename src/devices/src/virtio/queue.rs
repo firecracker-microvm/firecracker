@@ -8,7 +8,8 @@
 use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
-
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
@@ -140,7 +141,7 @@ impl<'a> DescriptorChain<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Versionize)]
 /// A virtio queue's parameters.
 pub struct Queue {
     /// The maximal size in elements offered by the device
