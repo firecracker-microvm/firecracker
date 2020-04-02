@@ -179,7 +179,7 @@ impl MmioTransport {
                 let device_activated = self.locked_device().is_activated();
                 if !device_activated && self.are_queues_valid() {
                     self.locked_device()
-                        .activate()
+                        .activate(self.mem.clone())
                         .expect("Failed to activate device");
                 }
             }
@@ -403,7 +403,7 @@ mod tests {
             self.acked_features = acked_features;
         }
 
-        fn activate(&mut self) -> ActivateResult {
+        fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
             self.device_activated = true;
             Ok(())
         }

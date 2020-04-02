@@ -3,7 +3,7 @@
 
 use common::{Descriptor, GenericDescriptor};
 use fields::struct_field::*;
-use helpers::{compute_version, generate_deserializer_header};
+use helpers::compute_version;
 use quote::{format_ident, quote};
 
 pub(crate) type StructDescriptor = GenericDescriptor<StructField>;
@@ -40,7 +40,6 @@ impl Descriptor for StructDescriptor {
     fn generate_deserializer(&self) -> proc_macro2::TokenStream {
         let mut versioned_deserializers = proc_macro2::TokenStream::new();
         let struct_ident = format_ident!("{}", self.ty);
-        let header = generate_deserializer_header(&self.fields);
 
         for i in 1..=self.version {
             let mut versioned_deserializer = proc_macro2::TokenStream::new();
@@ -73,7 +72,6 @@ impl Descriptor for StructDescriptor {
         // Generate code to map the app version to struct version and wrap the
         // deserializers with the `version` match.
         quote! {
-            #header
             let version = version_map.get_type_version(app_version, Self::type_id());
             match version {
                 #versioned_deserializers

@@ -58,7 +58,9 @@ impl UnionField {
         if is_array(&self.ty()) {
             return quote! {
                 unsafe {
-                    Versionize::serialize(&copy_of_self.#field_ident.to_vec(), writer, version_map, app_version)?
+                    for element in &copy_of_self.#field_ident {
+                        element.serialize(writer, version_map, app_version)?;
+                    }
                 }
             };
         }
@@ -101,9 +103,11 @@ impl UnionField {
                 quote! {
                     unsafe {
                         object.#field_ident = {
-                            let v: Vec<#array_type_token> = <Vec<#array_type_token> as Versionize>::deserialize(&mut reader, version_map, app_version)?;
-                            vec_to_arr_func!(transform_vec, #array_type_token, #array_len);
-                            transform_vec(v)
+                            let mut array = [#array_type_token::default() ; #array_len];
+                            for i in 0..#array_len {
+                                array[i] = <#array_type_token as Versionize>::deserialize(&mut reader, version_map, app_version)?;
+                            }
+                            array
                         }
                     }
                 }
