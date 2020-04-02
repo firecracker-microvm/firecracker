@@ -12,6 +12,7 @@
   `--level`, `--show-level` and `--show-log-origin` that can be used
   for configuring the Logger when starting the process. When using
   this method for configuration, only `--log-path` is mandatory.
+- Added a [guide](docs/devctr-image.md) for updating the dev container image.
 
 ### Fixed
 - Added `--version` flag to both Firecracker and Jailer.
