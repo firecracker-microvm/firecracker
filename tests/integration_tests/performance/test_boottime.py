@@ -11,8 +11,6 @@ import re
 import time
 import platform
 
-from framework import decorators
-
 # The maximum acceptable boot time in us.
 MAX_BOOT_TIME_US = 150000
 # NOTE: for aarch64 most of the boot time is spent by the kernel to unpack the
@@ -23,10 +21,8 @@ INITRD_BOOT_TIME_US = 160000 if platform.machine() == "x86_64" else 500000
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
 
-NO_OF_MICROVMS = 10
 
-
-def test_single_microvm_boottime_no_network(test_microvm_with_boottime):
+def test_boottime_no_network(test_microvm_with_boottime):
     """Check guest boottime of microvm without network."""
     _ = _configure_vm(test_microvm_with_boottime)
     time.sleep(0.4)
@@ -34,44 +30,7 @@ def test_single_microvm_boottime_no_network(test_microvm_with_boottime):
     print("Boot time with no network is: " + str(boottime_us) + " us")
 
 
-@decorators.test_context('boottime', NO_OF_MICROVMS)
-def test_multiple_microvm_boottime_no_network(test_multiple_microvms):
-    """Check guest boottime without network when spawning multiple microvms."""
-    microvms = test_multiple_microvms
-    assert microvms
-    assert len(microvms) == NO_OF_MICROVMS
-    log_fifos_data = []
-    for i in range(NO_OF_MICROVMS):
-        _ = _configure_vm(microvms[i])
-        time.sleep(0.4)
-        log_fifos_data.append(microvms[i].log_data)
-    for i in range(NO_OF_MICROVMS):
-        _ = _test_microvm_boottime(log_fifos_data[i])
-
-
-@decorators.test_context('boottime', NO_OF_MICROVMS)
-def test_multiple_microvm_boottime_with_network(
-        test_multiple_microvms,
-        network_config
-):
-    """Check guest boottime with network when spawning multiple microvms."""
-    microvms = test_multiple_microvms
-    assert microvms
-    assert len(microvms) == NO_OF_MICROVMS
-    log_fifos_data = []
-    _taps = []
-    for i in range(NO_OF_MICROVMS):
-        _tap = _configure_vm(microvms[i], {
-            "config": network_config, "iface_id": str(i)
-        })
-        time.sleep(0.4)
-        log_fifos_data.append(microvms[i].log_data)
-        _taps.append(_tap)
-    for i in range(NO_OF_MICROVMS):
-        _ = _test_microvm_boottime(log_fifos_data[i])
-
-
-def test_single_microvm_boottime_with_network(
+def test_boottime_with_network(
         test_microvm_with_boottime,
         network_config
 ):
@@ -84,7 +43,7 @@ def test_single_microvm_boottime_with_network(
     print("Boot time with network configured is: " + str(boottime_us) + " us")
 
 
-def test_single_microvm_initrd_boottime(
+def test_initrd_boottime(
         test_microvm_with_initrd):
     """Check guest boottime of microvm with initrd."""
     _tap = _configure_vm(test_microvm_with_initrd, initrd=True)
