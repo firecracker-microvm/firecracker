@@ -39,6 +39,9 @@ extern crate serde_derive;
 extern crate versionize;
 extern crate versionize_derive;
 
+mod persist;
+pub use persist::Persist;
+
 use std::collections::hash_map::HashMap;
 use std::io::Read;
 use versionize::crc::{CRC64Reader, CRC64Writer};
