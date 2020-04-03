@@ -67,3 +67,32 @@ impl fmt::Display for DeviceType {
         write!(f, "{:?}", self)
     }
 }
+
+/// Suported boot protocols for
+#[derive(Debug, Copy, Clone)]
+pub enum BootProtocol {
+    /// Linux 64-bit boot protocol
+    LinuxBoot,
+    /// PVH boot protocol (x86/HVM direct boot ABI)
+    PvhBoot,
+}
+
+impl fmt::Display for BootProtocol {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        match self {
+            BootProtocol::LinuxBoot => write!(f, "Linux 64-bit boot protocol"),
+            BootProtocol::PvhBoot => write!(f, "PVH boot protocol"),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+/// Specifies the entry point address where the guest must start
+/// executing code, as well as which boot protocol is to be used
+/// to configure the guest initial state.
+pub struct EntryPoint {
+    /// Address in guest memory where the guest must start execution
+    pub entry_addr: vm_memory::GuestAddress,
+    /// Specifies which boot protocol to use
+    pub protocol: BootProtocol,
+}

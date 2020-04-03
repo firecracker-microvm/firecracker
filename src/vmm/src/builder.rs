@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use super::{Error, Vmm};
 
 use arch::InitrdConfig;
+use arch::{BootProtocol, EntryPoint};
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -234,7 +235,7 @@ pub fn build_microvm(
             .ok_or(StartMicrovmError::MissingMemSizeConfig)?,
     )?;
     let vcpu_config = vm_resources.vcpu_config();
-    let (entry_addr, _pvh_entry_pt) = load_kernel(boot_config, &guest_memory)?;
+    let entry_point = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -293,7 +294,7 @@ pub fn build_microvm(
             &vm,
             &vcpu_config,
             &guest_memory,
-            entry_addr,
+            entry_point.entry_addr,
             request_ts,
             &pio_device_manager.io_bus,
             &exit_evt,
@@ -311,7 +312,7 @@ pub fn build_microvm(
             &vm,
             &vcpu_config,
             &guest_memory,
-            entry_addr,
+            entry_point.entry_addr,
             request_ts,
             &exit_evt,
         )
@@ -377,7 +378,7 @@ pub fn create_guest_memory(
 fn load_kernel(
     boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
-) -> std::result::Result<(GuestAddress, Option<GuestAddress>), StartMicrovmError> {
+) -> std::result::Result<EntryPoint, StartMicrovmError> {
     let mut kernel_file = boot_config
         .kernel_file
         .try_clone()
@@ -387,7 +388,21 @@ fn load_kernel(
         kernel::loader::load_kernel(guest_memory, &mut kernel_file, arch::get_kernel_start())
             .map_err(StartMicrovmError::KernelLoader)?;
 
-    Ok((entry_addr, pvh_entry_pt))
+    let mut entry_point_addr: GuestAddress = entry_addr;
+    let mut boot_prot: BootProtocol = BootProtocol::LinuxBoot;
+
+    if cfg!(feature = "pvh") && cfg!(target_arch = "x86_64") {
+        if let Some(pvh_entry_addr) = pvh_entry_pt {
+            // Use the PVH kernel entry point to boot the guest
+            entry_point_addr = pvh_entry_addr;
+            boot_prot = BootProtocol::PvhBoot;
+        }
+    }
+
+    Ok(EntryPoint {
+        entry_addr: entry_point_addr,
+        protocol: boot_prot,
+    })
 }
 
 fn load_initrd_from_config(
