@@ -9,3 +9,6 @@ timerfd = ">=1.0"
 
 logger = { path = "../logger" }
 utils = { path = "../utils" }
+snapshot = { path = "../snapshot" }
+versionize = { path = "../versionize" }
+versionize_derive = { path = "../versionize_derive" }
