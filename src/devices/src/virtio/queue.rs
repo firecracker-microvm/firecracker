@@ -6,9 +6,12 @@
 // found in the THIRD-PARTY file.
 
 use std::cmp::min;
+use std::convert::{From, Into};
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
 
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
@@ -140,7 +143,7 @@ impl<'a> DescriptorChain<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone, Versionize)]
 /// A virtio queue's parameters.
 pub struct Queue {
     /// The maximal size in elements offered by the device
@@ -163,6 +166,60 @@ pub struct Queue {
 
     next_avail: Wrapping<u16>,
     next_used: Wrapping<u16>,
+}
+
+#[derive(Clone, Debug, Versionize)]
+pub struct QueueState {
+    /// The maximal size in elements offered by the device
+    max_size: u16,
+
+    /// The queue size in elements the driver selected
+    pub size: u16,
+
+    /// Indicates if the queue is finished with configuration
+    pub ready: bool,
+
+    /// Guest physical address of the descriptor table
+    pub desc_table: u64,
+
+    /// Guest physical address of the available ring
+    pub avail_ring: u64,
+
+    /// Guest physical address of the used ring
+    pub used_ring: u64,
+
+    next_avail: Wrapping<u16>,
+    next_used: Wrapping<u16>,
+}
+
+impl Into<QueueState> for Queue {
+    fn into(self) -> QueueState {
+        QueueState {
+            max_size: self.max_size,
+            size: self.size,
+            ready: self.ready,
+            desc_table: self.desc_table.0,
+            avail_ring: self.avail_ring.0,
+            used_ring: self.used_ring.0,
+            next_avail: self.next_avail,
+            next_used: self.next_used,
+        }
+    }
+}
+
+impl From<QueueState> for Queue {
+    fn from(state: QueueState) -> Self {
+        Queue {
+            max_size: state.max_size,
+            size: state.size,
+            ready: state.ready,
+            desc_table: GuestAddress::new(state.desc_table),
+            avail_ring: GuestAddress::new(state.avail_ring),
+            used_ring: GuestAddress::new(state.used_ring),
+            next_avail: state.next_avail,
+            next_used: state.next_used,
+        }
+    }
 }
 
 impl Queue {

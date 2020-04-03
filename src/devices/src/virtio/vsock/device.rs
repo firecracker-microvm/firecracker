@@ -5,7 +5,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use snapshot::Persist;
 use std::result;
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
+
 /// This is the `VirtioDevice` implementation for our vsock device. It handles the virtio-level
 /// device logic: feature negociation, device configuration, and device activation.
 ///
@@ -29,8 +33,8 @@ use vm_memory::GuestMemoryMmap;
 
 use super::super::super::Error as DeviceError;
 use super::super::{
-    ActivateError, ActivateResult, DeviceState, Queue as VirtQueue, VirtioDevice, VsockError,
-    VIRTIO_MMIO_INT_VRING,
+    ActivateError, ActivateResult, DeviceState, Queue as VirtQueue, QueueState, VirtioDevice,
+    VsockError, VIRTIO_MMIO_INT_VRING,
 };
 use super::packet::VsockPacket;
 use super::VsockBackend;
@@ -63,6 +67,66 @@ pub struct Vsock<B> {
     // continuous triggers from happening before the device gets activated.
     pub(crate) activate_evt: EventFd,
     pub(crate) device_state: DeviceState,
+}
+
+#[derive(Clone, Versionize)]
+pub struct VsockState {
+    cid: u64,
+    queues: Vec<QueueState>,
+    avail_features: u64,
+    acked_features: u64,
+    interrupt_status: usize,
+    activated: bool,
+}
+
+pub struct VsockConstructorArgs<B> {
+    mem: Option<GuestMemoryMmap>,
+    backend: B,
+}
+
+impl<B: VsockBackend> Persist for Vsock<B> {
+    type State = VsockState;
+    type ConstructorArgs = VsockConstructorArgs<B>;
+    type Error = VsockError;
+
+    fn save(self) -> Self::State {
+        // Sadness. You cannot call is_activated() because it is implemented in the VirtioDevice
+        // trait so this block of code needs to be duplicated.
+        let activated = match self.device_state {
+            DeviceState::Inactive => false,
+            DeviceState::Activated(_) => true,
+        };
+
+        VsockState {
+            cid: self.cid,
+            queues: self.queues.into_iter().map(|q| q.into()).collect(),
+            avail_features: self.avail_features,
+            acked_features: self.acked_features,
+            interrupt_status: self.interrupt_status.load(Ordering::Relaxed),
+            activated,
+        }
+    }
+
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: Self::State,
+    ) -> Result<Self, Self::Error> {
+        let mut vsock = Self::with_queues(
+            state.cid,
+            constructor_args.backend,
+            state
+                .queues
+                .into_iter()
+                .map(|qs| VirtQueue::from(qs))
+                .collect(),
+        )?;
+        if state.activated {
+            // Intentional unwrap here. If the device state was active, but there no memory, then
+            // oopsi, the snapshot is invalid. Maybe return an error instead.
+            vsock.device_state = DeviceState::Activated(constructor_args.mem.unwrap());
+        }
+        Ok(vsock)
+    }
 }
 
 // TODO: Detect / handle queue deadlock:
@@ -289,10 +353,83 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::virtio::vsock::defs::uapi;
-
-    use super::super::tests::TestContext;
+    use super::super::tests::{TestBackend, TestContext};
     use super::*;
+    use crate::virtio::vsock::defs::uapi;
+    use versionize::VersionMap;
+
+    #[test]
+    fn test_persistence() {
+        let ctx = TestContext::new();
+        let device_features = AVAIL_FEATURES;
+        let driver_features: u64 = AVAIL_FEATURES | 1 | (1 << 32);
+        let device_pages = [
+            (device_features & 0xffff_ffff) as u32,
+            (device_features >> 32) as u32,
+        ];
+        let driver_pages = [
+            (driver_features & 0xffff_ffff) as u32,
+            (driver_features >> 32) as u32,
+        ];
+
+        // Test serialization
+        let mut mem = vec![0; 4096];
+        let version_map = VersionMap::new();
+        ctx.device
+            .save()
+            .serialize(&mut mem.as_mut_slice(), &version_map, 1)
+            .unwrap();
+
+        let mut restored_device = Vsock::restore(
+            VsockConstructorArgs {
+                mem: Some(ctx.mem.clone()),
+                backend: TestBackend::new(),
+            },
+            VsockState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(restored_device.device_type(), uapi::VIRTIO_ID_VSOCK);
+        assert_eq!(restored_device.avail_features_by_page(0), device_pages[0]);
+        assert_eq!(restored_device.avail_features_by_page(1), device_pages[1]);
+        assert_eq!(restored_device.avail_features_by_page(2), 0);
+
+        restored_device.ack_features_by_page(0, driver_pages[0]);
+        restored_device.ack_features_by_page(1, driver_pages[1]);
+        restored_device.ack_features_by_page(2, 0);
+        restored_device.ack_features_by_page(0, !driver_pages[0]);
+        assert_eq!(
+            restored_device.acked_features(),
+            device_features & driver_features
+        );
+
+        // Test reading 32-bit chunks.
+        let mut data = [0u8; 8];
+        restored_device.read_config(0, &mut data[..4]);
+        assert_eq!(
+            u64::from(byte_order::read_le_u32(&data[..])),
+            ctx.cid & 0xffff_ffff
+        );
+        restored_device.read_config(4, &mut data[4..]);
+        assert_eq!(
+            u64::from(byte_order::read_le_u32(&data[4..])),
+            (ctx.cid >> 32) & 0xffff_ffff
+        );
+
+        // Test reading 64-bit.
+        let mut data = [0u8; 8];
+        restored_device.read_config(0, &mut data);
+        assert_eq!(byte_order::read_le_u64(&data), ctx.cid);
+
+        // Check that out-of-bounds reading doesn't mutate the destination buffer.
+        let mut data = [0u8, 1, 2, 3, 4, 5, 6, 7];
+        restored_device.read_config(2, &mut data);
+        assert_eq!(data, [0u8, 1, 2, 3, 4, 5, 6, 7]);
+
+        // Just covering lines here, since the vsock device has no writable config.
+        // A warning is, however, logged, if the guest driver attempts to write any config data.
+        restored_device.write_config(0, &data[..4]);
+    }
 
     #[test]
     fn test_virtio_device() {
