@@ -499,8 +499,11 @@ version = "0.1.0"
 dependencies = [
  "libc 0.2.68 (registry+https://github.com/rust-lang/crates.io-index)",
  "logger 0.1.0",
+ "snapshot 0.1.0",
  "timerfd 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
+ "versionize 0.1.0",
+ "versionize_derive 0.1.0",
 ]
 
 [[package]]

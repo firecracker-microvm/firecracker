@@ -49,11 +49,16 @@ extern crate timerfd;
 extern crate utils;
 #[macro_use]
 extern crate logger;
+extern crate snapshot;
+extern crate versionize;
+extern crate versionize_derive;
 
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 use std::{fmt, io};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
+
+pub mod persist;
 
 #[derive(Debug)]
 /// Describes the errors that may occur while handling rate limiter events.
@@ -472,7 +477,7 @@ impl Default for RateLimiter {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::thread;
     use std::time::Duration;
@@ -494,6 +499,14 @@ mod tests {
 
         fn get_processed_refill_time(&self) -> u64 {
             self.processed_refill_time
+        }
+
+        // After a restore, we cannot be certain that the last_update field has the same value.
+        pub fn partial_eq(&self, other: &TokenBucket) -> bool {
+            (other.capacity() == self.capacity())
+                && (other.one_time_burst() == self.one_time_burst())
+                && (other.refill_time_ms() == self.refill_time_ms())
+                && (other.budget() == self.budget())
         }
     }
 
