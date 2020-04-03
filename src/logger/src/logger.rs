@@ -92,7 +92,7 @@
 
 use std;
 use std::fmt;
-use std::io::Write;
+use std::io::{sink, Write};
 use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, RwLock};
@@ -127,7 +127,7 @@ lazy_static! {
 pub struct Logger {
     state: AtomicUsize,
     // Human readable logs will be outputted here.
-    log_buf: Mutex<Option<Box<dyn Write + Send>>>,
+    log_buf: Mutex<Box<dyn Write + Send>>,
     show_level: AtomicBool,
     show_file_path: AtomicBool,
     show_line_numbers: AtomicBool,
@@ -143,7 +143,7 @@ impl Logger {
     fn new() -> Logger {
         Logger {
             state: AtomicUsize::new(0),
-            log_buf: Mutex::new(None),
+            log_buf: Mutex::new(Box::new(sink())),
             show_level: AtomicBool::new(true),
             show_line_numbers: AtomicBool::new(true),
             show_file_path: AtomicBool::new(true),
@@ -406,7 +406,7 @@ impl Logger {
         {
             let mut g = extract_guard(self.log_buf.lock());
 
-            *g = Some(log_dest);
+            *g = log_dest;
         }
 
         self.try_init_max_level();
@@ -422,17 +422,17 @@ impl Logger {
     // care of the common logic involved in writing regular log messages.
     fn write_log(&self, msg: String, msg_level: Level) {
         if self.state.load(Ordering::Relaxed) == Self::INITIALIZED {
-            if let Some(guard) = extract_guard(self.log_buf.lock()).as_mut() {
-                // No need to explicitly call flush because the underlying LineWriter flushes
-                // automatically whenever a newline is detected (and we always end with a
-                // newline the current write).
-                if guard.write_all(&(format!("{}\n", msg)).as_bytes()).is_err() {
-                    // No reason to log the error to stderr here, just increment the metric.
-                    METRICS.logger.missed_log_count.inc();
-                }
-            } else {
+            let mut guard = extract_guard(self.log_buf.lock());
+            // No need to explicitly call flush because the underlying LineWriter flushes
+            // automatically whenever a newline is detected (and we always end with a
+            // newline the current write).
+            if guard
+                .as_mut()
+                .write_all(&(format!("{}\n", msg)).as_bytes())
+                .is_err()
+            {
+                // No reason to log the error to stderr here, just increment the metric.
                 METRICS.logger.missed_log_count.inc();
-                panic!("Failed to write to the provided log destination due to poisoned lock");
             }
         } else if msg_level <= Level::Warn {
             eprintln!("{}", msg);
