@@ -92,7 +92,7 @@
 
 use std;
 use std::fmt;
-use std::io::{sink, Write};
+use std::io::{sink, stderr, stdout, Write};
 use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, RwLock};
@@ -417,27 +417,28 @@ impl Logger {
         Ok(())
     }
 
-    // In a future PR we'll update the way things are written to the selected destination to avoid
-    // the creation and allocation of unnecessary intermediate Strings. The `write_log` method takes
-    // care of the common logic involved in writing regular log messages.
-    fn write_log(&self, msg: String, msg_level: Level) {
-        if self.state.load(Ordering::Relaxed) == Self::INITIALIZED {
-            let mut guard = extract_guard(self.log_buf.lock());
-            // No need to explicitly call flush because the underlying LineWriter flushes
-            // automatically whenever a newline is detected (and we always end with a
-            // newline the current write).
-            if guard
-                .as_mut()
-                .write_all(&(format!("{}\n", msg)).as_bytes())
-                .is_err()
-            {
-                // No reason to log the error to stderr here, just increment the metric.
-                METRICS.logger.missed_log_count.inc();
-            }
-        } else if msg_level <= Level::Warn {
-            eprintln!("{}", msg);
-        } else {
-            println!("{}", msg);
+    /// The `write_log` method takes care of the common logic involved in writing
+    /// regular log messages.
+    fn write_log(&self, mut msg: String, msg_level: Level) {
+        let mut guard;
+        let mut dest: Box<dyn Write + Send> =
+            if self.state.load(Ordering::Relaxed) == Self::INITIALIZED {
+                guard = extract_guard(self.log_buf.lock());
+                Box::new(guard.as_mut())
+            } else {
+                match msg_level {
+                    Level::Error | Level::Warn => Box::new(stderr()),
+                    _ => Box::new(stdout()),
+                }
+            };
+
+        // No need to explicitly call flush because the underlying LineWriter flushes
+        // automatically whenever a newline is detected (and we always end with a
+        // newline the current write).
+        msg.push('\n');
+        if dest.write_all(msg.as_bytes()).is_err() {
+            // No reason to log the error to stderr here, just increment the metric.
+            METRICS.logger.missed_log_count.inc();
         }
     }
 }
