@@ -684,14 +684,14 @@ fn attach_block_devices(
         if drive_config.is_root_device {
             let kernel_cmdline = &mut vmm.kernel_cmdline;
 
-            kernel_cmdline.insert_str(if let Some(partuuid) = drive_config.get_partuuid() {
+            kernel_cmdline.insert_str(if let Some(partuuid) = &drive_config.partuuid {
                 format!("root=PARTUUID={}", partuuid)
             } else {
                 // If no PARTUUID was specified for the root device, try with the /dev/vda.
                 "root=/dev/vda".to_string()
             })?;
 
-            let flags = if drive_config.is_read_only() {
+            let flags = if drive_config.is_read_only {
                 "ro"
             } else {
                 "rw"
@@ -708,7 +708,6 @@ fn attach_block_devices(
 
         let block_device = Arc::new(Mutex::new(
             devices::virtio::Block::new(
-                vmm.guest_memory.clone(),
                 block_file,
                 drive_config.is_read_only,
                 rate_limiter.unwrap_or_default(),
@@ -759,7 +758,6 @@ fn attach_net_devices(
             devices::virtio::net::Net::new_with_tap(
                 tap,
                 cfg.guest_mac(),
-                vmm.guest_memory().clone(),
                 rx_rate_limiter.unwrap_or_default(),
                 tx_rate_limiter.unwrap_or_default(),
                 allow_mmds_requests,
@@ -796,12 +794,8 @@ fn attach_vsock_device(
     .map_err(CreateVsockBackend)?;
 
     let vsock_device = Arc::new(Mutex::new(
-        devices::virtio::Vsock::new(
-            u64::from(vsock.guest_cid),
-            vmm.guest_memory().clone(),
-            backend,
-        )
-        .map_err(CreateVsockDevice)?,
+        devices::virtio::Vsock::new(u64::from(vsock.guest_cid), backend)
+            .map_err(CreateVsockDevice)?,
     ));
 
     event_manager

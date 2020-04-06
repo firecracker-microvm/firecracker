@@ -309,7 +309,7 @@ mod tests {
         fn update_drive(&self, device_id: &str, new_size: u64) -> Result<()> {
             match self.get_device(DeviceType::Virtio(TYPE_BLOCK), device_id) {
                 Some(device) => {
-                    let data = devices::virtio::build_config_space(new_size);
+                    let data = devices::virtio::block::device::build_config_space(new_size);
                     let mut busdev = device.lock().map_err(|_| Error::UpdateFailed)?;
 
                     busdev.write(MMIO_CFG_SPACE_OFF, &data[..]);
@@ -389,7 +389,7 @@ mod tests {
             let _ = data;
         }
 
-        fn activate(&mut self) -> ActivateResult {
+        fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
             Ok(())
         }
 
@@ -471,7 +471,6 @@ mod tests {
         let mut dummy = DummyDevice::new();
         assert_eq!(dummy.device_type(), 0);
         assert_eq!(dummy.queues().len(), QUEUE_SIZES.len());
-        dummy.activate().unwrap();
     }
 
     #[test]

@@ -23,10 +23,6 @@ pub enum DriveError {
     BlockDevicePathAlreadyExists,
     /// Cannot update the block device.
     BlockDeviceUpdateFailed,
-    /// Cannot perform the requested operation before booting the microVM.
-    OperationNotAllowedPreBoot,
-    /// Cannot perform the requested operation after booting the microVM.
-    UpdateNotAllowedPostBoot,
     /// A root block device was already added.
     RootBlockDeviceAlreadyAdded,
 }
@@ -47,11 +43,7 @@ impl Display for DriveError {
                 "The block device path was already added to a different drive!"
             ),
             BlockDeviceUpdateFailed => write!(f, "The update operation failed!"),
-            OperationNotAllowedPreBoot => write!(f, "Operation not allowed pre-boot!"),
             RootBlockDeviceAlreadyAdded => write!(f, "A root block device already exists!"),
-            UpdateNotAllowedPostBoot => {
-                write!(f, "The update operation is not allowed after boot.")
-            }
         }
     }
 }
@@ -78,31 +70,12 @@ pub struct BlockDeviceConfig {
     pub rate_limiter: Option<RateLimiterConfig>,
 }
 
-impl BlockDeviceConfig {
-    /// Returns a reference to the partuuid.
-    pub fn get_partuuid(&self) -> Option<&String> {
-        self.partuuid.as_ref()
-    }
-
-    /// Checks whether the drive had read only permissions.
-    pub fn is_read_only(&self) -> bool {
-        self.is_read_only
-    }
-
-    /// Returns a reference to `path_on_host`.
-    pub fn path_on_host(&self) -> &PathBuf {
-        &self.path_on_host
-    }
-}
-
 /// Wrapper for the collection that holds all the Block Devices Configs
 #[derive(Default)]
 pub struct BlockDeviceConfigs {
     /// A list of `BlockDeviceConfig` objects.
     pub config_list: VecDeque<BlockDeviceConfig>,
     has_root_block: bool,
-    has_partuuid_root: bool,
-    read_only_root: bool,
 }
 
 impl BlockDeviceConfigs {
@@ -111,24 +84,7 @@ impl BlockDeviceConfigs {
         BlockDeviceConfigs {
             config_list: VecDeque::<BlockDeviceConfig>::new(),
             has_root_block: false,
-            has_partuuid_root: false,
-            read_only_root: false,
         }
-    }
-
-    /// Checks whether any of the added BlockDevice is the root.
-    pub fn has_root_block_device(&self) -> bool {
-        self.has_root_block
-    }
-
-    /// Checks whether the root device has read-only permisssions.
-    pub fn has_read_only_root(&self) -> bool {
-        self.read_only_root
-    }
-
-    /// Checks whether the root device is configured using a part UUID.
-    pub fn has_partuuid_root(&self) -> bool {
-        self.has_partuuid_root
     }
 
     /// Gets the index of the device with the specified `drive_id` if it exists in the list.
@@ -176,8 +132,6 @@ impl BlockDeviceConfigs {
                 return Err(DriveError::RootBlockDeviceAlreadyAdded);
             } else {
                 self.has_root_block = true;
-                self.read_only_root = block_device_config.is_read_only;
-                self.has_partuuid_root = block_device_config.partuuid.is_some();
                 // Root Device should be the first in the list whether or not PARTUUID is specified
                 // in order to avoid bugs in case of switching from partuuid boot scenarios to
                 // /dev/vda boot type.
@@ -201,8 +155,6 @@ impl BlockDeviceConfigs {
         // Check if the root block device is being updated.
         if self.config_list[index].is_root_device {
             self.has_root_block = new_config.is_root_device;
-            self.read_only_root = new_config.is_root_device && new_config.is_read_only;
-            self.has_partuuid_root = new_config.partuuid.is_some();
         } else if new_config.is_root_device {
             // Check if a second root block device is being added.
             if self.has_root_block {
@@ -210,8 +162,6 @@ impl BlockDeviceConfigs {
             } else {
                 // One of the non-root blocks is becoming root.
                 self.has_root_block = true;
-                self.read_only_root = new_config.is_read_only;
-                self.has_partuuid_root = new_config.partuuid.is_some();
 
                 // Make sure the root device is on the first position.
                 self.config_list.swap(0, index);
@@ -256,7 +206,6 @@ mod tests {
     #[test]
     fn test_create_block_devices_configs() {
         let block_devices_configs = BlockDeviceConfigs::new();
-        assert_eq!(block_devices_configs.has_root_block_device(), false);
         assert_eq!(block_devices_configs.config_list.len(), 0);
     }
 
@@ -315,7 +264,6 @@ mod tests {
         assert_eq!(block_devices_configs.config_list.len(), 1);
         let dev_config = block_devices_configs.config_list.iter().next().unwrap();
         assert_eq!(dev_config, &dummy_block_device);
-        assert_eq!(block_devices_configs.has_read_only_root(), true);
     }
 
     #[test]
@@ -399,8 +347,6 @@ mod tests {
             .create(dummy_block_device_3.clone())
             .is_ok());
 
-        assert_eq!(block_devices_configs.has_root_block_device(), true);
-        assert_eq!(block_devices_configs.has_partuuid_root(), false);
         assert_eq!(block_devices_configs.config_list.len(), 3);
 
         let mut block_dev_iter = block_devices_configs.config_list.iter();
@@ -456,8 +402,6 @@ mod tests {
             .create(root_block_device.clone())
             .is_ok());
 
-        assert_eq!(block_devices_configs.has_root_block_device(), true);
-        assert_eq!(block_devices_configs.has_partuuid_root(), false);
         assert_eq!(block_devices_configs.config_list.len(), 3);
 
         let mut block_dev_iter = block_devices_configs.config_list.iter();
@@ -578,7 +522,6 @@ mod tests {
         assert!(&block_devices_configs
             .update(index2, root_block_device_new)
             .is_ok());
-        assert!(block_devices_configs.has_partuuid_root);
     }
 
     #[test]
@@ -597,10 +540,10 @@ mod tests {
         };
 
         assert_eq!(
-            block_config.get_partuuid().unwrap().to_string(),
+            block_config.partuuid.as_ref().unwrap().to_string(),
             expected_partuuid
         );
-        assert_eq!(block_config.path_on_host(), dummy_block_file.as_path());
-        assert_eq!(block_config.is_read_only(), expected_is_read_only);
+        assert_eq!(block_config.path_on_host, dummy_block_file.as_path());
+        assert_eq!(block_config.is_read_only, expected_is_read_only);
     }
 }

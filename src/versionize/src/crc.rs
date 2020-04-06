@@ -79,6 +79,23 @@ mod tests {
     use super::{CRC64Reader, CRC64Writer, Read, Write};
 
     #[test]
+    fn test_crc_new() {
+        let buf = vec![1; 5];
+        let mut slice = buf.as_slice();
+        let crc_reader = CRC64Reader::new(&mut slice);
+        assert_eq!(crc_reader.crc64, 0);
+        assert_eq!(crc_reader.reader, &[1; 5]);
+        assert_eq!(crc_reader.checksum(), 0);
+
+        let mut buf = vec![0; 5];
+        let mut slice = buf.as_mut_slice();
+        let crc_writer = CRC64Writer::new(&mut slice);
+        assert_eq!(crc_writer.crc64, 0);
+        assert_eq!(crc_writer.writer, &[0; 5]);
+        assert_eq!(crc_writer.checksum(), 0);
+    }
+
+    #[test]
     fn test_crc_read() {
         let buf = vec![1, 2, 3, 4, 5];
         let mut read_buf = vec![0; 16];
@@ -87,14 +104,7 @@ mod tests {
         let mut crc_reader = CRC64Reader::new(&mut slice);
         crc_reader.read_to_end(&mut read_buf).unwrap();
         assert_eq!(crc_reader.checksum(), 0xFB04_60DE_0638_3654);
-    }
-
-    #[test]
-    fn test_crc_init() {
-        let buf = vec![1, 2, 3, 4, 5];
-        let mut slice = buf.as_slice();
-        let crc_reader = CRC64Reader::new(&mut slice);
-        assert_eq!(crc_reader.checksum(), 0);
+        assert_eq!(crc_reader.checksum(), crc_reader.crc64);
     }
 
     #[test]
@@ -107,5 +117,6 @@ mod tests {
         crc_writer.write_all(&write_buf.as_slice()).unwrap();
         crc_writer.flush().unwrap();
         assert_eq!(crc_writer.checksum(), 0x29D5_3572_1632_6566);
+        assert_eq!(crc_writer.checksum(), crc_writer.crc64);
     }
 }

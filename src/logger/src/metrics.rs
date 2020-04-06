@@ -326,6 +326,8 @@ pub struct BlockDeviceMetrics {
     pub activate_fails: SharedMetric,
     /// Number of times when interacting with the space config of a block device failed.
     pub cfg_fails: SharedMetric,
+    /// No available buffer for the block queue.
+    pub no_avail_buffer: SharedMetric,
     /// Number of times when handling events on a block device failed.
     pub event_fails: SharedMetric,
     /// Number of failures in executing a request on a block device.
@@ -416,6 +418,10 @@ pub struct NetDeviceMetrics {
     pub activate_fails: SharedMetric,
     /// Number of times when interacting with the space config of a network device failed.
     pub cfg_fails: SharedMetric,
+    /// No available buffer for the net device rx queue.
+    pub no_rx_avail_buffer: SharedMetric,
+    /// No available buffer for the net device tx queue.
+    pub no_tx_avail_buffer: SharedMetric,
     /// Number of times when handling events on a network device failed.
     pub event_fails: SharedMetric,
     /// Number of events associated with the receiving queue.

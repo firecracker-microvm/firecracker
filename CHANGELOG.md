@@ -12,6 +12,7 @@
   `--level`, `--show-level` and `--show-log-origin` that can be used
   for configuring the Logger when starting the process. When using
   this method for configuration, only `--log-path` is mandatory.
+- Added a [guide](docs/devctr-image.md) for updating the dev container image.
 
 ### Fixed
 - Added `--version` flag to both Firecracker and Jailer.
@@ -25,6 +26,10 @@
 - Removed `metrics_fifo` field from the logger configuration.
 - Renamed `log_fifo` field from LoggerConfig to `log_path` and
   `metrics_fifo` field from MetricsConfig to `metrics_path`.
+- `PATCH /drives/{id}` only allowed post-boot. Use `PUT` for pre-boot
+  updates to existing configurations.
+- `PATCH /network-interfaces/{id}` only allowed post-boot. Use `PUT` for
+  pre-boot updates to existing configurations.
 
 ## [0.21.0]
 

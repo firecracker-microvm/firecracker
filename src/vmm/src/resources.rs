@@ -3,8 +3,7 @@
 
 #![deny(warnings)]
 
-use std::fs::{File, OpenOptions};
-use std::path::PathBuf;
+use std::fs::File;
 
 use vmm_config::boot_source::{
     BootConfig, BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE,
@@ -218,68 +217,12 @@ impl VmResources {
         self.block.insert(block_device_config)
     }
 
-    /// Updates the path of the host file backing the emulated block device with id `drive_id`.
-    pub fn update_block_device_path(
-        &mut self,
-        drive_id: String,
-        path_on_host: String,
-    ) -> Result<DriveError> {
-        // Get the block device configuration specified by drive_id.
-        let block_device_index = self
-            .block
-            .get_index_of_drive_id(&drive_id)
-            .ok_or(DriveError::InvalidBlockDeviceID)?;
-
-        let file_path = PathBuf::from(path_on_host);
-        // Try to open the file specified by path_on_host using the permissions of the block_device.
-        let _ = OpenOptions::new()
-            .read(true)
-            .write(!self.block.config_list[block_device_index].is_read_only())
-            .open(&file_path)
-            .map_err(DriveError::CannotOpenBlockDevice)?;
-
-        // Update the path of the block device with the specified path_on_host.
-        self.block.config_list[block_device_index].path_on_host = file_path;
-
-        Ok(())
-    }
-
     /// Inserts a network device to be attached when the VM starts.
     pub fn set_net_device(
         &mut self,
         body: NetworkInterfaceConfig,
     ) -> Result<NetworkInterfaceError> {
         self.network_interface.insert(body)
-    }
-
-    /// Updates configuration for an emulated net device as described in `new_cfg`.
-    pub fn update_net_rate_limiters(
-        &mut self,
-        new_cfg: NetworkInterfaceUpdateConfig,
-    ) -> Result<NetworkInterfaceError> {
-        let old_cfg = self
-            .network_interface
-            .iter_mut()
-            .find(|&&mut ref c| c.iface_id == new_cfg.iface_id)
-            .ok_or(NetworkInterfaceError::DeviceIdNotFound)?;
-
-        macro_rules! update_rate_limiter {
-            ($rate_limiter: ident) => {{
-                if let Some(new_rlim_cfg) = new_cfg.$rate_limiter {
-                    if let Some(ref mut old_rlim_cfg) = old_cfg.$rate_limiter {
-                        // We already have an RX rate limiter set, so we'll update it.
-                        old_rlim_cfg.update(&new_rlim_cfg);
-                    } else {
-                        // No old RX rate limiter; create one now.
-                        old_cfg.$rate_limiter = Some(new_rlim_cfg);
-                    }
-                }
-            }};
-        }
-
-        update_rate_limiter!(rx_rate_limiter);
-        update_rate_limiter!(tx_rate_limiter);
-        Ok(())
     }
 
     /// Sets a vsock device to be attached when the VM starts.
@@ -301,12 +244,9 @@ mod tests {
     use vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
     use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
     use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
-    use vmm_config::net::{
-        NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
-        NetworkInterfaceUpdateConfig,
-    };
+    use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError};
     use vmm_config::vsock::VsockDeviceConfig;
-    use vmm_config::{RateLimiterConfig, TokenBucketConfig};
+    use vmm_config::RateLimiterConfig;
     use vstate::VcpuConfig;
 
     fn default_net_cfgs() -> NetworkInterfaceConfigs {
@@ -793,84 +733,5 @@ mod tests {
 
         vm_resources.set_net_device(new_net_device_cfg).unwrap();
         assert_eq!(vm_resources.network_interface.len(), 2);
-    }
-
-    #[test]
-    fn test_update_block_device() {
-        let tmp_file = TempFile::new().unwrap();
-        let mut vm_resources = default_vm_resources();
-        let expected_file_path = tmp_file.as_path().to_path_buf();
-        let block_cfg_to_be_updated = vm_resources.block.config_list.get(0).unwrap().clone();
-        assert_ne!(block_cfg_to_be_updated.path_on_host, expected_file_path);
-        vm_resources
-            .update_block_device_path(
-                block_cfg_to_be_updated.drive_id.clone(),
-                String::from(expected_file_path.to_str().unwrap()),
-            )
-            .unwrap();
-        let updated_block_cfg = vm_resources.block.config_list.get(0).unwrap();
-        assert_eq!(updated_block_cfg.path_on_host, expected_file_path);
-
-        // InvalidBlockDeviceId.
-        assert_eq!(
-            vm_resources.update_block_device_path("id_does_not_exist".to_string(), "".to_string()),
-            Err(DriveError::InvalidBlockDeviceID)
-        );
-
-        // CannotOpenBlockDevice.
-        assert!(vm_resources
-            .update_block_device_path(
-                block_cfg_to_be_updated.drive_id.clone(),
-                "/does/not/exist".to_string()
-            )
-            .is_err());
-    }
-
-    #[test]
-    fn test_update_net_rate_limiters() {
-        let bw_tb = TokenBucketConfig {
-            size: 15,
-            one_time_burst: Some(5),
-            refill_time: 5,
-        };
-
-        let ops_tb = TokenBucketConfig {
-            size: 10,
-            one_time_burst: Some(2),
-            refill_time: 2,
-        };
-
-        let expected_rl_cfg = RateLimiterConfig {
-            bandwidth: Some(bw_tb),
-            ops: Some(ops_tb),
-        };
-
-        let mut vm_resources = default_vm_resources();
-        let actual_net_cfg = vm_resources.network_interface.iter().next().unwrap();
-        let actual_rx_rl_cfg = actual_net_cfg.rx_rate_limiter.unwrap();
-        let actual_tx_rl_cfg = actual_net_cfg.tx_rate_limiter.unwrap();
-        assert_ne!(actual_rx_rl_cfg, expected_rl_cfg);
-        assert_ne!(actual_tx_rl_cfg, expected_rl_cfg);
-
-        let mut net_if_cfg_update = NetworkInterfaceUpdateConfig {
-            iface_id: actual_net_cfg.iface_id.clone(),
-            rx_rate_limiter: Some(expected_rl_cfg),
-            tx_rate_limiter: Some(expected_rl_cfg),
-        };
-        vm_resources
-            .update_net_rate_limiters(net_if_cfg_update.clone())
-            .unwrap();
-        let actual_net_cfg = vm_resources.network_interface.iter().next().unwrap();
-        let actual_rx_rl_cfg = actual_net_cfg.rx_rate_limiter.unwrap();
-        let actual_tx_rl_cfg = actual_net_cfg.tx_rate_limiter.unwrap();
-        assert_eq!(actual_rx_rl_cfg, expected_rl_cfg);
-        assert_eq!(actual_tx_rl_cfg, expected_rl_cfg);
-
-        // DeviceIdNotFound.
-        net_if_cfg_update.iface_id = "net_if_does_not_exist".to_string();
-        match vm_resources.update_net_rate_limiters(net_if_cfg_update) {
-            Err(NetworkInterfaceError::DeviceIdNotFound { .. }) => (),
-            _ => unreachable!(),
-        }
     }
 }
