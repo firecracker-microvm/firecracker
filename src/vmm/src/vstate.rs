@@ -33,7 +33,6 @@ use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{Metric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
-use std::sync::Barrier;
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
@@ -1195,7 +1194,8 @@ impl Vcpu {
         }
     }
 
-    // Transition to the exited state
+    #[cfg(not(test))]
+    // Transition to the exited state.
     fn exit(&mut self, exit_code: u8) -> StateMachine<Self> {
         self.response_sender
             .send(VcpuResponse::Exited(exit_code))
@@ -1210,13 +1210,23 @@ impl Vcpu {
         StateMachine::next(Self::exited)
     }
 
+    #[cfg(not(test))]
     // This is the main loop of the `Exited` state.
     fn exited(&mut self) -> StateMachine<Self> {
         // Wait indefinitely.
         // The VMM thread will kill the entire process.
-        let barrier = Barrier::new(2);
+        let barrier = std::sync::Barrier::new(2);
         barrier.wait();
 
+        StateMachine::finish()
+    }
+
+    #[cfg(test)]
+    // In tests the main/vmm thread exits without 'exit()'ing the whole process.
+    // All channels get closed on the other side while this Vcpu thread is still running.
+    // This Vcpu thread should just do a clean finish without reporting back to the main thread.
+    fn exit(&mut self, _: u8) -> StateMachine<Self> {
+        // State machine reached its end.
         StateMachine::finish()
     }
 }
@@ -1664,7 +1674,7 @@ mod tests {
 
     #[cfg(target_arch = "x86_64")]
     #[test]
-    fn vcpu_pause_resume() {
+    fn test_vcpu_pause_resume() {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
         let mem_size = 64 << 20;
