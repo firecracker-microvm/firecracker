@@ -33,7 +33,6 @@ use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
 use kvm_ioctls::*;
 use logger::{Metric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
-use std::sync::Barrier;
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
@@ -879,11 +878,11 @@ impl Vcpu {
             })
             .map_err(Error::VcpuSpawn)?;
 
-        Ok(VcpuHandle {
+        Ok(VcpuHandle::new(
             event_sender,
             response_receiver,
             vcpu_thread,
-        })
+        ))
     }
 
     fn check_boot_complete_signal(&self, addr: u64, data: &[u8]) {
@@ -1195,7 +1194,8 @@ impl Vcpu {
         }
     }
 
-    // Transition to the exited state
+    #[cfg(not(test))]
+    // Transition to the exited state.
     fn exit(&mut self, exit_code: u8) -> StateMachine<Self> {
         self.response_sender
             .send(VcpuResponse::Exited(exit_code))
@@ -1210,13 +1210,23 @@ impl Vcpu {
         StateMachine::next(Self::exited)
     }
 
+    #[cfg(not(test))]
     // This is the main loop of the `Exited` state.
     fn exited(&mut self) -> StateMachine<Self> {
         // Wait indefinitely.
         // The VMM thread will kill the entire process.
-        let barrier = Barrier::new(2);
+        let barrier = std::sync::Barrier::new(2);
         barrier.wait();
 
+        StateMachine::finish()
+    }
+
+    #[cfg(test)]
+    // In tests the main/vmm thread exits without 'exit()'ing the whole process.
+    // All channels get closed on the other side while this Vcpu thread is still running.
+    // This Vcpu thread should just do a clean finish without reporting back to the main thread.
+    fn exit(&mut self, _: u8) -> StateMachine<Self> {
+        // State machine reached its end.
         StateMachine::finish()
     }
 }
@@ -1269,10 +1279,24 @@ pub enum VcpuResponse {
 pub struct VcpuHandle {
     event_sender: Sender<VcpuEvent>,
     response_receiver: Receiver<VcpuResponse>,
-    vcpu_thread: thread::JoinHandle<()>,
+    // Rust JoinHandles have to be wrapped in Option if you ever plan on 'join()'ing them.
+    // We want to be able to join these threads in tests.
+    vcpu_thread: Option<thread::JoinHandle<()>>,
 }
 
 impl VcpuHandle {
+    pub fn new(
+        event_sender: Sender<VcpuEvent>,
+        response_receiver: Receiver<VcpuResponse>,
+        vcpu_thread: thread::JoinHandle<()>,
+    ) -> Self {
+        Self {
+            event_sender,
+            response_receiver,
+            vcpu_thread: Some(vcpu_thread),
+        }
+    }
+
     pub fn send_event(&self, event: VcpuEvent) -> Result<()> {
         // Use expect() to crash if the other thread closed this channel.
         self.event_sender
@@ -1280,6 +1304,9 @@ impl VcpuHandle {
             .expect("event sender channel closed on vcpu end.");
         // Kick the vcpu so it picks up the message.
         self.vcpu_thread
+            .as_ref()
+            // Safe to unwrap since constructor make this 'Some'.
+            .unwrap()
             .kill(sigrtmin() + VCPU_RTSIG_OFFSET)
             .map_err(Error::SignalVcpu)?;
         Ok(())
@@ -1287,11 +1314,6 @@ impl VcpuHandle {
 
     pub fn response_receiver(&self) -> &Receiver<VcpuResponse> {
         &self.response_receiver
-    }
-
-    #[allow(dead_code)]
-    pub fn join_vcpu_thread(self) -> thread::Result<()> {
-        self.vcpu_thread.join()
     }
 }
 
@@ -1319,6 +1341,19 @@ mod tests {
 
     use utils::signal::validate_signal_num;
     use vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
+
+    // In tests we need to close any pending Vcpu threads on test completion.
+    impl Drop for VcpuHandle {
+        fn drop(&mut self) {
+            // Make sure the Vcpu is out of KVM_RUN.
+            self.send_event(VcpuEvent::Pause).unwrap();
+            // Close the original channel so that the Vcpu thread errors and goes to exit state.
+            let (event_sender, _event_receiver) = channel();
+            self.event_sender = event_sender;
+            // Wait for the Vcpu thread to finish execution
+            self.vcpu_thread.take().unwrap().join().unwrap();
+        }
+    }
 
     // Auxiliary function being used throughout the tests.
     fn setup_vcpu(mem_size: usize) -> (Vm, Vcpu, GuestMemoryMmap) {
@@ -1664,7 +1699,7 @@ mod tests {
 
     #[cfg(target_arch = "x86_64")]
     #[test]
-    fn vcpu_pause_resume() {
+    fn test_vcpu_pause_resume() {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
         let mem_size = 64 << 20;
