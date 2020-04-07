@@ -222,7 +222,11 @@ where
         uapi::VIRTIO_ID_VSOCK
     }
 
-    fn queues(&mut self) -> &mut [VirtQueue] {
+    fn queues(&self) -> &[VirtQueue] {
+        &self.queues
+    }
+
+    fn queues_mut(&mut self) -> &mut [VirtQueue] {
         &mut self.queues
     }
 

@@ -719,6 +719,7 @@ dependencies = [
  "serde_derive 1.0.105 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.0",
+ "vm-memory 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm-sys-util 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
