@@ -860,7 +860,13 @@ pub mod tests {
             block_files.push(TempFile::new().unwrap());
             let block_device_config = BlockDeviceConfig {
                 drive_id: String::from(&custom_block_cfg.drive_id),
-                path_on_host: block_files.last().unwrap().as_path().to_path_buf(),
+                path_on_host: block_files
+                    .last()
+                    .unwrap()
+                    .as_path()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
                 is_root_device: custom_block_cfg.is_root_device,
                 partuuid: custom_block_cfg.partuuid.clone(),
                 is_read_only: custom_block_cfg.is_read_only,

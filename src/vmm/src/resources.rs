@@ -316,7 +316,7 @@ mod tests {
         (
             BlockDeviceConfig {
                 drive_id: "block1".to_string(),
-                path_on_host: tmp_file.as_path().to_path_buf(),
+                path_on_host: tmp_file.as_path().to_str().unwrap().to_string(),
                 is_root_device: false,
                 partuuid: Some("0eaa91a0-01".to_string()),
                 is_read_only: false,
@@ -778,7 +778,7 @@ mod tests {
         let (mut new_block_device_cfg, _file) = default_block_cfg();
         let tmp_file = TempFile::new().unwrap();
         new_block_device_cfg.drive_id = "block2".to_string();
-        new_block_device_cfg.path_on_host = tmp_file.as_path().to_path_buf();
+        new_block_device_cfg.path_on_host = tmp_file.as_path().to_str().unwrap().to_string();
         assert_eq!(vm_resources.block.list.len(), 1);
         vm_resources.set_block_device(new_block_device_cfg).unwrap();
         assert_eq!(vm_resources.block.list.len(), 2);
