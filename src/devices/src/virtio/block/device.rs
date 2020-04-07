@@ -7,9 +7,10 @@
 
 use std::cmp;
 use std::convert::From;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
+use std::path::PathBuf;
 use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -81,26 +82,27 @@ fn build_disk_image_id(disk_image: &File) -> Vec<u8> {
 pub struct Block {
     // Host file and properties.
     disk_image: File,
+    pub(crate) disk_image_path: String,
     disk_nsectors: u64,
     disk_image_id: Vec<u8>,
 
     // Virtio fields.
-    avail_features: u64,
-    acked_features: u64,
+    pub(crate) avail_features: u64,
+    pub(crate) acked_features: u64,
     config_space: Vec<u8>,
     pub(crate) activate_evt: EventFd,
 
     // Transport related fields.
-    queues: Vec<Queue>,
-    interrupt_status: Arc<AtomicUsize>,
+    pub(crate) queues: Vec<Queue>,
+    pub(crate) interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
     pub(crate) queue_evts: [EventFd; 1],
     pub(crate) device_state: DeviceState,
 
     // Implementation specific fields.
-    id: String,
-    partuuid: Option<String>,
-    root_device: bool,
+    pub(crate) id: String,
+    pub(crate) partuuid: Option<String>,
+    pub(crate) root_device: bool,
     pub(crate) rate_limiter: RateLimiter,
 }
 
@@ -110,12 +112,17 @@ impl Block {
     /// The given file must be seekable and sizable.
     pub fn new(
         id: String,
-        mut disk_image: File,
         partuuid: Option<String>,
+        disk_image_path: String,
         is_disk_read_only: bool,
         is_disk_root: bool,
         rate_limiter: RateLimiter,
     ) -> io::Result<Block> {
+        let mut disk_image = OpenOptions::new()
+            .read(true)
+            .write(!is_disk_read_only)
+            .open(PathBuf::from(&disk_image_path))?;
+
         let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
@@ -134,6 +141,7 @@ impl Block {
             partuuid,
             disk_image_id: build_disk_image_id(&disk_image),
             disk_image,
+            disk_image_path: disk_image_path.clone(),
             disk_nsectors: disk_size / SECTOR_SIZE,
             avail_features,
             acked_features: 0u64,
@@ -412,14 +420,22 @@ pub(crate) mod tests {
     pub fn default_block() -> Block {
         // Create backing file.
         let f = TempFile::new().unwrap();
-        let block_file = f.into_file();
-        block_file.set_len(0x1000).unwrap();
+        f.as_file().set_len(0x1000).unwrap();
 
         // Rate limiting is enabled but with a high operation rate (10 million ops/s).
         let rate_limiter = RateLimiter::new(0, None, 0, 100_000, None, 10).unwrap();
 
         let id = "test".to_string();
-        Block::new(id, block_file, None, true, false, rate_limiter).unwrap()
+        // The default block device is read-write and non-root.
+        Block::new(
+            id,
+            None,
+            f.as_path().to_str().unwrap().to_string(),
+            false,
+            false,
+            rate_limiter,
+        )
+        .unwrap()
     }
 
     pub fn default_mem() -> GuestMemoryMmap {
@@ -480,8 +496,7 @@ pub(crate) mod tests {
 
         assert_eq!(block.device_type(), TYPE_BLOCK);
 
-        let features: u64 =
-            (1u64 << VIRTIO_BLK_F_RO) | (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
+        let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
 
         assert_eq!(block.avail_features_by_page(0), features as u32);
         assert_eq!(block.avail_features_by_page(1), (features >> 32) as u32);
