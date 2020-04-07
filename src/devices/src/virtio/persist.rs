@@ -3,6 +3,7 @@
 
 //! Defines the structures needed for saving/restoring Virtio primitives.
 
+use super::device::*;
 use super::queue::*;
 use crate::vm_memory::Address;
 use snapshot::Persist;
@@ -11,6 +12,7 @@ use versionize_derive::Versionize;
 use vm_memory::GuestAddress;
 
 use std::num::Wrapping;
+use std::sync::atomic::Ordering;
 
 #[derive(Clone, Debug, PartialEq, Versionize)]
 pub struct QueueState {
@@ -71,12 +73,35 @@ impl Persist for Queue {
     }
 }
 
+/// State of a VirtioDevice.
+#[derive(Debug, PartialEq, Versionize)]
+pub struct VirtioDeviceState {
+    pub avail_features: u64,
+    pub acked_features: u64,
+    pub queues: Vec<QueueState>,
+    pub interrupt_status: usize,
+    pub activated: bool,
+}
+
+impl VirtioDeviceState {
+    pub fn from_device(device: &dyn VirtioDevice) -> Self {
+        VirtioDeviceState {
+            avail_features: device.avail_features(),
+            acked_features: device.acked_features(),
+            queues: device.queues().iter().map(Persist::save).collect(),
+            interrupt_status: device.interrupt_status().load(Ordering::Relaxed),
+            activated: device.is_activated(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::virtio::mmio::tests::DummyDevice;
 
     #[test]
-    fn test_persistence() {
+    fn test_persistance() {
         let queue = Queue::new(128);
 
         let mut mem = vec![0; 4096];
@@ -94,5 +119,21 @@ mod tests {
         .unwrap();
 
         assert_eq!(restored_queue, queue);
+    }
+
+    #[test]
+    fn test_virtio_device_state_versionize() {
+        let dummy = DummyDevice::new();
+        let mut mem = vec![0; 4096];
+        let version_map = VersionMap::new();
+
+        let state = VirtioDeviceState::from_device(&dummy);
+        state
+            .serialize(&mut mem.as_mut_slice(), &version_map, 1)
+            .unwrap();
+
+        let restored_state =
+            VirtioDeviceState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap();
+        assert_eq!(restored_state, state);
     }
 }

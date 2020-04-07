@@ -363,7 +363,11 @@ mod tests {
             0
         }
 
-        fn queues(&mut self) -> &mut [Queue] {
+        fn queues(&self) -> &[Queue] {
+            &self.queues
+        }
+
+        fn queues_mut(&mut self) -> &mut [Queue] {
             &mut self.queues
         }
 
@@ -473,7 +477,7 @@ mod tests {
 
     #[test]
     fn test_dummy_device() {
-        let mut dummy = DummyDevice::new();
+        let dummy = DummyDevice::new();
         assert_eq!(dummy.device_type(), 0);
         assert_eq!(dummy.queues().len(), QUEUE_SIZES.len());
     }

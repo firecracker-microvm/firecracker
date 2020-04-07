@@ -294,7 +294,11 @@ impl VirtioDevice for Block {
         TYPE_BLOCK
     }
 
-    fn queues(&mut self) -> &mut [Queue] {
+    fn queues(&self) -> &[Queue] {
+        &self.queues
+    }
+
+    fn queues_mut(&mut self) -> &mut [Queue] {
         &mut self.queues
     }
 
