@@ -97,12 +97,14 @@ impl Net {
     /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
         id: String,
-        tap: Tap,
+        tap_dev_name: String,
         guest_mac: Option<&MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
         allow_mmds_requests: bool,
     ) -> Result<Self> {
+        let tap = Tap::open_named(&tap_dev_name).map_err(Error::TapOpen)?;
+
         // Set offload flags to match the virtio features below.
         tap.set_offload(
             net_gen::TUN_F_CSUM | net_gen::TUN_F_UFO | net_gen::TUN_F_TSO4 | net_gen::TUN_F_TSO6,
@@ -757,7 +759,6 @@ pub(crate) mod tests {
     use polly::event_manager::{EventManager, Subscriber};
     use rate_limiter::{RateLimiter, TokenBucket, TokenType};
     use utils::epoll::{EpollEvent, EventSet};
-    use utils::net::Tap;
     use virtio_gen::virtio_net::{
         virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
         VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
@@ -790,20 +791,20 @@ pub(crate) mod tests {
     impl Net {
         pub fn default_net(test_mutators: TestMutators) -> Net {
             let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
-            let tap = Tap::open_named(&format!("net-device{}", next_tap)).unwrap();
-            tap.enable().unwrap();
+            let tap_dev_name = format!("net-device{}", next_tap);
 
             let guest_mac = Net::default_guest_mac();
 
             let mut net = Net::new_with_tap(
                 format!("net-device{}", next_tap),
-                tap,
+                tap_dev_name.clone(),
                 Some(&guest_mac),
                 RateLimiter::default(),
                 RateLimiter::default(),
                 true,
             )
             .unwrap();
+            net.tap.enable().unwrap();
             net.test_mutators = test_mutators;
 
             net

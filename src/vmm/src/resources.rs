@@ -601,7 +601,9 @@ mod tests {
         );
 
         match VmResources::from_json(json.as_str(), "some_version") {
-            Err(Error::NetDevice(NetworkInterfaceError::OpenTap { .. })) => (),
+            Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
+                devices::virtio::net::Error::TapOpen { .. },
+            ))) => (),
             _ => unreachable!(),
         }
 
