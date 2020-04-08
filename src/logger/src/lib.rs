@@ -21,13 +21,10 @@ pub use log::*;
 pub use logger::{LoggerError, LOGGER};
 pub use metrics::{Metric, MetricsError, METRICS};
 
-use std::io::Write;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::LockResult;
 
-fn buf_guard(
-    buf: &Mutex<Option<Box<dyn Write + Send>>>,
-) -> MutexGuard<Option<Box<dyn Write + Send>>> {
-    match buf.lock() {
+fn extract_guard<G>(lock_result: LockResult<G>) -> G {
+    match lock_result {
         Ok(guard) => guard,
         // If a thread panics while holding this lock, the writer within should still be usable.
         // (we might get an incomplete log line or something like that).

@@ -101,7 +101,7 @@ use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadat
 use metrics::{Metric, METRICS};
 use utils::time::LocalTime;
 
-use super::buf_guard;
+use super::extract_guard;
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
@@ -235,11 +235,8 @@ impl Logger {
 
     /// Sets the ID for this logger session.
     pub fn set_instance_id(&self, instance_id: String) -> &Self {
-        let mut id_guard = match self.instance_id.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        *id_guard = instance_id;
+        let mut guard = extract_guard(self.instance_id.write());
+        *guard = instance_id;
         self
     }
 
@@ -280,10 +277,7 @@ impl Logger {
     /// Creates the first portion (to the left of the separator)
     /// of the log statement based on the logger settings.
     fn create_prefix(&self, record: &Record) -> String {
-        let ins_id = match self.instance_id.read() {
-            Ok(guard) => guard.to_string(),
-            Err(poisoned) => poisoned.into_inner().to_string(),
-        };
+        let ins_id = extract_guard(self.instance_id.read()).to_string();
 
         let level = if self.show_level() {
             record.level().to_string()
@@ -410,7 +404,7 @@ impl Logger {
     pub fn init(&self, header: String, log_dest: Box<dyn Write + Send>) -> Result<()> {
         self.try_lock(Self::INITIALIZING)?;
         {
-            let mut g = buf_guard(&self.log_buf);
+            let mut g = extract_guard(self.log_buf.lock());
 
             *g = Some(log_dest);
         }
@@ -428,7 +422,7 @@ impl Logger {
     // care of the common logic involved in writing regular log messages.
     fn write_log(&self, msg: String, msg_level: Level) {
         if self.state.load(Ordering::Relaxed) == Self::INITIALIZED {
-            if let Some(guard) = buf_guard(&self.log_buf).as_mut() {
+            if let Some(guard) = extract_guard(self.log_buf.lock()).as_mut() {
                 // No need to explicitly call flush because the underlying LineWriter flushes
                 // automatically whenever a newline is detected (and we always end with a
                 // newline the current write).
