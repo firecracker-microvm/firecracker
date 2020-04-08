@@ -178,7 +178,7 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         guest_mac='06:00:00:00:00:01'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Cannot open TAP device. Invalid name/permissions. CreateTap" \
+    assert "Could not create Network Device" \
         in response.text
 
     # Updates to a network interface with an available name are allowed.
