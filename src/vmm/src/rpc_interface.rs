@@ -28,6 +28,7 @@ use version_map::VERSION_MAP;
 use vmm_config;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::drive::{BlockDeviceConfig, DriveError};
+use vmm_config::instance_info::InstanceInfo;
 use vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::metrics::{MetricsConfig, MetricsConfigError};
@@ -183,7 +184,7 @@ pub enum VmmData {
 /// Enables pre-boot setup and instantiation of a Firecracker VMM.
 pub struct PrebootApiController<'a> {
     seccomp_filter: BpfProgram,
-    firecracker_version: String,
+    instance_info: InstanceInfo,
     vm_resources: &'a mut VmResources,
     event_manager: &'a mut EventManager,
     built_vmm: Option<Arc<Mutex<Vmm>>>,
@@ -193,13 +194,13 @@ impl<'a> PrebootApiController<'a> {
     /// Constructor for the PrebootApiController.
     pub fn new(
         seccomp_filter: BpfProgram,
-        firecracker_version: String,
+        instance_info: InstanceInfo,
         vm_resources: &'a mut VmResources,
         event_manager: &'a mut EventManager,
     ) -> PrebootApiController<'a> {
         PrebootApiController {
             seccomp_filter,
-            firecracker_version,
+            instance_info,
             vm_resources,
             event_manager,
             built_vmm: None,
@@ -214,7 +215,7 @@ impl<'a> PrebootApiController<'a> {
     pub fn build_microvm_from_requests<F, G>(
         seccomp_filter: BpfProgram,
         event_manager: &mut EventManager,
-        firecracker_version: String,
+        instance_info: InstanceInfo,
         recv_req: F,
         respond: G,
     ) -> (VmResources, Arc<Mutex<Vmm>>)
@@ -225,7 +226,7 @@ impl<'a> PrebootApiController<'a> {
         let mut vm_resources = VmResources::default();
         let mut preboot_controller = PrebootApiController::new(
             seccomp_filter,
-            firecracker_version,
+            instance_info,
             &mut vm_resources,
             event_manager,
         );
@@ -258,7 +259,7 @@ impl<'a> PrebootApiController<'a> {
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::BootSource),
             ConfigureLogger(logger_cfg) => {
-                vmm_config::logger::init_logger(logger_cfg, &self.firecracker_version)
+                vmm_config::logger::init_logger(logger_cfg, &self.instance_info)
                     .map(|_| VmmData::Empty)
                     .map_err(VmmActionError::Logger)
             }
