@@ -107,7 +107,6 @@ pub type Result<T> = result::Result<T, LoggerError>;
 
 // Values used by the Logger.
 const IN_PREFIX_SEPARATOR: &str = ":";
-const MSG_SEPARATOR: &str = " ";
 const DEFAULT_MAX_LEVEL: LevelFilter = LevelFilter::Warn;
 
 lazy_static! {
@@ -478,10 +477,9 @@ impl Log for Logger {
 
     fn log(&self, record: &Record) {
         let msg = format!(
-            "{}{}{}{}",
+            "{}{} {}",
             LocalTime::now(),
             self.create_prefix(&record),
-            MSG_SEPARATOR,
             record.args()
         );
         self.write_log(msg, record.metadata().level());
