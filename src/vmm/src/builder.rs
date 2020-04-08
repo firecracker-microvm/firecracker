@@ -740,7 +740,6 @@ fn attach_unixsock_vsock_device(
 
 #[cfg(test)]
 pub mod tests {
-    use std::fs::File;
     use std::io::Cursor;
 
     use super::*;
@@ -754,19 +753,6 @@ pub mod tests {
     use vmm_config::net::NetworkInterfaceConfig;
     use vmm_config::vsock::tests::{default_config, TempSockFile};
     use vmm_config::vsock::VsockBuilder;
-
-    struct SerialInput(File);
-    impl io::Read for SerialInput {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            self.0.read(buf)
-        }
-    }
-    impl AsRawFd for SerialInput {
-        fn as_raw_fd(&self) -> RawFd {
-            self.0.as_raw_fd()
-        }
-    }
-    impl devices::legacy::ReadableFd for SerialInput {}
 
     struct CustomBlockConfig {
         drive_id: String,
@@ -938,20 +924,6 @@ pub mod tests {
             StartMicrovmError::InitrdLoad.to_string(),
             res.err().unwrap().to_string()
         );
-    }
-
-    #[test]
-    fn test_setup_serial_device() {
-        let read_tempfile = TempFile::new().unwrap();
-        let read_handle = SerialInput(read_tempfile.into_file());
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-
-        assert!(setup_serial_device(
-            &mut event_manager,
-            Box::new(read_handle),
-            Box::new(io::stdout()),
-        )
-        .is_ok());
     }
 
     #[test]
