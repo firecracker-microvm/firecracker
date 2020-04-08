@@ -3,8 +3,9 @@
 """Utilities for measuring memory utilization for a process."""
 import time
 
-from subprocess import run, CalledProcessError, PIPE
 from threading import Thread
+
+import framework.utils as utils
 
 
 MAX_MEMORY = 5 * 1024
@@ -47,13 +48,9 @@ def _memory_cop(mem_size_mib, pid, exceeded_queue):
     while True:
         mem_total = 0
         try:
-            pmap_out = run(
-                pmap_cmd,
-                shell=True,
-                check=True,
-                stdout=PIPE
-            ).stdout.decode('utf-8').split('\n')
-        except CalledProcessError:
+            _, stdout, _ = utils.run_cmd(pmap_cmd)
+            pmap_out = stdout.split("\n")
+        except ChildProcessError:
             break
         for line in pmap_out:
             tokens = line.split()

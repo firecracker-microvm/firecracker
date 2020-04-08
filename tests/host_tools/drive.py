@@ -4,7 +4,7 @@
 
 import os
 
-from subprocess import run
+import framework.utils as utils
 
 
 class FilesystemFile:
@@ -29,24 +29,17 @@ class FilesystemFile:
         if os.path.isfile(path):
             raise FileExistsError("File already exists: " + path)
 
-        run(
+        utils.run_cmd(
             'dd status=none if=/dev/zero'
             '    of=' + path +
-            '    bs=1M count=' + str(size),
-            shell=True,
-            check=True
-        )
-        run('mkfs.ext4 -qF ' + path, shell=True, check=True)
+            '    bs=1M count=' + str(size))
+        utils.run_cmd('mkfs.ext4 -qF ' + path)
         self.path = path
 
     def resize(self, new_size):
         """Resize the filesystem."""
-        run(
-            'truncate --size ' + str(new_size) + 'M ' + self.path,
-            shell=True,
-            check=True
-        )
-        run('resize2fs ' + self.path, shell=True, check=True)
+        utils.run_cmd('truncate --size ' + str(new_size) + 'M ' + self.path)
+        utils.run_cmd('resize2fs ' + self.path)
 
     def size(self):
         """Return the size of the filesystem."""

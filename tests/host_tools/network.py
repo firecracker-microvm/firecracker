@@ -6,13 +6,12 @@ import os
 import socket
 import struct
 
-from io import BytesIO
-from subprocess import run, PIPE
-
+from io import StringIO
 from nsenter import Namespace
 from retry import retry
 
 import framework.mpsing as mpsing
+import framework.utils as utils
 
 
 class SSHConnection:
@@ -42,7 +41,7 @@ class SSHConnection:
     def execute_command(self, cmd_string):
         """Execute the command passed as a string in the ssh context."""
         exit_code, stdout, stderr = self._exec(cmd_string)
-        return exit_code, BytesIO(stdout), BytesIO(stderr)
+        return exit_code, StringIO(stdout), StringIO(stderr)
 
     def scp_file(self, local_path, remote_path):
         """Copy a files to the VM using scp."""
@@ -57,9 +56,9 @@ class SSHConnection:
         )
         if self.netns_file_path:
             with Namespace(self.netns_file_path, 'net'):
-                run(cmd, shell=True, check=True)
+                utils.run_cmd(cmd)
         else:
-            run(cmd, shell=True, check=True)
+            utils.run_cmd(cmd)
 
     @retry(ConnectionError, delay=0.1, tries=20)
     def _init_connection(self):
@@ -78,7 +77,7 @@ class SSHConnection:
         """Private function that handles the ssh client invocation."""
         def _exec_raw(_cmd):
             # pylint: disable=subprocess-run-check
-            cp = run([
+            cp = utils.run_cmd([
                 "ssh",
                 "-q",
                 "-o", "ConnectTimeout=1",
@@ -89,8 +88,9 @@ class SSHConnection:
                     self.ssh_config["username"],
                     self.ssh_config["hostname"]
                 ),
-                _cmd
-            ], stdout=PIPE, stderr=PIPE)
+                _cmd],
+                ignore_return_code=True)
+
             _res = (
                 cp.returncode,
                 cp.stdout,
@@ -291,22 +291,14 @@ class Tap:
         The function also moves the interface to the specified
         namespace.
         """
-        run(
-            'ip tuntap add mode tap name ' + name,
-            shell=True,
-            check=True
-        )
-        run(
-            'ip link set {} netns {}'.format(name, netns),
-            shell=True,
-            check=True
-        )
+        utils.run_cmd('ip tuntap add mode tap name ' + name)
+        utils.run_cmd('ip link set {} netns {}'.format(name, netns))
         if ip:
-            run('ip netns exec {} ifconfig {} {} up'.format(
+            utils.run_cmd('ip netns exec {} ifconfig {} {} up'.format(
                 netns,
                 name,
                 ip
-            ), shell=True, check=True)
+            ))
         self._name = name
         self._netns = netns
 
@@ -323,24 +315,17 @@ class Tap:
     def __del__(self):
         """Destructor doing tap interface clean up."""
         # pylint: disable=subprocess-run-check
-        _ = run(
+        _ = utils.run_cmd(
             'ip netns exec {} ip link set {} down'.format(
                 self.netns,
                 self.name
-            ),
-            shell=True,
-            stderr=PIPE
+            )
         )
-        _ = run(
-            'ip netns exec {} ip link delete {}'.format(self.netns, self.name),
-            shell=True,
-            stderr=PIPE
-        )
-        _ = run(
+        _ = utils.run_cmd(
+            'ip netns exec {} ip link delete {}'.format(self.netns, self.name))
+        _ = utils.run_cmd(
             'ip netns exec {} ip tuntap del mode tap name {}'.format(
                 self.netns,
                 self.name
-            ),
-            shell=True,
-            stderr=PIPE
+            )
         )

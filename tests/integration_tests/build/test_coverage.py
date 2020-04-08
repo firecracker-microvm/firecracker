@@ -12,11 +12,9 @@
 import os
 import platform
 import re
-
-from subprocess import run
-
 import pytest
 
+import framework.utils as utils
 import host_tools.cargo_build as host  # pylint: disable=import-error
 
 COVERAGE_TARGET_PCT = 83.00
@@ -73,7 +71,7 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
     )
     # By default, `cargo kcov` passes `--exclude-pattern=$CARGO_HOME --verify`
     # to kcov. To pass others arguments, we need to include the defaults.
-    run(cmd, shell=True, check=True)
+    utils.run_cmd(cmd)
 
     coverage_file = os.path.join(test_session_tmp_path, KCOV_COVERAGE_FILE)
     with open(coverage_file) as cov_output:

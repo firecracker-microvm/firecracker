@@ -3,11 +3,37 @@
 """Generic utility functions that are used in the framework."""
 import asyncio
 import glob
+import logging
 import os
 import re
-import subprocess
 import threading
 import typing
+
+from collections import namedtuple
+
+CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
+CMDLOG = logging.getLogger("commands")
+
+
+class StoppableThread(threading.Thread):
+    """
+    Thread class with a stop() method.
+
+    The thread itself has to check regularly for the stopped() condition.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """Set up a Stoppable thread."""
+        super(StoppableThread, self).__init__(*args, **kwargs)
+        self._should_stop = False
+
+    def stop(self):
+        """Set that the thread should stop."""
+        self._should_stop = True
+
+    def stopped(self):
+        """Check if the thread was stopped."""
+        return self._should_stop
 
 
 def search_output_from_cmd(cmd: str,
@@ -22,11 +48,10 @@ def search_output_from_cmd(cmd: str,
     :return: result of re.search()
     """
     # Run the given command in a shell
-    out = subprocess.run(cmd, shell=True, check=True,
-                         stdout=subprocess.PIPE).stdout.decode("utf-8")
+    _, stdout, _ = run_cmd(cmd)
 
     # Search for the object
-    content = re.search(find_regex, out)
+    content = re.search(find_regex, stdout)
 
     # If the result is not None, return it
     if content:
@@ -63,18 +88,28 @@ def get_files_from(find_path: str, pattern: str, exclude_names: list = None,
     return found
 
 
-async def run_cmd_async(cmd):
+async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
     """
     Create a coroutine that executes a given command.
 
     :param cmd: command to execute
-    :return: stdout, stderr
+    :param ignore_return_code: whether a non-zero return code should be ignored
+    :param noshell: don't run the command in a sub-shell
+    :return: return code, stdout, stderr
     """
-    # Create the async process
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE)
+    proc = None
+
+    if isinstance(cmd, list) or no_shell:
+        # Create the async process
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE)
+    else:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE)
 
     # Capture stdin/stdout
     stdout, stderr = await proc.communicate()
@@ -87,7 +122,7 @@ async def run_cmd_async(cmd):
         output_message += f"\n[{proc.pid}] stderr:\n{stderr.decode()}"
 
     # If a non-zero return code was thrown, raise an exception
-    if proc.returncode != 0:
+    if not ignore_return_code and proc.returncode != 0:
         output_message += \
             f"\nReturned error code: {proc.returncode}"
 
@@ -96,22 +131,14 @@ async def run_cmd_async(cmd):
                 f"\nstderr:\n{stderr.decode()}"
         raise ChildProcessError(output_message)
 
-    # Print the message with one call so that multiple statuses
+    # Log the message with one call so that multiple statuses
     # don't get mixed up
-    print(output_message)
+    CMDLOG.debug(output_message)
 
-    return stdout.decode(), stderr.decode()
-
-
-def run_cmd(cmd):
-    """
-    Run a command using the async function that logs the output.
-
-    :param cmd: command to run
-    :returns: tuple of (stdout, stderr)
-    """
-    return asyncio.get_event_loop().run_until_complete(
-        run_cmd_async(cmd))
+    return CommandReturn(
+        proc.returncode,
+        stdout.decode(),
+        stderr.decode())
 
 
 def run_cmd_list_async(cmd_list):
@@ -136,22 +163,19 @@ def run_cmd_list_async(cmd_list):
     )
 
 
-class StoppableThread(threading.Thread):
+def run_cmd(cmd, ignore_return_code=False, no_shell=False):
     """
-    Thread class with a stop() method.
+    Run a command using the async function that logs the output.
 
-    The thread itself has to check regularly for the stopped() condition.
+    :param cmd: command to run
+    :param ignore_return_code: whether a non-zero return code should be ignored
+    :param noshell: don't run the command in a sub-shell
+    :returns: tuple of (return code, stdout, stderr)
     """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-    def __init__(self, *args, **kwargs):
-        """Set up a Stoppable thread."""
-        super(StoppableThread, self).__init__(*args, **kwargs)
-        self._should_stop = False
-
-    def stop(self):
-        """Set that the thread should stop."""
-        self._should_stop = True
-
-    def stopped(self):
-        """Check if the thread was stopped."""
-        return self._should_stop
+    return loop.run_until_complete(
+        run_cmd_async(cmd=cmd,
+                      ignore_return_code=ignore_return_code,
+                      no_shell=no_shell))

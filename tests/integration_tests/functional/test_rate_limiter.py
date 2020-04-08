@@ -3,8 +3,7 @@
 """Tests that fail if network throughput does not obey rate limits."""
 import time
 
-from subprocess import run, PIPE
-
+import framework.utils as utils
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 # The iperf version to run this tests with
@@ -452,24 +451,23 @@ def _run_iperf_on_guest(test_microvm, iperf_cmd, hostname):
     test_microvm.ssh_config['hostname'] = hostname
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     _, stdout, stderr = ssh_connection.execute_command(iperf_cmd)
-    assert stderr.read().decode('utf-8') == ''
+    assert stderr.read() == ''
 
-    out = stdout.read().decode('utf-8')
+    out = stdout.read()
     return out
 
 
 def _start_local_iperf(netns_cmd_prefix):
     """Start iperf in server mode after killing any leftover iperf daemon."""
-    # pylint: disable=subprocess-run-check
     iperf_cmd = 'pkill {}\n'.format(IPERF_BINARY)
 
     # Don't check the result of this command because it can fail if no iperf
     # is running.
-    run(iperf_cmd, shell=True)
+    utils.run_cmd(iperf_cmd, ignore_return_code=True)
 
     iperf_cmd = '{} {} -sD -f KBytes\n'.format(netns_cmd_prefix, IPERF_BINARY)
 
-    run(iperf_cmd, shell=True, check=True)
+    utils.run_cmd(iperf_cmd)
 
     # Wait for the iperf daemon to start.
     time.sleep(2)
@@ -477,8 +475,8 @@ def _start_local_iperf(netns_cmd_prefix):
 
 def _run_local_iperf(iperf_cmd):
     """Execute a client related iperf command locally."""
-    process = run(iperf_cmd, shell=True, stdout=PIPE, check=True)
-    return process.stdout.decode('utf-8')
+    process = utils.run_cmd(iperf_cmd)
+    return process.stdout
 
 
 def _get_difference(current, previous):

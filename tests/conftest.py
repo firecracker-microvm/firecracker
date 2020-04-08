@@ -70,9 +70,6 @@ be run on every microvm image in the bucket, each as a separate test case.
 - Reading up on pytest fixtures is probably needed when editing this file.
 
 # TODO
-
-- A fixture that wraps `subprocess.run('<command>, shell=True, check=True)`,
-  and also controls output verbosity by appending `>/dev/null [&2>1]`.
 - A fixture that allows per-test-function dependency installation.
 - Support generating fixtures with more than one capability. This is supported
   by the MicrovmImageFetcher, but not by the fixture template.
@@ -81,7 +78,6 @@ be run on every microvm image in the bucket, each as a separate test case.
 import os
 import platform
 import shutil
-from subprocess import run
 import sys
 import tempfile
 import uuid
@@ -91,6 +87,7 @@ import pytest
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
 
+import framework.utils as utils
 from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
 from framework.scheduler import PytestScheduler
@@ -201,11 +198,7 @@ def _gcc_compile(src_file, output_file):
         src_file,
         output_file
     )
-    run(
-        compile_cmd,
-        shell=True,
-        check=True
-    )
+    utils.run_cmd(compile_cmd)
 
 
 @pytest.fixture(scope='session')
