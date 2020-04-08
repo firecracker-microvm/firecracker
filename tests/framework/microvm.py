@@ -16,7 +16,6 @@ from queue import Queue
 import re
 import select
 import time
-from subprocess import run, PIPE
 
 from retry import retry
 from retry.api import retry_call
@@ -132,14 +131,15 @@ class Microvm:
         # pylint: disable=subprocess-run-check
         if self.logging_thread is not None:
             self.logging_thread.stop()
+
         if self._jailer.daemonize:
             if self.jailer_clone_pid:
-                run('kill -9 {}'.format(self.jailer_clone_pid), shell=True)
+                utils.run_cmd(
+                    'kill -9 {}'.format(self.jailer_clone_pid),
+                    ignore_return_code=True)
         else:
-            run(
-                'screen -XS {} kill'.format(self._session_name),
-                shell=True
-            )
+            utils.run_cmd(
+                'screen -XS {} kill'.format(self._session_name))
 
         if self._memory_events_queue and not self._memory_events_queue.empty():
             raise mem_tools.MemoryUsageExceededException(
@@ -327,7 +327,7 @@ class Microvm:
                 cmd = [self.bin_cloner_path] + \
                       [self._jailer_binary_path] + \
                     jailer_param_list
-                _p = run(cmd, stdout=PIPE, stderr=PIPE, check=True)
+                _p = utils.run_cmd(cmd)
                 # Terrible hack to make the tests fail when starting the
                 # jailer fails with a panic. This is needed because we can't
                 # get the exit code of the jailer. In newpid_clone.c we are
@@ -335,9 +335,9 @@ class Microvm:
                 # clone was successful (which in most cases will be) and we
                 # don't do anything if the jailer was not started
                 # successfully.
-                if _p.stderr.decode().strip():
-                    raise Exception(_p.stderr.decode())
-                self.jailer_clone_pid = int(_p.stdout.decode().rstrip())
+                if _p.stderr.strip():
+                    raise Exception(_p.stderr)
+                self.jailer_clone_pid = int(_p.stdout.rstrip())
             else:
                 # This code path is not used at the moment, but I just feel
                 # it's nice to have a fallback mechanism in place, in case
@@ -366,7 +366,7 @@ class Microvm:
                 params=' '.join(jailer_param_list)
             )
 
-            run(start_cmd, shell=True, check=True)
+            utils.run_cmd(start_cmd)
 
             # Build a regex object to match (number).session_name
             regex_object = re.compile(
@@ -392,8 +392,7 @@ class Microvm:
 
             # Configure screen to flush stdout to file.
             flush_cmd = 'screen -S {session} -X colon "logfile flush 0^M"'
-            run(flush_cmd.format(session=self._session_name),
-                shell=True, check=True)
+            utils.run_cmd(flush_cmd.format(session=self._session_name))
 
         # Wait for the jailer to create resources needed, and Firecracker to
         # create its API socket.
@@ -418,9 +417,8 @@ class Microvm:
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
         input_cmd = 'screen -S {session} -p 0 -X stuff "{input_string}^M"'
-        run(input_cmd.format(session=self._session_name,
-                             input_string=input_string),
-            shell=True, check=True)
+        utils.run_cmd(input_cmd.format(session=self._session_name,
+                                       input_string=input_string))
 
     def basic_config(
         self,

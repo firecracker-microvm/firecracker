@@ -43,9 +43,9 @@ def _check_guest_cmd_output(test_microvm, guest_cmd, expected_header,
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
 
-    assert stderr.read().decode("utf-8") == ''
+    assert stderr.read() == ''
     while True:
-        line = stdout.readline().decode('utf-8')
+        line = stdout.readline()
         if line != '':
             # All the keys have been matched. Stop.
             if not expected_key_value_store:
@@ -280,9 +280,9 @@ def test_brand_string(test_microvm_with_ssh, network_config):
 
     guest_cmd = "cat /proc/cpuinfo | grep 'model name' | head -1"
     _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
-    assert stderr.read().decode("utf-8") == ''
+    assert stderr.read() == ''
 
-    line = stdout.readline().decode('utf-8').rstrip()
+    line = stdout.readline().rstrip()
     mo = re.search("^model name\\s+:\\s+(.+)$", line)
     assert mo
     guest_brand_string = mo.group(1)
@@ -338,9 +338,9 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     guest_cmd = "cat /proc/cpuinfo | grep 'flags' | head -1"
     _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
-    assert stderr.read().decode("utf-8") == ''
+    assert stderr.read() == ''
 
-    cpu_flags_output = stdout.readline().decode('utf-8').rstrip()
+    cpu_flags_output = stdout.readline().rstrip()
 
     if cpu_template == "C3":
         for feature in c3_masked_features:

@@ -57,13 +57,13 @@ def test_handled_signals(test_microvm_with_ssh, network_config):
     # Just validate a simple command: `nproc`
     cmd = "nproc"
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert stderr.read().decode("utf-8") == ""
-    assert int(stdout.read().decode("utf-8")) == 2
+    assert stderr.read() == ""
+    assert int(stdout.read()) == 2
 
     # We have a handler installed for this signal.
     os.kill(firecracker_pid, SIGRTMIN+1)
 
     # Validate the microVM is still up and running.
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert stderr.read().decode("utf-8") == ""
-    assert int(stdout.read().decode("utf-8")) == 2
+    assert stderr.read() == ""
+    assert int(stdout.read()) == 2

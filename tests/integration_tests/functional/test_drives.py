@@ -4,9 +4,9 @@
 
 import os
 import platform
-from subprocess import run, CalledProcessError, PIPE
-
 import pytest
+
+import framework.utils as utils
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -93,12 +93,13 @@ def test_rescan_dev(test_microvm_with_ssh, network_config):
 
     losetup = ['losetup', '--find', '--show', fs2.path]
     loopback_device = None
+    result = None
     try:
-        result = run(losetup, check=True, stdout=PIPE, stderr=PIPE)
-        loopback_device = result.stdout.decode('utf-8').rstrip()
-    except CalledProcessError as error:
+        result = utils.run_cmd(losetup)
+        loopback_device = result.stdout.rstrip()
+    except ChildProcessError:
         pytest.skip('failed to create a lookback device: ' +
-                    f'stdout={error.stdout}, stderr={error.stderr}')
+                    f'stdout={result.stdout}, stderr={result.stderr}')
 
     try:
         response = test_microvm.drive.patch(
@@ -110,7 +111,7 @@ def test_rescan_dev(test_microvm_with_ssh, network_config):
         _check_scratch_size(ssh_connection, fs2.size())
     finally:
         if loopback_device:
-            run(['losetup', '--detach', loopback_device], check=True)
+            utils.run_cmd(['losetup', '--detach', loopback_device])
 
 
 def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
@@ -284,9 +285,9 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     blksize_cmd = "lsblk -b /dev/vdb --output SIZE"
     size_bytes_str = "536870912"  # = 512 MiB
     _, stdout, stderr = ssh_connection.execute_command(blksize_cmd)
-    assert stderr.read().decode("utf-8") == ''
+    assert stderr.read() == ''
     stdout.readline()  # skip "SIZE"
-    assert stdout.readline().decode('utf-8').strip() == size_bytes_str
+    assert stdout.readline().strip() == size_bytes_str
 
 
 def _check_scratch_size(ssh_connection, size):
@@ -295,8 +296,8 @@ def _check_scratch_size(ssh_connection, size):
         'blockdev --getsize64 /dev/vdb'
     )
 
-    assert stderr.read().decode('utf-8') == ''
-    assert stdout.readline().decode('utf-8').strip() == str(size)
+    assert stderr.read() == ''
+    assert stdout.readline().strip() == str(size)
 
 
 def _process_blockdev_output(blockdev_out, assert_dict, keys_array):
@@ -313,8 +314,8 @@ def _check_drives(test_microvm, assert_dict, keys_array):
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     _, stdout, stderr = ssh_connection.execute_command('blockdev --report')
-    assert stderr.read().decode('utf-8') == ''
+    assert stderr.read() == ''
     _process_blockdev_output(
-        stdout.read().decode('utf-8'),
+        stdout.read(),
         assert_dict,
         keys_array)

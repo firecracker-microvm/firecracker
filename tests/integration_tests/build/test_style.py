@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests ensuring codebase style compliance for Rust and Python."""
 
-from subprocess import run, PIPE
-
 import os
 import platform
 
@@ -23,14 +21,11 @@ SUCCESS_CODE = 0
 def test_rust_style():
     """Fail if there's misbehaving Rust style in this repo."""
     # Check that the output is empty.
-    process = run(
-        'cargo fmt --all -- --check',
-        shell=True,
-        check=True,
-        stdout=PIPE
-    )
+    _, stdout, _ = utils.run_cmd(
+        'cargo fmt --all -- --check')
+
     # rustfmt prepends `"Diff in"` to the reported output.
-    assert "Diff in" not in process.stdout.decode('utf-8')
+    assert "Diff in" not in stdout
 
 
 @pytest.mark.timeout(120)
@@ -77,12 +72,8 @@ def test_python_style():
 )
 def test_rust_clippy():
     """Fails if clippy generates any error, warnings are ignored."""
-    run(
-        'cargo clippy --all --profile test -- -D warnings',
-        shell=True,
-        check=True,
-        stdout=PIPE
-    )
+    utils.run_cmd(
+        'cargo clippy --all --profile test -- -D warnings')
 
 
 def check_swagger_style(yaml_spec):
