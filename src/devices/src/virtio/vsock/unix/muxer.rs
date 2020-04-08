@@ -754,6 +754,7 @@ mod tests {
     use std::ops::Drop;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
+    use utils::tempfile::TempFile;
 
     use super::super::super::csm::defs as csm_defs;
     use super::super::super::tests::TestContext as VsockTestContext;
@@ -776,6 +777,17 @@ mod tests {
         }
     }
 
+    // Create a TempFile with a given prefix and return it as a nice String
+    fn get_file(fprefix: &str) -> String {
+        let listener_path = TempFile::new_with_prefix(fprefix.to_owned()).unwrap();
+        listener_path
+            .as_path()
+            .as_os_str()
+            .to_str()
+            .unwrap()
+            .to_owned()
+    }
+
     impl MuxerTestContext {
         fn new(name: &str) -> Self {
             let vsock_test_ctx = VsockTestContext::new();
@@ -786,9 +798,8 @@ mod tests {
                     .unwrap(),
             )
             .unwrap();
-            let uds_path = format!("test_vsock_{}.sock", name);
-            let muxer = VsockMuxer::new(PEER_CID, uds_path).unwrap();
 
+            let muxer = VsockMuxer::new(PEER_CID, get_file(name)).unwrap();
             Self {
                 _vsock_test_ctx: vsock_test_ctx,
                 pkt,
