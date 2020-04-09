@@ -31,7 +31,7 @@ use virtio_gen::virtio_net::{
     VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
     VIRTIO_NET_F_MAC,
 };
-use vm_memory::{Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 fn vnet_hdr_len() -> usize {
     mem::size_of::<virtio_net_hdr_v1>()
@@ -56,12 +56,29 @@ fn init_vnet_hdr(buf: &mut [u8]) {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct ConfigSpace {
+    pub guest_mac: [u8; MAC_ADDR_LEN],
+}
+
+impl Default for ConfigSpace {
+    fn default() -> ConfigSpace {
+        ConfigSpace {
+            guest_mac: [0; MAC_ADDR_LEN],
+        }
+    }
+}
+
+unsafe impl ByteValued for ConfigSpace {}
+
 pub struct Net {
-    id: String,
+    pub(crate) id: String,
 
     pub(crate) tap: Tap,
-    avail_features: u64,
-    acked_features: u64,
+    pub(crate) tap_if_name: String,
+
+    pub(crate) avail_features: u64,
+    pub(crate) acked_features: u64,
 
     pub(crate) queues: Vec<Queue>,
     pub(crate) queue_evts: Vec<EventFd>,
@@ -78,16 +95,16 @@ pub struct Net {
     tx_iovec: Vec<(GuestAddress, usize)>,
     tx_frame_buf: [u8; MAX_BUFFER_SIZE],
 
-    interrupt_status: Arc<AtomicUsize>,
+    pub(crate) interrupt_status: Arc<AtomicUsize>,
     interrupt_evt: EventFd,
 
-    config_space: Vec<u8>,
+    pub(crate) config_space: ConfigSpace,
     guest_mac: Option<MacAddr>,
 
     pub(crate) device_state: DeviceState,
     pub(crate) activate_evt: EventFd,
 
-    mmds_ns: Option<MmdsNetworkStack>,
+    pub(crate) mmds_ns: Option<MmdsNetworkStack>,
 
     #[cfg(test)]
     test_mutators: tests::TestMutators,
@@ -97,13 +114,13 @@ impl Net {
     /// Create a new virtio network device with the given TAP interface.
     pub fn new_with_tap(
         id: String,
-        tap_dev_name: String,
+        tap_if_name: String,
         guest_mac: Option<&MacAddr>,
         rx_rate_limiter: RateLimiter,
         tx_rate_limiter: RateLimiter,
         allow_mmds_requests: bool,
     ) -> Result<Self> {
-        let tap = Tap::open_named(&tap_dev_name).map_err(Error::TapOpen)?;
+        let tap = Tap::open_named(&tap_if_name).map_err(Error::TapOpen)?;
 
         // Set offload flags to match the virtio features below.
         tap.set_offload(
@@ -123,15 +140,12 @@ impl Net {
             | 1 << VIRTIO_NET_F_HOST_UFO
             | 1 << VIRTIO_F_VERSION_1;
 
-        let mut config_space;
+        let mut config_space = ConfigSpace::default();
         if let Some(mac) = guest_mac {
-            config_space = vec![0; MAC_ADDR_LEN];
-            config_space[..].copy_from_slice(mac.get_bytes());
+            config_space.guest_mac.copy_from_slice(mac.get_bytes());
             // When this feature isn't available, the driver generates a random MAC address.
             // Otherwise, it should attempt to read the device MAC address from the config space.
             avail_features |= 1 << VIRTIO_NET_F_MAC;
-        } else {
-            config_space = Vec::new();
         }
 
         let guest_mac = guest_mac.copied();
@@ -151,6 +165,7 @@ impl Net {
         Ok(Net {
             id,
             tap,
+            tap_if_name,
             avail_features,
             acked_features: 0u64,
             queues,
@@ -690,7 +705,8 @@ impl VirtioDevice for Net {
     }
 
     fn read_config(&self, offset: u64, mut data: &mut [u8]) {
-        let config_len = self.config_space.len() as u64;
+        let config_space_bytes = self.config_space.as_slice();
+        let config_len = config_space_bytes.len() as u64;
         if offset >= config_len {
             error!("Failed to read config space");
             METRICS.net.cfg_fails.inc();
@@ -698,20 +714,23 @@ impl VirtioDevice for Net {
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
             // This write can't fail, offset and end are checked against config_len.
-            data.write_all(&self.config_space[offset as usize..cmp::min(end, config_len) as usize])
-                .unwrap();
+            data.write_all(
+                &config_space_bytes[offset as usize..cmp::min(end, config_len) as usize],
+            )
+            .unwrap();
         }
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
         let data_len = data.len() as u64;
-        let config_len = self.config_space.len() as u64;
+        let config_space_bytes = self.config_space.as_mut_slice();
+        let config_len = config_space_bytes.len() as u64;
         if offset + data_len > config_len {
             error!("Failed to write config space");
             METRICS.net.cfg_fails.inc();
             return;
         }
-        let (_, right) = self.config_space.split_at_mut(offset as usize);
+        let (_, right) = config_space_bytes.split_at_mut(offset as usize);
         right.copy_from_slice(&data[..]);
     }
 
@@ -838,10 +857,7 @@ pub(crate) mod tests {
 
         pub fn set_mac(&mut self, mac: MacAddr) {
             self.guest_mac = Some(mac);
-            let mut config_space;
-            config_space = vec![0; MAC_ADDR_LEN];
-            config_space[..].copy_from_slice(mac.get_bytes());
-            self.config_space = config_space;
+            self.config_space.guest_mac.copy_from_slice(mac.get_bytes());
         }
 
         // Assigns "guest virtio driver" activated queues to the net device.

@@ -15,6 +15,7 @@ pub const TX_INDEX: usize = 1;
 
 pub mod device;
 pub mod event_handler;
+pub mod persist;
 
 pub use self::device::Net;
 pub use self::event_handler::*;
