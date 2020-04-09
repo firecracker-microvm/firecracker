@@ -1,9 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt;
-
 use serde_json::Value;
+use std::fmt;
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
 #[derive(Clone)]
@@ -89,15 +88,8 @@ impl Mmds {
         self.data_store.to_string()
     }
 
-    /// This function replicates the behavior of the Instance Metadata Service
-    /// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
-    /// 1. For a (key, value) pair where the value is a dictionary, it will return all the keys
-    /// in the dictionary.
-    /// 2. For a (key, value) pair where the value is a simple type (bool, string, number),
-    /// it will return the value.
-    ///
-    /// When the path is not found, a NotFound error is returned.
-    pub fn get_value(&self, path: String) -> Result<Vec<String>, Error> {
+    // Returns a JSON MMDS data store information mapped to a path.
+    pub fn get_value(&self, path: String) -> Result<String, Error> {
         // The pointer function splits the input by "/". With a trailing "/", pointer does not
         // know how to get the object.
         let value = if path.ends_with('/') {
@@ -107,39 +99,7 @@ impl Mmds {
         };
 
         match value {
-            Some(val) => {
-                let mut ret = Vec::new();
-                // If the `dict` is Value::Null, Error::NotFound is thrown.
-                // If the `dict` is not a dictionary, a Vec with the value corresponding to
-                // the key is returned.
-                match val.as_object() {
-                    Some(map) => {
-                        // When the object is a map, push all the keys in the Vec.
-                        for key in map.keys() {
-                            let mut key = key.clone();
-                            // If the key corresponds to a dictionary, a "/" is appended
-                            // to the key name.
-                            if map[&key].is_object() {
-                                key.push_str("/");
-                            }
-
-                            ret.push(key);
-                        }
-                        Ok(ret)
-                    }
-                    None => {
-                        // When the object is not a map, return the value.
-                        // The only supported Value type is String.
-                        match val.as_str() {
-                            Some(str_val) => {
-                                ret.push(str_val.to_string());
-                                Ok(ret)
-                            }
-                            None => Err(Error::UnsupportedValueType),
-                        }
-                    }
-                }
-            }
+            Some(json) => Ok(json.to_string()),
             None => Err(Error::NotFound),
         }
     }
@@ -190,7 +150,11 @@ mod tests {
                     "UK": "+44 1234567"
                 },
                 "mobile": "+44 2345678"
-            }
+            },
+            "phones2": [
+                "+40 1234567",
+                "+44 1234567"
+            ]
         }"#;
 
         let data_store: Value = serde_json::from_str(data).unwrap();
@@ -209,50 +173,33 @@ mod tests {
         // Test path ends with /; Value is a dictionary.
         assert_eq!(
             mmds.get_value("/phones/".to_string()).unwrap(),
-            vec!["home/", "mobile"]
-        );
-
-        assert_eq!(
-            mmds.get_value("/phones/home/".to_string()).unwrap(),
-            vec!["RO", "UK"]
-        );
-
-        // Test path ends with /; Value is a String.
-        assert_eq!(
-            mmds.get_value("/phones/mobile/".to_string()).unwrap(),
-            vec!["+44 2345678"]
+            "{\"home\":{\"RO\":\"+40 1234567\",\"UK\":\"+44 1234567\"},\"mobile\":\"+44 2345678\"}"
         );
 
         // Test path does NOT end with /; Value is a dictionary.
         assert_eq!(
             mmds.get_value("/phones".to_string()).unwrap(),
-            vec!["home/", "mobile"]
+            "{\"home\":{\"RO\":\"+40 1234567\",\"UK\":\"+44 1234567\"},\"mobile\":\"+44 2345678\"}"
         );
 
-        // Test path does NOT end with /; Value is a String.
         assert_eq!(
-            mmds.get_value("/phones/mobile".to_string()).unwrap(),
-            vec!["+44 2345678"]
+            mmds.get_value("/phones/home/".to_string()).unwrap(),
+            "{\"RO\":\"+40 1234567\",\"UK\":\"+44 1234567\"}"
         );
-    }
 
-    #[test]
-    fn test_get_element_from_array() {
-        let mut mmds = Mmds::default();
-        let data = r#"{
-            "phones": [
-                "+40 1234567",
-                "+44 1234567"
-            ]
-        }"#;
-
-        let data_store: Value = serde_json::from_str(data).unwrap();
-        mmds.put_data(data_store).unwrap();
-
-        // Test path does NOT end with /; Value is a String.
         assert_eq!(
-            mmds.get_value("/phones/0".to_string()).unwrap(),
-            vec!["+40 1234567"]
+            mmds.get_value("/phones/mobile/".to_string()).unwrap(),
+            "\"+44 2345678\""
+        );
+
+        assert_eq!(
+            mmds.get_value("/phones2".to_string()).unwrap(),
+            "[\"+40 1234567\",\"+44 1234567\"]"
+        );
+
+        assert_eq!(
+            mmds.get_value("/phones2/0".to_string()).unwrap(),
+            "\"+40 1234567\""
         );
     }
 

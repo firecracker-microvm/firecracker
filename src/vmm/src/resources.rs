@@ -280,9 +280,9 @@ mod tests {
     use resources::VmResources;
     use utils::tempfile::TempFile;
     use vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
-    use vmm_config::drive::{BlockBuilder, BlockDeviceConfig, DriveError};
+    use vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
-    use vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
+    use vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use vmm_config::vsock::tests::{default_config, TempSockFile};
     use vmm_config::RateLimiterConfig;
     use vstate::VcpuConfig;
@@ -617,46 +617,7 @@ mod tests {
                         "vcpu_count": 2,
                         "mem_size_mib": 1024,
                         "ht_enabled": false
-                    }},
-                    "mmds-config": {{
-                        "ipv4_address": "169.254.170.2"
                     }}
-            }}"#,
-            kernel_file.as_path().to_str().unwrap(),
-            rootfs_file.as_path().to_str().unwrap(),
-        );
-        assert!(VmResources::from_json(json.as_str(), "some_version").is_ok());
-
-        // Test all configuration, this time trying to configure the MMDS with an
-        // empty body. It will make it access the code path in which it sets the
-        // default MMDS configuration.
-        json = format!(
-            r#"{{
-                    "boot-source": {{
-                        "kernel_image_path": "{}",
-                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
-                    }},
-                    "drives": [
-                        {{
-                            "drive_id": "rootfs",
-                            "path_on_host": "{}",
-                            "is_root_device": true,
-                            "is_read_only": false
-                        }}
-                    ],
-                    "network-interfaces": [
-                        {{
-                            "iface_id": "netif",
-                            "host_dev_name": "hostname8",
-                            "allow_mmds_requests": true
-                        }}
-                    ],
-                    "machine-config": {{
-                        "vcpu_count": 2,
-                        "mem_size_mib": 1024,
-                        "ht_enabled": false
-                    }},
-                    "mmds-config": {{}}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),
             rootfs_file.as_path().to_str().unwrap(),
