@@ -506,16 +506,26 @@ impl Log for Logger {
 mod tests {
     use std::fs::{File, OpenOptions};
     use std::io::{BufRead, BufReader, ErrorKind};
-    use std::ops::Deref;
-
-    use log::MetadataBuilder;
 
     use super::*;
     use utils::tempfile::TempFile;
 
     const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
     const TEST_APP_HEADER: &str = "App header";
+
     const LOG_SOURCE: &str = "logger.rs";
+    const LOG_LINE: u32 = 0;
+
+    fn log(logger: &Logger, level: Level, msg: &str) {
+        logger.log(
+            &log::Record::builder()
+                .level(level)
+                .args(format_args!("{}", msg))
+                .file(Some(LOG_SOURCE))
+                .line(Some(LOG_LINE))
+                .build(),
+        );
+    }
 
     fn validate_logs(log_path: &str, expected: &[(&'static str, &'static str)]) -> bool {
         let f = File::open(log_path).unwrap();
@@ -547,7 +557,7 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_init() {
-        let l = LOGGER.deref();
+        let l = Logger::new();
 
         l.set_include_origin(false, true);
         assert_eq!(l.show_line_numbers(), false);
@@ -566,9 +576,9 @@ mod tests {
         assert!(l.configure(None).is_ok());
         assert!(l.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
 
-        info!("info");
-        warn!("warning");
-        error!("error");
+        log(&l, Level::Info, "info");
+        log(&l, Level::Warn, "warning");
+        log(&l, Level::Error, "error");
 
         // Assert that initialization works only once.
 
@@ -589,8 +599,8 @@ mod tests {
             )
             .is_ok());
 
-        info!("info");
-        warn!("warning");
+        log(&l, Level::Info, "info");
+        log(&l, Level::Warn, "warning");
 
         let log_file_temp2 = TempFile::new().unwrap();
 
@@ -607,9 +617,9 @@ mod tests {
             )
             .is_err());
 
-        info!("info");
-        warn!("warning");
-        error!("error");
+        log(&l, Level::Info, "info");
+        log(&l, Level::Warn, "warning");
+        log(&l, Level::Error, "error");
 
         // Here we also test that the last initialization had no effect given that the
         // logging system can only be initialized with byte-oriented sinks once per program.
@@ -627,18 +637,14 @@ mod tests {
         l.state.store(Logger::UNINITIALIZED, Ordering::SeqCst);
 
         l.set_include_level(true).set_include_origin(false, false);
-        let error_metadata = MetadataBuilder::new().level(Level::Error).build();
-        let log_record = log::Record::builder().metadata(error_metadata).build();
-        Logger::log(&l, &log_record);
+        log(&l, Level::Error, "");
 
         assert_eq!(l.show_level(), true);
         assert_eq!(l.show_file_path(), false);
         assert_eq!(l.show_line_numbers(), false);
 
         l.set_include_level(false).set_include_origin(true, true);
-        let error_metadata = MetadataBuilder::new().level(Level::Info).build();
-        let log_record = log::Record::builder().metadata(error_metadata).build();
-        Logger::log(&l, &log_record);
+        log(&l, Level::Info, "");
 
         assert_eq!(l.show_level(), false);
         assert_eq!(l.show_file_path(), true);
