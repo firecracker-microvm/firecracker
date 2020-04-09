@@ -18,6 +18,10 @@ extern crate rate_limiter;
 extern crate virtio_gen;
 extern crate vm_memory;
 
+extern crate snapshot;
+extern crate versionize;
+extern crate versionize_derive;
+
 use rate_limiter::Error as RateLimiterError;
 use std::io;
 
