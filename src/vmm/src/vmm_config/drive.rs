@@ -2,27 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::VecDeque;
+use std::convert::TryInto;
 use std::fmt::{Display, Formatter};
+use std::fs::OpenOptions;
+use std::io;
 use std::path::PathBuf;
 use std::result;
+use std::sync::{Arc, Mutex};
 
 use super::RateLimiterConfig;
+use devices::virtio::Block;
 
 type Result<T> = result::Result<T, DriveError>;
 
 /// Errors associated with the operations allowed on a drive.
 #[derive(Debug)]
 pub enum DriveError {
-    /// Cannot open block device due to invalid permissions or path.
-    CannotOpenBlockDevice(std::io::Error),
+    /// Cannot update the block device.
+    BlockDeviceUpdateFailed,
+    /// Unable to seek the block device backing file due to invalid permissions or
+    /// the file was corrupted.
+    CreateBlockDevice(io::Error),
+    /// Failed to create a `RateLimiter` object.
+    CreateRateLimiter(io::Error),
     /// The block device ID is invalid.
     InvalidBlockDeviceID,
     /// The block device path is invalid.
     InvalidBlockDevicePath,
-    /// The block device path was already used for a different drive.
-    BlockDevicePathAlreadyExists,
-    /// Cannot update the block device.
-    BlockDeviceUpdateFailed,
+    /// Cannot open block device due to invalid permissions or path.
+    OpenBlockDevice(io::Error),
     /// A root block device was already added.
     RootBlockDeviceAlreadyAdded,
 }
@@ -31,18 +39,21 @@ impl Display for DriveError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::DriveError::*;
         match *self {
-            CannotOpenBlockDevice(ref e) => write!(
+            CreateBlockDevice(ref e) => write!(
+                f,
+                "Unable to seek the block device backing file due to invalid permissions or \
+                 the file was corrupted. Error number: {}",
+                e
+            ),
+            BlockDeviceUpdateFailed => write!(f, "The update operation failed!"),
+            CreateRateLimiter(ref e) => write!(f, "Cannot create RateLimiter: {}", e),
+            InvalidBlockDeviceID => write!(f, "Invalid block device ID!"),
+            InvalidBlockDevicePath => write!(f, "Invalid block device path!"),
+            OpenBlockDevice(ref e) => write!(
                 f,
                 "Cannot open block device. Invalid permission/path: {}",
                 e
             ),
-            InvalidBlockDeviceID => write!(f, "Invalid block device ID!"),
-            InvalidBlockDevicePath => write!(f, "Invalid block device path!"),
-            BlockDevicePathAlreadyExists => write!(
-                f,
-                "The block device path was already added to a different drive!"
-            ),
-            BlockDeviceUpdateFailed => write!(f, "The update operation failed!"),
             RootBlockDeviceAlreadyAdded => write!(f, "A root block device already exists!"),
         }
     }
@@ -70,109 +81,111 @@ pub struct BlockDeviceConfig {
     pub rate_limiter: Option<RateLimiterConfig>,
 }
 
-/// Wrapper for the collection that holds all the Block Devices Configs
+/// Wrapper for the collection that holds all the Block Devices
 #[derive(Default)]
-pub struct BlockDeviceConfigs {
-    /// A list of `BlockDeviceConfig` objects.
-    pub config_list: VecDeque<BlockDeviceConfig>,
-    has_root_block: bool,
+pub struct BlockBuilder {
+    /// The list of block devices.
+    /// There can be at most one root block device and it would be the first in the list.
+    // Root Device should be the first in the list whether or not PARTUUID is
+    // specified in order to avoid bugs in case of switching from partuuid boot
+    // scenarios to /dev/vda boot type.
+    pub list: VecDeque<Arc<Mutex<Block>>>,
 }
 
-impl BlockDeviceConfigs {
-    /// Constructor for the BlockDeviceConfigs. It initializes an empty LinkedList.
-    pub fn new() -> BlockDeviceConfigs {
-        BlockDeviceConfigs {
-            config_list: VecDeque::<BlockDeviceConfig>::new(),
-            has_root_block: false,
+impl BlockBuilder {
+    /// Constructor for BlockDevices. It initializes an empty LinkedList.
+    pub fn new() -> Self {
+        Self {
+            list: VecDeque::<Arc<Mutex<Block>>>::new(),
+        }
+    }
+
+    /// Specifies whether there is a root block device already present in the list.
+    fn has_root_device(&self) -> bool {
+        // If there is a root device, it would be at the top of the list.
+        if let Some(block) = self.list.get(0) {
+            block.lock().unwrap().is_root_device()
+        } else {
+            false
         }
     }
 
     /// Gets the index of the device with the specified `drive_id` if it exists in the list.
-    pub fn get_index_of_drive_id(&self, drive_id: &str) -> Option<usize> {
-        self.config_list
+    fn get_index_of_drive_id(&self, drive_id: &str) -> Option<usize> {
+        self.list
             .iter()
-            .position(|cfg| cfg.drive_id.eq(drive_id))
+            .position(|b| b.lock().unwrap().id().eq(drive_id))
     }
 
-    fn get_index_of_drive_path(&self, drive_path: &PathBuf) -> Option<usize> {
-        self.config_list
-            .iter()
-            .position(|cfg| cfg.path_on_host.eq(drive_path))
-    }
-
-    /// Inserts `block_device_config` in the block device configuration list.
-    /// If an entry with the same id already exists, it will attempt to update
-    /// the existing entry.
+    /// Inserts a `Block` in the block devices list using the specified configuration.
+    /// If a block with the same id already exists, it will overwrite it.
     /// Inserting a secondary root block device will fail.
-    pub fn insert(&mut self, block_device_config: BlockDeviceConfig) -> Result<()> {
-        // If the id of the drive already exists in the list, the operation is update.
-        match self.get_index_of_drive_id(&block_device_config.drive_id) {
-            Some(index) => self.update(index, block_device_config),
-            None => self.create(block_device_config),
+    pub fn insert(&mut self, config: BlockDeviceConfig) -> Result<()> {
+        let is_root_device = config.is_root_device;
+        let position = self.get_index_of_drive_id(&config.drive_id);
+        let has_root_block = self.has_root_device();
+
+        // Don't allow adding a second root block device.
+        // If the new device cfg is root and not an update to the existing root, fail fast.
+        if is_root_device && has_root_block && position != Some(0) {
+            return Err(DriveError::RootBlockDeviceAlreadyAdded);
         }
+
+        let block_dev = Arc::new(Mutex::new(Self::create_block(config)?));
+        // If the id of the drive already exists in the list, the operation is update/overwrite.
+        match position {
+            // New block device.
+            None => {
+                if is_root_device {
+                    self.list.push_front(block_dev);
+                } else {
+                    self.list.push_back(block_dev);
+                }
+            }
+            // Update existing block device.
+            Some(index) => {
+                // Update the slot with the new block.
+                self.list[index] = block_dev;
+                // Check if the root block device is being updated.
+                if index != 0 && is_root_device {
+                    // Make sure the root device is on the first position.
+                    self.list.swap(0, index);
+                }
+            }
+        }
+        Ok(())
     }
 
-    fn create(&mut self, block_device_config: BlockDeviceConfig) -> Result<()> {
+    /// Creates a Block device from a BlockDeviceConfig.
+    pub fn create_block(block_device_config: BlockDeviceConfig) -> Result<Block> {
         // check if the path exists
         if !block_device_config.path_on_host.exists() {
             return Err(DriveError::InvalidBlockDevicePath);
         }
 
-        if self
-            .get_index_of_drive_path(&block_device_config.path_on_host)
-            .is_some()
-        {
-            return Err(DriveError::BlockDevicePathAlreadyExists);
-        }
+        // Add the block device from file.
+        let block_file = OpenOptions::new()
+            .read(true)
+            .write(!block_device_config.is_read_only)
+            .open(&block_device_config.path_on_host)
+            .map_err(DriveError::OpenBlockDevice)?;
 
-        // check whether the Device Config belongs to a root device
-        // we need to satisfy the condition by which a VMM can only have on root device
-        if block_device_config.is_root_device {
-            if self.has_root_block {
-                return Err(DriveError::RootBlockDeviceAlreadyAdded);
-            } else {
-                self.has_root_block = true;
-                // Root Device should be the first in the list whether or not PARTUUID is specified
-                // in order to avoid bugs in case of switching from partuuid boot scenarios to
-                // /dev/vda boot type.
-                self.config_list.push_front(block_device_config);
-            }
-        } else {
-            self.config_list.push_back(block_device_config);
-        }
+        let rate_limiter = block_device_config
+            .rate_limiter
+            .map(super::RateLimiterConfig::try_into)
+            .transpose()
+            .map_err(DriveError::CreateRateLimiter)?;
 
-        Ok(())
-    }
-
-    /// Updates a Block Device Config. The update fails if it would result in two
-    /// root block devices.
-    fn update(&mut self, mut index: usize, new_config: BlockDeviceConfig) -> Result<()> {
-        // Check if the path exists
-        if !new_config.path_on_host.exists() {
-            return Err(DriveError::InvalidBlockDevicePath);
-        }
-
-        // Check if the root block device is being updated.
-        if self.config_list[index].is_root_device {
-            self.has_root_block = new_config.is_root_device;
-        } else if new_config.is_root_device {
-            // Check if a second root block device is being added.
-            if self.has_root_block {
-                return Err(DriveError::RootBlockDeviceAlreadyAdded);
-            } else {
-                // One of the non-root blocks is becoming root.
-                self.has_root_block = true;
-
-                // Make sure the root device is on the first position.
-                self.config_list.swap(0, index);
-                // Block config to be updated has moved to first position.
-                index = 0;
-            }
-        }
-        // Update the config.
-        self.config_list[index] = new_config;
-
-        Ok(())
+        // Create and return the Block device
+        devices::virtio::Block::new(
+            block_device_config.drive_id,
+            block_file,
+            block_device_config.partuuid,
+            block_device_config.is_read_only,
+            block_device_config.is_root_device,
+            rate_limiter.unwrap_or_default(),
+        )
+        .map_err(DriveError::CreateBlockDevice)
     }
 }
 
@@ -204,9 +217,9 @@ mod tests {
     }
 
     #[test]
-    fn test_create_block_devices_configs() {
-        let block_devices_configs = BlockDeviceConfigs::new();
-        assert_eq!(block_devices_configs.config_list.len(), 0);
+    fn test_create_block_devs() {
+        let block_devs = BlockBuilder::new();
+        assert_eq!(block_devs.list.len(), 0);
     }
 
     #[test]
@@ -223,22 +236,19 @@ mod tests {
             rate_limiter: None,
         };
 
-        let mut block_devices_configs = BlockDeviceConfigs::new();
-        assert!(block_devices_configs
-            .insert(dummy_block_device.clone())
-            .is_ok());
+        let mut block_devs = BlockBuilder::new();
+        assert!(block_devs.insert(dummy_block_device.clone()).is_ok());
 
-        assert_eq!(block_devices_configs.has_root_block, false);
-        assert_eq!(block_devices_configs.config_list.len(), 1);
+        assert!(!block_devs.has_root_device());
+        assert_eq!(block_devs.list.len(), 1);
 
-        let dev_config = block_devices_configs.config_list.iter().next().unwrap();
-        assert_eq!(dev_config, &dummy_block_device);
-        assert!(block_devices_configs
-            .get_index_of_drive_path(&dummy_path)
-            .is_some());
-        assert!(block_devices_configs
-            .get_index_of_drive_id(&dummy_id)
-            .is_some());
+        {
+            let block = block_devs.list[0].lock().unwrap();
+            assert_eq!(block.id(), &dummy_block_device.drive_id);
+            assert_eq!(block.partuuid(), dummy_block_device.partuuid.as_ref());
+            assert_eq!(block.is_read_only(), dummy_block_device.is_read_only);
+        }
+        assert_eq!(block_devs.get_index_of_drive_id(&dummy_id), Some(0));
     }
 
     #[test]
@@ -255,19 +265,21 @@ mod tests {
             rate_limiter: None,
         };
 
-        let mut block_devices_configs = BlockDeviceConfigs::new();
-        assert!(block_devices_configs
-            .create(dummy_block_device.clone())
-            .is_ok());
+        let mut block_devs = BlockBuilder::new();
+        assert!(block_devs.insert(dummy_block_device.clone()).is_ok());
 
-        assert_eq!(block_devices_configs.has_root_block, true);
-        assert_eq!(block_devices_configs.config_list.len(), 1);
-        let dev_config = block_devices_configs.config_list.iter().next().unwrap();
-        assert_eq!(dev_config, &dummy_block_device);
+        assert!(block_devs.has_root_device());
+        assert_eq!(block_devs.list.len(), 1);
+        {
+            let block = block_devs.list[0].lock().unwrap();
+            assert_eq!(block.id(), &dummy_block_device.drive_id);
+            assert_eq!(block.partuuid(), dummy_block_device.partuuid.as_ref());
+            assert_eq!(block.is_read_only(), dummy_block_device.is_read_only);
+        }
     }
 
     #[test]
-    fn test_add_two_root_block_devices_configs() {
+    fn test_add_two_root_block_devs() {
         let dummy_file_1 = TempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.as_path().to_path_buf();
         let root_block_device_1 = BlockDeviceConfig {
@@ -290,12 +302,10 @@ mod tests {
             rate_limiter: None,
         };
 
-        let mut block_devices_configs = BlockDeviceConfigs::new();
-        assert!(block_devices_configs.create(root_block_device_1).is_ok());
+        let mut block_devs = BlockBuilder::new();
+        assert!(block_devs.insert(root_block_device_1).is_ok());
         assert_eq!(
-            block_devices_configs
-                .create(root_block_device_2)
-                .unwrap_err(),
+            block_devs.insert(root_block_device_2).unwrap_err(),
             DriveError::RootBlockDeviceAlreadyAdded
         );
     }
@@ -316,7 +326,7 @@ mod tests {
 
         let dummy_file_2 = TempFile::new().unwrap();
         let dummy_path_2 = dummy_file_2.as_path().to_path_buf();
-        let dummy_block_device_2 = BlockDeviceConfig {
+        let dummy_block_dev_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: false,
             partuuid: None,
@@ -327,7 +337,7 @@ mod tests {
 
         let dummy_file_3 = TempFile::new().unwrap();
         let dummy_path_3 = dummy_file_3.as_path().to_path_buf();
-        let dummy_block_device_3 = BlockDeviceConfig {
+        let dummy_block_dev_3 = BlockDeviceConfig {
             path_on_host: dummy_path_3,
             is_root_device: false,
             partuuid: None,
@@ -336,23 +346,26 @@ mod tests {
             rate_limiter: None,
         };
 
-        let mut block_devices_configs = BlockDeviceConfigs::new();
-        assert!(block_devices_configs
-            .create(root_block_device.clone())
-            .is_ok());
-        assert!(block_devices_configs
-            .create(dummy_block_device_2.clone())
-            .is_ok());
-        assert!(block_devices_configs
-            .create(dummy_block_device_3.clone())
-            .is_ok());
+        let mut block_devs = BlockBuilder::new();
+        assert!(block_devs.insert(dummy_block_dev_2.clone()).is_ok());
+        assert!(block_devs.insert(dummy_block_dev_3.clone()).is_ok());
+        assert!(block_devs.insert(root_block_device.clone()).is_ok());
 
-        assert_eq!(block_devices_configs.config_list.len(), 3);
+        assert_eq!(block_devs.list.len(), 3);
 
-        let mut block_dev_iter = block_devices_configs.config_list.iter();
-        assert_eq!(block_dev_iter.next().unwrap(), &root_block_device);
-        assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_2);
-        assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_3);
+        let mut block_iter = block_devs.list.iter();
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id(),
+            &root_block_device.drive_id
+        );
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id(),
+            &dummy_block_dev_2.drive_id
+        );
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id(),
+            &dummy_block_dev_3.drive_id
+        );
     }
 
     #[test]
@@ -371,7 +384,7 @@ mod tests {
 
         let dummy_file_2 = TempFile::new().unwrap();
         let dummy_path_2 = dummy_file_2.as_path().to_path_buf();
-        let dummy_block_device_2 = BlockDeviceConfig {
+        let dummy_block_dev_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: false,
             partuuid: None,
@@ -382,7 +395,7 @@ mod tests {
 
         let dummy_file_3 = TempFile::new().unwrap();
         let dummy_path_3 = dummy_file_3.as_path().to_path_buf();
-        let dummy_block_device_3 = BlockDeviceConfig {
+        let dummy_block_dev_3 = BlockDeviceConfig {
             path_on_host: dummy_path_3,
             is_root_device: false,
             partuuid: None,
@@ -391,25 +404,28 @@ mod tests {
             rate_limiter: None,
         };
 
-        let mut block_devices_configs = BlockDeviceConfigs::new();
-        assert!(block_devices_configs
-            .create(dummy_block_device_2.clone())
-            .is_ok());
-        assert!(block_devices_configs
-            .create(dummy_block_device_3.clone())
-            .is_ok());
-        assert!(block_devices_configs
-            .create(root_block_device.clone())
-            .is_ok());
+        let mut block_devs = BlockBuilder::new();
+        assert!(block_devs.insert(dummy_block_dev_2.clone()).is_ok());
+        assert!(block_devs.insert(dummy_block_dev_3.clone()).is_ok());
+        assert!(block_devs.insert(root_block_device.clone()).is_ok());
 
-        assert_eq!(block_devices_configs.config_list.len(), 3);
+        assert_eq!(block_devs.list.len(), 3);
 
-        let mut block_dev_iter = block_devices_configs.config_list.iter();
+        let mut block_iter = block_devs.list.iter();
         // The root device should be first in the list no matter of the order in
         // which the devices were added.
-        assert_eq!(block_dev_iter.next().unwrap(), &root_block_device);
-        assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_2);
-        assert_eq!(block_dev_iter.next().unwrap(), &dummy_block_device_3);
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id(),
+            &root_block_device.drive_id
+        );
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id(),
+            &dummy_block_dev_2.drive_id
+        );
+        assert_eq!(
+            block_iter.next().unwrap().lock().unwrap().id(),
+            &dummy_block_dev_3.drive_id
+        );
     }
 
     #[test]
@@ -436,52 +452,44 @@ mod tests {
             rate_limiter: None,
         };
 
-        let mut block_devices_configs = BlockDeviceConfigs::new();
+        let mut block_devs = BlockBuilder::new();
 
         // Add 2 block devices.
-        assert!(block_devices_configs
-            .create(root_block_device.clone())
-            .is_ok());
-        assert!(block_devices_configs
-            .create(dummy_block_device_2.clone())
-            .is_ok());
+        assert!(block_devs.insert(root_block_device.clone()).is_ok());
+        assert!(block_devs.insert(dummy_block_device_2.clone()).is_ok());
 
         // Get index zero.
         assert_eq!(
-            block_devices_configs
-                .get_index_of_drive_id(&String::from("1"))
-                .unwrap(),
-            0
+            block_devs.get_index_of_drive_id(&String::from("1")),
+            Some(0)
         );
 
         // Get None.
-        assert!(block_devices_configs
+        assert!(block_devs
             .get_index_of_drive_id(&String::from("foo"))
             .is_none());
 
         // Test several update cases using dummy_block_device_2.
         // Validate `dummy_block_device_2` is already in the list
-        assert!(block_devices_configs
+        assert!(block_devs
             .get_index_of_drive_id(&dummy_block_device_2.drive_id)
             .is_some());
         // Update OK.
         dummy_block_device_2.is_read_only = true;
-        assert!(block_devices_configs
-            .insert(dummy_block_device_2.clone())
-            .is_ok());
+        assert!(block_devs.insert(dummy_block_device_2.clone()).is_ok());
 
-        let index = block_devices_configs
+        let index = block_devs
             .get_index_of_drive_id(&dummy_block_device_2.drive_id)
             .unwrap();
         // Validate update was successful.
-        assert!(block_devices_configs.config_list[index].is_read_only);
+        assert!(block_devs.list[index].lock().unwrap().is_read_only());
 
         // Update with invalid path.
         let dummy_filename_3 = String::from("test_update_3");
-        let dummy_path_3 = PathBuf::from(dummy_filename_3.clone());
+        let dummy_path_3 = PathBuf::from(dummy_filename_3);
         dummy_block_device_2.path_on_host = dummy_path_3;
         assert_eq!(
-            block_devices_configs.update(index, dummy_block_device_2.clone()),
+            block_devs.insert(dummy_block_device_2.clone()),
             Err(DriveError::InvalidBlockDevicePath)
         );
 
@@ -489,19 +497,21 @@ mod tests {
         dummy_block_device_2.path_on_host = dummy_path_2.clone();
         dummy_block_device_2.is_root_device = true;
         assert_eq!(
-            block_devices_configs.update(index, dummy_block_device_2.clone()),
+            block_devs.insert(dummy_block_device_2.clone()),
             Err(DriveError::RootBlockDeviceAlreadyAdded)
         );
 
-        // Switch roots and add a PARTUUID for the new one.
-        let root_block_device_old = BlockDeviceConfig {
-            path_on_host: dummy_path_1,
-            is_root_device: false,
+        let root_block_device = BlockDeviceConfig {
+            path_on_host: dummy_path_1.clone(),
+            is_root_device: true,
             partuuid: None,
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
         };
+        // Switch roots and add a PARTUUID for the new one.
+        let mut root_block_device_old = root_block_device;
+        root_block_device_old.is_root_device = false;
         let root_block_device_new = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: true,
@@ -510,18 +520,12 @@ mod tests {
             drive_id: String::from("2"),
             rate_limiter: None,
         };
-        let index1 = block_devices_configs
-            .get_index_of_drive_id(&root_block_device_old.drive_id)
-            .unwrap();
-        assert!(&block_devices_configs
-            .update(index1, root_block_device_old)
-            .is_ok());
-        let index2 = block_devices_configs
-            .get_index_of_drive_id(&root_block_device_new.drive_id)
-            .unwrap();
-        assert!(&block_devices_configs
-            .update(index2, root_block_device_new)
-            .is_ok());
+        assert!(block_devs.insert(root_block_device_old).is_ok());
+        let root_block_id = root_block_device_new.drive_id.clone();
+        assert!(block_devs.insert(root_block_device_new).is_ok());
+        assert!(block_devs.has_root_device());
+        // Verify it's been moved to the first position.
+        assert_eq!(block_devs.list[0].lock().unwrap().id(), &root_block_id);
     }
 
     #[test]

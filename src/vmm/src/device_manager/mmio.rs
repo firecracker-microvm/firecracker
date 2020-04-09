@@ -101,7 +101,7 @@ impl MMIODeviceManager {
         mmio_device: devices::virtio::MmioTransport,
         cmdline: &mut kernel_cmdline::Cmdline,
         type_id: u32,
-        device_id: &str,
+        device_id: String,
     ) -> Result<u64> {
         if self.irq > self.last_irq {
             return Err(Error::IrqsExhausted);
@@ -143,7 +143,7 @@ impl MMIODeviceManager {
             .map_err(Error::Cmdline)?;
         let ret = self.mmio_base;
         self.id_to_dev_info.insert(
-            (DeviceType::Virtio(type_id), device_id.to_string()),
+            (DeviceType::Virtio(type_id), device_id),
             MMIODeviceInfo {
                 addr: ret,
                 len: MMIO_LEN,
@@ -298,7 +298,7 @@ mod tests {
             device_id: &str,
         ) -> Result<u64> {
             let mmio_device = devices::virtio::MmioTransport::new(guest_mem, device);
-            self.register_mmio_device(vm, mmio_device, cmdline, type_id, device_id)
+            self.register_mmio_device(vm, mmio_device, cmdline, type_id, device_id.to_string())
         }
 
         fn update_drive(&self, device_id: &str, new_size: u64) -> Result<()> {
