@@ -67,23 +67,103 @@ CTR_FC_BUILD_DIR="${CTR_FC_ROOT_DIR}/build"
 # Full path to the microVM images cache dir
 CTR_MICROVM_IMAGES_DIR="${CTR_FC_BUILD_DIR}/img"
 
-# Rootfs Alpine version
+#############################################################
+# Alpine OS variables
+#############################################################
+
+# Alpine version
 RFS_ALPINE_VERS="3.8.1"
 
 # Alpine CDN url
 RFS_ALPINE_ORIGIN="http://dl-cdn.alpinelinux.org"
 
-# Rootfs Alpine package name, url location, and shas.
-RFS_ALPINE_GZ="alpine-minirootfs-${RFS_ALPINE_VERS}-${HOSTTYPE}.tar.gz"
-RFS_ALPINE_URL="${RFS_ALPINE_ORIGIN}"
-RFS_ALPINE_URL+="/alpine/v${RFS_ALPINE_VERS%.*}/releases/${HOSTTYPE}/"
-RFS_ALPINE_URL+="/${RFS_ALPINE_GZ}"
+# Alpine package name, url location, and shas.
+declare -A RFS_ALPINE=(
+    [PACKAGE]="alpine-minirootfs-${RFS_ALPINE_VERS}-${HOSTTYPE}.tar.gz"
+    [URL]="${RFS_ALPINE_ORIGIN}"
+    [URL]+="/alpine/v${RFS_ALPINE_VERS%.*}/releases/${HOSTTYPE}"
+    [URL]+="/${RFS_ALPINE[PACKAGE]}"
+    [X86_64_SHA256]="ad753d802048fa902e4d8b35cc53656de8ed0e6d082246089a"
+    [X86_64_SHA256]+="11a86014b0f1a5"
+    [AARCH64_SHA256]="425be487ecc4bd0333fd84ec8c6c4b971a32446be76df26e7"
+    [AARCH64_SHA256]+="add04be95987fa8"
+)
 
-RFS_ALPINE_X86_64_SHA256="ad753d802048fa902e4d8b35cc53656de8ed0e6d082246089a"
-RFS_ALPINE_X86_64_SHA256+="11a86014b0f1a5"
+#############################################################
+# Ubuntu OS variables
+#############################################################
 
-RFS_ALPINE_AARCH64_SHA256="425be487ecc4bd0333fd84ec8c6c4b971a32446be76df26e7"
-RFS_ALPINE_AARCH64_SHA256+="add04be95987fa8"
+# Ubuntu version
+RFS_UBUNTU_VERS="18.04"
+RFS_UBUNTU_CODE_VERS="bionic"
+RFS_UBUNTU_RELEASE="release-20200317"
+
+# Ubuntu CDN url
+RFS_UBUNTU_ORIGIN="https://cloud-images.ubuntu.com"
+
+# Ubuntu uses different architecture names
+[[ "${HOSTTYPE}" = "x86_64" ]] && RFS_UBUNTU_ARCH=${HOSTTYPE/x86_64/amd64}
+[[ "${HOSTTYPE}" = "aarch64" ]] && RFS_UBUNTU_ARCH=${HOSTTYPE/aarch64/arm64}
+
+# Ubuntu package name, url location, and shas.
+declare -A RFS_UBUNTU_BIONIC=(
+    [PACKAGE]="ubuntu-${RFS_UBUNTU_VERS}-server-cloudimg-"
+    [PACKAGE]+="${RFS_UBUNTU_ARCH}-root.tar.xz"
+    [URL]="${RFS_UBUNTU_ORIGIN}"
+    [URL]+="/releases/${RFS_UBUNTU_CODE_VERS}/${RFS_UBUNTU_RELEASE}"
+    [URL]+="/${RFS_UBUNTU_BIONIC[PACKAGE]}"
+    [X86_64_SHA256]="b030e1b758b61b5ec53d1b1a38cda6a44b91ff4643d3b493dc3c"
+    [X86_64_SHA256]+="605a94d56262"
+    [AARCH64_SHA256]="4ed484c87ee4d0fce2733316af8e3cd174bfc639800fcc3de8bc"
+    [AARCH64_SHA256]+="6b2ec2331421"
+)
+
+#############################################################
+# Rootfs profile variables
+#############################################################
+
+# "minimal" profile details
+declare -A RFS_MINIMAL=(
+    [NAME]="boottime-rootfs.ext4"
+    [SIZE]="30M"
+    [FS]="ext4"
+    [CUST]="--install ca-certificates \
+      --install curl \
+      --install iperf3 \
+      --install iproute2 \
+      --install iptables \
+      --install openrc \
+      --install openssh-server \
+      --install util-linux \
+      --link agetty:/etc/init.d/agetty.ttyS0 \
+      --run-command 'echo ttyS0 >/etc/securetty' \
+      --run-command 'rc-update add agetty.ttyS0 default' \
+      --run-command 'rc-update add devfs boot' \
+      --run-command 'rc-update add procfs boot' \
+      --run-command 'rc-update add sysfs boot' \
+      --root-password password:'root' \
+      --password-crypto sha512"
+)
+
+# "ubuntu" profile details
+declare -A RFS_UBUNTU=(
+    [NAME]="bionic.rootfs.ext4"
+    [SIZE]="825M"
+    [FS]="ext4"
+    [CUST]="--root-password password:'root' \
+      --password-crypto sha512"
+)
+
+# "ubuntu_with_ssh" profile details
+declare -A RFS_UBUNTU_WITH_SSH=(
+    [NAME]="bionic.rootfs.ext4"
+    [SIZE]="825M"
+    [FS]="ext4"
+    [CUST]="--install openssh-server \
+      --append-line /etc/ssh/sshd_config:'PermitRootLogin yes' \
+      --root-password password:'root' \
+      --password-crypto sha512"
+)
 
 # Global options received by $0
 # These options are not command-specific, so we store them as global vars
@@ -92,10 +172,10 @@ OPT_UNATTENDED=false
 # Load common functions
 #
 if [[ ! -f "${FC_TOOLS_DIR}/functions" ]]; then
-   echo "Unable to find ${FC_TOOLS_DIR}/functions lib.  Aborting."
-   exit 1
+    echo "Unable to find ${FC_TOOLS_DIR}/functions lib.  Aborting."
+    exit 1
 else
-   source "${FC_TOOLS_DIR}/functions"
+    source "${FC_TOOLS_DIR}/functions"
 fi
 
 # `$0 help`
@@ -112,7 +192,7 @@ cmd_help() {
     echo ""
     echo "Available commands:"
     echo ""
-    echo "    build [minimal]"
+    echo "    build [minimal|ubuntu|ubuntu_with_ssh]"
     echo "        Build a Firecracker rootfs file."
     echo ""
     echo "        The architecture of the host machine determines"
@@ -120,7 +200,6 @@ cmd_help() {
     echo ""
     echo "            On x86_64  -> an x86_64 rootfs will be built"
     echo "            On aarch64 -> an aarch64 rootfs will be built"
-
     echo ""
     echo "    shell [--privileged]"
     echo "        Launch the rfs container and open an interactive BASH shell."
@@ -137,14 +216,16 @@ cmd_help() {
 #
 cmd_build() {
 
-    # By default, we build minimal rootfs
-    friendly_name="minimal"
+    # By default, we build minimal rootfs profile
+    profile="minimal"
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
-            "-h"|"--help")  { cmd_help; exit 1; } ;;
-            "minimal")      { friendly_name="minimal";  } ;;
+            "-h"|"--help")      { cmd_help; exit 1;  } ;;
+            "minimal")          { profile="minimal"; } ;;
+            "ubuntu")           { profile="ubuntu";  } ;;
+            "ubuntu_with_ssh")  { profile="ubuntu_with_ssh";  } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
             ;;
@@ -153,89 +234,109 @@ cmd_build() {
     done
 
     # Create local image store
-    local img_local="$FC_IMAGES_DIR/local/${HOSTTYPE}/${friendly_name}/fsfiles"
+    local img_local="$FC_IMAGES_DIR/local/${HOSTTYPE}/${profile}/fsfiles"
     if [[ ! -d $img_local ]]; then
      say "Creating local img directory: $img_local"
      mkdir -p "$img_local" || die "Cannot create local img store. Aborting"
     fi
 
-    say "Starting rootfs ${friendly_name} build ..."
+    say "Starting rootfs ${profile} build ..."
 
     # Check prerequisites
     ensure_ctr
     ensure_build_dir
 
-    case "${friendly_name}" in
-        "minimal") { build_minimal }; };;
+    # The rootfs build is a combination of OS + profile
+    case "${profile}" in
+        "minimal")          { build_rootfs minimal alpine; } ;;
+        "ubuntu")           { build_rootfs ubuntu ubuntu_bionic; } ;;
+        "ubuntu_with_ssh")  { build_rootfs ubuntu_with_ssh ubuntu_bionic; } ;;
         *)
             die "Unknown argument: $1. Please use --help for help."
     esac
-
 }
 
-# `$0 build` - build Firecracker "minimal" rootfs
-# Please see `$0 help` for more information.
+# Build the rootfs.  Takes an OS and a profile name and constructs
+# the rootfs system. The profile must match the intended OS, since commands
+# can be OS specific.
+# Args:
+#   $1 profile
+#   $2 os
+# Example `build_rootfs minimal alpine`
 #
-build_minimal() {
+build_rootfs() {
 
-    # get sha details based on bash HOSTTYPE variable
-    case "${HOSTTYPE}" in
-        x86_64)  {
-		   sha256_string="${RFS_ALPINE_X86_64_SHA256}"
-                 } ;;
-        aarch64) {
-		   sha256_string="${RFS_ALPINE_AARCH64_SHA256}"
-                 } ;;
-         *)
-            die "Unknown architecture: ${HOSTTYPE}. Please use --help for help."
-            ;;
-    esac
+    # check we've called the function correctly.
+    [ "$#" -ne 2 ] && die "Incorrect number of arguments supplied"
+
+    local profile="${1}"
+    local os="${2}"
+
+    # get OS details based on pre-defined array
+    # for example, RFS_ALPINE containing package details
+    local package=RFS_${os^^}[PACKAGE]
+    local sha256=RFS_${os^^}[${HOSTTYPE^^}_SHA256]
+    local url=RFS_${os^^}[URL]
+
+    # check we have values from the OS array
+    [[ -z ${!package} || \
+       -z ${!sha256} || \
+       -z ${!url} ]] \
+    && die "Missing OS details. Check the OS data details"
+
+    # get profile details based on pre-defined array
+    # for example, RFS_MINIMAL containing profile details
+    local rootfs_name=RFS_${profile^^}[NAME]
+    local rootfs_size=RFS_${profile^^}[SIZE]
+    local rootfs_fs=RFS_${profile^^}[FS]
+    local rootfs_cust=RFS_${profile^^}[CUST]
+
+    # check we have values from the profile array
+    [[ -z ${!rootfs_name} || \
+       -z ${!rootfs_size} || \
+       -z ${!rootfs_fs}  || \
+       -z ${!rootfs_cust} ]] \
+    && die "Missing profile details. Check the profile data details."
 
     # path to our rootfs under our architecture dir
-    local min_rootfs="minimal/fsfiles/boottime-rootfs.ext4"
+    local rootfs_path="${profile}/fsfiles/${!rootfs_name}"
 
-    # Commands as strings that we pass to the rfsctr
+    # Commands as strings that we pass to the ctr
     #
     # only fetch our distribution package if we haven't before
     local check_for_package="if \
-        [[ ! -f ${CTR_MICROVM_IMAGES_DIR}/local/${RFS_ALPINE_GZ} ]]; then \
-	 wget --no-verbose ${RFS_ALPINE_URL} \
-	 --output-document=${CTR_MICROVM_IMAGES_DIR}/local/${RFS_ALPINE_GZ}; \
+        [[ ! -f ${CTR_MICROVM_IMAGES_DIR}/local/${!package} ]]; then \
+           wget --no-verbose --show-progress ${!url} \
+           --output-document=${CTR_MICROVM_IMAGES_DIR}/local/${!package}; \
         fi;"
 
     # check our distribution package matches our sha256 value
-    local checksum_package="echo ${sha256_string} \
-        ${CTR_MICROVM_IMAGES_DIR}/local/${RFS_ALPINE_GZ} \
+    local checksum_package="echo ${!sha256} \
+        ${CTR_MICROVM_IMAGES_DIR}/local/${!package} \
         | sha256sum --check --quiet"
+
+    # if we have an xz file, decompress it
+    local extract_package="if \
+        [[ ${!package} = *.xz ]]; then \
+          unxz --decompress --keep --force \
+          ${CTR_MICROVM_IMAGES_DIR}/local/${!package}; \
+        fi"
 
     # use virt-make-fs to create a rootfs file from a distribution
     # file system or cloud image package
     # see http://libguestfs.org/virt-make-fs.1.html
     local make_filesystem="virt-make-fs \
-        --size=30M \
-        --type=ext4 \
-        ${CTR_MICROVM_IMAGES_DIR}/local/${RFS_ALPINE_GZ} \
-        ${CTR_MICROVM_IMAGES_DIR}/local/${HOSTTYPE}/${min_rootfs}"
+        --size=${!rootfs_size} \
+        --type=${!rootfs_fs} \
+        ${CTR_MICROVM_IMAGES_DIR}/local/${!package%.xz} \
+        ${CTR_MICROVM_IMAGES_DIR}/local/${HOSTTYPE}/${rootfs_path}"
 
-    # customize the rootfs OS, see http://libguestfs.org/virt-customize.1.html
+    # run the OS customization steps. The command is split, 
+    # the rootfs file being defined here, whilst the rest of the customization 
+    # flags are defined in the profile array
     local customize_os="virt-customize \
-        -a ${CTR_MICROVM_IMAGES_DIR}/local/${HOSTTYPE}/${min_rootfs} \
-        --install ca-certificates \
-        --install curl \
-        --install iperf3 \
-        --install iproute2 \
-        --install iptables \
-        --install openrc \
-        --install openssh-server \
-        --install util-linux \
-        --link agetty:/etc/init.d/agetty.ttyS0 \
-        --run-command 'echo ttyS0 >/etc/securetty' \
-        --run-command 'rc-update add agetty.ttyS0 default' \
-        --run-command 'rc-update add devfs boot' \
-        --run-command 'rc-update add procfs boot' \
-        --run-command 'rc-update add sysfs boot' \
-        --root-password password:'root' \
-        --password-crypto sha512"
+        -a ${CTR_MICROVM_IMAGES_DIR}/local/${HOSTTYPE}/${rootfs_path} \
+        ${!rootfs_cust}"
 
     # Run the rootfs build process inside the container.
     # We don't need any special privileges for the build phase, so we run the
@@ -246,6 +347,7 @@ build_minimal() {
         -- \
         bash -c \
         "${check_for_package} ${checksum_package} \
+         && ${extract_package} \
          && ${make_filesystem} \
          && ${customize_os}"
 
@@ -253,8 +355,8 @@ build_minimal() {
 
     # If the build was successful, notify user of rootfs location
     [ $ret -eq 0 ] && {
-        say "Minimal rootfs built and available at:" \
-            "$img_local/boottime-rootfs.ext4"
+        say "${profile^} rootfs built and available at:" \
+            "$img_local/${!rootfs_name}"
     }
 
     return $ret
