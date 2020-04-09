@@ -264,7 +264,10 @@ dependencies = [
  "net_gen 0.1.0",
  "polly 0.0.1",
  "rate_limiter 0.1.0",
+ "snapshot 0.1.0",
  "utils 0.1.0",
+ "versionize 0.1.0",
+ "versionize_derive 0.1.0",
  "virtio_gen 0.1.0",
  "vm-memory 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

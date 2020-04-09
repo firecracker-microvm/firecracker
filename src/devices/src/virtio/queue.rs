@@ -140,11 +140,11 @@ impl<'a> DescriptorChain<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 /// A virtio queue's parameters.
 pub struct Queue {
     /// The maximal size in elements offered by the device
-    max_size: u16,
+    pub(crate) max_size: u16,
 
     /// The queue size in elements the driver selected
     pub size: u16,
@@ -161,8 +161,8 @@ pub struct Queue {
     /// Guest physical address of the used ring
     pub used_ring: GuestAddress,
 
-    next_avail: Wrapping<u16>,
-    next_used: Wrapping<u16>,
+    pub(crate) next_avail: Wrapping<u16>,
+    pub(crate) next_used: Wrapping<u16>,
 }
 
 impl Queue {
