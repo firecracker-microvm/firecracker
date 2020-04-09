@@ -35,6 +35,8 @@ pub enum Error {
     Metrics(MetricsConfigError),
     /// microVM vCpus or memory configuration error.
     VmConfig(VmConfigError),
+    /// Vsock device configuration error.
+    VsockDevice(VsockConfigError),
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
@@ -66,10 +68,10 @@ pub struct VmResources {
     boot_config: Option<BootConfig>,
     /// The configurations for block devices.
     pub block: BlockDeviceConfigs,
-    /// The configurations for network interface devices.
-    pub network_interface: NetworkInterfaceConfigs,
-    /// The configurations for vsock devices.
-    pub vsock: Option<VsockDeviceConfig>,
+    /// The network interface devices.
+    pub network_interface: NetBuilder,
+    /// The vsock device.
+    pub vsock: VsockBuilder,
 }
 
 impl VmResources {
@@ -109,7 +111,9 @@ impl VmResources {
                 .map_err(Error::NetDevice)?;
         }
         if let Some(vsock_config) = vmm_config.vsock_device {
-            resources.set_vsock_device(vsock_config);
+            resources
+                .set_vsock_device(vsock_config)
+                .map_err(Error::VsockDevice)?;
         }
         Ok(resources)
     }
@@ -226,8 +230,8 @@ impl VmResources {
     }
 
     /// Sets a vsock device to be attached when the VM starts.
-    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) {
-        self.vsock = Some(config);
+    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<VsockConfigError> {
+        self.vsock.insert(config)
     }
 }
 
@@ -244,29 +248,31 @@ mod tests {
     use vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
     use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
     use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
-    use vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError};
-    use vmm_config::vsock::VsockDeviceConfig;
+    use vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
+    use vmm_config::vsock::tests::{default_config, TempSockFile};
     use vmm_config::RateLimiterConfig;
     use vstate::VcpuConfig;
 
-    fn default_net_cfgs() -> NetworkInterfaceConfigs {
-        let mut net_if_cfgs = NetworkInterfaceConfigs::new();
-        net_if_cfgs
-            .insert(NetworkInterfaceConfig {
-                iface_id: "net_if1".to_string(),
-                // TempFile::new_with_prefix("") generates a random file name used as random net_if name.
-                host_dev_name: TempFile::new_with_prefix("")
-                    .unwrap()
-                    .as_path()
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
-                guest_mac: Some(MacAddr::parse_str("01:23:45:67:89:0a").unwrap()),
-                rx_rate_limiter: Some(RateLimiterConfig::default()),
-                tx_rate_limiter: Some(RateLimiterConfig::default()),
-                allow_mmds_requests: false,
-            })
-            .unwrap();
+    fn default_net_cfg() -> NetworkInterfaceConfig {
+        NetworkInterfaceConfig {
+            iface_id: "net_if1".to_string(),
+            // TempFile::new_with_prefix("") generates a random file name used as random net_if name.
+            host_dev_name: TempFile::new_with_prefix("")
+                .unwrap()
+                .as_path()
+                .to_str()
+                .unwrap()
+                .to_string(),
+            guest_mac: Some(MacAddr::parse_str("01:23:45:67:89:0a").unwrap()),
+            rx_rate_limiter: Some(RateLimiterConfig::default()),
+            tx_rate_limiter: Some(RateLimiterConfig::default()),
+            allow_mmds_requests: false,
+        }
+    }
+
+    fn default_net_devs() -> NetBuilder {
+        let mut net_if_cfgs = NetBuilder::new();
+        net_if_cfgs.insert(default_net_cfg()).unwrap();
 
         net_if_cfgs
     }
@@ -303,8 +309,8 @@ mod tests {
             vm_config: VmConfig::default(),
             boot_config: Some(default_boot_cfg()),
             block: default_block_cfgs(),
-            network_interface: default_net_cfgs(),
-            vsock: None,
+            network_interface: default_net_devs(),
+            vsock: Default::default(),
         }
     }
 
@@ -538,7 +544,7 @@ mod tests {
         );
 
         match VmResources::from_json(json.as_str(), "some_version") {
-            Err(Error::NetDevice(NetworkInterfaceError::HostDeviceNameInUse { .. })) => (),
+            Err(Error::NetDevice(NetworkInterfaceError::OpenTap { .. })) => (),
             _ => unreachable!(),
         }
 
@@ -704,15 +710,17 @@ mod tests {
     #[test]
     fn test_set_vsock_device() {
         let mut vm_resources = default_vm_resources();
-        let new_vsock_cfg = VsockDeviceConfig {
-            vsock_id: "new_vsock".to_string(),
-            guest_cid: 1,
-            uds_path: String::from("uds_path"),
-        };
-        assert!(vm_resources.vsock.is_none());
-        vm_resources.set_vsock_device(new_vsock_cfg.clone());
-        let actual_vsock_cfg = vm_resources.vsock.as_ref().unwrap().clone();
-        assert_eq!(actual_vsock_cfg, new_vsock_cfg);
+        let tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
+        let new_vsock_cfg = default_config(&tmp_sock_file);
+        assert!(vm_resources.vsock.get().is_none());
+        vm_resources
+            .set_vsock_device(new_vsock_cfg.clone())
+            .unwrap();
+        let actual_vsock_cfg = vm_resources.vsock.get().unwrap();
+        assert_eq!(
+            actual_vsock_cfg.lock().unwrap().id(),
+            &new_vsock_cfg.vsock_id
+        );
     }
 
     #[test]
@@ -720,12 +728,7 @@ mod tests {
         let mut vm_resources = default_vm_resources();
 
         // Clone the existing net config in order to obtain a new one.
-        let mut new_net_device_cfg = vm_resources
-            .network_interface
-            .iter()
-            .next()
-            .unwrap()
-            .clone();
+        let mut new_net_device_cfg = default_net_cfg();
         new_net_device_cfg.iface_id = "new_net_if".to_string();
         new_net_device_cfg.guest_mac = Some(MacAddr::parse_str("01:23:45:67:89:0c").unwrap());
         new_net_device_cfg.host_dev_name = "dummy_path2".to_string();

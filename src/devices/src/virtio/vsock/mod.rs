@@ -23,6 +23,10 @@ use vm_memory::GuestMemoryError;
 use packet::VsockPacket;
 
 mod defs {
+    /// Device ID used in MMIO device identification.
+    /// Because Vsock is unique per-vm, this ID can be hardcoded.
+    pub const VSOCK_DEV_ID: &str = "vsock";
+
     /// Number of virtio queues.
     pub const NUM_QUEUES: usize = 3;
     /// Virtio queue sizes, in number of descriptor chain heads.
@@ -292,12 +296,12 @@ mod tests {
             guest_txvq.avail.ring[0].set(0);
             guest_txvq.avail.idx.set(1);
 
+            let queues = vec![rxvq, txvq, evvq];
             EventHandlerContext {
                 guest_rxvq,
                 guest_txvq,
                 guest_evvq,
-                device: Vsock::with_queues(self.cid, TestBackend::new(), vec![rxvq, txvq, evvq])
-                    .unwrap(),
+                device: Vsock::with_queues(self.cid, TestBackend::new(), queues).unwrap(),
             }
         }
     }

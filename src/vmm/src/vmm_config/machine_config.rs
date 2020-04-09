@@ -16,8 +16,6 @@ pub enum VmConfigError {
     InvalidVcpuCount,
     /// The memory size is invalid. The memory can only be an unsigned integer.
     InvalidMemorySize,
-    /// Cannot update the configuration of the microvm post boot.
-    UpdateNotAllowedPostBoot,
 }
 
 impl fmt::Display for VmConfigError {
@@ -30,9 +28,6 @@ impl fmt::Display for VmConfigError {
                  be 1 or an even number when hyperthreading is enabled.",
             ),
             InvalidMemorySize => write!(f, "The memory size (MiB) is invalid.",),
-            UpdateNotAllowedPostBoot => {
-                write!(f, "The update operation is not allowed after boot.")
-            }
         }
     }
 }
@@ -138,11 +133,5 @@ mod tests {
 
         let expected_str = "The memory size (MiB) is invalid.";
         assert_eq!(VmConfigError::InvalidMemorySize.to_string(), expected_str);
-
-        let expected_str = "The update operation is not allowed after boot.";
-        assert_eq!(
-            VmConfigError::UpdateNotAllowedPostBoot.to_string(),
-            expected_str
-        );
     }
 }
