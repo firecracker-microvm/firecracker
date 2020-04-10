@@ -10,7 +10,7 @@ libc = ">=0.2.39"
 utils = { path = "../utils" }
 
 arch_gen = { path = "../arch_gen" }
-vm-memory = { version = ">=0.1.0", features = ["backend-mmap"] }
+vm-memory = { version = ">=0.2.0", features = ["backend-mmap"] }
 
 [dev-dependencies]
 utils = { path = "../utils" }

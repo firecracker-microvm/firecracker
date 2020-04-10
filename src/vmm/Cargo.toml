@@ -16,12 +16,13 @@ devices = { path = "../devices" }
 dumbo = { path = "../dumbo" }
 kernel = { path = "../kernel" }
 logger = { path = "../logger" }
-vm-memory = { version = ">=0.1.0", features = ["backend-mmap"] }
+vm-memory = { version = ">=0.2.0", features = ["backend-mmap"] }
 mmds = { path = "../mmds" }
 utils = { path = "../utils"}
 rate_limiter = { path = "../rate_limiter" }
 seccomp = { path = "../seccomp" }
 polly = { path = "../polly" }
+snapshot = { path = "../snapshot"}
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }

@@ -6,7 +6,6 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard};
 
 use libc::O_NONBLOCK;
 
@@ -98,49 +97,19 @@ impl TryInto<RateLimiter> for RateLimiterConfig {
 
 type Result<T> = std::result::Result<T, std::io::Error>;
 
-/// Structure `Writer` used for writing to a FIFO.
-pub struct Writer {
-    line_writer: Mutex<io::LineWriter<File>>,
+/// Create and opens a File for writing to it.
+/// In case we open a FIFO, in order to not block the instance if nobody is consuming the message
+/// that is flushed to the two pipes, we are opening it with `O_NONBLOCK` flag.
+/// In this case, writing to a pipe will start failing when reaching 64K of unconsumed content.
+fn open_file_nonblock(path: &PathBuf) -> Result<File> {
+    OpenOptions::new()
+        .custom_flags(O_NONBLOCK)
+        .read(true)
+        .write(true)
+        .open(&path)
 }
 
-impl Writer {
-    /// Create and open a FIFO for writing to it.
-    /// In order to not block the instance if nobody is consuming the message that is flushed to the
-    /// two pipes, we are opening it with `O_NONBLOCK` flag. In this case, writing to a pipe will
-    /// start failing when reaching 64K of unconsumed content. Simultaneously,
-    /// the `missed_metrics_count` metric will get increased.
-    pub fn new(fifo_path: PathBuf) -> Result<Writer> {
-        OpenOptions::new()
-            .custom_flags(O_NONBLOCK)
-            .read(true)
-            .write(true)
-            .open(&fifo_path)
-            .map(|t| Writer {
-                line_writer: Mutex::new(io::LineWriter::new(t)),
-            })
-    }
-
-    fn get_line_writer(&self) -> MutexGuard<io::LineWriter<File>> {
-        match self.line_writer.lock() {
-            Ok(guard) => guard,
-            // If a thread panics while holding this lock, the writer within should still be usable.
-            // (we might get an incomplete log line or something like that).
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
-}
-
-impl io::Write for Writer {
-    fn write(&mut self, msg: &[u8]) -> Result<(usize)> {
-        let mut line_writer = self.get_line_writer();
-        line_writer.write_all(msg).map(|()| msg.len())
-    }
-
-    fn flush(&mut self) -> Result<()> {
-        let mut line_writer = self.get_line_writer();
-        line_writer.flush()
-    }
-}
+type FcLineWriter = io::LineWriter<File>;
 
 #[cfg(test)]
 mod tests {
@@ -206,14 +175,14 @@ mod tests {
     }
 
     #[test]
-    fn test_log_writer() {
+    fn test_fifo_line_writer() {
         let log_file_temp =
             TempFile::new().expect("Failed to create temporary output logging file.");
         let good_file = log_file_temp.as_path().to_path_buf();
-        let res = Writer::new(good_file);
-        assert!(res.is_ok());
+        let maybe_fifo = open_file_nonblock(&good_file);
+        assert!(maybe_fifo.is_ok());
+        let mut fw = FcLineWriter::new(maybe_fifo.unwrap());
 
-        let mut fw = res.unwrap();
         let msg = String::from("some message");
         assert!(fw.write(&msg.as_bytes()).is_ok());
         assert!(fw.flush().is_ok());

@@ -26,8 +26,8 @@ can boot:
    ```
 
 3. You will need to configure your Linux build. You can start from
-   [our recommended config](../resources/microvm-kernel-config) - just copy
-   it to `.config` (under the Linux sources dir). You can make interactive
+   [our recommended config](../resources/microvm-kernel-x86_64.config) - just 
+   copy it to `.config` (under the Linux sources dir). You can make interactive
    config adjustments using:
 
    ```bash

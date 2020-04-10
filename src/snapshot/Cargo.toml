@@ -1,0 +1,18 @@
+[package]
+name = "snapshot"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+serde = ">=1.0.27"
+serde_derive = ">=1.0.27"
+bincode = "1.2.1"
+versionize = { path = "../versionize" }
+versionize_derive = { path = "../versionize_derive" }
+
+[dev-dependencies]
+criterion = "0.3.0"
+
+[[bench]]
+name = "basic"
+harness = false

@@ -150,8 +150,8 @@ support:
 CONFIG_PTP_1588_CLOCK=y
 CONFIG_PTP_1588_CLOCK_KVM=y
 ```
-Our [recommended guest kernel config](resources/microvm-kernel-config) already
-has these included.
+Our [recommended guest kernel config](resources/microvm-kernel-x86_64.config)
+already has these included.
 
 Now `/dev/ptp0` should be available in the guest. Next you need to configure
 `/dev/ptp0` as a NTP time source.

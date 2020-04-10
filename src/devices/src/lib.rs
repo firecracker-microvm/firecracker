@@ -47,4 +47,5 @@ pub enum Error {
     PayloadExpected,
     IoError(io::Error),
     NoAvailBuffers,
+    SpuriousEvent,
 }

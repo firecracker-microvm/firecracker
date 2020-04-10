@@ -602,7 +602,7 @@ mod tests {
         let req_as_bytes = b"PUT /logger HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
                 Content-Length: 91\r\n\r\n{ \
-                \"log_fifo\": \"string\", \
+                \"log_path\": \"string\", \
                 \"level\": \"Warning\", \
                 \"show_level\": false, \
                 \"show_log_origin\": false \
@@ -643,7 +643,7 @@ mod tests {
         let req_as_bytes = b"PUT /metrics HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
                 Content-Length: 28\r\n\r\n{ \
-                \"metrics_fifo\": \"string\" \
+                \"metrics_path\": \"string\" \
             }";
 
         sender.write_all(req_as_bytes).unwrap();

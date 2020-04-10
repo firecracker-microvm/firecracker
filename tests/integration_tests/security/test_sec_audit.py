@@ -23,7 +23,7 @@ def test_cargo_audit():
             '../../../Cargo.lock')
     )
     process = run(
-        'cargo audit -q -f {}'.format(cargo_lock_path),
+        'cargo audit -f {}'.format(cargo_lock_path),
         shell=True,
         check=True,
         stdout=PIPE

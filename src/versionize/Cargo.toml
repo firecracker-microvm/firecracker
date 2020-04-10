@@ -1,0 +1,18 @@
+[package]
+name = "versionize"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+
+[dependencies]
+serde = ">=1.0.27"
+serde_derive = ">=1.0.27"
+bincode = "1.2.1"
+versionize_derive = { path = "../versionize_derive" }
+crc64 = "1.0.0"
+vmm-sys-util = ">=0.4.0"
+
+[build-dependencies]
+proc-macro2 = ">=1.0"
+quote = ">=1.0"
+syn = { version = ">=1.0.13", features=["default","full"]}
+versionize_derive = { path = "../versionize_derive" }

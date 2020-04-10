@@ -178,8 +178,8 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         guest_mac='06:00:00:00:00:01'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "The host device name {} is already in use.".\
-        format(second_if_name) in response.text
+    assert "Cannot open TAP device. Invalid name/permissions. CreateTap" \
+        in response.text
 
     # Updates to a network interface with an available name are allowed.
     iface_id = '1'
@@ -440,27 +440,19 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
-    # Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network iface, a
-    # root file system with the rw permission and logging enabled.
+    # Sets up the microVM with 2 vCPUs, 256 MiB of RAM, 1 network interface
+    # and a root file system with the rw permission.
     test_microvm.basic_config()
 
     fs1 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, 'scratch')
     )
+    drive_id = 'scratch'
     response = test_microvm.drive.put(
-        drive_id='scratch',
+        drive_id=drive_id,
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Configure logging.
-    log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
-    log_fifo = log_tools.Fifo(log_fifo_path)
-
-    response = test_microvm.logger.put(
-        log_fifo=test_microvm.create_jailed_resource(log_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -469,7 +461,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = test_microvm.metrics.put(
-        metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path)
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -501,6 +493,23 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
 
+    # Patching drive before boot is not allowed.
+    response = test_microvm.drive.patch(
+        drive_id=drive_id,
+        path_on_host='foo.bar'
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The requested operation is not supported before starting the " \
+           "microVM." in response.text
+
+    # Patching net before boot is not allowed.
+    response = test_microvm.network.patch(
+        iface_id=iface_id
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The requested operation is not supported before starting the " \
+           "microVM." in response.text
+
 
 def test_api_patch_post_boot(test_microvm_with_api):
     """Test PATCH updates after the microvm boots."""
@@ -522,21 +531,12 @@ def test_api_patch_post_boot(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    # Configure logging.
-    log_fifo_path = os.path.join(test_microvm.path, 'log_fifo')
-    log_fifo = log_tools.Fifo(log_fifo_path)
-
-    response = test_microvm.logger.put(
-        log_fifo=test_microvm.create_jailed_resource(log_fifo.path)
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
     # Configure metrics.
     metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
     response = test_microvm.metrics.put(
-        metrics_fifo=test_microvm.create_jailed_resource(metrics_fifo.path)
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -593,7 +593,14 @@ def test_drive_patch(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    _drive_patch(test_microvm)
+    # Patching drive before boot is not allowed.
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        path_on_host='foo.bar'
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The requested operation is not supported before starting the " \
+        "microVM." in response.text
 
     test_microvm.start()
 

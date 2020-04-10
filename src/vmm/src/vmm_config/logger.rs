@@ -8,8 +8,8 @@ extern crate logger as logger_crate;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use self::logger_crate::{Level, LOGGER};
-use super::Writer;
+use self::logger_crate::{LevelFilter, LOGGER};
+use super::{open_file_nonblock, FcLineWriter};
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -27,19 +27,35 @@ pub enum LoggerLevel {
     Debug,
 }
 
+impl LoggerLevel {
+    /// Converts from a logger level value of type String to the corresponding LoggerLevel variant
+    /// or returns an error if the parsing failed.
+    pub fn from_string(level: String) -> std::result::Result<Self, LoggerConfigError> {
+        match level.as_str() {
+            "Error" => Ok(LoggerLevel::Error),
+            "Warning" => Ok(LoggerLevel::Warning),
+            "Info" => Ok(LoggerLevel::Info),
+            "Debug" => Ok(LoggerLevel::Debug),
+            invalid_value => Err(LoggerConfigError::InitializationFailure(
+                invalid_value.to_string(),
+            )),
+        }
+    }
+}
+
 impl Default for LoggerLevel {
     fn default() -> LoggerLevel {
         LoggerLevel::Warning
     }
 }
 
-impl Into<Level> for LoggerLevel {
-    fn into(self) -> Level {
+impl Into<LevelFilter> for LoggerLevel {
+    fn into(self) -> LevelFilter {
         match self {
-            LoggerLevel::Error => Level::Error,
-            LoggerLevel::Warning => Level::Warn,
-            LoggerLevel::Info => Level::Info,
-            LoggerLevel::Debug => Level::Debug,
+            LoggerLevel::Error => LevelFilter::Error,
+            LoggerLevel::Warning => LevelFilter::Warn,
+            LoggerLevel::Info => LevelFilter::Info,
+            LoggerLevel::Debug => LevelFilter::Debug,
         }
     }
 }
@@ -48,8 +64,8 @@ impl Into<Level> for LoggerLevel {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LoggerConfig {
-    /// Named pipe used as output for logs.
-    pub log_fifo: PathBuf,
+    /// Named pipe or file used as output for logs.
+    pub log_path: PathBuf,
     /// The level of the Logger.
     #[serde(default = "LoggerLevel::default")]
     pub level: LoggerLevel,
@@ -59,6 +75,23 @@ pub struct LoggerConfig {
     /// When enabled, the logger will append the origin of the log entry.
     #[serde(default)]
     pub show_log_origin: bool,
+}
+
+impl LoggerConfig {
+    /// Creates a new LoggerConfig.
+    pub fn new(
+        log_path: PathBuf,
+        level: LoggerLevel,
+        show_level: bool,
+        show_log_origin: bool,
+    ) -> LoggerConfig {
+        LoggerConfig {
+            log_path,
+            level,
+            show_level,
+            show_log_origin,
+        }
+    }
 }
 
 /// Errors associated with actions on the `LoggerConfig`.
@@ -83,26 +116,25 @@ pub fn init_logger(
     firecracker_version: &str,
 ) -> std::result::Result<(), LoggerConfigError> {
     LOGGER
-        .set_level(logger_cfg.level.into())
+        .set_max_level(logger_cfg.level.into())
         .set_include_origin(logger_cfg.show_log_origin, logger_cfg.show_log_origin)
         .set_include_level(logger_cfg.show_level);
 
+    let writer = FcLineWriter::new(
+        open_file_nonblock(&logger_cfg.log_path)
+            .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
+    );
     LOGGER
         .init(
             format!("Running {} v{}", "Firecracker", firecracker_version),
-            Box::new(
-                Writer::new(logger_cfg.log_fifo)
-                    .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))?,
-            ),
+            Box::new(writer),
         )
         .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
-
-    use std::io::BufRead;
-    use std::io::BufReader;
+    use std::io::{BufRead, BufReader};
 
     use super::*;
     use utils::tempfile::TempFile;
@@ -114,7 +146,7 @@ mod tests {
     fn test_init_logger() {
         // Error case: initializing logger with invalid pipe returns error.
         let desc = LoggerConfig {
-            log_fifo: PathBuf::from("not_found_file_log"),
+            log_path: PathBuf::from("not_found_file_log"),
             level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
@@ -124,7 +156,7 @@ mod tests {
         // Initializing logger with valid pipe is ok.
         let log_file = TempFile::new().unwrap();
         let desc = LoggerConfig {
-            log_fifo: log_file.as_path().to_path_buf(),
+            log_path: log_file.as_path().to_path_buf(),
             level: LoggerLevel::Info,
             show_level: true,
             show_log_origin: true,
@@ -173,6 +205,44 @@ mod tests {
                 ))
             ),
             "Failed to initialize logger"
+        );
+    }
+
+    #[test]
+    fn test_new_logger_config() {
+        let logger_config =
+            LoggerConfig::new(PathBuf::from("log"), LoggerLevel::Debug, false, true);
+        assert_eq!(logger_config.log_path, PathBuf::from("log"));
+        assert_eq!(logger_config.level, LoggerLevel::Debug);
+        assert_eq!(logger_config.show_level, false);
+        assert_eq!(logger_config.show_log_origin, true);
+    }
+
+    #[test]
+    fn test_parse_level() {
+        // Check `from_string()` behaviour for different scenarios.
+        assert_eq!(
+            format!(
+                "{}",
+                LoggerLevel::from_string("random_value".to_string()).unwrap_err()
+            ),
+            "random_value"
+        );
+        assert_eq!(
+            LoggerLevel::from_string("Error".to_string()).unwrap(),
+            LoggerLevel::Error
+        );
+        assert_eq!(
+            LoggerLevel::from_string("Warning".to_string()).unwrap(),
+            LoggerLevel::Warning
+        );
+        assert_eq!(
+            LoggerLevel::from_string("Info".to_string()).unwrap(),
+            LoggerLevel::Info
+        );
+        assert_eq!(
+            LoggerLevel::from_string("Debug".to_string()).unwrap(),
+            LoggerLevel::Debug
         );
     }
 }

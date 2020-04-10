@@ -25,11 +25,11 @@ mod tests {
     #[test]
     fn test_parse_put_metrics_request() {
         let body = r#"{
-                "metrics_fifo": "metrics"
+                "metrics_path": "metrics"
               }"#;
 
         let expected_cfg = MetricsConfig {
-            metrics_fifo: PathBuf::from("metrics"),
+            metrics_path: PathBuf::from("metrics"),
         };
         match parse_put_metrics(&Body::new(body)) {
             Ok(ParsedRequest::Sync(VmmAction::ConfigureMetrics(cfg))) => {
