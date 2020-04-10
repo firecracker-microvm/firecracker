@@ -111,13 +111,6 @@ const IN_PREFIX_SEPARATOR: &str = ":";
 const MSG_SEPARATOR: &str = " ";
 const DEFAULT_MAX_LEVEL: LevelFilter = LevelFilter::Warn;
 
-// Synchronization primitives used to run a one-time global initialization.
-const UNINITIALIZED: usize = 0;
-const INITIALIZING: usize = 1;
-const INITIALIZED: usize = 2;
-
-static STATE: AtomicUsize = AtomicUsize::new(0);
-
 lazy_static! {
     static ref _LOGGER_INNER: Logger = Logger::new();
 
@@ -132,6 +125,7 @@ lazy_static! {
 // All member fields have types which are Sync, and exhibit interior mutability, so
 // we can call logging operations using a non-mut static global variable.
 pub struct Logger {
+    state: AtomicUsize,
     // Human readable logs will be outputted here.
     log_buf: Mutex<Option<Box<dyn Write + Send>>>,
     show_level: AtomicBool,
@@ -141,9 +135,14 @@ pub struct Logger {
 }
 
 impl Logger {
+    const UNINITIALIZED: usize = 0;
+    const INITIALIZING: usize = 1;
+    const INITIALIZED: usize = 2;
+
     /// Creates a new instance of the current logger.
     fn new() -> Logger {
         Logger {
+            state: AtomicUsize::new(0),
             log_buf: Mutex::new(None),
             show_level: AtomicBool::new(true),
             show_line_numbers: AtomicBool::new(true),
@@ -316,13 +315,16 @@ impl Logger {
     /// Try to change the state of the logger.
     /// This method will succeed only if the logger is UNINITIALIZED.
     fn try_lock(&self, locked_state: usize) -> Result<()> {
-        match STATE.compare_and_swap(UNINITIALIZED, locked_state, Ordering::SeqCst) {
-            INITIALIZING => {
+        match self
+            .state
+            .compare_and_swap(Self::UNINITIALIZED, locked_state, Ordering::SeqCst)
+        {
+            Self::INITIALIZING => {
                 // If the logger is initializing, an error will be returned.
                 METRICS.logger.log_fails.inc();
                 return Err(LoggerError::IsInitializing);
             }
-            INITIALIZED => {
+            Self::INITIALIZED => {
                 // If the logger was already initialized, an error will be returned.
                 METRICS.logger.log_fails.inc();
                 return Err(LoggerError::AlreadyInitialized);
@@ -367,7 +369,7 @@ impl Logger {
     /// }
     /// ```
     pub fn configure(&self, instance_id: Option<String>) -> Result<()> {
-        self.try_lock(INITIALIZING)?;
+        self.try_lock(Self::INITIALIZING)?;
 
         if let Some(some_instance_id) = instance_id {
             self.set_instance_id(some_instance_id);
@@ -375,7 +377,7 @@ impl Logger {
 
         self.try_init_max_level();
 
-        STATE.store(UNINITIALIZED, Ordering::SeqCst);
+        self.state.store(Self::UNINITIALIZED, Ordering::SeqCst);
 
         Ok(())
     }
@@ -406,7 +408,7 @@ impl Logger {
     /// }
     /// ```
     pub fn init(&self, header: String, log_dest: Box<dyn Write + Send>) -> Result<()> {
-        self.try_lock(INITIALIZING)?;
+        self.try_lock(Self::INITIALIZING)?;
         {
             let mut g = buf_guard(&self.log_buf);
 
@@ -415,7 +417,7 @@ impl Logger {
 
         self.try_init_max_level();
 
-        STATE.store(INITIALIZED, Ordering::SeqCst);
+        self.state.store(Self::INITIALIZED, Ordering::SeqCst);
         self.write_log(header, Level::Info);
 
         Ok(())
@@ -425,7 +427,7 @@ impl Logger {
     // the creation and allocation of unnecessary intermediate Strings. The `write_log` method takes
     // care of the common logic involved in writing regular log messages.
     fn write_log(&self, msg: String, msg_level: Level) {
-        if STATE.load(Ordering::Relaxed) == INITIALIZED {
+        if self.state.load(Ordering::Relaxed) == Self::INITIALIZED {
             if let Some(guard) = buf_guard(&self.log_buf).as_mut() {
                 // No need to explicitly call flush because the underlying LineWriter flushes
                 // automatically whenever a newline is detected (and we always end with a
@@ -620,7 +622,7 @@ mod tests {
             ],
         );
 
-        STATE.store(UNINITIALIZED, Ordering::SeqCst);
+        l.state.store(Logger::UNINITIALIZED, Ordering::SeqCst);
 
         l.set_include_level(true).set_include_origin(false, false);
         let error_metadata = MetadataBuilder::new().level(Level::Error).build();
