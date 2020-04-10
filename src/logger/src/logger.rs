@@ -504,10 +504,11 @@ impl Log for Logger {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{File, OpenOptions};
-    use std::io::{BufRead, BufReader, ErrorKind};
+    use std::io::ErrorKind;
 
     use super::*;
+    use std::io::Read;
+    use std::sync::Arc;
     use utils::tempfile::TempFile;
 
     const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
@@ -515,6 +516,48 @@ mod tests {
 
     const LOG_SOURCE: &str = "logger.rs";
     const LOG_LINE: u32 = 0;
+
+    struct LogWriter {
+        buf: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Write for LogWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let mut data = self.buf.lock().unwrap();
+            data.append(&mut buf.to_vec());
+
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct LogReader {
+        buf: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Read for LogReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let mut data = self.buf.lock().unwrap();
+
+            let len = std::cmp::min(data.len(), buf.len());
+            buf[..len].copy_from_slice(&data[..len]);
+
+            data.drain(..len);
+
+            Ok(len)
+        }
+    }
+
+    fn log_channel() -> (LogWriter, LogReader) {
+        let buf = Arc::new(Mutex::new(vec![]));
+        (
+            LogWriter { buf: buf.clone() },
+            LogReader { buf: buf.clone() },
+        )
+    }
 
     fn log(logger: &Logger, level: Level, msg: &str) {
         logger.log(
@@ -527,24 +570,15 @@ mod tests {
         );
     }
 
-    fn validate_logs(log_path: &str, expected: &[(&'static str, &'static str)]) -> bool {
-        let f = File::open(log_path).unwrap();
-        let mut reader = BufReader::new(f);
+    fn validate_log(mut log_reader: Box<&mut dyn Read>, expected: &str) {
+        let mut log = Vec::new();
+        log_reader.read_to_end(&mut log).unwrap();
 
-        let mut line = String::new();
-        // The first line should contain the app header.
-        reader.read_line(&mut line).unwrap();
-        assert!(line.contains(TEST_APP_HEADER));
-        for tuple in expected {
-            line.clear();
-            // Read an actual log line.
-            reader.read_line(&mut line).unwrap();
-            assert!(line.contains(&TEST_INSTANCE_ID));
-            assert!(line.contains(&tuple.0));
-            assert!(line.contains(&LOG_SOURCE));
-            assert!(line.contains(&tuple.1));
-        }
-        false
+        assert!(log.len() >= expected.len());
+        assert_eq!(
+            expected,
+            std::str::from_utf8(&log[log.len() - expected.len()..]).unwrap()
+        );
     }
 
     #[test]
@@ -582,56 +616,50 @@ mod tests {
 
         // Assert that initialization works only once.
 
-        let log_file_temp =
-            TempFile::new().expect("Failed to create temporary output logging file.");
-        let log_file = String::from(log_file_temp.as_path().to_path_buf().to_str().unwrap());
+        let (writer, mut reader) = log_channel();
         l.set_instance_id(TEST_INSTANCE_ID.to_string());
         assert!(l
-            .init(
-                TEST_APP_HEADER.to_string(),
-                Box::new(
-                    OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .open(&log_file)
-                        .unwrap()
-                ),
-            )
+            .init(TEST_APP_HEADER.to_string(), Box::new(writer))
             .is_ok());
+        validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
 
         log(&l, Level::Info, "info");
+        validate_log(
+            Box::new(&mut reader),
+            "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
+        );
+
         log(&l, Level::Warn, "warning");
+        validate_log(
+            Box::new(&mut reader),
+            "[TEST-INSTANCE-ID:WARN:logger.rs:0] warning\n",
+        );
 
         let log_file_temp2 = TempFile::new().unwrap();
 
         assert!(l
             .init(
                 TEST_APP_HEADER.to_string(),
-                Box::new(
-                    OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .open(log_file_temp2.as_path())
-                        .unwrap()
-                ),
+                Box::new(log_file_temp2.into_file()),
             )
             .is_err());
 
         log(&l, Level::Info, "info");
-        log(&l, Level::Warn, "warning");
-        log(&l, Level::Error, "error");
+        validate_log(
+            Box::new(&mut reader),
+            "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
+        );
 
-        // Here we also test that the last initialization had no effect given that the
-        // logging system can only be initialized with byte-oriented sinks once per program.
-        validate_logs(
-            &log_file,
-            &[
-                ("INFO", "info"),
-                ("WARN", "warn"),
-                ("INFO", "info"),
-                ("WARN", "warn"),
-                ("ERROR", "error"),
-            ],
+        log(&l, Level::Warn, "warning");
+        validate_log(
+            Box::new(&mut reader),
+            "[TEST-INSTANCE-ID:WARN:logger.rs:0] warning\n",
+        );
+
+        log(&l, Level::Error, "error");
+        validate_log(
+            Box::new(&mut reader),
+            "[TEST-INSTANCE-ID:ERROR:logger.rs:0] error\n",
         );
 
         l.state.store(Logger::UNINITIALIZED, Ordering::SeqCst);
