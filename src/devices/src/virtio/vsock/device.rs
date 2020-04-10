@@ -107,6 +107,10 @@ where
         Self::with_queues(cid, backend, queues)
     }
 
+    pub fn id(&self) -> &str {
+        defs::VSOCK_DEV_ID
+    }
+
     pub fn cid(&self) -> u64 {
         self.cid
     }

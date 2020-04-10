@@ -23,8 +23,6 @@ pub struct MetricsConfig {
 pub enum MetricsConfigError {
     /// Cannot initialize the metrics system due to bad user input.
     InitializationFailure(String),
-    /// Cannot flush the metrics.
-    FlushMetrics(String),
 }
 
 impl Display for MetricsConfigError {
@@ -32,7 +30,6 @@ impl Display for MetricsConfigError {
         use self::MetricsConfigError::*;
         match *self {
             InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
-            FlushMetrics(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
         }
     }
 }
@@ -81,13 +78,6 @@ mod tests {
                 ))
             ),
             "Failed to initialize metrics"
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                MetricsConfigError::FlushMetrics(String::from("Failed to flush metrics"))
-            ),
-            "Failed to flush metrics"
         );
     }
 }
