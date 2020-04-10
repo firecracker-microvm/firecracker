@@ -509,7 +509,6 @@ mod tests {
     use super::*;
     use std::io::Read;
     use std::sync::Arc;
-    use utils::tempfile::TempFile;
 
     const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
     const TEST_APP_HEADER: &str = "App header";
@@ -606,94 +605,58 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cognitive_complexity)]
-    fn test_init() {
-        let l = Logger::new();
+    fn test_configure() {
+        let logger = Logger::new();
 
-        l.set_include_origin(false, true);
-        assert_eq!(l.show_line_numbers(), false);
+        // Assert that `configure()` can be called successfully any number of times.
+        assert!(logger.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
+        assert!(logger.configure(None).is_ok());
+        assert!(logger.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
 
-        l.set_include_origin(true, true)
-            .set_include_level(true)
-            .set_max_level(log::LevelFilter::Info);
-        assert_eq!(l.show_line_numbers(), true);
-        assert_eq!(l.show_file_path(), true);
-        assert_eq!(l.show_level(), true);
-
-        l.set_instance_id(TEST_INSTANCE_ID.to_string());
-
-        // Assert that the initial configuration works any number of times.
-        assert!(l.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
-        assert!(l.configure(None).is_ok());
-        assert!(l.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
-
-        log(&l, Level::Info, "info");
-        log(&l, Level::Warn, "warning");
-        log(&l, Level::Error, "error");
-
-        // Assert that initialization works only once.
-
+        // Assert that `init()` works after `configure()`
         let (writer, mut reader) = log_channel();
-        l.set_instance_id(TEST_INSTANCE_ID.to_string());
-        assert!(l
+        assert!(logger
             .init(TEST_APP_HEADER.to_string(), Box::new(writer))
             .is_ok());
         validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
+        // Check that the logs are written to the configured writer.
+        log(&logger, Level::Info, "info");
+        validate_log(
+            Box::new(&mut reader),
+            "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
+        );
+    }
 
-        log(&l, Level::Info, "info");
+    #[test]
+    fn test_init() {
+        let logger = Logger::new();
+
+        // Assert that the first call to `init()` is successful.
+        let (writer, mut reader) = log_channel();
+        logger.set_instance_id(TEST_INSTANCE_ID.to_string());
+        assert!(logger
+            .init(TEST_APP_HEADER.to_string(), Box::new(writer))
+            .is_ok());
+        validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
+        // Check that the logs are written to the configured writer.
+        log(&logger, Level::Info, "info");
         validate_log(
             Box::new(&mut reader),
             "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
         );
 
-        log(&l, Level::Warn, "warning");
-        validate_log(
-            Box::new(&mut reader),
-            "[TEST-INSTANCE-ID:WARN:logger.rs:0] warning\n",
-        );
-
-        let log_file_temp2 = TempFile::new().unwrap();
-
-        assert!(l
-            .init(
-                TEST_APP_HEADER.to_string(),
-                Box::new(log_file_temp2.into_file()),
-            )
+        // Assert that initialization works only once.
+        let (writer_2, mut reader_2) = log_channel();
+        assert!(logger
+            .init(TEST_APP_HEADER.to_string(), Box::new(writer_2))
             .is_err());
-
-        log(&l, Level::Info, "info");
+        // Check that the logs are written only to the first writer.
+        log(&logger, Level::Info, "info");
         validate_log(
             Box::new(&mut reader),
             "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
         );
-
-        log(&l, Level::Warn, "warning");
-        validate_log(
-            Box::new(&mut reader),
-            "[TEST-INSTANCE-ID:WARN:logger.rs:0] warning\n",
-        );
-
-        log(&l, Level::Error, "error");
-        validate_log(
-            Box::new(&mut reader),
-            "[TEST-INSTANCE-ID:ERROR:logger.rs:0] error\n",
-        );
-
-        l.state.store(Logger::UNINITIALIZED, Ordering::SeqCst);
-
-        l.set_include_level(true).set_include_origin(false, false);
-        log(&l, Level::Error, "");
-
-        assert_eq!(l.show_level(), true);
-        assert_eq!(l.show_file_path(), false);
-        assert_eq!(l.show_line_numbers(), false);
-
-        l.set_include_level(false).set_include_origin(true, true);
-        log(&l, Level::Info, "");
-
-        assert_eq!(l.show_level(), false);
-        assert_eq!(l.show_file_path(), true);
-        assert_eq!(l.show_line_numbers(), true);
+        validate_log(Box::new(&mut reader_2), "");
     }
 
     #[test]
