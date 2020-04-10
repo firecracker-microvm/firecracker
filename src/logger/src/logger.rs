@@ -581,6 +581,23 @@ mod tests {
         );
     }
 
+    fn create_logger() -> Logger {
+        let logger = Logger::new();
+        logger.set_instance_id(TEST_INSTANCE_ID.to_string());
+
+        logger
+    }
+
+    fn init_logger(logger: &Logger) -> LogReader {
+        let (writer, mut reader) = log_channel();
+        assert!(logger
+            .init(TEST_APP_HEADER.to_string(), Box::new(writer))
+            .is_ok());
+        validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
+
+        reader
+    }
+
     #[test]
     fn test_default_values() {
         let l = Logger::new();
@@ -677,6 +694,70 @@ mod tests {
         assert_eq!(l.show_level(), false);
         assert_eq!(l.show_file_path(), true);
         assert_eq!(l.show_line_numbers(), true);
+    }
+
+    #[test]
+    fn test_create_prefix() {
+        let logger = create_logger();
+        let mut reader = init_logger(&logger);
+
+        // Test with empty instance id.
+        logger.set_instance_id("".to_string());
+
+        // Check that the prefix is empty when `show_level` and `show_origin` are false.
+        logger
+            .set_include_level(false)
+            .set_include_origin(false, true);
+        log(&logger, Level::Info, "msg");
+        validate_log(Box::new(&mut reader), "[] msg\n");
+
+        // Check that the prefix is correctly shown when all flags are true.
+        logger
+            .set_include_level(true)
+            .set_include_origin(true, true);
+        log(&logger, Level::Info, "msg");
+        validate_log(Box::new(&mut reader), "[INFO:logger.rs:0] msg\n");
+
+        // Check show_line_numbers=false.
+        logger
+            .set_include_level(true)
+            .set_include_origin(true, false);
+        log(&logger, Level::Debug, "msg");
+        validate_log(Box::new(&mut reader), "[DEBUG:logger.rs] msg\n");
+
+        // Check show_file_path=false.
+        logger
+            .set_include_level(true)
+            .set_include_origin(false, true);
+        log(&logger, Level::Error, "msg");
+        validate_log(Box::new(&mut reader), "[ERROR] msg\n");
+
+        // Check show_level=false.
+        logger
+            .set_include_level(false)
+            .set_include_origin(true, true);
+        log(&logger, Level::Info, "msg");
+        validate_log(Box::new(&mut reader), "[logger.rs:0] msg\n");
+
+        // Test with a mock instance id.
+        logger.set_instance_id(TEST_INSTANCE_ID.to_string());
+
+        // Check that the prefix contains only the instance id when all flags are false.
+        logger
+            .set_include_level(false)
+            .set_include_origin(false, false);
+        log(&logger, Level::Info, "msg");
+        validate_log(Box::new(&mut reader), "[TEST-INSTANCE-ID] msg\n");
+
+        // Check that the prefix is correctly shown when all flags are true.
+        logger
+            .set_include_level(true)
+            .set_include_origin(true, true);
+        log(&logger, Level::Warn, "msg");
+        validate_log(
+            Box::new(&mut reader),
+            "[TEST-INSTANCE-ID:WARN:logger.rs:0] msg\n",
+        );
     }
 
     #[test]
