@@ -24,9 +24,9 @@ host. To that end, Firecracker implements the virtio-vsock device model, and
 mediates communication between AF_UNIX sockets (on the host end) and AF_VSOCK
 sockets (on the guest end).
 
-In order to provide channel multiplexing, AF_VSOCK ports are translated into
-multiple AF_UNIX sockets (one Unix socket per vsock port). The virtio-vsock
-device must be configured with a file path to an AF_UNIX socket (e.g.
+In order to provide channel multiplexing the guest `AF_VSOCK` ports are mapped
+1:1 to `AF_UNIX` sockets on the host. The virtio-vsock device must be
+configured with a path to an `AF_UNIX` socket on the host (e.g.
 `/path/to/v.sock`). There are two scenarios to be considered, depending on
 where the connection is initiated.
 
@@ -44,6 +44,8 @@ acknowledgement message to the connecting end (host-side), in the form
 "OK PORT\n", where `PORT` is the vsock port number assigned to
 the host end. If no one is listening, Firecracker will terminate the host
 connection.
+
+Client A initiates connection to Server A in [figure below](#vsock-connections):
 
 1. Host: At VM configuration time, add a virtio-vsock device, with some path
    specified in `uds_path`;
@@ -67,8 +69,7 @@ decimal), as specified in the connection request packet. If no such socket
 exists, or no one is listening on it, a connection cannot be established, and a
 VIRTIO_VSOCK_OP_RST packet will be sent back to the guest.
 
-From the user perspective, these would be the steps taken to establish a
-communication channel:
+Client B initiates connection to Server B in [figure below](#vsock-connections):
 
 1. Host: At VM configuration time, add a virtio-vsock device, with some
    `uds_path` (e.g. `/path/to/v.sock`).
@@ -79,6 +80,10 @@ communication channel:
 
 The channel is established between the sockets obtained at steps 4 (host)
 and 3 (guest).
+
+![Vsock Connections](
+images/vsock-connections.png?raw=true
+"Vsock Connections")
 
 ## Setting up the virtio-vsock device
 

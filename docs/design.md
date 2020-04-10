@@ -73,10 +73,10 @@ runs the following threads: API, VMM and vCPU(s). The API thread is responsible
 for Firecracker's API server and associated control plane. It's never in the
 fast path of the virtual machine. The VMM thread exposes the machine model,
 minimal legacy device model, microVM metadata service (MMDS) and VirtIO device
-emulated Net and Block devices, complete with I/O rate limiting. In addition to
-them, there are one or more vCPU threads (one per guest CPU core). They are
-created via KVM and run the `KVM_RUN` main loop. They execute synchronous I/O
-and memory-mapped I/O operations on devices models.
+emulated Net, Block and Vsock devices, complete with I/O rate limiting. In
+addition to them, there are one or more vCPU threads (one per guest CPU core).
+They are created via KVM and run the `KVM_RUN` main loop. They execute
+synchronous I/O and memory-mapped I/O operations on devices models.
 
 ### Threat Containment
 
