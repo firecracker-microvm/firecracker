@@ -14,3 +14,4 @@ net_gen = { path = "../net_gen" }
 polly = { path = "../polly" }
 rate_limiter = { path = "../rate_limiter" }
 virtio_gen = { path = "../virtio_gen" }
+mmds = { path = "../mmds" }

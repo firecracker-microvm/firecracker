@@ -12,10 +12,10 @@ use crate::virtio::{
     ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING,
 };
 use crate::{report_net_event_fail, Error as DeviceError};
-use dumbo::ns::MmdsNetworkStack;
 use dumbo::{EthernetFrame, MacAddr, MAC_ADDR_LEN};
 use libc::EAGAIN;
 use logger::{Metric, METRICS};
+use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{RateLimiter, TokenBucket, TokenType};
 #[cfg(not(test))]
 use std::io::Read;

@@ -5,9 +5,13 @@
 extern crate lazy_static;
 extern crate serde_json;
 
+extern crate dumbo;
+extern crate logger;
 extern crate micro_http;
+extern crate utils;
 
 pub mod data_store;
+pub mod ns;
 
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
