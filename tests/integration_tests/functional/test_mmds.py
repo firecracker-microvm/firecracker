@@ -6,15 +6,15 @@ import host_tools.network as net_tools
 
 
 def _assert_out(stdout, stderr, expected):
-    assert stderr.read().decode('utf-8') == ''
-    assert stdout.read().decode('utf-8') == expected
+    assert stderr.read() == ''
+    assert stdout.read() == expected
 
 
 # Used when the output consists of a set of lines in no particular order, and
 # thus may differ from one run to another.
 def _assert_out_multiple(stdout, stderr, lines):
-    assert stderr.read().decode('utf-8') == ''
-    out = stdout.read().decode('utf-8')
+    assert stderr.read() == ''
+    out = stdout.read()
     assert sorted(out.split('\n')) == sorted(lines)
 
 

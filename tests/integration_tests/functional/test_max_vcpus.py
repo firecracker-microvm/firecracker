@@ -20,5 +20,5 @@ def test_max_vcpus(test_microvm_with_ssh, network_config):
     ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
     cmd = "nproc"
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert stderr.read().decode("utf-8") == ""
-    assert int(stdout.read().decode("utf-8")) == MAX_VCPUS
+    assert stderr.read() == ""
+    assert int(stdout.read()) == MAX_VCPUS

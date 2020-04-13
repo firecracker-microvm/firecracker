@@ -6,10 +6,9 @@ import os
 import shutil
 import stat
 
-from subprocess import run, PIPE
-
 from retry.api import retry_call
 
+import framework.utils as utils
 from framework.defs import FC_BINARY_NAME
 
 # Default name for the socket used for API calls.
@@ -145,12 +144,12 @@ class JailerContext:
                     str(os.major(stat_result.st_rdev)),
                     str(os.minor(stat_result.st_rdev))
                 ]
-                run(cmd, check=True)
+                utils.run_cmd(cmd)
             else:
                 cmd = 'ln -f {} {}'.format(file_path, global_p)
-                run(cmd, shell=True, check=True)
+                utils.run_cmd(cmd)
             cmd = 'chown {}:{} {}'.format(self.uid, self.gid, global_p)
-            run(cmd, shell=True, check=True)
+            utils.run_cmd(cmd)
         return jailed_p
 
     def netns_file_path(self):
@@ -178,7 +177,7 @@ class JailerContext:
             exist_ok=True
         )
         if self.netns:
-            run('ip netns add {}'.format(self.netns), shell=True, check=True)
+            utils.run_cmd('ip netns add {}'.format(self.netns))
 
     def cleanup(self):
         """Clean up this jailer context."""
@@ -187,11 +186,7 @@ class JailerContext:
             shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
         if self.netns:
-            _ = run(
-                'ip netns del {}'.format(self.netns),
-                shell=True,
-                stderr=PIPE
-            )
+            utils.run_cmd('ip netns del {}'.format(self.netns))
 
         # Remove the cgroup folders associated with this microvm.
         # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
@@ -228,7 +223,7 @@ class JailerContext:
             # We do not need to know if it succeeded or not; afterall, we are
             # trying to clean up resources created by the jailer itself not
             # the testing system.
-            _ = run(cmd, shell=True, stderr=PIPE)
+            utils.run_cmd(cmd, ignore_return_code=True)
 
     def _kill_crgoup_tasks(self, controller):
         """Simulate wait on pid.
@@ -250,9 +245,9 @@ class JailerContext:
             return True
 
         cmd = 'cat {}'.format(tasks_file)
-        tasks = run(cmd, shell=True, stdout=PIPE).stdout.decode('utf-8')
+        result = utils.run_cmd(cmd)
 
-        tasks_split = tasks.splitlines()
+        tasks_split = result.stdout.splitlines()
         for task in tasks_split:
             if os.path.exists("/proc/{}".format(task)):
                 raise TimeoutError

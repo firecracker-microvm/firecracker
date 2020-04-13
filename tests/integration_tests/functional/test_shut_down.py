@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests scenarios for shutting down Firecracker/VM."""
 import os
-from subprocess import run, PIPE
 import time
+
+import framework.utils as utils
 
 import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -41,8 +42,8 @@ def test_reboot(test_microvm_with_ssh, network_config):
     cmd = 'ps -o nlwp {} | tail -1 | awk \'{{print $1}}\''.format(
         firecracker_pid
     )
-    process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True, check=True)
-    nr_of_threads = process.stdout.decode('utf-8').rstrip()
+    _, stdout, _ = utils.run_cmd(cmd)
+    nr_of_threads = stdout.rstrip()
     assert int(nr_of_threads) == 6
 
     # Consume existing metrics
