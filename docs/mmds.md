@@ -15,7 +15,8 @@ MMDS is no longer available.
 Users can add/update the MMDS contents via the backend, which is accessible
 through the Firecracker API. Setting the initial contents involves a `PUT`
 request to the `/mmds` API resource, with a JSON body that describes the
-desired data store structure and contents. Here's a JSON example:
+desired data store structure and contents. The supported JSON data types are
+string, object and array. Here's a JSON example:
 
 ```json
 {
@@ -67,9 +68,10 @@ Users can set up a custom IPv4 address for MMDS. This can be achieved through a
 }
 ```
 
-The `ipv4_address` value must be a valid IPv4 address. The configured IPv4 address
-can be used from within the microVM to issue `GET` requests  to the MMDS. An
-example of MMDS request from within the guest might look like the following:
+The `ipv4_address` value is optional, and must be a valid IPv4 address. The
+configured IPv4 address can be used from within the microVM to issue `GET`
+requests  to the MMDS. An example of MMDS request from within the guest might
+look like the following:
 
 ```bash
 curl -s "http://169.254.169.200/latest/meta-data/ami-id"

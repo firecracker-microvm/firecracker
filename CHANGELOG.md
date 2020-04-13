@@ -68,6 +68,7 @@
 - Removed redundant RescanBlockDevice action from the /actions API.
   The functionality is available through the PATCH /drives API.
   See `docs/api_requests/patch-block.md`.
+- Within guest, MMDS response content is changed to JSON.
 
 ## [0.20.0]
 
