@@ -16,6 +16,7 @@ use request::machine_configuration::{
 use request::metrics::parse_put_metrics;
 use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use request::net::{parse_patch_net, parse_put_net};
+use request::snapshot::{parse_patch_vm_state, parse_put_snapshot};
 use request::vsock::parse_put_vsock;
 use ApiServer;
 
@@ -60,6 +61,7 @@ impl ParsedRequest {
             (Method::Put, "network-interfaces", Some(body)) => {
                 parse_put_net(body, path_tokens.get(1))
             }
+            (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.get(1)),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
             (Method::Put, _, None) => method_to_error(Method::Put),
             (Method::Patch, "drives", Some(body)) => parse_patch_drive(body, path_tokens.get(1)),
@@ -68,6 +70,7 @@ impl ParsedRequest {
             (Method::Patch, "network-interfaces", Some(body)) => {
                 parse_patch_net(body, path_tokens.get(1))
             }
+            (Method::Patch, "vm", Some(body)) => parse_patch_vm_state(body),
             (Method::Patch, _, None) => method_to_error(Method::Patch),
             (method, unknown_uri, _) => {
                 Err(Error::InvalidPathMethod(unknown_uri.to_string(), method))
@@ -89,6 +92,11 @@ impl ParsedRequest {
                     let mut response = Response::new(Version::Http11, StatusCode::OK);
                     response.set_body(Body::new(vm_config.to_string()));
                     response
+                }
+                VmmData::NotFound => {
+                    info!("The request was executed successfully, but there is not an implementation \
+                     for it at this moment. Status code: 501 Not Implemented.");
+                    Response::new(Version::Http11, StatusCode::NotImplemented)
                 }
             },
             Err(vmm_action_error) => {
@@ -471,6 +479,16 @@ mod tests {
         );
         assert_eq!(&buf[..], expected_response.as_bytes());
 
+        // Vmm data not found.
+        let mut buf: [u8; 66] = [0; 66];
+        let response = ParsedRequest::convert_to_response(Ok(VmmData::NotFound));
+        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let expected_response = "HTTP/1.1 501 \r\n\
+                                 Server: Firecracker API\r\n\
+                                 Connection: keep-alive\r\n\r\n"
+            .to_string();
+        assert_eq!(&buf[..], expected_response.as_bytes());
+
         // Error.
         let error = VmmActionError::StartMicrovm(StartMicrovmError::MissingKernelConfig);
         let mut buf: [u8; 193] = [0; 193];
@@ -715,6 +733,62 @@ mod tests {
                         \"refill_time\": 0 \
                     } \
                 } \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_snapshot() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+
+        sender
+            .write_all(
+                b"PUT /snapshot/create HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 64\r\n\r\n{ \
+                \"snapshot_path\": \"foo\", \
+                \"mem_file_path\": \"bar\", \
+                \"version\": 2 \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+
+        sender
+            .write_all(
+                b"PUT /snapshot/load HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 81\r\n\r\n{ \
+                \"snapshot_path\": \"foo\", \
+                \"mem_file_path\": \"bar\", \
+                \"enable_diff_snapshots\": true \
+            }",
+            )
+            .unwrap();
+
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_patch_vm() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+
+        sender
+            .write_all(
+                b"PATCH /vm HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 21\r\n\r\n{ \
+                \"state\": \"Paused\" \
             }",
             )
             .unwrap();
