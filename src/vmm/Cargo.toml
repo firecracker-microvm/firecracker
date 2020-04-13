@@ -29,3 +29,6 @@ cpuid = { path = "../cpuid" }
 
 [dev-dependencies]
 vmm-sys-util = ">=0.4.0"
+
+[features]
+pvh = []

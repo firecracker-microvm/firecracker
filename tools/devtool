@@ -475,6 +475,28 @@ cmd_build() {
 
     [ $profile = "release" ] && cargo_args+=("--release")
 
+    # Parse any optional features passed to cargo.
+    # Currently, cargo does not support specifying features in a workspace, so passing
+    # the "--features opt-feature" option to cargo does not enable the optional feature
+    # in the crates that are part of the workspace, as one would expect. In order to
+    # build the individual crates with non-default features, we can use the cargo build
+    # option "--manifest-path", to direct cargo to use the Cargo.toml file that defines
+    # the desired feature. The downside is that other independent crates in the workspace
+    # (i.e. jailer) will not be built.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "--features")
+                shift
+                [[ "$1" =~ ^--* ]] && \
+                    die "Must specify a feature name: \"--features <opt_feature>\"."
+                say_warn "WARNING: Building Firecracker with experimental feature." \
+                    "The jailer binary will not be built."
+                cargo_args+=("--manifest-path" "src/firecracker/Cargo.toml")
+                ;;
+        esac
+        shift
+    done
+
     # Run the cargo build process inside the container.
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.

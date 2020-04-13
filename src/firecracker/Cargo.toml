@@ -15,3 +15,6 @@ polly = { path = "../polly" }
 seccomp = { path = "../seccomp" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
+
+[features]
+pvh = ["vmm/pvh"]
