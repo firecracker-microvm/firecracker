@@ -20,6 +20,11 @@
 - Added `track_dirty_pages` field to `machine-config`. If enabled, Firecracker
   can create incremental guest memory snapshots by saving the dirty guest pages
   in a sparse file.
+- Added a new API call, `PATCH /vm`, for changing the microVM state (to
+  `Paused` or `Resumed`).
+- Added a new API call, `PUT /snapshot/create`, for creating a full or diff
+  snapshot.
+- Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 
 ### Fixed
 - Added `--version` flag to both Firecracker and Jailer.

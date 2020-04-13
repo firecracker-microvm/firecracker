@@ -29,6 +29,7 @@ use vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
+use vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
 use vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 
 /// This enum represents the public interface of the VMM. Each action contains various
@@ -44,6 +45,9 @@ pub enum VmmAction {
     /// Configure the metrics using as input the `MetricsConfig`. This action can only be called
     /// before the microVM has booted.
     ConfigureMetrics(MetricsConfig),
+    /// Create a snapshot using as input the `CreateSnapshotParams`. This action can only be called
+    /// after the microVM has booted and only when the microVM is in `Paused` state.
+    CreateSnapshot(CreateSnapshotParams),
     /// Get the configuration of the microVM.
     GetVmConfiguration,
     /// Flush the metrics. This action can only be called after the logger has been configured.
@@ -55,6 +59,14 @@ pub enum VmmAction {
     /// `NetworkInterfaceConfig` as input. This action can only be called before the microVM has
     /// booted.
     InsertNetworkDevice(NetworkInterfaceConfig),
+    /// Load the microVM state using as input the `LoadSnapshotParams`. This action can only be
+    /// called before the microVM has booted. If this action is successful, the loaded microVM will
+    /// be in `Paused` state. Should change this state to `Resumed` for the microVM to run.
+    LoadSnapshot(LoadSnapshotParams),
+    /// Pause the guest, by pausing the microVM VCPUs.
+    Pause,
+    /// Resume the guest, by resuming the microVM VCPUs.
+    Resume,
     /// Set the vsock device or update the one that already exists using the
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
     /// booted.
@@ -148,6 +160,10 @@ pub enum VmmData {
     Empty,
     /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(VmConfig),
+    /// No data is sent on the channel as the operation doesn't
+    /// have a handler implemented yet.
+    // This should be removed once we add an implementation for it.
+    NotFound,
 }
 
 /// Enables pre-boot setup and instantiation of a Firecracker VMM.
@@ -248,6 +264,8 @@ impl<'a> PrebootApiController<'a> {
                 .build_net_device(netif_body)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::NetworkConfig),
+            LoadSnapshot(_snapshot_load_cfg) => Ok(VmmData::NotFound),
+            Resume => Ok(VmmData::NotFound),
             SetVsockDevice(vsock_cfg) => self
                 .vm_resources
                 .set_vsock_device(vsock_cfg)
@@ -274,9 +292,11 @@ impl<'a> PrebootApiController<'a> {
             })
             .map_err(VmmActionError::StartMicrovm),
             // Operations not allowed pre-boot.
-            UpdateBlockDevicePath(_, _) | UpdateNetworkInterface(_) | FlushMetrics => {
-                Err(VmmActionError::OperationNotSupportedPreBoot)
-            }
+            CreateSnapshot(_)
+            | FlushMetrics
+            | Pause
+            | UpdateBlockDevicePath(_, _)
+            | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
@@ -301,8 +321,10 @@ impl RuntimeApiController {
         use self::VmmAction::*;
         match request {
             // Supported operations allowed post-boot.
+            CreateSnapshot(_snapshot_create_cfg) => Ok(VmmData::NotFound),
             FlushMetrics => self.flush_metrics().map(|_| VmmData::Empty),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
+            Pause | Resume => Ok(VmmData::NotFound),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del().map(|_| VmmData::Empty),
             UpdateBlockDevicePath(drive_id, path_on_host) => self
@@ -319,6 +341,7 @@ impl RuntimeApiController {
             | ConfigureMetrics(_)
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
+            | LoadSnapshot(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | SetVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
