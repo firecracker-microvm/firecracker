@@ -724,6 +724,17 @@ mod tests {
     }
 
     #[test]
+    fn test_static_logger() {
+        log::set_max_level(log::LevelFilter::Info);
+        LOGGER.set_instance_id(TEST_INSTANCE_ID.to_string());
+
+        let mut reader = init_logger(&LOGGER);
+
+        info!("info");
+        validate_log(Box::new(&mut reader), "info\n");
+    }
+
+    #[test]
     fn test_error_messages() {
         assert_eq!(
             format!(
