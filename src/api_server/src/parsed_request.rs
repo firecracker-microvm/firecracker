@@ -670,7 +670,7 @@ mod tests {
             .write_all(
                 b"PUT /mmds/config HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
-                Content-Length: 26\r\n\r\n{\"ipv4_address\":\"1.1.1.1\"}",
+                Content-Length: 32\r\n\r\n{\"ipv4_address\":\"169.254.170.2\"}",
             )
             .unwrap();
         assert!(connection.try_read().is_ok());

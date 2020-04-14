@@ -106,8 +106,8 @@ impl MmdsNetworkStack {
         self.tcp_handler.set_local_ipv4_addr(ipv4_addr);
     }
 
-    pub fn set_default_ipv4_addr(&mut self) {
-        self.set_ipv4_addr(Ipv4Addr::from(DEFAULT_IPV4_ADDR));
+    pub fn default_ipv4_addr() -> Ipv4Addr {
+        Ipv4Addr::from(DEFAULT_IPV4_ADDR)
     }
 
     // This is the entry point into the MMDS network stack. The src slice should hold the contents
@@ -513,11 +513,9 @@ mod tests {
     }
 
     #[test]
-    fn test_set_default_ipv4_addr() {
-        let mut ns = MmdsNetworkStack::new_with_defaults(None);
-        ns.set_default_ipv4_addr();
-        let expected_ipv4_addr = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
-        assert_eq!(ns.ipv4_addr, expected_ipv4_addr);
-        assert_eq!(ns.tcp_handler.local_ipv4_addr(), expected_ipv4_addr);
+    fn test_default_ipv4_addr() {
+        let actual = MmdsNetworkStack::default_ipv4_addr();
+        let expected = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
+        assert_eq!(actual, expected);
     }
 }
