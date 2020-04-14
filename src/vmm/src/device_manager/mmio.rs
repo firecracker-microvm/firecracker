@@ -99,10 +99,9 @@ impl MMIODeviceManager {
         &mut self,
         vm: &VmFd,
         mmio_device: devices::virtio::MmioTransport,
-        _cmdline: &mut kernel_cmdline::Cmdline,
         type_id: u32,
         device_id: String,
-    ) -> Result<u64> {
+    ) -> Result<(u64, u32)> {
         if self.irq > self.last_irq {
             return Err(Error::IrqsExhausted);
         }
@@ -127,25 +126,11 @@ impl MMIODeviceManager {
         self.bus
             .insert(Arc::new(Mutex::new(mmio_device)), self.mmio_base, MMIO_LEN)
             .map_err(Error::BusError)?;
-
-        // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
-        // to kernel commandline for virtio mmio devices to get recognized
-        // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
-        // bytes to 1024; further, the '{}' formatting rust construct will automatically
-        // transform it to decimal
-
-        #[cfg(target_arch = "x86_64")]
-        _cmdline
-            .insert(
-                "virtio_mmio.device",
-                &format!("{}K@0x{:08x}:{}", MMIO_LEN / 1024, self.mmio_base, self.irq),
-            )
-            .map_err(Error::Cmdline)?;
-        let ret = self.mmio_base;
+        let ret = (self.mmio_base, self.irq);
         self.id_to_dev_info.insert(
             (DeviceType::Virtio(type_id), device_id),
             MMIODeviceInfo {
-                addr: ret,
+                addr: self.mmio_base,
                 len: MMIO_LEN,
                 irq: self.irq,
             },
@@ -154,6 +139,27 @@ impl MMIODeviceManager {
         self.irq += 1;
 
         Ok(ret)
+    }
+
+    /// Append a registered MMIO device to the kernel cmdline.
+    #[cfg(target_arch = "x86_64")]
+    pub fn add_device_to_cmdline(
+        &mut self,
+        cmdline: &mut kernel_cmdline::Cmdline,
+        mmio_base: u64,
+        irq: u32,
+    ) -> Result<()> {
+        // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
+        // to kernel commandline for virtio mmio devices to get recognized
+        // the size parameter has to be transformed to KiB, so dividing hexadecimal value in
+        // bytes to 1024; further, the '{}' formatting rust construct will automatically
+        // transform it to decimal
+        cmdline
+            .insert(
+                "virtio_mmio.device",
+                &format!("{}K@0x{:08x}:{}", MMIO_LEN / 1024, mmio_base, irq),
+            )
+            .map_err(Error::Cmdline)
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -298,7 +304,11 @@ mod tests {
             device_id: &str,
         ) -> Result<u64> {
             let mmio_device = devices::virtio::MmioTransport::new(guest_mem, device);
-            self.register_mmio_device(vm, mmio_device, cmdline, type_id, device_id.to_string())
+            let (mmio_base, _irq) =
+                self.register_mmio_device(vm, mmio_device, type_id, device_id.to_string())?;
+            #[cfg(target_arch = "x86_64")]
+            self.add_device_to_cmdline(cmdline, mmio_base, _irq)?;
+            Ok(mmio_base)
         }
 
         fn update_drive(&self, device_id: &str, new_size: u64) -> Result<()> {
