@@ -510,8 +510,7 @@ pub fn setup_serial_device(
         // actual error because this operation always fails with EPERM when adding a fd which
         // has been redirected to /dev/null via dup2 (this may happen inside the jailer).
         // Find a better solution to this (and think about the state of the serial device
-        // while we're at it). This also led to commenting out parts of the
-        // enable_disable_stdin_test() unit test function.
+        // while we're at it).
         warn!("Could not add serial input event to epoll: {:?}", e);
     }
     Ok(serial)
