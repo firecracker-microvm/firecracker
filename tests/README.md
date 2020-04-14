@@ -49,7 +49,44 @@ For help on usage, see `tools/devtool help`.
 - A bare-metal `Linux` host with `uname -r` >= 4.14.
 - Docker.
 
-## Adding Tests
+## Rustacean Integration Tests
+
+The `pytest`-powered integration tests rely on Firecracker's HTTP API for
+configuring and communicating with the VMM. Alongside these, the `vmm` crate
+also includes several [native-Rust integration tests](../vmm/tests/), which
+exercise its programmatic API without the HTTP integration. `Cargo`
+automatically picks up these tests when `cargo test` is issued. They also count
+towards code coverage.
+
+To run *only* the Rust integration tests:
+
+```bash
+cargo test --test integration_tests
+```
+
+Unlike unit tests, Rust integration tests are each run in a separate process.
+`Cargo` also packages them in a new crate. This has several known side effects:
+1. Only the `pub` functions can be called. This is fine, as it allows the VMM
+   to be consumed as a programmatic user would. If any function is necessary
+   but not `pub`, please consider carefully whether it conceptually *needs* to
+   be in the public interface before making it so.
+1. The correct functioning scenario of the `vmm` implies that it `exit`s with
+   code `0`. This is necessary for proper resource cleanup. However, `cargo`
+   doesn't expect the test process to initiate its own demise, therefore it
+   will not be able to properly collect test output.
+
+   Example:
+
+   ```bash
+   cargo test --test integration_tests
+   running 3 tests
+   test test_setup_serial_device ... ok
+   ```
+
+To learn more about Rustacean integration test, see
+[the Rust book](https://doc.rust-lang.org/book/ch11-03-test-organization.html#integration-tests).
+
+## Adding Python Tests
 
 Tests can be added in any (existing or new) sub-directory of `tests/`, in files
 named `test_*.py`.
@@ -78,6 +115,11 @@ e.g., `test_microvm_with_net`, then the test would instead run on all microvm
 images with the `capability:net` tag.
 
 To see what fixtures are available, inspect `conftest.py`.
+
+## Adding Rust Tests
+
+Add a new function annotated with `#[test]` in
+[`integration_tests.rs`](../src/vmm/tests/integration_tests.rs).
 
 ## Adding Microvm Images
 
@@ -261,18 +303,10 @@ Pytest was chosen because:
 
 ### Implementation
 
-- Run build tests / unit tests with `--release` once
-  `https://github.com/edef1c/libfringe/issues/75` is fixed.
-- Ensure that we're running in the correct path of the Firecracker repo.
 - Looking into `pytest-ordering` to ensure test order.
-- `#[test] fn enable_disable_stdin_test()` from `vmm/src/lib.rs` fails if
-  `pytest` is allowed to record stdin and stdout. Currently this is worked
-  around by running pytest with `--capture=no`, which uglifies the output.
-- The code would be less repetitive with a function that wraps
-  `subprocess.run('<command>, shell=True, check=True)`.
 - Create an integrated, layered `say` system across the test runner and pytest
   (probably based on an environment variable).
-- Per test function dependency installation would make tests easer to write.
+- Per test function dependency installation would make tests easier to write.
 - Type hinting is used sparsely across tests/* python module. The code would be
   more easily understood with consistent type hints everywhere.
 
