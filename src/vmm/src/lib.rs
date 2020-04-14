@@ -63,6 +63,7 @@ use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
+#[cfg(target_arch = "x86_64")]
 use devices::virtio::{
     vsock::persist::VsockState, Block, MmioTransport, Net, Vsock, VsockUnixBackend, TYPE_BLOCK,
     TYPE_NET, TYPE_VSOCK,
