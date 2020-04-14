@@ -241,7 +241,8 @@ mod tests {
                 "first": "John",
                 "second": "Doe"
             },
-            "age": 43
+            "age": 12,
+            "invalid": true
         }"#;
         assert_eq!(
             MMDS.lock()

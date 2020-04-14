@@ -53,7 +53,7 @@ impl Mmds {
     /// an UnsupportedValueType error if the data contain any value type other than
     /// Strings, arrays and dictionaries.
     pub fn check_data_valid(data: &Value) -> Result<(), Error> {
-        if data.is_string() {
+        if data.is_string() || data.is_number() {
             Ok(())
         } else if let Some(map) = data.as_object() {
             map.values()
@@ -154,7 +154,12 @@ mod tests {
             "phones2": [
                 "+40 1234567",
                 "+44 1234567"
-            ]
+            ],
+            "int": -10,
+            "int2": 10,
+            "uint": 4294967295,
+            "float": -12.0,
+            "float2": 12.012
         }"#;
 
         let data_store: Value = serde_json::from_str(data).unwrap();
@@ -188,11 +193,6 @@ mod tests {
         );
 
         assert_eq!(
-            mmds.get_value("/phones/mobile/".to_string()).unwrap(),
-            "\"+44 2345678\""
-        );
-
-        assert_eq!(
             mmds.get_value("/phones2".to_string()).unwrap(),
             "[\"+40 1234567\",\"+44 1234567\"]"
         );
@@ -201,6 +201,13 @@ mod tests {
             mmds.get_value("/phones2/0".to_string()).unwrap(),
             "\"+40 1234567\""
         );
+
+        // Test numbers.
+        assert_eq!(mmds.get_value("/int".to_string()).unwrap(), "-10");
+        assert_eq!(mmds.get_value("/int2".to_string()).unwrap(), "10");
+        assert_eq!(mmds.get_value("/uint".to_string()).unwrap(), "4294967295");
+        assert_eq!(mmds.get_value("/float".to_string()).unwrap(), "-12.0");
+        assert_eq!(mmds.get_value("/float2".to_string()).unwrap(), "12.012");
     }
 
     #[test]
@@ -235,10 +242,7 @@ mod tests {
             "age": 43
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
-        assert_eq!(
-            mmds.put_data(data_store).unwrap_err().to_string(),
-            "Cannot add non-strings values to the MMDS data-store.".to_string()
-        );
+        assert!(mmds.put_data(data_store).is_ok());
 
         let data = r#"{
             "name": {
