@@ -15,8 +15,9 @@ MMDS is no longer available.
 Users can add/update the MMDS contents via the backend, which is accessible
 through the Firecracker API. Setting the initial contents involves a `PUT`
 request to the `/mmds` API resource, with a JSON body that describes the
-desired data store structure and contents. The supported JSON data types are
-string, object and array. Here's a JSON example:
+desired data store structure and contents. An important note here is that
+the supported JSON data types are: number, string, object and array. Here's
+a JSON example:
 
 ```json
 {
