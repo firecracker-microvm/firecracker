@@ -38,7 +38,9 @@ use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
+#[cfg(target_arch = "x86_64")]
 use versionize::{VersionMap, Versionize, VersionizeResult};
+#[cfg(target_arch = "x86_64")]
 use versionize_derive::Versionize;
 use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,

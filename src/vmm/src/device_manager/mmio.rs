@@ -298,7 +298,7 @@ mod tests {
             vm: &VmFd,
             guest_mem: GuestMemoryMmap,
             device: Arc<Mutex<dyn devices::virtio::VirtioDevice>>,
-            cmdline: &mut kernel_cmdline::Cmdline,
+            _cmdline: &mut kernel_cmdline::Cmdline,
             type_id: u32,
             device_id: &str,
         ) -> Result<u64> {
@@ -306,7 +306,7 @@ mod tests {
             let (mmio_base, _irq) =
                 self.register_mmio_device(vm, mmio_device, type_id, device_id.to_string())?;
             #[cfg(target_arch = "x86_64")]
-            self.add_device_to_cmdline(cmdline, mmio_base, _irq)?;
+            self.add_device_to_cmdline(_cmdline, mmio_base, _irq)?;
             Ok(mmio_base)
         }
 
