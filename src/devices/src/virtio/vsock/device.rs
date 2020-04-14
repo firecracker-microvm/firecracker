@@ -52,8 +52,8 @@ pub struct Vsock<B> {
     pub(crate) queues: Vec<VirtQueue>,
     pub(crate) queue_events: Vec<EventFd>,
     pub(crate) backend: B,
-    avail_features: u64,
-    acked_features: u64,
+    pub(crate) avail_features: u64,
+    pub(crate) acked_features: u64,
     pub(crate) interrupt_status: Arc<AtomicUsize>,
     pub(crate) interrupt_evt: EventFd,
     // This EventFd is the only one initially registered for a vsock device, and is used to convert
@@ -113,6 +113,10 @@ where
 
     pub fn cid(&self) -> u64 {
         self.cid
+    }
+
+    pub fn backend(&self) -> &B {
+        &self.backend
     }
 
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
@@ -297,10 +301,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::virtio::vsock::defs::uapi;
-
     use super::super::tests::TestContext;
     use super::*;
+    use crate::virtio::vsock::defs::uapi;
 
     #[test]
     fn test_virtio_device() {

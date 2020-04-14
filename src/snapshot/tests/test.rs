@@ -6,7 +6,7 @@ extern crate versionize;
 extern crate versionize_derive;
 
 use snapshot::Snapshot;
-use versionize::{Error, VersionMap, Versionize, VersionizeResult};
+use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 #[repr(u32)]
@@ -22,7 +22,10 @@ impl TestState {
     fn default_state_two(&self, target_version: u16) -> VersionizeResult<TestState> {
         match target_version {
             1 => Ok(TestState::One(2)),
-            i => Err(Error::Serialize(format!("Unknown target version: {}", i))),
+            i => Err(VersionizeError::Serialize(format!(
+                "Unknown target version: {}",
+                i
+            ))),
         }
     }
 }
