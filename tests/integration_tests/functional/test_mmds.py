@@ -137,6 +137,13 @@ def test_json_response(test_microvm_with_ssh, network_config):
                 'local-hostname': 'ip-10-251-50-12.ec2.internal',
                 'public-hostname': 'ec2-203-0-113-25.compute-1.amazonaws.com',
                 'dummy_res': ['res1', 'res2']
+            },
+            "Limits": {
+                "CPU": 512,
+                "Memory": 512
+            },
+            "Usage": {
+                "CPU": 12.12
             }
         }
     }
@@ -146,12 +153,6 @@ def test_json_response(test_microvm_with_ssh, network_config):
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == data_store
-
-    config_data = {
-        'ipv4_address': '169.254.169.250',
-    }
-    response = test_microvm.mmds.put_config(json=config_data)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(
@@ -163,22 +164,11 @@ def test_json_response(test_microvm_with_ssh, network_config):
     test_microvm.start()
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    response = test_microvm.mmds.put_config(json=config_data)
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-
-    cmd = 'ip route add 169.254.169.250 dev eth0'
+    cmd = 'ip route add 169.254.169.254 dev eth0'
     _, stdout, stderr = ssh_connection.execute_command(cmd)
     _assert_out(stdout, stderr, '')
 
-    pre = 'curl -s http://169.254.169.250/'
-
-    cmd = pre + 'latest'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, '{"meta-data":{"ami-id":\
-"ami-12345678","dummy_res":["res1","res2"],"local-hostname":\
-"ip-10-251-50-12.ec2.internal","public-hostname":\
-"ec2-203-0-113-25.compute-1.amazonaws.com","reservation-id":\
-"r-fea54097"}}')
+    pre = 'curl -s http://169.254.169.254/'
 
     cmd = pre + 'latest/meta-data/'
     _, stdout, stderr = ssh_connection.execute_command(cmd)
@@ -195,6 +185,14 @@ def test_json_response(test_microvm_with_ssh, network_config):
     cmd = pre + 'latest/meta-data/dummy_res/0'
     _, stdout, stderr = ssh_connection.execute_command(cmd)
     _assert_out(stdout, stderr, '"res1"')
+
+    cmd = pre + 'latest/Usage/CPU'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, '12.12')
+
+    cmd = pre + 'latest/Limits/CPU'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, '512')
 
 
 def test_mmds(test_microvm_with_ssh, network_config):
