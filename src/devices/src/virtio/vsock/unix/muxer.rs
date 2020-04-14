@@ -100,7 +100,7 @@ pub struct VsockMuxer {
     host_sock: UnixListener,
     /// The file system path of the host-side Unix socket. This is used to figure out the path
     /// to Unix sockets listening on specific ports. I.e. "<this path>_<port number>".
-    host_sock_path: String,
+    pub(crate) host_sock_path: String,
     /// The nested epoll event set, used to register epoll listeners.
     epoll: Epoll,
     /// A hash set used to keep track of used host-side (local) ports, in order to assign local

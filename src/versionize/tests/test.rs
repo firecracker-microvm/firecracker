@@ -7,7 +7,7 @@ extern crate versionize_derive;
 use std::fmt::{Debug, Formatter, Result};
 use std::num::Wrapping;
 
-use versionize::{Error, VersionMap, Versionize, VersionizeResult};
+use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 #[repr(u32)]
@@ -23,7 +23,10 @@ impl TestState {
     fn default_state_two(&self, target_version: u16) -> VersionizeResult<TestState> {
         match target_version {
             1 => Ok(TestState::One(2)),
-            i => Err(Error::Serialize(format!("Unknown target version: {}", i))),
+            i => Err(VersionizeError::Serialize(format!(
+                "Unknown target version: {}",
+                i
+            ))),
         }
     }
 }
@@ -406,7 +409,7 @@ fn test_hardcoded_union_deserialization() {
     // snapshot.
     assert_eq!(
         <TestUnion as Versionize>::deserialize(&mut snapshot_blob, &vm, 3).unwrap_err(),
-        versionize::Error::Deserialize(
+        VersionizeError::Deserialize(
             "Io(Custom { kind: UnexpectedEof, error: \"failed to fill whole buffer\" })".to_owned()
         )
     );
@@ -489,7 +492,7 @@ fn test_hardcoded_enum_deserialization() {
 
     assert_eq!(
         <TestState as Versionize>::deserialize(&mut snapshot_blob, &vm, 1).unwrap_err(),
-        versionize::Error::Deserialize("Unknown variant_index 3".to_owned())
+        VersionizeError::Deserialize("Unknown variant_index 3".to_owned())
     );
 }
 

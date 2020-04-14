@@ -64,8 +64,8 @@ const BASE_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
 pub enum Error {
     /// An IO error occurred.
     Io(i32),
-    /// A versioned serialization/deserialization error occurred.
-    Versionize(versionize::Error),
+    /// A versioned serialization/deserialization error occured.
+    Versionize(versionize::VersionizeError),
     /// CRC64 validation failed.
     Crc64(u64),
     /// Magic value does not match arch.
@@ -343,7 +343,7 @@ mod tests {
             self.field0 = self.field4.iter().sum();
 
             if self.field0 == 6666 {
-                return Err(versionize::Error::Semantic(
+                return Err(versionize::VersionizeError::Semantic(
                     "field4 element sum is 6666".to_owned(),
                 ));
             }
@@ -368,7 +368,9 @@ mod tests {
             assert!(source_version < 3);
             self.field_x += 1;
             if self.field0 == 7777 {
-                return Err(versionize::Error::Semantic("field0 is 7777".to_owned()));
+                return Err(versionize::VersionizeError::Semantic(
+                    "field0 is 7777".to_owned(),
+                ));
             }
             Ok(())
         }
@@ -543,7 +545,7 @@ mod tests {
         // The section will fail due to a custom semantic error.
         assert_eq!(
             snapshot.write_section("test", &state),
-            Err(Error::Versionize(versionize::Error::Semantic(
+            Err(Error::Versionize(versionize::VersionizeError::Semantic(
                 "field4 element sum is 6666".to_owned()
             )))
         );
@@ -580,7 +582,9 @@ mod tests {
         let section_read_error = snapshot.read_section::<Test>("test").unwrap_err();
         assert_eq!(
             section_read_error,
-            Error::Versionize(versionize::Error::Semantic("field0 is 7777".to_owned()))
+            Error::Versionize(versionize::VersionizeError::Semantic(
+                "field0 is 7777".to_owned()
+            ))
         );
     }
 
@@ -602,7 +606,7 @@ mod tests {
         // Saving the snapshot will fail due to the small size of `snapshot_mem` vec.
         assert_eq!(
             snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap_err(),
-            Error::Versionize(versionize::Error::Serialize(
+            Error::Versionize(versionize::VersionizeError::Serialize(
                 "Io(Custom { kind: WriteZero, error: \"failed to write whole buffer\" })"
                     .to_owned()
             ))
@@ -713,7 +717,7 @@ mod tests {
             Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err();
         assert_eq!(
             snapshot_load_error,
-            Error::Versionize(versionize::Error::Deserialize(
+            Error::Versionize(versionize::VersionizeError::Deserialize(
                 "Io(Custom { kind: UnexpectedEof, error: \"failed to fill whole buffer\" })"
                     .to_owned()
             ))

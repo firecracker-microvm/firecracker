@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(clippy::float_cmp)]
 
-use self::super::{Error, VersionMap, Versionize, VersionizeResult};
+use self::super::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use vmm_sys_util::fam::{FamStruct, FamStructWrapper};
 
 /// Implements the Versionize trait for primitive types that also implement
@@ -21,7 +21,7 @@ macro_rules! impl_versionize {
                 _version: u16,
             ) -> VersionizeResult<()> {
                 bincode::serialize_into(writer, &self)
-                    .map_err(|ref err| Error::Serialize(format!("{:?}", err)))?;
+                    .map_err(|ref err| VersionizeError::Serialize(format!("{:?}", err)))?;
                 Ok(())
             }
 
@@ -35,7 +35,7 @@ macro_rules! impl_versionize {
                 Self: Sized,
             {
                 Ok(bincode::deserialize_from(&mut reader)
-                    .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?)
+                    .map_err(|ref err| VersionizeError::Deserialize(format!("{:?}", err)))?)
             }
 
             // Not used.
@@ -155,7 +155,7 @@ where
         match option {
             0u8 => Ok(None),
             1u8 => Ok(Some(T::deserialize(reader, version_map, app_version)?)),
-            value => Err(Error::Deserialize(format!(
+            value => Err(VersionizeError::Deserialize(format!(
                 "Invalid option value {}",
                 value
             ))),
@@ -182,12 +182,12 @@ where
         // Serialize in the same fashion as bincode:
         // Write len.
         bincode::serialize_into(&mut writer, &self.len())
-            .map_err(|ref err| Error::Serialize(format!("{:?}", err)))?;
+            .map_err(|ref err| VersionizeError::Serialize(format!("{:?}", err)))?;
         // Walk the vec and write each elemenet.
         for element in self {
             element
                 .serialize(writer, version_map, app_version)
-                .map_err(|ref err| Error::Serialize(format!("{:?}", err)))?;
+                .map_err(|ref err| VersionizeError::Serialize(format!("{:?}", err)))?;
         }
         Ok(())
     }
@@ -200,10 +200,10 @@ where
     ) -> VersionizeResult<Self> {
         let mut v = Vec::new();
         let len: u64 = bincode::deserialize_from(&mut reader)
-            .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?;
+            .map_err(|ref err| VersionizeError::Deserialize(format!("{:?}", err)))?;
         for _ in 0..len {
             let element: T = T::deserialize(reader, version_map, app_version)
-                .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?;
+                .map_err(|ref err| VersionizeError::Deserialize(format!("{:?}", err)))?;
             v.push(element);
         }
         Ok(v)
@@ -246,10 +246,10 @@ where
         app_version: u16,
     ) -> VersionizeResult<Self> {
         let header = T::deserialize(reader, version_map, app_version)
-            .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?;
+            .map_err(|ref err| VersionizeError::Deserialize(format!("{:?}", err)))?;
         let entries: Vec<<T as FamStruct>::Entry> =
             Vec::deserialize(reader, version_map, app_version)
-                .map_err(|ref err| Error::Deserialize(format!("{:?}", err)))?;
+                .map_err(|ref err| VersionizeError::Deserialize(format!("{:?}", err)))?;
         // Construct the object from the array items.
         // Header(T) fields will be initialized by Default trait impl.
         let mut object = FamStructWrapper::from_entries(&entries);
@@ -343,18 +343,31 @@ mod tests {
     }
 
     impl TestState {
-        fn test_state_default_one(&self, target_version: u16) -> Result<TestState, Error> {
+        fn test_state_default_one(
+            &self,
+            target_version: u16,
+        ) -> Result<TestState, VersionizeError> {
             match target_version {
+                2 => Ok(TestState::Two(2)),
                 1 => Ok(TestState::Zero),
-                i => Err(Error::Serialize(format!("Unknown target version: {}", i))),
+                i => Err(VersionizeError::Serialize(format!(
+                    "Unknown target version: {}",
+                    i
+                ))),
             }
         }
 
-        fn test_state_default_two(&self, target_version: u16) -> Result<TestState, Error> {
+        fn test_state_default_two(
+            &self,
+            target_version: u16,
+        ) -> Result<TestState, VersionizeError> {
             match target_version {
                 2 => Ok(TestState::Two(2)),
                 1 => Ok(TestState::One(1, "Test".to_owned())),
-                i => Err(Error::Serialize(format!("Unknown target version: {}", i))),
+                i => Err(VersionizeError::Serialize(format!(
+                    "Unknown target version: {}",
+                    i
+                ))),
             }
         }
     }
@@ -599,7 +612,7 @@ mod tests {
                 .unwrap_err();
         assert_eq!(
             restore_err,
-            Error::Deserialize("Invalid option value 2".to_string())
+            VersionizeError::Deserialize("Invalid option value 2".to_string())
         );
         // Corrupt `snapshot_mem` by changing the most significant bit from 1 (`Some(type)`) to 0 (`None`).
         snapshot_mem[0] = 0;
@@ -721,7 +734,7 @@ mod tests {
             _writer: &mut W,
             _version_map: &VersionMap,
             _app_version: u16,
-        ) -> Result<(), Error> {
+        ) -> Result<(), VersionizeError> {
             Ok(())
         }
 
@@ -730,7 +743,7 @@ mod tests {
             _reader: &mut R,
             _version_map: &VersionMap,
             _app_version: u16,
-        ) -> Result<Self, Error> {
+        ) -> Result<Self, VersionizeError> {
             Ok(Self::new())
         }
 
