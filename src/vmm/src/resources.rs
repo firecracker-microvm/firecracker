@@ -5,6 +5,8 @@
 
 use std::fs::File;
 
+use dumbo::ns::MmdsNetworkStack;
+use utils::net::ipv4addr::is_link_local_valid;
 use vmm_config::boot_source::{
     BootConfig, BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE,
 };
@@ -12,7 +14,7 @@ use vmm_config::drive::*;
 use vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
-use vmm_config::mmds::MmdsConfig;
+use vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use vmm_config::net::*;
 use vmm_config::vsock::*;
 use vstate::VcpuConfig;
@@ -38,6 +40,8 @@ pub enum Error {
     VmConfig(VmConfigError),
     /// Vsock device configuration error.
     VsockDevice(VsockConfigError),
+    /// MMDS configuration error.
+    MmdsConfig(MmdsConfigError),
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
@@ -102,19 +106,23 @@ impl VmResources {
                 .set_vm_config(&machine_config)
                 .map_err(Error::VmConfig)?;
         }
+
         resources
             .set_boot_source(vmm_config.boot_source)
             .map_err(Error::BootSource)?;
+
         for drive_config in vmm_config.block_devices.into_iter() {
             resources
                 .set_block_device(drive_config)
                 .map_err(Error::BlockDevice)?;
         }
+
         for net_config in vmm_config.net_devices.into_iter() {
             resources
                 .build_net_device(net_config)
                 .map_err(Error::NetDevice)?;
         }
+
         if let Some(vsock_config) = vmm_config.vsock_device {
             resources
                 .set_vsock_device(vsock_config)
@@ -122,8 +130,11 @@ impl VmResources {
         }
 
         if let Some(mmds_config) = vmm_config.mmds_config {
-            resources.set_mmds_config(mmds_config);
+            resources
+                .set_mmds_config(mmds_config)
+                .map_err(Error::MmdsConfig)?;
         }
+
         Ok(resources)
     }
 
@@ -253,19 +264,24 @@ impl VmResources {
         self.vsock.insert(config)
     }
 
-    /// Settter for mmds config.
-    pub fn set_mmds_config(&mut self, config: MmdsConfig) {
+    /// Setter for mmds config.
+    pub fn set_mmds_config(&mut self, config: MmdsConfig) -> Result<MmdsConfigError> {
+        // Check IPv4 address validity.
+        let ipv4_addr = match config.ipv4_addr() {
+            Some(ipv4_addr) if is_link_local_valid(ipv4_addr) => Ok(ipv4_addr),
+            None => Ok(MmdsNetworkStack::default_ipv4_addr()),
+            _ => Err(MmdsConfigError::InvalidIpv4Addr),
+        }?;
+
         // Update existing built network device `MmdsNetworkStack` IPv4 address.
         for net_device in self.net_builder.iter_mut() {
             if let Some(mmds_ns) = net_device.lock().unwrap().mmds_ns_mut() {
-                match config.ipv4_addr() {
-                    Some(ipv4_addr) => mmds_ns.set_ipv4_addr(ipv4_addr),
-                    None => mmds_ns.set_default_ipv4_addr(),
-                }
+                mmds_ns.set_ipv4_addr(ipv4_addr)
             }
         }
 
         self.mmds_config = Some(config);
+        Ok(())
     }
 }
 

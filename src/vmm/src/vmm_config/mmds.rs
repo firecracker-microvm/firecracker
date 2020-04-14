@@ -1,6 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use serde::export::Formatter;
+use std::fmt::{Display, Result};
 use std::net::Ipv4Addr;
 
 /// Keeps the MMDS configuration.
@@ -16,5 +18,22 @@ impl MmdsConfig {
     /// Otherwise returns None.
     pub fn ipv4_addr(&self) -> Option<Ipv4Addr> {
         self.ipv4_address
+    }
+}
+
+/// MMDS configuration related errors.
+#[derive(Debug)]
+pub enum MmdsConfigError {
+    /// The provided IPv4 address is not link-local valid.
+    InvalidIpv4Addr,
+}
+
+impl Display for MmdsConfigError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            MmdsConfigError::InvalidIpv4Addr => {
+                write!(f, "The MMDS IPv4 address is not link local.")
+            }
+        }
     }
 }

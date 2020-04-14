@@ -18,7 +18,7 @@ def _assert_out_multiple(stdout, stderr, lines):
     assert sorted(out.split('\n')) == sorted(lines)
 
 
-def test_custom_ipv4_support_config(test_microvm_with_ssh, network_config):
+def test_custom_ipv4(test_microvm_with_ssh, network_config):
     """Test the API for MMDS custom ipv4 support."""
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
@@ -57,6 +57,12 @@ def test_custom_ipv4_support_config(test_microvm_with_ssh, network_config):
 
     config_data = {
         'ipv4_address': ''
+    }
+    response = test_microvm.mmds.put_config(json=config_data)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    config_data = {
+        'ipv4_address': '1.1.1.1'
     }
     response = test_microvm.mmds.put_config(json=config_data)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
