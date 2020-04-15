@@ -444,30 +444,7 @@ impl Vm {
         if guest_mem.num_regions() > kvm_max_memslots {
             return Err(Error::NotEnoughMemorySlots);
         }
-        let flags = if track_dirty_pages {
-            KVM_MEM_LOG_DIRTY_PAGES
-        } else {
-            0
-        };
-        guest_mem
-            .with_regions(|index, region| {
-                // It's safe to unwrap because the guest address is valid.
-                let host_addr = guest_mem.get_host_address(region.start_addr()).unwrap();
-                info!("Guest memory starts at {:x?}", host_addr);
-
-                let memory_region = kvm_userspace_memory_region {
-                    slot: index as u32,
-                    guest_phys_addr: region.start_addr().raw_value() as u64,
-                    memory_size: region.len() as u64,
-                    userspace_addr: host_addr as u64,
-                    flags,
-                };
-                // Safe because we mapped the memory region, we made sure that the regions
-                // are not overlapping.
-                unsafe { self.fd.set_user_memory_region(memory_region) }
-            })
-            .map_err(Error::SetUserMemoryRegion)?;
-
+        self.set_kvm_memory_regions(guest_mem, track_dirty_pages)?;
         #[cfg(target_arch = "x86_64")]
         self.fd
             .set_tss_address(arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
@@ -561,6 +538,33 @@ impl Vm {
         self.fd
             .set_irqchip(&state.ioapic)
             .map_err(Error::VmSetIrqChip)?;
+        Ok(())
+    }
+
+    pub(crate) fn set_kvm_memory_regions(
+        &self,
+        guest_mem: &GuestMemoryMmap,
+        track_dirty_pages: bool,
+    ) -> Result<()> {
+        let mut flags = 0u32;
+        if track_dirty_pages {
+            flags |= KVM_MEM_LOG_DIRTY_PAGES;
+        }
+        guest_mem
+            .with_regions(|index, region| {
+                let memory_region = kvm_userspace_memory_region {
+                    slot: index as u32,
+                    guest_phys_addr: region.start_addr().raw_value() as u64,
+                    memory_size: region.len() as u64,
+                    // It's safe to unwrap because the guest address is valid.
+                    userspace_addr: guest_mem.get_host_address(region.start_addr()).unwrap() as u64,
+                    flags,
+                };
+
+                // Safe because the fd is a valid KVM file descriptor.
+                unsafe { self.fd.set_user_memory_region(memory_region) }
+            })
+            .map_err(Error::SetUserMemoryRegion)?;
         Ok(())
     }
 }
