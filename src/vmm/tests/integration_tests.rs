@@ -28,6 +28,8 @@ use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm_sys_util::tempfile::TempFile;
 
 use mock_devices::MockSerialInput;
+#[cfg(target_arch = "x86_64")]
+use mock_resources::NOISY_KERNEL_IMAGE;
 use mock_resources::{MockBootSourceConfig, MockVmResources};
 use mock_seccomp::MockSeccomp;
 use test_utils::{restore_stdin, set_panic_hook};
@@ -164,6 +166,101 @@ fn test_pause_resume_microvm() {
             #[cfg(target_arch = "x86_64")]
             vmm.lock().unwrap().stop(-1); // If we got here, something went wrong.
             #[cfg(target_arch = "aarch64")]
+            vmm.lock().unwrap().stop(0);
+        }
+        vmm_pid => {
+            // Parent process: wait for the vmm to exit.
+            let mut vmm_status: i32 = -1;
+            let pid_done = unsafe { libc::waitpid(vmm_pid, &mut vmm_status, 0) };
+            assert_eq!(pid_done, vmm_pid);
+            restore_stdin();
+            // If any panics occurred, its exit status will be != 0.
+            assert!(unsafe { libc::WIFEXITED(vmm_status) });
+            assert_eq!(unsafe { libc::WEXITSTATUS(vmm_status) }, 0);
+        }
+    }
+}
+
+#[test]
+fn test_dirty_bitmap_error() {
+    // Error case: dirty tracking disabled.
+    let pid = unsafe { libc::fork() };
+    match pid {
+        0 => {
+            set_panic_hook();
+            let boot_source_cfg: BootSourceConfig =
+                MockBootSourceConfig::new().with_default_boot_args().into();
+            let resources: VmResources = MockVmResources::new()
+                .with_boot_source(boot_source_cfg)
+                .into();
+            let mut event_manager = EventManager::new().unwrap();
+            let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
+
+            let vmm = build_microvm(&resources, &mut event_manager, &empty_seccomp_filter).unwrap();
+            // The vmm will start with dirty page tracking = OFF.
+            // With dirty tracking disabled, the underlying KVM_GET_DIRTY_LOG ioctl will fail
+            // with errno 2 (ENOENT) because KVM can't find any guest memory regions with dirty
+            // page tracking enabled.
+            assert_eq!(
+                format!("{:?}", vmm.lock().unwrap().get_dirty_bitmap().err()),
+                "Some(DirtyBitmap(Error(2)))"
+            );
+
+            let _ = event_manager.run_with_timeout(500).unwrap();
+
+            #[cfg(target_arch = "x86_64")]
+            vmm.lock().unwrap().stop(-1); // If we got here, something went wrong.
+            #[cfg(target_arch = "aarch64")]
+            vmm.lock().unwrap().stop(0);
+        }
+        vmm_pid => {
+            // Parent process: wait for the vmm to exit.
+            let mut vmm_status: i32 = -1;
+            let pid_done = unsafe { libc::waitpid(vmm_pid, &mut vmm_status, 0) };
+            assert_eq!(pid_done, vmm_pid);
+            restore_stdin();
+            // If any panics occurred, its exit status will be != 0.
+            assert!(unsafe { libc::WIFEXITED(vmm_status) });
+            assert_eq!(unsafe { libc::WEXITSTATUS(vmm_status) }, 0);
+        }
+    }
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn test_dirty_bitmap_success() {
+    // This test is `x86_64`-only until we come up with an `aarch64` kernel that dirties a lot
+    // of pages.
+    let pid = unsafe { libc::fork() };
+    match pid {
+        0 => {
+            set_panic_hook();
+            let boot_source_cfg: BootSourceConfig = MockBootSourceConfig::new()
+                .with_default_boot_args()
+                .with_kernel(NOISY_KERNEL_IMAGE)
+                .into();
+            let resources: VmResources = MockVmResources::new()
+                .with_boot_source(boot_source_cfg)
+                .into();
+            let mut event_manager = EventManager::new().unwrap();
+            let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
+
+            // The vmm will start with dirty page tracking = OFF.
+            let vmm = build_microvm(&resources, &mut event_manager, &empty_seccomp_filter).unwrap();
+            assert!(vmm.lock().unwrap().set_dirty_page_tracking(true).is_ok());
+            // Let it churn for a while and dirty some pages...
+            thread::sleep(Duration::from_millis(100));
+            let bitmap = vmm.lock().unwrap().get_dirty_bitmap().unwrap();
+            let num_dirty_pages: u32 = bitmap
+                .iter()
+                .map(|(_, bitmap_per_region)| {
+                    // Gently coerce to u32
+                    let num_dirty_pages_per_region: u32 =
+                        bitmap_per_region.iter().map(|n| n.count_ones()).sum();
+                    num_dirty_pages_per_region
+                })
+                .sum();
+            assert!(num_dirty_pages > 0);
             vmm.lock().unwrap().stop(0);
         }
         vmm_pid => {
