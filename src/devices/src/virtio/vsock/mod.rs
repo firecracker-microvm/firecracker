@@ -9,6 +9,7 @@ mod csm;
 mod device;
 mod event_handler;
 mod packet;
+mod persist;
 mod unix;
 
 use std::os::unix::io::AsRawFd;
@@ -111,6 +112,7 @@ pub enum VsockError {
     UnwritableDescriptor,
     /// EventFd error
     EventFd(std::io::Error),
+    VsockUdsBackend(VsockUnixBackendError),
 }
 
 type Result<T> = std::result::Result<T, VsockError>;

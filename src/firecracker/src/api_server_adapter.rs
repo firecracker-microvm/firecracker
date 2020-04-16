@@ -13,9 +13,10 @@ use polly::event_manager::{EventManager, Subscriber};
 use seccomp::BpfProgram;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
-use vmm::controller::VmmController;
 use vmm::rpc_interface::{PrebootApiController, RuntimeApiController};
 use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::vmm_config::machine_config::VmConfig;
+use vmm::Vmm;
 
 use super::FIRECRACKER_VERSION;
 
@@ -33,14 +34,15 @@ impl ApiServerAdapter {
         api_event_fd: EventFd,
         from_api: Receiver<ApiRequest>,
         to_api: Sender<ApiResponse>,
-        vmm_controller: VmmController,
+        vm_config: VmConfig,
+        vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
     ) {
         let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
             from_api,
             to_api,
-            controller: RuntimeApiController(vmm_controller),
+            controller: RuntimeApiController::new(vm_config, vmm),
         }));
         event_manager
             .add_subscriber(api_adapter.clone())
@@ -195,7 +197,8 @@ pub fn run_with_api(
         api_event_fd,
         from_api,
         to_api,
-        VmmController::new(vm_resources, vmm),
+        vm_resources.vm_config().clone(),
+        vmm,
         &mut event_manager,
     );
 }
