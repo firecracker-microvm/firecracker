@@ -8,7 +8,7 @@ import stat
 REG_PERMS = stat.S_IRUSR | stat.S_IWUSR | \
             stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | \
             stat.S_IROTH | stat.S_IXOTH
-DIR_STATS = stat.S_IFDIR | REG_PERMS
+DIR_STATS = stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
 FILE_STATS = stat.S_IFREG | REG_PERMS
 SOCK_STATS = stat.S_IFSOCK | REG_PERMS
 # These are the stats of the devices created by tha jailer.

@@ -30,8 +30,9 @@ pub enum Error {
     CgroupInheritFromParent(PathBuf, String),
     CgroupLineNotFound(String, String),
     CgroupLineNotUnique(String, String),
-    ChangeFileOwner(&'static str, io::Error),
+    ChangeFileOwner(PathBuf, io::Error),
     ChdirNewRoot(io::Error),
+    Chmod(PathBuf, io::Error),
     CloseNetNsFd(io::Error),
     CloseDevNullFd(io::Error),
     Copy(PathBuf, PathBuf, io::Error),
@@ -82,6 +83,9 @@ impl fmt::Display for Error {
                 "{}",
                 format!("Failed to canonicalize path {:?}: {}", path, io_err).replace("\"", "")
             ),
+            Chmod(ref path, ref err) => {
+                write!(f, "Failed to change permissions on {:?}: {}", path, err)
+            }
             CgroupInheritFromParent(ref path, ref filename) => write!(
                 f,
                 "{}",
@@ -101,8 +105,8 @@ impl fmt::Display for Error {
                 "Found more than one cgroups configuration line in {} for {}",
                 proc_mounts, controller
             ),
-            ChangeFileOwner(ref filename, ref err) => {
-                write!(f, "Failed to change owner for {}: {}", filename, err)
+            ChangeFileOwner(ref path, ref err) => {
+                write!(f, "Failed to change owner for {:?}: {}", path, err)
             }
             ChdirNewRoot(ref err) => write!(f, "Failed to chdir into chroot directory: {}", err),
             CloseNetNsFd(ref err) => write!(f, "Failed to close netns fd: {}", err),
@@ -429,16 +433,15 @@ mod tests {
             "Found more than one cgroups configuration line in /proc/mounts for sysfs",
         );
 
-        let folder_cstr = CStr::from_bytes_with_nul(b"/dev/net/tun\0").unwrap();
         assert_eq!(
             format!(
                 "{}",
                 Error::ChangeFileOwner(
-                    folder_cstr.to_str().unwrap(),
+                    PathBuf::from("/dev/net/tun"),
                     io::Error::from_raw_os_error(42)
                 )
             ),
-            "Failed to change owner for /dev/net/tun: No message of desired type (os error 42)",
+            "Failed to change owner for \"/dev/net/tun\": No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::ChdirNewRoot(io::Error::from_raw_os_error(42))),
