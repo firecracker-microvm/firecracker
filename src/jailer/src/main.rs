@@ -353,7 +353,7 @@ fn main() {
 mod tests {
     use super::*;
     use std::fs::File;
-    use std::os::unix::io::AsRawFd;
+    use std::os::unix::io::IntoRawFd;
 
     use utils::arg_parser;
 
@@ -368,7 +368,7 @@ mod tests {
         for i in 0..n {
             let maybe_file = File::create(format!("{}/{}", tmp_dir_path, i));
             assert!(maybe_file.is_ok());
-            fds.push(maybe_file.unwrap().as_raw_fd());
+            fds.push(maybe_file.unwrap().into_raw_fd());
         }
 
         sanitize_process();
