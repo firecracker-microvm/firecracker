@@ -1,14 +1,10 @@
 # microVM Metadata Service
 
-The Firecracker microVM Metadata Service (MMDS) is a mutable data store which
-implements a simplified data path, made possible by the unique setting found in
-Firecracker. The MMDS consists of three major logical components: the backend,
-the data store, and the minimalist HTTP/TCP/IPv4 stack (named *Dumbo*). They
-all exist within the Firecracker process, and outside the KVM boundary; the
-first is a part of the API server, the data store is a global entity for a
-single microVM, and the last is a part of the device model.
-When the API server is disabled by passing `--no-api` parameter to Firecracker,
-MMDS is no longer available.
+MMDS consists of three major logical components: the backend, the data store,
+and the minimalist HTTP/TCP/IPv4 stack (named *Dumbo*). They all exist within
+the Firecracker process, and outside the KVM boundary; the first is a part of
+the API server, the data store is a global entity for a single microVM, and the
+last is a part of the device model.
 
 ## The MMDS backend
 
@@ -41,112 +37,17 @@ desired data store structure and contents. Here's a JSON example:
 }
 ```
 
-Queries from the guest (more on them a bit later) will be applied to this
-structure. For example, a `GET` request for
-`http://169.254.169.254/latest/meta-data/ami-id` will return a response body
-consisting of *ami-12345678*. The MMDS contents can be updated either via a
-subsequent `PUT` (that replaces them entirely), or using `PATCH` requests,
-which feed the JSON body into the JSON Merge Patch functionality, based on
-[RFC 7396](https://tools.ietf.org/html/rfc7396). MMDS related API requests come
-from the host, which is considered a trusted environment, so there are no
-checks beside the kind of validation done by HTTP server and `serde-json` (the
-crate used to de/serialize JSON). Most importantly, there is currently no
-maximum size bound for MMDS contents; the users are free to provide arbitrarily
-large inputs. However, the HTTP server is likely to encounter/become a
-bottleneck first, which means any API resource may have this potential issue.
-
-#### MMDS Configuration
-
-Users can set up a custom IPv4 address for MMDS. This can be achieved through a
-`PUT` request to the API server, before booting up the guest, with the path 
-`/mmds/config`. An example of MMDS configuration is the following:
-
-```json
-{
-"ipv4_address": "169.254.169.200"
-}
-```
-
-The `ipv4_address` value must be a valid link-local IPv4 address. The
-configured IPv4 address can be used from within the microVM to issue `GET`
-requests to the MMDS. An example of MMDS request from within the guest
-might look like the following:
-
-```bash
-curl -s "http://169.254.169.200/latest/meta-data/ami-id"
-```
-
-Depending on which configured network interface a user wants to communicate
-with the MMDS, an additional IP route is needed. E.g.:
-
-```bash
-ip route add 169.254.169.200 dev eth0
-```
-
-If MMDS configuration is not provided before booting up the guest, the MMDS
-IPv4 address defaults to `169.254.169.254`.
-
-# MMDS requests 
-
-Guests workloads that request metadata from MMDS  can choose to receive the response in IMDS or JSON format.
-IMDS documentation can be found [here](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html).
-
-Request example to retrieve IMDS format response:
-```bash
-curl -s "http://169.254.169.200/latest/meta-data/network/interfaces/macs/02:29:96:8f:6a:2d"
-```
-
-IMDS output:
-```text
-device-number
-local-hostname
-subnet-id
-```
-
-Request example to retrieve JSON format response:
-```bash
-curl -s -H "Accept: application/json" "http://169.254.169.200/latest/meta-data/network/interfaces/macs/02:29:96:8f:6a:2d"
-```
-
-JSON output:
-```text
-{
-    "device-number": "13345342",
-    "local-hostname": "localhost",
-    "subnet-id": "subnet-be9b61d"
-}
-```
-
-### Example use case: credential rotation
-
-For this example, the guest expects to find some sort of credentials (say, a
-secret access key) by issuing a `GET` request to
-`http://169.254.169.254/latest/meta-data/credentials/secret-key`. Most similar
-use cases will encompass the following sequence of steps:
-
-1. Some agent running on the host sends a `PUT` request with the initial
-   contents of the MMDS, using the Firecracker API. This most likely takes
-   place before the microVM starts running, but may also happen at a later
-   time. Guest MMDS requests which arrive prior to contents being available
-   receive a *NotFound* response.
-1. The contents are saved to the data store.
-1. The guest sends a `GET` request for the secret key, which is intercepted by
-   the device model.
-1. The device model queries the data store, and gets the value associated with
-   the key.
-1. An HTTP response is assembled and sent back to the guest.
-
-After a while, the host agent decides to rotate the secret key. It does so by
-updating the data store with a new value. This can be done via a `PUT` request
-to the `/mmds` API resource, which replaces everything, or with a `PATCH`
-request that only touches the desired key. This effectively triggers the first
-two steps again.
-
-The guest reads the new secret key, going one more time through the last three
-steps. This can happen after a notification from the host agent, or discovered
-via periodic polling, or some other mechanism. Since access to the data store
-is thread safe, the guest can only receive either the old version, or the new
-version of the key, and not some intermediate state caused by the update.
+The MMDS contents can be updated either via a subsequent `PUT` (that replaces them
+entirely), or using `PATCH` requests, which feed the JSON body into the JSON Merge
+Patch functionality, based on [RFC 7396](https://tools.ietf.org/html/rfc7396). MMDS
+related API requests come from the host, which is considered a trusted environment,
+so there are no checks beside the kind of validation done by HTTP server and
+`serde-json` (the crate used to de/serialize JSON). Most importantly, there is
+currently a maximum request payload size, limited to 256KB; this limitation is
+present because the HTTP server uses memory to backup the request payload.
+If the payload gets bigger than 256KB, it will issue a `mremap` syscall, which is
+blacklisted by the default seccomp rules. MMDS contents can be retrieved using the
+Firecracker API, via a `GET` request to the `/mmds` resource.
 
 ## The data store
 
@@ -154,17 +55,20 @@ This is a global data structure, currently referenced using a global variable,
 that represents the strongly-typed version of JSON-based user input describing
 the MMDS contents. It leverages the recursive
 [Value](https://docs.serde.rs/serde_json/value/enum.Value.html) type exposed by
-`serde-json`. It can only be accessed from thread-safe contexts.
+`serde-json`. It can only be accessed from thread-safe contexts. MMDS data
+store supports at the moment storing and retrieving JSON values. Data store
+contents can be retrieved using the Firecracker API server from host and using
+the embedded MMDS HTTP/TCP/IPv4 network stack from guest.
 
 ## Dumbo
 
 The *Dumbo* HTTP/TCP/IPv4 network stack handles guest HTTP requests heading
-towards *169.254.169.254*. Before going into *Dumbo* specifics, it's worth
-going through a brief description of the Firecracker network device model.
-Firecracker only offers Virtio-net paravirtualized devices to guests. Drivers
-running in the guest OS use ring buffers in a shared memory area to communicate
-with the device model when sending or receiving frames. The device model
-associates each guest network device with a TAP device on the host.
+towards the configured MMDS IPv4 address. Before going into *Dumbo* specifics,
+it's worth going through a brief description of the Firecracker network device
+model. Firecracker only offers Virtio-net paravirtualized devices to guests.
+Drivers running in the guest OS use ring buffers in a shared memory area to
+communicate with the device model when sending or receiving frames. The device
+model associates each guest network device with a TAP device on the host.
 Frames sent by the guest are written to the TAP fd, and frames read from the
 TAP fd are handed over to the guest.
 
@@ -205,9 +109,10 @@ a reply.
 ### MMDS Network Stack
 
 Somewhat confusingly, this is the name of the component which taps the device
-model. It has hardcoded IP (*169.254.169.254*) and MAC (*06:01:23:45:67:01*)
-addresses. The latter is also used to respond to ARP requests. For every frame
-coming from the guest, the following steps take place:
+model. It has a user-configured IPv4 address (see 
+[Firecracker MMDS configuration API](../../src/api_server/swagger/firecracker.yaml))
+and MAC (`06:01:23:45:67:01`) addresses. The latter is also used to respond to ARP requests.
+For every frame coming from the guest, the following steps take place:
 
 1. Apply a heuristic to determine whether the frame may contain an ARP request
    for the MMDS IP address, or an IPv4 packet heading towards the same address.
