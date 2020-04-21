@@ -235,12 +235,13 @@ pub fn build_microvm(
             .ok_or(StartMicrovmError::MissingMemSizeConfig)?,
     )?;
     let vcpu_config = vm_resources.vcpu_config();
+    let track_dirty_pages = vm_resources.track_dirty_pages();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut kernel_cmdline = boot_config.cmdline.clone();
-    let mut vm = setup_kvm_vm(&guest_memory)?;
+    let mut vm = setup_kvm_vm(&guest_memory, track_dirty_pages)?;
 
     // On x86_64 always create a serial device,
     // while on aarch64 only create it if 'console=' is specified in the boot args.
@@ -464,6 +465,7 @@ fn load_cmdline(vmm: &Vmm) -> std::result::Result<(), StartMicrovmError> {
 
 pub(crate) fn setup_kvm_vm(
     guest_memory: &GuestMemoryMmap,
+    track_dirty_pages: bool,
 ) -> std::result::Result<Vm, StartMicrovmError> {
     let kvm = KvmContext::new()
         .map_err(Error::KvmContext)
@@ -471,7 +473,7 @@ pub(crate) fn setup_kvm_vm(
     let mut vm = Vm::new(kvm.fd())
         .map_err(Error::Vm)
         .map_err(StartMicrovmError::Internal)?;
-    vm.memory_init(&guest_memory, kvm.max_memslots())
+    vm.memory_init(&guest_memory, kvm.max_memslots(), track_dirty_pages)
         .map_err(Error::Vm)
         .map_err(StartMicrovmError::Internal)?;
     Ok(vm)
@@ -809,7 +811,7 @@ pub mod tests {
             .map_err(StartMicrovmError::Internal)
             .unwrap();
 
-        let vm = setup_kvm_vm(&guest_memory).unwrap();
+        let vm = setup_kvm_vm(&guest_memory, false).unwrap();
         let mmio_device_manager = default_mmio_device_manager();
         #[cfg(target_arch = "x86_64")]
         let pio_device_manager = default_portio_device_manager();
@@ -966,7 +968,7 @@ pub mod tests {
         let vcpu_count = 2;
 
         let guest_memory = create_guest_memory(128).unwrap();
-        let mut vm = setup_kvm_vm(&guest_memory).unwrap();
+        let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();
         setup_interrupt_controller(&mut vm).unwrap();
         let vcpu_config = VcpuConfig {
             vcpu_count,
@@ -994,7 +996,7 @@ pub mod tests {
     #[cfg(target_arch = "aarch64")]
     fn test_create_vcpus_aarch64() {
         let guest_memory = create_guest_memory(128).unwrap();
-        let vm = setup_kvm_vm(&guest_memory).unwrap();
+        let vm = setup_kvm_vm(&guest_memory, false).unwrap();
         let vcpu_count = 2;
 
         let vcpu_config = VcpuConfig {

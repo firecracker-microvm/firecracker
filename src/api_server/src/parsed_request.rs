@@ -456,7 +456,7 @@ mod tests {
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // With Vmm data.
-        let mut buf: [u8; 214] = [0; 214];
+        let mut buf: [u8; 241] = [0; 241];
         let response = ParsedRequest::convert_to_response(Ok(VmmData::MachineConfiguration(
             VmConfig::default(),
         )));
@@ -466,7 +466,7 @@ mod tests {
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 96\r\n\r\n{}",
+             Content-Length: 122\r\n\r\n{}",
             VmConfig::default().to_string()
         );
         assert_eq!(&buf[..], expected_response.as_bytes());

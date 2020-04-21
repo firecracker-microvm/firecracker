@@ -17,7 +17,10 @@
   `MMDS` with a custom valid link-local IPv4 address.
 - Added experimental JSON response format support for MMDS guest applications
   requests.
-   
+- Added `track_dirty_pages` field to `machine-config`. If enabled, Firecracker
+  can create incremental guest memory snapshots by saving the dirty guest pages
+  in a sparse file.
+
 ### Fixed
 - Added `--version` flag to both Firecracker and Jailer.
 - Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS

@@ -303,7 +303,8 @@ class MachineConfigure():
             vcpu_count=None,
             mem_size_mib=None,
             ht_enabled=None,
-            cpu_template=None):
+            cpu_template=None,
+            track_dirty_pages=None):
         """Compose the json associated to this type of API request."""
         datax = {}
         if vcpu_count is not None:
@@ -317,6 +318,9 @@ class MachineConfigure():
 
         if cpu_template is not None:
             datax['cpu_template'] = cpu_template
+
+        if track_dirty_pages is not None:
+            datax['track_dirty_pages'] = track_dirty_pages
 
         return datax
 
