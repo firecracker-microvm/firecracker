@@ -31,7 +31,7 @@ use kvm_bindings::{
     Msrs, KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
     KVM_MAX_CPUID_ENTRIES, KVM_PIT_SPEAKER_DUMMY,
 };
-use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
+use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::*;
 use logger::{Metric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
@@ -439,10 +439,16 @@ impl Vm {
         &mut self,
         guest_mem: &GuestMemoryMmap,
         kvm_max_memslots: usize,
+        track_dirty_pages: bool,
     ) -> Result<()> {
         if guest_mem.num_regions() > kvm_max_memslots {
             return Err(Error::NotEnoughMemorySlots);
         }
+        let flags = if track_dirty_pages {
+            KVM_MEM_LOG_DIRTY_PAGES
+        } else {
+            0
+        };
         guest_mem
             .with_regions(|index, region| {
                 // It's safe to unwrap because the guest address is valid.
@@ -454,7 +460,7 @@ impl Vm {
                     guest_phys_addr: region.start_addr().raw_value() as u64,
                     memory_size: region.len() as u64,
                     userspace_addr: host_addr as u64,
-                    flags: 0,
+                    flags,
                 };
                 // Safe because we mapped the memory region, we made sure that the regions
                 // are not overlapping.
@@ -1370,7 +1376,7 @@ pub(crate) mod tests {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), mem_size)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-        assert!(vm.memory_init(&gm, kvm.max_memslots()).is_ok());
+        assert!(vm.memory_init(&gm, kvm.max_memslots(), false).is_ok());
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
@@ -1442,7 +1448,9 @@ pub(crate) mod tests {
 
         // Create valid memory region and test that the initialization is successful.
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        assert!(vm.memory_init(&gm, kvm_context.max_memslots()).is_ok());
+        assert!(vm
+            .memory_init(&gm, kvm_context.max_memslots(), true)
+            .is_ok());
 
         // Set the maximum number of memory slots to 1 in KvmContext to check the error
         // path of memory_init. Create 2 non-overlapping memory slots.
@@ -1452,7 +1460,9 @@ pub(crate) mod tests {
             (GuestAddress(0x1001), 0x2000),
         ])
         .unwrap();
-        assert!(vm.memory_init(&gm, kvm_context.max_memslots()).is_err());
+        assert!(vm
+            .memory_init(&gm, kvm_context.max_memslots(), true)
+            .is_err());
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1535,7 +1545,7 @@ pub(crate) mod tests {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
-        assert!(vm.memory_init(&gm, kvm.max_memslots()).is_ok());
+        assert!(vm.memory_init(&gm, kvm.max_memslots(), false).is_ok());
 
         // Try it for when vcpu id is 0.
         let mut vcpu = Vcpu::new_aarch64(

@@ -149,6 +149,11 @@ impl VmResources {
         }
     }
 
+    /// Returns whether dirty page tracking is enabled or not.
+    pub fn track_dirty_pages(&self) -> bool {
+        self.vm_config().track_dirty_pages
+    }
+
     /// Returns the VmConfig.
     pub fn vm_config(&self) -> &VmConfig {
         &self.vm_config
@@ -181,6 +186,7 @@ impl VmResources {
         // Update all the fields that have a new value.
         self.vm_config.vcpu_count = Some(vcpu_count_value);
         self.vm_config.ht_enabled = Some(ht_enabled);
+        self.vm_config.track_dirty_pages = machine_config.track_dirty_pages;
 
         if machine_config.mem_size_mib.is_some() {
             self.vm_config.mem_size_mib = machine_config.mem_size_mib;
@@ -712,6 +718,7 @@ mod tests {
             mem_size_mib: Some(512),
             ht_enabled: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
+            track_dirty_pages: false,
         };
 
         assert_ne!(vm_resources.vm_config, aux_vm_config);

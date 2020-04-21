@@ -100,13 +100,15 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         'vcpu_count': 4,
         'ht_enabled': True,
         'mem_size_mib': 256,
-        'cpu_template': 'C3'
+        'cpu_template': 'C3',
+        'track_dirty_pages': True
     }
     response = test_microvm.machine_cfg.put(
         vcpu_count=microvm_config_json['vcpu_count'],
         ht_enabled=microvm_config_json['ht_enabled'],
         mem_size_mib=microvm_config_json['mem_size_mib'],
-        cpu_template=microvm_config_json['cpu_template']
+        cpu_template=microvm_config_json['cpu_template'],
+        track_dirty_pages=microvm_config_json['track_dirty_pages']
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -125,6 +127,9 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 
     cpu_template = str(microvm_config_json['cpu_template'])
     assert response_json['cpu_template'] == cpu_template
+
+    track_dirty_pages = microvm_config_json['track_dirty_pages']
+    assert response_json['track_dirty_pages'] == track_dirty_pages
 
 
 def test_net_api_put_update_pre_boot(test_microvm_with_api):
