@@ -623,3 +623,70 @@ fn test_nested_structs_deserialization() {
     };
     assert_eq!(restored_state, expected_state);
 }
+
+pub const SIZE: usize = 10;
+
+pub mod dummy_mod {
+    pub const SIZE: usize = 20;
+}
+
+#[test]
+fn test_versionize_struct_with_array() {
+    #[derive(Debug, PartialEq, Versionize)]
+    struct TestStruct {
+        a: [u32; SIZE],
+        b: [u8; dummy_mod::SIZE],
+    }
+
+    let test_struct = TestStruct {
+        a: [1; SIZE],
+        b: [2; dummy_mod::SIZE],
+    };
+
+    let mut mem = vec![0; 4096];
+    let version_map = VersionMap::new();
+
+    test_struct
+        .serialize(&mut mem.as_mut_slice(), &version_map, 1)
+        .unwrap();
+    let restored_test_struct =
+        TestStruct::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap();
+
+    assert_eq!(restored_test_struct, test_struct);
+}
+
+#[test]
+fn test_versionize_union_with_array() {
+    #[derive(Versionize)]
+    union TestUnion {
+        a: [u32; SIZE],
+        b: [u8; dummy_mod::SIZE],
+    }
+
+    impl Default for TestUnion {
+        fn default() -> Self {
+            TestUnion { a: [3; SIZE] }
+        }
+    }
+
+    impl Debug for TestUnion {
+        fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+            unsafe { write!(f, "{{ a: {:?}, b: {:?} }}", self.a, self.b) }
+        }
+    }
+
+    let test_union = TestUnion { a: [1; SIZE] };
+
+    let mut mem = vec![0; 4096];
+    let version_map = VersionMap::new();
+
+    test_union
+        .serialize(&mut mem.as_mut_slice(), &version_map, 1)
+        .unwrap();
+    let restored_test_union = TestUnion::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap();
+
+    unsafe {
+        assert_eq!(restored_test_union.a, test_union.a);
+        assert_eq!(restored_test_union.b, test_union.b);
+    }
+}
