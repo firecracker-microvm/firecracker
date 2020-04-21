@@ -27,7 +27,9 @@ enough RAM, etc.), customers can rely on the following:
      `<= 5 MiB`. The memory overhead is dependent on the **workload** (e.g. a
      workload with multiple [vsock](docs/vsock.md) connections might generate a
      memory overhead > 5MiB) and on the VMM **configuration** (the overhead
-     does not include the memory used by the [MMDS](docs/mmds.md) data store).
+     does not include the memory used by the [MMDS](docs/mmds/mmds-design.md)
+     data store.
+
      The overhead is tested as part of the Firecracker CI using a
      [memory cop](tests/host_tools/memory.py).
    - It takes `<= 125 ms` to go from receiving the Firecracker InstanceStart

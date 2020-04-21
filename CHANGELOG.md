@@ -42,6 +42,8 @@
   is only possible in JSON mode.
 - `PATCH` request on `/mmds` before the data store is initialized returns 
   `403 BadRequest`.
+- Segregated MMDS documentation in MMDS design documentation and MMDS user
+  guide documentation.
 
 ## [0.21.0]
 
