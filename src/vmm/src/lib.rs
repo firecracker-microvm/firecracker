@@ -29,6 +29,7 @@ extern crate kernel;
 #[macro_use]
 extern crate logger;
 extern crate dumbo;
+extern crate mmds;
 extern crate rate_limiter;
 extern crate seccomp;
 extern crate snapshot;

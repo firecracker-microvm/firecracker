@@ -5,6 +5,7 @@
 
 use std::net::Ipv4Addr;
 
+use dumbo::{MacAddr, MAC_ADDR_LEN};
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -34,9 +35,9 @@ impl Persist<'_> for MmdsNetworkStack {
         MmdsNetworkStackState {
             mac_addr,
             ipv4_addr: self.ipv4_addr.into(),
-            tcp_port: self.tcp_handler.local_port,
-            max_connections: self.tcp_handler.max_connections,
-            max_pending_resets: self.tcp_handler.max_pending_resets,
+            tcp_port: self.tcp_handler.local_port(),
+            max_connections: self.tcp_handler.max_connections(),
+            max_pending_resets: self.tcp_handler.max_pending_resets(),
         }
     }
 
@@ -78,16 +79,16 @@ mod tests {
         assert_eq!(restored_ns.mac_addr, ns.mac_addr);
         assert_eq!(restored_ns.ipv4_addr, ns.ipv4_addr);
         assert_eq!(
-            restored_ns.tcp_handler.local_port,
-            ns.tcp_handler.local_port
+            restored_ns.tcp_handler.local_port(),
+            ns.tcp_handler.local_port()
         );
         assert_eq!(
-            restored_ns.tcp_handler.max_connections,
-            ns.tcp_handler.max_connections
+            restored_ns.tcp_handler.max_connections(),
+            ns.tcp_handler.max_connections()
         );
         assert_eq!(
-            restored_ns.tcp_handler.max_pending_resets,
-            ns.tcp_handler.max_pending_resets
+            restored_ns.tcp_handler.max_pending_resets(),
+            ns.tcp_handler.max_pending_resets()
         );
     }
 }

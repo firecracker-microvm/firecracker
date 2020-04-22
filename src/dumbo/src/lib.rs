@@ -9,26 +9,15 @@
 extern crate bitflags;
 
 extern crate logger;
-extern crate mmds;
+extern crate micro_http;
 extern crate serde;
-extern crate snapshot;
 extern crate utils;
-extern crate versionize;
-extern crate versionize_derive;
 
 mod mac;
-pub mod ns;
-mod pdu;
-pub mod persist;
-mod tcp;
+pub mod pdu;
+pub mod tcp;
 
 pub use mac::{MacAddr, MAC_ADDR_LEN};
-pub use pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
-pub use pdu::ethernet::{
-    EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4, PAYLOAD_OFFSET as ETHERNET_PAYLOAD_OFFSET,
-};
-pub use pdu::ipv4::{IPv4Packet, PROTOCOL_TCP, PROTOCOL_UDP};
-pub use pdu::udp::{UdpDatagram, UDP_HEADER_SIZE};
 use std::ops::Index;
 
 /// Represents a generalization of a borrowed `[u8]` slice.

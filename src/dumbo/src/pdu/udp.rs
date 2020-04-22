@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_checksum() {
-        let mut bytes = [0u8; (2 + UDP_HEADER_SIZE)]; // 2-byte payload
+        let mut bytes = [0u8; 2 + UDP_HEADER_SIZE]; // 2-byte payload
         let correct_checksum: u16 = 0x14de;
         let payload_bytes = b"bb";
         let src_ip = Ipv4Addr::new(152, 1, 51, 27);

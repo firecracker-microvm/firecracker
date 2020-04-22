@@ -7,7 +7,8 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use dumbo::{ns::MmdsNetworkStack, persist::MmdsNetworkStackState, MacAddr, MAC_ADDR_LEN};
+use dumbo::{MacAddr, MAC_ADDR_LEN};
+use mmds::{ns::MmdsNetworkStack, persist::MmdsNetworkStackState};
 use rate_limiter::{persist::RateLimiterState, RateLimiter};
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};

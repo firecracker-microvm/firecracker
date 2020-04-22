@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 
+use micro_http::{Request, Response};
 use pdu::bytes::NetworkBytes;
 use pdu::ipv4::{Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
 use pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
@@ -123,11 +124,11 @@ pub struct TcpIPv4Handler {
     // Handler IPv4 address used for every connection.
     local_ipv4_addr: Ipv4Addr,
     // Handler TCP port used for every connection.
-    pub(crate) local_port: u16,
+    local_port: u16,
     // This map holds the currently active endpoints, identified by their connection tuple.
     connections: HashMap<ConnectionTuple, Endpoint>,
     // Maximum number of concurrent connections we are willing to handle.
-    pub(crate) max_connections: usize,
+    max_connections: usize,
     // Holds connections which are able to send segments immediately.
     active_connections: HashSet<ConnectionTuple>,
     // Remembers the closest timestamp into the future when one of the connections has to deal
@@ -136,7 +137,7 @@ pub struct TcpIPv4Handler {
     // RST segments awaiting to be sent.
     rst_queue: Vec<(ConnectionTuple, RstConfig)>,
     // Maximum size of the RST queue.
-    pub(crate) max_pending_resets: usize,
+    max_pending_resets: usize,
 }
 
 // Only used locally, in the receive_packet method, to differentiate between different outcomes
@@ -180,12 +181,33 @@ impl TcpIPv4Handler {
         self.local_ipv4_addr = ipv4_addr;
     }
 
+    /// Returns the local IPv4 address of this TCP handler.
+    pub fn local_ipv4_addr(&self) -> Ipv4Addr {
+        self.local_ipv4_addr
+    }
+
+    /// Returns the local port of this TCP handler.
+    pub fn local_port(&self) -> u16 {
+        self.local_port
+    }
+
+    /// Returns the max connections of this TCP handler.
+    pub fn max_connections(&self) -> usize {
+        self.max_connections
+    }
+
+    /// Returns the max pending resetes of this TCP handler.
+    pub fn max_pending_resets(&self) -> usize {
+        self.max_pending_resets
+    }
+
     /// Contains logic for handling incoming segments.
     ///
     /// Any changes to the state if the handler are communicated through an `Ok(RecvEvent)`.
     pub fn receive_packet<T: NetworkBytes>(
         &mut self,
         packet: &IPv4Packet<T>,
+        callback: fn(Request) -> Response,
     ) -> Result<RecvEvent, RecvError> {
         // TODO: We skip verifying the checksum, just in case the device model relies on offloading
         // checksum computation from the guest to some other entity. Clear this up at some point!
@@ -200,7 +222,7 @@ impl TcpIPv4Handler {
         let tuple = ConnectionTuple::new(packet.source_address(), segment.source_port());
 
         let outcome = if let Some(endpoint) = self.connections.get_mut(&tuple) {
-            endpoint.receive_segment(&segment);
+            endpoint.receive_segment(&segment, callback);
             if endpoint.is_done() {
                 RecvSegmentOutcome::EndpointDone
             } else {
@@ -484,14 +506,9 @@ impl TcpIPv4Handler {
 #[cfg(test)]
 mod tests {
     use pdu::bytes::NetworkBytesMut;
+    use tcp::tests::mock_callback;
 
     use super::*;
-
-    impl TcpIPv4Handler {
-        pub fn local_ipv4_addr(&self) -> Ipv4Addr {
-            self.local_ipv4_addr
-        }
-    }
 
     fn inner_tcp_mut<'a, 'b, T: NetworkBytesMut>(
         p: &'a mut IPv4Packet<'b, T>,
@@ -609,13 +626,19 @@ mod tests {
         let mut p = p.with_payload_len_unchecked(s_len, false);
 
         p.set_destination_address(local_addr);
-        assert_eq!(h.receive_packet(&p).unwrap_err(), RecvError::InvalidPort);
+        assert_eq!(
+            h.receive_packet(&p, mock_callback).unwrap_err(),
+            RecvError::InvalidPort
+        );
 
         // Let's fix the port. However, the segment is not a valid SYN, so we should get an
         // UnexpectedSegment status, and the handler should write a RST.
         assert_eq!(h.rst_queue.len(), 0);
         inner_tcp_mut(&mut p).set_destination_port(local_port);
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::UnexpectedSegment));
+        assert_eq!(
+            h.receive_packet(&p, mock_callback),
+            Ok(RecvEvent::UnexpectedSegment)
+        );
         assert_eq!(h.rst_queue.len(), 1);
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Available);
         {
@@ -629,11 +652,20 @@ mod tests {
         assert_eq!(h.next_segment_status(), NextSegmentStatus::Nothing);
 
         // Let's check we can only enqueue max_pending_resets resets.
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::UnexpectedSegment));
+        assert_eq!(
+            h.receive_packet(&p, mock_callback),
+            Ok(RecvEvent::UnexpectedSegment)
+        );
         assert_eq!(h.rst_queue.len(), 1);
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::UnexpectedSegment));
+        assert_eq!(
+            h.receive_packet(&p, mock_callback),
+            Ok(RecvEvent::UnexpectedSegment)
+        );
         assert_eq!(h.rst_queue.len(), 2);
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::UnexpectedSegment));
+        assert_eq!(
+            h.receive_packet(&p, mock_callback),
+            Ok(RecvEvent::UnexpectedSegment)
+        );
         assert_eq!(h.rst_queue.len(), 2);
 
         // Drain the resets.
@@ -644,7 +676,10 @@ mod tests {
         // Ok now let's send a valid SYN.
         assert_eq!(h.connections.len(), 0);
         inner_tcp_mut(&mut p).set_flags_after_ns(TcpFlags::SYN);
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::NewConnectionSuccessful));
+        assert_eq!(
+            h.receive_packet(&p, mock_callback),
+            Ok(RecvEvent::NewConnectionSuccessful)
+        );
         assert_eq!(h.connections.len(), 1);
         assert_eq!(h.active_connections.len(), 1);
 
@@ -653,7 +688,10 @@ mod tests {
         inner_tcp_mut(&mut p)
             .set_flags_after_ns(TcpFlags::RST)
             .set_sequence_number(seq_number.wrapping_add(1));
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::EndpointDone));
+        assert_eq!(
+            h.receive_packet(&p, mock_callback),
+            Ok(RecvEvent::EndpointDone)
+        );
         assert_eq!(h.connections.len(), 0);
         assert_eq!(h.active_connections.len(), 0);
 
@@ -661,7 +699,10 @@ mod tests {
         inner_tcp_mut(&mut p)
             .set_flags_after_ns(TcpFlags::SYN)
             .set_sequence_number(seq_number);
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::NewConnectionSuccessful));
+        assert_eq!(
+            h.receive_packet(&p, mock_callback),
+            Ok(RecvEvent::NewConnectionSuccessful)
+        );
         assert_eq!(h.connections.len(), 1);
         assert_eq!(h.active_connections.len(), 1);
 
@@ -683,7 +724,7 @@ mod tests {
 
         // Using the same SYN again will route the packet to the previous connection, and not
         // create a new one.
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::Nothing));
+        assert_eq!(h.receive_packet(&p, mock_callback), Ok(RecvEvent::Nothing));
         assert_eq!(h.connections.len(), 1);
         // SYNACK retransmission.
         assert_eq!(drain_packets(&mut h, local_addr, remote_addr), Ok(1));
@@ -707,7 +748,7 @@ mod tests {
             inner_tcp_mut(&mut p)
                 .set_flags_after_ns(TcpFlags::ACK)
                 .set_ack_number(seq);
-            assert_eq!(h.receive_packet(&p), Ok(RecvEvent::Nothing));
+            assert_eq!(h.receive_packet(&p, mock_callback), Ok(RecvEvent::Nothing));
         }
 
         // There should be no more active connections now, and also no pending timeout.
@@ -719,7 +760,10 @@ mod tests {
 
         // Create a new connection, from a different remote_port.
         inner_tcp_mut(&mut p).set_source_port(remote_port + 1);
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::NewConnectionSuccessful));
+        assert_eq!(
+            h.receive_packet(&p, mock_callback),
+            Ok(RecvEvent::NewConnectionSuccessful)
+        );
         assert_eq!(h.connections.len(), 2);
         assert_eq!(h.active_connections.len(), 1);
         // SYNACK
@@ -737,7 +781,10 @@ mod tests {
         {
             let port = remote_port + 2;
             inner_tcp_mut(&mut p).set_source_port(port);
-            assert_eq!(h.receive_packet(&p), Ok(RecvEvent::NewConnectionDropped));
+            assert_eq!(
+                h.receive_packet(&p, mock_callback),
+                Ok(RecvEvent::NewConnectionDropped)
+            );
             assert_eq!(h.connections.len(), 2);
 
             // We should get a RST.
@@ -754,7 +801,10 @@ mod tests {
             .set_eviction_threshold(0);
 
         // The new connection will replace the old one.
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::NewConnectionReplacing));
+        assert_eq!(
+            h.receive_packet(&p, mock_callback),
+            Ok(RecvEvent::NewConnectionReplacing)
+        );
         assert_eq!(h.connections.len(), 2);
         assert_eq!(h.active_connections.len(), 1);
 
@@ -768,7 +818,7 @@ mod tests {
         // active connections (because it will have a RST to send), and then cause it to be removed
         // altogether after sending the RST (because is_done() will be true).
         inner_tcp_mut(&mut p).set_source_port(remote_port);
-        assert_eq!(h.receive_packet(&p), Ok(RecvEvent::Nothing));
+        assert_eq!(h.receive_packet(&p, mock_callback), Ok(RecvEvent::Nothing));
         assert_eq!(h.active_connections.len(), 1);
         assert_eq!(drain_packets(&mut h, local_addr, remote_addr), Ok(1));
         assert_eq!(h.connections.len(), 1);

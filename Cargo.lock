@@ -236,6 +236,7 @@ dependencies = [
  "dumbo 0.1.0",
  "libc 0.2.68 (registry+https://github.com/rust-lang/crates.io-index)",
  "logger 0.1.0",
+ "mmds 0.1.0",
  "net_gen 0.1.0",
  "polly 0.0.1",
  "rate_limiter 0.1.0",
@@ -253,13 +254,10 @@ version = "0.1.0"
 dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "logger 0.1.0",
- "mmds 0.1.0",
+ "micro_http 0.1.0",
  "serde 1.0.105 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.48 (registry+https://github.com/rust-lang/crates.io-index)",
- "snapshot 0.1.0",
  "utils 0.1.0",
- "versionize 0.1.0 (git+https://github.com/firecracker-microvm/versionize?tag=v0.1.0)",
- "versionize_derive 0.1.0 (git+https://github.com/firecracker-microvm/versionize_derive?tag=v0.1.0)",
 ]
 
 [[package]]
@@ -442,9 +440,15 @@ dependencies = [
 name = "mmds"
 version = "0.1.0"
 dependencies = [
+ "dumbo 0.1.0",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "logger 0.1.0",
  "micro_http 0.1.0",
  "serde_json 1.0.48 (registry+https://github.com/rust-lang/crates.io-index)",
+ "snapshot 0.1.0",
+ "utils 0.1.0",
+ "versionize 0.1.0 (git+https://github.com/firecracker-microvm/versionize?tag=v0.1.0)",
+ "versionize_derive 0.1.0 (git+https://github.com/firecracker-microvm/versionize_derive?tag=v0.1.0)",
 ]
 
 [[package]]

@@ -12,10 +12,11 @@ use crate::virtio::{
     ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING,
 };
 use crate::{report_net_event_fail, Error as DeviceError};
-use dumbo::ns::MmdsNetworkStack;
-use dumbo::{EthernetFrame, MacAddr, MAC_ADDR_LEN};
+use dumbo::pdu::ethernet::EthernetFrame;
+use dumbo::{MacAddr, MAC_ADDR_LEN};
 use libc::EAGAIN;
 use logger::{Metric, METRICS};
+use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use std::io::Write;
 #[cfg(not(test))]
@@ -804,9 +805,8 @@ pub(crate) mod tests {
         Net, Queue, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET,
         VIRTIO_MMIO_INT_VRING, VIRTQ_DESC_F_WRITE,
     };
-    use dumbo::{
-        EthIPv4ArpFrame, EthernetFrame, MacAddr, ETHERTYPE_ARP, ETH_IPV4_FRAME_LEN, MAC_ADDR_LEN,
-    };
+    use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
+    use dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use logger::{Metric, METRICS};
     use polly::event_manager::{EventManager, Subscriber};
     use rate_limiter::{RateLimiter, TokenBucket, TokenType};
