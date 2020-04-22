@@ -49,6 +49,7 @@ impl StatusCode {
     }
 }
 
+#[derive(Debug, PartialEq)]
 struct StatusLine {
     http_version: Version,
     status_code: StatusCode,
@@ -75,6 +76,7 @@ impl StatusLine {
 /// Wrapper over the list of headers associated with a HTTP Response.
 /// When creating a ResponseHeaders object, the content type is initialized to `text/plain`.
 /// The content type can be updated with a call to `set_content_type`.
+#[derive(Debug, PartialEq)]
 pub struct ResponseHeaders {
     content_length: i32,
     content_type: MediaType,
@@ -163,6 +165,7 @@ impl ResponseHeaders {
 /// the body is initialized to `None` and the header is initialized with the `default` value. The body
 /// can be updated with a call to `set_body`. The header can be updated with `set_content_type` and
 /// `set_server`.
+#[derive(Debug, PartialEq)]
 pub struct Response {
     status_line: StatusLine,
     headers: ResponseHeaders,

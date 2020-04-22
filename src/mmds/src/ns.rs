@@ -9,15 +9,21 @@ use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 use std::result::Result;
 
-use crate::MacAddr;
+use dumbo::pdu::arp::{
+    test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN,
+};
+use dumbo::pdu::ethernet::{
+    Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4,
+};
+use dumbo::pdu::ipv4::{
+    test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP,
+};
+use dumbo::pdu::tcp::Error as TcpSegmentError;
+use dumbo::pdu::Incomplete;
+use dumbo::tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
+use dumbo::tcp::NextSegmentStatus;
+use dumbo::MacAddr;
 use logger::{Metric, METRICS};
-use pdu::arp::{test_speculative_tpa, Error as ArpFrameError, EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
-use pdu::ethernet::{Error as EthernetFrameError, EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4};
-use pdu::ipv4::{test_speculative_dst_addr, Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
-use pdu::tcp::Error as TcpSegmentError;
-use pdu::Incomplete;
-use tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
-use tcp::NextSegmentStatus;
 use utils::time::timestamp_cycles;
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";
@@ -154,7 +160,10 @@ impl MmdsNetworkStack {
                 // Note-2: For every routed packet we will have a single source MAC address, because
                 // each MmdsNetworkStack routes packets for only one network device.
                 self.remote_mac_addr = eth.src_mac();
-                match self.tcp_handler.receive_packet(&ip) {
+                match self
+                    .tcp_handler
+                    .receive_packet(&ip, super::convert_to_response)
+                {
                     Ok(event) => {
                         METRICS.mmds.rx_count.inc();
                         match event {
@@ -294,7 +303,7 @@ impl MmdsNetworkStack {
 mod tests {
     use super::*;
 
-    use pdu::tcp::{Flags as TcpFlags, TcpSegment};
+    use dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
     use std::str::FromStr;
 
     // We use LOCALHOST here because const new() is not stable yet, so just reuse this const, since

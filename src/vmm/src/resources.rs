@@ -5,7 +5,7 @@
 
 use std::fs::File;
 
-use dumbo::ns::MmdsNetworkStack;
+use mmds::ns::MmdsNetworkStack;
 use utils::net::ipv4addr::is_link_local_valid;
 use vmm_config::boot_source::{
     BootConfig, BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE,
