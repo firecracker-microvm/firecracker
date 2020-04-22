@@ -31,7 +31,7 @@ use versionize_derive::Versionize;
 
 /// Versioned serialization error definitions.
 #[derive(Debug, PartialEq)]
-pub enum Error {
+pub enum VersionizeError {
     /// An IO error occured.
     Io(i32),
     /// A serialization error.
@@ -43,7 +43,7 @@ pub enum Error {
 }
 
 /// Versioned serialization/deserialization result.
-pub type VersionizeResult<T> = std::result::Result<T, Error>;
+pub type VersionizeResult<T> = std::result::Result<T, VersionizeError>;
 
 /// Trait that provides an interface for version aware serialization and deserialization.
 pub trait Versionize {
