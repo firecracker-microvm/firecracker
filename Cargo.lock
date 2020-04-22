@@ -281,7 +281,10 @@ dependencies = [
  "mmds 0.1.0",
  "serde 1.0.105 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.48 (registry+https://github.com/rust-lang/crates.io-index)",
+ "snapshot 0.1.0",
  "utils 0.1.0",
+ "versionize 0.1.0",
+ "versionize_derive 0.1.0",
 ]
 
 [[package]]
