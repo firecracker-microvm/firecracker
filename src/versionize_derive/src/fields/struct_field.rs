@@ -119,7 +119,6 @@ impl StructField {
         match ty {
             syn::Type::Array(array) => {
                 let array_type_token;
-                let array_len: usize;
 
                 match *array.elem.clone() {
                     syn::Type::Path(token) => {
@@ -130,20 +129,16 @@ impl StructField {
 
                 match &array.len {
                     syn::Expr::Lit(expr_lit) => match &expr_lit.lit {
-                        syn::Lit::Int(lit_int) => array_len = lit_int.base10_parse().unwrap(),
+                        syn::Lit::Int(lit_int) => {
+                            let array_len: usize = lit_int.base10_parse().unwrap();
+                            self.generate_array_deserializer(array_type_token, array_len)
+                        }
                         _ => panic!("Unsupported array len literal."),
                     },
+                    syn::Expr::Path(expr_path) => {
+                        self.generate_array_deserializer(array_type_token, &expr_path.path)
+                    }
                     _ => panic!("Unsupported array len expression."),
-                }
-
-                quote! {
-                    #field_ident: {
-                        let mut array = [#array_type_token::default() ; #array_len];
-                        for i in 0..#array_len {
-                            array[i] = <#array_type_token as Versionize>::deserialize(&mut reader, version_map, app_version)?;
-                        }
-                        array
-                    },
                 }
             }
             syn::Type::Path(_) => quote! {
@@ -153,6 +148,24 @@ impl StructField {
                 #field_ident: <#ty as Versionize>::deserialize(&mut reader, version_map, app_version)?,
             },
             _ => panic!("Unsupported field type {:?}", self.ty),
+        }
+    }
+
+    fn generate_array_deserializer<T: quote::ToTokens>(
+        &self,
+        array_type_token: syn::TypePath,
+        array_len: T,
+    ) -> proc_macro2::TokenStream {
+        let field_ident = format_ident!("{}", self.name);
+
+        quote! {
+            #field_ident: {
+                let mut array = [#array_type_token::default() ; #array_len];
+                for i in 0..#array_len {
+                    array[i] = <#array_type_token as Versionize>::deserialize(&mut reader, version_map, app_version)?;
+                }
+                array
+            },
         }
     }
 }
