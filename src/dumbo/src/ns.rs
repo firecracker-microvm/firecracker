@@ -53,15 +53,15 @@ pub struct MmdsNetworkStack {
     // Network interface MAC address used by frames/packets heading to MMDS server.
     remote_mac_addr: MacAddr,
     // The Ethernet MAC address of the MMDS server.
-    mac_addr: MacAddr,
+    pub(crate) mac_addr: MacAddr,
     // MMDS server IPv4 address.
-    ipv4_addr: Ipv4Addr,
+    pub(crate) ipv4_addr: Ipv4Addr,
     // ARP reply destination IPv4 address (requester of address resolution reply).
     // It is the Ipv4Addr of the network interface for which the MmdsNetworkStack
     // routes the packets.
     pending_arp_reply_dest: Option<Ipv4Addr>,
     // This handles MMDS<->guest interaction at the TCP level.
-    tcp_handler: TcpIPv4Handler,
+    pub(crate) tcp_handler: TcpIPv4Handler,
 }
 
 impl MmdsNetworkStack {
