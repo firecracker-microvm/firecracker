@@ -243,6 +243,15 @@ mod tests {
     }
 
     #[test]
+    fn test_net_over_mmiotransport_persistance() {
+        use crate::virtio::net::device::{tests::TestMutators, Net};
+        let mem = default_mem();
+        let net = Arc::new(Mutex::new(Net::default_net(TestMutators::default())));
+        let mmio_transport = MmioTransport::new(mem.clone(), net.clone());
+        generic_mmiotransport_persistance_test(mmio_transport, mem, net);
+    }
+
+    #[test]
     fn test_vsock_over_mmiotransport_persistance() {
         use crate::virtio::vsock::{Vsock, VsockUnixBackend};
         let mem = default_mem();

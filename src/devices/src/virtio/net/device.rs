@@ -787,18 +787,8 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) trait TestUtil {
-        fn default_net(test_mutators: TestMutators) -> Net;
-        fn default_guest_mac() -> MacAddr;
-        fn default_guest_memory() -> GuestMemoryMmap;
-        fn rx_single_frame_no_irq_coalescing(&mut self) -> bool;
-        fn virtqueues(mem: &GuestMemoryMmap) -> (VirtQueue, VirtQueue);
-        fn assign_queues(&mut self, rxq: Queue, txq: Queue);
-        fn set_mac(&mut self, mac: MacAddr);
-    }
-
-    impl TestUtil for Net {
-        fn default_net(test_mutators: TestMutators) -> Net {
+    impl Net {
+        pub fn default_net(test_mutators: TestMutators) -> Net {
             let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
             let tap = Tap::open_named(&format!("net-device{}", next_tap)).unwrap();
             tap.enable().unwrap();
@@ -819,15 +809,15 @@ pub(crate) mod tests {
             net
         }
 
-        fn default_guest_mac() -> MacAddr {
+        pub fn default_guest_mac() -> MacAddr {
             MacAddr::parse_str("11:22:33:44:55:66").unwrap()
         }
 
-        fn default_guest_memory() -> GuestMemoryMmap {
+        pub fn default_guest_memory() -> GuestMemoryMmap {
             GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap()
         }
 
-        fn rx_single_frame_no_irq_coalescing(&mut self) -> bool {
+        pub fn rx_single_frame_no_irq_coalescing(&mut self) -> bool {
             let ret = self.rx_single_frame();
             if self.rx_deferred_irqs {
                 self.rx_deferred_irqs = false;
@@ -837,7 +827,7 @@ pub(crate) mod tests {
         }
 
         // Returns handles to virtio queues creation/activation and manipulation.
-        fn virtqueues(mem: &GuestMemoryMmap) -> (VirtQueue, VirtQueue) {
+        pub fn virtqueues(mem: &GuestMemoryMmap) -> (VirtQueue, VirtQueue) {
             let rxq = VirtQueue::new(GuestAddress(0), mem, 16);
             let txq = VirtQueue::new(GuestAddress(0x1000), mem, 16);
             assert!(rxq.end().0 < txq.start().0);
@@ -845,7 +835,7 @@ pub(crate) mod tests {
             (rxq, txq)
         }
 
-        fn set_mac(&mut self, mac: MacAddr) {
+        pub fn set_mac(&mut self, mac: MacAddr) {
             self.guest_mac = Some(mac);
             let mut config_space;
             config_space = vec![0; MAC_ADDR_LEN];
@@ -854,7 +844,7 @@ pub(crate) mod tests {
         }
 
         // Assigns "guest virtio driver" activated queues to the net device.
-        fn assign_queues(&mut self, rxq: Queue, txq: Queue) {
+        pub fn assign_queues(&mut self, rxq: Queue, txq: Queue) {
             self.queues.clear();
             self.queues.push(rxq);
             self.queues.push(txq);
