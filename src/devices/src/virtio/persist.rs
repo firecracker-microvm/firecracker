@@ -147,10 +147,13 @@ impl Persist for MmioTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::virtio::block::device::tests::default_mem;
     use crate::virtio::mmio::tests::DummyDevice;
 
+    use utils::tempfile::TempFile;
+
     #[test]
-    fn test_persistance() {
+    fn test_queue_persistance() {
         let queue = Queue::new(128);
 
         let mut mem = vec![0; 4096];
@@ -184,5 +187,58 @@ mod tests {
         let restored_state =
             VirtioDeviceState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap();
         assert_eq!(restored_state, state);
+    }
+
+    impl PartialEq for MmioTransport {
+        fn eq(&self, other: &MmioTransport) -> bool {
+            let self_dev_type = self.device().lock().unwrap().device_type();
+            self.acked_features_select == other.acked_features_select &&
+                self.features_select == other.features_select &&
+                self.queue_select == other.queue_select &&
+                self.device_status == other.device_status &&
+                self.config_generation == other.config_generation &&
+                self.interrupt_status.load(Ordering::SeqCst) == other.interrupt_status.load(Ordering::SeqCst) &&
+                // Only checking equality of device type, actual device (de)ser is tested by that
+                // device's tests.
+                self_dev_type == other.device().lock().unwrap().device_type()
+        }
+    }
+
+    fn generic_mmiotransport_persistance_test(
+        mmio_transport: MmioTransport,
+        mem: GuestMemoryMmap,
+        device: Arc<Mutex<dyn VirtioDevice>>,
+    ) {
+        let mut buf = vec![0; 4096];
+        let version_map = VersionMap::new();
+
+        mmio_transport
+            .save()
+            .serialize(&mut buf.as_mut_slice(), &version_map, 1)
+            .unwrap();
+
+        let restore_args = MmioTransportConstructorArgs { mem, device };
+        let restored_mmio_transport = MmioTransport::restore(
+            restore_args,
+            &MmioTransportState::deserialize(&mut buf.as_slice(), &version_map, 1).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(restored_mmio_transport, mmio_transport);
+    }
+
+    #[test]
+    fn test_block_over_mmiotransport_persistance() {
+        use crate::virtio::block::device::tests::default_block_with_path;
+        let mem = default_mem();
+
+        // Create backing file.
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let block = default_block_with_path(f.as_path().to_str().unwrap().to_string());
+        let block = Arc::new(Mutex::new(block));
+
+        let mmio_transport = MmioTransport::new(mem.clone(), block.clone());
+        generic_mmiotransport_persistance_test(mmio_transport, mem, block);
     }
 }
