@@ -13,7 +13,7 @@ use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
 use data_store::{Error as MmdsError, Mmds, OutputFormat};
-use micro_http::{Body, MediaType, Request, RequestError, Response, StatusCode, Version};
+use micro_http::{Body, MediaType, Method, Request, RequestError, Response, StatusCode, Version};
 
 lazy_static! {
     // A static reference to a global Mmds instance. We currently use this for ease of access during
@@ -78,6 +78,16 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                 );
             }
 
+            if request.method() != Method::Get {
+                let mut response = build_response(
+                    request.http_version(),
+                    StatusCode::MethodNotAllowed,
+                    Body::new("Not allowed HTTP method."),
+                );
+                response.allow_method(Method::Get);
+                return response;
+            }
+
             // The lock can be held by one thread only, so it is safe to unwrap.
             // If another thread poisoned the lock, we abort the execution.
             let response = MMDS
@@ -115,13 +125,16 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                 StatusCode::NotImplemented,
                 Body::new(err_msg.to_string()),
             ),
-            RequestError::InvalidUri(err_msg) | RequestError::InvalidHttpMethod(err_msg) => {
-                build_response(
-                    Version::default(),
-                    StatusCode::BadRequest,
-                    Body::new(err_msg.to_string()),
-                )
-            }
+            RequestError::InvalidUri(err_msg) => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(err_msg.to_string()),
+            ),
+            RequestError::InvalidHttpMethod(err_msg) => build_response(
+                Version::default(),
+                StatusCode::NotImplemented,
+                Body::new(err_msg.to_string()),
+            ),
             RequestError::InvalidRequest => build_response(
                 Version::default(),
                 StatusCode::BadRequest,
@@ -132,6 +145,9 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                 StatusCode::BadRequest,
                 Body::new("Invalid headers.".to_string()),
             ),
+            // `micro-http` supports a predefined list of HTTP headers.
+            // It shouldn't reach this point, because it ignores the
+            // HTTP unsupported headers.
             RequestError::UnsupportedHeader => unreachable!(),
         },
     }
@@ -141,6 +157,15 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
 mod tests {
     extern crate serde_json;
     use super::*;
+
+    fn check_http_method_failure(method: String, status: StatusCode, err_msg: String) {
+        let request = format!("{} http://169.254.169.254/ HTTP/1.1\r\n\r\n", method);
+        let mut expected_response = Response::new(Version::Http11, status);
+        expected_response.set_body(Body::new(err_msg));
+        let actual_response = parse_request(request.as_bytes());
+        assert!(expected_response.status() == actual_response.status());
+        assert!(expected_response.body().unwrap() == actual_response.body().unwrap());
+    }
 
     #[test]
     fn test_parse_request() {
@@ -172,16 +197,6 @@ mod tests {
         let request = b"GET http://169.254.169.255/ HTTP/2.0\r\n\r\n";
         let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
         expected_response.set_body(Body::new("Unsupported HTTP version.".to_string()));
-        let actual_response = parse_request(request);
-
-        assert!(expected_response.status() == actual_response.status());
-        assert!(expected_response.body().unwrap() == actual_response.body().unwrap());
-        assert!(expected_response.http_version() == actual_response.http_version());
-
-        // Test invalid HTTP Method.
-        let request = b"POST http://169.254.169.255/ HTTP/1.0\r\n\r\n";
-        let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
-        expected_response.set_body(Body::new("Unsupported HTTP method.".to_string()));
         let actual_response = parse_request(request);
 
         assert!(expected_response.status() == actual_response.status());
@@ -254,6 +269,60 @@ mod tests {
         assert!(expected_response.status() == actual_response.status());
         assert!(expected_response.body().unwrap() == actual_response.body().unwrap());
         assert!(expected_response.http_version() == actual_response.http_version());
+    }
+
+    #[test]
+    fn test_unsupported_http_method() {
+        check_http_method_failure(
+            "PUT".to_string(),
+            StatusCode::MethodNotAllowed,
+            "Not allowed HTTP method.".to_string(),
+        );
+        check_http_method_failure(
+            "PATCH".to_string(),
+            StatusCode::MethodNotAllowed,
+            "Not allowed HTTP method.".to_string(),
+        );
+        check_http_method_failure(
+            "POST".to_string(),
+            StatusCode::NotImplemented,
+            "Unsupported HTTP method.".to_string(),
+        );
+        check_http_method_failure(
+            "DELETE".to_string(),
+            StatusCode::NotImplemented,
+            "Unsupported HTTP method.".to_string(),
+        );
+        check_http_method_failure(
+            "POST".to_string(),
+            StatusCode::NotImplemented,
+            "Unsupported HTTP method.".to_string(),
+        );
+        check_http_method_failure(
+            "HEAD".to_string(),
+            StatusCode::NotImplemented,
+            "Unsupported HTTP method.".to_string(),
+        );
+        check_http_method_failure(
+            "CONNECT".to_string(),
+            StatusCode::NotImplemented,
+            "Unsupported HTTP method.".to_string(),
+        );
+        check_http_method_failure(
+            "OPTIONS".to_string(),
+            StatusCode::NotImplemented,
+            "Unsupported HTTP method.".to_string(),
+        );
+        check_http_method_failure(
+            "TRACE".to_string(),
+            StatusCode::NotImplemented,
+            "Unsupported HTTP method.".to_string(),
+        );
+        check_http_method_failure(
+            "NOMETHOD".to_string(),
+            StatusCode::NotImplemented,
+            "Unsupported HTTP method.".to_string(),
+        );
     }
 
     #[test]

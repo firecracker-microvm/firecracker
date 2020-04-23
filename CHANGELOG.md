@@ -20,6 +20,8 @@
    
 ### Fixed
 - Added `--version` flag to both Firecracker and Jailer.
+- Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS
+  requests originating from guest.
 
 ### Changed
 - Updated CVE-2019-3016 mitigation information in
