@@ -241,4 +241,25 @@ mod tests {
         let mmio_transport = MmioTransport::new(mem.clone(), block.clone());
         generic_mmiotransport_persistance_test(mmio_transport, mem, block);
     }
+
+    #[test]
+    fn test_vsock_over_mmiotransport_persistance() {
+        use crate::virtio::vsock::{Vsock, VsockUnixBackend};
+        let mem = default_mem();
+
+        let guest_cid = 52;
+        let mut temp_uds_path = TempFile::new().unwrap();
+        // Remove the file so the path can be used by the socket.
+        temp_uds_path.remove().unwrap();
+        let uds_path = String::from(temp_uds_path.as_path().to_str().unwrap());
+        let backend = VsockUnixBackend::new(guest_cid, uds_path).unwrap();
+        let vsock = Vsock::new(guest_cid, backend).unwrap();
+        let vsock = Arc::new(Mutex::new(vsock));
+
+        let mmio_transport = MmioTransport::new(mem.clone(), vsock.clone());
+
+        // Remove the socket so that the deserialized vsock can reuse the path.
+        std::mem::drop(temp_uds_path);
+        generic_mmiotransport_persistance_test(mmio_transport, mem, vsock);
+    }
 }
