@@ -5,14 +5,16 @@
 
 use super::device::*;
 use super::queue::*;
+use crate::virtio::MmioTransport;
 use crate::vm_memory::Address;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::GuestAddress;
+use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use std::num::Wrapping;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, PartialEq, Versionize)]
 pub struct QueueState {
@@ -76,6 +78,7 @@ impl Persist for Queue {
 /// State of a VirtioDevice.
 #[derive(Debug, PartialEq, Versionize)]
 pub struct VirtioDeviceState {
+    pub device_type: u32,
     pub avail_features: u64,
     pub acked_features: u64,
     pub queues: Vec<QueueState>,
@@ -86,12 +89,58 @@ pub struct VirtioDeviceState {
 impl VirtioDeviceState {
     pub fn from_device(device: &dyn VirtioDevice) -> Self {
         VirtioDeviceState {
+            device_type: device.device_type(),
             avail_features: device.avail_features(),
             acked_features: device.acked_features(),
             queues: device.queues().iter().map(Persist::save).collect(),
             interrupt_status: device.interrupt_status().load(Ordering::Relaxed),
             activated: device.is_activated(),
         }
+    }
+}
+
+#[derive(Versionize)]
+pub struct MmioTransportState {
+    // The register where feature bits are stored.
+    features_select: u32,
+    // The register where features page is selected.
+    acked_features_select: u32,
+    queue_select: u32,
+    device_status: u32,
+    config_generation: u32,
+}
+
+pub struct MmioTransportConstructorArgs {
+    mem: GuestMemoryMmap,
+    device: Arc<Mutex<dyn VirtioDevice>>,
+}
+
+impl Persist for MmioTransport {
+    type State = MmioTransportState;
+    type ConstructorArgs = MmioTransportConstructorArgs;
+    type Error = ();
+
+    fn save(&self) -> Self::State {
+        MmioTransportState {
+            features_select: self.features_select,
+            acked_features_select: self.acked_features_select,
+            queue_select: self.queue_select,
+            device_status: self.device_status,
+            config_generation: self.config_generation,
+        }
+    }
+
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> Result<Self, Self::Error> {
+        let mut transport = MmioTransport::new(constructor_args.mem, constructor_args.device);
+        transport.features_select = state.features_select;
+        transport.acked_features_select = state.acked_features_select;
+        transport.queue_select = state.queue_select;
+        transport.device_status = state.device_status;
+        transport.config_generation = state.config_generation;
+        Ok(transport)
     }
 }
 
