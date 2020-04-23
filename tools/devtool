@@ -526,6 +526,7 @@ cmd_test() {
 
 
     # If we got to here, we've got all we need to continue.
+    say "$(date -u +'%F %H:%M:%S %Z')"
     say "Starting test run ..."
 
     # Testing (running Firecracker via the jailer) needs root access,
