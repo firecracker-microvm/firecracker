@@ -422,20 +422,17 @@ pub(crate) mod tests {
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
 
+        default_block_with_path(f.as_path().to_str().unwrap().to_string())
+    }
+
+    /// Create a default Block instance using file at the specified path to be used in tests.
+    pub fn default_block_with_path(path: String) -> Block {
         // Rate limiting is enabled but with a high operation rate (10 million ops/s).
         let rate_limiter = RateLimiter::new(0, None, 0, 100_000, None, 10).unwrap();
 
         let id = "test".to_string();
         // The default block device is read-write and non-root.
-        Block::new(
-            id,
-            None,
-            f.as_path().to_str().unwrap().to_string(),
-            false,
-            false,
-            rate_limiter,
-        )
-        .unwrap()
+        Block::new(id, None, path, false, false, rate_limiter).unwrap()
     }
 
     pub fn default_mem() -> GuestMemoryMmap {

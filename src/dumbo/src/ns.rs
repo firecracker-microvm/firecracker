@@ -53,15 +53,15 @@ pub struct MmdsNetworkStack {
     // Network interface MAC address used by frames/packets heading to MMDS server.
     remote_mac_addr: MacAddr,
     // The Ethernet MAC address of the MMDS server.
-    mac_addr: MacAddr,
+    pub(crate) mac_addr: MacAddr,
     // MMDS server IPv4 address.
-    ipv4_addr: Ipv4Addr,
+    pub(crate) ipv4_addr: Ipv4Addr,
     // ARP reply destination IPv4 address (requester of address resolution reply).
     // It is the Ipv4Addr of the network interface for which the MmdsNetworkStack
     // routes the packets.
     pending_arp_reply_dest: Option<Ipv4Addr>,
     // This handles MMDS<->guest interaction at the TCP level.
-    tcp_handler: TcpIPv4Handler,
+    pub(crate) tcp_handler: TcpIPv4Handler,
 }
 
 impl MmdsNetworkStack {
@@ -106,8 +106,8 @@ impl MmdsNetworkStack {
         self.tcp_handler.set_local_ipv4_addr(ipv4_addr);
     }
 
-    pub fn set_default_ipv4_addr(&mut self) {
-        self.set_ipv4_addr(Ipv4Addr::from(DEFAULT_IPV4_ADDR));
+    pub fn default_ipv4_addr() -> Ipv4Addr {
+        Ipv4Addr::from(DEFAULT_IPV4_ADDR)
     }
 
     // This is the entry point into the MMDS network stack. The src slice should hold the contents
@@ -513,11 +513,9 @@ mod tests {
     }
 
     #[test]
-    fn test_set_default_ipv4_addr() {
-        let mut ns = MmdsNetworkStack::new_with_defaults(None);
-        ns.set_default_ipv4_addr();
-        let expected_ipv4_addr = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
-        assert_eq!(ns.ipv4_addr, expected_ipv4_addr);
-        assert_eq!(ns.tcp_handler.local_ipv4_addr(), expected_ipv4_addr);
+    fn test_default_ipv4_addr() {
+        let actual = MmdsNetworkStack::default_ipv4_addr();
+        let expected = Ipv4Addr::from(DEFAULT_IPV4_ADDR);
+        assert_eq!(actual, expected);
     }
 }

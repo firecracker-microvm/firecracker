@@ -8,7 +8,6 @@ pub mod request;
 
 pub use self::device::Block;
 pub use self::event_handler::*;
-pub use self::persist::*;
 pub use self::request::*;
 
 use vm_memory::GuestMemoryError;

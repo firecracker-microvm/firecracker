@@ -9,7 +9,7 @@ mod csm;
 mod device;
 mod event_handler;
 mod packet;
-mod persist;
+pub mod persist;
 mod unix;
 
 use std::os::unix::io::AsRawFd;
@@ -156,7 +156,7 @@ pub trait VsockChannel {
 pub trait VsockBackend: VsockChannel + VsockEpollListener + Send {}
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::device::{Vsock, RXQ_INDEX, TXQ_INDEX};
     use super::packet::VSOCK_PKT_HDR_SIZE;
     use super::*;

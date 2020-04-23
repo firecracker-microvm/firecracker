@@ -25,7 +25,7 @@ use vmm_config::drive::{BlockDeviceConfig, DriveError};
 use vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::metrics::{MetricsConfig, MetricsConfigError};
-use vmm_config::mmds::MmdsConfig;
+use vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
@@ -104,6 +104,8 @@ pub enum VmmActionError {
     StartMicrovm(StartMicrovmError),
     /// The action `SetVsockDevice` failed because of bad user input.
     VsockConfig(VsockConfigError),
+    /// The action `SetMmdsConfiguration` failed because of bad user input.
+    MmdsConfig(MmdsConfigError),
 }
 
 impl Display for VmmActionError {
@@ -132,6 +134,7 @@ impl Display for VmmActionError {
                 StartMicrovm(err) => err.to_string(),
                 /// The action `SetVsockDevice` failed because of bad user input.
                 VsockConfig(err) => err.to_string(),
+                MmdsConfig(err) => err.to_string(),
             }
         )
     }
@@ -255,10 +258,11 @@ impl<'a> PrebootApiController<'a> {
                 .set_vm_config(&machine_config_body)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::MachineConfig),
-            SetMmdsConfiguration(mmds_config) => {
-                self.vm_resources.set_mmds_config(mmds_config);
-                Ok(VmmData::Empty)
-            }
+            SetMmdsConfiguration(mmds_config) => self
+                .vm_resources
+                .set_mmds_config(mmds_config)
+                .map(|_| VmmData::Empty)
+                .map_err(VmmActionError::MmdsConfig),
             StartMicroVm => super::builder::build_microvm(
                 &self.vm_resources,
                 &mut self.event_manager,

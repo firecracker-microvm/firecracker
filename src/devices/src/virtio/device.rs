@@ -109,3 +109,9 @@ pub trait VirtioDevice: AsAny + Send {
         None
     }
 }
+
+impl std::fmt::Debug for dyn VirtioDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "VirtioDevice type {}", self.device_type())
+    }
+}

@@ -38,17 +38,18 @@ const MMIO_VERSION: u32 = 2;
 ///
 /// Typically one page (4096 bytes) of MMIO address space is sufficient to handle this transport
 /// and inner virtio device.
+#[derive(Debug)]
 pub struct MmioTransport {
     device: Arc<Mutex<dyn VirtioDevice>>,
     // The register where feature bits are stored.
-    features_select: u32,
+    pub(crate) features_select: u32,
     // The register where features page is selected.
-    acked_features_select: u32,
-    queue_select: u32,
-    device_status: u32,
-    config_generation: u32,
+    pub(crate) acked_features_select: u32,
+    pub(crate) queue_select: u32,
+    pub(crate) device_status: u32,
+    pub(crate) config_generation: u32,
     mem: GuestMemoryMmap,
-    interrupt_status: Arc<AtomicUsize>,
+    pub(crate) interrupt_status: Arc<AtomicUsize>,
 }
 
 impl MmioTransport {

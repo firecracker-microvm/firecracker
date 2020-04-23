@@ -11,11 +11,15 @@ extern crate bitflags;
 extern crate logger;
 extern crate mmds;
 extern crate serde;
+extern crate snapshot;
 extern crate utils;
+extern crate versionize;
+extern crate versionize_derive;
 
 mod mac;
 pub mod ns;
 mod pdu;
+pub mod persist;
 mod tcp;
 
 pub use mac::{MacAddr, MAC_ADDR_LEN};

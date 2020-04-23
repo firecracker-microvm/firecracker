@@ -1,9 +1,9 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::super::VmmAction;
 use micro_http::StatusCode;
 use request::{Body, Error, ParsedRequest};
+use vmm::rpc_interface::VmmAction::SetMmdsConfiguration;
 use vmm::vmm_config::mmds::MmdsConfig;
 
 pub fn parse_get_mmds() -> Result<ParsedRequest, Error> {
@@ -16,7 +16,7 @@ pub fn parse_put_mmds(
 ) -> Result<ParsedRequest, Error> {
     match path_second_token {
         Some(config_path) => match *config_path {
-            "config" => Ok(ParsedRequest::Sync(VmmAction::SetMmdsConfiguration(
+            "config" => Ok(ParsedRequest::Sync(SetMmdsConfiguration(
                 serde_json::from_slice::<MmdsConfig>(body.raw()).map_err(Error::SerdeJson)?,
             ))),
             _ => Err(Error::Generic(
@@ -55,7 +55,7 @@ mod tests {
         assert!(parse_put_mmds(&Body::new(invalid_body), None).is_err());
 
         let body = r#"{
-                "ipv4_address": "1.1.1.1"
+                "ipv4_address": "169.254.170.2"
               }"#;
         let path = "config";
         assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_ok());
