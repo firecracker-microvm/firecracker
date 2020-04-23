@@ -15,10 +15,16 @@ use vm_memory::GuestMemoryMmap;
 use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, Queue};
 
-/// The Vsock serializable state.
 #[derive(Versionize)]
 pub struct VsockState {
-    cid: u64,
+    pub(crate) backend: VsockBackendState,
+    pub(crate) frontend: VsockFrontendState,
+}
+
+/// The Vsock serializable state.
+#[derive(Versionize)]
+pub struct VsockFrontendState {
+    pub(crate) cid: u64,
     virtio_state: VirtioDeviceState,
 }
 
@@ -32,18 +38,18 @@ pub enum VsockBackendState {
 #[derive(Versionize)]
 pub struct VsockUdsState {
     /// The path for the UDS socket.
-    path: String,
+    pub(crate) path: String,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
 pub struct VsockConstructorArgs<B> {
-    mem: GuestMemoryMmap,
-    backend: B,
+    pub(crate) mem: GuestMemoryMmap,
+    pub(crate) backend: B,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
 pub struct VsockUdsConstructorArgs {
-    // cid available in VsockState.
+    // cid available in VsockFrontendState.
     cid: u64,
 }
 
@@ -75,12 +81,12 @@ impl<B> Persist for Vsock<B>
 where
     B: VsockBackend + 'static,
 {
-    type State = VsockState;
+    type State = VsockFrontendState;
     type ConstructorArgs = VsockConstructorArgs<B>;
     type Error = VsockError;
 
     fn save(&self) -> Self::State {
-        VsockState {
+        VsockFrontendState {
             cid: self.cid(),
             virtio_state: VirtioDeviceState::from_device(self),
         }
@@ -116,7 +122,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::super::tests::{TestBackend, TestContext};
     use super::device::AVAIL_FEATURES;
     use super::*;
@@ -163,24 +169,17 @@ mod tests {
         let mut mem = vec![0; 4096];
         let version_map = VersionMap::new();
 
-        #[derive(Versionize)]
-        struct VsockEmulationState {
-            backend: VsockBackendState,
-            device: VsockState,
-        }
-
         // Save backend and device state separately.
-        let state = VsockEmulationState {
+        let state = VsockState {
             backend: ctx.device.backend().save(),
-            device: ctx.device.save(),
+            frontend: ctx.device.save(),
         };
 
         state
             .serialize(&mut mem.as_mut_slice(), &version_map, 1)
             .unwrap();
 
-        let restored_state =
-            VsockEmulationState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap();
+        let restored_state = VsockState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap();
         let mut restored_device = Vsock::restore(
             VsockConstructorArgs {
                 mem: ctx.mem.clone(),
@@ -191,7 +190,7 @@ mod tests {
                     }
                 },
             },
-            &restored_state.device,
+            &restored_state.frontend,
         )
         .unwrap();
 
