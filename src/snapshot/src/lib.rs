@@ -292,19 +292,16 @@ impl Snapshot {
 
 #[cfg(test)]
 mod tests {
-    #![allow(non_upper_case_globals)]
-    #![allow(non_camel_case_types)]
-    #![allow(non_snake_case)]
     use super::*;
 
-    #[derive(Versionize, Clone, Default, Debug)]
+    #[derive(Clone, Debug, Versionize)]
     pub struct Test1 {
         field_x: u64,
         field0: u64,
         field1: u32,
     }
 
-    #[derive(Versionize, Clone, Default, Debug)]
+    #[derive(Clone, Debug, Versionize)]
     pub struct Test {
         field_x: u64,
         field0: u64,
@@ -506,7 +503,7 @@ mod tests {
         assert_eq!(restored_state.field_x, 0);
 
         // Serialize as v4.
-        let mut snapshot = Snapshot::new(vm.clone(), 4);
+        snapshot = Snapshot::new(vm.clone(), 4);
         snapshot.write_section("test", &state).unwrap();
         snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
 
@@ -516,107 +513,41 @@ mod tests {
         // The 4 semantic fns must not be called at version 4.
         assert_eq!(restored_state.field0, 0);
         assert_eq!(restored_state.field4, vec![4, 3, 2, 1]);
-    }
 
-    #[test]
-    fn test_semantic_serialize_error() {
-        let mut vm = VersionMap::new();
-        vm.new_version()
-            .set_type_version(Test::type_id(), 2)
-            .new_version()
-            .set_type_version(Test::type_id(), 3)
-            .new_version()
-            .set_type_version(Test::type_id(), 4);
-
-        let state = Test {
-            field0: 0,
-            field1: 1,
-            field2: 2,
-            field3: "test".to_owned(),
-            field4: vec![6000, 600, 60, 6],
-            field_x: 0,
-        };
-
-        let mut snapshot = Snapshot::new(vm.clone(), 4);
-        // The section will successfully be serialized.
-        assert!(snapshot.write_section("test", &state).is_ok());
-
-        snapshot = Snapshot::new(vm.clone(), 1);
-        // The section will fail due to a custom semantic error.
+        // Test error propagation from `versionize` crate.
+        // Load operation should fail if we don't use the whole `snapshot_mem` resulted from
+        // serialization.
+        snapshot_mem.truncate(10);
+        let snapshot_load_error =
+            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err();
         assert_eq!(
-            snapshot.write_section("test", &state),
-            Err(Error::Versionize(versionize::VersionizeError::Semantic(
-                "field4 element sum is 6666".to_owned()
-            )))
-        );
-    }
-
-    #[test]
-    fn test_semantic_deserialize_error() {
-        let mut vm = VersionMap::new();
-        vm.new_version()
-            .set_type_version(Test::type_id(), 2)
-            .new_version()
-            .set_type_version(Test::type_id(), 3)
-            .new_version()
-            .set_type_version(Test::type_id(), 4);
-
-        let state = Test {
-            field0: 6666,
-            field1: 1,
-            field2: 2,
-            field3: "fail".to_owned(),
-            field4: vec![7000, 700, 70, 7],
-            field_x: 0,
-        };
-
-        let mut snapshot_mem = vec![0u8; 1024];
-
-        let mut snapshot = Snapshot::new(vm.clone(), 2);
-        // The section will successfully be serialized.
-        assert!(snapshot.write_section("test", &state).is_ok());
-        assert_eq!(snapshot.save(&mut snapshot_mem.as_mut_slice()), Ok(()));
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        // The section load will fail due to a custom semantic error.
-        let section_read_error = snapshot.read_section::<Test>("test").unwrap_err();
-        assert_eq!(
-            section_read_error,
-            Error::Versionize(versionize::VersionizeError::Semantic(
-                "field0 is 7777".to_owned()
-            ))
-        );
-    }
-
-    #[test]
-    fn test_serialize_error() {
-        let vm = VersionMap::new();
-        let state_1 = Test1 {
-            field_x: 0,
-            field0: 0,
-            field1: 1,
-        };
-
-        let mut snapshot_mem = vec![0u8; 1];
-
-        // Serialize as v1.
-        let mut snapshot = Snapshot::new(vm.clone(), 1);
-        // The section will successfully be serialized.
-        assert!(snapshot.write_section("test", &state_1).is_ok());
-        // Saving the snapshot will fail due to the small size of `snapshot_mem` vec.
-        assert_eq!(
-            snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap_err(),
-            Error::Versionize(versionize::VersionizeError::Serialize(
-                "Io(Custom { kind: WriteZero, error: \"failed to write whole buffer\" })"
+            snapshot_load_error,
+            Error::Versionize(versionize::VersionizeError::Deserialize(
+                "Io(Custom { kind: UnexpectedEof, error: \"failed to fill whole buffer\" })"
                     .to_owned()
             ))
         );
     }
 
     #[test]
-    fn test_read_invalid_section() {
-        let vm = VersionMap::new();
-        let state = Test1 {
+    fn test_struct_default_fn() {
+        let mut vm = VersionMap::new();
+        vm.new_version()
+            .set_type_version(Test::type_id(), 2)
+            .new_version()
+            .set_type_version(Test::type_id(), 3)
+            .new_version()
+            .set_type_version(Test::type_id(), 4);
+        let state = Test {
+            field0: 0,
+            field1: 1,
+            field2: 2,
+            field3: "test".to_owned(),
+            field4: vec![4, 3, 2, 1],
+            field_x: 0,
+        };
+
+        let state_1 = Test1 {
             field_x: 0,
             field0: 0,
             field1: 1,
@@ -624,13 +555,49 @@ mod tests {
 
         let mut snapshot_mem = vec![0u8; 1024];
 
+        // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
-        assert!(snapshot.write_section("test", &state).is_ok());
-        assert_eq!(snapshot.save(&mut snapshot_mem.as_mut_slice()), Ok(()));
+        snapshot.write_section("test", &state_1).unwrap();
+        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
 
         snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let section_read_error = snapshot.read_section::<Test>("404").unwrap_err();
-        assert_eq!(section_read_error, Error::SectionNotFound);
+        let mut restored_state: Test = snapshot.read_section::<Test>("test").unwrap();
+        assert_eq!(restored_state.field1, state_1.field1);
+        assert_eq!(restored_state.field2, 20);
+        assert_eq!(restored_state.field3, "default");
+
+        // Serialize as v2.
+        snapshot = Snapshot::new(vm.clone(), 2);
+        snapshot.write_section("test", &state).unwrap();
+        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+
+        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        restored_state = snapshot.read_section::<Test>("test").unwrap();
+        assert_eq!(restored_state.field1, state.field1);
+        assert_eq!(restored_state.field2, 2);
+        assert_eq!(restored_state.field3, "default");
+
+        // Serialize as v3.
+        snapshot = Snapshot::new(vm.clone(), 3);
+        snapshot.write_section("test", &state).unwrap();
+        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+
+        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        restored_state = snapshot.read_section::<Test>("test").unwrap();
+        assert_eq!(restored_state.field1, state.field1);
+        assert_eq!(restored_state.field2, 2);
+        assert_eq!(restored_state.field3, "test");
+
+        // Serialize as v4.
+        snapshot = Snapshot::new(vm.clone(), 4);
+        snapshot.write_section("test", &state).unwrap();
+        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+
+        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        restored_state = snapshot.read_section::<Test>("test").unwrap();
+        assert_eq!(restored_state.field1, state.field1);
+        assert_eq!(restored_state.field2, 2);
+        assert_eq!(restored_state.field3, "test");
     }
 
     #[test]
@@ -685,165 +652,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_deserialize_error() {
-        let mut vm = VersionMap::new();
-        vm.new_version()
-            .set_type_version(Test::type_id(), 2)
-            .new_version()
-            .set_type_version(Test::type_id(), 3)
-            .new_version()
-            .set_type_version(Test::type_id(), 4);
-        let state = Test {
-            field0: 0,
-            field1: 1,
-            field2: 2,
-            field3: "test".to_owned(),
-            field4: vec![4, 3, 2, 1],
-            field_x: 0,
-        };
-
-        let mut snapshot_mem = vec![0u8; 1024];
-
-        let mut snapshot = Snapshot::new(vm.clone(), 4);
-        // The section will successfully be serialized.
-        assert!(snapshot.write_section("test", &state).is_ok());
-        assert_eq!(snapshot.save(&mut snapshot_mem.as_mut_slice()), Ok(()));
-
-        // Load operation should fail if we don't use the whole `snapshot_mem` resulted from
-        // serialization.
-        snapshot_mem.truncate(10);
-        let snapshot_load_error =
-            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err();
-        assert_eq!(
-            snapshot_load_error,
-            Error::Versionize(versionize::VersionizeError::Deserialize(
-                "Io(Custom { kind: UnexpectedEof, error: \"failed to fill whole buffer\" })"
-                    .to_owned()
-            ))
-        );
-    }
-
-    #[test]
-    fn test_struct_default_fn() {
-        let mut vm = VersionMap::new();
-        vm.new_version()
-            .set_type_version(Test::type_id(), 2)
-            .new_version()
-            .set_type_version(Test::type_id(), 3)
-            .new_version()
-            .set_type_version(Test::type_id(), 4);
-        let state = Test {
-            field0: 0,
-            field1: 1,
-            field2: 2,
-            field3: "test".to_owned(),
-            field4: vec![4, 3, 2, 1],
-            field_x: 0,
-        };
-
-        let state_1 = Test1 {
-            field_x: 0,
-            field0: 0,
-            field1: 1,
-        };
-
-        let mut snapshot_mem = vec![0u8; 1024];
-
-        // Serialize as v1.
-        let mut snapshot = Snapshot::new(vm.clone(), 1);
-        snapshot.write_section("test", &state_1).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let restored_state: Test = snapshot.read_section::<Test>("test").unwrap();
-        assert_eq!(restored_state.field1, state_1.field1);
-        assert_eq!(restored_state.field2, 20);
-        assert_eq!(restored_state.field3, "default");
-
-        // Serialize as v2.
-        let mut snapshot = Snapshot::new(vm.clone(), 2);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let restored_state: Test = snapshot.read_section::<Test>("test").unwrap();
-        assert_eq!(restored_state.field1, state.field1);
-        assert_eq!(restored_state.field2, 2);
-        assert_eq!(restored_state.field3, "default");
-
-        // Serialize as v3.
-        let mut snapshot = Snapshot::new(vm.clone(), 3);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let restored_state: Test = snapshot.read_section::<Test>("test").unwrap();
-        assert_eq!(restored_state.field1, state.field1);
-        assert_eq!(restored_state.field2, 2);
-        assert_eq!(restored_state.field3, "test");
-
-        // Serialize as v4.
-        let mut snapshot = Snapshot::new(vm.clone(), 4);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let restored_state: Test = snapshot.read_section::<Test>("test").unwrap();
-        assert_eq!(restored_state.field1, state.field1);
-        assert_eq!(restored_state.field2, 2);
-        assert_eq!(restored_state.field3, "test");
-    }
-
-    #[test]
-    fn test_union_version() {
-        #[repr(C)]
-        #[derive(Versionize, Copy, Clone)]
-        union kvm_irq_level__bindgen_ty_1 {
-            pub irq: ::std::os::raw::c_uint,
-            pub status: ::std::os::raw::c_int,
-            pub other_status: ::std::os::raw::c_longlong,
-
-            #[version(start = 1, end = 1)]
-            _bindgen_union_align: u32,
-
-            #[version(start = 2)]
-            pub extended_status: ::std::os::raw::c_longlong,
-
-            #[version(start = 2)]
-            _bindgen_union_align_2: [u64; 4usize],
-        }
-
-        impl Default for kvm_irq_level__bindgen_ty_1 {
-            fn default() -> Self {
-                unsafe { ::std::mem::zeroed() }
-            }
-        }
-
-        let mut state = kvm_irq_level__bindgen_ty_1::default();
-        state.extended_status = 0x1234_5678_8765_4321;
-
-        let vm = VersionMap::new();
-        let mut snapshot_mem = vec![0u8; 1024 * 2];
-        // Serialize as v1.
-        let mut snapshot = Snapshot::new(vm.clone(), 1);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let restored_state = snapshot
-            .read_section::<kvm_irq_level__bindgen_ty_1>("test")
-            .unwrap();
-        unsafe {
-            assert_eq!(restored_state.irq, 0x8765_4321);
-            assert_eq!(restored_state.other_status, 0x1234_5678_8765_4321);
-        }
-    }
-
+    #[allow(non_upper_case_globals)]
+    #[allow(non_camel_case_types)]
+    #[allow(non_snake_case)]
     #[test]
     fn test_kvm_bindings_struct() {
         #[repr(C)]
-        #[derive(Versionize, Debug, Default, Copy, Clone, PartialEq)]
+        #[derive(Debug, PartialEq, Versionize)]
         pub struct kvm_pit_config {
             pub flags: ::std::os::raw::c_uint,
             pub pad: [::std::os::raw::c_uint; 15usize],
@@ -855,7 +670,7 @@ mod tests {
         };
 
         let vm = VersionMap::new();
-        let mut snapshot_mem = vec![0u8; 1024 * 2];
+        let mut snapshot_mem = vec![0u8; 1024];
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
         snapshot.write_section("test", &state).unwrap();
@@ -863,133 +678,6 @@ mod tests {
 
         snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
         let restored_state = snapshot.read_section::<kvm_pit_config>("test").unwrap();
-        // Check if we serialized x correctly, that is if semantic_x() was called.
         assert_eq!(restored_state, state);
-    }
-
-    #[test]
-    fn test_basic_add_remove_field() {
-        #[rustfmt::skip]
-        let basic_add_remove_field_v1: &[u8] = &[
-            0x01, 0x00,
-            #[cfg(target_arch = "aarch64")]
-            0xAA, 
-            #[cfg(target_arch = "aarch64")]
-            0xAA,
-            #[cfg(target_arch = "x86_64")]
-            0x64, 
-            #[cfg(target_arch = "x86_64")]
-            0x86, 
-            0x84, 0x19, 0x10, 0x07, 0x01, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x65, 0x73, 0x74, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0xD2, 0x04, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74,
-            0x65, 0x73, 0x74, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        ];
-
-        #[rustfmt::skip]
-        let basic_add_remove_field_v2: &[u8] = &[
-            0x01, 0x00,
-            #[cfg(target_arch = "aarch64")]
-            0xAA,
-            #[cfg(target_arch = "aarch64")]
-            0xAA,
-            #[cfg(target_arch = "x86_64")]
-            0x64,
-            #[cfg(target_arch = "x86_64")]
-            0x86, 
-            0x84, 0x19, 0x10, 0x07, 0x02, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x65, 0x73, 0x74, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x65, 0x73, 0x74, 0x05,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x62, 0x61, 0x73, 0x69, 0x63, 0x14, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00,
-        ];
-
-        #[rustfmt::skip]
-        let basic_add_remove_field_v3: &[u8] = &[
-            0x01, 0x00,
-            #[cfg(target_arch = "aarch64")]
-            0xAA,
-            #[cfg(target_arch = "aarch64")]
-            0xAA,
-            #[cfg(target_arch = "x86_64")]
-            0x64, 
-            #[cfg(target_arch = "x86_64")]
-            0x86, 
-            0x84, 0x19, 0x10, 0x07, 0x03, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x65, 0x73, 0x74, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x65, 0x73, 0x74, 0x05,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x62, 0x61, 0x73, 0x69, 0x63, 0xD2, 0x04, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        ];
-
-        #[derive(Versionize, Debug, PartialEq, Clone)]
-        pub struct A {
-            #[version(start = 1, end = 2)]
-            x: u32,
-            y: String,
-            #[version(start = 2, default_fn = "default_A_z")]
-            z: String,
-            #[version(start = 3, ser_fn = "semantic_x")]
-            q: u64,
-        }
-
-        #[derive(Versionize, Debug, PartialEq, Clone)]
-        pub struct B {
-            a: A,
-            b: u64,
-        }
-
-        impl A {
-            fn default_A_z(_source_version: u16) -> String {
-                "whatever".to_owned()
-            }
-
-            fn semantic_x(&mut self, _target_version: u16) -> VersionizeResult<()> {
-                self.x = self.q as u32;
-                Ok(())
-            }
-        }
-
-        let mut vm = VersionMap::new();
-        vm.new_version()
-            .set_type_version(A::type_id(), 2)
-            .new_version()
-            .set_type_version(A::type_id(), 3);
-
-        // The blobs have been serialized from this state:
-        // let state = B {
-        //     a: A {
-        //         x: 0,
-        //         y: "test".to_owned(),
-        //         z: "basic".to_owned(),
-        //         q: 1234,
-        //     },
-        //     b: 20,
-        // };
-
-        let mut snapshot_blob = basic_add_remove_field_v1;
-
-        let mut snapshot = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
-        let mut restored_state = snapshot.read_section::<B>("test").unwrap();
-        // Check if we serialized x correctly, that is if semantic_x() was called.
-        assert_eq!(restored_state.a.x, 1234);
-        assert_eq!(restored_state.a.z, stringify!(whatever));
-
-        snapshot_blob = basic_add_remove_field_v2;
-        snapshot = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
-        restored_state = snapshot.read_section::<B>("test").unwrap();
-        // Check if x was not serialized, it should be 0.
-        assert_eq!(restored_state.a.x, 0);
-        // z field was added in version 2, make sure it contains the original value.
-        assert_eq!(restored_state.a.z, stringify!(basic));
-
-        snapshot_blob = basic_add_remove_field_v3;
-        snapshot = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
-        restored_state = snapshot.read_section::<B>("test").unwrap();
-        // Check if x was not serialized, it should be 0.
-        assert_eq!(restored_state.a.x, 0);
-        // z field was added in version 2, make sure it contains the original value.
-        assert_eq!(restored_state.a.z, stringify!(basic));
-        assert_eq!(restored_state.a.q, 1234);
     }
 }
