@@ -15,8 +15,8 @@ use common::get_vendor_id;
 pub struct VmSpec {
     /// The vendor id of the CPU
     cpu_vendor_id: [u8; 12],
-    /// The id of the current logical cpu in the range [0..cpu_count].
-    cpu_id: u8,
+    /// The index of the current logical cpu in the range [0..cpu_count].
+    cpu_index: u8,
     /// The total number of logical cpus.
     cpu_count: u8,
     /// Specifies whether hyper-threading is enabled.
@@ -28,12 +28,12 @@ pub struct VmSpec {
 impl VmSpec {
     /// Creates a new instance of VmSpec with the specified parameters
     /// The brand string is deduced from the vendor_id
-    pub fn new(cpu_id: u8, cpu_count: u8, ht_enabled: bool) -> Result<VmSpec, Error> {
+    pub fn new(cpu_index: u8, cpu_count: u8, ht_enabled: bool) -> Result<VmSpec, Error> {
         let cpu_vendor_id = get_vendor_id().map_err(Error::InternalError)?;
 
         Ok(VmSpec {
             cpu_vendor_id,
-            cpu_id,
+            cpu_index,
             cpu_count,
             ht_enabled,
             brand_string: BrandString::from_vendor_id(&cpu_vendor_id),

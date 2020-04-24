@@ -43,7 +43,7 @@ pub fn update_feature_info_entry(
 
     entry
         .ebx
-        .write_bits_in_range(&ebx::APICID_BITRANGE, u32::from(vm_spec.cpu_id))
+        .write_bits_in_range(&ebx::APICID_BITRANGE, u32::from(vm_spec.cpu_index))
         .write_bits_in_range(&ebx::CLFLUSH_SIZE_BITRANGE, EBX_CLFLUSH_CACHELINE)
         .write_bits_in_range(&ebx::CPU_COUNT_BITRANGE, max_cpus_per_package);
 
