@@ -92,7 +92,7 @@ pub fn update_extended_apic_id_entry(
 ) -> Result<(), Error> {
     use cpu_leaf::leaf_0x8000001e::*;
 
-    let mut core_id = u32::from(vm_spec.cpu_id);
+    let mut core_id = u32::from(vm_spec.cpu_index);
     // When hyper-threading is enabled each pair of 2 consecutive logical CPUs
     // will have the same core id since they represent 2 threads in the same core.
     // For Example:
@@ -107,7 +107,10 @@ pub fn update_extended_apic_id_entry(
     entry
         .eax
         // the Extended APIC ID is the id of the current logical CPU
-        .write_bits_in_range(&eax::EXTENDED_APIC_ID_BITRANGE, u32::from(vm_spec.cpu_id));
+        .write_bits_in_range(
+            &eax::EXTENDED_APIC_ID_BITRANGE,
+            u32::from(vm_spec.cpu_index),
+        );
 
     entry
         .ebx

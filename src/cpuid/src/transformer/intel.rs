@@ -62,7 +62,7 @@ fn update_extended_cache_topology_entry(
     entry.ecx = 0 as u32;
     // EDX bits 31..0 contain x2APIC ID of current logical processor
     // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
-    entry.edx = u32::from(vm_spec.cpu_id);
+    entry.edx = u32::from(vm_spec.cpu_index);
     match entry.index {
         // Thread Level Topology; index = 0
         0 => {
