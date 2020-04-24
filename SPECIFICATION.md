@@ -42,6 +42,11 @@ enough RAM, etc.), customers can rely on the following:
    emulation thread,
    - the guest achieves up to `14.5 Gbps` network throughput by using `<= 80%`
      of the host CPU core for emulation. _`[integration test pending]`_
+   - the guest achieves up to `25 Gbps` network throughput by using `100%`
+     of the host CPU core for emulation. _`[integration test pending]`_
+   - the virtualization layer adds on averadge `0.06ms` of latency.
+     _`[integration test pending]`_
+     [See further details on network performance](docs/network-performance.md)
    - the guest achieves up to `1 GiB/s` storage throughput by using `<= 70%`
      of the host CPU core for emulation. _`[integration test pending]`_
 1. **Telemetry:** Firecracker emits logs and metrics to the named pipes passed
