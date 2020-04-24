@@ -10,6 +10,9 @@ serde = ">=1.0.27"
 utils = { path = "../utils" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
+snapshot = { path = "../snapshot" }
+versionize = { path = "../versionize" }
+versionize_derive = { path = "../versionize_derive" }
 
 [dev-dependencies]
 serde_json = ">=1.0.9"

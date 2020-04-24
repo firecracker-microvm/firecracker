@@ -536,6 +536,7 @@ cmd_test() {
         --privileged \
         --security-opt seccomp=unconfined \
         --ulimit core=0 \
+        --ulimit nofile=4096:4096 \
         --workdir "$CTR_FC_ROOT_DIR/tests" \
         -- \
         pytest "$@"
@@ -582,6 +583,7 @@ cmd_shell() {
             "$CTR_FC_ROOT_DIR will be owned by root."
         run_devctr \
             --privileged \
+            --ulimit nofile=4096:4096 \
             --security-opt seccomp=unconfined \
             --workdir "$CTR_FC_ROOT_DIR" \
             -- \
@@ -605,6 +607,7 @@ cmd_shell() {
 
         run_devctr \
             --user "$(id -u):$(id -g)" \
+            --ulimit nofile=4096:4096 \
             --device=/dev/kvm:/dev/kvm \
             --workdir "$CTR_FC_ROOT_DIR" \
             --env PS1="$(whoami)@\h:\w\$ " \

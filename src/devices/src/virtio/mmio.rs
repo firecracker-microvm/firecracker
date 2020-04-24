@@ -38,17 +38,18 @@ const MMIO_VERSION: u32 = 2;
 ///
 /// Typically one page (4096 bytes) of MMIO address space is sufficient to handle this transport
 /// and inner virtio device.
+#[derive(Debug)]
 pub struct MmioTransport {
     device: Arc<Mutex<dyn VirtioDevice>>,
     // The register where feature bits are stored.
-    features_select: u32,
+    pub(crate) features_select: u32,
     // The register where features page is selected.
-    acked_features_select: u32,
-    queue_select: u32,
-    device_status: u32,
-    config_generation: u32,
+    pub(crate) acked_features_select: u32,
+    pub(crate) queue_select: u32,
+    pub(crate) device_status: u32,
+    pub(crate) config_generation: u32,
     mem: GuestMemoryMmap,
-    interrupt_status: Arc<AtomicUsize>,
+    pub(crate) interrupt_status: Arc<AtomicUsize>,
 }
 
 impl MmioTransport {
@@ -108,7 +109,7 @@ impl MmioTransport {
     fn with_queue_mut<F: FnOnce(&mut Queue)>(&mut self, f: F) -> bool {
         if let Some(queue) = self
             .locked_device()
-            .queues()
+            .queues_mut()
             .get_mut(self.queue_select as usize)
         {
             f(queue);
@@ -145,7 +146,7 @@ impl MmioTransport {
         //   notifications in those eventfds, but nothing will happen other
         //   than supurious wakeups.
         // . Do not reset config_generation and keep it monotonically increasing
-        for queue in self.locked_device().queues() {
+        for queue in self.locked_device().queues_mut() {
             *queue = Queue::new(queue.get_max_size());
         }
     }
@@ -333,14 +334,14 @@ impl BusDevice for MmioTransport {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use utils::byte_order::{read_le_u32, write_le_u32};
 
     use super::*;
     use utils::eventfd::EventFd;
     use vm_memory::GuestMemoryMmap;
 
-    struct DummyDevice {
+    pub(crate) struct DummyDevice {
         acked_features: u64,
         avail_features: u64,
         interrupt_evt: EventFd,
@@ -352,7 +353,7 @@ mod tests {
     }
 
     impl DummyDevice {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             DummyDevice {
                 acked_features: 0,
                 avail_features: 0,
@@ -405,7 +406,11 @@ mod tests {
             Ok(())
         }
 
-        fn queues(&mut self) -> &mut [Queue] {
+        fn queues(&self) -> &[Queue] {
+            &self.queues
+        }
+
+        fn queues_mut(&mut self) -> &mut [Queue] {
             &mut self.queues
         }
 

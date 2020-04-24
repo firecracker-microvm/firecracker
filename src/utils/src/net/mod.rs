@@ -12,4 +12,7 @@
 //! network interfaces.
 
 mod tap;
+
+/// Provides IPv4 address utility methods.
+pub mod ipv4addr;
 pub use self::tap::{Error as TapError, Tap};

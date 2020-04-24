@@ -67,9 +67,10 @@ Users can set up a custom IPv4 address for MMDS. This can be achieved through a
 }
 ```
 
-The `ipv4_address` value must be a valid IPv4 address. The configured IPv4 address
-can be used from within the microVM to issue `GET` requests  to the MMDS. An
-example of MMDS request from within the guest might look like the following:
+The `ipv4_address` value must be a valid link-local IPv4 address. The
+configured IPv4 address can be used from within the microVM to issue `GET`
+requests to the MMDS. An example of MMDS request from within the guest
+might look like the following:
 
 ```bash
 curl -s "http://169.254.169.200/latest/meta-data/ami-id"

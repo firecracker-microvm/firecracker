@@ -264,7 +264,10 @@ dependencies = [
  "net_gen 0.1.0",
  "polly 0.0.1",
  "rate_limiter 0.1.0",
+ "snapshot 0.1.0",
  "utils 0.1.0",
+ "versionize 0.1.0",
+ "versionize_derive 0.1.0",
  "virtio_gen 0.1.0",
  "vm-memory 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -278,7 +281,10 @@ dependencies = [
  "mmds 0.1.0",
  "serde 1.0.105 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.48 (registry+https://github.com/rust-lang/crates.io-index)",
+ "snapshot 0.1.0",
  "utils 0.1.0",
+ "versionize 0.1.0",
+ "versionize_derive 0.1.0",
 ]
 
 [[package]]
@@ -716,6 +722,7 @@ dependencies = [
  "serde_derive 1.0.105 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.0",
+ "vm-memory 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm-sys-util 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -765,6 +772,7 @@ dependencies = [
  "snapshot 0.1.0",
  "utils 0.1.0",
  "vm-memory 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vmm-sys-util 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

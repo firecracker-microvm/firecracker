@@ -3,6 +3,7 @@
 
 pub mod device;
 pub mod event_handler;
+pub mod persist;
 pub mod request;
 
 pub use self::device::Block;

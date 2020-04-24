@@ -4,7 +4,6 @@
 use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter};
-use std::fs::OpenOptions;
 use std::io;
 use std::path::PathBuf;
 use std::result;
@@ -66,7 +65,7 @@ pub struct BlockDeviceConfig {
     /// Unique identifier of the drive.
     pub drive_id: String,
     /// Path of the drive.
-    pub path_on_host: PathBuf,
+    pub path_on_host: String,
     /// If set to true, it makes the current device the root block device.
     /// Setting this flag to true will mount the block device in the
     /// guest under /dev/vda unless the partuuid is present.
@@ -159,16 +158,10 @@ impl BlockBuilder {
     /// Creates a Block device from a BlockDeviceConfig.
     pub fn create_block(block_device_config: BlockDeviceConfig) -> Result<Block> {
         // check if the path exists
-        if !block_device_config.path_on_host.exists() {
+        let path_on_host = PathBuf::from(&block_device_config.path_on_host);
+        if !path_on_host.exists() {
             return Err(DriveError::InvalidBlockDevicePath);
         }
-
-        // Add the block device from file.
-        let block_file = OpenOptions::new()
-            .read(true)
-            .write(!block_device_config.is_read_only)
-            .open(&block_device_config.path_on_host)
-            .map_err(DriveError::OpenBlockDevice)?;
 
         let rate_limiter = block_device_config
             .rate_limiter
@@ -179,8 +172,8 @@ impl BlockBuilder {
         // Create and return the Block device
         devices::virtio::Block::new(
             block_device_config.drive_id,
-            block_file,
             block_device_config.partuuid,
+            block_device_config.path_on_host,
             block_device_config.is_read_only,
             block_device_config.is_root_device,
             rate_limiter.unwrap_or_default(),
@@ -225,7 +218,7 @@ mod tests {
     #[test]
     fn test_add_non_root_block_device() {
         let dummy_file = TempFile::new().unwrap();
-        let dummy_path = dummy_file.as_path().to_path_buf();
+        let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
         let dummy_id = String::from("1");
         let dummy_block_device = BlockDeviceConfig {
             path_on_host: dummy_path.clone(),
@@ -254,7 +247,7 @@ mod tests {
     #[test]
     fn test_add_one_root_block_device() {
         let dummy_file = TempFile::new().unwrap();
-        let dummy_path = dummy_file.as_path().to_path_buf();
+        let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
 
         let dummy_block_device = BlockDeviceConfig {
             path_on_host: dummy_path,
@@ -281,7 +274,7 @@ mod tests {
     #[test]
     fn test_add_two_root_block_devs() {
         let dummy_file_1 = TempFile::new().unwrap();
-        let dummy_path_1 = dummy_file_1.as_path().to_path_buf();
+        let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
         let root_block_device_1 = BlockDeviceConfig {
             path_on_host: dummy_path_1,
             is_root_device: true,
@@ -292,7 +285,7 @@ mod tests {
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
-        let dummy_path_2 = dummy_file_2.as_path().to_path_buf();
+        let dummy_path_2 = dummy_file_2.as_path().to_str().unwrap().to_string();
         let root_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: true,
@@ -314,7 +307,7 @@ mod tests {
     // Test BlockDevicesConfigs::add when you first add the root device and then the other devices.
     fn test_add_root_block_device_first() {
         let dummy_file_1 = TempFile::new().unwrap();
-        let dummy_path_1 = dummy_file_1.as_path().to_path_buf();
+        let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1,
             is_root_device: true,
@@ -325,7 +318,7 @@ mod tests {
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
-        let dummy_path_2 = dummy_file_2.as_path().to_path_buf();
+        let dummy_path_2 = dummy_file_2.as_path().to_str().unwrap().to_string();
         let dummy_block_dev_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: false,
@@ -336,7 +329,7 @@ mod tests {
         };
 
         let dummy_file_3 = TempFile::new().unwrap();
-        let dummy_path_3 = dummy_file_3.as_path().to_path_buf();
+        let dummy_path_3 = dummy_file_3.as_path().to_str().unwrap().to_string();
         let dummy_block_dev_3 = BlockDeviceConfig {
             path_on_host: dummy_path_3,
             is_root_device: false,
@@ -372,7 +365,7 @@ mod tests {
     // Test BlockDevicesConfigs::add when you add other devices first and then the root device.
     fn test_root_block_device_add_last() {
         let dummy_file_1 = TempFile::new().unwrap();
-        let dummy_path_1 = dummy_file_1.as_path().to_path_buf();
+        let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1.clone(),
             is_root_device: true,
@@ -383,7 +376,7 @@ mod tests {
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
-        let dummy_path_2 = dummy_file_2.as_path().to_path_buf();
+        let dummy_path_2 = dummy_file_2.as_path().to_str().unwrap().to_string();
         let dummy_block_dev_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2,
             is_root_device: false,
@@ -394,7 +387,7 @@ mod tests {
         };
 
         let dummy_file_3 = TempFile::new().unwrap();
-        let dummy_path_3 = dummy_file_3.as_path().to_path_buf();
+        let dummy_path_3 = dummy_file_3.as_path().to_str().unwrap().to_string();
         let dummy_block_dev_3 = BlockDeviceConfig {
             path_on_host: dummy_path_3,
             is_root_device: false,
@@ -431,7 +424,7 @@ mod tests {
     #[test]
     fn test_update() {
         let dummy_file_1 = TempFile::new().unwrap();
-        let dummy_path_1 = dummy_file_1.as_path().to_path_buf();
+        let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
         let root_block_device = BlockDeviceConfig {
             path_on_host: dummy_path_1.clone(),
             is_root_device: true,
@@ -442,7 +435,7 @@ mod tests {
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
-        let dummy_path_2 = dummy_file_2.as_path().to_path_buf();
+        let dummy_path_2 = dummy_file_2.as_path().to_str().unwrap().to_string();
         let mut dummy_block_device_2 = BlockDeviceConfig {
             path_on_host: dummy_path_2.clone(),
             is_root_device: false,
@@ -486,7 +479,7 @@ mod tests {
 
         // Update with invalid path.
         let dummy_filename_3 = String::from("test_update_3");
-        let dummy_path_3 = PathBuf::from(dummy_filename_3);
+        let dummy_path_3 = dummy_filename_3;
         dummy_block_device_2.path_on_host = dummy_path_3;
         assert_eq!(
             block_devs.insert(dummy_block_device_2.clone()),
@@ -536,7 +529,7 @@ mod tests {
 
         let block_config = BlockDeviceConfig {
             drive_id: "dummy_drive".to_string(),
-            path_on_host: dummy_block_file.as_path().to_path_buf(),
+            path_on_host: dummy_block_file.as_path().to_str().unwrap().to_string(),
             is_root_device: false,
             partuuid: Some("0eaa91a0-01".to_string()),
             is_read_only: true,
@@ -547,7 +540,10 @@ mod tests {
             block_config.partuuid.as_ref().unwrap().to_string(),
             expected_partuuid
         );
-        assert_eq!(block_config.path_on_host, dummy_block_file.as_path());
+        assert_eq!(
+            block_config.path_on_host,
+            dummy_block_file.as_path().to_str().unwrap().to_string()
+        );
         assert_eq!(block_config.is_read_only, expected_is_read_only);
     }
 }

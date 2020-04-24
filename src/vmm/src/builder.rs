@@ -510,8 +510,7 @@ pub fn setup_serial_device(
         // actual error because this operation always fails with EPERM when adding a fd which
         // has been redirected to /dev/null via dup2 (this may happen inside the jailer).
         // Find a better solution to this (and think about the state of the serial device
-        // while we're at it). This also led to commenting out parts of the
-        // enable_disable_stdin_test() unit test function.
+        // while we're at it).
         warn!("Could not add serial input event to epoll: {:?}", e);
     }
     Ok(serial)
@@ -740,7 +739,6 @@ fn attach_unixsock_vsock_device(
 
 #[cfg(test)]
 pub mod tests {
-    use std::fs::File;
     use std::io::Cursor;
 
     use super::*;
@@ -754,19 +752,6 @@ pub mod tests {
     use vmm_config::net::NetworkInterfaceConfig;
     use vmm_config::vsock::tests::{default_config, TempSockFile};
     use vmm_config::vsock::VsockBuilder;
-
-    struct SerialInput(File);
-    impl io::Read for SerialInput {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            self.0.read(buf)
-        }
-    }
-    impl AsRawFd for SerialInput {
-        fn as_raw_fd(&self) -> RawFd {
-            self.0.as_raw_fd()
-        }
-    }
-    impl devices::legacy::ReadableFd for SerialInput {}
 
     struct CustomBlockConfig {
         drive_id: String,
@@ -860,7 +845,13 @@ pub mod tests {
             block_files.push(TempFile::new().unwrap());
             let block_device_config = BlockDeviceConfig {
                 drive_id: String::from(&custom_block_cfg.drive_id),
-                path_on_host: block_files.last().unwrap().as_path().to_path_buf(),
+                path_on_host: block_files
+                    .last()
+                    .unwrap()
+                    .as_path()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
                 is_root_device: custom_block_cfg.is_root_device,
                 partuuid: custom_block_cfg.partuuid.clone(),
                 is_read_only: custom_block_cfg.is_read_only,
@@ -932,20 +923,6 @@ pub mod tests {
             StartMicrovmError::InitrdLoad.to_string(),
             res.err().unwrap().to_string()
         );
-    }
-
-    #[test]
-    fn test_setup_serial_device() {
-        let read_tempfile = TempFile::new().unwrap();
-        let read_handle = SerialInput(read_tempfile.into_file());
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-
-        assert!(setup_serial_device(
-            &mut event_manager,
-            Box::new(read_handle),
-            Box::new(io::stdout()),
-        )
-        .is_ok());
     }
 
     #[test]

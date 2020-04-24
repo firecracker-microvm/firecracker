@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use super::RateLimiterConfig;
 use devices::virtio::Net;
 use dumbo::MacAddr;
-use utils::net::{Tap, TapError};
+use utils::net::TapError;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -40,13 +40,6 @@ pub struct NetworkInterfaceConfig {
 // that returns the value.
 fn default_allow_mmds_requests() -> bool {
     false
-}
-
-impl NetworkInterfaceConfig {
-    /// Returns the tap device that `host_dev_name` refers to.
-    pub fn open_tap(&self) -> Result<Tap> {
-        Tap::open_named(&self.host_dev_name).map_err(NetworkInterfaceError::OpenTap)
-    }
 }
 
 /// The data fed into a network iface update request. Currently, only the RX and TX rate limiters
@@ -172,8 +165,6 @@ impl NetBuilder {
 
     /// Creates a Net device from a NetworkInterfaceConfig.
     pub fn create_net(cfg: NetworkInterfaceConfig) -> Result<Net> {
-        let tap = cfg.open_tap()?;
-
         let rx_rate_limiter = cfg
             .rx_rate_limiter
             .map(super::RateLimiterConfig::try_into)
@@ -188,7 +179,7 @@ impl NetBuilder {
         // Create and return the Net device
         devices::virtio::net::Net::new_with_tap(
             cfg.iface_id,
-            tap,
+            cfg.host_dev_name.clone(),
             cfg.guest_mac.as_ref(),
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
@@ -306,9 +297,9 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            NetworkInterfaceError::OpenTap(TapError::CreateTap(std::io::Error::from_raw_os_error(
-                16
-            )))
+            NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
+                TapError::CreateTap(std::io::Error::from_raw_os_error(16))
+            ))
             .to_string()
         );
         assert_eq!(net_builder.net_devices.len(), 1);
@@ -341,9 +332,9 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            NetworkInterfaceError::OpenTap(TapError::CreateTap(std::io::Error::from_raw_os_error(
-                16
-            )))
+            NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
+                TapError::CreateTap(std::io::Error::from_raw_os_error(16))
+            ))
             .to_string()
         );
     }
