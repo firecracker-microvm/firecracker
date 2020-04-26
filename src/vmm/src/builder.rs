@@ -752,9 +752,9 @@ pub mod tests {
     use vmm_config::drive::BlockDeviceConfig;
     use vmm_config::net::NetworkInterfaceConfig;
     use vmm_config::vsock::tests::{default_config, TempSockFile};
-    use vmm_config::vsock::VsockBuilder;
+    use vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
 
-    struct CustomBlockConfig {
+    pub(crate) struct CustomBlockConfig {
         drive_id: String,
         is_root_device: bool,
         partuuid: Option<String>,
@@ -762,7 +762,7 @@ pub mod tests {
     }
 
     impl CustomBlockConfig {
-        fn new(
+        pub(crate) fn new(
             drive_id: String,
             is_root_device: bool,
             partuuid: Option<String>,
@@ -801,7 +801,7 @@ pub mod tests {
         kernel_cmdline
     }
 
-    fn default_vmm() -> Vmm {
+    pub(crate) fn default_vmm() -> Vmm {
         let guest_memory = create_guest_memory(128).unwrap();
         let kernel_cmdline = default_kernel_cmdline();
 
@@ -815,7 +815,7 @@ pub mod tests {
         #[cfg(target_arch = "x86_64")]
         let pio_device_manager = default_portio_device_manager();
 
-        Vmm {
+        let mut vmm = Vmm {
             events_observer: Some(Box::new(SerialStdin::get())),
             guest_memory,
             kernel_cmdline,
@@ -825,14 +825,7 @@ pub mod tests {
             mmio_device_manager,
             #[cfg(target_arch = "x86_64")]
             pio_device_manager,
-        }
-    }
-
-    fn vmm_with_block_devices(
-        event_manager: &mut EventManager,
-        custom_block_cfgs: Vec<CustomBlockConfig>,
-    ) -> Vmm {
-        let mut vmm = default_vmm();
+        };
 
         #[cfg(target_arch = "x86_64")]
         setup_interrupt_controller(&mut vmm.vm).unwrap();
@@ -840,6 +833,14 @@ pub mod tests {
         #[cfg(target_arch = "aarch64")]
         setup_interrupt_controller(&mut vmm.vm, 1).unwrap();
 
+        vmm
+    }
+
+    pub(crate) fn insert_block_devices(
+        vmm: &mut Vmm,
+        event_manager: &mut EventManager,
+        custom_block_cfgs: Vec<CustomBlockConfig>,
+    ) {
         let mut block_dev_configs = BlockBuilder::new();
         let mut block_files = Vec::new();
         for custom_block_cfg in &custom_block_cfgs {
@@ -861,9 +862,37 @@ pub mod tests {
             block_dev_configs.insert(block_device_config).unwrap();
         }
 
-        let res = attach_block_devices(&mut vmm, &block_dev_configs, event_manager);
+        let res = attach_block_devices(vmm, &block_dev_configs, event_manager);
         assert!(res.is_ok());
-        vmm
+    }
+
+    pub(crate) fn insert_net_device(
+        vmm: &mut Vmm,
+        event_manager: &mut EventManager,
+        net_config: NetworkInterfaceConfig,
+    ) {
+        let mut net_builder = NetBuilder::new();
+        net_builder.build(net_config).unwrap();
+
+        let res = attach_net_devices(vmm, &net_builder, event_manager);
+        assert!(res.is_ok());
+    }
+
+    pub(crate) fn insert_vsock_device(
+        vmm: &mut Vmm,
+        event_manager: &mut EventManager,
+        vsock_config: VsockDeviceConfig,
+    ) {
+        let vsock_dev_id = vsock_config.vsock_id.clone();
+        let vsock = VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
+        let vsock = Arc::new(Mutex::new(vsock));
+
+        assert!(attach_unixsock_vsock_device(vmm, &vsock, event_manager).is_ok());
+
+        assert!(vmm
+            .mmio_device_manager
+            .get_device(DeviceType::Virtio(TYPE_VSOCK), &vsock_dev_id)
+            .is_some());
     }
 
     fn make_test_bin() -> Vec<u8> {
@@ -876,7 +905,7 @@ pub mod tests {
         GuestMemoryMmap::from_ranges(&[(at, size)]).unwrap()
     }
 
-    fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
+    pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
         create_guest_mem_at(GuestAddress(0x0), size)
     }
 
@@ -994,12 +1023,6 @@ pub mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let mut vmm = default_vmm();
 
-        #[cfg(target_arch = "x86_64")]
-        setup_interrupt_controller(&mut vmm.vm).unwrap();
-
-        #[cfg(target_arch = "aarch64")]
-        setup_interrupt_controller(&mut vmm.vm, 1).unwrap();
-
         let network_interface = NetworkInterfaceConfig {
             iface_id: String::from("netif"),
             host_dev_name: String::from("hostname"),
@@ -1009,12 +1032,11 @@ pub mod tests {
             allow_mmds_requests: true,
         };
 
-        let mut net_builder = NetBuilder::new();
-        net_builder.build(network_interface).unwrap();
-        assert!(attach_net_devices(&mut vmm, &net_builder, &mut event_manager).is_ok());
+        insert_net_device(&mut vmm, &mut event_manager, network_interface.clone());
 
         // We can not attach it once more.
-        assert!(attach_net_devices(&mut vmm, &net_builder, &mut event_manager).is_err());
+        let mut net_builder = NetBuilder::new();
+        assert!(net_builder.build(network_interface).is_err());
     }
 
     #[test]
@@ -1025,7 +1047,8 @@ pub mod tests {
         {
             let drive_id = String::from("root");
             let block_configs = vec![CustomBlockConfig::new(drive_id.clone(), true, None, true)];
-            let vmm = vmm_with_block_devices(&mut event_manager, block_configs);
+            let mut vmm = default_vmm();
+            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
             assert!(vmm.kernel_cmdline.as_str().contains("root=/dev/vda ro"));
             assert!(vmm
                 .mmio_device_manager
@@ -1042,7 +1065,8 @@ pub mod tests {
                 Some("0eaa91a0-01".to_string()),
                 false,
             )];
-            let vmm = vmm_with_block_devices(&mut event_manager, block_configs);
+            let mut vmm = default_vmm();
+            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
             assert!(vmm
                 .kernel_cmdline
                 .as_str()
@@ -1062,7 +1086,8 @@ pub mod tests {
                 Some("0eaa91a0-01".to_string()),
                 false,
             )];
-            let vmm = vmm_with_block_devices(&mut event_manager, block_configs);
+            let mut vmm = default_vmm();
+            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
             assert!(!vmm.kernel_cmdline.as_str().contains("root=PARTUUID="));
             assert!(!vmm.kernel_cmdline.as_str().contains("root=/dev/vda"));
             assert!(vmm
@@ -1073,7 +1098,7 @@ pub mod tests {
 
         // Use case 4: rw root block device and other rw and ro drives.
         {
-            let drive_configs = vec![
+            let block_configs = vec![
                 CustomBlockConfig::new(
                     String::from("root"),
                     true,
@@ -1083,7 +1108,8 @@ pub mod tests {
                 CustomBlockConfig::new(String::from("secondary"), false, None, true),
                 CustomBlockConfig::new(String::from("third"), false, None, false),
             ];
-            let vmm = vmm_with_block_devices(&mut event_manager, drive_configs);
+            let mut vmm = default_vmm();
+            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
 
             assert!(vmm
                 .kernel_cmdline
@@ -1114,7 +1140,8 @@ pub mod tests {
         {
             let drive_id = String::from("root");
             let block_configs = vec![CustomBlockConfig::new(drive_id.clone(), true, None, false)];
-            let vmm = vmm_with_block_devices(&mut event_manager, block_configs);
+            let mut vmm = default_vmm();
+            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
             assert!(vmm.kernel_cmdline.as_str().contains("root=/dev/vda rw"));
             assert!(vmm
                 .mmio_device_manager
@@ -1131,7 +1158,8 @@ pub mod tests {
                 Some("0eaa91a0-01".to_string()),
                 true,
             )];
-            let vmm = vmm_with_block_devices(&mut event_manager, block_configs);
+            let mut vmm = default_vmm();
+            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
             assert!(vmm
                 .kernel_cmdline
                 .as_str()
@@ -1148,24 +1176,10 @@ pub mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let mut vmm = default_vmm();
 
-        #[cfg(target_arch = "x86_64")]
-        setup_interrupt_controller(&mut vmm.vm).unwrap();
-
-        #[cfg(target_arch = "aarch64")]
-        setup_interrupt_controller(&mut vmm.vm, 1).unwrap();
-
         let tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
         let vsock_config = default_config(&tmp_sock_file);
 
-        let vsock_dev_id = vsock_config.vsock_id.clone();
-        let vsock = VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
-        let vsock = Arc::new(Mutex::new(vsock));
-        assert!(attach_unixsock_vsock_device(&mut vmm, &vsock, &mut event_manager).is_ok());
-
-        assert!(vmm
-            .mmio_device_manager
-            .get_device(DeviceType::Virtio(TYPE_VSOCK), &vsock_dev_id)
-            .is_some());
+        insert_vsock_device(&mut vmm, &mut event_manager, vsock_config);
     }
 
     #[test]

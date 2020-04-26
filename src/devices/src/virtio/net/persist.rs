@@ -36,7 +36,7 @@ pub struct NetState {
 }
 
 pub struct NetConstructorArgs {
-    mem: GuestMemoryMmap,
+    pub mem: GuestMemoryMmap,
 }
 
 #[derive(Debug)]

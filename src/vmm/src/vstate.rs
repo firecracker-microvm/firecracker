@@ -1331,7 +1331,7 @@ enum VcpuEmulation {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #[cfg(target_arch = "x86_64")]
     use std::convert::TryInto;
     use std::fs::File;
@@ -1395,6 +1395,22 @@ mod tests {
         }
 
         (vm, vcpu, gm)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn default_vcpu_state() -> VcpuState {
+        VcpuState {
+            cpuid: CpuId::new(1),
+            msrs: Msrs::new(1),
+            debug_regs: Default::default(),
+            lapic: Default::default(),
+            mp_state: Default::default(),
+            regs: Default::default(),
+            sregs: Default::default(),
+            vcpu_events: Default::default(),
+            xcrs: Default::default(),
+            xsave: Default::default(),
+        }
     }
 
     #[test]
@@ -1796,18 +1812,7 @@ mod tests {
         assert!(vcpu.restore_state(state.unwrap()).is_ok());
 
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
-        let state = VcpuState {
-            cpuid: CpuId::new(1),
-            msrs: Msrs::new(1),
-            debug_regs: Default::default(),
-            lapic: Default::default(),
-            mp_state: Default::default(),
-            regs: Default::default(),
-            sregs: Default::default(),
-            vcpu_events: Default::default(),
-            xcrs: Default::default(),
-            xsave: Default::default(),
-        };
+        let state = default_vcpu_state();
         // Setting default state should always fail.
         assert!(vcpu.restore_state(state).is_err());
     }

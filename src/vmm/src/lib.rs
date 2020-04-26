@@ -29,6 +29,7 @@ extern crate logger;
 extern crate dumbo;
 extern crate rate_limiter;
 extern crate seccomp;
+extern crate snapshot;
 extern crate utils;
 extern crate versionize;
 extern crate versionize_derive;
@@ -45,6 +46,8 @@ pub mod resources;
 pub mod rpc_interface;
 /// Signal handling utilities.
 pub mod signal_handler;
+// Save/restore utilities.
+pub mod persist;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 mod vstate;
@@ -60,11 +63,21 @@ use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
+use devices::virtio::{
+    vsock::persist::VsockState, Block, MmioTransport, Net, Vsock, VsockUnixBackend, TYPE_BLOCK,
+    TYPE_NET, TYPE_VSOCK,
+};
 use devices::BusDevice;
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::{LoggerError, MetricsError, METRICS};
+#[cfg(target_arch = "x86_64")]
+use persist::{
+    ConnectedBlockState, ConnectedNetState, ConnectedVsockState, DeviceStates, VmmResourcesState,
+};
 use polly::event_manager::{self, EventManager, Subscriber};
 use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
+#[cfg(target_arch = "x86_64")]
+use snapshot::Persist;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
@@ -220,7 +233,7 @@ pub struct Vmm {
 }
 
 impl Vmm {
-    /// Gets the the specified bus device.
+    /// Gets the specified bus device.
     pub fn get_bus_device(
         &self,
         device_type: DeviceType,
@@ -371,6 +384,81 @@ impl Vmm {
     /// Returns a reference to the inner KVM Vm object.
     pub fn kvm_vm(&self) -> &Vm {
         &self.vm
+    }
+
+    /// Saves the device states.
+    #[cfg(target_arch = "x86_64")]
+    pub fn save_mmio_device_states(&mut self) -> DeviceStates {
+        let mut states = DeviceStates {
+            block_devices: Vec::new(),
+            net_devices: Vec::new(),
+            vsock_device: None,
+        };
+        let device_manager = &mut self.mmio_device_manager;
+
+        for ((device_type, device_id), device_info) in device_manager.get_device_info().iter() {
+            let bus_device = device_manager
+                .get_device(*device_type, device_id)
+                // Safe to unwrap() because we know the device exists.
+                .unwrap()
+                .lock()
+                .expect("Poisoned device lock");
+
+            let mmio_transport = bus_device
+                .as_any()
+                // Only MmioTransport implements BusDevice at this point.
+                .downcast_ref::<MmioTransport>()
+                .expect("Unexpected BusDevice type");
+
+            let transport_state = mmio_transport.save();
+            let vmm_resources = VmmResourcesState {
+                mmio_base: device_info.addr,
+                len: device_info.len,
+                irqs: vec![device_info.irq],
+            };
+
+            let locked_device = mmio_transport.locked_device();
+            match locked_device.device_type() {
+                TYPE_BLOCK => {
+                    let block_state = locked_device
+                        .as_any()
+                        .downcast_ref::<Block>()
+                        .unwrap()
+                        .save();
+                    states.block_devices.push(ConnectedBlockState {
+                        device_state: block_state,
+                        transport_state,
+                        vmm_resources,
+                    });
+                }
+                TYPE_NET => {
+                    let net_state = locked_device.as_any().downcast_ref::<Net>().unwrap().save();
+                    states.net_devices.push(ConnectedNetState {
+                        device_state: net_state,
+                        transport_state,
+                        vmm_resources,
+                    });
+                }
+                TYPE_VSOCK => {
+                    let vsock = locked_device
+                        .as_any()
+                        // Currently, VsockUnixBackend is the only implementation of VsockBackend.
+                        .downcast_ref::<Vsock<VsockUnixBackend>>()
+                        .unwrap();
+                    let vsock_state = VsockState {
+                        backend: vsock.backend().save(),
+                        frontend: vsock.save(),
+                    };
+                    states.vsock_device = Some(ConnectedVsockState {
+                        device_state: vsock_state,
+                        transport_state,
+                        vmm_resources,
+                    });
+                }
+                _ => unreachable!(),
+            };
+        }
+        states
     }
 }
 
