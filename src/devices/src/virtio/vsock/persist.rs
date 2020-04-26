@@ -17,14 +17,14 @@ use crate::virtio::{DeviceState, Queue};
 
 #[derive(Versionize)]
 pub struct VsockState {
-    pub(crate) backend: VsockBackendState,
-    pub(crate) frontend: VsockFrontendState,
+    pub backend: VsockBackendState,
+    pub frontend: VsockFrontendState,
 }
 
 /// The Vsock serializable state.
 #[derive(Versionize)]
 pub struct VsockFrontendState {
-    pub(crate) cid: u64,
+    pub cid: u64,
     virtio_state: VirtioDeviceState,
 }
 
@@ -43,14 +43,14 @@ pub struct VsockUdsState {
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
 pub struct VsockConstructorArgs<B> {
-    pub(crate) mem: GuestMemoryMmap,
-    pub(crate) backend: B,
+    pub mem: GuestMemoryMmap,
+    pub backend: B,
 }
 
 /// A helper structure that holds the constructor arguments for VsockUnixBackend
 pub struct VsockUdsConstructorArgs {
     // cid available in VsockFrontendState.
-    cid: u64,
+    pub cid: u64,
 }
 
 impl Persist for VsockUnixBackend {

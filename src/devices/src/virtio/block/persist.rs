@@ -30,7 +30,7 @@ pub struct BlockState {
 }
 
 pub struct BlockConstructorArgs {
-    pub(crate) mem: GuestMemoryMmap,
+    pub mem: GuestMemoryMmap,
 }
 
 impl Persist for Block {

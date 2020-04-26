@@ -99,7 +99,7 @@ impl VirtioDeviceState {
     }
 }
 
-#[derive(Versionize)]
+#[derive(Debug, PartialEq, Versionize)]
 pub struct MmioTransportState {
     // The register where feature bits are stored.
     features_select: u32,
@@ -111,8 +111,8 @@ pub struct MmioTransportState {
 }
 
 pub struct MmioTransportConstructorArgs {
-    mem: GuestMemoryMmap,
-    device: Arc<Mutex<dyn VirtioDevice>>,
+    pub mem: GuestMemoryMmap,
+    pub device: Arc<Mutex<dyn VirtioDevice>>,
 }
 
 impl Persist for MmioTransport {
@@ -149,11 +149,12 @@ mod tests {
     use super::*;
     use crate::virtio::block::device::tests::default_mem;
     use crate::virtio::mmio::tests::DummyDevice;
+    use crate::virtio::{Block, Net, Vsock, VsockUnixBackend};
 
     use utils::tempfile::TempFile;
 
     #[test]
-    fn test_queue_persistance() {
+    fn test_queue_persistence() {
         let queue = Queue::new(128);
 
         let mut mem = vec![0; 4096];
@@ -204,7 +205,7 @@ mod tests {
         }
     }
 
-    fn generic_mmiotransport_persistance_test(
+    fn generic_mmiotransport_persistence_test(
         mmio_transport: MmioTransport,
         mem: GuestMemoryMmap,
         device: Arc<Mutex<dyn VirtioDevice>>,
@@ -227,8 +228,7 @@ mod tests {
         assert_eq!(restored_mmio_transport, mmio_transport);
     }
 
-    #[test]
-    fn test_block_over_mmiotransport_persistance() {
+    fn default_block() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Block>>) {
         use crate::virtio::block::device::tests::default_block_with_path;
         let mem = default_mem();
 
@@ -237,23 +237,25 @@ mod tests {
         f.as_file().set_len(0x1000).unwrap();
         let block = default_block_with_path(f.as_path().to_str().unwrap().to_string());
         let block = Arc::new(Mutex::new(block));
-
         let mmio_transport = MmioTransport::new(mem.clone(), block.clone());
-        generic_mmiotransport_persistance_test(mmio_transport, mem, block);
+
+        (mmio_transport, mem, block)
     }
 
-    #[test]
-    fn test_net_over_mmiotransport_persistance() {
-        use crate::virtio::net::device::{tests::TestMutators, Net};
+    fn default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
+        use crate::virtio::net::device::tests::TestMutators;
         let mem = default_mem();
         let net = Arc::new(Mutex::new(Net::default_net(TestMutators::default())));
         let mmio_transport = MmioTransport::new(mem.clone(), net.clone());
-        generic_mmiotransport_persistance_test(mmio_transport, mem, net);
+
+        (mmio_transport, mem, net)
     }
 
-    #[test]
-    fn test_vsock_over_mmiotransport_persistance() {
-        use crate::virtio::vsock::{Vsock, VsockUnixBackend};
+    fn default_vsock() -> (
+        MmioTransport,
+        GuestMemoryMmap,
+        Arc<Mutex<Vsock<VsockUnixBackend>>>,
+    ) {
         let mem = default_mem();
 
         let guest_cid = 52;
@@ -264,11 +266,26 @@ mod tests {
         let backend = VsockUnixBackend::new(guest_cid, uds_path).unwrap();
         let vsock = Vsock::new(guest_cid, backend).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
-
         let mmio_transport = MmioTransport::new(mem.clone(), vsock.clone());
 
-        // Remove the socket so that the deserialized vsock can reuse the path.
-        std::mem::drop(temp_uds_path);
-        generic_mmiotransport_persistance_test(mmio_transport, mem, vsock);
+        (mmio_transport, mem, vsock)
+    }
+
+    #[test]
+    fn test_block_over_mmiotransport_persistence() {
+        let (mmio_transport, mem, block) = default_block();
+        generic_mmiotransport_persistence_test(mmio_transport, mem, block);
+    }
+
+    #[test]
+    fn test_net_over_mmiotransport_persistence() {
+        let (mmio_transport, mem, net) = default_net();
+        generic_mmiotransport_persistence_test(mmio_transport, mem, net);
+    }
+
+    #[test]
+    fn test_vsock_over_mmiotransport_persistence() {
+        let (mmio_transport, mem, vsock) = default_vsock();
+        generic_mmiotransport_persistence_test(mmio_transport, mem, vsock);
     }
 }
