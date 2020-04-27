@@ -9,7 +9,7 @@ use std::{mem, result};
 
 use super::get_fdt_addr;
 use kvm_bindings::{
-    user_pt_regs, KVM_REG_ARM64, KVM_REG_ARM64_SYSREG, KVM_REG_ARM64_SYSREG_CRM_MASK,
+    kvm_regs, user_pt_regs, KVM_REG_ARM64, KVM_REG_ARM64_SYSREG, KVM_REG_ARM64_SYSREG_CRM_MASK,
     KVM_REG_ARM64_SYSREG_CRM_SHIFT, KVM_REG_ARM64_SYSREG_CRN_MASK, KVM_REG_ARM64_SYSREG_CRN_SHIFT,
     KVM_REG_ARM64_SYSREG_OP0_MASK, KVM_REG_ARM64_SYSREG_OP0_SHIFT, KVM_REG_ARM64_SYSREG_OP1_MASK,
     KVM_REG_ARM64_SYSREG_OP1_SHIFT, KVM_REG_ARM64_SYSREG_OP2_MASK, KVM_REG_ARM64_SYSREG_OP2_SHIFT,
@@ -58,37 +58,6 @@ macro_rules! offset__of {
     };
 }
 
-macro_rules! arm64_core_reg {
-    ($reg: tt) => {
-        // As per `kvm_arm_copy_reg_indices`, the id of a core register can be obtained like this:
-        // `const u64 core_reg = KVM_REG_ARM64 | KVM_REG_SIZE_U64 | KVM_REG_ARM_CORE | i`, where i is obtained with:
-        // `for (i = 0; i < sizeof(struct kvm_regs) / sizeof(__u32); i++) {`
-        // We are using here `user_pt_regs` since this structure contains the core register and it is at
-        // the start of `kvm_regs`.
-        // struct kvm_regs {
-        //	struct user_pt_regs regs;	/* sp = sp_el0 */
-        //
-        //	__u64	sp_el1;
-        //	__u64	elr_el1;
-        //
-        //	__u64	spsr[KVM_NR_SPSR];
-        //
-        //	struct user_fpsimd_state fp_regs;
-        //};
-        // struct user_pt_regs {
-        //	__u64		regs[31];
-        //	__u64		sp;
-        //	__u64		pc;
-        //	__u64		pstate;
-        //};
-        // In our implementation we need: pc, pstate and user_pt_regs->regs[0].
-        KVM_REG_ARM64 as u64
-            | KVM_REG_SIZE_U64 as u64
-            | u64::from(KVM_REG_ARM_CORE)
-            | ((offset__of!(user_pt_regs, $reg) / mem::size_of::<u32>()) as u64)
-    };
-}
-
 macro_rules! arm64_core_reg_id {
     ($size: tt, $offset: tt) => {
         // The core registers of an arm64 machine are represented
@@ -113,7 +82,6 @@ macro_rules! arm64_core_reg_id {
         // The id of a core register can be obtained like this:
         // offset = id & ~(KVM_REG_ARCH_MASK | KVM_REG_SIZE_MASK | KVM_REG_ARM_CORE). Thus,
         // id = KVM_REG_ARM64 | KVM_REG_SIZE_U64/KVM_REG_SIZE_U32/KVM_REG_SIZE_U128 | KVM_REG_ARM_CORE | offset
-        // Obs! This macro intends to replace the deprecated limited one: arm64_core_reg but in an ulterior commit.
         KVM_REG_ARM64 as u64
             | u64::from(KVM_REG_ARM_CORE)
             | $size
@@ -155,22 +123,33 @@ arm64_sys_reg!(MPIDR_EL1, 3, 0, 0, 0, 5);
 /// * `boot_ip` - Starting instruction pointer.
 /// * `mem` - Reserved DRAM for current VM.
 pub fn setup_regs(vcpu: &VcpuFd, cpu_id: u8, boot_ip: u64, mem: &GuestMemoryMmap) -> Result<()> {
+    let kreg_off = offset__of!(kvm_regs, regs);
+
     // Get the register index of the PSTATE (Processor State) register.
-    vcpu.set_one_reg(arm64_core_reg!(pstate), PSTATE_FAULT_BITS_64)
-        .map_err(Error::SetCoreRegister)?;
+    let pstate = offset__of!(user_pt_regs, pstate) + kreg_off;
+    vcpu.set_one_reg(
+        arm64_core_reg_id!(KVM_REG_SIZE_U64, pstate),
+        PSTATE_FAULT_BITS_64,
+    )
+    .map_err(Error::SetCoreRegister)?;
 
     // Other vCPUs are powered off initially awaiting PSCI wakeup.
     if cpu_id == 0 {
         // Setting the PC (Processor Counter) to the current program address (kernel address).
-        vcpu.set_one_reg(arm64_core_reg!(pc), boot_ip)
+        let pc = offset__of!(user_pt_regs, pc) + kreg_off;
+        vcpu.set_one_reg(arm64_core_reg_id!(KVM_REG_SIZE_U64, pc), boot_ip as u64)
             .map_err(Error::SetCoreRegister)?;
 
         // Last mandatory thing to set -> the address pointing to the FDT (also called DTB).
         // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
         // not exceed 2 megabytes in size." -> https://www.kernel.org/doc/Documentation/arm64/booting.txt.
         // We are choosing to place it the end of DRAM. See `get_fdt_addr`.
-        vcpu.set_one_reg(arm64_core_reg!(regs), get_fdt_addr(mem) as u64)
-            .map_err(Error::SetCoreRegister)?;
+        let regs0 = offset__of!(user_pt_regs, regs) + kreg_off;
+        vcpu.set_one_reg(
+            arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0),
+            get_fdt_addr(mem) as u64,
+        )
+        .map_err(Error::SetCoreRegister)?;
     }
     Ok(())
 }
