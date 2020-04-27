@@ -482,7 +482,7 @@ impl fmt::Display for LoggerError {
 impl Log for Logger {
     // This is currently not used.
     fn enabled(&self, _metadata: &Metadata) -> bool {
-        true
+        unreachable!();
     }
 
     fn log(&self, record: &Record) {
@@ -497,7 +497,9 @@ impl Log for Logger {
     }
 
     // This is currently not used.
-    fn flush(&self) {}
+    fn flush(&self) {
+        unreachable!();
+    }
 }
 
 #[cfg(test)]
