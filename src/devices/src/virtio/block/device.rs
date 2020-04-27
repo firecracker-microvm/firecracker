@@ -352,13 +352,13 @@ impl VirtioDevice for Block {
     fn write_config(&mut self, offset: u64, data: &[u8]) {
         let data_len = data.len() as u64;
         let config_len = self.config_space.len() as u64;
-        if offset + data_len > config_len {
-            error!("Failed to write config space");
+        if offset != 0 || data_len != config_len {
+            error!("Failed to write config space. Partial writes not allowed.");
             METRICS.block.cfg_fails.inc();
             return;
         }
-        let (_, right) = self.config_space.split_at_mut(offset as usize);
-        right.copy_from_slice(&data[..]);
+        // This should not panic as we check before `data` len validity.
+        self.config_space.copy_from_slice(data);
     }
 
     fn is_activated(&self) -> bool {
@@ -543,9 +543,15 @@ pub(crate) mod tests {
         block.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
 
-        // Invalid write.
+        // Test invalid write scenarios.
         let new_config_space: [u8; CONFIG_SPACE_SIZE] = [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf];
         block.write_config(5, &new_config_space);
+        // Make sure nothing got written.
+        block.read_config(0, &mut actual_config_space);
+        assert_eq!(actual_config_space, expected_config_space);
+
+        let small_config_space: [u8; CONFIG_SPACE_SIZE - 1] = [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe];
+        block.write_config(0, &small_config_space);
         // Make sure nothing got written.
         block.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);

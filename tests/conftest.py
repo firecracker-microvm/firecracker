@@ -194,9 +194,15 @@ def test_session_tmp_path(test_session_root_path):
 
 def _gcc_compile(src_file, output_file):
     """Build a source file with gcc."""
-    compile_cmd = 'gcc {} -o {} -static -O3'.format(
+    arch = ''
+    if platform.machine() == "x86_64":
+        arch = 'DX86_64'
+    elif platform.machine() == "aarch64":
+        arch = 'DAARCH64'
+    compile_cmd = 'gcc {} -o {} -static -O3 -{}'.format(
         src_file,
-        output_file
+        output_file,
+        arch
     )
     utils.run_cmd(compile_cmd)
 
@@ -232,6 +238,22 @@ def bin_vsock_path(test_session_root_path):
         vsock_helper_bin_path
     )
     yield vsock_helper_bin_path
+
+
+@pytest.fixture(scope='session')
+def mmio_config_update_bin(test_session_root_path):
+    """Build a binary that tries an invalid write to MMIO config space."""
+    # pylint: disable=redefined-outer-name
+    # The fixture pattern causes a pylint false positive for that rule.
+    mmio_write_bin_path = os.path.join(
+        test_session_root_path,
+        'mmio_write'
+    )
+    _gcc_compile(
+        'host_tools/mmio_write.c',
+        mmio_write_bin_path
+    )
+    yield mmio_write_bin_path
 
 
 @pytest.fixture(scope='session')

@@ -725,13 +725,13 @@ impl VirtioDevice for Net {
         let data_len = data.len() as u64;
         let config_space_bytes = self.config_space.as_mut_slice();
         let config_len = config_space_bytes.len() as u64;
-        if offset + data_len > config_len {
-            error!("Failed to write config space");
+        if offset != 0 || data_len != config_len {
+            error!("Failed to write config space. Partial writes not allowed.");
             METRICS.net.cfg_fails.inc();
             return;
         }
-        let (_, right) = config_space_bytes.split_at_mut(offset as usize);
-        right.copy_from_slice(&data[..]);
+        // This should not panic as we check before `data` len validity.
+        config_space_bytes.copy_from_slice(data);
     }
 
     fn is_activated(&self) -> bool {
@@ -967,15 +967,22 @@ pub(crate) mod tests {
     fn test_virtio_device_rewrite_config() {
         let mut net = Net::default_net(TestMutators::default());
         net.set_mac(MacAddr::parse_str("11:22:33:44:55:66").unwrap());
-
         let new_config: [u8; 6] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
+
         net.write_config(0, &new_config);
         let mut new_config_read = [0u8; 6];
         net.read_config(0, &mut new_config_read);
         assert_eq!(new_config, new_config_read);
 
-        // Invalid write.
+        // Test invalid write scenarios.
         net.write_config(5, &new_config);
+        // Verify old config was untouched.
+        new_config_read = [0u8; 6];
+        net.read_config(0, &mut new_config_read);
+        assert_eq!(new_config, new_config_read);
+
+        let small_config: [u8; 5] = [0x66, 0x55, 0x44, 0x33, 0x22];
+        net.write_config(0, &small_config);
         // Verify old config was untouched.
         new_config_read = [0u8; 6];
         net.read_config(0, &mut new_config_read);
