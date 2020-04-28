@@ -215,14 +215,13 @@ impl ApiServer {
             .lock()
             .expect("Failed to acquire lock on MMDS info")
             .patch_data(value);
+
         match mmds_response {
             Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
             Err(e) => match e {
-                data_store::Error::NotFound => ApiServer::json_response(
-                    StatusCode::NotFound,
-                    ApiServer::json_fault_message(e.to_string()),
-                ),
-                data_store::Error::UnsupportedValueType => ApiServer::json_response(
+                data_store::Error::NotFound => unreachable!(),
+                data_store::Error::UnsupportedValueType => unreachable!(),
+                data_store::Error::NotInitialized => ApiServer::json_response(
                     StatusCode::BadRequest,
                     ApiServer::json_fault_message(e.to_string()),
                 ),
@@ -423,9 +422,6 @@ mod tests {
 
         let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
         assert_eq!(response.status(), StatusCode::NoContent);
-
-        let response = api_server.put_mmds(serde_json::Value::Bool(true));
-        assert_eq!(response.status(), StatusCode::BadRequest);
     }
 
     #[test]
@@ -440,7 +436,7 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
+        let mmds_info = Arc::new(Mutex::new(Mmds::default()));
 
         let api_server = ApiServer::new(
             mmds_info,
@@ -451,14 +447,17 @@ mod tests {
         )
         .unwrap();
 
+        // MMDS data store is not yet initialized.
+        let response = api_server.patch_mmds(serde_json::Value::Bool(true));
+        assert_eq!(response.status(), StatusCode::BadRequest);
+
         let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
         assert_eq!(response.status(), StatusCode::NoContent);
 
-        let response = api_server.patch_mmds(serde_json::Value::String("string".to_string()));
+        let response = api_server.patch_mmds(serde_json::Value::String(
+            "{ \"key\" : \"value\" }".to_string(),
+        ));
         assert_eq!(response.status(), StatusCode::NoContent);
-
-        let response = api_server.patch_mmds(serde_json::Value::Bool(true));
-        assert_eq!(response.status(), StatusCode::BadRequest);
     }
 
     #[test]

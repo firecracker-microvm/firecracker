@@ -15,7 +15,9 @@
 - Added a [guide](docs/devctr-image.md) for updating the dev container image.
 - Added a new API call, `PUT /mmds/config`, for configuring the
   `MMDS` with a custom valid link-local IPv4 address.
-
+- Added experimental JSON response format support for MMDS guest applications
+  requests.
+   
 ### Fixed
 - Added `--version` flag to both Firecracker and Jailer.
 
@@ -32,6 +34,14 @@
   updates to existing configurations.
 - `PATCH /network-interfaces/{id}` only allowed post-boot. Use `PUT` for
   pre-boot updates to existing configurations.
+- Changed returned status code from `500 Internal Server Error` to `501 Not Implemented`,
+  for queries on the MMDS endpoint in IMDS format, when the requested resource value type
+  is unsupported.
+- Allowed the MMDS data store to be initialized with all supported JSON types.
+  Retrieval of these values within the guest, besides String, Array, and Dictionary,
+  is only possible in JSON mode.
+- `PATCH` request on `/mmds` before the data store is initialized returns 
+  `403 BadRequest`.
 
 ## [0.21.0]
 
@@ -211,7 +221,7 @@
 - When running with `jailer` the location of the API socket has changed to
   `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
 - `PUT` and `PATCH` requests on `/mmds` with data containing any value type
-  other than `String`, `Array`, `Object` will return status code 400.
+  other than `String`, `Array`, `Object` will returns status code 400.
 - Improved multiple error messages.
 - Removed all kernel modules from the recommended kernel config.
 
