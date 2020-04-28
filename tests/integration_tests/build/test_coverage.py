@@ -17,7 +17,7 @@ import pytest
 import framework.utils as utils
 import host_tools.cargo_build as host  # pylint: disable=import-error
 
-COVERAGE_TARGET_PCT = 84.07
+COVERAGE_TARGET_PCT = 84.23
 COVERAGE_MAX_DELTA = 0.05
 
 CARGO_KCOV_REL_PATH = os.path.join(host.CARGO_BUILD_REL_PATH, 'kcov')

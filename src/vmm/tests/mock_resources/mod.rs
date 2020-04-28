@@ -38,7 +38,7 @@ impl MockBootSourceConfig {
         })
     }
 
-    pub fn with_boot_args(mut self) -> Self {
+    pub fn with_default_boot_args(mut self) -> Self {
         self.0.boot_args = Some(DEFAULT_BOOT_ARGS.to_string());
         self
     }
