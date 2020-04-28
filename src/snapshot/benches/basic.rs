@@ -5,7 +5,7 @@ extern crate versionize_derive;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use snapshot::Snapshot;
-use versionize::{Error, VersionMap, Versionize, VersionizeResult};
+use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
 #[derive(Clone, Debug, Default, Versionize)]
@@ -55,7 +55,9 @@ impl Test {
         self.field0 = self.field4.iter().sum();
 
         if self.field0 == 6666 {
-            return Err(Error::Semantic("field4 element sum is 6666".to_owned()));
+            return Err(VersionizeError::Semantic(
+                "field4 element sum is 6666".to_owned(),
+            ));
         }
         Ok(())
     }
@@ -79,7 +81,7 @@ impl Test {
         assert!(source_version < 3);
         self.field_x += 1;
         if self.field0 == 7777 {
-            return Err(Error::Semantic("field0 is 7777".to_owned()));
+            return Err(VersionizeError::Semantic("field0 is 7777".to_owned()));
         }
         Ok(())
     }

@@ -9,8 +9,7 @@ use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
-#[repr(u32)]
-#[derive(Versionize, PartialEq, Clone, Debug)]
+#[derive(Debug, PartialEq, Versionize)]
 pub enum TestState {
     Zero,
     One(u32),
@@ -30,7 +29,7 @@ impl TestState {
     }
 }
 
-#[derive(Versionize, Default, Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Versionize)]
 pub struct A {
     a: u32,
     #[version(start = 1, end = 2)]
@@ -56,13 +55,13 @@ fn test_hardcoded_snapshot_deserialization() {
         // This blob is consisted of the following: magic_id (8 bytes),
         0x01, 0x00,
         #[cfg(target_arch = "aarch64")]
-            0xAA,
+        0xAA,
         #[cfg(target_arch = "aarch64")]
-            0xAA,
+        0xAA,
         #[cfg(target_arch = "x86_64")]
-            0x64,
+        0x64,
         #[cfg(target_arch = "x86_64")]
-            0x86,
+        0x86,
         0x84, 0x19, 0x10, 0x07,
         // target version (2 bytes), sections count (2 bytes) +
         0x01, 0x00, 0x02, 0x00,
