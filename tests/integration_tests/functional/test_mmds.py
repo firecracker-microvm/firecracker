@@ -3,6 +3,8 @@
 """Tests that verify MMDS related functionality."""
 
 import json
+import random
+import string
 import host_tools.network as net_tools
 
 
@@ -266,6 +268,78 @@ def test_imds_response(test_microvm_with_ssh, network_config):
     _, stdout, stderr = ssh_connection.execute_command(cmd)
     _assert_out(stdout, stderr, 'Cannot retrieve value. The value has an'
                                 ' unsupported type.')
+
+
+def test_larger_than_mss_payloads(test_microvm_with_ssh, network_config):
+    """Test MMDS content for payloads larger than MSS."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    # The MMDS is empty at this point.
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
+    test_microvm.basic_config(vcpu_count=1)
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
+
+    test_microvm.start()
+
+    # Make sure MTU is 1500 bytes.
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    cmd = 'ip link set dev eth0 mtu 1500'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, "")
+
+    cmd = 'ip a s eth0 | grep -i mtu | tr -s " " | cut -d " " -f 4,5'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, "mtu 1500\n")
+
+    # These values are usually used by booted up guest network interfaces.
+    mtu = 1500
+    ipv4_packet_headers_len = 20
+    tcp_segment_headers_len = 20
+    mss = mtu - ipv4_packet_headers_len - tcp_segment_headers_len
+
+    # Generate a random MMDS content, double of MSS.
+    letters = string.ascii_lowercase
+    larger_than_mss = ''.join(random.choice(letters) for i in range(2 * mss))
+    mss_equal = ''.join(random.choice(letters) for i in range(mss))
+    lower_than_mss = ''.join(random.choice(letters) for i in range(mss - 2))
+    data_store = {
+        'larger_than_mss': larger_than_mss,
+        'mss_equal': mss_equal,
+        'lower_than_mss': lower_than_mss
+    }
+    response = test_microvm.mmds.put(json=data_store)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == data_store
+
+    cmd = 'ip route add 169.254.169.254 dev eth0'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, '')
+
+    pre = 'curl -s http://169.254.169.254/'
+
+    cmd = pre + 'larger_than_mss'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, larger_than_mss)
+
+    cmd = pre + 'mss_equal'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, mss_equal)
+
+    cmd = pre + 'lower_than_mss'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, lower_than_mss)
 
 
 def test_mmds_dummy(test_microvm_with_ssh):
