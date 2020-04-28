@@ -14,6 +14,6 @@ net_gen = { path = "../net_gen" }
 polly = { path = "../polly" }
 rate_limiter = { path = "../rate_limiter" }
 snapshot = { path = "../snapshot" }
-versionize = { path = "../versionize" }
-versionize_derive = { path = "../versionize_derive" }
+versionize = { git = "https://github.com/firecracker-microvm/versionize", tag = "v0.1.0" }
+versionize_derive = { git = "https://github.com/firecracker-microvm/versionize_derive", tag = "v0.1.0" }
 virtio_gen = { path = "../virtio_gen" }
