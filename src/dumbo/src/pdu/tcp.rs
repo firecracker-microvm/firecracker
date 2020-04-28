@@ -26,6 +26,7 @@ const FLAGS_AFTER_NS_OFFSET: usize = 13;
 const WINDOW_SIZE_OFFSET: usize = 14;
 const CHECKSUM_OFFSET: usize = 16;
 const URG_POINTER_OFFSET: usize = 18;
+
 const OPTIONS_OFFSET: usize = 20;
 
 const MAX_HEADER_LEN: usize = 60;
@@ -512,7 +513,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
             segment.bytes.htons_unchecked(OPTIONS_OFFSET + 2, value);
         }
 
-        segment_len += if let Some((payload_buf, max_payload_bytes)) = payload {
+        let payload_bytes_count = if let Some((payload_buf, max_payload_bytes)) = payload {
             let left_to_read = min(payload_buf.len(), max_payload_bytes);
 
             // The subtraction makes sense because we previously checked that
@@ -532,6 +533,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
         } else {
             0
         };
+        segment_len += payload_bytes_count;
 
         // This is ok because segment_len <= buf.len().
         segment.bytes.shrink_unchecked(segment_len);
@@ -648,7 +650,7 @@ mod tests {
         let header_len = OPTIONS_OFFSET + OPTION_LEN_MSS;
 
         let segment_len = {
-            let mut p = TcpSegment::write_segment(
+            let mut segment = TcpSegment::write_segment(
                 a.as_mut(),
                 src_port,
                 dst_port,
@@ -663,26 +665,26 @@ mod tests {
             )
             .unwrap();
 
-            assert_eq!(p.source_port(), src_port);
-            assert_eq!(p.destination_port(), dst_port);
-            assert_eq!(p.sequence_number(), seq_number);
-            assert_eq!(p.ack_number(), ack_number);
-            assert_eq!(p.header_len_rsvd_ns(), (header_len, 0, false));
-            assert_eq!(p.flags_after_ns(), flags_after_ns);
-            assert_eq!(p.window_size(), window_size);
+            assert_eq!(segment.source_port(), src_port);
+            assert_eq!(segment.destination_port(), dst_port);
+            assert_eq!(segment.sequence_number(), seq_number);
+            assert_eq!(segment.ack_number(), ack_number);
+            assert_eq!(segment.header_len_rsvd_ns(), (header_len, 0, false));
+            assert_eq!(segment.flags_after_ns(), flags_after_ns);
+            assert_eq!(segment.window_size(), window_size);
 
-            let checksum = p.checksum();
-            p.set_checksum(0);
-            let computed_checksum = p.compute_checksum(src_addr, dst_addr);
+            let checksum = segment.checksum();
+            segment.set_checksum(0);
+            let computed_checksum = segment.compute_checksum(src_addr, dst_addr);
             assert_eq!(checksum, computed_checksum);
 
-            p.set_checksum(checksum);
-            assert_eq!(p.compute_checksum(src_addr, dst_addr), 0);
+            segment.set_checksum(checksum);
+            assert_eq!(segment.compute_checksum(src_addr, dst_addr), 0);
 
-            assert_eq!(p.urgent_pointer(), 0);
+            assert_eq!(segment.urgent_pointer(), 0);
 
             {
-                let options = p.options_unchecked(header_len);
+                let options = segment.options_unchecked(header_len);
                 assert_eq!(options.len(), OPTION_LEN_MSS);
                 assert_eq!(options[0], OPTION_KIND_MSS);
                 assert_eq!(options[1], OPTION_LEN_MSS as u8);
@@ -690,22 +692,23 @@ mod tests {
             }
 
             // Payload was smaller than mss_left after options.
-            assert_eq!(p.len(), header_len + b.len());
-            p.len()
+            assert_eq!(segment.len(), header_len + b.len());
+            segment.len()
             // Mutable borrow of a goes out of scope.
         };
 
         {
-            let p = TcpSegment::from_bytes(&a[..segment_len], Some((src_addr, dst_addr))).unwrap();
+            let segment =
+                TcpSegment::from_bytes(&a[..segment_len], Some((src_addr, dst_addr))).unwrap();
             assert_eq!(
-                p.parse_mss_option_unchecked(header_len),
+                segment.parse_mss_option_unchecked(header_len),
                 Ok(Some(NonZeroU16::new(mss_left as u16).unwrap()))
             );
         }
 
         // Let's quickly see what happens when the payload buf is larger than our mutable slice.
         {
-            let len = TcpSegment::write_segment(
+            let segment_len = TcpSegment::write_segment(
                 a.as_mut(),
                 src_port,
                 dst_port,
@@ -721,7 +724,7 @@ mod tests {
             .unwrap()
             .len();
 
-            assert_eq!(len, mss_left as usize);
+            assert_eq!(segment_len, mss_left as usize);
         }
 
         // Now let's test the error value for from_bytes().

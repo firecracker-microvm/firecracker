@@ -47,6 +47,8 @@ pub struct Endpoint {
     receive_buf_left: usize,
     // This is filled with the HTTP response bytes after we parse a request and generate the reply.
     response_buf: Vec<u8>,
+    // Initial response sequence, used to track if the entire `response_buf` was sent.
+    initial_response_seq: Wrapping<u32>,
     // Represents the sequence number associated with the first byte from response_buf.
     response_seq: Wrapping<u32>,
     // The TCP connection that does all the receiving/sending work.
@@ -101,6 +103,7 @@ impl Endpoint {
             // created via passive open only, so this points to the sequence number right after
             // the SYNACK. It might stop working like that if/when the implementation changes.
             response_seq: connection.first_not_sent(),
+            initial_response_seq: connection.first_not_sent(),
             connection,
             last_segment_received_timestamp: timestamp_cycles(),
             eviction_threshold: eviction_threshold.get(),
@@ -160,7 +163,7 @@ impl Endpoint {
 
         if !self.response_buf.is_empty()
             && self.connection.highest_ack_received()
-                == self.response_seq + Wrapping(self.response_buf.len() as u32)
+                == self.initial_response_seq + Wrapping(self.response_buf.len() as u32)
         {
             // If we got here, then we still have some response bytes to send (which are
             // stored in self.response_buf).
@@ -169,6 +172,7 @@ impl Endpoint {
             // response has been successfully received. Set the new response_seq and clear
             // the response_buf.
             self.response_seq = self.connection.highest_ack_received();
+            self.initial_response_seq = self.response_seq;
             self.response_buf.clear();
         }
 
@@ -238,7 +242,11 @@ impl Endpoint {
         mss_reserved: u16,
     ) -> Option<Incomplete<TcpSegment<'a, &'a mut [u8]>>> {
         let tcp_payload_src = if !self.response_buf.is_empty() {
-            Some((self.response_buf.as_slice(), self.response_seq))
+            let offset = self.response_seq - self.initial_response_seq;
+            Some((
+                self.response_buf.split_at(offset.0 as usize).1,
+                self.response_seq,
+            ))
         } else {
             None
         };
@@ -249,7 +257,10 @@ impl Endpoint {
             tcp_payload_src,
             timestamp_cycles(),
         ) {
-            Ok(something) => something,
+            Ok(write_result) => write_result.map(|segment| {
+                self.response_seq += Wrapping(segment.inner().payload_len() as u32);
+                segment
+            }),
             Err(_) => {
                 METRICS.mmds.tx_errors.inc();
                 None
