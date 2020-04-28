@@ -1,9 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt;
-
 use serde_json::Value;
+use std::fmt;
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
 #[derive(Clone)]
@@ -12,9 +11,16 @@ pub struct Mmds {
     is_initialized: bool,
 }
 
+/// MMDS possible outputs.
+pub enum OutputFormat {
+    Json,
+    Imds,
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     NotFound,
+    NotInitialized,
     UnsupportedValueType,
 }
 
@@ -22,9 +28,11 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::NotFound => write!(f, "The MMDS resource does not exist."),
-            Error::UnsupportedValueType => {
-                write!(f, "Cannot add non-strings values to the MMDS data-store.")
-            }
+            Error::NotInitialized => write!(f, "The MMDS data store is not initialized."),
+            Error::UnsupportedValueType => write!(
+                f,
+                "Cannot retrieve value. The value has an unsupported type."
+            ),
         }
     }
 }
@@ -46,37 +54,17 @@ impl Mmds {
         if self.is_initialized {
             Ok(())
         } else {
-            Err(Error::NotFound)
-        }
-    }
-
-    /// This method validates the data from a PATCH or PUT request and returns
-    /// an UnsupportedValueType error if the data contain any value type other than
-    /// Strings, arrays and dictionaries.
-    pub fn check_data_valid(data: &Value) -> Result<(), Error> {
-        if data.is_string() {
-            Ok(())
-        } else if let Some(map) = data.as_object() {
-            map.values()
-                .try_for_each(|value| Mmds::check_data_valid(value))
-        } else if let Some(array) = data.as_array() {
-            array
-                .iter()
-                .try_for_each(|value| Mmds::check_data_valid(value))
-        } else {
-            Err(Error::UnsupportedValueType)
+            Err(Error::NotInitialized)
         }
     }
 
     pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
-        Mmds::check_data_valid(&data)?;
         self.data_store = data;
         self.is_initialized = true;
         Ok(())
     }
 
     pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
-        Mmds::check_data_valid(&patch_data)?;
         self.check_data_store_initialized()?;
         super::json_patch(&mut self.data_store, &patch_data);
         Ok(())
@@ -89,15 +77,77 @@ impl Mmds {
         self.data_store.to_string()
     }
 
-    /// This function replicates the behavior of the Instance Metadata Service
-    /// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
-    /// 1. For a (key, value) pair where the value is a dictionary, it will return all the keys
-    /// in the dictionary.
-    /// 2. For a (key, value) pair where the value is a simple type (bool, string, number),
-    /// it will return the value.
+    /// Returns the serde::Value in IMDS format plaintext.
+    /// Currently, only JSON objects and strings can be IMDS formatted.
     ///
-    /// When the path is not found, a NotFound error is returned.
-    pub fn get_value(&self, path: String) -> Result<Vec<String>, Error> {
+    /// See the docs for detailed description of the IMDS format:
+    /// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
+    ///
+    /// # Examples
+    ///
+    /// ```json
+    /// {
+    ///     "key1" : {
+    ///         "key11": "value11"
+    ///         "key12": "value12"
+    ///     }
+    ///     "key2" : "value3"
+    ///     "key3" : "value3"
+    /// }
+    ///```
+    ///
+    /// IMDS formatted JSON object:
+    /// ```text
+    /// key1/
+    /// key2
+    /// key3
+    /// ```
+    ///
+    /// JSON string:
+    /// ```json
+    /// "value"
+    /// ```
+    ///
+    /// IMDS formatted string:
+    /// ```text
+    /// value
+    /// ```
+    ///
+    /// If the `serde_json::Value` is not supported, an `UnsupportedValueType` error is returned.
+    fn format_imds(json: &Value) -> Result<String, Error> {
+        // If the `dict` is Value::Null, Error::NotFound is thrown.
+        // If the `dict` is not a dictionary, a Vec with the value corresponding to
+        // the key is returned.
+        match json.as_object() {
+            Some(map) => {
+                let mut ret = Vec::new();
+                // When the object is a map, push all the keys in the Vec.
+                for key in map.keys() {
+                    let mut key = key.clone();
+                    // If the key corresponds to a dictionary, a "/" is appended
+                    // to the key name.
+                    if map[&key].is_object() {
+                        key.push_str("/");
+                    }
+
+                    ret.push(key);
+                }
+                Ok(ret.join("\n"))
+            }
+            None => {
+                // When the object is not a map, return the value.
+                // Support only `Value::String`.
+                match json.as_str() {
+                    Some(str_val) => Ok(str_val.to_string()),
+                    None => Err(Error::UnsupportedValueType),
+                }
+            }
+        }
+    }
+
+    /// Returns the subtree located at path. When the path corresponds to a leaf, it returns the value.
+    /// Returns Error::NotFound when the path is invalid.
+    pub fn get_value(&self, path: String, format: OutputFormat) -> Result<String, Error> {
         // The pointer function splits the input by "/". With a trailing "/", pointer does not
         // know how to get the object.
         let value = if path.ends_with('/') {
@@ -106,41 +156,13 @@ impl Mmds {
             self.data_store.pointer(path.as_str())
         };
 
-        match value {
-            Some(val) => {
-                let mut ret = Vec::new();
-                // If the `dict` is Value::Null, Error::NotFound is thrown.
-                // If the `dict` is not a dictionary, a Vec with the value corresponding to
-                // the key is returned.
-                match val.as_object() {
-                    Some(map) => {
-                        // When the object is a map, push all the keys in the Vec.
-                        for key in map.keys() {
-                            let mut key = key.clone();
-                            // If the key corresponds to a dictionary, a "/" is appended
-                            // to the key name.
-                            if map[&key].is_object() {
-                                key.push_str("/");
-                            }
-
-                            ret.push(key);
-                        }
-                        Ok(ret)
-                    }
-                    None => {
-                        // When the object is not a map, return the value.
-                        // The only supported Value type is String.
-                        match val.as_str() {
-                            Some(str_val) => {
-                                ret.push(str_val.to_string());
-                                Ok(ret)
-                            }
-                            None => Err(Error::UnsupportedValueType),
-                        }
-                    }
-                }
+        if let Some(json) = value {
+            match format {
+                OutputFormat::Json => Ok(json.to_string()),
+                OutputFormat::Imds => Mmds::format_imds(json),
             }
-            None => Err(Error::NotFound),
+        } else {
+            Err(Error::NotFound)
         }
     }
 }
@@ -156,7 +178,7 @@ mod tests {
 
         assert_eq!(
             mmds.check_data_store_initialized().unwrap_err().to_string(),
-            "The MMDS resource does not exist.".to_string(),
+            "The MMDS data store is not initialized.".to_string(),
         );
 
         let mut mmds_json = "{\"meta-data\":{\"iam\":\"dummy\"},\"user-data\":\"1522850095\"}";
@@ -183,76 +205,142 @@ mod tests {
                 "first": "John",
                 "second": "Doe"
             },
-            "age": "43",
-            "phones": {
-                "home": {
-                    "RO": "+40 1234567",
-                    "UK": "+44 1234567"
-                },
-                "mobile": "+44 2345678"
-            }
+            "age": 43,
+            "phones": [
+                "+401234567",
+                "+441234567"
+            ],
+            "member": false,
+            "shares_percentage": 12.12,
+            "balance": -24
         }"#;
-
         let data_store: Value = serde_json::from_str(data).unwrap();
         mmds.put_data(data_store).unwrap();
 
         // Test invalid path.
         assert_eq!(
-            mmds.get_value("/invalid_path".to_string()),
+            mmds.get_value("/invalid_path".to_string(), OutputFormat::Json),
             Err(Error::NotFound)
         );
         assert_eq!(
-            mmds.get_value("/invalid_path/".to_string()),
+            mmds.get_value("/invalid_path".to_string(), OutputFormat::Imds),
             Err(Error::NotFound)
+        );
+
+        // Retrieve an object.
+        let mut expected_json = r#"{
+                "first": "John",
+                "second": "Doe"
+            }"#
+        .to_string();
+        expected_json.retain(|c| !c.is_whitespace());
+        assert_eq!(
+            mmds.get_value("/name".to_string(), OutputFormat::Json)
+                .unwrap(),
+            expected_json
+        );
+        let expected_imds = "first\nsecond";
+        assert_eq!(
+            mmds.get_value("/name".to_string(), OutputFormat::Imds)
+                .unwrap(),
+            expected_imds
+        );
+
+        // Retrieve an integer.
+        assert_eq!(
+            mmds.get_value("/age".to_string(), OutputFormat::Json)
+                .unwrap(),
+            "43"
+        );
+        assert_eq!(
+            mmds.get_value("/age".to_string(), OutputFormat::Imds)
+                .err()
+                .unwrap(),
+            Error::UnsupportedValueType
         );
 
         // Test path ends with /; Value is a dictionary.
+        // Retrieve an array.
+        let mut expected = r#"[
+                "+401234567",
+                "+441234567"
+            ]"#
+        .to_string();
+        expected.retain(|c| !c.is_whitespace());
         assert_eq!(
-            mmds.get_value("/phones/".to_string()).unwrap(),
-            vec!["home/", "mobile"]
+            mmds.get_value("/phones/".to_string(), OutputFormat::Json)
+                .unwrap(),
+            expected
         );
-
         assert_eq!(
-            mmds.get_value("/phones/home/".to_string()).unwrap(),
-            vec!["RO", "UK"]
-        );
-
-        // Test path ends with /; Value is a String.
-        assert_eq!(
-            mmds.get_value("/phones/mobile/".to_string()).unwrap(),
-            vec!["+44 2345678"]
+            mmds.get_value("/phones/".to_string(), OutputFormat::Imds)
+                .err()
+                .unwrap(),
+            Error::UnsupportedValueType
         );
 
         // Test path does NOT end with /; Value is a dictionary.
         assert_eq!(
-            mmds.get_value("/phones".to_string()).unwrap(),
-            vec!["home/", "mobile"]
+            mmds.get_value("/phones".to_string(), OutputFormat::Json)
+                .unwrap(),
+            expected
+        );
+        assert_eq!(
+            mmds.get_value("/phones".to_string(), OutputFormat::Imds)
+                .err()
+                .unwrap(),
+            Error::UnsupportedValueType
         );
 
-        // Test path does NOT end with /; Value is a String.
+        // Retrieve the first element of an array.
         assert_eq!(
-            mmds.get_value("/phones/mobile".to_string()).unwrap(),
-            vec!["+44 2345678"]
+            mmds.get_value("/phones/0/".to_string(), OutputFormat::Json)
+                .unwrap(),
+            "\"+401234567\""
         );
-    }
-
-    #[test]
-    fn test_get_element_from_array() {
-        let mut mmds = Mmds::default();
-        let data = r#"{
-            "phones": [
-                "+40 1234567",
-                "+44 1234567"
-            ]
-        }"#;
-
-        let data_store: Value = serde_json::from_str(data).unwrap();
-        mmds.put_data(data_store).unwrap();
-
-        // Test path does NOT end with /; Value is a String.
         assert_eq!(
-            mmds.get_value("/phones/0".to_string()).unwrap(),
-            vec!["+40 1234567"]
+            mmds.get_value("/phones/0/".to_string(), OutputFormat::Imds)
+                .unwrap(),
+            "+401234567"
+        );
+
+        // Retrieve a boolean.
+        assert_eq!(
+            mmds.get_value("/member".to_string(), OutputFormat::Json)
+                .unwrap(),
+            "false"
+        );
+        assert_eq!(
+            mmds.get_value("/member".to_string(), OutputFormat::Imds)
+                .err()
+                .unwrap(),
+            Error::UnsupportedValueType
+        );
+
+        // Retrieve a float.
+        assert_eq!(
+            mmds.get_value("/shares_percentage".to_string(), OutputFormat::Json)
+                .unwrap(),
+            "12.12"
+        );
+        assert_eq!(
+            mmds.get_value("/shares_percentage".to_string(), OutputFormat::Imds)
+                .err()
+                .unwrap(),
+            Error::UnsupportedValueType
+        );
+
+        // Retrieve a negative integer.
+        assert_eq!(
+            mmds.get_value("/balance".to_string(), OutputFormat::Json)
+                .unwrap(),
+            "-24"
+        );
+        assert_eq!(
+            mmds.get_value("/balance".to_string(), OutputFormat::Imds)
+                .err()
+                .unwrap(),
+            Error::UnsupportedValueType
         );
     }
 
@@ -288,22 +376,16 @@ mod tests {
             "age": 43
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
-        assert_eq!(
-            mmds.put_data(data_store).unwrap_err().to_string(),
-            "Cannot add non-strings values to the MMDS data-store.".to_string()
-        );
+        assert!(mmds.put_data(data_store).is_ok());
 
         let data = r#"{
             "name": {
                 "first": "John",
-                "second": true
+                "second": null
             },
             "age": "43"
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
-        assert_eq!(
-            mmds.patch_data(data_store),
-            Err(Error::UnsupportedValueType)
-        );
+        assert!(mmds.patch_data(data_store).is_ok());
     }
 }
