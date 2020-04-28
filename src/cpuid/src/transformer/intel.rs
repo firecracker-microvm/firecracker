@@ -153,7 +153,7 @@ impl CpuidTransformer for IntelCpuidTransformer {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_CORE;
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_INVALID;
