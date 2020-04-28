@@ -203,7 +203,6 @@ pub mod leaf_0xa {
 pub mod leaf_0xb {
     pub const LEAF_NUM: u32 = 0xb;
 
-    pub const LEVEL_TYPE_INVALID: u32 = 0;
     pub const LEVEL_TYPE_THREAD: u32 = 1;
     pub const LEVEL_TYPE_CORE: u32 = 2;
 
