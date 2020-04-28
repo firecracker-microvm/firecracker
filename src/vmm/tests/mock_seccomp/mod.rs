@@ -65,9 +65,6 @@ const TUNSETIFF: u64 = 0x4004_54ca;
 const TUNSETOFFLOAD: u64 = 0x4004_54d0;
 const TUNSETVNETHDRSZ: u64 = 0x4004_54d8;
 
-// This gets incremented in the signal handler.
-pub static mut SIGSYS_RECEIVED: bool = false;
-
 pub struct MockSeccomp {
     rules: BTreeMap<i64, Vec<SeccompRule>>,
     default_action: SeccompAction,
@@ -207,7 +204,7 @@ impl MockSeccomp {
             ]
             .into_iter()
             .collect(),
-            default_action: SeccompAction::Trap,
+            default_action: SeccompAction::Kill,
         }
     }
 
@@ -309,20 +306,5 @@ impl Into<BpfProgram> for MockSeccomp {
         let flt = SeccompFilter::new(self.rules, self.default_action).unwrap();
         let bpf_prog: BpfProgram = flt.try_into().unwrap();
         bpf_prog
-    }
-}
-
-pub extern "C" fn mock_sigsys_handler(
-    _num: libc::c_int,
-    info: *mut libc::siginfo_t,
-    _unused: *mut libc::c_void,
-) {
-    // Safe because we're just reading some fields from a supposedly valid argument.
-    let si_signo = unsafe { (*info).si_signo };
-    let si_code = unsafe { (*info).si_code };
-    if si_signo == libc::SIGSYS && si_code == 1 {
-        unsafe {
-            SIGSYS_RECEIVED = true;
-        }
     }
 }
