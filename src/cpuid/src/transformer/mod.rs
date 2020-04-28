@@ -88,7 +88,7 @@ pub trait CpuidTransformer {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use kvm_bindings::kvm_cpuid_entry2;
 

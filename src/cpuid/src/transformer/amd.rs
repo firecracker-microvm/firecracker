@@ -151,7 +151,7 @@ impl CpuidTransformer for AmdCpuidTransformer {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]
