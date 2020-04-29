@@ -4,8 +4,8 @@ version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 
 [dependencies]
-kvm-bindings = { version = ">=0.2", features = ["fam-wrappers"] }
-kvm-ioctls = ">=0.4"
+kvm-bindings = { git = "https://github.com/firecracker-microvm/kvm-bindings", tag = "v0.2.0-1", features = ["fam-wrappers"] }
+kvm-ioctls = { git = "https://github.com/firecracker-microvm/kvm-ioctls", tag = "v0.5.0-1" }
 libc = ">=0.2.39"
 serde = ">=1.0.27"
 serde_derive = ">=1.0.27"
