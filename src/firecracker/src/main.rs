@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 extern crate api_server;
-extern crate backtrace;
 extern crate libc;
 #[macro_use]
 extern crate logger;
@@ -15,8 +14,6 @@ extern crate vmm;
 
 mod api_server_adapter;
 mod metrics;
-
-use backtrace::Backtrace;
 
 use std::fs;
 use std::io;
@@ -73,8 +70,6 @@ fn main() {
         }
 
         METRICS.vmm.panic_count.inc();
-        let bt = Backtrace::new();
-        error!("{:?}", bt);
 
         // Write the metrics before aborting.
         if let Err(e) = METRICS.write() {
