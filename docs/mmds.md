@@ -86,6 +86,37 @@ ip route add 169.254.169.200 dev eth0
 If MMDS configuration is not provided before booting up the guest, the MMDS
 IPv4 address defaults to `169.254.169.254`.
 
+# MMDS requests 
+
+Guests workloads that request metadata from MMDS  can choose to receive the response in IMDS or JSON format.
+IMDS documentation can be found [here](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html).
+
+Request example to retrieve IMDS format response:
+```bash
+curl -s "http://169.254.169.200/latest/meta-data/network/interfaces/macs/02:29:96:8f:6a:2d"
+```
+
+IMDS output:
+```text
+device-number
+local-hostname
+subnet-id
+```
+
+Request example to retrieve JSON format response:
+```bash
+curl -s -H "Accept: application/json" "http://169.254.169.200/latest/meta-data/network/interfaces/macs/02:29:96:8f:6a:2d"
+```
+
+JSON output:
+```text
+{
+    "device-number": "13345342",
+    "local-hostname": "localhost",
+    "subnet-id": "subnet-be9b61d"
+}
+```
+
 ### Example use case: credential rotation
 
 For this example, the guest expects to find some sort of credentials (say, a

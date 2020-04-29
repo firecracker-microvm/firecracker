@@ -16,6 +16,7 @@ use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::Serial;
 use devices::virtio::{MmioTransport, Vsock, VsockUnixBackend};
+
 use polly::event_manager::{Error as EventManagerError, EventManager};
 use seccomp::BpfProgramRef;
 use utils::eventfd::EventFd;

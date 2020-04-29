@@ -12,14 +12,23 @@ pub mod data_store;
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
-use data_store::{Error as MmdsError, Mmds};
-use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
+use data_store::{Error as MmdsError, Mmds, OutputFormat};
+use micro_http::{Body, MediaType, Request, RequestError, Response, StatusCode, Version};
 
 lazy_static! {
     // A static reference to a global Mmds instance. We currently use this for ease of access during
     // prototyping. We'll consider something like passing Arc<Mutex<Mmds>> references to the
     // appropriate threads in the future.
     pub static ref MMDS: Arc<Mutex<Mmds>> = Arc::new(Mutex::new(Mmds::default()));
+}
+
+impl Into<OutputFormat> for MediaType {
+    fn into(self) -> OutputFormat {
+        match self {
+            MediaType::ApplicationJson => OutputFormat::Json,
+            MediaType::PlainText => OutputFormat::Imds,
+        }
+    }
 }
 
 /// Patch provided JSON document (given as `serde_json::Value`) in-place with JSON Merge Patch
@@ -74,39 +83,30 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
             let response = MMDS
                 .lock()
                 .expect("Failed to build MMDS response due to poisoned lock")
-                .get_value(uri.to_string());
+                .get_value(uri.to_string(), request.headers.accept().into());
+
             match response {
-                Ok(response) => {
-                    let response_body = response.join("\n");
-                    build_response(
-                        request.http_version(),
-                        StatusCode::OK,
-                        Body::new(response_body),
-                    )
-                }
-                Err(e) => {
-                    match e {
-                        MmdsError::NotFound => {
-                            // NotFound
-                            let error_msg = format!("Resource not found: {}.", uri);
-                            build_response(
-                                request.http_version(),
-                                StatusCode::NotFound,
-                                Body::new(error_msg),
-                            )
-                        }
-                        MmdsError::UnsupportedValueType => {
-                            // InternalServerError
-                            let error_msg =
-                                format!("The resource {} has an invalid format.", uri.to_string());
-                            build_response(
-                                request.http_version(),
-                                StatusCode::InternalServerError,
-                                Body::new(error_msg),
-                            )
-                        }
+                Ok(response_body) => build_response(
+                    request.http_version(),
+                    StatusCode::OK,
+                    Body::new(response_body),
+                ),
+                Err(e) => match e {
+                    MmdsError::NotFound => {
+                        let error_msg = format!("Resource not found: {}.", uri);
+                        build_response(
+                            request.http_version(),
+                            StatusCode::NotFound,
+                            Body::new(error_msg),
+                        )
                     }
-                }
+                    MmdsError::UnsupportedValueType => build_response(
+                        request.http_version(),
+                        StatusCode::NotImplemented,
+                        Body::new(e.to_string()),
+                    ),
+                    MmdsError::NotInitialized => unreachable!(),
+                },
             }
         }
         Err(e) => match e {
@@ -149,13 +149,13 @@ mod tests {
                 "first": "John",
                 "second": "Doe"
             },
-            "age": "43",
+            "age": 43,
             "phones": {
                 "home": {
-                    "RO": "+40 1234567",
-                    "UK": "+44 1234567"
+                    "RO": "+401234567",
+                    "UK": "+441234567"
                 },
-                "mobile": "+44 2345678"
+                "mobile": "+442345678"
             }
         }"#;
         MMDS.lock()
@@ -219,9 +219,25 @@ mod tests {
         assert!(expected_response.http_version() == actual_response.http_version());
 
         // Test Ok path.
-        let request = b"GET http://169.254.169.254/ HTTP/1.0\r\n\r\n";
+        let request = b"GET http://169.254.169.254/ HTTP/1.0\r\n\
+                                    Accept: application/json\r\n\r\n";
         let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
-        let body = "age\nname/\nphones/".to_string();
+        let mut body = r#"{
+                "age": 43,
+                "name": {
+                    "first": "John",
+                    "second": "Doe"
+                },
+                "phones": {
+                    "home": {
+                        "RO": "+401234567",
+                        "UK": "+441234567"
+                    },
+                    "mobile": "+442345678"
+                }
+        }"#
+        .to_string();
+        body.retain(|c| !c.is_whitespace());
         expected_response.set_body(Body::new(body));
         let actual_response = parse_request(request);
 
@@ -230,28 +246,14 @@ mod tests {
         assert!(expected_response.http_version() == actual_response.http_version());
 
         let request = b"GET /age HTTP/1.1\r\n\r\n";
-        let mut expected_response = Response::new(Version::Http11, StatusCode::OK);
-        let body = "43".to_string();
+        let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
+        let body = "Cannot retrieve value. The value has an unsupported type.".to_string();
         expected_response.set_body(Body::new(body));
         let actual_response = parse_request(request);
 
         assert!(expected_response.status() == actual_response.status());
         assert!(expected_response.body().unwrap() == actual_response.body().unwrap());
         assert!(expected_response.http_version() == actual_response.http_version());
-
-        let data = r#"{
-            "name": {
-                "first": "John",
-                "second": "Doe"
-            },
-            "age": 43
-        }"#;
-        assert_eq!(
-            MMDS.lock()
-                .unwrap()
-                .put_data(serde_json::from_str(data).unwrap()),
-            Err(MmdsError::UnsupportedValueType)
-        );
     }
 
     #[test]

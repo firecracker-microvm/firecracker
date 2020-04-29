@@ -296,9 +296,9 @@ mod tests {
     use resources::VmResources;
     use utils::tempfile::TempFile;
     use vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
-    use vmm_config::drive::{BlockBuilder, BlockDeviceConfig, DriveError};
+    use vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
-    use vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
+    use vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use vmm_config::vsock::tests::{default_config, TempSockFile};
     use vmm_config::RateLimiterConfig;
     use vstate::VcpuConfig;
@@ -648,6 +648,7 @@ mod tests {
         // Test all configuration, this time trying to configure the MMDS with an
         // empty body. It will make it access the code path in which it sets the
         // default MMDS configuration.
+        let kernel_file = TempFile::new().unwrap();
         json = format!(
             r#"{{
                     "boot-source": {{
@@ -665,7 +666,7 @@ mod tests {
                     "network-interfaces": [
                         {{
                             "iface_id": "netif",
-                            "host_dev_name": "hostname8",
+                            "host_dev_name": "hostname9",
                             "allow_mmds_requests": true
                         }}
                     ],
