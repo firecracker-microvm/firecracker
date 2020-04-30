@@ -44,6 +44,7 @@ def test_flush_metrics(test_microvm_with_api):
         'vmm',
         'uart',
         'signals',
+        'vsock'
     ]
 
     assert set(metrics.keys()) == set(exp_keys)

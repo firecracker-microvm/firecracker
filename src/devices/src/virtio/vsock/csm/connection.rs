@@ -83,6 +83,7 @@ use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
+use logger::{Metric, METRICS};
 use utils::epoll::EventSet;
 
 use super::super::defs::uapi;
@@ -153,6 +154,7 @@ where
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
         self.init_pkt(pkt);
+        METRICS.vsock.rx_packets_count.inc();
 
         // If forceful termination is pending, there's no point in checking for anything else.
         // It's dead, Jim.
@@ -226,6 +228,7 @@ where
                         // On a successful data read, we fill in the packet with the RW op, and
                         // length of the read data.
                         pkt.set_op(uapi::VSOCK_OP_RW).set_len(read_cnt as u32);
+                        METRICS.vsock.rx_bytes_count.add(read_cnt);
                     }
                     self.rx_cnt += Wrapping(pkt.len());
                     self.last_fwd_cnt_to_peer = self.fwd_cnt;
@@ -243,6 +246,7 @@ where
                 Err(err) => {
                     // We are not expecting any other errors when reading from the underlying
                     // stream. If any show up, we'll immediately kill this connection.
+                    METRICS.vsock.rx_read_fails.inc();
                     error!(
                         "vsock: error reading from backing stream: lp={}, pp={}, err={:?}",
                         self.local_port, self.peer_port, err
@@ -279,6 +283,7 @@ where
         // Update the peer credit information.
         self.peer_buf_alloc = pkt.buf_alloc();
         self.peer_fwd_cnt = Wrapping(pkt.fwd_cnt());
+        METRICS.vsock.tx_packets_count.inc();
 
         match self.state {
             // Most frequent case: this is an established connection that needs to forward some
@@ -441,6 +446,7 @@ where
             // Data can be written to the host stream. Time to flush out the TX buffer.
             //
             if self.tx_buf.is_empty() {
+                METRICS.vsock.conn_event_fails.inc();
                 info!("vsock: connection received unexpected EPOLLOUT event");
                 return;
             }
@@ -448,6 +454,7 @@ where
                 .tx_buf
                 .flush_to(&mut self.stream)
                 .unwrap_or_else(|err| {
+                    METRICS.vsock.tx_flush_fails.inc();
                     warn!(
                         "vsock: error flushing TX buf for (lp={}, pp={}): {:?}",
                         self.local_port, self.peer_port, err
@@ -462,6 +469,7 @@ where
                     0
                 });
             self.fwd_cnt += Wrapping(flushed as u32);
+            METRICS.vsock.tx_bytes_count.add(flushed as usize);
 
             // If this connection was shutting down, but is waiting to drain the TX buffer
             // before forceful termination, the wait might be over.
@@ -601,12 +609,14 @@ where
                 } else {
                     // We don't know how to handle any other write error, so we'll send it up
                     // the call chain.
+                    METRICS.vsock.tx_write_fails.inc();
                     return Err(Error::StreamWrite(e));
                 }
             }
         };
         // Move the "forwarded bytes" counter ahead by how much we were able to send out.
         self.fwd_cnt += Wrapping(written as u32);
+        METRICS.vsock.tx_bytes_count.add(written);
 
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
         // buffer.
