@@ -2,9 +2,9 @@ swagger: "2.0"
 info:
   title: Firecracker API
   description: RESTful public-facing API.
-               The API is accessible through HTTP calls on specific URLs
-               carrying JSON modeled data.
-               The transport medium is a Unix Domain Socket.
+    The API is accessible through HTTP calls on specific URLs
+    carrying JSON modeled data.
+    The transport medium is a Unix Domain Socket.
   version: 0.21.0
   termsOfService: ""
   contact:
@@ -43,11 +43,11 @@ paths:
       summary: Creates a synchronous action.
       operationId: createSyncAction
       parameters:
-      - name: info
-        in: body
-        required: true
-        schema:
-          $ref: "#/definitions/InstanceActionInfo"
+        - name: info
+          in: body
+          required: true
+          schema:
+            $ref: "#/definitions/InstanceActionInfo"
       responses:
         204:
           description: The update was successful
@@ -68,12 +68,12 @@ paths:
         Will fail if update is not possible.
       operationId: putGuestBootSource
       parameters:
-      - name: body
-        in: body
-        description: Guest boot source properties
-        required: true
-        schema:
-          $ref: "#/definitions/BootSource"
+        - name: body
+          in: body
+          description: Guest boot source properties
+          required: true
+          schema:
+            $ref: "#/definitions/BootSource"
       responses:
         204:
           description: Boot source created/updated
@@ -95,17 +95,17 @@ paths:
         Will fail if update is not possible.
       operationId: putGuestDriveByID
       parameters:
-      - name: drive_id
-        in: path
-        description: The id of the guest drive
-        required: true
-        type: string
-      - name: body
-        in: body
-        description: Guest drive properties
-        required: true
-        schema:
-          $ref: "#/definitions/Drive"
+        - name: drive_id
+          in: path
+          description: The id of the guest drive
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Guest drive properties
+          required: true
+          schema:
+            $ref: "#/definitions/Drive"
       responses:
         204:
           description: Drive created/updated
@@ -124,17 +124,17 @@ paths:
         Will fail if update is not possible.
       operationId: patchGuestDriveByID
       parameters:
-      - name: drive_id
-        in: path
-        description: The id of the guest drive
-        required: true
-        type: string
-      - name: body
-        in: body
-        description: Guest drive properties
-        required: true
-        schema:
-          $ref: "#/definitions/PartialDrive"
+        - name: drive_id
+          in: path
+          description: The id of the guest drive
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Guest drive properties
+          required: true
+          schema:
+            $ref: "#/definitions/PartialDrive"
       responses:
         204:
           description: Drive updated
@@ -148,27 +148,27 @@ paths:
             $ref: "#/definitions/Error"
 
   /logger:
-      put:
-        summary: Initializes the logger by specifying a named pipe or a file for the logs output.
-        operationId: putLogger
-        parameters:
+    put:
+      summary: Initializes the logger by specifying a named pipe or a file for the logs output.
+      operationId: putLogger
+      parameters:
         - name: body
           in: body
           description: Logging system description
           required: true
           schema:
             $ref: "#/definitions/Logger"
-        responses:
-          204:
-            description: Logger created.
-          400:
-            description: Logger cannot be initialized due to bad input.
-            schema:
-              $ref: "#/definitions/Error"
-          default:
-            description: Internal server error.
-            schema:
-              $ref: "#/definitions/Error"
+      responses:
+        204:
+          description: Logger created.
+        400:
+          description: Logger cannot be initialized due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
 
   /machine-config:
     get:
@@ -198,11 +198,11 @@ paths:
         If any of the parameters has an incorrect value, the whole update fails.
       operationId: putMachineConfiguration
       parameters:
-      - name: body
-        in: body
-        description: Machine Configuration Parameters
-        schema:
-          $ref: "#/definitions/MachineConfiguration"
+        - name: body
+          in: body
+          description: Machine Configuration Parameters
+          schema:
+            $ref: "#/definitions/MachineConfiguration"
       responses:
         204:
           description: Machine Configuration created/updated
@@ -222,11 +222,11 @@ paths:
         If any of the parameters has an incorrect value, the whole update fails.
       operationId: patchMachineConfiguration
       parameters:
-      - name: body
-        in: body
-        description: A subset of Machine Configuration Parameters
-        schema:
-          $ref: "#/definitions/MachineConfiguration"
+        - name: body
+          in: body
+          description: A subset of Machine Configuration Parameters
+          schema:
+            $ref: "#/definitions/MachineConfiguration"
       responses:
         204:
           description: Machine Configuration created/updated
@@ -308,8 +308,8 @@ paths:
           description: The MMDS data store JSON.
           schema:
             type: object
-        400:
-          description: Cannot get the MMDS data store due to bad input.
+        404:
+          description: The MMDS data store content can not be found.
           schema:
             $ref: "#/definitions/Error"
         default:
@@ -328,7 +328,7 @@ paths:
           description: The MMDS configuration as JSON.
           required: true
           schema:
-            type: "#/definitions/MmdsConfig"
+            $ref: "#/definitions/MmdsConfig"
       responses:
         204:
           description: MMDS configuration was created/updated.
@@ -348,17 +348,17 @@ paths:
         Creates new network interface with ID specified by iface_id path parameter.
       operationId: putGuestNetworkInterfaceByID
       parameters:
-      - name: iface_id
-        in: path
-        description: The id of the guest network interface
-        required: true
-        type: string
-      - name: body
-        in: body
-        description: Guest network interface properties
-        required: true
-        schema:
-          $ref: "#/definitions/NetworkInterface"
+        - name: iface_id
+          in: path
+          description: The id of the guest network interface
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Guest network interface properties
+          required: true
+          schema:
+            $ref: "#/definitions/NetworkInterface"
       responses:
         204:
           description: Network interface created/updated
@@ -408,12 +408,12 @@ paths:
         May fail if update is not possible.
       operationId: putGuestVsock
       parameters:
-      - name: body
-        in: body
-        description: Guest vsock properties
-        required: true
-        schema:
-          $ref: "#/definitions/Vsock"
+        - name: body
+          in: body
+          description: Guest vsock properties
+          required: true
+          schema:
+            $ref: "#/definitions/Vsock"
       responses:
         204:
           description: Vsock created/updated
@@ -498,9 +498,9 @@ definitions:
         description: Enumeration indicating what type of action is contained in the payload
         type: string
         enum:
-        - FlushMetrics
-        - InstanceStart
-        - SendCtrlAltDel
+          - FlushMetrics
+          - InstanceStart
+          - SendCtrlAltDel
 
   InstanceInfo:
     type: object
@@ -596,6 +596,9 @@ definitions:
     properties:
       ipv4_address:
         type: string
+        format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
+        default: "169.254.169.254"
+        description: A valid IPv4 link-local address.
 
   NetworkInterface:
     type: object
