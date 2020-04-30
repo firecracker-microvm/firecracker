@@ -524,6 +524,51 @@ pub struct SignalMetrics {
     pub sigsegv: SharedMetric,
 }
 
+/// Vsock-related metrics.
+#[derive(Default, Serialize)]
+pub struct VsockDeviceMetrics {
+    /// Number of times when activate failed on a vsock device.
+    pub activate_fails: SharedMetric,
+    /// Number of times when interacting with the space config of a vsock device failed.
+    pub cfg_fails: SharedMetric,
+    /// Number of times when handling RX queue events on a vsock device failed.
+    pub rx_queue_event_fails: SharedMetric,
+    /// Number of times when handling TX queue events on a vsock device failed.
+    pub tx_queue_event_fails: SharedMetric,
+    /// Number of times when handling event queue events on a vsock device failed.
+    pub ev_queue_event_fails: SharedMetric,
+    /// Number of times when handling muxer events on a vsock device failed.
+    pub muxer_event_fails: SharedMetric,
+    /// Number of times when handling connection events on a vsock device failed.
+    pub conn_event_fails: SharedMetric,
+    /// Number of events associated with the receiving queue.
+    pub rx_queue_event_count: SharedMetric,
+    /// Number of events associated with the transmitting queue.
+    pub tx_queue_event_count: SharedMetric,
+    /// Number of bytes received.
+    pub rx_bytes_count: SharedMetric,
+    /// Number of transmitted bytes.
+    pub tx_bytes_count: SharedMetric,
+    /// Number of packets received.
+    pub rx_packets_count: SharedMetric,
+    /// Number of transmitted packets.
+    pub tx_packets_count: SharedMetric,
+    /// Number of added connections.
+    pub conns_added: SharedMetric,
+    /// Number of killed connections.
+    pub conns_killed: SharedMetric,
+    /// Number of removed connections.
+    pub conns_removed: SharedMetric,
+    /// How many times the killq has been resynced.
+    pub killq_resync: SharedMetric,
+    /// How many flush fails have been seen.
+    pub tx_flush_fails: SharedMetric,
+    /// How many write fails have been seen.
+    pub tx_write_fails: SharedMetric,
+    /// Number of times read() has failed.
+    pub rx_read_fails: SharedMetric,
+}
+
 // The sole purpose of this struct is to produce an UTC timestamp when an instance is serialized.
 #[derive(Default)]
 struct SerializeToUtcTimestampMs;
@@ -570,6 +615,8 @@ pub struct FirecrackerMetrics {
     pub uart: SerialDeviceMetrics,
     /// Metrics related to signals.
     pub signals: SignalMetrics,
+    /// Metrics related to virtio-vsockets.
+    pub vsock: VsockDeviceMetrics,
 }
 
 #[cfg(test)]

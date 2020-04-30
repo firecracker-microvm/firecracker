@@ -16,8 +16,10 @@
   `MMDS` with a custom valid link-local IPv4 address.
 - Added experimental JSON response format support for MMDS guest applications
   requests.
-   
+- Added metrics for the vsock device. 
+
 ### Fixed
+
 - Added `--version` flag to both Firecracker and Jailer.
 - Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS
   requests originating from guest.

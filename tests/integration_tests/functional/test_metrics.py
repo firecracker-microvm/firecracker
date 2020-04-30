@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the metrics system."""
 
+import json
 import os
 import host_tools.logging as log_tools
 
@@ -22,6 +23,31 @@ def test_flush_metrics(test_microvm_with_api):
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     microvm.start()
+
+    res = metrics_fifo.sequential_reader(1)
+    metrics = json.loads(res[0])
+
+    exp_keys = [
+        'utc_timestamp_ms',
+        'api_server',
+        'block',
+        'get_api_requests',
+        'i8042',
+        'logger',
+        'mmds',
+        'net',
+        'patch_api_requests',
+        'put_api_requests',
+        'rtc',
+        'seccomp',
+        'vcpu',
+        'vmm',
+        'uart',
+        'signals',
+        'vsock'
+    ]
+
+    assert set(metrics.keys()) == set(exp_keys)
 
     # Empty fifo before triggering `FlushMetrics` so that we get accurate data.
     _ = metrics_fifo.sequential_reader(100)
