@@ -272,7 +272,7 @@ The request was successfully processed and a response was successfully formed.
 
 *400* - `Bad Request`
 
-The request was malformed or it is not respecting the MMDS contract.
+The request was malformed.
 
 *404* - `Not Found`
 
@@ -285,7 +285,8 @@ header was formed.
 
 *501* - `Not Implemented`
 
-The requested HTTP functionality is not supported by MMDS.
+The requested HTTP functionality is not supported by MMDS or the requested
+resource is not supported in IMDS format.
 
 # Appendix
 
