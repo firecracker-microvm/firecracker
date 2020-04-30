@@ -23,6 +23,7 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use logger::{Metric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;
@@ -255,15 +256,19 @@ where
             4 if data.len() == 4 => {
                 byte_order::write_le_u32(data, ((self.cid() >> 32) & 0xffff_ffff) as u32)
             }
-            _ => warn!(
-                "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
-                data.len(),
-                offset
-            ),
+            _ => {
+                METRICS.vsock.cfg_fails.inc();
+                warn!(
+                    "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
+                    data.len(),
+                    offset
+                )
+            }
         }
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
+        METRICS.vsock.cfg_fails.inc();
         warn!(
             "vsock: guest driver attempted to write device config (offset={:x}, len={:x})",
             offset,
@@ -273,6 +278,7 @@ where
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
         if self.queues.len() != defs::NUM_QUEUES {
+            METRICS.vsock.activate_fails.inc();
             error!(
                 "Cannot perform activate. Expected {} queue(s), got {}",
                 defs::NUM_QUEUES,
@@ -282,6 +288,7 @@ where
         }
 
         if self.activate_evt.write(1).is_err() {
+            METRICS.vsock.activate_fails.inc();
             error!("Cannot write to activate_evt",);
             return Err(ActivateError::BadActivate);
         }

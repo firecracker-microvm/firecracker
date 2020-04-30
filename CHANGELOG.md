@@ -24,6 +24,7 @@
 - Added a new API call, `PUT /snapshot/create`, for creating a full or diff
   snapshot.
 - Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
+- Added metrics for the vsock device.
 
 ### Fixed
 - Added `--version` flag to both Firecracker and Jailer.

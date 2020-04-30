@@ -24,6 +24,7 @@
 ///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX buffers.
 use std::os::unix::io::AsRawFd;
 
+use logger::{Metric, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
 use utils::epoll::{EpollEvent, EventSet};
 
@@ -41,14 +42,17 @@ where
         let event_set = event.event_set();
         if event_set != EventSet::IN {
             warn!("vsock: rxq unexpected event {:?}", event_set);
+            METRICS.vsock.rx_queue_event_fails.inc();
             return false;
         }
 
         let mut raise_irq = false;
         if let Err(e) = self.queue_events[RXQ_INDEX].read() {
             error!("Failed to get vsock rx queue event: {:?}", e);
+            METRICS.vsock.rx_queue_event_fails.inc();
         } else if self.backend.has_pending_rx() {
             raise_irq |= self.process_rx();
+            METRICS.vsock.rx_queue_event_count.inc();
         }
         raise_irq
     }
@@ -59,14 +63,17 @@ where
         let event_set = event.event_set();
         if event_set != EventSet::IN {
             warn!("vsock: txq unexpected event {:?}", event_set);
+            METRICS.vsock.tx_queue_event_fails.inc();
             return false;
         }
 
         let mut raise_irq = false;
         if let Err(e) = self.queue_events[TXQ_INDEX].read() {
             error!("Failed to get vsock tx queue event: {:?}", e);
+            METRICS.vsock.tx_queue_event_fails.inc();
         } else {
             raise_irq |= self.process_tx();
+            METRICS.vsock.tx_queue_event_count.inc();
             // The backend may have queued up responses to the packets we sent during
             // TX queue processing. If that happened, we need to fetch those responses
             // and place them into RX buffers.
@@ -83,11 +90,13 @@ where
         let event_set = event.event_set();
         if event_set != EventSet::IN {
             warn!("vsock: evq unexpected event {:?}", event_set);
+            METRICS.vsock.ev_queue_event_fails.inc();
             return false;
         }
 
         if let Err(e) = self.queue_events[EVQ_INDEX].read() {
             error!("Failed to consume vsock evq event: {:?}", e);
+            METRICS.vsock.ev_queue_event_fails.inc();
         }
         false
     }
