@@ -774,6 +774,8 @@ dependencies = [
  "serde_json 1.0.48 (registry+https://github.com/rust-lang/crates.io-index)",
  "snapshot 0.1.0",
  "utils 0.1.0",
+ "versionize 0.1.0 (git+https://github.com/firecracker-microvm/versionize?tag=v0.1.0)",
+ "versionize_derive 0.1.0 (git+https://github.com/firecracker-microvm/versionize_derive?tag=v0.1.0)",
  "vm-memory 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm-sys-util 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

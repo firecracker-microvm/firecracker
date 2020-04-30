@@ -38,6 +38,8 @@ use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
 };
@@ -557,6 +559,7 @@ impl Vm {
 
 #[allow(unused)]
 #[cfg(target_arch = "x86_64")]
+#[derive(Versionize)]
 /// Structure holding VM kvm state.
 pub struct VmState {
     pitstate: kvm_pit_state2,
@@ -1241,6 +1244,7 @@ impl Drop for Vcpu {
 }
 
 #[cfg(target_arch = "x86_64")]
+#[derive(Versionize)]
 /// Structure holding VCPU kvm state.
 pub struct VcpuState {
     cpuid: CpuId,
