@@ -10,6 +10,3 @@ libc = ">=0.2.39"
 vmm-sys-util = ">=0.2.1"
 
 net_gen = { path = "../net_gen" }
-
-[dev-dependencies]
-dumbo = { path = "../dumbo" }
