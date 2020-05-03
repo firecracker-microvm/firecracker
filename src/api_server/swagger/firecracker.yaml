@@ -328,7 +328,7 @@ paths:
           description: The MMDS configuration as JSON.
           required: true
           schema:
-            type: "#/definitions/MmdsConfig"
+            $ref: "#/definitions/MmdsConfig"
       responses:
         204:
           description: MMDS configuration was created/updated.
