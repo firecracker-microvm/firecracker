@@ -63,7 +63,7 @@ fn test_hardcoded_snapshot_deserialization() {
         #[cfg(target_arch = "x86_64")]
         0x86,
         0x84, 0x19, 0x10, 0x07,
-        // target version (2 bytes), 
+        // target version (2 bytes) +
         0x01, 0x00,
         // `a` field +
         0x10, 0x00, 0x00, 0x00,
@@ -84,7 +84,7 @@ fn test_hardcoded_snapshot_deserialization() {
         0x64,
         #[cfg(target_arch = "x86_64")]
         0x86, 0x84, 0x19, 0x10, 0x07,
-        // Version 2
+        // Version 2 +
         0x02, 0x00,
         // `a` field +
         0x10, 0x00, 0x00, 0x00,

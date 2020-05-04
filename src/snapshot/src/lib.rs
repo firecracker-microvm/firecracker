@@ -23,8 +23,8 @@
 //!  - **the format version** which refers to the SnapshotHdr, CRC, or the
 //! representation of primitives types (currently we use serde bincode as a backend). The current
 //! implementation does not have any logic dependent on it.
+//!  - **the data version** which refers to the state.
 //!
-
 extern crate bincode;
 extern crate serde;
 extern crate serde_derive;
@@ -506,13 +506,13 @@ mod tests {
         snapshot_mem[20] = 123;
 
         #[cfg(target_arch = "aarch64")]
-        let expected_err = Error::Crc64(0x4050_C04F_509F_77E9);
+        let expected_err = Error::Crc64(0x1960_4E6A_A13F_6615);
         #[cfg(target_arch = "x86_64")]
         let expected_err = Error::Crc64(0x103F_8F52_8F51_20B1);
 
-        let result: Result<Test1, Error> =
+        let load_result: Result<Test1, Error> =
             Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone());
-        assert_eq!(result.unwrap_err(), expected_err);
+        assert_eq!(load_result.unwrap_err(), expected_err);
     }
 
     #[allow(non_upper_case_globals)]
