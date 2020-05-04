@@ -63,18 +63,8 @@ fn test_hardcoded_snapshot_deserialization() {
         #[cfg(target_arch = "x86_64")]
         0x86,
         0x84, 0x19, 0x10, 0x07,
-        // target version (2 bytes), sections count (2 bytes) +
-        0x01, 0x00, 0x02, 0x00,
-        // first section: slice len of name section (8 bytes) + name ("enum" -> 4 bytes) +
-        0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x65, 0x6E, 0x75, 0x6D,
-        // section len (only 4 bytes since the first enum variant doesn't have fields) +
-        0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // number of enum variant (4 bytes) +
-        0x00, 0x00, 0x00, 0x00,
-        // second section: slice len of name section (8 bytes) + name ("struct" -> 6 bytes) +
-        0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x73, 0x74, 0x72, 0x75, 0x63, 0x74,
-        // section len (13 bytes) +
-        0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        // target version (2 bytes), 
+        0x01, 0x00,
         // `a` field +
         0x10, 0x00, 0x00, 0x00,
         // `b` field: Option variant type (1 byte) + inner enum variant type (4 bytes)
@@ -94,18 +84,8 @@ fn test_hardcoded_snapshot_deserialization() {
         0x64,
         #[cfg(target_arch = "x86_64")]
         0x86, 0x84, 0x19, 0x10, 0x07,
-        // Version 2 + 2 sections +
-        0x02, 0x00, 0x02, 0x00,
-        // first section: slice len of name section (8 bytes) + name ("enum" -> 4 bytes) +
-        0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x65, 0x6E, 0x75, 0x6D,
-        // section len (8 bytes this time since the second enum variant has also a 4 bytes field) +
-        0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        // number of enum variant (4 bytes) + value of that variant (4 bytes) +
-        0x01, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
-        // second section: slice len of name section (8 bytes) + name ("struct" -> 6 bytes) +
-        0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x73, 0x74, 0x72, 0x75, 0x63, 0x74,
-        // section len (18 bytes)
-        0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        // Version 2
+        0x02, 0x00,
         // `a` field +
         0x10, 0x00, 0x00, 0x00,
         // `c` field: String len (8 bytes) + actual String; the Option field is not available at v2.
@@ -119,33 +99,25 @@ fn test_hardcoded_snapshot_deserialization() {
 
     let mut snapshot_blob = v1_hardcoded_snapshot;
 
-    let mut snapshot = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
-    let mut restored_struct = snapshot.read_section::<A>("struct").unwrap();
-    let mut restored_enum = snapshot.read_section::<TestState>("enum").unwrap();
+    let mut restored_struct: A = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
 
     let mut expected_struct = A {
         a: 16u32,
         b: Some(TestState::One(2)),
         c: "some_string".to_owned(),
     };
-    let mut expected_enum = TestState::Zero;
 
     assert_eq!(restored_struct, expected_struct);
-    assert_eq!(restored_enum, expected_enum);
 
     snapshot_blob = v2_hardcoded_snapshot;
 
-    snapshot = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
-    restored_struct = snapshot.read_section::<A>("struct").unwrap();
-    restored_enum = snapshot.read_section::<TestState>("enum").unwrap();
+    restored_struct = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
 
     expected_struct = A {
         a: 16u32,
         b: None,
         c: "random".to_owned(),
     };
-    expected_enum = TestState::One(16);
 
     assert_eq!(restored_struct, expected_struct);
-    assert_eq!(restored_enum, expected_enum);
 }

@@ -6,31 +6,23 @@
 //! implements a persistent storage format for Firecracker state snapshots.
 //!
 //! The `Snapshot` API manages serialization and deserialization of collections of objects
-//! that implement the `Versionize` trait. Each object is stored in a separate section
-//! that can be saved/loaded independently:
+//! that implement the `Versionize` trait.
 //!
 //!  |----------------------------|
 //!  |       64 bit magic_id      |
 //!  |----------------------------|
 //!  |         SnapshotHdr        |
 //!  |----------------------------|
-//!  |         Section  #1        |
-//!  |----------------------------|
-//!  |         Section  #2        |
-//!  |----------------------------|
-//!  |         Section  #3        |
-//!  |----------------------------|
-//!  |          ..........        |
+//!  |          State             |
 //!  |----------------------------|
 //!  |        optional CRC64      |
 //!  |----------------------------|
 //!
 //! Each structure, union or enum is versioned separately and only needs to increment their version
 //! if a field is added or removed. For each state snapshot we define 2 versions:
-//!  - **the format version** which refers to the SnapshotHdr, Section headers, CRC, or the
+//!  - **the format version** which refers to the SnapshotHdr, CRC, or the
 //! representation of primitives types (currently we use serde bincode as a backend). The current
 //! implementation does not have any logic dependent on it.
-//!  - **the data version** which refers to the state stored in all of the snapshot sections.
 //!
 
 extern crate bincode;
@@ -42,14 +34,11 @@ extern crate versionize_derive;
 mod persist;
 pub use persist::Persist;
 
-use std::collections::hash_map::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use versionize::crc::{CRC64Reader, CRC64Writer};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
-// 128k max section size.
-const SNAPSHOT_MAX_SECTION_SIZE: usize = 0x20000;
 const SNAPSHOT_FORMAT_VERSION: u16 = 1;
 const BASE_MAGIC_ID_MASK: u64 = !0xFFFFu64;
 
@@ -70,16 +59,12 @@ pub enum Error {
     Crc64(u64),
     /// Magic value does not match arch.
     InvalidMagic(u64),
-    /// Section does not exist.
-    SectionNotFound,
 }
 
 #[derive(Default, Debug, Versionize)]
 struct SnapshotHdr {
     /// Snapshot data version (firecracker version).
     data_version: u16,
-    /// Number of sections
-    section_count: u16,
 }
 
 /// The `Snapshot` API manages serialization and deserialization of collections of objects
@@ -89,15 +74,8 @@ pub struct Snapshot {
     hdr: SnapshotHdr,
     format_version: u16,
     version_map: VersionMap,
-    sections: HashMap<String, Section>,
     // Required for serialization.
     target_version: u16,
-}
-
-#[derive(Default, Debug, Versionize)]
-struct Section {
-    name: String,
-    data: Vec<u8>,
 }
 
 // Parse a magic_id and return the format version.
@@ -120,15 +98,15 @@ impl Snapshot {
             version_map,
             hdr: SnapshotHdr::default(),
             format_version: SNAPSHOT_FORMAT_VERSION,
-            sections: HashMap::new(),
             target_version,
         }
     }
 
     /// Attempts to load an existing snapshot.
-    pub fn load<T>(mut reader: &mut T, version_map: VersionMap) -> Result<Snapshot, Error>
+    pub fn load<T, O>(mut reader: &mut T, version_map: VersionMap) -> Result<O, Error>
     where
         T: Read,
+        O: Versionize,
     {
         let format_version_map = Self::format_version_map();
         let magic_id =
@@ -139,34 +117,21 @@ impl Snapshot {
         let hdr: SnapshotHdr =
             SnapshotHdr::deserialize(&mut reader, &format_version_map, format_version)
                 .map_err(Error::Versionize)?;
-        let mut sections = HashMap::new();
 
-        for _ in 0..hdr.section_count {
-            let section = Section::deserialize(&mut reader, &format_version_map, format_version)
-                .map_err(Error::Versionize)?;
-            sections.insert(section.name.clone(), section);
-        }
-
-        Ok(Snapshot {
-            version_map,
-            hdr,
-            format_version,
-            sections,
-            // Not used when loading a snapshot.
-            target_version: 0,
-        })
+        Ok(O::deserialize(&mut reader, &version_map, hdr.data_version)
+            .map_err(Error::Versionize)?)
     }
 
     /// Attempts to load an existing snapshot and validate CRC.
-    pub fn load_with_crc64<T>(reader: &mut T, version_map: VersionMap) -> Result<Snapshot, Error>
+    pub fn load_with_crc64<T, O>(reader: &mut T, version_map: VersionMap) -> Result<O, Error>
     where
         T: Read,
+        O: Versionize,
     {
         let mut crc_reader = CRC64Reader::new(reader);
         let format_vm = Self::format_version_map();
+        let object: O = Snapshot::load(&mut crc_reader, version_map)?;
 
-        // Read entire buffer in memory.
-        let snapshot = Snapshot::load(&mut crc_reader, version_map)?;
         // Since the reader updates the checksum as bytes ar being read from it, the order of these 2 statements is
         // important, we first get the checksum computed on the read bytes then read the stored checksum.
         let computed_checksum = crc_reader.checksum();
@@ -177,16 +142,17 @@ impl Snapshot {
             return Err(Error::Crc64(computed_checksum));
         }
 
-        Ok(snapshot)
+        Ok(object)
     }
 
     /// Saves a snapshot and include a CRC64 checksum.
-    pub fn save_with_crc64<T>(&mut self, writer: &mut T) -> Result<(), Error>
+    pub fn save_with_crc64<T, O>(&mut self, writer: &mut T, object: &O) -> Result<(), Error>
     where
-        T: std::io::Write,
+        T: Write,
+        O: Versionize,
     {
         let mut crc_writer = CRC64Writer::new(writer);
-        self.save(&mut crc_writer)?;
+        self.save(&mut crc_writer, object)?;
 
         let checksum = crc_writer.checksum();
         checksum
@@ -196,13 +162,13 @@ impl Snapshot {
     }
 
     /// Save a snapshot.
-    pub fn save<T>(&mut self, mut writer: &mut T) -> Result<(), Error>
+    pub fn save<T, O>(&mut self, mut writer: &mut T, object: &O) -> Result<(), Error>
     where
-        T: std::io::Write,
+        T: Write,
+        O: Versionize,
     {
         self.hdr = SnapshotHdr {
             data_version: self.target_version,
-            section_count: self.sections.len() as u16,
         };
 
         let format_version_map = Self::format_version_map();
@@ -212,6 +178,7 @@ impl Snapshot {
         magic_id
             .serialize(&mut writer, &format_version_map, 0 /* unused */)
             .map_err(Error::Versionize)?;
+
         // Serialize header using the format version map.
         self.hdr
             .serialize(
@@ -221,62 +188,13 @@ impl Snapshot {
             )
             .map_err(Error::Versionize)?;
 
-        // Serialize all the sections.
-        for section in self.sections.values() {
-            // The sections are already serialized.
-            section
-                .serialize(
-                    &mut writer,
-                    &format_version_map,
-                    format_version_map.latest_version(),
-                )
-                .map_err(Error::Versionize)?;
-        }
-
+        // Serialize the object using the state version map.
+        object
+            .serialize(&mut writer, &self.version_map, self.target_version)
+            .map_err(Error::Versionize)?;
         writer
             .flush()
-            .map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(0)))?;
-
-        Ok(())
-    }
-
-    /// Attempts to find and reads a section (deserialize/translate) from a snapshot.
-    pub fn read_section<T>(&mut self, name: &str) -> Result<T, Error>
-    where
-        T: Versionize,
-    {
-        if let Some(section) = self.sections.get_mut(name) {
-            Ok(T::deserialize(
-                &mut section.data.as_mut_slice().as_ref(),
-                &self.version_map,
-                self.hdr.data_version,
-            )
-            .map_err(Error::Versionize)?)
-        } else {
-            Err(Error::SectionNotFound)
-        }
-    }
-
-    /// Write a section (serialize/translate) to a snapshot.
-    pub fn write_section<T>(&mut self, name: &str, object: &T) -> Result<usize, Error>
-    where
-        T: Versionize,
-    {
-        let mut new_section = Section {
-            name: name.to_owned(),
-            data: vec![0; SNAPSHOT_MAX_SECTION_SIZE],
-        };
-
-        let slice = &mut new_section.data.as_mut_slice();
-        object
-            .serialize(slice, &self.version_map, self.target_version)
-            .map_err(Error::Versionize)?;
-        // Resize vec to serialized section len.
-        let serialized_len =
-            slice.as_ptr() as usize - new_section.data.as_slice().as_ptr() as usize;
-        new_section.data.truncate(serialized_len);
-        self.sections.insert(name.to_owned(), new_section);
-        Ok(serialized_len)
+            .map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(0)))
     }
 
     // Returns the current snapshot format version.
@@ -394,60 +312,6 @@ mod tests {
     }
 
     #[test]
-    fn test_section_ops() {
-        let vm = VersionMap::new();
-        let state = Test {
-            field0: 0,
-            field1: 1,
-            field2: 2,
-            field3: "test".to_owned(),
-            field4: vec![4, 3, 2, 1],
-            field_x: 0,
-        };
-
-        let mut snapshot_mem = vec![0u8; 1024];
-
-        // Serialize as v1.
-        let mut snapshot = Snapshot::new(vm.clone(), 1);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-
-        let mut sections = &mut snapshot.sections;
-        assert_eq!(sections.len(), 1);
-
-        let section = sections.get_mut("test").unwrap();
-        assert_eq!(section.name, "test");
-        // Data should contain field_x (8 bytes), field0 (8 bytes) and field1 (4 bytes) in this order.
-        // field_x == 1 because of the semantic serializer fn for field3, the semantic serializer fn
-        // for field4 will set field0 to field4.iter().sum() = 10 and field1 == 1 (the original value).
-        assert_eq!(
-            section.data,
-            [1, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
-        );
-
-        let state_1 = Test1 {
-            field_x: 0,
-            field0: 0,
-            field1: 1,
-        };
-
-        snapshot.write_section("test1", &state_1).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
-        sections = &mut snapshot.sections;
-        assert_eq!(sections.len(), 2);
-
-        // Trying to read a section with an invalid name should fail.
-        assert_eq!(
-            snapshot.read_section::<Test>("test2").unwrap_err(),
-            Error::SectionNotFound
-        );
-
-        // Validate that the 2 inserted objects can be deserialized.
-        assert!(snapshot.read_section::<Test>("test").is_ok());
-        assert!(snapshot.read_section::<Test1>("test1").is_ok());
-    }
-
-    #[test]
     fn test_struct_semantic_fn() {
         let mut vm = VersionMap::new();
         vm.new_version()
@@ -469,11 +333,12 @@ mod tests {
 
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot
+            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .unwrap();
 
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let mut restored_state: Test = snapshot.read_section::<Test>("test").unwrap();
+        let mut restored_state: Test =
+            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
 
         // The semantic serializer fn for field4 will set field0 to field4.iter().sum() == 10.
         assert_eq!(restored_state.field0, state.field4.iter().sum::<u64>());
@@ -488,11 +353,11 @@ mod tests {
 
         // Serialize as v3.
         let mut snapshot = Snapshot::new(vm.clone(), 3);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot
+            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .unwrap();
 
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        restored_state = snapshot.read_section::<Test>("test").unwrap();
+        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
 
         // We expect only the semantic serializer and deserializer for field4 to be called at version 3.
         // The semantic serializer will set field0 to field4.iter().sum() == 10.
@@ -504,11 +369,11 @@ mod tests {
 
         // Serialize as v4.
         snapshot = Snapshot::new(vm.clone(), 4);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot
+            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .unwrap();
 
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        restored_state = snapshot.read_section::<Test>("test").unwrap();
+        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
 
         // The 4 semantic fns must not be called at version 4.
         assert_eq!(restored_state.field0, 0);
@@ -518,10 +383,11 @@ mod tests {
         // Load operation should fail if we don't use the whole `snapshot_mem` resulted from
         // serialization.
         snapshot_mem.truncate(10);
-        let snapshot_load_error =
-            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err();
+        let restored_state_result: Result<Test, Error> =
+            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone());
+
         assert_eq!(
-            snapshot_load_error,
+            restored_state_result.unwrap_err(),
             Error::Versionize(versionize::VersionizeError::Deserialize(
                 "Io(Custom { kind: UnexpectedEof, error: \"failed to fill whole buffer\" })"
                     .to_owned()
@@ -557,44 +423,45 @@ mod tests {
 
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
-        snapshot.write_section("test", &state_1).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot
+            .save(&mut snapshot_mem.as_mut_slice(), &state_1)
+            .unwrap();
 
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let mut restored_state: Test = snapshot.read_section::<Test>("test").unwrap();
+        let mut restored_state: Test =
+            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
         assert_eq!(restored_state.field1, state_1.field1);
         assert_eq!(restored_state.field2, 20);
         assert_eq!(restored_state.field3, "default");
 
         // Serialize as v2.
         snapshot = Snapshot::new(vm.clone(), 2);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot
+            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .unwrap();
 
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        restored_state = snapshot.read_section::<Test>("test").unwrap();
+        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
         assert_eq!(restored_state.field1, state.field1);
         assert_eq!(restored_state.field2, 2);
         assert_eq!(restored_state.field3, "default");
 
         // Serialize as v3.
         snapshot = Snapshot::new(vm.clone(), 3);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot
+            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .unwrap();
 
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        restored_state = snapshot.read_section::<Test>("test").unwrap();
+        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
         assert_eq!(restored_state.field1, state.field1);
         assert_eq!(restored_state.field2, 2);
         assert_eq!(restored_state.field3, "test");
 
         // Serialize as v4.
         snapshot = Snapshot::new(vm.clone(), 4);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot
+            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .unwrap();
 
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        restored_state = snapshot.read_section::<Test>("test").unwrap();
+        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
         assert_eq!(restored_state.field1, state.field1);
         assert_eq!(restored_state.field2, 2);
         assert_eq!(restored_state.field3, "test");
@@ -613,12 +480,11 @@ mod tests {
 
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
-        // The section will successfully be serialized.
-        snapshot.write_section("test", &state_1).unwrap();
         snapshot
-            .save_with_crc64(&mut snapshot_mem.as_mut_slice())
+            .save_with_crc64(&mut snapshot_mem.as_mut_slice(), &state_1)
             .unwrap();
-        Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+
+        let _: Test1 = Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
     }
 
     #[test]
@@ -634,22 +500,19 @@ mod tests {
 
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
-        // The section will successfully be serialized.
-        snapshot.write_section("test", &state_1).unwrap();
         snapshot
-            .save_with_crc64(&mut snapshot_mem.as_mut_slice())
+            .save_with_crc64(&mut snapshot_mem.as_mut_slice(), &state_1)
             .unwrap();
         snapshot_mem[20] = 123;
 
         #[cfg(target_arch = "aarch64")]
         let expected_err = Error::Crc64(0x4050_C04F_509F_77E9);
         #[cfg(target_arch = "x86_64")]
-        let expected_err = Error::Crc64(0x0A81_2693_BB8F_B0F1);
+        let expected_err = Error::Crc64(0x103F_8F52_8F51_20B1);
 
-        assert_eq!(
-            Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone()).unwrap_err(),
-            expected_err
-        );
+        let result: Result<Test1, Error> =
+            Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone());
+        assert_eq!(result.unwrap_err(), expected_err);
     }
 
     #[allow(non_upper_case_globals)]
@@ -673,11 +536,12 @@ mod tests {
         let mut snapshot_mem = vec![0u8; 1024];
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
-        snapshot.write_section("test", &state).unwrap();
-        snapshot.save(&mut snapshot_mem.as_mut_slice()).unwrap();
+        snapshot
+            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .unwrap();
 
-        snapshot = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
-        let restored_state = snapshot.read_section::<kvm_pit_config>("test").unwrap();
+        let restored_state: kvm_pit_config =
+            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
         assert_eq!(restored_state, state);
     }
 }
