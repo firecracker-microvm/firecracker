@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 use std::result;
@@ -78,16 +78,52 @@ impl<'a> ArgParser<'a> {
     pub fn formatted_help(&self) -> String {
         let mut help_builder = vec![];
 
-        for arg in self.arguments.args.values() {
-            help_builder.push(format!("{}\n", arg.format_help()));
+        let required_arguments = self.format_arguments(true);
+        if !required_arguments.is_empty() {
+            help_builder.push("required arguments:".to_string());
+            help_builder.push(required_arguments);
         }
 
-        help_builder.concat()
+        let optional_arguments = self.format_arguments(false);
+        if !optional_arguments.is_empty() {
+            // Add line break if `required_arguments` is pushed.
+            if !help_builder.is_empty() {
+                help_builder.push("".to_string());
+            }
+
+            help_builder.push("optional arguments:".to_string());
+            help_builder.push(optional_arguments);
+        }
+
+        help_builder.join("\n")
     }
 
     /// Return a reference to `arguments` field.
     pub fn arguments(&self) -> &Arguments {
         &self.arguments
+    }
+
+    // Filter arguments by whether or not it is required.
+    // Align arguments by setting width to length of the longest argument.
+    fn format_arguments(&self, is_required: bool) -> String {
+        let filtered_arguments = self
+            .arguments
+            .args
+            .values()
+            .filter(|arg| is_required == arg.required)
+            .collect::<Vec<_>>();
+
+        let max_arg_width = filtered_arguments
+            .iter()
+            .map(|arg| arg.format_name().len())
+            .max()
+            .unwrap_or(0);
+
+        filtered_arguments
+            .into_iter()
+            .map(|arg| arg.format_help(max_arg_width))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -150,19 +186,35 @@ impl<'a> Argument<'a> {
         self
     }
 
-    fn format_help(&self) -> String {
+    fn format_help(&self, arg_width: usize) -> String {
         let mut help_builder = vec![];
 
-        help_builder.push(format!("--{}", self.name));
+        let arg = self.format_name();
+        help_builder.push(format!("{:<arg_width$}", arg, arg_width = arg_width));
 
-        if self.takes_value {
-            help_builder.push(format!(" <{}>", self.name));
-        }
+        // Add three whitespaces between the argument and its help message for readability.
+        help_builder.push("   ".to_string());
 
-        if let Some(help) = self.help {
-            help_builder.push(format!(": {}", help));
-        }
+        match (self.help, &self.default_value) {
+            (Some(help), Some(default_value)) => {
+                help_builder.push(format!("{} [default: {}]", help, default_value))
+            }
+            (Some(help), None) => help_builder.push(help.to_string()),
+            (None, Some(default_value)) => {
+                help_builder.push(format!("[default: {}]", default_value))
+            }
+            (None, None) => (),
+        };
+
         help_builder.concat()
+    }
+
+    fn format_name(&self) -> String {
+        if self.takes_value {
+            format!("  --{name} <{name}>", name = self.name)
+        } else {
+            format!("  --{}", self.name)
+        }
     }
 }
 
@@ -190,11 +242,20 @@ impl Value {
     }
 }
 
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::String(s) => write!(f, "\"{}\"", s),
+        }
+    }
+}
+
 /// Stores the arguments of the parser.
 #[derive(Clone, Default)]
 pub struct Arguments<'a> {
-    // A Hash Map in which the key is an argument and the value is its associated `Argument`.
-    args: HashMap<&'a str, Argument<'a>>,
+    // A BTreeMap in which the key is an argument and the value is its associated `Argument`.
+    args: BTreeMap<&'a str, Argument<'a>>,
     // The arguments specified after `--` (i.e. end of command options).
     extra_args: Vec<String>,
 }
@@ -406,46 +467,112 @@ mod tests {
     #[test]
     fn test_arg_help() {
         // Checks help format for an argument.
-        let mut argument = Argument::new("exec-file").required(true).takes_value(true);
+        let width = 32;
+        let short_width = 16;
 
-        assert_eq!(argument.format_help(), "--exec-file <exec-file>");
+        let mut argument = Argument::new("exec-file").takes_value(false);
+
+        assert_eq!(
+            argument.format_help(width),
+            "  --exec-file                      "
+        );
+        assert_eq!(argument.format_help(short_width), "  --exec-file      ");
+
+        argument = Argument::new("exec-file").takes_value(true);
+
+        assert_eq!(
+            argument.format_help(width),
+            "  --exec-file <exec-file>          "
+        );
+        assert_eq!(
+            argument.format_help(short_width),
+            "  --exec-file <exec-file>   "
+        );
 
         argument = Argument::new("exec-file")
-            .required(true)
             .takes_value(true)
             .help("'exec-file' info.");
 
         assert_eq!(
-            argument.format_help(),
-            "--exec-file <exec-file>: 'exec-file' info."
+            argument.format_help(width),
+            "  --exec-file <exec-file>          'exec-file' info."
+        );
+        assert_eq!(
+            argument.format_help(short_width),
+            "  --exec-file <exec-file>   'exec-file' info."
         );
 
-        argument = Argument::new("no-api")
-            .requires("config-file")
-            .takes_value(false);
+        argument = Argument::new("exec-file")
+            .takes_value(true)
+            .default_value("./exec-file");
 
-        assert_eq!(argument.format_help(), "--no-api");
+        assert_eq!(
+            argument.format_help(width),
+            "  --exec-file <exec-file>          [default: \"./exec-file\"]"
+        );
+        assert_eq!(
+            argument.format_help(short_width),
+            "  --exec-file <exec-file>   [default: \"./exec-file\"]"
+        );
 
-        argument = Argument::new("no-api")
-            .requires("config-file")
-            .takes_value(false)
-            .help("'no-api' info.");
+        argument = Argument::new("exec-file")
+            .takes_value(true)
+            .default_value("./exec-file")
+            .help("'exec-file' info.");
 
-        assert_eq!(argument.format_help(), "--no-api: 'no-api' info.");
+        assert_eq!(
+            argument.format_help(width),
+            "  --exec-file <exec-file>          'exec-file' info. [default: \"./exec-file\"]"
+        );
+        assert_eq!(
+            argument.format_help(short_width),
+            "  --exec-file <exec-file>   'exec-file' info. [default: \"./exec-file\"]"
+        );
     }
 
     #[test]
     fn test_arg_parser_help() {
         // Checks help information when user passes `--help` flag.
-        let arg_parser = ArgParser::new().arg(
-            Argument::new("exec-file")
-                .required(true)
-                .takes_value(true)
-                .help("'exec-file' info."),
-        );
+        let mut arg_parser = ArgParser::new()
+            .arg(
+                Argument::new("exec-file")
+                    .required(true)
+                    .takes_value(true)
+                    .help("'exec-file' info."),
+            )
+            .arg(
+                Argument::new("api-sock")
+                    .takes_value(true)
+                    .help("'api-sock' info."),
+            );
+
         assert_eq!(
             arg_parser.formatted_help(),
-            "--exec-file <exec-file>: 'exec-file' info.\n"
+            "required arguments:\n  \
+             --exec-file <exec-file>   'exec-file' info.\n\n\
+             optional arguments:\n  \
+             --api-sock <api-sock>   'api-sock' info."
+        );
+
+        arg_parser = ArgParser::new()
+            .arg(Argument::new("id").takes_value(true).help("'id' info."))
+            .arg(
+                Argument::new("seccomp-level")
+                    .takes_value(true)
+                    .help("'seccomp-level' info."),
+            )
+            .arg(
+                Argument::new("config-file")
+                    .takes_value(true)
+                    .help("'config-file' info."),
+            );
+
+        assert_eq!(
+            arg_parser.formatted_help(),
+            "optional arguments:\n  \
+             --config-file <config-file>       'config-file' info.\n  \
+             --id <id>                         'id' info.\n  \
+             --seccomp-level <seccomp-level>   'seccomp-level' info."
         );
     }
 
@@ -717,5 +844,11 @@ mod tests {
             format!("{}", Error::DuplicateArgument("foo".to_string())),
             "The argument 'foo' was provided more than once."
         );
+    }
+
+    #[test]
+    fn test_value_display() {
+        assert_eq!(format!("{}", Value::Bool(true)), "true");
+        assert_eq!(format!("{}", Value::String("foo".to_string())), "\"foo\"");
     }
 }
