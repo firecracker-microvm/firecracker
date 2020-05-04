@@ -99,7 +99,7 @@ pub struct Net {
     interrupt_evt: EventFd,
 
     pub(crate) config_space: ConfigSpace,
-    guest_mac: Option<MacAddr>,
+    pub(crate) guest_mac: Option<MacAddr>,
 
     pub(crate) device_state: DeviceState,
     pub(crate) activate_evt: EventFd,
@@ -148,8 +148,6 @@ impl Net {
             avail_features |= 1 << VIRTIO_NET_F_MAC;
         }
 
-        let guest_mac = guest_mac.copied();
-
         let mut queue_evts = Vec::new();
         for _ in QUEUE_SIZES.iter() {
             queue_evts.push(EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?);
@@ -183,8 +181,8 @@ impl Net {
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
             config_space,
-            guest_mac,
             mmds_ns,
+            guest_mac: guest_mac.copied(),
 
             #[cfg(test)]
             test_mutators: tests::TestMutators::default(),
@@ -732,6 +730,10 @@ impl VirtioDevice for Net {
         }
         let (_, right) = config_space_bytes.split_at_mut(offset as usize);
         right.copy_from_slice(&data[..]);
+
+        self.guest_mac = Some(MacAddr::from_bytes_unchecked(
+            &self.config_space.guest_mac[..MAC_ADDR_LEN],
+        ));
     }
 
     fn is_activated(&self) -> bool {
@@ -973,6 +975,10 @@ pub(crate) mod tests {
         let mut new_config_read = [0u8; 6];
         net.read_config(0, &mut new_config_read);
         assert_eq!(new_config, new_config_read);
+
+        // Check that the guest MAC was updated.
+        let expected_guest_mac = MacAddr::from_bytes_unchecked(&new_config);
+        assert_eq!(expected_guest_mac, net.guest_mac.unwrap());
 
         // Invalid write.
         net.write_config(5, &new_config);
