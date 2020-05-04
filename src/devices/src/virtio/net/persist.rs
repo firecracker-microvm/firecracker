@@ -7,7 +7,7 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use dumbo::{ns::MmdsNetworkStack, persist::MmdsNetworkStackState, MAC_ADDR_LEN};
+use dumbo::{ns::MmdsNetworkStack, persist::MmdsNetworkStackState, MacAddr, MAC_ADDR_LEN};
 use rate_limiter::{persist::RateLimiterState, RateLimiter};
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -102,6 +102,10 @@ impl Persist for Net {
         net.config_space = ConfigSpace {
             guest_mac: state.config_space.guest_mac,
         };
+
+        net.guest_mac = Some(MacAddr::from_bytes_unchecked(
+            &state.config_space.guest_mac[..MAC_ADDR_LEN],
+        ));
 
         if state.virtio_state.activated {
             net.device_state = DeviceState::Activated(constructor_args.mem);
