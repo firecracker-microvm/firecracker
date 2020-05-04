@@ -22,9 +22,21 @@ const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
 const STDERR_FILENO: libc::c_int = 2;
 
+// Kernel-based virtual machine (hardware virtualization extensions)
+// minor/major numbers are taken from
+// https://www.kernel.org/doc/html/latest/admin-guide/devices.html
 const DEV_KVM_WITH_NUL: &[u8] = b"/dev/kvm\0";
+const DEV_KVM_MAJOR: u32 = 10;
+const DEV_KVM_MINOR: u32 = 232;
+
+// TUN/TAP device minor/major numbers are taken from
+// www.kernel.org/doc/Documentation/networking/tuntap.txt
 const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
+const DEV_NET_TUN_MAJOR: u32 = 10;
+const DEV_NET_TUN_MINOR: u32 = 200;
+
 const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
+
 // Relevant folders inside the jail that we create or/and for which we change ownership.
 // We need /dev in order to be able to create /dev/kvm and /dev/net/tun device.
 // We need /run for the default location of the api socket.
@@ -280,9 +292,9 @@ impl Env {
         // $: mknod $dev_net_tun_path c 10 200
         // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the major
         // and minor for the /dev/net/tun device.
-        self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, 10, 200)?;
+        self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR)?;
         // Do the same for /dev/kvm with (major, minor) = (10, 232).
-        self.mknod_and_own_dev(DEV_KVM_WITH_NUL, 10, 232)?;
+        self.mknod_and_own_dev(DEV_KVM_WITH_NUL, DEV_KVM_MAJOR, DEV_KVM_MINOR)?;
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(fd) = dev_null {
@@ -545,5 +557,58 @@ mod tests {
         // This crate produces a binary, so Rust integ tests aren't an option either.
         // And changing the umask in the Python integration tests is unsafe because of pytest's
         // process management; it can't be isolated from side effects.
+    }
+
+    fn skip_not_found(err: std::io::Error) -> std::io::Result<()> {
+        match err.kind() {
+            std::io::ErrorKind::NotFound => Ok(()),
+            _ => Err(err),
+        }
+    }
+
+    fn get_major(dev: u64) -> u32 {
+        unsafe { libc::major(dev) }
+    }
+
+    fn get_minor(dev: u64) -> u32 {
+        unsafe { libc::minor(dev) }
+    }
+
+    #[test]
+    fn test_mknod_and_own_dev() {
+        use std::os::unix::fs::FileTypeExt;
+
+        // Create a standard environment.
+        let arg_parser = build_arg_parser();
+        let mut args = arg_parser.arguments().clone();
+        args.parse(&make_args(&ArgVals::new())).unwrap();
+        let env = Env::new(&args, 0, 0).unwrap();
+
+        // Ensure path buffers without NULL-termination are handled well.
+        assert!(env.mknod_and_own_dev(b"/some/path", 0, 0).is_err());
+
+        // Ensure device nodes are created with correct major/minor numbers and permissions.
+        let dev_infos: Vec<(&[u8], u32, u32)> = vec![
+            (b"/dev/net/tun-test\0", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
+            (b"/dev/kvm-test\0", DEV_KVM_MAJOR, DEV_KVM_MINOR),
+        ];
+
+        for (dev, major, minor) in dev_infos {
+            let dev_str = CStr::from_bytes_with_nul(dev).unwrap().to_str().unwrap();
+
+            // Create a new device node (removing the old one if needed).
+            fs::remove_file(dev_str).or_else(skip_not_found).unwrap();
+            env.mknod_and_own_dev(dev, major, minor).unwrap();
+
+            // Ensure device's properties.
+            let metadata = fs::metadata(dev_str).unwrap();
+            assert_eq!(metadata.file_type().is_char_device(), true);
+            assert_eq!(get_major(metadata.st_rdev()), major);
+            assert_eq!(get_minor(metadata.st_rdev()), minor);
+            assert_eq!(
+                metadata.permissions().mode(),
+                libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR
+            );
+        }
     }
 }
