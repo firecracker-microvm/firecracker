@@ -30,6 +30,8 @@ extern crate dumbo;
 extern crate rate_limiter;
 extern crate seccomp;
 extern crate utils;
+extern crate versionize;
+extern crate versionize_derive;
 extern crate vm_memory;
 
 /// Handles setup and initialization a `Vmm` object.
