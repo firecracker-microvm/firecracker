@@ -88,14 +88,16 @@ impl Test {
 }
 
 #[inline]
-pub fn bench_restore_v1(mut snapshot_mem: &[u8], vm: VersionMap) {
-    let mut loaded_snapshot = Snapshot::load(&mut snapshot_mem, vm).unwrap();
-
-    loaded_snapshot.read_section::<Test>("test").unwrap();
+pub fn bench_restore_v1(mut snapshot_mem: &[u8], vm: VersionMap, crc: bool) {
+    if crc {
+        Snapshot::load_with_crc64::<&[u8], Test>(&mut snapshot_mem, vm).unwrap();
+    } else {
+        Snapshot::load::<&[u8], Test>(&mut snapshot_mem, vm).unwrap();
+    }
 }
 
 #[inline]
-pub fn bench_snapshot_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize {
+pub fn bench_snapshot_v1<W: std::io::Write>(mut snapshot_mem: &mut W, vm: VersionMap, crc: bool) {
     let state = Test {
         dummy: vec![
             Dummy {
@@ -112,42 +114,12 @@ pub fn bench_snapshot_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize {
         field_x: 0,
     };
 
-    // Serialize as v4.
     let mut snapshot = Snapshot::new(vm.clone(), 4);
-    let size = snapshot.write_section("test", &state).unwrap();
-    snapshot.save(&mut snapshot_mem).unwrap();
-    size
-}
-
-#[inline]
-pub fn bench_restore_crc_v1(mut snapshot_mem: &[u8], vm: VersionMap) {
-    let mut loaded_snapshot = Snapshot::load_with_crc64(&mut snapshot_mem, vm).unwrap();
-    loaded_snapshot.read_section::<Test>("test").unwrap();
-}
-
-#[inline]
-pub fn bench_snapshot_crc_v1(mut snapshot_mem: &mut [u8], vm: VersionMap) -> usize {
-    let state = Test {
-        dummy: vec![
-            Dummy {
-                dummy: 123,
-                string: "xxx".to_owned()
-            };
-            100
-        ],
-        field0: 0,
-        field1: 1,
-        field2: 2,
-        field3: "test".to_owned(),
-        field4: vec![4; 1024 * 10],
-        field_x: 0,
-    };
-
-    // Serialize as v4.
-    let mut snapshot = Snapshot::new(vm.clone(), 4);
-    let size = snapshot.write_section("test", &state).unwrap();
-    snapshot.save_with_crc64(&mut snapshot_mem).unwrap();
-    size
+    if crc {
+        snapshot.save_with_crc64(&mut snapshot_mem, &state).unwrap();
+    } else {
+        snapshot.save(&mut snapshot_mem, &state).unwrap();
+    }
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {
@@ -161,7 +133,10 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .new_version()
         .set_type_version(Test::type_id(), 4);
 
-    let mut snapshot_len = bench_snapshot_v1(&mut snapshot_mem.as_mut_slice(), vm.clone());
+    let mut slice = &mut snapshot_mem.as_mut_slice();
+    bench_snapshot_v1(&mut slice, vm.clone(), false);
+    let mut snapshot_len = slice.as_ptr() as usize - snapshot_mem.as_slice().as_ptr() as usize;
+
     println!("Snapshot len {}", snapshot_len);
 
     c.bench_function("Serialize to v4", |b| {
@@ -169,6 +144,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             bench_snapshot_v1(
                 black_box(&mut snapshot_mem.as_mut_slice()),
                 black_box(vm.clone()),
+                black_box(false),
             )
         })
     });
@@ -177,26 +153,31 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             bench_restore_v1(
                 black_box(&mut snapshot_mem.as_slice()),
                 black_box(vm.clone()),
+                black_box(false),
             )
         })
     });
 
-    snapshot_len = bench_snapshot_crc_v1(&mut snapshot_mem.as_mut_slice(), vm.clone());
+    let another_slice = &mut snapshot_mem.as_mut_slice();
+    bench_snapshot_v1(another_slice, vm.clone(), true);
+    snapshot_len = another_slice.as_ptr() as usize - snapshot_mem.as_slice().as_ptr() as usize;
     println!("Snapshot with crc64 len {}", snapshot_len);
 
     c.bench_function("Serialize with crc64 to v4", |b| {
         b.iter(|| {
-            bench_snapshot_crc_v1(
+            bench_snapshot_v1(
                 black_box(&mut snapshot_mem.as_mut_slice()),
                 black_box(vm.clone()),
+                black_box(true),
             )
         })
     });
     c.bench_function("Deserialize with crc64 from v4", |b| {
         b.iter(|| {
-            bench_restore_crc_v1(
+            bench_restore_v1(
                 black_box(&mut snapshot_mem.as_slice()),
                 black_box(vm.clone()),
+                black_box(true),
             )
         })
     });
