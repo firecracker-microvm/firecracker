@@ -70,6 +70,14 @@ const MMIO_LEN: u64 = 0x1000;
 /// to its configuration space.
 pub const MMIO_CFG_SPACE_OFF: u64 = 0x100;
 
+/// Stores the address range and irq allocated to this device.
+#[derive(Clone, Debug)]
+pub struct MMIODeviceInfo {
+    pub addr: u64,
+    pub irq: u32,
+    pub len: u64,
+}
+
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub bus: devices::Bus,
@@ -94,57 +102,65 @@ impl MMIODeviceManager {
         }
     }
 
-    /// Register an already created MMIO device to be used via MMIO transport.
-    pub fn register_mmio_device(
-        &mut self,
-        vm: &VmFd,
-        mmio_device: devices::virtio::MmioTransport,
-        device_id: String,
-    ) -> Result<(u64, u32)> {
+    /// Allocates resources for a new device to be added.
+    pub fn allocate_new_slot(&mut self) -> Result<MMIODeviceInfo> {
         if self.irq > self.last_irq {
             return Err(Error::IrqsExhausted);
         }
+        let slot = MMIODeviceInfo {
+            addr: self.mmio_base,
+            len: MMIO_LEN,
+            irq: self.irq,
+        };
+        self.mmio_base += MMIO_LEN;
+        self.irq += 1;
+        Ok(slot)
+    }
 
-        let type_id = {
+    fn register_mmio_device(
+        &mut self,
+        identifier: (DeviceType, String),
+        slot: MMIODeviceInfo,
+        device: Arc<Mutex<dyn BusDevice>>,
+    ) -> Result<()> {
+        self.bus
+            .insert(device, slot.addr, slot.len)
+            .map_err(Error::BusError)?;
+        self.id_to_dev_info.insert(identifier, slot);
+        Ok(())
+    }
+
+    /// Register an already created virtio-over-MMIO device to be used via MMIO transport.
+    pub fn register_virtio_mmio_device(
+        &mut self,
+        vm: &VmFd,
+        device_id: String,
+        mmio_device: devices::virtio::MmioTransport,
+        slot: &MMIODeviceInfo,
+    ) -> Result<()> {
+        let identifier;
+        {
             let locked_device = mmio_device.locked_device();
+            identifier = (DeviceType::Virtio(locked_device.device_type()), device_id);
             for (i, queue_evt) in locked_device.queue_events().iter().enumerate() {
-                let io_addr = IoEventAddress::Mmio(
-                    self.mmio_base + u64::from(devices::virtio::NOTIFY_REG_OFFSET),
-                );
-
+                let io_addr =
+                    IoEventAddress::Mmio(slot.addr + u64::from(devices::virtio::NOTIFY_REG_OFFSET));
                 vm.register_ioevent(queue_evt, &io_addr, i as u32)
                     .map_err(Error::RegisterIoEvent)?;
             }
-            vm.register_irqfd(locked_device.interrupt_evt(), self.irq)
+            vm.register_irqfd(locked_device.interrupt_evt(), slot.irq)
                 .map_err(Error::RegisterIrqFd)?;
-            locked_device.device_type()
-        };
+        }
 
-        self.bus
-            .insert(Arc::new(Mutex::new(mmio_device)), self.mmio_base, MMIO_LEN)
-            .map_err(Error::BusError)?;
-        let ret = (self.mmio_base, self.irq);
-        self.id_to_dev_info.insert(
-            (DeviceType::Virtio(type_id), device_id),
-            MMIODeviceInfo {
-                addr: self.mmio_base,
-                len: MMIO_LEN,
-                irq: self.irq,
-            },
-        );
-        self.mmio_base += MMIO_LEN;
-        self.irq += 1;
-
-        Ok(ret)
+        self.register_mmio_device(identifier, slot.clone(), Arc::new(Mutex::new(mmio_device)))
     }
 
-    /// Append a registered MMIO device to the kernel cmdline.
+    /// Append a registered virtio-over-MMIO device to the kernel cmdline.
     #[cfg(target_arch = "x86_64")]
-    pub fn add_device_to_cmdline(
+    pub fn add_virtio_device_to_cmdline(
         &mut self,
         cmdline: &mut kernel_cmdline::Cmdline,
-        mmio_base: u64,
-        irq: u32,
+        slot: &MMIODeviceInfo,
     ) -> Result<()> {
         // as per doc, [virtio_mmio.]device=<size>@<baseaddr>:<irq> needs to be appended
         // to kernel commandline for virtio mmio devices to get recognized
@@ -154,7 +170,7 @@ impl MMIODeviceManager {
         cmdline
             .insert(
                 "virtio_mmio.device",
-                &format!("{}K@0x{:08x}:{}", MMIO_LEN / 1024, mmio_base, irq),
+                &format!("{}K@0x{:08x}:{}", slot.len / 1024, slot.addr, slot.irq),
             )
             .map_err(Error::Cmdline)
     }
@@ -167,68 +183,30 @@ impl MMIODeviceManager {
         cmdline: &mut kernel_cmdline::Cmdline,
         serial: Arc<Mutex<devices::legacy::Serial>>,
     ) -> Result<()> {
-        if self.irq > self.last_irq {
-            return Err(Error::IrqsExhausted);
-        }
-
-        vm.register_irqfd(&serial.lock().unwrap().interrupt_evt(), self.irq)
+        let slot = self.allocate_new_slot()?;
+        vm.register_irqfd(&serial.lock().unwrap().interrupt_evt(), slot.irq)
             .map_err(Error::RegisterIrqFd)?;
 
-        self.bus
-            .insert(serial, self.mmio_base, MMIO_LEN)
-            .map_err(|err| Error::BusError(err))?;
-
         cmdline
-            .insert("earlycon", &format!("uart,mmio,0x{:08x}", self.mmio_base))
+            .insert("earlycon", &format!("uart,mmio,0x{:08x}", slot.addr))
             .map_err(Error::Cmdline)?;
 
-        let ret = self.mmio_base;
-        self.id_to_dev_info.insert(
-            (DeviceType::Serial, DeviceType::Serial.to_string()),
-            MMIODeviceInfo {
-                addr: ret,
-                len: MMIO_LEN,
-                irq: self.irq,
-            },
-        );
-
-        self.mmio_base += MMIO_LEN;
-        self.irq += 1;
-
-        Ok(())
+        let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
+        self.register_mmio_device(identifier, slot, serial)
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Register a MMIO RTC device.
-    pub fn register_mmio_rtc(&mut self, vm: &VmFd) -> Result<()> {
-        if self.irq > self.last_irq {
-            return Err(Error::IrqsExhausted);
-        }
-
-        // Attaching the RTC device.
+    /// Create and register a new MMIO RTC device.
+    pub fn register_new_mmio_rtc(&mut self, vm: &VmFd) -> Result<()> {
+        // Create and attach a new RTC device.
+        let slot = self.allocate_new_slot()?;
         let rtc_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let device = devices::legacy::RTC::new(rtc_evt.try_clone().map_err(Error::EventFd)?);
-        vm.register_irqfd(&rtc_evt, self.irq)
+        vm.register_irqfd(&rtc_evt, slot.irq)
             .map_err(Error::RegisterIrqFd)?;
 
-        self.bus
-            .insert(Arc::new(Mutex::new(device)), self.mmio_base, MMIO_LEN)
-            .map_err(|err| Error::BusError(err))?;
-
-        let ret = self.mmio_base;
-        self.id_to_dev_info.insert(
-            (DeviceType::RTC, "rtc".to_string()),
-            MMIODeviceInfo {
-                addr: ret,
-                len: MMIO_LEN,
-                irq: self.irq,
-            },
-        );
-
-        self.mmio_base += MMIO_LEN;
-        self.irq += 1;
-
-        Ok(())
+        let identifier = (DeviceType::RTC, DeviceType::RTC.to_string());
+        self.register_mmio_device(identifier, slot, Arc::new(Mutex::new(device)))
     }
 
     /// Gets the information of the devices registered up to some point in time.
@@ -252,14 +230,6 @@ impl MMIODeviceManager {
         }
         None
     }
-}
-
-/// Private structure for storing information about the MMIO device registered at some address on the bus.
-#[derive(Clone, Debug)]
-pub struct MMIODeviceInfo {
-    pub addr: u64,
-    pub irq: u32,
-    pub len: u64,
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -299,11 +269,11 @@ mod tests {
             device_id: &str,
         ) -> Result<u64> {
             let mmio_device = devices::virtio::MmioTransport::new(guest_mem, device);
-            let (mmio_base, _irq) =
-                self.register_mmio_device(vm, mmio_device, device_id.to_string())?;
+            let mmio_slot = self.allocate_new_slot()?;
+            self.register_virtio_mmio_device(vm, device_id.to_string(), mmio_device, &mmio_slot)?;
             #[cfg(target_arch = "x86_64")]
-            self.add_device_to_cmdline(_cmdline, mmio_base, _irq)?;
-            Ok(mmio_base)
+            self.add_virtio_device_to_cmdline(_cmdline, &mmio_slot)?;
+            Ok(mmio_slot.addr)
         }
     }
 
