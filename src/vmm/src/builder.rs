@@ -563,7 +563,7 @@ fn attach_legacy_devices(
     }
 
     mmio_device_manager
-        .register_mmio_rtc(vm.fd())
+        .register_new_mmio_rtc(vm.fd())
         .map_err(Error::RegisterMMIODevice)
         .map_err(StartMicrovmError::Internal)?;
 
@@ -634,12 +634,12 @@ fn attach_mmio_device(
     id: String,
     device: MmioTransport,
 ) -> std::result::Result<(), device_manager::mmio::Error> {
-    let (_mmio_base, _irq) =
-        vmm.mmio_device_manager
-            .register_mmio_device(vmm.vm.fd(), device, id)?;
+    let mmio_slot = vmm.mmio_device_manager.allocate_new_slot()?;
+    vmm.mmio_device_manager
+        .register_virtio_mmio_device(vmm.vm.fd(), id, device, &mmio_slot)?;
     #[cfg(target_arch = "x86_64")]
     vmm.mmio_device_manager
-        .add_device_to_cmdline(&mut vmm.kernel_cmdline, _mmio_base, _irq)?;
+        .add_virtio_device_to_cmdline(&mut vmm.kernel_cmdline, &mmio_slot)?;
 
     Ok(())
 }
