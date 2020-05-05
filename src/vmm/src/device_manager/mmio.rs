@@ -91,6 +91,9 @@ impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
     pub fn new(mmio_base: &mut u64, irq_interval: (u32, u32)) -> MMIODeviceManager {
         if cfg!(target_arch = "aarch64") {
+            // This hack is done to reserve the 'log boot time magic address'.
+            // TODO (issue #1865): we should create a simple mmio device for logging the boot time
+            // and use it on both x86_64 and aarch64, instead of this hacky thing we do right now.
             *mmio_base += MMIO_LEN;
         }
         MMIODeviceManager {
