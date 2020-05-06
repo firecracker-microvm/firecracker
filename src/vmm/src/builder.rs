@@ -284,17 +284,15 @@ pub fn build_microvm(
 
         // Safe to unwrap 'serial_device' as it's always 'Some' on x86_64.
         // x86_64 uses the i8042 reset event as the Vmm exit event.
-        let mut pio_device_manager = PortIODeviceManager::new(
+        create_pio_dev_manager_with_legacy_devs(
+            &vm,
             serial_device.unwrap(),
             exit_evt
                 .try_clone()
                 .map_err(Error::EventFd)
                 .map_err(StartMicrovmError::Internal)?,
         )
-        .map_err(Error::CreateLegacyDevice)
-        .map_err(StartMicrovmError::Internal)?;
-        attach_legacy_devices(&vm, &mut pio_device_manager)?;
-        pio_device_manager
+        .map_err(StartMicrovmError::Internal)?
     };
 
     // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
@@ -305,8 +303,8 @@ pub fn build_microvm(
     {
         vcpus = create_vcpus(&vm, vcpu_config.vcpu_count, request_ts, &exit_evt)
             .map_err(StartMicrovmError::Internal)?;
-
         setup_interrupt_controller(&mut vm, vcpu_config.vcpu_count)?;
+
         attach_legacy_devices(
             &vm,
             &mut mmio_device_manager,
@@ -505,32 +503,17 @@ pub fn setup_serial_device(
 }
 
 #[cfg(target_arch = "x86_64")]
-fn attach_legacy_devices(
+fn create_pio_dev_manager_with_legacy_devs(
     vm: &Vm,
-    pio_device_manager: &mut PortIODeviceManager,
-) -> std::result::Result<(), StartMicrovmError> {
-    pio_device_manager
-        .register_devices()
-        .map_err(Error::LegacyIOBus)
-        .map_err(StartMicrovmError::Internal)?;
-
-    macro_rules! register_irqfd_evt {
-        ($evt: ident, $index: expr) => {{
-            vm.fd()
-                .register_irqfd(&pio_device_manager.$evt, $index)
-                .map_err(|e| {
-                    Error::LegacyIOBus(device_manager::legacy::Error::EventFd(
-                        io::Error::from_raw_os_error(e.errno()),
-                    ))
-                })
-                .map_err(StartMicrovmError::Internal)?;
-        }};
-    }
-
-    register_irqfd_evt!(com_evt_1_3, 4);
-    register_irqfd_evt!(com_evt_2_4, 3);
-    register_irqfd_evt!(kbd_evt, 1);
-    Ok(())
+    serial: Arc<Mutex<devices::legacy::Serial>>,
+    i8042_reset_evfd: EventFd,
+) -> std::result::Result<PortIODeviceManager, super::Error> {
+    let mut pio_dev_mgr =
+        PortIODeviceManager::new(serial, i8042_reset_evfd).map_err(Error::CreateLegacyDevice)?;
+    pio_dev_mgr
+        .register_devices(vm.fd())
+        .map_err(Error::LegacyIOBus)?;
+    Ok(pio_dev_mgr)
 }
 
 #[cfg(target_arch = "aarch64")]
