@@ -10,6 +10,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use devices;
+use kvm_ioctls::VmFd;
 use utils::eventfd::EventFd;
 
 /// Errors corresponding to the `PortIODeviceManager`.
@@ -79,7 +80,7 @@ impl PortIODeviceManager {
     }
 
     /// Register supported legacy devices.
-    pub fn register_devices(&mut self) -> Result<()> {
+    pub fn register_devices(&mut self, vm_fd: &VmFd) -> Result<()> {
         self.io_bus
             .insert(self.stdio_serial.clone(), 0x3f8, 0x8)
             .map_err(Error::BusError)?;
@@ -113,6 +114,17 @@ impl PortIODeviceManager {
         self.io_bus
             .insert(self.i8042.clone(), 0x060, 0x5)
             .map_err(Error::BusError)?;
+
+        vm_fd
+            .register_irqfd(&self.com_evt_1_3, 4)
+            .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
+        vm_fd
+            .register_irqfd(&self.com_evt_2_4, 3)
+            .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
+        vm_fd
+            .register_irqfd(&self.kbd_evt, 1)
+            .map_err(|e| Error::EventFd(std::io::Error::from_raw_os_error(e.errno())))?;
+
         Ok(())
     }
 }
@@ -120,16 +132,20 @@ impl PortIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     #[test]
     fn test_register_legacy_devices() {
+        let guest_mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0x0), 0x1000)]).unwrap();
+        let mut vm = crate::builder::setup_kvm_vm(&guest_mem, false).unwrap();
+        crate::builder::setup_interrupt_controller(&mut vm).unwrap();
         let serial = devices::legacy::Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
-        let ldm = PortIODeviceManager::new(
+        let mut ldm = PortIODeviceManager::new(
             Arc::new(Mutex::new(serial)),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        );
-        assert!(ldm.is_ok());
-        assert!(&ldm.unwrap().register_devices().is_ok());
+        )
+        .unwrap();
+        assert!(ldm.register_devices(vm.fd()).is_ok());
     }
 
     #[test]
