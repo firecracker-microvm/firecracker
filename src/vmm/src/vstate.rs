@@ -795,14 +795,14 @@ impl Vcpu {
     }
 
     #[cfg(target_arch = "x86_64")]
-    /// Configures a x86_64 specific vcpu and should be called once per vcpu.
+    /// Configures a x86_64 specific vcpu for booting Linux and should be called once per vcpu.
     ///
     /// # Arguments
     ///
     /// * `machine_config` - The machine configuration of this microvm needed for the CPUID configuration.
     /// * `guest_mem` - The guest memory used by this microvm.
     /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
-    pub fn configure_x86_64(
+    pub fn configure_x86_64_for_boot(
         &mut self,
         guest_mem: &GuestMemoryMmap,
         kernel_start_addr: GuestAddress,
@@ -842,14 +842,14 @@ impl Vcpu {
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Configures an aarch64 specific vcpu.
+    /// Configures an aarch64 specific vcpu for booting Linux.
     ///
     /// # Arguments
     ///
     /// * `vm_fd` - The kvm `VmFd` for this microvm.
     /// * `guest_mem` - The guest memory used by this microvm.
     /// * `kernel_load_addr` - Offset from `guest_mem` at which the kernel is loaded.
-    pub fn configure_aarch64(
+    pub fn configure_aarch64_for_boot(
         &mut self,
         vm_fd: &VmFd,
         guest_mem: &GuestMemoryMmap,
@@ -1525,19 +1525,19 @@ pub(crate) mod tests {
         };
 
         assert!(vcpu
-            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64_for_boot(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
 
         // Test configure while using the T2 template.
         vcpu_config.cpu_template = Some(CpuFeaturesTemplate::T2);
         assert!(vcpu
-            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64_for_boot(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
 
         // Test configure while using the C3 template.
         vcpu_config.cpu_template = Some(CpuFeaturesTemplate::C3);
         assert!(vcpu
-            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64_for_boot(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
     }
 
@@ -1559,7 +1559,7 @@ pub(crate) mod tests {
         .unwrap();
 
         assert!(vcpu
-            .configure_aarch64(vm.fd(), &gm, GuestAddress(0))
+            .configure_aarch64_for_boot(vm.fd(), &gm, GuestAddress(0))
             .is_ok());
 
         // Try it for when vcpu id is NOT 0.
@@ -1572,7 +1572,7 @@ pub(crate) mod tests {
         .unwrap();
 
         assert!(vcpu
-            .configure_aarch64(vm.fd(), &gm, GuestAddress(0))
+            .configure_aarch64_for_boot(vm.fd(), &gm, GuestAddress(0))
             .is_ok());
     }
 
@@ -1741,7 +1741,7 @@ pub(crate) mod tests {
             ht_enabled: false,
             cpu_template: None,
         };
-        vcpu.configure_x86_64(&vm_mem, entry_addr, &vcpu_config)
+        vcpu.configure_x86_64_for_boot(&vm_mem, entry_addr, &vcpu_config)
             .expect("failed to configure vcpu");
 
         let seccomp_filter = seccomp::SeccompFilter::empty().try_into().unwrap();

@@ -59,7 +59,6 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use arch::DeviceType;
-use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
@@ -107,8 +106,6 @@ pub const FC_EXIT_CODE_ARG_PARSING: u8 = 153;
 /// have permissions to open the KVM fd).
 #[derive(Debug)]
 pub enum Error {
-    /// This error is thrown by the minimal boot loader implementation.
-    ConfigureSystem(arch::Error),
     /// Legacy devices work with Event file descriptors and the creation can fail because
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]
@@ -127,8 +124,6 @@ pub enum Error {
     #[cfg(target_arch = "x86_64")]
     /// Cannot add devices to the Legacy I/O Bus.
     LegacyIOBus(device_manager::legacy::Error),
-    /// Cannot load command line.
-    LoadCommandline(kernel::cmdline::Error),
     /// Internal logger error.
     Logger(LoggerError),
     /// Internal metrics system error.
@@ -166,7 +161,6 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
-            ConfigureSystem(e) => write!(f, "System configuration error: {:?}", e),
             #[cfg(target_arch = "x86_64")]
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
             EventFd(e) => write!(f, "Event fd error: {}", e),
@@ -176,7 +170,6 @@ impl Display for Error {
             KvmContext(e) => write!(f, "Failed to validate KVM support: {:?}", e),
             #[cfg(target_arch = "x86_64")]
             LegacyIOBus(e) => write!(f, "Cannot add devices to the legacy I/O Bus. {}", e),
-            LoadCommandline(e) => write!(f, "Cannot load command line: {}", e),
             Logger(e) => write!(f, "Logger error: {}", e),
             Metrics(e) => write!(f, "Metrics error: {}", e),
             RegisterMMIODevice(e) => write!(f, "Cannot add a device to the MMIO Bus. {}", e),
@@ -320,37 +313,6 @@ impl Vmm {
         }
         self.check_vcpus_response(VcpuResponse::Paused)
             .map_err(|_| Error::VcpuPause)
-    }
-
-    /// Configures the system for boot.
-    pub fn configure_system(&self, vcpus: &[Vcpu], initrd: &Option<InitrdConfig>) -> Result<()> {
-        #[cfg(target_arch = "x86_64")]
-        arch::x86_64::configure_system(
-            &self.guest_memory,
-            vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
-            self.kernel_cmdline.len() + 1,
-            initrd,
-            vcpus.len() as u8,
-        )
-        .map_err(Error::ConfigureSystem)?;
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            let vcpu_mpidr = vcpus.into_iter().map(|cpu| cpu.get_mpidr()).collect();
-            arch::aarch64::configure_system(
-                &self.guest_memory,
-                &self
-                    .kernel_cmdline
-                    .as_cstring()
-                    .map_err(Error::LoadCommandline)?,
-                vcpu_mpidr,
-                self.mmio_device_manager.get_device_info(),
-                self.vm.get_irqchip(),
-                initrd,
-            )
-            .map_err(Error::ConfigureSystem)?;
-        }
-        Ok(())
     }
 
     /// Returns a reference to the inner `GuestMemoryMmap` object if present, or `None` otherwise.

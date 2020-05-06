@@ -34,6 +34,8 @@ use {device_manager, VmmEventsObserver};
 pub enum StartMicrovmError {
     /// Unable to attach block device to Vmm.
     AttachBlockDevice(io::Error),
+    /// This error is thrown by the minimal boot loader implementation.
+    ConfigureSystem(arch::Error),
     /// Internal errors are due to resource exhaustion.
     CreateNetDevice(devices::virtio::net::Error),
     /// Failed to create a `RateLimiter` object.
@@ -83,18 +85,19 @@ impl std::convert::From<kernel::cmdline::Error> for StartMicrovmError {
 impl Display for StartMicrovmError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::StartMicrovmError::*;
-        match *self {
-            AttachBlockDevice(ref err) => {
+        match self {
+            AttachBlockDevice(err) => {
                 write!(f, "Unable to attach block device to Vmm. Error: {}", err)
             }
-            CreateRateLimiter(ref err) => write!(f, "Cannot create RateLimiter: {}", err),
-            CreateNetDevice(ref err) => {
+            ConfigureSystem(e) => write!(f, "System configuration error: {:?}", e),
+            CreateRateLimiter(err) => write!(f, "Cannot create RateLimiter: {}", err),
+            CreateNetDevice(err) => {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
 
                 write!(f, "Cannot create network device. {}", err_msg)
             }
-            GuestMemoryMmap(ref err) => {
+            GuestMemoryMmap(err) => {
                 // Remove imbricated quotes from error message.
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
@@ -104,10 +107,10 @@ impl Display for StartMicrovmError {
                 f,
                 "Cannot load initrd due to an invalid memory configuration."
             ),
-            InitrdRead(ref err) => write!(f, "Cannot load initrd due to an invalid image: {}", err),
-            Internal(ref err) => write!(f, "Internal error while starting microVM: {:?}", err),
-            KernelCmdline(ref err) => write!(f, "Invalid kernel command line: {}", err),
-            KernelLoader(ref err) => {
+            InitrdRead(err) => write!(f, "Cannot load initrd due to an invalid image: {}", err),
+            Internal(err) => write!(f, "Internal error while starting microVM: {:?}", err),
+            KernelCmdline(err) => write!(f, "Invalid kernel command line: {}", err),
+            KernelLoader(err) => {
                 let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
                 write!(
@@ -117,7 +120,7 @@ impl Display for StartMicrovmError {
                     err_msg
                 )
             }
-            LoadCommandline(ref err) => {
+            LoadCommandline(err) => {
                 let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
                 write!(f, "Cannot load command line string. {}", err_msg)
@@ -130,13 +133,13 @@ impl Display for StartMicrovmError {
             NetDeviceNotConfigured => {
                 write!(f, "The net device configuration is missing the tap device.")
             }
-            OpenBlockDevice(ref err) => {
+            OpenBlockDevice(err) => {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
 
                 write!(f, "Cannot open the block device backing file. {}", err_msg)
             }
-            RegisterBlockDevice(ref err) => {
+            RegisterBlockDevice(err) => {
                 let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
                 write!(
@@ -145,8 +148,8 @@ impl Display for StartMicrovmError {
                     err_msg
                 )
             }
-            RegisterEvent(ref err) => write!(f, "Cannot register EventHandler. {:?}", err),
-            RegisterNetDevice(ref err) => {
+            RegisterEvent(err) => write!(f, "Cannot register EventHandler. {:?}", err),
+            RegisterNetDevice(err) => {
                 let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
 
@@ -156,7 +159,7 @@ impl Display for StartMicrovmError {
                     err_msg
                 )
             }
-            RegisterVsockDevice(ref err) => {
+            RegisterVsockDevice(err) => {
                 let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
 
@@ -346,13 +349,7 @@ pub fn build_microvm(
     }
     attach_net_devices(&mut vmm, &vm_resources.net_builder, event_manager)?;
 
-    // Write the kernel command line to guest memory. This is x86_64 specific, since on
-    // aarch64 the command line will be specified through the FDT.
-    #[cfg(target_arch = "x86_64")]
-    load_cmdline(&vmm)?;
-
-    vmm.configure_system(vcpus.as_slice(), &initrd)
-        .map_err(StartMicrovmError::Internal)?;
+    configure_system_for_boot(&vmm, vcpus.as_slice(), &initrd)?;
     // Firecracker uses the same seccomp filter for all threads.
     vmm.start_vcpus(vcpus, seccomp_filter.to_vec(), seccomp_filter)
         .map_err(StartMicrovmError::Internal)?;
@@ -449,18 +446,6 @@ where
         address: GuestAddress(address),
         size,
     })
-}
-
-#[cfg(target_arch = "x86_64")]
-fn load_cmdline(vmm: &Vmm) -> std::result::Result<(), StartMicrovmError> {
-    kernel::loader::load_cmdline(
-        vmm.guest_memory(),
-        GuestAddress(arch::x86_64::layout::CMDLINE_START),
-        &vmm.kernel_cmdline
-            .as_cstring()
-            .map_err(StartMicrovmError::LoadCommandline)?,
-    )
-    .map_err(StartMicrovmError::LoadCommandline)
 }
 
 pub(crate) fn setup_kvm_vm(
@@ -593,7 +578,7 @@ fn create_vcpus_x86_64(
         )
         .map_err(Error::Vcpu)?;
 
-        vcpu.configure_x86_64(guest_mem, entry_addr, vcpu_config)
+        vcpu.configure_x86_64_for_boot(guest_mem, entry_addr, vcpu_config)
             .map_err(Error::Vcpu)?;
 
         vcpus.push(vcpu);
@@ -620,12 +605,57 @@ fn create_vcpus_aarch64(
         )
         .map_err(Error::Vcpu)?;
 
-        vcpu.configure_aarch64(vm.fd(), guest_mem, entry_addr)
+        vcpu.configure_aarch64_for_boot(vm.fd(), guest_mem, entry_addr)
             .map_err(Error::Vcpu)?;
 
         vcpus.push(vcpu);
     }
     Ok(vcpus)
+}
+
+/// Configures the system for booting Linux.
+pub fn configure_system_for_boot(
+    vmm: &Vmm,
+    vcpus: &[Vcpu],
+    initrd: &Option<InitrdConfig>,
+) -> std::result::Result<(), StartMicrovmError> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        // Write the kernel command line to guest memory. This is x86_64 specific, since on
+        // aarch64 the command line will be specified through the FDT.
+        kernel::loader::load_cmdline(
+            vmm.guest_memory(),
+            GuestAddress(arch::x86_64::layout::CMDLINE_START),
+            &vmm.kernel_cmdline
+                .as_cstring()
+                .map_err(StartMicrovmError::LoadCommandline)?,
+        )
+        .map_err(StartMicrovmError::LoadCommandline)?;
+        arch::x86_64::configure_system(
+            &vmm.guest_memory,
+            vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
+            vmm.kernel_cmdline.len() + 1,
+            initrd,
+            vcpus.len() as u8,
+        )
+        .map_err(StartMicrovmError::ConfigureSystem)?;
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        let vcpu_mpidr = vcpus.into_iter().map(|cpu| cpu.get_mpidr()).collect();
+        arch::aarch64::configure_system(
+            &vmm.guest_memory,
+            &vmm.kernel_cmdline
+                .as_cstring()
+                .map_err(StartMicrovmError::LoadCommandline)?,
+            vcpu_mpidr,
+            vmm.mmio_device_manager.get_device_info(),
+            vmm.vm.get_irqchip(),
+            initrd,
+        )
+        .map_err(StartMicrovmError::ConfigureSystem)?;
+    }
+    Ok(())
 }
 
 /// Attaches an MmioTransport device to the device manager.
