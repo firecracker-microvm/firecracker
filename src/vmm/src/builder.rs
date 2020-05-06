@@ -264,19 +264,6 @@ pub fn build_microvm(
         .map_err(Error::EventFd)
         .map_err(StartMicrovmError::Internal)?;
 
-    #[cfg(target_arch = "x86_64")]
-    // Safe to unwrap 'serial_device' as it's always 'Some' on x86_64.
-    // x86_64 uses the i8042 reset event as the Vmm exit event.
-    let mut pio_device_manager = PortIODeviceManager::new(
-        serial_device.unwrap(),
-        exit_evt
-            .try_clone()
-            .map_err(Error::EventFd)
-            .map_err(StartMicrovmError::Internal)?,
-    )
-    .map_err(Error::CreateLegacyDevice)
-    .map_err(StartMicrovmError::Internal)?;
-
     // Instantiate the MMIO device manager.
     // 'mmio_base' address has to be an address which is protected by the kernel
     // and is architectural specific.
@@ -290,21 +277,32 @@ pub fn build_microvm(
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
     // while on aarch64 we need to do it the other way around.
     #[cfg(target_arch = "x86_64")]
-    {
+    let pio_device_manager = {
         setup_interrupt_controller(&mut vm)?;
-        attach_legacy_devices(&vm, &mut pio_device_manager)?;
-
         vcpus = create_vcpus_x86_64(
             &vm,
             &vcpu_config,
             &guest_memory,
             entry_addr,
             request_ts,
-            &pio_device_manager.io_bus,
             &exit_evt,
         )
         .map_err(StartMicrovmError::Internal)?;
-    }
+
+        // Safe to unwrap 'serial_device' as it's always 'Some' on x86_64.
+        // x86_64 uses the i8042 reset event as the Vmm exit event.
+        let mut pio_device_manager = PortIODeviceManager::new(
+            serial_device.unwrap(),
+            exit_evt
+                .try_clone()
+                .map_err(Error::EventFd)
+                .map_err(StartMicrovmError::Internal)?,
+        )
+        .map_err(Error::CreateLegacyDevice)
+        .map_err(StartMicrovmError::Internal)?;
+        attach_legacy_devices(&vm, &mut pio_device_manager)?;
+        pio_device_manager
+    };
 
     // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) and configured before
     // setting up the IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
@@ -571,7 +569,6 @@ fn create_vcpus_x86_64(
     guest_mem: &GuestMemoryMmap,
     entry_addr: GuestAddress,
     request_ts: TimestampUs,
-    io_bus: &devices::Bus,
     exit_evt: &EventFd,
 ) -> super::Result<Vec<Vcpu>> {
     let mut vcpus = Vec::with_capacity(vcpu_config.vcpu_count as usize);
@@ -581,7 +578,6 @@ fn create_vcpus_x86_64(
             vm.fd(),
             vm.supported_cpuid().clone(),
             vm.supported_msrs().clone(),
-            io_bus.clone(),
             exit_evt.try_clone().map_err(Error::EventFd)?,
             request_ts.clone(),
         )
@@ -1019,14 +1015,12 @@ pub mod tests {
 
         // Dummy entry_addr, vcpus will not boot.
         let entry_addr = GuestAddress(0);
-        let bus = devices::Bus::new();
         let vcpu_vec = create_vcpus_x86_64(
             &vm,
             &vcpu_config,
             &guest_memory,
             entry_addr,
             TimestampUs::default(),
-            &bus,
             &EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         )
         .unwrap();
