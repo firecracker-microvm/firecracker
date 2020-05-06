@@ -600,7 +600,7 @@ pub struct Vcpu {
     exit_evt: EventFd,
 
     #[cfg(target_arch = "x86_64")]
-    io_bus: devices::Bus,
+    pio_bus: Option<devices::Bus>,
     #[cfg(target_arch = "x86_64")]
     cpuid: CpuId,
     #[cfg(target_arch = "x86_64")]
@@ -710,7 +710,6 @@ impl Vcpu {
     /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
     /// * `cpuid` - The `CpuId` listing the supported capabilities of this vcpu.
     /// * `msr_list` - The `MsrList` listing the supported MSRs for this vcpu.
-    /// * `io_bus` - The io-bus used to access port-io devices.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
     /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
     #[cfg(target_arch = "x86_64")]
@@ -719,7 +718,6 @@ impl Vcpu {
         vm_fd: &VmFd,
         cpuid: CpuId,
         msr_list: MsrList,
-        io_bus: devices::Bus,
         exit_evt: EventFd,
         create_ts: TimestampUs,
     ) -> Result<Self> {
@@ -734,7 +732,7 @@ impl Vcpu {
             create_ts,
             mmio_bus: None,
             exit_evt,
-            io_bus,
+            pio_bus: None,
             cpuid,
             msr_list,
             event_receiver,
@@ -786,6 +784,12 @@ impl Vcpu {
     #[cfg(target_arch = "aarch64")]
     pub fn get_mpidr(&self) -> u64 {
         self.mpidr
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    /// Sets a PIO bus for this vcpu.
+    pub fn set_pio_bus(&mut self, pio_bus: devices::Bus) {
+        self.pio_bus = Some(pio_bus);
     }
 
     /// Sets a MMIO bus for this vcpu.
@@ -1030,27 +1034,31 @@ impl Vcpu {
             Ok(run) => match run {
                 #[cfg(target_arch = "x86_64")]
                 VcpuExit::IoIn(addr, data) => {
-                    self.io_bus.read(u64::from(addr), data);
-                    METRICS.vcpu.exit_io_in.inc();
+                    if let Some(pio_bus) = &self.pio_bus {
+                        pio_bus.read(u64::from(addr), data);
+                        METRICS.vcpu.exit_io_in.inc();
+                    }
                     Ok(VcpuEmulation::Handled)
                 }
                 #[cfg(target_arch = "x86_64")]
                 VcpuExit::IoOut(addr, data) => {
                     self.check_boot_complete_signal(u64::from(addr), data);
 
-                    self.io_bus.write(u64::from(addr), data);
-                    METRICS.vcpu.exit_io_out.inc();
+                    if let Some(pio_bus) = &self.pio_bus {
+                        pio_bus.write(u64::from(addr), data);
+                        METRICS.vcpu.exit_io_out.inc();
+                    }
                     Ok(VcpuEmulation::Handled)
                 }
                 VcpuExit::MmioRead(addr, data) => {
-                    if let Some(ref mmio_bus) = self.mmio_bus {
+                    if let Some(mmio_bus) = &self.mmio_bus {
                         mmio_bus.read(addr, data);
                         METRICS.vcpu.exit_mmio_read.inc();
                     }
                     Ok(VcpuEmulation::Handled)
                 }
                 VcpuExit::MmioWrite(addr, data) => {
-                    if let Some(ref mmio_bus) = self.mmio_bus {
+                    if let Some(mmio_bus) = &self.mmio_bus {
                         #[cfg(target_arch = "aarch64")]
                         self.check_boot_complete_signal(addr, data);
 
@@ -1391,7 +1399,6 @@ pub(crate) mod tests {
                 vm.fd(),
                 vm.supported_cpuid().clone(),
                 vm.supported_msrs().clone(),
-                devices::Bus::new(),
                 exit_evt,
                 super::super::TimestampUs::default(),
             )
@@ -1484,7 +1491,6 @@ pub(crate) mod tests {
             vm.fd(),
             vm.supported_cpuid().clone(),
             vm.supported_msrs().clone(),
-            devices::Bus::new(),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
             super::super::TimestampUs::default(),
         )

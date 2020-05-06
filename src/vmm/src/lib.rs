@@ -255,6 +255,8 @@ impl Vmm {
 
         for mut vcpu in vcpus.drain(..) {
             vcpu.set_mmio_bus(self.mmio_device_manager.bus.clone());
+            #[cfg(target_arch = "x86_64")]
+            vcpu.set_pio_bus(self.pio_device_manager.io_bus.clone());
 
             self.vcpus_handles.push(
                 vcpu.start_threaded(vcpu_seccomp_filter.to_vec())
