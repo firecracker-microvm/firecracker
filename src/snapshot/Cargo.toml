@@ -8,7 +8,7 @@ autobenches = false
 serde = ">=1.0.27"
 serde_derive = ">=1.0.27"
 bincode = "1.2.1"
-versionize = { git = "https://github.com/firecracker-microvm/versionize", tag = "v0.1.1" }
+versionize = { git = "https://github.com/firecracker-microvm/versionize", tag = "v0.1.0" }
 versionize_derive = { git = "https://github.com/firecracker-microvm/versionize_derive", tag = "v0.1.0" }
 
 [dev-dependencies]

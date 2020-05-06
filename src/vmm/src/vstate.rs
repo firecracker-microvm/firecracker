@@ -1186,6 +1186,7 @@ impl Vcpu {
                     .expect("failed to send resume status");
             }
             // SaveState cannot be performed on a running Vcpu.
+            #[cfg(target_arch = "x86_64")]
             Ok(VcpuEvent::SaveState) => {
                 self.response_sender
                     .send(VcpuResponse::SaveStateNotAllowed)
@@ -1221,12 +1222,13 @@ impl Vcpu {
                     .expect("failed to send pause status");
                 StateMachine::next(Self::paused)
             }
+            #[cfg(target_arch = "x86_64")]
             Ok(VcpuEvent::SaveState) => {
                 // Save vcpu state.
                 self.save_state()
                     .map(|vcpu_state| {
                         self.response_sender
-                            .send(VcpuResponse::SaveState(vcpu_state))
+                            .send(VcpuResponse::SaveState(Box::new(vcpu_state)))
                             .expect("failed to send vcpu state");
                     })
                     .map_err(|e| self.response_sender.send(VcpuResponse::SaveStateFailed(e)))
@@ -1327,7 +1329,7 @@ pub enum VcpuResponse {
     Exited(u8),
     /// Vcpu state is saved.
     #[cfg(target_arch = "x86_64")]
-    SaveState(VcpuState),
+    SaveState(Box<VcpuState>),
     /// Vcpu state could not be saved.
     #[cfg(target_arch = "x86_64")]
     SaveStateFailed(Error),
@@ -1408,17 +1410,21 @@ pub(crate) mod tests {
             use VcpuResponse::*;
             // Guard match with no wildcard to make sure we catch new enum variants.
             match self {
-                Paused | Resumed | Exited(_) | SaveState(_) | SaveStateFailed(_)
-                | SaveStateNotAllowed => (),
+                Paused | Resumed | Exited(_) => (),
+                #[cfg(target_arch = "x86_64")]
+                SaveState(_) | SaveStateFailed(_) | SaveStateNotAllowed => (),
             };
             match (self, other) {
                 (Paused, Paused) => true,
                 (Resumed, Resumed) => true,
                 (Exited(code), Exited(other_code)) => code == other_code,
+                #[cfg(target_arch = "x86_64")]
                 (SaveState(_), SaveState(_)) => true,
+                #[cfg(target_arch = "x86_64")]
                 (SaveStateFailed(ref err), SaveStateFailed(ref other_err)) => {
                     format!("{:?}", err) == format!("{:?}", other_err)
                 }
+                #[cfg(target_arch = "x86_64")]
                 (SaveStateNotAllowed, SaveStateNotAllowed) => true,
                 _ => false,
             }
@@ -1432,8 +1438,11 @@ pub(crate) mod tests {
                 Paused => write!(f, "VcpuResponse::Paused"),
                 Resumed => write!(f, "VcpuResponse::Resumed"),
                 Exited(code) => write!(f, "VcpuResponse::Exited({:?})", code),
+                #[cfg(target_arch = "x86_64")]
                 SaveState(_) => write!(f, "VcpuResponse::SaveState"),
+                #[cfg(target_arch = "x86_64")]
                 SaveStateFailed(ref err) => write!(f, "VcpuResponse::SaveStateFailed({:?})", err),
+                #[cfg(target_arch = "x86_64")]
                 SaveStateNotAllowed => write!(f, "VcpuResponse::SaveStateNotAllowed"),
             }
         }
@@ -1881,7 +1890,7 @@ pub(crate) mod tests {
         queue_event_expect_response(
             &vcpu_handle,
             VcpuEvent::SaveState,
-            VcpuResponse::SaveState(default_vcpu_state()),
+            VcpuResponse::SaveState(Box::new(default_vcpu_state())),
         );
     }
 
