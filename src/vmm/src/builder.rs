@@ -16,7 +16,7 @@ use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::Serial;
 use devices::virtio::{MmioTransport, Vsock, VsockUnixBackend};
-
+use kernel::cmdline::Cmdline as KernelCmdline;
 use polly::event_manager::{Error as EventManagerError, EventManager};
 use seccomp::BpfProgramRef;
 use utils::eventfd::EventFd;
@@ -243,13 +243,13 @@ pub fn build_microvm(
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
-    let mut kernel_cmdline = boot_config.cmdline.clone();
+    let mut boot_cmdline = boot_config.cmdline.clone();
     let mut vm = setup_kvm_vm(&guest_memory, track_dirty_pages)?;
 
     // On x86_64 always create a serial device,
     // while on aarch64 only create it if 'console=' is specified in the boot args.
     let serial_device = if cfg!(target_arch = "x86_64")
-        || (cfg!(target_arch = "aarch64") && kernel_cmdline.as_str().contains("console="))
+        || (cfg!(target_arch = "aarch64") && boot_cmdline.as_str().contains("console="))
     {
         Some(setup_serial_device(
             event_manager,
@@ -326,7 +326,7 @@ pub fn build_microvm(
         attach_legacy_devices(
             &vm,
             &mut mmio_device_manager,
-            &mut kernel_cmdline,
+            &mut boot_cmdline,
             serial_device,
         )?;
     }
@@ -334,7 +334,6 @@ pub fn build_microvm(
     let mut vmm = Vmm {
         events_observer: Some(Box::new(SerialStdin::get())),
         guest_memory,
-        kernel_cmdline,
         vcpus_handles: Vec::new(),
         exit_evt,
         vm,
@@ -343,13 +342,23 @@ pub fn build_microvm(
         pio_device_manager,
     };
 
-    attach_block_devices(&mut vmm, &vm_resources.block, event_manager)?;
+    attach_block_devices(
+        &mut vmm,
+        &mut boot_cmdline,
+        &vm_resources.block,
+        event_manager,
+    )?;
     if let Some(vsock) = vm_resources.vsock.get() {
-        attach_unixsock_vsock_device(&mut vmm, vsock, event_manager)?;
+        attach_unixsock_vsock_device(&mut vmm, &mut boot_cmdline, vsock, event_manager)?;
     }
-    attach_net_devices(&mut vmm, &vm_resources.net_builder, event_manager)?;
+    attach_net_devices(
+        &mut vmm,
+        &mut boot_cmdline,
+        &vm_resources.net_builder,
+        event_manager,
+    )?;
 
-    configure_system_for_boot(&vmm, vcpus.as_slice(), &initrd)?;
+    configure_system_for_boot(&vmm, vcpus.as_slice(), &initrd, boot_cmdline)?;
     // Firecracker uses the same seccomp filter for all threads.
     vmm.start_vcpus(vcpus, seccomp_filter.to_vec(), seccomp_filter)
         .map_err(StartMicrovmError::Internal)?;
@@ -618,6 +627,7 @@ pub fn configure_system_for_boot(
     vmm: &Vmm,
     vcpus: &[Vcpu],
     initrd: &Option<InitrdConfig>,
+    kernel_cmdline: KernelCmdline,
 ) -> std::result::Result<(), StartMicrovmError> {
     #[cfg(target_arch = "x86_64")]
     {
@@ -626,7 +636,7 @@ pub fn configure_system_for_boot(
         kernel::loader::load_cmdline(
             vmm.guest_memory(),
             GuestAddress(arch::x86_64::layout::CMDLINE_START),
-            &vmm.kernel_cmdline
+            &kernel_cmdline
                 .as_cstring()
                 .map_err(StartMicrovmError::LoadCommandline)?,
         )
@@ -634,7 +644,7 @@ pub fn configure_system_for_boot(
         arch::x86_64::configure_system(
             &vmm.guest_memory,
             vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
-            vmm.kernel_cmdline.len() + 1,
+            kernel_cmdline.len() + 1,
             initrd,
             vcpus.len() as u8,
         )
@@ -645,7 +655,7 @@ pub fn configure_system_for_boot(
         let vcpu_mpidr = vcpus.into_iter().map(|cpu| cpu.get_mpidr()).collect();
         arch::aarch64::configure_system(
             &vmm.guest_memory,
-            &vmm.kernel_cmdline
+            &kernel_cmdline
                 .as_cstring()
                 .map_err(StartMicrovmError::LoadCommandline)?,
             vcpu_mpidr,
@@ -661,6 +671,7 @@ pub fn configure_system_for_boot(
 /// Attaches an MmioTransport device to the device manager.
 fn attach_mmio_device(
     vmm: &mut Vmm,
+    _cmdline: &mut KernelCmdline,
     id: String,
     device: MmioTransport,
 ) -> std::result::Result<(), device_manager::mmio::Error> {
@@ -669,13 +680,14 @@ fn attach_mmio_device(
         .register_virtio_mmio_device(vmm.vm.fd(), id, device, &mmio_slot)?;
     #[cfg(target_arch = "x86_64")]
     vmm.mmio_device_manager
-        .add_virtio_device_to_cmdline(&mut vmm.kernel_cmdline, &mmio_slot)?;
+        .add_virtio_device_to_cmdline(_cmdline, &mmio_slot)?;
 
     Ok(())
 }
 
 fn attach_block_devices(
     vmm: &mut Vmm,
+    cmdline: &mut KernelCmdline,
     blocks: &BlockBuilder,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
@@ -686,8 +698,7 @@ fn attach_block_devices(
         {
             let locked = block.lock().unwrap();
             if locked.is_root_device() {
-                let kernel_cmdline = &mut vmm.kernel_cmdline;
-                kernel_cmdline.insert_str(if let Some(partuuid) = locked.partuuid() {
+                cmdline.insert_str(if let Some(partuuid) = locked.partuuid() {
                     format!("root=PARTUUID={}", partuuid)
                 } else {
                     // If no PARTUUID was specified for the root device, try with the /dev/vda.
@@ -695,7 +706,7 @@ fn attach_block_devices(
                 })?;
 
                 let flags = if locked.is_read_only() { "ro" } else { "rw" };
-                kernel_cmdline.insert_str(flags)?;
+                cmdline.insert_str(flags)?;
             }
             id = locked.id().clone();
         }
@@ -707,6 +718,7 @@ fn attach_block_devices(
         // The device mutex mustn't be locked here otherwise it will deadlock.
         attach_mmio_device(
             vmm,
+            cmdline,
             id,
             MmioTransport::new(vmm.guest_memory().clone(), block.clone()),
         )
@@ -718,6 +730,7 @@ fn attach_block_devices(
 
 fn attach_net_devices(
     vmm: &mut Vmm,
+    cmdline: &mut KernelCmdline,
     net_builder: &NetBuilder,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
@@ -731,6 +744,7 @@ fn attach_net_devices(
         // The device mutex mustn't be locked here otherwise it will deadlock.
         attach_mmio_device(
             vmm,
+            cmdline,
             id,
             MmioTransport::new(vmm.guest_memory().clone(), net_device.clone()),
         )
@@ -742,6 +756,7 @@ fn attach_net_devices(
 
 fn attach_unixsock_vsock_device(
     vmm: &mut Vmm,
+    cmdline: &mut KernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
@@ -755,6 +770,7 @@ fn attach_unixsock_vsock_device(
     // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_mmio_device(
         vmm,
+        cmdline,
         id,
         MmioTransport::new(vmm.guest_memory().clone(), unix_vsock.clone()),
     )
@@ -820,7 +836,7 @@ pub mod tests {
         .unwrap()
     }
 
-    fn default_kernel_cmdline() -> Cmdline {
+    pub(crate) fn default_kernel_cmdline() -> Cmdline {
         let mut kernel_cmdline = kernel::cmdline::Cmdline::new(4096);
         kernel_cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
         kernel_cmdline
@@ -828,7 +844,6 @@ pub mod tests {
 
     pub(crate) fn default_vmm() -> Vmm {
         let guest_memory = create_guest_memory(128).unwrap();
-        let kernel_cmdline = default_kernel_cmdline();
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK)
             .map_err(Error::EventFd)
@@ -843,7 +858,6 @@ pub mod tests {
         let mut vmm = Vmm {
             events_observer: Some(Box::new(SerialStdin::get())),
             guest_memory,
-            kernel_cmdline,
             vcpus_handles: Vec::new(),
             exit_evt,
             vm,
@@ -863,6 +877,7 @@ pub mod tests {
 
     pub(crate) fn insert_block_devices(
         vmm: &mut Vmm,
+        cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         custom_block_cfgs: Vec<CustomBlockConfig>,
     ) {
@@ -887,24 +902,26 @@ pub mod tests {
             block_dev_configs.insert(block_device_config).unwrap();
         }
 
-        let res = attach_block_devices(vmm, &block_dev_configs, event_manager);
+        let res = attach_block_devices(vmm, cmdline, &block_dev_configs, event_manager);
         assert!(res.is_ok());
     }
 
     pub(crate) fn insert_net_device(
         vmm: &mut Vmm,
+        cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         net_config: NetworkInterfaceConfig,
     ) {
         let mut net_builder = NetBuilder::new();
         net_builder.build(net_config).unwrap();
 
-        let res = attach_net_devices(vmm, &net_builder, event_manager);
+        let res = attach_net_devices(vmm, cmdline, &net_builder, event_manager);
         assert!(res.is_ok());
     }
 
     pub(crate) fn insert_vsock_device(
         vmm: &mut Vmm,
+        cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         vsock_config: VsockDeviceConfig,
     ) {
@@ -912,7 +929,7 @@ pub mod tests {
         let vsock = VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
 
-        assert!(attach_unixsock_vsock_device(vmm, &vsock, event_manager).is_ok());
+        assert!(attach_unixsock_vsock_device(vmm, cmdline, &vsock, event_manager).is_ok());
 
         assert!(vmm
             .mmio_device_manager
@@ -1057,7 +1074,13 @@ pub mod tests {
             allow_mmds_requests: true,
         };
 
-        insert_net_device(&mut vmm, &mut event_manager, network_interface.clone());
+        let mut cmdline = default_kernel_cmdline();
+        insert_net_device(
+            &mut vmm,
+            &mut cmdline,
+            &mut event_manager,
+            network_interface.clone(),
+        );
 
         // We can not attach it once more.
         let mut net_builder = NetBuilder::new();
@@ -1073,8 +1096,9 @@ pub mod tests {
             let drive_id = String::from("root");
             let block_configs = vec![CustomBlockConfig::new(drive_id.clone(), true, None, true)];
             let mut vmm = default_vmm();
-            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
-            assert!(vmm.kernel_cmdline.as_str().contains("root=/dev/vda ro"));
+            let mut cmdline = default_kernel_cmdline();
+            insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
+            assert!(cmdline.as_str().contains("root=/dev/vda ro"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1091,11 +1115,9 @@ pub mod tests {
                 false,
             )];
             let mut vmm = default_vmm();
-            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
-            assert!(vmm
-                .kernel_cmdline
-                .as_str()
-                .contains("root=PARTUUID=0eaa91a0-01 rw"));
+            let mut cmdline = default_kernel_cmdline();
+            insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
+            assert!(cmdline.as_str().contains("root=PARTUUID=0eaa91a0-01 rw"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1112,9 +1134,10 @@ pub mod tests {
                 false,
             )];
             let mut vmm = default_vmm();
-            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
-            assert!(!vmm.kernel_cmdline.as_str().contains("root=PARTUUID="));
-            assert!(!vmm.kernel_cmdline.as_str().contains("root=/dev/vda"));
+            let mut cmdline = default_kernel_cmdline();
+            insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
+            assert!(!cmdline.as_str().contains("root=PARTUUID="));
+            assert!(!cmdline.as_str().contains("root=/dev/vda"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1134,12 +1157,10 @@ pub mod tests {
                 CustomBlockConfig::new(String::from("third"), false, None, false),
             ];
             let mut vmm = default_vmm();
-            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
+            let mut cmdline = default_kernel_cmdline();
+            insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
 
-            assert!(vmm
-                .kernel_cmdline
-                .as_str()
-                .contains("root=PARTUUID=0eaa91a0-01 rw"));
+            assert!(cmdline.as_str().contains("root=PARTUUID=0eaa91a0-01 rw"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), "root")
@@ -1155,8 +1176,7 @@ pub mod tests {
 
             // Check if these three block devices are inserted in kernel_cmdline.
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            assert!(vmm
-                .kernel_cmdline
+            assert!(cmdline
                 .as_str()
                 .contains("virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6 virtio_mmio.device=4K@0xd0002000:7"));
         }
@@ -1166,8 +1186,9 @@ pub mod tests {
             let drive_id = String::from("root");
             let block_configs = vec![CustomBlockConfig::new(drive_id.clone(), true, None, false)];
             let mut vmm = default_vmm();
-            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
-            assert!(vmm.kernel_cmdline.as_str().contains("root=/dev/vda rw"));
+            let mut cmdline = default_kernel_cmdline();
+            insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
+            assert!(cmdline.as_str().contains("root=/dev/vda rw"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1184,11 +1205,9 @@ pub mod tests {
                 true,
             )];
             let mut vmm = default_vmm();
-            insert_block_devices(&mut vmm, &mut event_manager, block_configs);
-            assert!(vmm
-                .kernel_cmdline
-                .as_str()
-                .contains("root=PARTUUID=0eaa91a0-01 ro"));
+            let mut cmdline = default_kernel_cmdline();
+            insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
+            assert!(cmdline.as_str().contains("root=PARTUUID=0eaa91a0-01 ro"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
@@ -1204,7 +1223,13 @@ pub mod tests {
         let tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
         let vsock_config = default_config(&tmp_sock_file);
 
-        insert_vsock_device(&mut vmm, &mut event_manager, vsock_config);
+        let mut cmdline = default_kernel_cmdline();
+        insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+        // Check if the vsock device is described in kernel_cmdline.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        assert!(cmdline
+            .as_str()
+            .contains("virtio_mmio.device=4K@0xd0000000:5"));
     }
 
     #[test]

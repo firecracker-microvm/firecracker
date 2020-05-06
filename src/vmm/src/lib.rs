@@ -68,7 +68,6 @@ use devices::virtio::{
     TYPE_NET, TYPE_VSOCK,
 };
 use devices::BusDevice;
-use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::{LoggerError, MetricsError, METRICS};
 #[cfg(target_arch = "x86_64")]
 use persist::{
@@ -216,8 +215,6 @@ pub struct Vmm {
 
     // Guest VM core resources.
     guest_memory: GuestMemoryMmap,
-
-    kernel_cmdline: KernelCmdline,
 
     vcpus_handles: Vec<VcpuHandle>,
     exit_evt: EventFd,
