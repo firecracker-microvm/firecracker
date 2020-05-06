@@ -273,21 +273,14 @@ pub fn build_microvm(
         (arch::IRQ_BASE, arch::IRQ_MAX),
     );
 
-    let vcpus;
+    let mut vcpus;
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
     // while on aarch64 we need to do it the other way around.
     #[cfg(target_arch = "x86_64")]
     let pio_device_manager = {
         setup_interrupt_controller(&mut vm)?;
-        vcpus = create_vcpus_x86_64(
-            &vm,
-            &vcpu_config,
-            &guest_memory,
-            entry_addr,
-            request_ts,
-            &exit_evt,
-        )
-        .map_err(StartMicrovmError::Internal)?;
+        vcpus = create_vcpus(&vm, vcpu_config.vcpu_count, request_ts, &exit_evt)
+            .map_err(StartMicrovmError::Internal)?;
 
         // Safe to unwrap 'serial_device' as it's always 'Some' on x86_64.
         // x86_64 uses the i8042 reset event as the Vmm exit event.
@@ -304,21 +297,14 @@ pub fn build_microvm(
         pio_device_manager
     };
 
-    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) and configured before
-    // setting up the IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
+    // On aarch64, the vCPUs need to be created (i.e call KVM_CREATE_VCPU) before setting up the
+    // IRQ chip because the `KVM_CREATE_VCPU` ioctl will return error if the IRQCHIP
     // was already initialized.
     // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
     #[cfg(target_arch = "aarch64")]
     {
-        vcpus = create_vcpus_aarch64(
-            &vm,
-            &vcpu_config,
-            &guest_memory,
-            entry_addr,
-            request_ts,
-            &exit_evt,
-        )
-        .map_err(StartMicrovmError::Internal)?;
+        vcpus = create_vcpus(&vm, vcpu_config.vcpu_count, request_ts, &exit_evt)
+            .map_err(StartMicrovmError::Internal)?;
 
         setup_interrupt_controller(&mut vm, vcpu_config.vcpu_count)?;
         attach_legacy_devices(
@@ -356,7 +342,14 @@ pub fn build_microvm(
         event_manager,
     )?;
 
-    configure_system_for_boot(&vmm, vcpus.as_slice(), &initrd, boot_cmdline)?;
+    configure_system_for_boot(
+        &vmm,
+        vcpus.as_mut(),
+        vcpu_config,
+        entry_addr,
+        &initrd,
+        boot_cmdline,
+    )?;
     // Firecracker uses the same seccomp filter for all threads.
     vmm.start_vcpus(vcpus, seccomp_filter.to_vec(), seccomp_filter)
         .map_err(StartMicrovmError::Internal)?;
@@ -562,55 +555,29 @@ fn attach_legacy_devices(
     Ok(())
 }
 
-#[cfg(target_arch = "x86_64")]
-fn create_vcpus_x86_64(
+fn create_vcpus(
     vm: &Vm,
-    vcpu_config: &VcpuConfig,
-    guest_mem: &GuestMemoryMmap,
-    entry_addr: GuestAddress,
+    vcpu_count: u8,
     request_ts: TimestampUs,
     exit_evt: &EventFd,
 ) -> super::Result<Vec<Vcpu>> {
-    let mut vcpus = Vec::with_capacity(vcpu_config.vcpu_count as usize);
-    for cpu_index in 0..vcpu_config.vcpu_count {
-        let mut vcpu = Vcpu::new_x86_64(
-            cpu_index,
+    let mut vcpus = Vec::with_capacity(vcpu_count as usize);
+    for cpu_idx in 0..vcpu_count {
+        let exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
+
+        #[cfg(target_arch = "x86_64")]
+        let vcpu = Vcpu::new_x86_64(
+            cpu_idx,
             vm.fd(),
             vm.supported_cpuid().clone(),
             vm.supported_msrs().clone(),
-            exit_evt.try_clone().map_err(Error::EventFd)?,
+            exit_evt,
             request_ts.clone(),
         )
         .map_err(Error::Vcpu)?;
 
-        vcpu.configure_x86_64_for_boot(guest_mem, entry_addr, vcpu_config)
-            .map_err(Error::Vcpu)?;
-
-        vcpus.push(vcpu);
-    }
-    Ok(vcpus)
-}
-
-#[cfg(target_arch = "aarch64")]
-fn create_vcpus_aarch64(
-    vm: &Vm,
-    vcpu_config: &VcpuConfig,
-    guest_mem: &GuestMemoryMmap,
-    entry_addr: GuestAddress,
-    request_ts: TimestampUs,
-    exit_evt: &EventFd,
-) -> super::Result<Vec<Vcpu>> {
-    let mut vcpus = Vec::with_capacity(vcpu_config.vcpu_count as usize);
-    for cpu_index in 0..vcpu_config.vcpu_count {
-        let mut vcpu = Vcpu::new_aarch64(
-            cpu_index,
-            vm.fd(),
-            exit_evt.try_clone().map_err(Error::EventFd)?,
-            request_ts.clone(),
-        )
-        .map_err(Error::Vcpu)?;
-
-        vcpu.configure_aarch64_for_boot(vm.fd(), guest_mem, entry_addr)
+        #[cfg(target_arch = "aarch64")]
+        let vcpu = Vcpu::new_aarch64(cpu_idx, vm.fd(), exit_evt, request_ts.clone())
             .map_err(Error::Vcpu)?;
 
         vcpus.push(vcpu);
@@ -621,12 +588,20 @@ fn create_vcpus_aarch64(
 /// Configures the system for booting Linux.
 pub fn configure_system_for_boot(
     vmm: &Vmm,
-    vcpus: &[Vcpu],
+    vcpus: &mut [Vcpu],
+    _vcpu_config: VcpuConfig,
+    entry_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
     kernel_cmdline: KernelCmdline,
 ) -> std::result::Result<(), StartMicrovmError> {
     #[cfg(target_arch = "x86_64")]
     {
+        for vcpu in vcpus.iter_mut() {
+            vcpu.configure_x86_64_for_boot(vmm.guest_memory(), entry_addr, &_vcpu_config)
+                .map_err(Error::Vcpu)
+                .map_err(StartMicrovmError::Internal)?;
+        }
+
         // Write the kernel command line to guest memory. This is x86_64 specific, since on
         // aarch64 the command line will be specified through the FDT.
         kernel::loader::load_cmdline(
@@ -648,6 +623,12 @@ pub fn configure_system_for_boot(
     }
     #[cfg(target_arch = "aarch64")]
     {
+        for vcpu in vcpus.iter_mut() {
+            vcpu.configure_aarch64_for_boot(vmm.vm.fd(), vmm.guest_memory(), entry_addr)
+                .map_err(Error::Vcpu)
+                .map_err(StartMicrovmError::Internal)?;
+        }
+
         let vcpu_mpidr = vcpus.into_iter().map(|cpu| cpu.get_mpidr()).collect();
         arch::aarch64::configure_system(
             &vmm.guest_memory,
@@ -1000,57 +981,18 @@ pub mod tests {
     }
 
     #[test]
-    #[cfg(target_arch = "x86_64")]
-    fn test_create_vcpus_x86_64() {
+    fn test_create_vcpus() {
         let vcpu_count = 2;
-
         let guest_memory = create_guest_memory(128).unwrap();
+
+        #[allow(unused_mut)]
         let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();
+        let evfd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+
+        #[cfg(target_arch = "x86_64")]
         setup_interrupt_controller(&mut vm).unwrap();
-        let vcpu_config = VcpuConfig {
-            vcpu_count,
-            ht_enabled: false,
-            cpu_template: None,
-        };
 
-        // Dummy entry_addr, vcpus will not boot.
-        let entry_addr = GuestAddress(0);
-        let vcpu_vec = create_vcpus_x86_64(
-            &vm,
-            &vcpu_config,
-            &guest_memory,
-            entry_addr,
-            TimestampUs::default(),
-            &EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(vcpu_vec.len(), vcpu_count as usize);
-    }
-
-    #[test]
-    #[cfg(target_arch = "aarch64")]
-    fn test_create_vcpus_aarch64() {
-        let guest_memory = create_guest_memory(128).unwrap();
-        let vm = setup_kvm_vm(&guest_memory, false).unwrap();
-        let vcpu_count = 2;
-
-        let vcpu_config = VcpuConfig {
-            vcpu_count,
-            ht_enabled: false,
-            cpu_template: None,
-        };
-
-        // Dummy entry_addr, vcpus will not boot.
-        let entry_addr = GuestAddress(0);
-        let vcpu_vec = create_vcpus_aarch64(
-            &vm,
-            &vcpu_config,
-            &guest_memory,
-            entry_addr,
-            TimestampUs::default(),
-            &EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        )
-        .unwrap();
+        let vcpu_vec = create_vcpus(&vm, vcpu_count, TimestampUs::default(), &evfd).unwrap();
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 
