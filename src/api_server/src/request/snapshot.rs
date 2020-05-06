@@ -2,10 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::super::VmmAction;
-use request::{Body, Error, ParsedRequest, StatusCode};
-use vmm::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, Vm, VmState};
+#[cfg(target_arch = "x86_64")]
+use request::StatusCode;
+use request::{Body, Error, ParsedRequest};
+#[cfg(target_arch = "x86_64")]
+use vmm::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
+use vmm::vmm_config::snapshot::{Vm, VmState};
+#[cfg(target_arch = "x86_64")]
 use Method;
 
+#[cfg(target_arch = "x86_64")]
 pub fn parse_put_snapshot(
     body: &Body,
     request_type_from_path: Option<&&str>,
@@ -43,13 +49,14 @@ pub fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
-    use vmm::vmm_config::snapshot::SnapshotType;
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_parse_put_snapshot() {
+        use std::path::PathBuf;
+        use vmm::vmm_config::snapshot::SnapshotType;
+
         let mut body = r#"{
                 "snapshot_type": "Diff",
                 "snapshot_path": "foo",

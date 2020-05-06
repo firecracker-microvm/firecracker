@@ -5,6 +5,7 @@ extern crate devices;
 extern crate libc;
 extern crate polly;
 extern crate seccomp;
+extern crate snapshot;
 extern crate utils;
 extern crate vm_memory;
 extern crate vmm;
@@ -21,10 +22,20 @@ use std::time::Duration;
 
 use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
+#[cfg(target_arch = "x86_64")]
+use snapshot::Snapshot;
 use vmm::builder::{build_microvm, setup_serial_device};
 use vmm::default_syscalls::get_seccomp_filter;
+#[cfg(target_arch = "x86_64")]
+use vmm::persist;
+#[cfg(target_arch = "x86_64")]
+use vmm::persist::MicrovmState;
 use vmm::resources::VmResources;
+#[cfg(target_arch = "x86_64")]
+use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::boot_source::BootSourceConfig;
+#[cfg(target_arch = "x86_64")]
+use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm_sys_util::tempfile::TempFile;
 
 use mock_devices::MockSerialInput;
@@ -274,4 +285,90 @@ fn test_dirty_bitmap_success() {
             assert_eq!(unsafe { libc::WEXITSTATUS(vmm_status) }, 0);
         }
     }
+}
+
+#[cfg(target_arch = "x86_64")]
+fn create_snapshot(is_diff: bool) {
+    let snapshot_file = TempFile::new().unwrap();
+    let memory_file = TempFile::new().unwrap();
+
+    let pid = unsafe { libc::fork() };
+    match pid {
+        0 => {
+            set_panic_hook();
+            let boot_source_cfg: BootSourceConfig = MockBootSourceConfig::new()
+                .with_default_boot_args()
+                .with_kernel(NOISY_KERNEL_IMAGE)
+                .into();
+            let resources: VmResources = MockVmResources::new()
+                .with_boot_source(boot_source_cfg)
+                .into();
+            let mut event_manager = EventManager::new().unwrap();
+            let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
+
+            let vmm = build_microvm(&resources, &mut event_manager, &empty_seccomp_filter).unwrap();
+            assert!(vmm.lock().unwrap().set_dirty_page_tracking(true).is_ok());
+
+            // Be sure that the microVM is running.
+            thread::sleep(Duration::from_millis(200));
+
+            // Pause microVM.
+            vmm.lock().unwrap().pause_vcpus().unwrap();
+
+            // Create snapshot.
+            let snapshot_type = match is_diff {
+                true => SnapshotType::Diff,
+                _ => SnapshotType::Full,
+            };
+            let snapshot_params = CreateSnapshotParams {
+                snapshot_type,
+                snapshot_path: snapshot_file.as_path().to_path_buf(),
+                mem_file_path: memory_file.as_path().to_path_buf(),
+                version: Some(23),
+            };
+
+            {
+                let mut locked_vmm = vmm.lock().unwrap();
+                persist::create_snapshot(&mut locked_vmm, snapshot_params, VERSION_MAP.clone())
+                    .unwrap();
+            }
+
+            vmm.lock().unwrap().stop(0);
+        }
+        vmm_pid => {
+            // Parent process: wait for the vmm to exit.
+            let mut vmm_status: i32 = -1;
+            let pid_done = unsafe { libc::waitpid(vmm_pid, &mut vmm_status, 0) };
+            assert_eq!(pid_done, vmm_pid);
+            restore_stdin();
+            // If any panics occurred, its exit status will be != 0.
+            assert!(unsafe { libc::WIFEXITED(vmm_status) });
+            assert_eq!(unsafe { libc::WEXITSTATUS(vmm_status) }, 0);
+
+            // Check that we can deserialize the microVM state from `snapshot_file`.
+            let restored_microvm_state: MicrovmState =
+                Snapshot::load(&mut snapshot_file.as_file(), VERSION_MAP.clone()).unwrap();
+
+            let memory_file_size_mib = memory_file.as_file().metadata().unwrap().len() >> 20;
+            assert_eq!(
+                restored_microvm_state.vm_info.mem_size_mib,
+                memory_file_size_mib
+            );
+
+            // The microVM had no devices and one vCPU.
+            assert_eq!(restored_microvm_state.device_states.block_devices.len(), 0);
+            assert_eq!(restored_microvm_state.device_states.net_devices.len(), 0);
+            assert!(restored_microvm_state.device_states.vsock_device.is_none());
+            assert_eq!(restored_microvm_state.vcpu_states.len(), 1);
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn test_create_snapshot() {
+    // Create diff snapshot.
+    create_snapshot(true);
+    // Create full snapshot.
+    create_snapshot(false);
 }

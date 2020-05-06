@@ -16,9 +16,15 @@ use builder::StartMicrovmError;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
 use logger::METRICS;
+#[cfg(target_arch = "x86_64")]
+use persist;
+#[cfg(target_arch = "x86_64")]
+use persist::CreateSnapshotError;
 use polly::event_manager::EventManager;
 use resources::VmResources;
 use seccomp::BpfProgram;
+#[cfg(target_arch = "x86_64")]
+use version_map::VERSION_MAP;
 use vmm_config;
 use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use vmm_config::drive::{BlockDeviceConfig, DriveError};
@@ -29,7 +35,9 @@ use vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
-use vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
+#[cfg(target_arch = "x86_64")]
+use vmm_config::snapshot::CreateSnapshotParams;
+use vmm_config::snapshot::LoadSnapshotParams;
 use vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 
 /// This enum represents the public interface of the VMM. Each action contains various
@@ -47,6 +55,7 @@ pub enum VmmAction {
     ConfigureMetrics(MetricsConfig),
     /// Create a snapshot using as input the `CreateSnapshotParams`. This action can only be called
     /// after the microVM has booted and only when the microVM is in `Paused` state.
+    #[cfg(target_arch = "x86_64")]
     CreateSnapshot(CreateSnapshotParams),
     /// Get the configuration of the microVM.
     GetVmConfiguration,
@@ -67,6 +76,8 @@ pub enum VmmAction {
     Pause,
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
+    /// Set the MMDS configuration.
+    SetMmdsConfiguration(MmdsConfig),
     /// Set the vsock device or update the one that already exists using the
     /// `VsockDeviceConfig` as input. This action can only be called before the microVM has
     /// booted.
@@ -86,8 +97,6 @@ pub enum VmmAction {
     /// Update a network interface, after microVM start. Currently, the only updatable properties
     /// are the RX and TX rate limiters.
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
-    /// Set the MMDS configuration.
-    SetMmdsConfiguration(MmdsConfig),
 }
 
 /// Wrapper for all errors associated with VMM actions.
@@ -95,6 +104,9 @@ pub enum VmmAction {
 pub enum VmmActionError {
     /// The action `ConfigureBootSource` failed because of bad user input.
     BootSource(BootSourceConfigError),
+    /// The action `CreateSnapshot` failed.
+    #[cfg(target_arch = "x86_64")]
+    CreateSnapshot(CreateSnapshotError),
     /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
     /// failed because of bad user input.
     DriveConfig(DriveError),
@@ -106,6 +118,8 @@ pub enum VmmActionError {
     MachineConfig(VmConfigError),
     /// The action `ConfigureMetrics` failed because of bad user input.
     Metrics(MetricsConfigError),
+    /// The action `SetMmdsConfiguration` failed because of bad user input.
+    MmdsConfig(MmdsConfigError),
     /// The action `InsertNetworkDevice` failed because of bad user input.
     NetworkConfig(NetworkInterfaceError),
     /// The requested operation is not supported after starting the microVM.
@@ -116,8 +130,6 @@ pub enum VmmActionError {
     StartMicrovm(StartMicrovmError),
     /// The action `SetVsockDevice` failed because of bad user input.
     VsockConfig(VsockConfigError),
-    /// The action `SetMmdsConfiguration` failed because of bad user input.
-    MmdsConfig(MmdsConfigError),
 }
 
 impl Display for VmmActionError {
@@ -129,11 +141,14 @@ impl Display for VmmActionError {
             "{}",
             match self {
                 BootSource(err) => err.to_string(),
+                #[cfg(target_arch = "x86_64")]
+                CreateSnapshot(err) => err.to_string(),
                 DriveConfig(err) => err.to_string(),
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
                 Logger(err) => err.to_string(),
                 MachineConfig(err) => err.to_string(),
                 Metrics(err) => err.to_string(),
+                MmdsConfig(err) => err.to_string(),
                 NetworkConfig(err) => err.to_string(),
                 OperationNotSupportedPostBoot => {
                     "The requested operation is not supported after starting the microVM."
@@ -146,7 +161,6 @@ impl Display for VmmActionError {
                 StartMicrovm(err) => err.to_string(),
                 /// The action `SetVsockDevice` failed because of bad user input.
                 VsockConfig(err) => err.to_string(),
-                MmdsConfig(err) => err.to_string(),
             }
         )
     }
@@ -291,14 +305,13 @@ impl<'a> PrebootApiController<'a> {
             })
             .map_err(VmmActionError::StartMicrovm),
             // Operations not allowed pre-boot.
-            CreateSnapshot(_)
-            | FlushMetrics
+            FlushMetrics
             | Pause
             | Resume
             | UpdateBlockDevicePath(_, _)
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
-            SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
+            CreateSnapshot(_) | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
 }
@@ -321,7 +334,10 @@ impl RuntimeApiController {
         use self::VmmAction::*;
         match request {
             // Supported operations allowed post-boot.
-            CreateSnapshot(_snapshot_create_cfg) => Ok(VmmData::NotFound),
+            #[cfg(target_arch = "x86_64")]
+            CreateSnapshot(snapshot_create_cfg) => self
+                .create_snapshot(snapshot_create_cfg)
+                .map(|_| VmmData::Empty),
             FlushMetrics => self.flush_metrics().map(|_| VmmData::Empty),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
             Pause => self.pause().map(|_| VmmData::Empty),
@@ -396,6 +412,13 @@ impl RuntimeApiController {
             .expect("Poisoned lock")
             .send_ctrl_alt_del()
             .map_err(VmmActionError::InternalVmm)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn create_snapshot(&mut self, params: CreateSnapshotParams) -> ActionResult {
+        let mut locked_vmm = self.vmm.lock().unwrap();
+        persist::create_snapshot(&mut locked_vmm, params, VERSION_MAP.clone())
+            .map_err(VmmActionError::CreateSnapshot)
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
