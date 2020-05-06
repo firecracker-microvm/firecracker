@@ -597,7 +597,6 @@ pub struct Vcpu {
     id: u8,
     create_ts: TimestampUs,
     mmio_bus: Option<devices::Bus>,
-    #[cfg_attr(all(test, target_arch = "aarch64"), allow(unused))]
     exit_evt: EventFd,
 
     #[cfg(target_arch = "x86_64")]
@@ -1244,6 +1243,7 @@ impl Vcpu {
     // All channels get closed on the other side while this Vcpu thread is still running.
     // This Vcpu thread should just do a clean finish without reporting back to the main thread.
     fn exit(&mut self, _: u8) -> StateMachine<Self> {
+        self.exit_evt.write(1).unwrap();
         // State machine reached its end.
         StateMachine::finish()
     }
