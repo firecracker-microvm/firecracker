@@ -265,7 +265,7 @@ fn build_microvm_from_json(
         );
         process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
     });
-    let vmm = vmm::builder::build_microvm(&vm_resources, event_manager, &seccomp_filter)
+    let vmm = vmm::builder::build_microvm_for_boot(&vm_resources, event_manager, &seccomp_filter)
         .unwrap_or_else(|err| {
             error!(
                 "Building VMM configured from cmdline json failed: {:?}",

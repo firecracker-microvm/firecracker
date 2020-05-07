@@ -202,7 +202,6 @@ impl MMIODeviceManager {
     pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
-        cmdline: &mut kernel_cmdline::Cmdline,
         serial: Arc<Mutex<devices::legacy::Serial>>,
     ) -> Result<()> {
         let slot = self.allocate_new_slot()?;
@@ -212,12 +211,20 @@ impl MMIODeviceManager {
         )
         .map_err(Error::RegisterIrqFd)?;
 
-        cmdline
-            .insert("earlycon", &format!("uart,mmio,0x{:08x}", slot.addr))
-            .map_err(Error::Cmdline)?;
-
         let identifier = (DeviceType::Serial, DeviceType::Serial.to_string());
         self.register_mmio_device(identifier, slot, serial)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    /// Append the registered early console to the kernel cmdline.
+    pub fn add_mmio_serial_to_cmdline(&self, cmdline: &mut kernel_cmdline::Cmdline) -> Result<()> {
+        let mmio_slot = self
+            .id_to_dev_info
+            .get(&(DeviceType::Serial, DeviceType::Serial.to_string()))
+            .ok_or(Error::DeviceNotFound)?;
+        cmdline
+            .insert("earlycon", &format!("uart,mmio,0x{:08x}", mmio_slot.addr))
+            .map_err(Error::Cmdline)
     }
 
     #[cfg(target_arch = "aarch64")]

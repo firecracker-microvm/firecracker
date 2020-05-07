@@ -295,7 +295,7 @@ impl<'a> PrebootApiController<'a> {
                 .set_mmds_config(mmds_config)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::MmdsConfig),
-            StartMicroVm => super::builder::build_microvm(
+            StartMicroVm => super::builder::build_microvm_for_boot(
                 &self.vm_resources,
                 &mut self.event_manager,
                 &self.seccomp_filter,
