@@ -24,7 +24,7 @@ use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
 #[cfg(target_arch = "x86_64")]
 use snapshot::Snapshot;
-use vmm::builder::{build_microvm, setup_serial_device};
+use vmm::builder::{build_microvm_for_boot, setup_serial_device};
 use vmm::default_syscalls::get_seccomp_filter;
 #[cfg(target_arch = "x86_64")]
 use vmm::persist;
@@ -66,7 +66,7 @@ fn test_build_microvm() {
     let mut event_manager = EventManager::new().unwrap();
     let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
 
-    let vmm_ret = build_microvm(&resources, &mut event_manager, &empty_seccomp_filter);
+    let vmm_ret = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter);
     assert_eq!(format!("{:?}", vmm_ret.err()), "Some(MissingKernelConfig)");
 
     // Success case.
@@ -88,7 +88,8 @@ fn test_build_microvm() {
             let mut event_manager = EventManager::new().unwrap();
             let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
 
-            let vmm = build_microvm(&resources, &mut event_manager, &empty_seccomp_filter).unwrap();
+            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter)
+                .unwrap();
 
             // On x86_64, the vmm should exit once its workload completes and signals the exit event.
             // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
@@ -128,7 +129,7 @@ fn test_vmm_seccomp() {
 
             // The customer "forgot" to whitelist the KVM_RUN ioctl.
             let filter: BpfProgram = MockSeccomp::new().without_kvm_run().into();
-            let vmm = build_microvm(&resources, &mut event_manager, &filter).unwrap();
+            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &filter).unwrap();
             // Give the vCPUs a chance to attempt KVM_RUN.
             thread::sleep(Duration::from_millis(200));
             // Should never get here.
@@ -164,7 +165,8 @@ fn test_pause_resume_microvm() {
             let mut event_manager = EventManager::new().unwrap();
             let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
 
-            let vmm = build_microvm(&resources, &mut event_manager, &empty_seccomp_filter).unwrap();
+            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter)
+                .unwrap();
 
             assert!(vmm.lock().unwrap().pause_vcpus().is_ok());
             // Pausing again the microVM should not fail (microVM remains in the
@@ -207,7 +209,8 @@ fn test_dirty_bitmap_error() {
             let mut event_manager = EventManager::new().unwrap();
             let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
 
-            let vmm = build_microvm(&resources, &mut event_manager, &empty_seccomp_filter).unwrap();
+            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter)
+                .unwrap();
             // The vmm will start with dirty page tracking = OFF.
             // With dirty tracking disabled, the underlying KVM_GET_DIRTY_LOG ioctl will fail
             // with errno 2 (ENOENT) because KVM can't find any guest memory regions with dirty
@@ -257,7 +260,8 @@ fn test_dirty_bitmap_success() {
             let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
 
             // The vmm will start with dirty page tracking = OFF.
-            let vmm = build_microvm(&resources, &mut event_manager, &empty_seccomp_filter).unwrap();
+            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter)
+                .unwrap();
             assert!(vmm.lock().unwrap().set_dirty_page_tracking(true).is_ok());
             // Let it churn for a while and dirty some pages...
             thread::sleep(Duration::from_millis(100));
@@ -306,7 +310,8 @@ fn create_snapshot(is_diff: bool) {
             let mut event_manager = EventManager::new().unwrap();
             let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
 
-            let vmm = build_microvm(&resources, &mut event_manager, &empty_seccomp_filter).unwrap();
+            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter)
+                .unwrap();
             assert!(vmm.lock().unwrap().set_dirty_page_tracking(true).is_ok());
 
             // Be sure that the microVM is running.
