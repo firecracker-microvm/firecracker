@@ -466,8 +466,8 @@ paths:
           schema:
             $ref: "#/definitions/Vm"
       responses:
-        501:
-          description: Not implemented yet
+        204:
+          description: Vm state updated
         400:
           description: Vm state cannot be updated due to bad input
           schema:

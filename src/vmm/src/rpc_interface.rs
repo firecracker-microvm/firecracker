@@ -265,7 +265,6 @@ impl<'a> PrebootApiController<'a> {
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::NetworkConfig),
             LoadSnapshot(_snapshot_load_cfg) => Ok(VmmData::NotFound),
-            Resume => Ok(VmmData::NotFound),
             SetVsockDevice(vsock_cfg) => self
                 .vm_resources
                 .set_vsock_device(vsock_cfg)
@@ -295,6 +294,7 @@ impl<'a> PrebootApiController<'a> {
             CreateSnapshot(_)
             | FlushMetrics
             | Pause
+            | Resume
             | UpdateBlockDevicePath(_, _)
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
@@ -324,7 +324,8 @@ impl RuntimeApiController {
             CreateSnapshot(_snapshot_create_cfg) => Ok(VmmData::NotFound),
             FlushMetrics => self.flush_metrics().map(|_| VmmData::Empty),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
-            Pause | Resume => Ok(VmmData::NotFound),
+            Pause => self.pause().map(|_| VmmData::Empty),
+            Resume => self.resume().map(|_| VmmData::Empty),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del().map(|_| VmmData::Empty),
             UpdateBlockDevicePath(drive_id, path_on_host) => self
@@ -354,6 +355,24 @@ impl RuntimeApiController {
     /// Creates a new `RuntimeApiController`.
     pub fn new(vm_config: VmConfig, vmm: Arc<Mutex<Vmm>>) -> Self {
         Self { vm_config, vmm }
+    }
+
+    /// Pauses the microVM by pausing the vCPUs.
+    pub fn pause(&mut self) -> ActionResult {
+        self.vmm
+            .lock()
+            .unwrap()
+            .pause_vcpus()
+            .map_err(VmmActionError::InternalVmm)
+    }
+
+    /// Resumes the microVM by resuming the vCPUs.
+    pub fn resume(&mut self) -> ActionResult {
+        self.vmm
+            .lock()
+            .unwrap()
+            .resume_vcpus()
+            .map_err(VmmActionError::InternalVmm)
     }
 
     /// Write the metrics on user demand (flush). We use the word `flush` here to highlight the fact

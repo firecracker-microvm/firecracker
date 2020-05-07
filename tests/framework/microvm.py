@@ -29,7 +29,7 @@ from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import Actions, BootSource, Drive, Logger, MMDS, \
-    MachineConfigure, Metrics, Network, Vsock
+    MachineConfigure, Metrics, Network, Vm, Vsock
 
 LOG = logging.getLogger("microvm")
 
@@ -102,6 +102,7 @@ class Microvm:
         self.mmds = None
         self.network = None
         self.machine_cfg = None
+        self.vm = None
         self.vsock = None
 
         # Initialize the logging subsystem.
@@ -297,6 +298,7 @@ class Microvm:
         self.metrics = Metrics(self._api_socket, self._api_session)
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
+        self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
 
         if create_logger:

@@ -133,3 +133,48 @@ fn test_vmm_seccomp() {
         }
     }
 }
+
+#[test]
+fn test_pause_resume_microvm() {
+    // Tests that pausing and resuming a microVM work as expected.
+    let pid = unsafe { libc::fork() };
+    match pid {
+        0 => {
+            // Child process: build and run vmm, then attempts to pause and resume it.
+            set_panic_hook();
+
+            let boot_source_cfg: BootSourceConfig =
+                MockBootSourceConfig::new().with_default_boot_args().into();
+            let resources: VmResources = MockVmResources::new()
+                .with_boot_source(boot_source_cfg)
+                .into();
+            let mut event_manager = EventManager::new().unwrap();
+            let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
+
+            let vmm = build_microvm(&resources, &mut event_manager, &empty_seccomp_filter).unwrap();
+
+            assert!(vmm.lock().unwrap().pause_vcpus().is_ok());
+            // Pausing again the microVM should not fail (microVM remains in the
+            // `Paused` state).
+            assert!(vmm.lock().unwrap().pause_vcpus().is_ok());
+            assert!(vmm.lock().unwrap().resume_vcpus().is_ok());
+
+            let _ = event_manager.run_with_timeout(500).unwrap();
+
+            #[cfg(target_arch = "x86_64")]
+            vmm.lock().unwrap().stop(-1); // If we got here, something went wrong.
+            #[cfg(target_arch = "aarch64")]
+            vmm.lock().unwrap().stop(0);
+        }
+        vmm_pid => {
+            // Parent process: wait for the vmm to exit.
+            let mut vmm_status: i32 = -1;
+            let pid_done = unsafe { libc::waitpid(vmm_pid, &mut vmm_status, 0) };
+            assert_eq!(pid_done, vmm_pid);
+            restore_stdin();
+            // If any panics occurred, its exit status will be != 0.
+            assert!(unsafe { libc::WIFEXITED(vmm_status) });
+            assert_eq!(unsafe { libc::WEXITSTATUS(vmm_status) }, 0);
+        }
+    }
+}

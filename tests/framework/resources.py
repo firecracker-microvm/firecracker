@@ -428,6 +428,38 @@ class Network():
         return datax
 
 
+class Vm():
+    """Facility for handling the state for a microvm."""
+
+    VM_CFG_RESOURCE = 'vm'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+
+        self._vm_cfg_url = api_url + self.VM_CFG_RESOURCE
+        self._api_session = api_session
+
+    def patch(self, **args):
+        """Apply an update to the microvm state."""
+        datax = self.create_json(**args)
+
+        return self._api_session.patch(
+            self._vm_cfg_url,
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(state):
+        """Create the json for the vm specific API request."""
+        datax = {
+            'state': state
+        }
+
+        return datax
+
+
 class Vsock():
     """Facility for handling vsock configuration for a microvm."""
 
