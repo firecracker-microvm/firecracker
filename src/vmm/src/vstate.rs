@@ -1198,8 +1198,12 @@ impl Vcpu {
                 // Move to 'running' state.
                 StateMachine::next(Self::running)
             }
-            // All other events have no effect on current 'paused' state.
-            Ok(_) => StateMachine::next(Self::paused),
+            Ok(VcpuEvent::Pause) => {
+                self.response_sender
+                    .send(VcpuResponse::Paused)
+                    .expect("failed to send pause status");
+                StateMachine::next(Self::paused)
+            }
             // Unhandled exit of the other end.
             Err(_) => {
                 // Move to 'exited' state.
@@ -1347,8 +1351,6 @@ pub(crate) mod tests {
     use std::os::unix::io::AsRawFd;
     #[cfg(target_arch = "x86_64")]
     use std::path::PathBuf;
-    #[cfg(target_arch = "x86_64")]
-    use std::sync::mpsc;
     use std::sync::{Arc, Barrier};
     #[cfg(target_arch = "x86_64")]
     use std::time::Duration;
@@ -1722,20 +1724,6 @@ pub(crate) mod tests {
     }
 
     #[cfg(target_arch = "x86_64")]
-    // Sends an event to a vcpu and expects no response.
-    fn queue_event_expect_timeout(handle: &VcpuHandle, event: VcpuEvent) {
-        handle
-            .send_event(event)
-            .expect("failed to send event to vcpu");
-        assert_eq!(
-            handle
-                .response_receiver()
-                .recv_timeout(Duration::from_millis(100)),
-            Err(mpsc::RecvTimeoutError::Timeout)
-        );
-    }
-
-    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vcpu_pause_resume() {
         Vcpu::register_kick_signal_handler();
@@ -1771,8 +1759,8 @@ pub(crate) mod tests {
         let err = vcpu_exit_evt.read().unwrap_err();
         assert_eq!(err.raw_os_error().unwrap(), libc::EAGAIN);
 
-        // Queue another Pause event, expect no answer.
-        queue_event_expect_timeout(&vcpu_handle, VcpuEvent::Pause);
+        // Queue another Pause event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);

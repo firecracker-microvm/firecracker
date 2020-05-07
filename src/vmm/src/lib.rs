@@ -40,14 +40,14 @@ pub mod builder;
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
 pub(crate) mod device_manager;
+/// Save/restore utilities.
+pub mod persist;
 /// Resource store for configured microVM resources.
 pub mod resources;
 /// microVM RPC API adapters.
 pub mod rpc_interface;
 /// Signal handling utilities.
 pub mod signal_handler;
-// Save/restore utilities.
-pub mod persist;
 /// Wrappers over structures used to configure the VMM.
 pub mod vmm_config;
 mod vstate;
@@ -147,6 +147,8 @@ pub enum Error {
     VcpuEvent(vstate::Error),
     /// Cannot create a vCPU handle.
     VcpuHandle(vstate::Error),
+    /// vCPU pause failed.
+    VcpuPause,
     /// vCPU resume failed.
     VcpuResume,
     /// Cannot spawn a new Vcpu thread.
@@ -184,7 +186,8 @@ impl Display for Error {
             Vcpu(e) => write!(f, "Vcpu error: {}", e),
             VcpuEvent(e) => write!(f, "Cannot send event to vCPU. {:?}", e),
             VcpuHandle(e) => write!(f, "Cannot create a vCPU handle. {}", e),
-            VcpuResume => write!(f, "vCPUs resume failed."),
+            VcpuPause => write!(f, "Failed to pause the vCPUs."),
+            VcpuResume => write!(f, "Failed to resume the vCPUs."),
             VcpuSpawn(e) => write!(f, "Cannot spawn Vcpu thread: {}", e),
             Vm(e) => write!(f, "Vm error: {}", e),
             VmmObserverInit(e) => write!(
@@ -280,23 +283,43 @@ impl Vmm {
         Ok(())
     }
 
-    /// Sends a resume command to the vcpus.
+    // Checks that the vCPUs respond with the `_expected_response`.
+    fn check_vcpus_response(
+        &mut self,
+        _expected_response: VcpuResponse,
+    ) -> std::result::Result<(), ()> {
+        for handle in self.vcpus_handles.iter() {
+            match handle
+                .response_receiver()
+                .recv_timeout(Duration::from_millis(1000))
+            {
+                Ok(_expected_response) => (),
+                _ => return Err(()),
+            }
+        }
+        Ok(())
+    }
+
+    /// Sends a resume command to the vCPUs.
     pub fn resume_vcpus(&mut self) -> Result<()> {
         for handle in self.vcpus_handles.iter() {
             handle
                 .send_event(VcpuEvent::Resume)
                 .map_err(Error::VcpuEvent)?;
         }
+        self.check_vcpus_response(VcpuResponse::Resumed)
+            .map_err(|_| Error::VcpuResume)
+    }
+
+    /// Sends a pause command to the vCPUs.
+    pub fn pause_vcpus(&mut self) -> Result<()> {
         for handle in self.vcpus_handles.iter() {
-            match handle
-                .response_receiver()
-                .recv_timeout(Duration::from_millis(1000))
-            {
-                Ok(VcpuResponse::Resumed) => (),
-                _ => return Err(Error::VcpuResume),
-            }
+            handle
+                .send_event(VcpuEvent::Pause)
+                .map_err(Error::VcpuEvent)?;
         }
-        Ok(())
+        self.check_vcpus_response(VcpuResponse::Paused)
+            .map_err(|_| Error::VcpuPause)
     }
 
     /// Configures the system for boot.
