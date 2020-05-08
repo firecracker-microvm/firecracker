@@ -42,12 +42,11 @@ entirely), or using `PATCH` requests, which feed the JSON body into the JSON Mer
 Patch functionality, based on [RFC 7396](https://tools.ietf.org/html/rfc7396). MMDS
 related API requests come from the host, which is considered a trusted environment,
 so there are no checks beside the kind of validation done by HTTP server and
-`serde-json` (the crate used to de/serialize JSON). Most importantly, there is
-currently a maximum request payload size, limited to 256KB; this limitation is
-present because the HTTP server uses memory to backup the request payload.
-If the payload gets bigger than 256KB, it will issue a `mremap` syscall, which is
-blacklisted by the default seccomp rules. MMDS contents can be retrieved using the
-Firecracker API, via a `GET` request to the `/mmds` resource.
+`serde-json` (the crate used to de/serialize JSON). There is no maximum limit for
+ the stored metadata size, but one might consider that storing and retrieving large
+ amount of data may induce bottlenecks for the HTTP REST API processing, which is 
+ based on `micro-http` crate. MMDS contents can be retrieved using the Firecracker
+ API, via a `GET` request to the `/mmds` resource.
 
 ## The data store
 
