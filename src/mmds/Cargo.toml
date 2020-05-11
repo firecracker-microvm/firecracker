@@ -12,5 +12,5 @@ utils = { path = "../utils" }
 logger = { path = "../logger" }
 dumbo = { path = "../dumbo" }
 snapshot = { path = "../snapshot" }
-versionize = { git = "https://github.com/firecracker-microvm/versionize", tag = "v0.1.0" }
+versionize = { version = "0.1.1" }
 versionize_derive = { git = "https://github.com/firecracker-microvm/versionize_derive", tag = "v0.1.0" }
