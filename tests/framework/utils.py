@@ -10,6 +10,7 @@ import threading
 import typing
 
 from collections import namedtuple
+from subprocess import run, PIPE
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
@@ -179,3 +180,32 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
         run_cmd_async(cmd=cmd,
                       ignore_return_code=ignore_return_code,
                       no_shell=no_shell))
+
+
+def get_cpus_in_numa(numa_node, vcpus):
+    """Return a list of #vcpus on given @numa_node."""
+
+    _p = run('cat /sys/devices/system/node/node{}/cpulist'.format(numa_node), 
+            shell=True, universal_newlines=True, stdout=PIPE, stderr=PIPE)
+    assert _p.stdout is not ''
+
+    cpu_lists = _p.stdout.split(',')
+    cpus = []
+    for cpu_list in cpu_lists:
+        start, end = cpu_list.split('-')
+        start = int(start)
+        end = int(end)
+        diff = end - start + 1
+        if diff < vcpus:
+            vcpus -= diff
+            cpus.extend(range(start, end + 1))        
+        else:
+            cpus.extend(range(start, start + vcpus))
+            vcpus = 0
+            break
+
+    # Check if we fullfiled the request.
+    # This may fail if we ask for more cpus than the numa node has.
+    assert vcpus == 0
+
+    return cpus

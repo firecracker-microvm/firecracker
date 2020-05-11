@@ -18,6 +18,8 @@ import re
 import select
 import time
 
+from subprocess import run
+
 from retry import retry
 from retry.api import retry_call
 
@@ -105,6 +107,7 @@ class Microvm:
         self.machine_cfg = None
         self.vm = None
         self.vsock = None
+        self.cset_name = None
 
         # Initialize the logging subsystem.
         self.logging_thread = None
@@ -146,6 +149,9 @@ class Microvm:
         if self._memory_events_queue and not self._memory_events_queue.empty():
             raise mem_tools.MemoryUsageExceededException(
                 self._memory_events_queue.get())
+
+        if self.cset_name is not None:
+            self.remove_vcpus_shield()
 
     @property
     def api_session(self):
@@ -296,6 +302,33 @@ class Microvm:
         os.makedirs(self._path, exist_ok=True)
         os.makedirs(self._kernel_path, exist_ok=True)
         os.makedirs(self._fsfiles_path, exist_ok=True)
+
+    def remove_vcpus_shield(self):
+        """Remove the cset created for the microvm."""
+
+        #Don't check since this may fail if no shield exists.
+        cmd = 'cset set --destroy --set={}'.format(self.cset_name)
+        run(cmd, shell=True)
+
+    def shield_vm_vcpus(self, cset_name, cpus_list, numa_node):
+        """Create a cset and insert the fc_vcpus in there."""
+
+        self.cset_name = cset_name
+        self.remove_vcpus_shield()
+
+        # Create a new cset.
+        cpus_list = ','.join(map(str, cpus_list))
+        #TODO: use --cpu_exclusive
+        cmd = 'cset set --cpu={} --mem={} --set={}'.format(cpus_list, numa_node, cset_name)
+        utils.run_cmd(cmd)
+
+        # Add Firecracker's threads in the cset.
+        cmd = 'cset proc --toset={} --move --pid $(pidof firecracker) --threads -k'.format(cset_name)
+        utils.run_cmd(cmd)
+
+        # Move kernel threads from this set.
+        cmd = 'cset proc --kthread --fromset={} --toset=root --force'.format(cset_name)
+        utils.run_cmd(cmd)
 
     def spawn(self, create_logger=True):
         """Start a microVM as a daemon or in a screen session."""
