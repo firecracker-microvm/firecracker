@@ -131,7 +131,7 @@ impl ApiServer {
             );
         }
 
-        server.start_server().unwrap();
+        server.start_server().expect("Cannot start HTTP server");
         loop {
             match server.requests() {
                 Ok(request_vec) => {
@@ -172,18 +172,18 @@ impl ApiServer {
     }
 
     fn serve_vmm_action_request(&self, vmm_action: VmmAction) -> Response {
-        self.api_request_sender.send(Box::new(vmm_action)).unwrap();
-        self.to_vmm_fd.write(1).unwrap();
-        let vmm_outcome = *(self.vmm_response_receiver.recv().unwrap());
+        self.api_request_sender
+            .send(Box::new(vmm_action))
+            .expect("Failed to send VMM message");
+        self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
+        let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
         ParsedRequest::convert_to_response(vmm_outcome)
     }
 
     fn get_instance_info(&self) -> Response {
         let shared_info_lock = self.vmm_shared_info.clone();
-        // unwrap() to crash if the other thread poisoned this lock
-        let shared_info = shared_info_lock
-            .read()
-            .expect("Failed to read shared_info due to poisoned lock");
+        // expect() to crash if the other thread poisoned this lock
+        let shared_info = shared_info_lock.read().expect("Poisoned lock");
         // Serialize it to a JSON string.
         let body_result = serde_json::to_string(&(*shared_info));
         match body_result {

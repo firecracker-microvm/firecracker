@@ -111,7 +111,8 @@ impl RTC {
                 self.previous_now = Instant::now();
                 // If the unwrap fails, then the internal value of the clock has been corrupted and
                 // we want to terminate the execution of the process.
-                self.tick_offset = utils::time::seconds_to_nanoseconds(i64::from(val)).unwrap();
+                self.tick_offset = utils::time::seconds_to_nanoseconds(i64::from(val))
+                    .expect("Time conversion overflow");
             }
             RTCIMSC => {
                 self.imsc = val & 1;

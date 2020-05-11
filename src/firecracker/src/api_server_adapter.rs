@@ -111,7 +111,9 @@ pub fn run_with_api(
     let mmds_info = MMDS.clone();
     let api_shared_info = Arc::new(RwLock::new(instance_info));
     let vmm_shared_info = api_shared_info.clone();
-    let to_vmm_event_fd = api_event_fd.try_clone().unwrap();
+    let to_vmm_event_fd = api_event_fd
+        .try_clone()
+        .expect("Failed to clone API event FD");
 
     let api_seccomp_filter = seccomp_filter.clone();
     // Start the separate API thread.
@@ -187,7 +189,7 @@ pub fn run_with_api(
     // Start the metrics.
     firecracker_metrics
         .lock()
-        .expect("Metrics lock poisoned.")
+        .expect("Poisoned lock")
         .start(super::metrics::WRITE_METRICS_PERIOD_MS);
 
     // Update the api shared instance info.
