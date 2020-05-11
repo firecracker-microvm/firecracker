@@ -1,3 +1,5 @@
+// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
 extern crate criterion;
 extern crate snapshot;
 extern crate versionize;
@@ -7,6 +9,8 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
+
+mod version_map;
 
 #[derive(Clone, Debug, Default, Versionize)]
 struct Test {
@@ -137,7 +141,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     bench_snapshot_v1(&mut slice, vm.clone(), false);
     let mut snapshot_len = slice.as_ptr() as usize - snapshot_mem.as_slice().as_ptr() as usize;
 
-    println!("Snapshot len {}", snapshot_len);
+    println!("Snapshot length: {} bytes", snapshot_len);
 
     c.bench_function("Serialize to v4", |b| {
         b.iter(|| {
@@ -161,7 +165,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let another_slice = &mut snapshot_mem.as_mut_slice();
     bench_snapshot_v1(another_slice, vm.clone(), true);
     snapshot_len = another_slice.as_ptr() as usize - snapshot_mem.as_slice().as_ptr() as usize;
-    println!("Snapshot with crc64 len {}", snapshot_len);
+    println!("Snapshot with crc64 length: {} bytes", snapshot_len);
 
     c.bench_function("Serialize with crc64 to v4", |b| {
         b.iter(|| {
@@ -189,4 +193,7 @@ criterion_group! {
     targets = criterion_benchmark
 }
 
-criterion_main!(benches);
+criterion_main! {
+    benches,
+    version_map::benches,
+}
