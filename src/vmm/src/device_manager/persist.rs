@@ -94,10 +94,12 @@ pub struct MMIODevManagerConstructorArgs<'a> {
     pub vm: &'a VmFd,
 }
 
-// Cannot implement actual 'trait Persist' without adding a lifetime parameter
-// to the Persist trait.
-impl MMIODeviceManager {
-    pub fn save(&self) -> DeviceStates {
+impl<'a> Persist<'a> for MMIODeviceManager {
+    type State = DeviceStates;
+    type ConstructorArgs = MMIODevManagerConstructorArgs<'a>;
+    type Error = Error;
+
+    fn save(&self) -> Self::State {
         let mut states = DeviceStates {
             block_devices: Vec::new(),
             net_devices: Vec::new(),
@@ -166,10 +168,10 @@ impl MMIODeviceManager {
         states
     }
 
-    pub fn restore(
-        constructor_args: MMIODevManagerConstructorArgs,
-        state: &DeviceStates,
-    ) -> std::result::Result<Self, io::Error> {
+    fn restore(
+        constructor_args: Self::ConstructorArgs,
+        state: &Self::State,
+    ) -> std::result::Result<Self, Self::Error> {
         // These are only used during initial registration.
         let mut dummy_mmio_base = 0;
         let dummy_irq_range = (0, 0);

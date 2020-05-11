@@ -42,6 +42,7 @@ mod tests {
     use crate::vstate::tests::default_vcpu_state;
     use crate::Vmm;
     use polly::event_manager::EventManager;
+    use snapshot::Persist;
     use utils::tempfile::TempFile;
     use vmm_config::net::NetworkInterfaceConfig;
     use vmm_config::vsock::tests::{default_config, TempSockFile};

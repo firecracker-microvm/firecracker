@@ -40,7 +40,7 @@ pub struct QueueState {
     next_used: Wrapping<u16>,
 }
 
-impl Persist for Queue {
+impl Persist<'_> for Queue {
     type State = QueueState;
     type ConstructorArgs = ();
     type Error = ();
@@ -115,7 +115,7 @@ pub struct MmioTransportConstructorArgs {
     pub device: Arc<Mutex<dyn VirtioDevice>>,
 }
 
-impl Persist for MmioTransport {
+impl Persist<'_> for MmioTransport {
     type State = MmioTransportState;
     type ConstructorArgs = MmioTransportConstructorArgs;
     type Error = ();

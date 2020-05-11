@@ -45,7 +45,7 @@ pub enum Error {
     CreateRateLimiter(io::Error),
 }
 
-impl Persist for Net {
+impl Persist<'_> for Net {
     type State = NetState;
     type ConstructorArgs = NetConstructorArgs;
     type Error = Error;

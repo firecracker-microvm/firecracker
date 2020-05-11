@@ -22,7 +22,7 @@ pub struct MmdsNetworkStackState {
     max_pending_resets: usize,
 }
 
-impl Persist for MmdsNetworkStack {
+impl Persist<'_> for MmdsNetworkStack {
     type State = MmdsNetworkStackState;
     type ConstructorArgs = ();
     type Error = ();
