@@ -57,7 +57,7 @@ impl PortIODeviceManager {
         let io_bus = devices::Bus::new();
         let com_evt_1_3 = serial
             .lock()
-            .unwrap()
+            .expect("Poisoned lock")
             .interrupt_evt()
             .try_clone()
             .map_err(Error::EventFd)?;

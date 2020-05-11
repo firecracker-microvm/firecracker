@@ -336,7 +336,7 @@ mod tests {
     fn tap_name_to_string(tap: &Tap) -> String {
         let null_pos = tap.if_name.iter().position(|x| *x == 0).unwrap();
         str::from_utf8(&tap.if_name[..null_pos])
-            .unwrap()
+            .expect("Cannot convert from UTF-8")
             .to_string()
     }
 

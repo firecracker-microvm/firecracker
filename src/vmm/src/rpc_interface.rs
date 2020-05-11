@@ -361,7 +361,7 @@ impl RuntimeApiController {
     pub fn pause(&mut self) -> ActionResult {
         self.vmm
             .lock()
-            .unwrap()
+            .expect("Poisoned lock")
             .pause_vcpus()
             .map_err(VmmActionError::InternalVmm)
     }
@@ -370,7 +370,7 @@ impl RuntimeApiController {
     pub fn resume(&mut self) -> ActionResult {
         self.vmm
             .lock()
-            .unwrap()
+            .expect("Poisoned lock")
             .resume_vcpus()
             .map_err(VmmActionError::InternalVmm)
     }
@@ -393,7 +393,7 @@ impl RuntimeApiController {
     fn send_ctrl_alt_del(&mut self) -> ActionResult {
         self.vmm
             .lock()
-            .unwrap()
+            .expect("Poisoned lock")
             .send_ctrl_alt_del()
             .map_err(VmmActionError::InternalVmm)
     }
@@ -408,7 +408,7 @@ impl RuntimeApiController {
         if let Some(busdev) = self
             .vmm
             .lock()
-            .unwrap()
+            .expect("Poisoned lock")
             .get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id)
         {
             let new_size;
@@ -416,7 +416,7 @@ impl RuntimeApiController {
             {
                 let virtio_dev = busdev
                     .lock()
-                    .expect("Poisoned device lock")
+                    .expect("Poisoned lock")
                     .as_any()
                     // Only MmioTransport implements BusDevice at this point.
                     .downcast_ref::<MmioTransport>()
@@ -425,7 +425,7 @@ impl RuntimeApiController {
                     .device();
 
                 // We need this bound to a variable so that it lives as long as the 'block' ref.
-                let mut locked_device = virtio_dev.lock().expect("Poisoned device lock");
+                let mut locked_device = virtio_dev.lock().expect("Poisoned lock");
                 // Get a '&mut Block' ref from the above MutexGuard<dyn VirtioDevice>.
                 let block = locked_device
                     .as_mut_any()
@@ -457,7 +457,7 @@ impl RuntimeApiController {
 
             // Update the virtio config space and kick the driver to pick up the changes.
             let new_cfg = devices::virtio::block::device::build_config_space(new_size);
-            let mut locked_dev = busdev.lock().expect("Poisoned device lock");
+            let mut locked_dev = busdev.lock().expect("Poisoned lock");
             locked_dev.write(MMIO_CFG_SPACE_OFF, &new_cfg[..]);
             locked_dev
                 .interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG)
@@ -474,12 +474,12 @@ impl RuntimeApiController {
         if let Some(busdev) = self
             .vmm
             .lock()
-            .unwrap()
+            .expect("Poisoned lock")
             .get_bus_device(DeviceType::Virtio(TYPE_NET), &new_cfg.iface_id)
         {
             let virtio_device = busdev
                 .lock()
-                .expect("Poisoned device lock")
+                .expect("Poisoned lock")
                 .as_any()
                 .downcast_ref::<MmioTransport>()
                 // Only MmioTransport implements BusDevice at this point.
@@ -497,7 +497,7 @@ impl RuntimeApiController {
 
             virtio_device
                 .lock()
-                .expect("Poisoned device lock")
+                .expect("Poisoned lock")
                 .as_mut_any()
                 .downcast_mut::<Net>()
                 .unwrap()

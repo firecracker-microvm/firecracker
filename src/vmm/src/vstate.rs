@@ -499,7 +499,7 @@ impl Vm {
     /// Gets a reference to the irqchip of the VM
     #[cfg(target_arch = "aarch64")]
     pub fn get_irqchip(&self) -> &Box<dyn GICDevice> {
-        &self.irqchip_handle.as_ref().unwrap()
+        &self.irqchip_handle.as_ref().expect("IRQ chip not set")
     }
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
@@ -883,7 +883,7 @@ impl Vcpu {
     /// Moves the vcpu to its own thread and constructs a VcpuHandle.
     /// The handle can be used to control the remote vcpu.
     pub fn start_threaded(mut self, seccomp_filter: BpfProgram) -> Result<VcpuHandle> {
-        let event_sender = self.event_sender.take().unwrap();
+        let event_sender = self.event_sender.take().expect("vCPU already started");
         let response_receiver = self.response_receiver.take().unwrap();
         let vcpu_thread = thread::Builder::new()
             .name(format!("fc_vcpu {}", self.cpu_index()))
