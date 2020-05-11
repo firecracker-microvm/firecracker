@@ -431,7 +431,7 @@ paths:
       description:
         Loads the microVM state from a snapshot.
         Only accepted on a fresh Firecracker process (before configuring
-        any resource other than the Logger).
+        any resource other than the Logger and Metrics).
       operationId: loadSnapshot
       parameters:
         - name: body
