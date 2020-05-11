@@ -628,23 +628,6 @@ pub fn configure_system_for_boot(
     Ok(())
 }
 
-/// Attaches an MmioTransport device to the device manager.
-fn attach_mmio_device(
-    vmm: &mut Vmm,
-    _cmdline: &mut KernelCmdline,
-    id: String,
-    device: MmioTransport,
-) -> std::result::Result<(), device_manager::mmio::Error> {
-    let mmio_slot = vmm.mmio_device_manager.allocate_new_slot()?;
-    vmm.mmio_device_manager
-        .register_virtio_mmio_device(vmm.vm.fd(), id, device, &mmio_slot)?;
-    #[cfg(target_arch = "x86_64")]
-    vmm.mmio_device_manager
-        .add_virtio_device_to_cmdline(_cmdline, &mmio_slot)?;
-
-    Ok(())
-}
-
 fn attach_block_devices(
     vmm: &mut Vmm,
     cmdline: &mut KernelCmdline,
@@ -676,13 +659,10 @@ fn attach_block_devices(
             .map_err(RegisterEvent)?;
 
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_mmio_device(
-            vmm,
-            cmdline,
-            id,
-            MmioTransport::new(vmm.guest_memory().clone(), block.clone()),
-        )
-        .map_err(RegisterBlockDevice)?;
+        let device = MmioTransport::new(vmm.guest_memory().clone(), block.clone());
+        vmm.mmio_device_manager
+            .register_new_virtio_mmio_device(vmm.vm.fd(), id, device, cmdline)
+            .map_err(RegisterBlockDevice)?;
     }
 
     Ok(())
@@ -702,13 +682,10 @@ fn attach_net_devices(
             .map_err(RegisterEvent)?;
         let id = net_device.lock().unwrap().id().clone();
         // The device mutex mustn't be locked here otherwise it will deadlock.
-        attach_mmio_device(
-            vmm,
-            cmdline,
-            id,
-            MmioTransport::new(vmm.guest_memory().clone(), net_device.clone()),
-        )
-        .map_err(RegisterNetDevice)?;
+        let device = MmioTransport::new(vmm.guest_memory().clone(), net_device.clone());
+        vmm.mmio_device_manager
+            .register_new_virtio_mmio_device(vmm.vm.fd(), id, device, cmdline)
+            .map_err(RegisterNetDevice)?;
     }
 
     Ok(())
@@ -728,13 +705,10 @@ fn attach_unixsock_vsock_device(
 
     let id = String::from(unix_vsock.lock().unwrap().id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_mmio_device(
-        vmm,
-        cmdline,
-        id,
-        MmioTransport::new(vmm.guest_memory().clone(), unix_vsock.clone()),
-    )
-    .map_err(RegisterVsockDevice)?;
+    let device = MmioTransport::new(vmm.guest_memory().clone(), unix_vsock.clone());
+    vmm.mmio_device_manager
+        .register_new_virtio_mmio_device(vmm.vm.fd(), id, device, cmdline)
+        .map_err(RegisterVsockDevice)?;
 
     Ok(())
 }
@@ -840,7 +814,7 @@ pub mod tests {
         cmdline: &mut Cmdline,
         event_manager: &mut EventManager,
         custom_block_cfgs: Vec<CustomBlockConfig>,
-    ) {
+    ) -> Vec<TempFile> {
         let mut block_dev_configs = BlockBuilder::new();
         let mut block_files = Vec::new();
         for custom_block_cfg in &custom_block_cfgs {
@@ -862,8 +836,8 @@ pub mod tests {
             block_dev_configs.insert(block_device_config).unwrap();
         }
 
-        let res = attach_block_devices(vmm, cmdline, &block_dev_configs, event_manager);
-        assert!(res.is_ok());
+        attach_block_devices(vmm, cmdline, &block_dev_configs, event_manager).unwrap();
+        block_files
     }
 
     pub(crate) fn insert_net_device(

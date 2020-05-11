@@ -6,69 +6,11 @@
 // Currently only supports x86_64.
 #![cfg(target_arch = "x86_64")]
 
-use devices::virtio::{
-    block::persist::BlockState, net::persist::NetState, persist::MmioTransportState,
-    vsock::persist::VsockState,
-};
+use crate::device_manager::persist::DeviceStates;
+use crate::vstate::{VcpuState, VmState};
 
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vstate::{VcpuState, VmState};
-
-#[derive(Debug, PartialEq, Versionize)]
-/// Holds information related to how a device is registered in the mmio space.
-pub struct VmmResourcesState {
-    /// Mmio base address at which the device is registered.
-    pub mmio_base: u64,
-    /// Mmio addr range length.
-    pub len: u64,
-    /// Used Irq line(s) for the device.
-    pub irqs: Vec<u32>,
-}
-
-#[derive(Versionize)]
-/// Holds the state of a block device connected to the MMIO space.
-pub struct ConnectedBlockState {
-    /// Device state.
-    pub device_state: BlockState,
-    /// Mmio transport state.
-    pub transport_state: MmioTransportState,
-    /// VmmResources.
-    pub vmm_resources: VmmResourcesState,
-}
-
-#[derive(Versionize)]
-/// Holds the state of a net device connected to the MMIO space.
-pub struct ConnectedNetState {
-    /// Device state.
-    pub device_state: NetState,
-    /// Mmio transport state.
-    pub transport_state: MmioTransportState,
-    /// VmmResources.
-    pub vmm_resources: VmmResourcesState,
-}
-
-#[derive(Versionize)]
-/// Holds the state of a vsock device connected to the MMIO space.
-pub struct ConnectedVsockState {
-    /// Device state.
-    pub device_state: VsockState,
-    /// Mmio transport state.
-    pub transport_state: MmioTransportState,
-    /// VmmResources.
-    pub vmm_resources: VmmResourcesState,
-}
-
-#[derive(Versionize)]
-/// Holds the device states.
-pub struct DeviceStates {
-    /// Block device states.
-    pub block_devices: Vec<ConnectedBlockState>,
-    /// Net device states.
-    pub net_devices: Vec<ConnectedNetState>,
-    /// Vsock device tests.
-    pub vsock_device: Option<ConnectedVsockState>,
-}
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Debug, PartialEq, Versionize)]
@@ -104,78 +46,6 @@ mod tests {
     use vmm_config::net::NetworkInterfaceConfig;
     use vmm_config::vsock::tests::{default_config, TempSockFile};
 
-    impl PartialEq for ConnectedBlockState {
-        fn eq(&self, other: &ConnectedBlockState) -> bool {
-            // Actual device state equality is checked by the device's tests.
-            self.transport_state == other.transport_state
-                && self.vmm_resources == other.vmm_resources
-        }
-    }
-
-    impl std::fmt::Debug for ConnectedBlockState {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                f,
-                "ConnectedBlockDevice {{ transport_state: {:?}, vmm_resources: {:?} }}",
-                self.transport_state, self.vmm_resources
-            )
-        }
-    }
-
-    impl PartialEq for ConnectedNetState {
-        fn eq(&self, other: &ConnectedNetState) -> bool {
-            // Actual device state equality is checked by the device's tests.
-            self.transport_state == other.transport_state
-                && self.vmm_resources == other.vmm_resources
-        }
-    }
-
-    impl std::fmt::Debug for ConnectedNetState {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                f,
-                "ConnectedNetDevice {{ transport_state: {:?}, vmm_resources: {:?} }}",
-                self.transport_state, self.vmm_resources
-            )
-        }
-    }
-
-    impl PartialEq for ConnectedVsockState {
-        fn eq(&self, other: &ConnectedVsockState) -> bool {
-            // Actual device state equality is checked by the device's tests.
-            self.transport_state == other.transport_state
-                && self.vmm_resources == other.vmm_resources
-        }
-    }
-
-    impl std::fmt::Debug for ConnectedVsockState {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                f,
-                "ConnectedVsockDevice {{ transport_state: {:?}, vmm_resources: {:?} }}",
-                self.transport_state, self.vmm_resources
-            )
-        }
-    }
-
-    impl PartialEq for DeviceStates {
-        fn eq(&self, other: &DeviceStates) -> bool {
-            self.block_devices == other.block_devices
-                && self.net_devices == other.net_devices
-                && self.vsock_device == other.vsock_device
-        }
-    }
-
-    impl std::fmt::Debug for DeviceStates {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                f,
-                "DevicesStates {{ block_devices: {:?}, net_devices: {:?}, vsock_device: {:?} }}",
-                self.block_devices, self.net_devices, self.vsock_device
-            )
-        }
-    }
-
     fn default_vmm_with_devices(event_manager: &mut EventManager) -> Vmm {
         let mut vmm = default_vmm();
         let mut cmdline = default_kernel_cmdline();
@@ -208,8 +78,8 @@ mod tests {
     #[test]
     fn test_microvmstate_versionize() {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-        let mut vmm = default_vmm_with_devices(&mut event_manager);
-        let states = vmm.save_mmio_device_states();
+        let vmm = default_vmm_with_devices(&mut event_manager);
+        let states = vmm.mmio_device_manager.save();
 
         // Only checking that all devices are saved, actual device state
         // is tested by that device's tests.
