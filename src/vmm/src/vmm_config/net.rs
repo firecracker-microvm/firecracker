@@ -187,16 +187,6 @@ impl NetBuilder {
         )
         .map_err(NetworkInterfaceError::CreateNetworkDevice)
     }
-
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.net_devices.len()
-    }
-
-    #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
-        self.net_devices.len() == 0
-    }
 }
 
 #[cfg(test)]
@@ -204,6 +194,16 @@ mod tests {
     use std::str;
 
     use super::*;
+
+    impl NetBuilder {
+        pub fn len(&self) -> usize {
+            self.net_devices.len()
+        }
+
+        pub fn is_empty(&self) -> bool {
+            self.net_devices.len() == 0
+        }
+    }
 
     fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
