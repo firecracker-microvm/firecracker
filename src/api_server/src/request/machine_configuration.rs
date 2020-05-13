@@ -3,12 +3,13 @@
 
 use super::super::VmmAction;
 use logger::{Metric, METRICS};
-use request::{method_to_error, Body, Error, Method, ParsedRequest, StatusCode};
+use parsed_request::{method_to_error, Error, ParsedRequest};
+use request::{Body, Method, StatusCode};
 use vmm::vmm_config::machine_config::VmConfig;
 
 pub fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
-    Ok(ParsedRequest::Sync(VmmAction::GetVmConfiguration))
+    Ok(ParsedRequest::new_sync(VmmAction::GetVmConfiguration))
 }
 
 pub fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
@@ -26,7 +27,7 @@ pub fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
             "Missing mandatory fields.".to_string(),
         ));
     }
-    Ok(ParsedRequest::Sync(VmmAction::SetVmConfiguration(
+    Ok(ParsedRequest::new_sync(VmmAction::SetVmConfiguration(
         vm_config,
     )))
 }
@@ -44,7 +45,7 @@ pub fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     {
         return method_to_error(Method::Patch);
     }
-    Ok(ParsedRequest::Sync(VmmAction::SetVmConfiguration(
+    Ok(ParsedRequest::new_sync(VmmAction::SetVmConfiguration(
         vm_config,
     )))
 }
@@ -52,6 +53,7 @@ pub fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parsed_request::tests::vmm_action_from_request;
 
     use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
 
@@ -79,10 +81,8 @@ mod tests {
             cpu_template: Some(CpuFeaturesTemplate::T2),
             track_dirty_pages: true,
         };
-        match parse_put_machine_config(&Body::new(body)) {
-            Ok(ParsedRequest::Sync(VmmAction::SetVmConfiguration(config))) => {
-                assert_eq!(config, expected_config)
-            }
+        match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+            VmmAction::SetVmConfiguration(config) => assert_eq!(config, expected_config),
             _ => panic!("Test failed."),
         }
 
@@ -98,10 +98,8 @@ mod tests {
             cpu_template: None,
             track_dirty_pages: false,
         };
-        match parse_put_machine_config(&Body::new(body)) {
-            Ok(ParsedRequest::Sync(VmmAction::SetVmConfiguration(config))) => {
-                assert_eq!(config, expected_config)
-            }
+        match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+            VmmAction::SetVmConfiguration(config) => assert_eq!(config, expected_config),
             _ => panic!("Test failed."),
         }
 

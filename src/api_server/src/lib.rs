@@ -171,9 +171,9 @@ impl ApiServer {
         }
     }
 
-    fn serve_vmm_action_request(&self, vmm_action: VmmAction) -> Response {
+    fn serve_vmm_action_request(&self, vmm_action: Box<VmmAction>) -> Response {
         self.api_request_sender
-            .send(Box::new(vmm_action))
+            .send(vmm_action)
             .expect("Failed to send VMM message");
         self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
         let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
@@ -340,7 +340,7 @@ mod tests {
                 StartMicrovmError::MicroVMAlreadyRunning,
             ))))
             .unwrap();
-        let response = api_server.serve_vmm_action_request(VmmAction::StartMicroVm);
+        let response = api_server.serve_vmm_action_request(Box::new(VmmAction::StartMicroVm));
         assert_eq!(response.status(), StatusCode::BadRequest);
     }
 

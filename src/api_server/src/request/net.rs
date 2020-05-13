@@ -3,7 +3,8 @@
 
 use super::super::VmmAction;
 use logger::{Metric, METRICS};
-use request::{checked_id, Body, Error, ParsedRequest, StatusCode};
+use parsed_request::{checked_id, Error, ParsedRequest};
+use request::{Body, StatusCode};
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
 pub fn parse_put_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
@@ -26,7 +27,9 @@ pub fn parse_put_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedR
             "The id from the path does not match the id from the body!".to_string(),
         ));
     }
-    Ok(ParsedRequest::Sync(VmmAction::InsertNetworkDevice(netif)))
+    Ok(ParsedRequest::new_sync(VmmAction::InsertNetworkDevice(
+        netif,
+    )))
 }
 
 pub fn parse_patch_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
@@ -50,7 +53,7 @@ pub fn parse_patch_net(body: &Body, id_from_path: Option<&&str>) -> Result<Parse
             "The id from the path does not match the id from the body!".to_string(),
         ));
     }
-    Ok(ParsedRequest::Sync(VmmAction::UpdateNetworkInterface(
+    Ok(ParsedRequest::new_sync(VmmAction::UpdateNetworkInterface(
         netif,
     )))
 }
@@ -60,6 +63,7 @@ mod tests {
     use serde_json;
 
     use super::*;
+    use crate::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_put_net_request() {
@@ -76,10 +80,8 @@ mod tests {
 
         // 3. Success case.
         let netif_clone = serde_json::from_str::<NetworkInterfaceConfig>(body).unwrap();
-        match parse_put_net(&Body::new(body), Some(&"foo")) {
-            Ok(ParsedRequest::Sync(VmmAction::InsertNetworkDevice(netif))) => {
-                assert_eq!(netif, netif_clone)
-            }
+        match vmm_action_from_request(parse_put_net(&Body::new(body), Some(&"foo")).unwrap()) {
+            VmmAction::InsertNetworkDevice(netif) => assert_eq!(netif, netif_clone),
             _ => panic!("Test failed."),
         }
 
@@ -120,10 +122,8 @@ mod tests {
 
         // 3. Success case.
         let netif_clone = serde_json::from_str::<NetworkInterfaceUpdateConfig>(body).unwrap();
-        match parse_patch_net(&Body::new(body), Some(&"foo")) {
-            Ok(ParsedRequest::Sync(VmmAction::UpdateNetworkInterface(netif))) => {
-                assert_eq!(netif, netif_clone)
-            }
+        match vmm_action_from_request(parse_patch_net(&Body::new(body), Some(&"foo")).unwrap()) {
+            VmmAction::UpdateNetworkInterface(netif) => assert_eq!(netif, netif_clone),
             _ => panic!("Test failed."),
         }
 

@@ -24,13 +24,12 @@ use ApiServer;
 
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
-#[allow(clippy::large_enum_variant)]
 pub enum ParsedRequest {
     GetInstanceInfo,
     GetMMDS,
     PatchMMDS(Value),
     PutMMDS(Value),
-    Sync(VmmAction),
+    Sync(Box<VmmAction>),
 }
 
 impl ParsedRequest {
@@ -114,6 +113,11 @@ impl ParsedRequest {
                 response
             }
         }
+    }
+
+    /// Helper function to avoid boiler-plate code.
+    pub fn new_sync(vmm_action: VmmAction) -> ParsedRequest {
+        ParsedRequest::Sync(Box::new(vmm_action))
     }
 }
 
@@ -232,7 +236,7 @@ pub fn checked_id(id: &str) -> Result<&str, Error> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     use std::io::Write;
@@ -260,6 +264,13 @@ mod tests {
                 }
                 _ => false,
             }
+        }
+    }
+
+    pub(crate) fn vmm_action_from_request(req: ParsedRequest) -> VmmAction {
+        match req {
+            ParsedRequest::Sync(vmm_action) => *vmm_action,
+            _ => panic!("Invalid request"),
         }
     }
 

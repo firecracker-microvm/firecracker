@@ -3,12 +3,13 @@
 
 use super::super::VmmAction;
 use logger::{Metric, METRICS};
-use request::{Body, Error, ParsedRequest};
+use parsed_request::{Error, ParsedRequest};
+use request::Body;
 use vmm::vmm_config::logger::LoggerConfig;
 
 pub fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.logger_count.inc();
-    Ok(ParsedRequest::Sync(VmmAction::ConfigureLogger(
+    Ok(ParsedRequest::new_sync(VmmAction::ConfigureLogger(
         serde_json::from_slice::<LoggerConfig>(body.raw()).map_err(|e| {
             METRICS.put_api_requests.logger_fails.inc();
             Error::SerdeJson(e)
@@ -21,6 +22,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::parsed_request::tests::vmm_action_from_request;
     use vmm::vmm_config::logger::LoggerLevel;
 
     #[test]
@@ -38,10 +40,8 @@ mod tests {
             show_level: false,
             show_log_origin: false,
         };
-        match parse_put_logger(&Body::new(body)) {
-            Ok(ParsedRequest::Sync(VmmAction::ConfigureLogger(cfg))) => {
-                assert_eq!(cfg, expected_cfg)
-            }
+        match vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()) {
+            VmmAction::ConfigureLogger(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }
 
