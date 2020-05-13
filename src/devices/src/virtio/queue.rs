@@ -77,14 +77,13 @@ impl<'a> DescriptorChain<'a> {
         mem.checked_offset(desc_head, 16)?;
 
         // These reads can't fail unless Guest memory is hopelessly broken.
-        let desc = match mem.read_obj::<Descriptor>(desc_head) {
-            Ok(ret) => ret,
-            Err(_) => {
+        let desc = mem
+            .read_obj::<Descriptor>(desc_head)
+            .map_err(|_| {
                 // TODO log address
                 error!("Failed to read from memory");
-                return None;
-            }
-        };
+            })
+            .unwrap();
         let chain = DescriptorChain {
             mem,
             desc_table,
