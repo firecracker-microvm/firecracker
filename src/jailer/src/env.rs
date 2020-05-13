@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::ffi::CStr;
-use std::fs::{self, canonicalize, File};
+use std::fs::{self, canonicalize, File, Permissions};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::IntoRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -30,6 +31,7 @@ const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
 // Since libc::chown is not recursive, we cannot specify only /dev/net as we want
 // to walk through the entire folder hierarchy.
 const FOLDER_HIERARCHY: [&[u8]; 4] = [b"/\0", b"/dev\0", b"/dev/net\0", b"/run\0"];
+const FOLDER_PERMISSIONS: u32 = 0o700;
 
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
@@ -168,22 +170,27 @@ impl Env {
 
         SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
-            .map_err(|e| Error::ChangeFileOwner(dev_path.to_str().unwrap(), e))
+            // Safe to unwrap as we provided valid file names.
+            .map_err(|e| Error::ChangeFileOwner(PathBuf::from(dev_path.to_str().unwrap()), e))
     }
 
-    fn setup_jailed_folders(&mut self) -> Result<()> {
-        for folder in FOLDER_HIERARCHY.iter() {
-            let folder_cstr = CStr::from_bytes_with_nul(folder).map_err(Error::FromBytesWithNul)?;
+    pub fn setup_jailed_folder(&self, folder: &[u8]) -> Result<()> {
+        let folder_cstr = CStr::from_bytes_with_nul(folder).map_err(Error::FromBytesWithNul)?;
 
-            // This unwrap is safe as we provided strings that have valid utf8 chars.
-            let path = folder_cstr.to_str().unwrap();
-            fs::create_dir_all(path).map_err(|e| Error::CreateDir(PathBuf::from(path), e))?;
+        // Safe to unwrap as the byte sequence is UTF-8 validated above.
+        let path = folder_cstr.to_str().unwrap();
+        let path_buf = PathBuf::from(path);
+        fs::create_dir_all(path).map_err(|e| Error::CreateDir(path_buf.clone(), e))?;
+        fs::set_permissions(path, Permissions::from_mode(FOLDER_PERMISSIONS))
+            .map_err(|e| Error::Chmod(path_buf.clone(), e))?;
 
-            SyscallReturnCode(unsafe { libc::chown(folder_cstr.as_ptr(), self.uid(), self.gid()) })
-                .into_empty_result()
-                .map_err(|e| Error::ChangeFileOwner(folder_cstr.to_str().unwrap(), e))?;
-        }
-        Ok(())
+        #[cfg(target_arch = "x86_64")]
+        let folder_bytes_ptr = folder.as_ptr() as *const i8;
+        #[cfg(target_arch = "aarch64")]
+        let folder_bytes_ptr = folder.as_ptr();
+        SyscallReturnCode(unsafe { libc::chown(folder_bytes_ptr, self.uid(), self.gid()) })
+            .into_empty_result()
+            .map_err(|e| Error::ChangeFileOwner(path_buf, e))
     }
 
     pub fn run(mut self) -> Result<()> {
@@ -256,7 +263,10 @@ impl Env {
 
         // This will not only create necessary directories, but will also change ownership
         // for all of them.
-        self.setup_jailed_folders()?;
+        FOLDER_HIERARCHY
+            .iter()
+            .map(|f| self.setup_jailed_folder(*f))
+            .collect::<Result<()>>()?;
 
         // Here we are creating the /dev/kvm and /dev/net/tun devices inside the jailer.
         // Following commands can be translated into bash like this:
@@ -308,16 +318,35 @@ mod tests {
     use super::*;
     use build_arg_parser;
 
+    use std::os::linux::fs::MetadataExt;
+    use std::os::unix::ffi::OsStrExt;
+    use utils::tempdir::TempDir;
+
     #[derive(Clone)]
     struct ArgVals<'a> {
-        node: &'a str,
-        id: &'a str,
-        exec_file: &'a str,
-        uid: &'a str,
-        gid: &'a str,
-        chroot_base: &'a str,
-        netns: Option<&'a str>,
-        daemonize: bool,
+        pub node: &'a str,
+        pub id: &'a str,
+        pub exec_file: &'a str,
+        pub uid: &'a str,
+        pub gid: &'a str,
+        pub chroot_base: &'a str,
+        pub netns: Option<&'a str>,
+        pub daemonize: bool,
+    }
+
+    impl ArgVals<'_> {
+        pub fn new() -> ArgVals<'static> {
+            ArgVals {
+                node: "1",
+                id: "bd65600d-8669-4903-8a14-af88203add38",
+                exec_file: "/proc/cpuinfo",
+                uid: "1001",
+                gid: "1002",
+                chroot_base: "/",
+                netns: Some("zzzns"),
+                daemonize: true,
+            }
+        }
     }
 
     fn make_args(arg_vals: &ArgVals) -> Vec<String> {
@@ -354,25 +383,7 @@ mod tests {
 
     #[test]
     fn test_new_env() {
-        let node = "1";
-        let id = "bd65600d-8669-4903-8a14-af88203add38";
-        let exec_file = "/proc/cpuinfo";
-        let uid = "1001";
-        let gid = "1002";
-        let chroot_base = "/";
-        let netns = Some("zzzns");
-
-        let good_arg_vals = ArgVals {
-            node,
-            id,
-            exec_file,
-            uid,
-            gid,
-            chroot_base,
-            netns,
-            daemonize: true,
-        };
-
+        let good_arg_vals = ArgVals::new();
         let arg_parser = build_arg_parser();
         let mut args = arg_parser.arguments().clone();
         args.parse(&make_args(&good_arg_vals)).unwrap();
@@ -380,16 +391,16 @@ mod tests {
         let good_env =
             Env::new(&args, 0, 0).expect("This new environment should be created successfully.");
 
-        let mut chroot_dir = PathBuf::from(chroot_base);
-        chroot_dir.push(Path::new(exec_file).file_name().unwrap());
-        chroot_dir.push(id);
+        let mut chroot_dir = PathBuf::from(good_arg_vals.chroot_base);
+        chroot_dir.push(Path::new(good_arg_vals.exec_file).file_name().unwrap());
+        chroot_dir.push(good_arg_vals.id);
         chroot_dir.push("root");
 
         assert_eq!(good_env.chroot_dir(), chroot_dir);
-        assert_eq!(format!("{}", good_env.gid()), gid);
-        assert_eq!(format!("{}", good_env.uid()), uid);
+        assert_eq!(format!("{}", good_env.gid()), good_arg_vals.gid);
+        assert_eq!(format!("{}", good_env.uid()), good_arg_vals.uid);
 
-        assert_eq!(good_env.netns, netns.map(String::from));
+        assert_eq!(good_env.netns, good_arg_vals.netns.map(String::from));
         assert!(good_env.daemonize);
 
         let another_good_arg_vals = ArgVals {
@@ -480,5 +491,54 @@ mod tests {
         unsafe {
             libc::close(fd2);
         }
+    }
+
+    #[test]
+    fn test_setup_jailed_folder() {
+        let arg_parser = build_arg_parser();
+        let mut args = arg_parser.arguments().clone();
+        args.parse(&make_args(&ArgVals::new())).unwrap();
+        let env = Env::new(&args, 0, 0).unwrap();
+
+        // Error case: non UTF-8 paths.
+        let bad_string: &[u8] = &[0, 102, 111, 111, 0]; // A leading nul followed by 'f', 'o', 'o'
+        assert_eq!(
+            format!("{}", env.setup_jailed_folder(bad_string).err().unwrap()),
+            "Failed to decode string from byte array: data provided contains an interior nul byte at byte pos 0"
+        );
+
+        // Error case: inaccessible path - can't be triggered with unit tests running as root.
+        // assert_eq!(
+        //     format!("{}", env.setup_jailed_folders(vec!["/foo/bar"]).err().unwrap()),
+        //     "Failed to create directory /foo/bar: Permission denied (os error 13)"
+        // );
+
+        // Success case.
+        let foo_dir = TempDir::new().unwrap();
+        let mut foo_path = foo_dir.as_path().as_os_str().as_bytes().to_vec();
+        foo_path.push(0);
+        foo_dir.remove().unwrap();
+        assert!(env.setup_jailed_folder(foo_path.as_slice()).is_ok());
+
+        let metadata = fs::metadata(
+            CStr::from_bytes_with_nul(foo_path.as_slice())
+                .unwrap()
+                .to_str()
+                .unwrap(),
+        )
+        .unwrap();
+        // The mode bits will also have S_IFDIR set because the path belongs to a directory.
+        assert_eq!(
+            metadata.permissions().mode(),
+            FOLDER_PERMISSIONS | libc::S_IFDIR
+        );
+        assert_eq!(metadata.st_uid(), env.uid);
+        assert_eq!(metadata.st_gid(), env.gid);
+
+        // Can't safely test that permissions remain unchanged by umask settings without affecting
+        // the umask of the whole unit test process.
+        // This crate produces a binary, so Rust integ tests aren't an option either.
+        // And changing the umask in the Python integration tests is unsafe because of pytest's
+        // process management; it can't be isolated from side effects.
     }
 }

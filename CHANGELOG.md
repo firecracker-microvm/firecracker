@@ -4,10 +4,9 @@
 
 ### Added
 
-- Added a new API call, `PUT /metrics`, for configuring the metrics
-  system.
-- Added `app_name` field in InstanceInfo struct for storing the
-  application name.
+- Added a new API call, `PUT /metrics`, for configuring the metrics system.
+- Added `app_name` field in InstanceInfo struct for storing the application
+  name.
 - New command-line parameters for `firecracker`, named `--log-path`,
   `--level`, `--show-level` and `--show-log-origin` that can be used
   for configuring the Logger when starting the process. When using
@@ -30,6 +29,7 @@
 - Added `--version` flag to both Firecracker and Jailer.
 - Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS
   requests originating from guest.
+- Fixed folder permissions in the jail (#1802).
 
 ### Changed
 - Updated CVE-2019-3016 mitigation information in
@@ -44,12 +44,12 @@
   updates to existing configurations.
 - `PATCH /network-interfaces/{id}` only allowed post-boot. Use `PUT` for
   pre-boot updates to existing configurations.
-- Changed returned status code from `500 Internal Server Error` to `501 Not Implemented`,
-  for queries on the MMDS endpoint in IMDS format, when the requested resource value type
-  is unsupported.
+- Changed returned status code from `500 Internal Server Error` to
+  `501 Not Implemented`, for queries on the MMDS endpoint in IMDS format, when
+  the requested resource value type is unsupported.
 - Allowed the MMDS data store to be initialized with all supported JSON types.
-  Retrieval of these values within the guest, besides String, Array, and Dictionary,
-  is only possible in JSON mode.
+  Retrieval of these values within the guest, besides String, Array, and
+  Dictionary, is only possible in JSON mode.
 - `PATCH` request on `/mmds` before the data store is initialized returns 
   `403 BadRequest`.
 - Segregated MMDS documentation in MMDS design documentation and MMDS user
