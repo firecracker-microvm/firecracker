@@ -5,7 +5,8 @@ use serde_json::{Map, Value};
 
 use super::super::VmmAction;
 use logger::{Metric, METRICS};
-use request::{checked_id, Body, Error, ParsedRequest, StatusCode};
+use parsed_request::{checked_id, Error, ParsedRequest};
+use request::{Body, StatusCode};
 use vmm::vmm_config::drive::BlockDeviceConfig;
 
 struct PatchDrivePayload {
@@ -96,7 +97,7 @@ pub fn parse_put_drive(body: &Body, id_from_path: Option<&&str>) -> Result<Parse
             "The id from the path does not match the id from the body!".to_string(),
         ))
     } else {
-        Ok(ParsedRequest::Sync(VmmAction::InsertBlockDevice(
+        Ok(ParsedRequest::new_sync(VmmAction::InsertBlockDevice(
             device_cfg,
         )))
     }
@@ -130,7 +131,7 @@ pub fn parse_patch_drive(body: &Body, id_from_path: Option<&&str>) -> Result<Par
         ));
     }
 
-    Ok(ParsedRequest::Sync(VmmAction::UpdateBlockDevicePath(
+    Ok(ParsedRequest::new_sync(VmmAction::UpdateBlockDevicePath(
         drive_id,
         path_on_host,
     )))
@@ -139,6 +140,7 @@ pub fn parse_patch_drive(body: &Body, id_from_path: Option<&&str>) -> Result<Par
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_patch_drive_request() {
@@ -202,12 +204,11 @@ mod tests {
                 "path_on_host": "dummy"
               }"#;
         #[allow(clippy::match_wild_err_arm)]
-        match parse_patch_drive(&Body::new(body), Some(&"foo")) {
-            Ok(ParsedRequest::Sync(VmmAction::UpdateBlockDevicePath(a, b))) => {
+        match vmm_action_from_request(parse_patch_drive(&Body::new(body), Some(&"foo")).unwrap()) {
+            VmmAction::UpdateBlockDevicePath(a, b) => {
                 assert_eq!(a, "foo".to_string());
                 assert_eq!(b, "dummy".to_string());
             }
-            Err(_e) => panic!("Test failed."),
             _ => panic!("Test failed: Invalid parameters"),
         };
 

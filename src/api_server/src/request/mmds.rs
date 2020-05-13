@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use micro_http::StatusCode;
-use request::{Body, Error, ParsedRequest};
+use parsed_request::{Error, ParsedRequest};
+use request::Body;
 use vmm::rpc_interface::VmmAction::SetMmdsConfiguration;
 use vmm::vmm_config::mmds::MmdsConfig;
 
@@ -16,7 +17,7 @@ pub fn parse_put_mmds(
 ) -> Result<ParsedRequest, Error> {
     match path_second_token {
         Some(config_path) => match *config_path {
-            "config" => Ok(ParsedRequest::Sync(SetMmdsConfiguration(
+            "config" => Ok(ParsedRequest::new_sync(SetMmdsConfiguration(
                 serde_json::from_slice::<MmdsConfig>(body.raw()).map_err(Error::SerdeJson)?,
             ))),
             _ => Err(Error::Generic(

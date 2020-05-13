@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::super::VmmAction;
+use parsed_request::{Error, ParsedRequest};
+use request::Body;
 #[cfg(target_arch = "x86_64")]
-use request::StatusCode;
-use request::{Body, Error, ParsedRequest};
+use request::{Method, StatusCode};
 #[cfg(target_arch = "x86_64")]
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
 use vmm::vmm_config::snapshot::{Vm, VmState};
-#[cfg(target_arch = "x86_64")]
-use Method;
 
 #[cfg(target_arch = "x86_64")]
 pub fn parse_put_snapshot(
@@ -18,11 +17,11 @@ pub fn parse_put_snapshot(
 ) -> Result<ParsedRequest, Error> {
     match request_type_from_path {
         Some(&request_type) => match request_type {
-            "create" => Ok(ParsedRequest::Sync(VmmAction::CreateSnapshot(
+            "create" => Ok(ParsedRequest::new_sync(VmmAction::CreateSnapshot(
                 serde_json::from_slice::<CreateSnapshotParams>(body.raw())
                     .map_err(Error::SerdeJson)?,
             ))),
-            "load" => Ok(ParsedRequest::Sync(VmmAction::LoadSnapshot(
+            "load" => Ok(ParsedRequest::new_sync(VmmAction::LoadSnapshot(
                 serde_json::from_slice::<LoadSnapshotParams>(body.raw())
                     .map_err(Error::SerdeJson)?,
             ))),
@@ -42,14 +41,16 @@ pub fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> {
     let vm = serde_json::from_slice::<Vm>(body.raw()).map_err(Error::SerdeJson)?;
 
     match vm.state {
-        VmState::Paused => Ok(ParsedRequest::Sync(VmmAction::Pause)),
-        VmState::Resumed => Ok(ParsedRequest::Sync(VmmAction::Resume)),
+        VmState::Paused => Ok(ParsedRequest::new_sync(VmmAction::Pause)),
+        VmState::Resumed => Ok(ParsedRequest::new_sync(VmmAction::Resume)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_arch = "x86_64")]
+    use crate::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     #[cfg(target_arch = "x86_64")]
@@ -71,10 +72,10 @@ mod tests {
             version: Some(String::from("0.23.0")),
         };
 
-        match parse_put_snapshot(&Body::new(body), Some(&"create")) {
-            Ok(ParsedRequest::Sync(VmmAction::CreateSnapshot(cfg))) => {
-                assert_eq!(cfg, expected_cfg)
-            }
+        match vmm_action_from_request(
+            parse_put_snapshot(&Body::new(body), Some(&"create")).unwrap(),
+        ) {
+            VmmAction::CreateSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }
 
@@ -90,10 +91,10 @@ mod tests {
             version: None,
         };
 
-        match parse_put_snapshot(&Body::new(body), Some(&"create")) {
-            Ok(ParsedRequest::Sync(VmmAction::CreateSnapshot(cfg))) => {
-                assert_eq!(cfg, expected_cfg)
-            }
+        match vmm_action_from_request(
+            parse_put_snapshot(&Body::new(body), Some(&"create")).unwrap(),
+        ) {
+            VmmAction::CreateSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }
 
@@ -114,8 +115,9 @@ mod tests {
             mem_file_path: PathBuf::from("bar"),
             enable_diff_snapshots: false,
         };
-        match parse_put_snapshot(&Body::new(body), Some(&"load")) {
-            Ok(ParsedRequest::Sync(VmmAction::LoadSnapshot(cfg))) => assert_eq!(cfg, expected_cfg),
+        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())
+        {
+            VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }
 
@@ -131,8 +133,9 @@ mod tests {
             enable_diff_snapshots: true,
         };
 
-        match parse_put_snapshot(&Body::new(body), Some(&"load")) {
-            Ok(ParsedRequest::Sync(VmmAction::LoadSnapshot(cfg))) => assert_eq!(cfg, expected_cfg),
+        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())
+        {
+            VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
             _ => panic!("Test failed."),
         }
 
@@ -148,7 +151,7 @@ mod tests {
 
         assert!(parse_patch_vm_state(&Body::new(body))
             .unwrap()
-            .eq(&ParsedRequest::Sync(VmmAction::Pause)));
+            .eq(&ParsedRequest::new_sync(VmmAction::Pause)));
 
         body = r#"{
                 "state": "Resumed"
@@ -156,7 +159,7 @@ mod tests {
 
         assert!(parse_patch_vm_state(&Body::new(body))
             .unwrap()
-            .eq(&ParsedRequest::Sync(VmmAction::Resume)));
+            .eq(&ParsedRequest::new_sync(VmmAction::Resume)));
 
         let invalid_body = r#"{
                 "invalid": "Paused"

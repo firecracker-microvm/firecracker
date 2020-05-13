@@ -3,12 +3,13 @@
 
 use super::super::VmmAction;
 use logger::{Metric, METRICS};
-use request::{Body, Error, ParsedRequest};
+use parsed_request::{Error, ParsedRequest};
+use request::Body;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 
 pub fn parse_put_boot_source(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.boot_source_count.inc();
-    Ok(ParsedRequest::Sync(VmmAction::ConfigureBootSource(
+    Ok(ParsedRequest::new_sync(VmmAction::ConfigureBootSource(
         serde_json::from_slice::<BootSourceConfig>(body.raw()).map_err(|e| {
             METRICS.put_api_requests.boot_source_fails.inc();
             Error::SerdeJson(e)
@@ -38,6 +39,6 @@ mod tests {
         assert!(result.is_ok());
         let parsed_req = result.unwrap_or_else(|_e| panic!("Failed test."));
 
-        assert!(parsed_req == ParsedRequest::Sync(VmmAction::ConfigureBootSource(same_body)));
+        assert!(parsed_req == ParsedRequest::new_sync(VmmAction::ConfigureBootSource(same_body)));
     }
 }
