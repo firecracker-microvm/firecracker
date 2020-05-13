@@ -16,7 +16,7 @@ SUCCESS_CODE = 0
 @pytest.mark.timeout(120)
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="rustfmt is not available on Rust 1.38 on aarch64"
+    reason="no need to test it on multiple platforms"
 )
 def test_rust_style():
     """Fail if there's misbehaving Rust style in this repo."""
