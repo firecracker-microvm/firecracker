@@ -256,7 +256,7 @@ impl VmResources {
             // Update `Net` device `MmdsNetworkStack` IPv4 address.
             match &self.mmds_config {
                 Some(cfg) => cfg.ipv4_addr().map_or((), |ipv4_addr| {
-                    if let Some(mmds_ns) = net_device.lock().unwrap().mmds_ns_mut() {
+                    if let Some(mmds_ns) = net_device.lock().expect("Poisoned lock").mmds_ns_mut() {
                         mmds_ns.set_ipv4_addr(ipv4_addr);
                     };
                 }),
@@ -281,7 +281,7 @@ impl VmResources {
 
         // Update existing built network device `MmdsNetworkStack` IPv4 address.
         for net_device in self.net_builder.iter_mut() {
-            if let Some(mmds_ns) = net_device.lock().unwrap().mmds_ns_mut() {
+            if let Some(mmds_ns) = net_device.lock().expect("Poisoned lock").mmds_ns_mut() {
                 mmds_ns.set_ipv4_addr(ipv4_addr)
             }
         }

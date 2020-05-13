@@ -147,7 +147,8 @@ pub fn get_time(clock_type: ClockType) -> u64 {
     };
     // Safe because the parameters are valid.
     unsafe { libc::clock_gettime(clock_type.into(), &mut time_struct) };
-    seconds_to_nanoseconds(time_struct.tv_sec).unwrap() as u64 + (time_struct.tv_nsec as u64)
+    seconds_to_nanoseconds(time_struct.tv_sec).expect("Time conversion overflow") as u64
+        + (time_struct.tv_nsec as u64)
 }
 
 /// Converts a timestamp in seconds to an equivalent one in nanoseconds.

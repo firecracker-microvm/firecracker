@@ -206,8 +206,11 @@ impl MMIODeviceManager {
         serial: Arc<Mutex<devices::legacy::Serial>>,
     ) -> Result<()> {
         let slot = self.allocate_new_slot()?;
-        vm.register_irqfd(&serial.lock().unwrap().interrupt_evt(), slot.irqs[0])
-            .map_err(Error::RegisterIrqFd)?;
+        vm.register_irqfd(
+            &serial.lock().expect("Poisoned lock").interrupt_evt(),
+            slot.irqs[0],
+        )
+        .map_err(Error::RegisterIrqFd)?;
 
         cmdline
             .insert("earlycon", &format!("uart,mmio,0x{:08x}", slot.addr))

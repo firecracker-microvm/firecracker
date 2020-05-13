@@ -166,7 +166,12 @@ impl Env {
             )
         })
         .into_empty_result()
-        .map_err(|e| Error::MknodDev(e, std::str::from_utf8(dev_path_str).unwrap()))?;
+        .map_err(|e| {
+            Error::MknodDev(
+                e,
+                std::str::from_utf8(dev_path_str).expect("Cannot convert from UTF-8"),
+            )
+        })?;
 
         SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()

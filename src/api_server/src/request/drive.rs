@@ -68,9 +68,9 @@ impl PatchDrivePayload {
     fn get_string_field_unchecked(&self, field_key: &str) -> String {
         self.fields
             .get(field_key)
-            .unwrap()
+            .expect("No field key")
             .as_str()
-            .unwrap()
+            .expect("Field value not a string")
             .to_string()
     }
 }
