@@ -92,7 +92,7 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
             // If another thread poisoned the lock, we abort the execution.
             let response = MMDS
                 .lock()
-                .expect("Failed to build MMDS response due to poisoned lock")
+                .expect("Poisoned lock")
                 .get_value(uri.to_string(), request.headers.accept().into());
 
             match response {

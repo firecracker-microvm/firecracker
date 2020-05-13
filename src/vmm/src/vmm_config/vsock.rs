@@ -99,6 +99,7 @@ pub(crate) mod tests {
 
     // Placeholder for the path where a socket file will be created.
     // The socket file will be removed when the scope ends.
+    #[derive(Clone)]
     pub(crate) struct TempSockFile {
         path: String,
     }

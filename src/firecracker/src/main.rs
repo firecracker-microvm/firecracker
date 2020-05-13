@@ -306,11 +306,13 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
     // Start the metrics.
     firecracker_metrics
         .lock()
-        .expect("Metrics lock poisoned.")
+        .expect("Poisoned lock")
         .start(metrics::WRITE_METRICS_PERIOD_MS);
 
     // Run the EventManager that drives everything in the microVM.
     loop {
-        event_manager.run().unwrap();
+        event_manager
+            .run()
+            .expect("Failed to start the event manager");
     }
 }

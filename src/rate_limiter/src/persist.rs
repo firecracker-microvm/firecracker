@@ -18,7 +18,7 @@ pub struct TokenBucketState {
     elapsed_ns: u64,
 }
 
-impl Persist for TokenBucket {
+impl Persist<'_> for TokenBucket {
     type State = TokenBucketState;
     type ConstructorArgs = ();
     type Error = ();
@@ -56,7 +56,7 @@ pub struct RateLimiterState {
     bandwidth: Option<TokenBucketState>,
 }
 
-impl Persist for RateLimiter {
+impl Persist<'_> for RateLimiter {
     type State = RateLimiterState;
     type ConstructorArgs = ();
     type Error = io::Error;

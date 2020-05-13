@@ -187,7 +187,7 @@ impl std::fmt::Display for Error {
             Error::InvalidPathMethod(ref path, ref method) => write!(
                 f,
                 "Invalid request method and/or path: {} {}.",
-                std::str::from_utf8(method.raw()).unwrap(),
+                std::str::from_utf8(method.raw()).expect("Cannot convert from UTF-8"),
                 path
             ),
             Error::SerdeJson(ref e) => write!(

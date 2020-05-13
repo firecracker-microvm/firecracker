@@ -6,14 +6,18 @@ use std::path::PathBuf;
 use vmm::resources::VmResources;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 
-pub const DEFAULT_BOOT_ARGS: &str = "console=ttyS0 reboot=k panic=1 pci=off";
+pub const DEFAULT_BOOT_ARGS: &str = "reboot=k panic=1 pci=off";
+#[cfg(target_arch = "x86_64")]
+pub const DEFAULT_KERNEL_IMAGE: &str = "test_elf.bin";
+#[cfg(target_arch = "aarch64")]
+pub const DEFAULT_KERNEL_IMAGE: &str = "test_pe.bin";
+#[cfg(target_arch = "x86_64")]
+pub const NOISY_KERNEL_IMAGE: &str = "test_noisy_elf.bin";
 
-fn default_kernel_image_path() -> String {
+fn kernel_image_path(kernel_image: Option<&str>) -> String {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    #[cfg(target_arch = "x86_64")]
-    path.push("tests/mock_resources/test_elf.bin");
-    #[cfg(target_arch = "aarch64")]
-    path.push("tests/mock_resources/test_pe.bin");
+    path.push("tests/mock_resources");
+    path.push(kernel_image.unwrap_or(DEFAULT_KERNEL_IMAGE));
     path.as_os_str().to_str().unwrap().to_string()
 }
 
@@ -32,7 +36,7 @@ pub struct MockBootSourceConfig(BootSourceConfig);
 impl MockBootSourceConfig {
     pub fn new() -> MockBootSourceConfig {
         MockBootSourceConfig(BootSourceConfig {
-            kernel_image_path: default_kernel_image_path(),
+            kernel_image_path: kernel_image_path(None),
             initrd_path: None,
             boot_args: None,
         })
@@ -40,6 +44,12 @@ impl MockBootSourceConfig {
 
     pub fn with_default_boot_args(mut self) -> Self {
         self.0.boot_args = Some(DEFAULT_BOOT_ARGS.to_string());
+        self
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub fn with_kernel(mut self, kernel_image: &str) -> Self {
+        self.0.kernel_image_path = kernel_image_path(Some(kernel_image));
         self
     }
 }

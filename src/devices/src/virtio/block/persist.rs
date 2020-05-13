@@ -33,7 +33,7 @@ pub struct BlockConstructorArgs {
     pub mem: GuestMemoryMmap,
 }
 
-impl Persist for Block {
+impl Persist<'_> for Block {
     type State = BlockState;
     type ConstructorArgs = BlockConstructorArgs;
     type Error = io::Error;

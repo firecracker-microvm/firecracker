@@ -52,6 +52,7 @@ pub mod signal_handler;
 pub mod vmm_config;
 mod vstate;
 
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::os::unix::io::AsRawFd;
@@ -62,25 +63,14 @@ use arch::DeviceType;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
-#[cfg(target_arch = "x86_64")]
-use devices::virtio::{
-    vsock::persist::VsockState, Block, MmioTransport, Net, Vsock, VsockUnixBackend, TYPE_BLOCK,
-    TYPE_NET, TYPE_VSOCK,
-};
 use devices::BusDevice;
 use logger::{LoggerError, MetricsError, METRICS};
-#[cfg(target_arch = "x86_64")]
-use persist::{
-    ConnectedBlockState, ConnectedNetState, ConnectedVsockState, DeviceStates, VmmResourcesState,
-};
 use polly::event_manager::{self, EventManager, Subscriber};
 use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
-#[cfg(target_arch = "x86_64")]
-use snapshot::Persist;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use utils::time::TimestampUs;
-use vm_memory::GuestMemoryMmap;
+use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap};
 use vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
 /// Success exit code.
@@ -109,6 +99,8 @@ pub enum Error {
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::Error),
+    /// Cannot fetch the KVM dirty bitmap.
+    DirtyBitmap(kvm_ioctls::Error),
     /// Cannot read from an Event file descriptor.
     EventFd(io::Error),
     /// Polly error wrapper.
@@ -146,7 +138,7 @@ pub enum Error {
     /// vCPU resume failed.
     VcpuResume,
     /// Cannot spawn a new Vcpu thread.
-    VcpuSpawn(std::io::Error),
+    VcpuSpawn(io::Error),
     /// Vm error.
     Vm(vstate::Error),
     /// Error thrown by observer object on Vmm initialization.
@@ -162,6 +154,7 @@ impl Display for Error {
         match self {
             #[cfg(target_arch = "x86_64")]
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
+            DirtyBitmap(e) => write!(f, "Error getting the KVM dirty bitmap. {}", e),
             EventFd(e) => write!(f, "Event fd error: {}", e),
             EventManager(e) => write!(f, "Event manager error: {:?}", e),
             I8042Error(e) => write!(f, "I8042 error: {}", e),
@@ -208,6 +201,9 @@ pub trait VmmEventsObserver {
 
 /// Shorthand result type for internal VMM commands.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Shorthand type for KVM dirty page bitmap.
+pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
 
 /// Contains the state and associated methods required for the Firecracker VMM.
 pub struct Vmm {
@@ -371,79 +367,33 @@ impl Vmm {
         &self.vm
     }
 
-    /// Saves the device states.
-    #[cfg(target_arch = "x86_64")]
-    pub fn save_mmio_device_states(&mut self) -> DeviceStates {
-        let mut states = DeviceStates {
-            block_devices: Vec::new(),
-            net_devices: Vec::new(),
-            vsock_device: None,
-        };
-        let device_manager = &mut self.mmio_device_manager;
+    /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
+    pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap> {
+        let mut bitmap: DirtyBitmap = HashMap::new();
+        self.guest_memory.with_regions_mut(
+            |slot: usize, region: &GuestRegionMmap| -> Result<()> {
+                let bitmap_region = self
+                    .vm
+                    .fd()
+                    .get_dirty_log(slot as u32, region.len() as usize)
+                    .map_err(Error::DirtyBitmap)?;
+                bitmap.insert(slot, bitmap_region);
+                Ok(())
+            },
+        )?;
+        Ok(bitmap)
+    }
 
-        for ((device_type, device_id), device_info) in device_manager.get_device_info().iter() {
-            let bus_device = device_manager
-                .get_device(*device_type, device_id)
-                // Safe to unwrap() because we know the device exists.
-                .unwrap()
-                .lock()
-                .expect("Poisoned device lock");
-
-            let mmio_transport = bus_device
-                .as_any()
-                // Only MmioTransport implements BusDevice at this point.
-                .downcast_ref::<MmioTransport>()
-                .expect("Unexpected BusDevice type");
-
-            let transport_state = mmio_transport.save();
-            let vmm_resources = VmmResourcesState {
-                mmio_base: device_info.addr,
-                len: device_info.len,
-                irqs: vec![device_info.irq],
-            };
-
-            let locked_device = mmio_transport.locked_device();
-            match locked_device.device_type() {
-                TYPE_BLOCK => {
-                    let block_state = locked_device
-                        .as_any()
-                        .downcast_ref::<Block>()
-                        .unwrap()
-                        .save();
-                    states.block_devices.push(ConnectedBlockState {
-                        device_state: block_state,
-                        transport_state,
-                        vmm_resources,
-                    });
-                }
-                TYPE_NET => {
-                    let net_state = locked_device.as_any().downcast_ref::<Net>().unwrap().save();
-                    states.net_devices.push(ConnectedNetState {
-                        device_state: net_state,
-                        transport_state,
-                        vmm_resources,
-                    });
-                }
-                TYPE_VSOCK => {
-                    let vsock = locked_device
-                        .as_any()
-                        // Currently, VsockUnixBackend is the only implementation of VsockBackend.
-                        .downcast_ref::<Vsock<VsockUnixBackend>>()
-                        .unwrap();
-                    let vsock_state = VsockState {
-                        backend: vsock.backend().save(),
-                        frontend: vsock.save(),
-                    };
-                    states.vsock_device = Some(ConnectedVsockState {
-                        device_state: vsock_state,
-                        transport_state,
-                        vmm_resources,
-                    });
-                }
-                _ => unreachable!(),
-            };
-        }
-        states
+    /// Enables or disables KVM dirty page tracking.
+    pub fn set_dirty_page_tracking(&mut self, enable: bool) -> Result<()> {
+        // This function _always_ results in an ioctl update. The VMM is stateless in the sense
+        // that it's unaware of the current dirty page tracking setting.
+        // The VMM's consumer will need to cache the dirty tracking setting internally. For
+        // example, if this function were to be exposed through the VMM controller, the VMM
+        // resources should cache the flag.
+        self.vm
+            .set_kvm_memory_regions(&self.guest_memory, enable)
+            .map_err(Error::Vm)
     }
 }
 

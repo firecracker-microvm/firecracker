@@ -180,11 +180,6 @@ impl TcpIPv4Handler {
         self.local_ipv4_addr = ipv4_addr;
     }
 
-    #[cfg(test)]
-    pub fn local_ipv4_addr(&self) -> Ipv4Addr {
-        self.local_ipv4_addr
-    }
-
     /// Contains logic for handling incoming segments.
     ///
     /// Any changes to the state if the handler are communicated through an `Ok(RecvEvent)`.
@@ -491,6 +486,12 @@ mod tests {
     use pdu::bytes::NetworkBytesMut;
 
     use super::*;
+
+    impl TcpIPv4Handler {
+        pub fn local_ipv4_addr(&self) -> Ipv4Addr {
+            self.local_ipv4_addr
+        }
+    }
 
     fn inner_tcp_mut<'a, 'b, T: NetworkBytesMut>(
         p: &'a mut IPv4Packet<'b, T>,

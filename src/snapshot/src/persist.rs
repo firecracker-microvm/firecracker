@@ -4,7 +4,7 @@
 //! Defines an abstract interface for saving/restoring a component from state.
 
 /// An abstract interface for saving/restoring a component using a specific state.
-pub trait Persist
+pub trait Persist<'a>
 where
     Self: Sized,
 {
@@ -21,5 +21,5 @@ where
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> Result<Self, Self::Error>;
+    ) -> std::result::Result<Self, Self::Error>;
 }

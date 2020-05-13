@@ -53,7 +53,7 @@ pub struct VsockUdsConstructorArgs {
     pub cid: u64,
 }
 
-impl Persist for VsockUnixBackend {
+impl Persist<'_> for VsockUnixBackend {
     type State = VsockBackendState;
     type ConstructorArgs = VsockUdsConstructorArgs;
     type Error = VsockUnixBackendError;
@@ -77,7 +77,7 @@ impl Persist for VsockUnixBackend {
     }
 }
 
-impl<B> Persist for Vsock<B>
+impl<B> Persist<'_> for Vsock<B>
 where
     B: VsockBackend + 'static,
 {
@@ -130,7 +130,7 @@ pub(crate) mod tests {
     use crate::virtio::vsock::defs::uapi;
     use utils::byte_order;
 
-    impl Persist for TestBackend {
+    impl Persist<'_> for TestBackend {
         type State = VsockBackendState;
         type ConstructorArgs = VsockUdsConstructorArgs;
         type Error = VsockUnixBackendError;
