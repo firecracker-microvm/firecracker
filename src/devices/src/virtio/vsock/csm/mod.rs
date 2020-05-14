@@ -10,11 +10,11 @@ pub use connection::VsockConnection;
 
 pub mod defs {
     /// Vsock connection TX buffer capacity.
-    pub const CONN_TX_BUF_SIZE: usize = 64 * 1024;
+    pub const CONN_TX_BUF_SIZE: u32 = 64 * 1024;
 
-    /// After the guest thinks it has filled our TX buffer up to this limit (in bytes), we'll send
-    /// them a credit update packet, to let them know we can handle more.
-    pub const CONN_CREDIT_UPDATE_THRESHOLD: usize = CONN_TX_BUF_SIZE - 4 * 4 * 1024;
+    /// When the guest thinks we have less than this amount of free buffer space,
+    /// we will send them a credit update packet.
+    pub const CONN_CREDIT_UPDATE_THRESHOLD: u32 = 4 * 1024;
 
     /// Connection request timeout, in millis.
     pub const CONN_REQUEST_TIMEOUT_MS: u64 = 2000;
