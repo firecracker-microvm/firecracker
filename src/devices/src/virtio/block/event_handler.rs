@@ -71,9 +71,9 @@ impl Subscriber for Block {
 
             // Looks better than C style if/else if/else.
             match source {
-                _ if queue_evt == source => self.process_queue_event(),
-                _ if rate_limiter_evt == source => self.process_rate_limiter_event(),
-                _ if activate_fd == source => self.process_activate_event(evmgr),
+                queue_evt => self.process_queue_event(),
+                rate_limiter_evt => self.process_rate_limiter_event(),
+                activate_fd => self.process_activate_event(evmgr),
                 _ => warn!("Block: Spurious event received: {:?}", source),
             }
         } else {
