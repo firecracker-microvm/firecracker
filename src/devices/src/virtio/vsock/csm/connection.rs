@@ -452,7 +452,13 @@ where
                         "vsock: error flushing TX buf for (lp={}, pp={}): {:?}",
                         self.local_port, self.peer_port, err
                     );
-                    self.kill();
+                    match err {
+                        Error::TxBufFlush(inner) if inner.kind() == ErrorKind::WouldBlock => {
+                            // This should never happen (EWOULDBLOCK after EPOLLOUT), but
+                            // it does, so let's absorb it.
+                        }
+                        _ => self.kill(),
+                    };
                     0
                 });
             self.fwd_cnt += Wrapping(flushed as u32);
