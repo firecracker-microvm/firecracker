@@ -12,10 +12,6 @@ IPERF_BINARY = 'iperf3'
 # Interval used by iperf to get maximum bandwidth
 IPERF_TRANSMIT_TIME = 4
 
-# Interval to omit statistics collection at the beginning of the test, to skip
-# past the TCP slow-start period
-IPERF_OMIT_TIME = 1
-
 # Use a fixed-size TCP window so we get constant flow
 IPERF_TCP_WINDOW = '1000K'
 
@@ -162,11 +158,10 @@ def _check_tx_rate_limiting(test_microvm, guest_ips, host_ips):
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
-    iperf_cmd = '{} -c {} -t {} -f KBytes -O {} -w {} -N'.format(
+    iperf_cmd = '{} -c {} -t {} -f KBytes -w {} -N'.format(
         IPERF_BINARY,
         host_ips[0],
         IPERF_TRANSMIT_TIME,
-        IPERF_OMIT_TIME,
         IPERF_TCP_WINDOW
     )
     print("Run guest TX iperf with no rate-limit")
@@ -215,12 +210,11 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
-    iperf_cmd = '{} {} -c {} -t {} -f KBytes -O {} -w {} -N'.format(
+    iperf_cmd = '{} {} -c {} -t {} -f KBytes -w {} -N'.format(
         test_microvm.jailer.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ips[0],
         IPERF_TRANSMIT_TIME,
-        IPERF_OMIT_TIME,
         IPERF_TCP_WINDOW
     )
     print("Run guest RX iperf with no rate-limit")
@@ -306,22 +300,51 @@ def _check_tx_bandwidth(
     the host.
     """
     print("Check guest TX rate-limit; expected kbps {}".format(expected_kbps))
-    iperf_cmd = '{} -c {} -t {} -f KBytes -O {} -w {} -N'.format(
+    observed_kbps = _get_tx_bandwidth_with_duration(
+        test_microvm,
+        guest_ip,
+        host_ip,
+        IPERF_TRANSMIT_TIME
+    )
+
+    diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
+    print("TX calculated diff percentage: {}\n".format(diff_pc))
+
+    if diff_pc >= MAX_BYTES_DIFF_PERCENTAGE:
+        print("Short duration test failed. Try another run with 10x duration.")
+
+        observed_kbps = _get_tx_bandwidth_with_duration(
+            test_microvm,
+            guest_ip,
+            host_ip,
+            10 * IPERF_TRANSMIT_TIME
+        )
+        diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
+        print("TX calculated diff percentage: {}\n".format(diff_pc))
+
+        assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
+
+
+def _get_tx_bandwidth_with_duration(
+        test_microvm,
+        guest_ip,
+        host_ip,
+        duration
+):
+    """Check that the rate-limited TX bandwidth is close to what we expect."""
+    iperf_cmd = '{} -c {} -t {} -f KBytes -w {} -N'.format(
         IPERF_BINARY,
         host_ip,
-        IPERF_TRANSMIT_TIME,
-        IPERF_OMIT_TIME,
+        duration,
         IPERF_TCP_WINDOW
     )
 
     iperf_out = _run_iperf_on_guest(test_microvm, iperf_cmd, guest_ip)
     print(iperf_out)
+
     _, observed_kbps = _process_iperf_output(iperf_out)
     print("TX observed_kbps: {}".format(observed_kbps))
-
-    diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
-    print("TX calculated diff percentage: {}\n".format(diff_pc))
-    assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
+    return observed_kbps
 
 
 def _check_rx_bandwidth(
@@ -335,22 +358,48 @@ def _check_rx_bandwidth(
     the guest.
     """
     print("Check guest RX rate-limit; expected kbps {}".format(expected_kbps))
-    iperf_cmd = "{} {} -c {} -t {} -f KBytes -O {} -w {} -N".format(
+    observed_kbps = _get_rx_bandwidth_with_duration(
+        test_microvm,
+        guest_ip,
+        IPERF_TRANSMIT_TIME
+    )
+
+    diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
+    print("RX calculated diff percentage: {}\n".format(diff_pc))
+
+    if diff_pc >= MAX_BYTES_DIFF_PERCENTAGE:
+        print("Short duration test failed. Try another run with 10x duration.")
+
+        observed_kbps = _get_rx_bandwidth_with_duration(
+            test_microvm,
+            guest_ip,
+            10 * IPERF_TRANSMIT_TIME
+        )
+        diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
+        print("TX calculated diff percentage: {}\n".format(diff_pc))
+
+        assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
+
+
+def _get_rx_bandwidth_with_duration(
+        test_microvm,
+        guest_ip,
+        duration
+):
+    """Check that the rate-limited RX bandwidth is close to what we expect."""
+    iperf_cmd = "{} {} -c {} -t {} -f KBytes -w {} -N".format(
         test_microvm.jailer.netns_cmd_prefix(),
         IPERF_BINARY,
         guest_ip,
-        IPERF_TRANSMIT_TIME,
-        IPERF_OMIT_TIME,
+        duration,
         IPERF_TCP_WINDOW
     )
     iperf_out = _run_local_iperf(iperf_cmd)
     print(iperf_out)
+
     _, observed_kbps = _process_iperf_output(iperf_out)
     print("RX observed_kbps: {}".format(observed_kbps))
-
-    diff_pc = _get_percentage_difference(observed_kbps, expected_kbps)
-    print("RX calculated diff percentage: {}\n".format(diff_pc))
-    assert diff_pc < MAX_BYTES_DIFF_PERCENTAGE
+    return observed_kbps
 
 
 def _patch_iface_bw(test_microvm, iface_id, rx_or_tx, new_bucket_size):
@@ -431,9 +480,9 @@ def _get_percentage_difference(measured, base):
 
 def _process_iperf_line(line):
     """Parse iperf3 summary line and return test time and bandwidth."""
-    time = line.split('  ')[2].split('-')[1].strip().split(" ")[0]
-    bw = line.split('  ')[5].split(' ')[0].strip()
-    return float(time), float(bw)
+    test_time = line.split('  ')[2].split('-')[1].strip().split(" ")[0]
+    test_bw = line.split('  ')[5].split(' ')[0].strip()
+    return float(test_time), float(test_bw)
 
 
 def _process_iperf_output(iperf_out):
