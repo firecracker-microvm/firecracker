@@ -558,15 +558,34 @@ mod tests {
         )
     }
 
-    fn log(logger: &Logger, level: Level, msg: &str) {
-        logger.log(
-            &log::Record::builder()
-                .level(level)
-                .args(format_args!("{}", msg))
-                .file(Some(LOG_SOURCE))
-                .line(Some(LOG_LINE))
-                .build(),
-        );
+    impl Logger {
+        fn mock_new() -> Logger {
+            let logger = Logger::new();
+            logger.set_instance_id(TEST_INSTANCE_ID.to_string());
+
+            logger
+        }
+
+        fn mock_log(&self, level: Level, msg: &str) {
+            self.log(
+                &log::Record::builder()
+                    .level(level)
+                    .args(format_args!("{}", msg))
+                    .file(Some(LOG_SOURCE))
+                    .line(Some(LOG_LINE))
+                    .build(),
+            );
+        }
+
+        fn mock_init(&self) -> LogReader {
+            let (writer, mut reader) = log_channel();
+            assert!(self
+                .init(TEST_APP_HEADER.to_string(), Box::new(writer))
+                .is_ok());
+            validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
+
+            reader
+        }
     }
 
     fn validate_log(mut log_reader: Box<&mut dyn Read>, expected: &str) {
@@ -578,23 +597,6 @@ mod tests {
             expected,
             std::str::from_utf8(&log[log.len() - expected.len()..]).unwrap()
         );
-    }
-
-    fn create_logger() -> Logger {
-        let logger = Logger::new();
-        logger.set_instance_id(TEST_INSTANCE_ID.to_string());
-
-        logger
-    }
-
-    fn init_logger(logger: &Logger) -> LogReader {
-        let (writer, mut reader) = log_channel();
-        assert!(logger
-            .init(TEST_APP_HEADER.to_string(), Box::new(writer))
-            .is_ok());
-        validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
-
-        reader
     }
 
     #[test]
@@ -620,7 +622,7 @@ mod tests {
             .is_ok());
         validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
         // Check that the logs are written to the configured writer.
-        log(&logger, Level::Info, "info");
+        logger.mock_log(Level::Info, "info");
         validate_log(
             Box::new(&mut reader),
             "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
@@ -639,7 +641,7 @@ mod tests {
             .is_ok());
         validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
         // Check that the logs are written to the configured writer.
-        log(&logger, Level::Info, "info");
+        logger.mock_log(Level::Info, "info");
         validate_log(
             Box::new(&mut reader),
             "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
@@ -651,7 +653,7 @@ mod tests {
             .init(TEST_APP_HEADER.to_string(), Box::new(writer_2))
             .is_err());
         // Check that the logs are written only to the first writer.
-        log(&logger, Level::Info, "info");
+        logger.mock_log(Level::Info, "info");
         validate_log(
             Box::new(&mut reader),
             "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
@@ -661,8 +663,8 @@ mod tests {
 
     #[test]
     fn test_create_prefix() {
-        let logger = create_logger();
-        let mut reader = init_logger(&logger);
+        let logger = Logger::mock_new();
+        let mut reader = logger.mock_init();
 
         // Test with empty instance id.
         logger.set_instance_id("".to_string());
@@ -671,35 +673,35 @@ mod tests {
         logger
             .set_include_level(false)
             .set_include_origin(false, true);
-        log(&logger, Level::Info, "msg");
+        logger.mock_log(Level::Info, "msg");
         validate_log(Box::new(&mut reader), "[] msg\n");
 
         // Check that the prefix is correctly shown when all flags are true.
         logger
             .set_include_level(true)
             .set_include_origin(true, true);
-        log(&logger, Level::Info, "msg");
+        logger.mock_log(Level::Info, "msg");
         validate_log(Box::new(&mut reader), "[INFO:logger.rs:0] msg\n");
 
         // Check show_line_numbers=false.
         logger
             .set_include_level(true)
             .set_include_origin(true, false);
-        log(&logger, Level::Debug, "msg");
+        logger.mock_log(Level::Debug, "msg");
         validate_log(Box::new(&mut reader), "[DEBUG:logger.rs] msg\n");
 
         // Check show_file_path=false.
         logger
             .set_include_level(true)
             .set_include_origin(false, true);
-        log(&logger, Level::Error, "msg");
+        logger.mock_log(Level::Error, "msg");
         validate_log(Box::new(&mut reader), "[ERROR] msg\n");
 
         // Check show_level=false.
         logger
             .set_include_level(false)
             .set_include_origin(true, true);
-        log(&logger, Level::Info, "msg");
+        logger.mock_log(Level::Info, "msg");
         validate_log(Box::new(&mut reader), "[logger.rs:0] msg\n");
 
         // Test with a mock instance id.
@@ -709,14 +711,14 @@ mod tests {
         logger
             .set_include_level(false)
             .set_include_origin(false, false);
-        log(&logger, Level::Info, "msg");
+        logger.mock_log(Level::Info, "msg");
         validate_log(Box::new(&mut reader), "[TEST-INSTANCE-ID] msg\n");
 
         // Check that the prefix is correctly shown when all flags are true.
         logger
             .set_include_level(true)
             .set_include_origin(true, true);
-        log(&logger, Level::Warn, "msg");
+        logger.mock_log(Level::Warn, "msg");
         validate_log(
             Box::new(&mut reader),
             "[TEST-INSTANCE-ID:WARN:logger.rs:0] msg\n",
@@ -728,7 +730,7 @@ mod tests {
         log::set_max_level(log::LevelFilter::Info);
         LOGGER.set_instance_id(TEST_INSTANCE_ID.to_string());
 
-        let mut reader = init_logger(&LOGGER);
+        let mut reader = LOGGER.mock_init();
 
         info!("info");
         validate_log(Box::new(&mut reader), "info\n");
