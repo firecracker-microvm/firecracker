@@ -58,7 +58,7 @@ pub struct ConnMapKey {
 }
 
 /// A muxer RX queue item.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum MuxerRx {
     /// The packet must be fetched from the connection identified by `ConnMapKey`.
     ConnRx(ConnMapKey),
@@ -126,7 +126,7 @@ impl VsockChannel for VsockMuxer {
             self.rxq = MuxerRxQ::from_conn_map(&self.conn_map);
         }
 
-        while let Some(rx) = self.rxq.pop() {
+        while let Some(rx) = self.rxq.peek() {
             let res = match rx {
                 // We need to build an RST packet, going from `local_port` to `peer_port`.
                 MuxerRx::RstPkt {
@@ -143,6 +143,7 @@ impl VsockChannel for VsockMuxer {
                         .set_flags(0)
                         .set_buf_alloc(0)
                         .set_fwd_cnt(0);
+                    self.rxq.pop().unwrap();
                     return Ok(());
                 }
 
@@ -150,9 +151,14 @@ impl VsockChannel for VsockMuxer {
                 // to say.
                 MuxerRx::ConnRx(key) => {
                     let mut conn_res = Err(VsockError::NoData);
+                    let mut do_pop = true;
                     self.apply_conn_mutation(key, |conn| {
                         conn_res = conn.recv_pkt(pkt);
+                        do_pop = !conn.has_pending_rx();
                     });
+                    if do_pop {
+                        self.rxq.pop().unwrap();
+                    }
                     conn_res
                 }
             };
