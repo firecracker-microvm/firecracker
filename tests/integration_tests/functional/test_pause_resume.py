@@ -9,21 +9,17 @@ from pathlib import Path
 import pytest
 from framework.artifacts import ArtifactCollection
 from framework.matrix import TestMatrix
+from framework.builder import MicrovmBuilder
+import platform
 
 
 def _test_pause_resume(context, microvm):
     logger = context['logger']
+    vm_builder = context['builder']
 
-    with open(context['microvm'].local_path(), 'r') as f:
-        machine_config = json.load(f)
+    logger.info("Testing microvm: \"{}\" ".format(context['microvm'].name()))
 
-    logger.info("Microvm: {} vCPU(s) {} MB. Kernel \"{}\" "
-                ", disk \"{}\""
-                .format(machine_config['vcpu_count'],
-                        machine_config['mem_size_mib'],
-                        context['kernel'].name(),
-                        context['disk'].name()))
-
+    microvm = vm_builder.build(context['kernel'], [context['disk']], context['microvm'])
     tap, _, _ = microvm.ssh_network_config(context['network_config'], '1')
 
     # Pausing the microVM before being started is not allowed.
@@ -94,6 +90,7 @@ def test_pause_resume(test_session_root_path,
 
     # Create a test matrix. Push logger and network as context variables.
     test_matrix = TestMatrix(context={
+            'builder': MicrovmBuilder(test_session_root_path, bin_cloner_path),
             'network_config': network_config,
             'logger': logger
         })
@@ -103,6 +100,4 @@ def test_pause_resume(test_session_root_path,
     test_matrix.kernels = kernel_artifacts
     test_matrix.disks = disk_artifacts
 
-    test_matrix.run_test(_test_pause_resume,
-                         test_session_root_path,
-                         bin_cloner_path)
+    test_matrix.run_test(_test_pause_resume)
