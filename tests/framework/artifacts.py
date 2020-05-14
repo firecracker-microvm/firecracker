@@ -80,9 +80,6 @@ class ArtifactCollection:
     ARTIFACTS_MICROVMS = '/microvms'
     ARTIFACTS_SNAPSHOTS = '/snapshots/' + platform.machine()
 
-    s3 = None
-    artifacts_bucket = None
-
     def __init__(
         self,
         artifacts_bucket
@@ -92,44 +89,58 @@ class ArtifactCollection:
         self.s3 = boto3.resource('s3', config=config)
         self.artifacts_bucket = artifacts_bucket
 
-    def microvms(self):
+    def _fetch_artifacts(self,
+                         artifact_root,
+                         artifact_dir,
+                         artifact_ext,
+                         artifact_type,
+                         artifact_class,
+                         keyword=None):
+        bucket = self.s3.Bucket(self.artifacts_bucket)
+        artifacts = []
+        prefix = artifact_root + artifact_dir
+        files = bucket.objects.filter(Prefix=prefix)
+        for file in files:
+            if (
+                # Filter by extensions.
+                file.key.endswith(artifact_ext)
+                # Filter by userprovided keyword if any.
+                and (keyword is None or keyword in file.key)
+            ):
+                artifacts.append(artifact_class(bucket,
+                                                file.key,
+                                                type=artifact_type))
+        return artifacts
+
+    def microvms(self, keyword=None):
         """Return all microvms artifacts for the current arch."""
-        bucket = self.s3.Bucket(self.artifacts_bucket)
-        microvm_artifacts = []
-        microvm_prefix = self.ARTIFACTS_ROOT + self.ARTIFACTS_MICROVMS
-        microvms = bucket.objects.filter(Prefix=microvm_prefix)
-        for microvm in microvms:
-            if microvm.key.endswith(MICROVM_CONFIG_EXTENSION):
-                microvm_artifacts.append(Artifact(bucket,
-                                                  microvm.key,
-                                                  type="microvm"))
+        return self._fetch_artifacts(
+            self.ARTIFACTS_ROOT,
+            self.ARTIFACTS_MICROVMS,
+            MICROVM_CONFIG_EXTENSION,
+            "microvm",
+            Artifact,
+            keyword=keyword
+        )
 
-        return microvm_artifacts
-
-    def kernels(self):
+    def kernels(self, keyword=None):
         """Return all microvms kernels for the current arch."""
-        bucket = self.s3.Bucket(self.artifacts_bucket)
-        kernel_artifacts = []
-        kernel_prefix = self.ARTIFACTS_ROOT + self.ARTIFACTS_KERNELS
-        kernels = bucket.objects.filter(Prefix=kernel_prefix)
-        for kernel in kernels:
-            if kernel.key.endswith(MICROVM_KERNEL_EXTENSION):
-                kernel_artifacts.append(Artifact(bucket,
-                                                 kernel.key,
-                                                 type="kernel"))
+        return self._fetch_artifacts(
+            self.ARTIFACTS_ROOT,
+            self.ARTIFACTS_KERNELS,
+            MICROVM_KERNEL_EXTENSION,
+            "kernel",
+            Artifact,
+            keyword=keyword
+        )
 
-        return kernel_artifacts
-
-    def disks(self):
+    def disks(self, keyword=None):
         """Return all disk artifacts for the current arch."""
-        bucket = self.s3.Bucket(self.artifacts_bucket)
-        disk_artifacts = []
-        disk_prefix = self.ARTIFACTS_ROOT + self.ARTIFACTS_DISKS
-        disks = bucket.objects.filter(Prefix=disk_prefix)
-        for disk in disks:
-            if disk.key.endswith(MICROVM_DISK_EXTENSION):
-                disk_artifacts.append(DiskArtifact(bucket,
-                                                   disk.key,
-                                                   type="disk"))
-
-        return disk_artifacts
+        return self._fetch_artifacts(
+            self.ARTIFACTS_ROOT,
+            self.ARTIFACTS_DISKS,
+            MICROVM_DISK_EXTENSION,
+            "disk",
+            DiskArtifact,
+            keyword=keyword
+        )
