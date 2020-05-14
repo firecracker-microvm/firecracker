@@ -6,42 +6,51 @@ import os
 import platform
 import re
 
+from enum import Enum
 from shutil import copyfile
 from typing import List
-from os import path
 from pathlib import Path
+from os import path
 
 import boto3
 import botocore.client
 
 
-MICROVM_CONFIG_EXTENSION = ".json"
-MICROVM_KERNEL_EXTENSION = ".bin"
-MICROVM_DISK_EXTENSION = ".ext4"
+class ArtifactType(Enum):
+    """Supported artifact types."""
+
+    MICROVM = "microvm"
+    KERNEL = "kernel"
+    DISK = "disk"
+    SSH_KEY = "ssh_key"
+    MISC = "misc"
 
 
 class Artifact:
     """A generic artifact manipulation class."""
 
-    bucket = None
-    key = None
-    local_folder = None
-
-    def __init__(self, bucket, key, type="misc"):
+    def __init__(self, bucket, key, type=ArtifactType.MISC):
         """Initialize bucket, key and type."""
         self.bucket = bucket
         self.key = key
-        self.type = type
+        self.local_folder = None
+        self._type = type
+
+    @property
+    def type(self):
+        """Return the artifact type."""
+        return self._type
 
     def name(self):
         """Return the artifact name."""
-        return self.key.rsplit("/", 1)[1]
+        return Path(self.key).name
 
     def local_dir(self):
         """Return the directory containing the downloaded artifact."""
+        assert self.local_folder is not None
         return "{}/{}/{}".format(
             self.local_folder,
-            self.type,
+            self.type.value,
             platform.machine(),
         )
 
@@ -66,12 +75,17 @@ class DiskArtifact(Artifact):
 
     def ssh_key(self):
         """Return a ssh key artifact."""
-        key_file_path = self.key.rsplit(".", 1)[0] + '.id_rsa'
-        return Artifact(self.bucket, key_file_path, type="ssh_key")
+        # Replace extension.
+        key_file_path = str(Path(self.key).with_suffix('.id_rsa'))
+        return Artifact(self.bucket, key_file_path, type=ArtifactType.SSH_KEY)
 
 
 class ArtifactCollection:
     """Provides easy access to different artifact types."""
+
+    MICROVM_CONFIG_EXTENSION = ".json"
+    MICROVM_KERNEL_EXTENSION = ".bin"
+    MICROVM_DISK_EXTENSION = ".ext4"
 
     # S3 bucket structure.
     ARTIFACTS_ROOT = 'ci-artifacts'
@@ -113,34 +127,67 @@ class ArtifactCollection:
         return artifacts
 
     def microvms(self, keyword=None):
-        """Return all microvms artifacts for the current arch."""
+        """Return microvms artifacts for the current arch."""
         return self._fetch_artifacts(
-            self.ARTIFACTS_ROOT,
-            self.ARTIFACTS_MICROVMS,
-            MICROVM_CONFIG_EXTENSION,
-            "microvm",
+            ArtifactCollection.ARTIFACTS_ROOT,
+            ArtifactCollection.ARTIFACTS_MICROVMS,
+            ArtifactCollection.MICROVM_CONFIG_EXTENSION,
+            ArtifactType.MICROVM,
             Artifact,
             keyword=keyword
         )
 
     def kernels(self, keyword=None):
-        """Return all microvms kernels for the current arch."""
+        """Return kernel artifacts for the current arch."""
         return self._fetch_artifacts(
-            self.ARTIFACTS_ROOT,
-            self.ARTIFACTS_KERNELS,
-            MICROVM_KERNEL_EXTENSION,
-            "kernel",
+            ArtifactCollection.ARTIFACTS_ROOT,
+            ArtifactCollection.ARTIFACTS_KERNELS,
+            ArtifactCollection.MICROVM_KERNEL_EXTENSION,
+            ArtifactType.KERNEL,
             Artifact,
             keyword=keyword
         )
 
     def disks(self, keyword=None):
-        """Return all disk artifacts for the current arch."""
+        """Return disk artifacts for the current arch."""
         return self._fetch_artifacts(
-            self.ARTIFACTS_ROOT,
-            self.ARTIFACTS_DISKS,
-            MICROVM_DISK_EXTENSION,
-            "disk",
+            ArtifactCollection.ARTIFACTS_ROOT,
+            ArtifactCollection.ARTIFACTS_DISKS,
+            ArtifactCollection.MICROVM_DISK_EXTENSION,
+            ArtifactType.DISK,
             DiskArtifact,
             keyword=keyword
         )
+
+
+class ArtifactSet:
+    """Manages a set of artifacts with the same type."""
+
+    def __init__(self, artifacts):
+        """Initialize type and artifact array."""
+        assert len(artifacts) > 0
+        self._type = artifacts[0].type
+        self._artifacts = []
+        self.add(artifacts)
+
+    def add(self, artifacts):
+        """Add artifacts to set."""
+        assert len(artifacts) > 0
+        for artifact in artifacts:
+            assert artifact.type == self._type
+            self._artifacts.append(artifact)
+
+    def artifact(self, index):
+        """Return the current artifact in the list."""
+        assert len(self) > 0
+        assert index < len(self)
+        return self._artifacts[index]
+
+    @property
+    def artifacts(self):
+        """Return the artifacts array."""
+        return self._artifacts
+
+    def __len__(self):
+        """Return the artifacts array len."""
+        return len(self._artifacts)
