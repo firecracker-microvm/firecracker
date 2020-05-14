@@ -3,11 +3,11 @@
 """Define some helpers methods to create microvms from artifacts."""
 
 import json
+import os
+import uuid
 from framework.microvm import Microvm
 import host_tools.cargo_build as build_tools
-import uuid
 from framework.artifacts import Artifact, DiskArtifact
-import os
 
 
 class MicrovmBuilder:
@@ -36,7 +36,7 @@ class MicrovmBuilder:
         vm.kernel_file = kernel.local_path()
         vm.rootfs_file = disks[0].local_path()
         ssh_key = disks[0].ssh_key()
-        
+
         # Download ssh key into microvm root.
         ssh_key.download(self.root_path)
         vm.ssh_config['ssh_key_path'] = ssh_key.local_path()
@@ -57,4 +57,3 @@ class MicrovmBuilder:
 
     def build_from_snapshot(self, snapshot: Artifact):
         """Build and start a microvm from a snapshot artifact."""
-        pass
