@@ -37,27 +37,8 @@ The generic requirements are explained below:
      If you need help setting up access to `/dev/kvm`, you should check out
      [Appendix A](#appendix-a-setting-up-kvm-access).
 
-<details>
-
-<summary>Click here to see a BASH script that will check if your system meets
-the basic requirements to run Firecracker.</summary>
-
-```bash
-    err="";
-    [ "$(uname) $(uname -m)" = "Linux x86_64" ]  \
-      || [ "$(uname) $(uname -m)" = "Linux aarch64" ] \
-      || err="ERROR: your system is not Linux x86_64 or Linux aarch64."; \
-    [ -r /dev/kvm ] && [ -w /dev/kvm ] \
-      || err="$err\nERROR: /dev/kvm is innaccessible."; \
-    (( $(uname -r | cut -d. -f1)*1000 + $(uname -r | cut -d. -f2) >= 4014 )) \
-      || err="$err\nERROR: your kernel version ($(uname -r)) is too old."; \
-    dmesg | grep -i "hypervisor detected" \
-      && echo "WARNING: you are running in a virtual machine." \
-      && echo "Firecracker is not well tested under nested virtualization."; \
-    [ -z "$err" ] && echo "Your system looks ready for Firecracker!" || echo -e "$err"
-```
-
-</details>
+To check if your system meets the requirements to run Firecracker, clone
+the repository and execute `tools/devtool checkenv`.
 
 ## Getting the Firecracker Binary
 
