@@ -4,13 +4,9 @@
 
 import os
 import platform
-import re
 
 from enum import Enum
-from shutil import copyfile
-from typing import List
 from pathlib import Path
-from os import path
 
 import boto3
 import botocore.client
@@ -29,17 +25,27 @@ class ArtifactType(Enum):
 class Artifact:
     """A generic artifact manipulation class."""
 
-    def __init__(self, bucket, key, type=ArtifactType.MISC):
+    def __init__(self, bucket, key, artifact_type=ArtifactType.MISC):
         """Initialize bucket, key and type."""
-        self.bucket = bucket
-        self.key = key
-        self.local_folder = None
-        self._type = type
+        self._bucket = bucket
+        self._key = key
+        self._local_folder = None
+        self._type = artifact_type
 
     @property
     def type(self):
         """Return the artifact type."""
         return self._type
+
+    @property
+    def key(self):
+        """Return the artifact key."""
+        return self._key
+
+    @property
+    def bucket(self):
+        """Return the artifact bucket."""
+        return self._bucket
 
     def name(self):
         """Return the artifact name."""
@@ -47,19 +53,19 @@ class Artifact:
 
     def local_dir(self):
         """Return the directory containing the downloaded artifact."""
-        assert self.local_folder is not None
+        assert self._local_folder is not None
         return "{}/{}/{}".format(
-            self.local_folder,
+            self._local_folder,
             self.type.value,
             platform.machine(),
         )
 
     def download(self, target_folder, force=False):
         """Save the artifact in the folder specified target_path."""
-        self.local_folder = target_folder
+        self._local_folder = target_folder
         Path(self.local_dir()).mkdir(parents=True, exist_ok=True)
         if force or not os.path.exists(self.local_path()):
-            self.bucket.download_file(self.key, self.local_path())
+            self._bucket.download_file(self._key, self.local_path())
 
     def local_path(self):
         """Return the local path where the file was downloaded."""
@@ -77,7 +83,9 @@ class DiskArtifact(Artifact):
         """Return a ssh key artifact."""
         # Replace extension.
         key_file_path = str(Path(self.key).with_suffix('.id_rsa'))
-        return Artifact(self.bucket, key_file_path, type=ArtifactType.SSH_KEY)
+        return Artifact(self.bucket,
+                        key_file_path,
+                        artifact_type=ArtifactType.SSH_KEY)
 
 
 class ArtifactCollection:
@@ -86,34 +94,34 @@ class ArtifactCollection:
     MICROVM_CONFIG_EXTENSION = ".json"
     MICROVM_KERNEL_EXTENSION = ".bin"
     MICROVM_DISK_EXTENSION = ".ext4"
+    PLATFORM = platform.machine()
 
     # S3 bucket structure.
     ARTIFACTS_ROOT = 'ci-artifacts'
-    ARTIFACTS_DISKS = '/disks/' + platform.machine()
-    ARTIFACTS_KERNELS = '/kernels/' + platform.machine()
+    ARTIFACTS_DISKS = '/disks/' + PLATFORM
+    ARTIFACTS_KERNELS = '/kernels/' + PLATFORM
     ARTIFACTS_MICROVMS = '/microvms'
-    ARTIFACTS_SNAPSHOTS = '/snapshots/' + platform.machine()
+    ARTIFACTS_SNAPSHOTS = '/snapshots/' + PLATFORM
 
     def __init__(
         self,
-        artifacts_bucket
+        bucket
     ):
         """Initialize S3 client."""
         config = botocore.client.Config(signature_version=botocore.UNSIGNED)
-        self.s3 = boto3.resource('s3', config=config)
-        self.artifacts_bucket = artifacts_bucket
+        # pylint: disable=E1101
+        # fixes "E1101: Instance of '' has no 'Bucket' member (no-member)""
+        self.bucket = boto3.resource('s3', config=config).Bucket(bucket)
 
     def _fetch_artifacts(self,
-                         artifact_root,
                          artifact_dir,
                          artifact_ext,
                          artifact_type,
                          artifact_class,
                          keyword=None):
-        bucket = self.s3.Bucket(self.artifacts_bucket)
         artifacts = []
-        prefix = artifact_root + artifact_dir
-        files = bucket.objects.filter(Prefix=prefix)
+        prefix = ArtifactCollection.ARTIFACTS_ROOT + artifact_dir
+        files = self.bucket.objects.filter(Prefix=prefix)
         for file in files:
             if (
                 # Filter by extensions.
@@ -121,15 +129,14 @@ class ArtifactCollection:
                 # Filter by userprovided keyword if any.
                 and (keyword is None or keyword in file.key)
             ):
-                artifacts.append(artifact_class(bucket,
+                artifacts.append(artifact_class(self.bucket,
                                                 file.key,
-                                                type=artifact_type))
+                                                artifact_type=artifact_type))
         return artifacts
 
     def microvms(self, keyword=None):
         """Return microvms artifacts for the current arch."""
         return self._fetch_artifacts(
-            ArtifactCollection.ARTIFACTS_ROOT,
             ArtifactCollection.ARTIFACTS_MICROVMS,
             ArtifactCollection.MICROVM_CONFIG_EXTENSION,
             ArtifactType.MICROVM,
@@ -140,7 +147,6 @@ class ArtifactCollection:
     def kernels(self, keyword=None):
         """Return kernel artifacts for the current arch."""
         return self._fetch_artifacts(
-            ArtifactCollection.ARTIFACTS_ROOT,
             ArtifactCollection.ARTIFACTS_KERNELS,
             ArtifactCollection.MICROVM_KERNEL_EXTENSION,
             ArtifactType.KERNEL,
@@ -151,7 +157,6 @@ class ArtifactCollection:
     def disks(self, keyword=None):
         """Return disk artifacts for the current arch."""
         return self._fetch_artifacts(
-            ArtifactCollection.ARTIFACTS_ROOT,
             ArtifactCollection.ARTIFACTS_DISKS,
             ArtifactCollection.MICROVM_DISK_EXTENSION,
             ArtifactType.DISK,
@@ -165,23 +170,17 @@ class ArtifactSet:
 
     def __init__(self, artifacts):
         """Initialize type and artifact array."""
-        assert len(artifacts) > 0
-        self._type = artifacts[0].type
+        self._type = None
         self._artifacts = []
-        self.add(artifacts)
+        self.insert(artifacts)
 
-    def add(self, artifacts):
+    def insert(self, artifacts):
         """Add artifacts to set."""
-        assert len(artifacts) > 0
+        if artifacts is not None and len(artifacts) > 0:
+            self._type = self._type or artifacts[0].type
         for artifact in artifacts:
             assert artifact.type == self._type
             self._artifacts.append(artifact)
-
-    def artifact(self, index):
-        """Return the current artifact in the list."""
-        assert len(self) > 0
-        assert index < len(self)
-        return self._artifacts[index]
 
     @property
     def artifacts(self):
