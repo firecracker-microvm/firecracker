@@ -1,16 +1,15 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Basic tests scenarios for snapshot save/restore."""
-import host_tools.network as net_tools  # pylint: disable=import-error
+
 import logging
-from conftest import test_images_s3_bucket
-import json
-from pathlib import Path
+import platform
 import pytest
-from framework.artifacts import ArtifactCollection
+from conftest import _test_images_s3_bucket
+from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
-import platform
+import host_tools.network as net_tools  # pylint: disable=import-error
 
 
 def _test_pause_resume(context):
@@ -87,14 +86,14 @@ def test_pause_resume(test_session_root_path,
     """Test scenario: boot/pause/resume for all available configurations."""
     logger = logging.getLogger("pause_resume")
     # Currently, artifacts share the bucket with all other resources.
-    artifacts = ArtifactCollection(test_images_s3_bucket())
-    microvm_artifacts = artifacts.microvms()
-    kernel_artifacts = artifacts.kernels()
+    artifact_collection = ArtifactCollection(_test_images_s3_bucket())
 
+    microvm_artifacts = ArtifactSet(artifact_collection.microvms())
+    kernel_artifacts = ArtifactSet(artifact_collection.kernels())
     # Restrict root fs to ubuntu.
-    disk_artifacts = artifacts.disks(keyword="ubuntu")
+    disk_artifacts = ArtifactSet(artifact_collection.disks(keyword="ubuntu"))
 
-    # Create a test matrix. Push logger and network as context variables.
+    # Create a test context and add builder, logger, network.
     test_context = TestContext()
     test_context.custom = {
         'builder': MicrovmBuilder(test_session_root_path, bin_cloner_path),
@@ -102,11 +101,12 @@ def test_pause_resume(test_session_root_path,
         'logger': logger
     }
 
-    test_matrix = TestMatrix(test_context)
-
-    # Configure the text matrix variables.
-    test_matrix.microvms = microvm_artifacts
-    test_matrix.kernels = kernel_artifacts
-    test_matrix.disks = disk_artifacts
+    # Create the test matrix.
+    test_matrix = TestMatrix(context=test_context,
+                             artifact_sets=[
+                                 microvm_artifacts,
+                                 kernel_artifacts,
+                                 disk_artifacts
+                             ])
 
     test_matrix.run_test(_test_pause_resume)

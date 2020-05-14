@@ -4,9 +4,7 @@
 
 import json
 import os
-import uuid
-from framework.microvm import Microvm
-import host_tools.cargo_build as build_tools
+from conftest import init_microvm
 from framework.artifacts import Artifact, DiskArtifact
 
 
@@ -19,17 +17,8 @@ class MicrovmBuilder:
         self.bin_cloner_path = bin_cloner_path
 
     def build(self, kernel: Artifact, disks: [DiskArtifact], config: Artifact):
-        """Build and start a fresh microvm."""
-        microvm_id = str(uuid.uuid4())
-        fc_binary, jailer_binary = build_tools.get_firecracker_binaries()
-
-        vm = Microvm(
-            resource_path=self.root_path,
-            fc_binary_path=fc_binary,
-            jailer_binary_path=jailer_binary,
-            microvm_id=microvm_id,
-            bin_cloner_path=self.bin_cloner_path
-        )
+        """Build a fresh microvm."""
+        vm = init_microvm(self.root_path, self.bin_cloner_path)
         vm.setup()
 
         # Link the microvm to kernel, rootfs, ssh_key artifacts.
@@ -45,15 +34,17 @@ class MicrovmBuilder:
         # Start firecracker.
         vm.spawn()
 
-        # Apply the microvm artifact configuration and start microvm.
         with open(config.local_path()) as microvm_config_file:
             microvm_config = json.load(microvm_config_file)
 
+        # Apply the microvm artifact configuration
         vm.basic_config(vcpu_count=int(microvm_config['vcpu_count']),
                         mem_size_mib=int(microvm_config['mem_size_mib']),
                         ht_enabled=bool(microvm_config['ht_enabled']))
 
         return vm
 
+    # TBD: Snapshot support is not fully merged. Once that is read
+    # this function will provide a way to spin up clones.
     def build_from_snapshot(self, snapshot: Artifact):
-        """Build and start a microvm from a snapshot artifact."""
+        """Build a microvm from a snapshot artifact."""
