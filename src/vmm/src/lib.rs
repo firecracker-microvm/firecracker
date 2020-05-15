@@ -74,7 +74,7 @@ use devices::BusDevice;
 use logger::{LoggerError, MetricsError, METRICS};
 
 #[cfg(target_arch = "x86_64")]
-use persist::{MicrovmState, SaveMicrovmStateError, VmInfo};
+use persist::{MicrovmState, MicrovmStateError, VmInfo};
 use polly::event_manager::{self, EventManager, Subscriber};
 use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
 #[cfg(target_arch = "x86_64")]
@@ -383,13 +383,13 @@ impl Vmm {
 
     /// Saves the state of a paused Microvm.
     #[cfg(target_arch = "x86_64")]
-    pub fn save_state(&mut self) -> std::result::Result<MicrovmState, SaveMicrovmStateError> {
+    pub fn save_state(&mut self) -> std::result::Result<MicrovmState, MicrovmStateError> {
         let vcpu_states = self.save_vcpu_states()?;
 
         let vm_state = self
             .vm
             .save_state()
-            .map_err(SaveMicrovmStateError::InvalidVmState)?;
+            .map_err(MicrovmStateError::SaveVmState)?;
 
         let device_states = self.mmio_device_manager.save();
 
@@ -407,11 +407,12 @@ impl Vmm {
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn save_vcpu_states(&mut self) -> std::result::Result<Vec<VcpuState>, SaveMicrovmStateError> {
+    fn save_vcpu_states(&mut self) -> std::result::Result<Vec<VcpuState>, MicrovmStateError> {
+        use self::MicrovmStateError::*;
         for handle in self.vcpus_handles.iter() {
             handle
                 .send_event(VcpuEvent::SaveState)
-                .map_err(SaveMicrovmStateError::SignalVcpu)?;
+                .map_err(SignalVcpu)?;
         }
 
         let vcpu_responses = self
@@ -421,21 +422,61 @@ impl Vmm {
             .map(|handle| {
                 handle
                     .response_receiver()
-                    .recv_timeout(Duration::from_millis(400))
+                    .recv_timeout(Duration::from_millis(1000))
             })
             .collect::<std::result::Result<Vec<VcpuResponse>, RecvTimeoutError>>()
-            .map_err(|_| SaveMicrovmStateError::InvalidVcpuState)?;
+            .map_err(|_| UnexpectedVcpuResponse)?;
 
         let vcpu_states = vcpu_responses
             .into_iter()
             .map(|response| match response {
-                VcpuResponse::SaveState(state) => Ok(*state),
-                VcpuResponse::SaveStateFailed(_) => Err(SaveMicrovmStateError::InvalidVcpuState),
-                _ => Err(SaveMicrovmStateError::InvalidVcpuState),
+                VcpuResponse::SavedState(state) => Ok(*state),
+                VcpuResponse::Error(e) => Err(SaveVcpuState(e)),
+                _ => Err(UnexpectedVcpuResponse),
             })
-            .collect::<std::result::Result<Vec<VcpuState>, SaveMicrovmStateError>>()?;
+            .collect::<std::result::Result<Vec<VcpuState>, MicrovmStateError>>()?;
 
         Ok(vcpu_states)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    /// Restores vcpus kvm states.
+    pub fn restore_vcpu_states(
+        &mut self,
+        mut vcpu_states: Vec<VcpuState>,
+    ) -> std::result::Result<(), MicrovmStateError> {
+        use self::MicrovmStateError::*;
+
+        if vcpu_states.len() != self.vcpus_handles.len() {
+            return Err(InvalidInput);
+        }
+        for (handle, state) in self.vcpus_handles.iter().zip(vcpu_states.drain(..)) {
+            handle
+                .send_event(VcpuEvent::RestoreState(Box::new(state)))
+                .map_err(MicrovmStateError::SignalVcpu)?;
+        }
+
+        let vcpu_responses = self
+            .vcpus_handles
+            .iter()
+            // `Iterator::collect` can transform a `Vec<Result>` into a `Result<Vec>`.
+            .map(|handle| {
+                handle
+                    .response_receiver()
+                    .recv_timeout(Duration::from_millis(1000))
+            })
+            .collect::<std::result::Result<Vec<VcpuResponse>, RecvTimeoutError>>()
+            .map_err(|_| MicrovmStateError::UnexpectedVcpuResponse)?;
+
+        for response in vcpu_responses.into_iter() {
+            match response {
+                VcpuResponse::RestoredState => (),
+                VcpuResponse::Error(e) => return Err(RestoreVcpuState(e)),
+                _ => return Err(MicrovmStateError::UnexpectedVcpuResponse),
+            }
+        }
+
+        Ok(())
     }
 
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.

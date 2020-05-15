@@ -484,7 +484,6 @@ impl Vm {
         &self.fd
     }
 
-    #[allow(unused)]
     #[cfg(target_arch = "x86_64")]
     /// Saves and returns the Kvm Vm state.
     pub fn save_state(&self) -> Result<VmState> {
@@ -521,7 +520,6 @@ impl Vm {
         })
     }
 
-    #[allow(unused)]
     #[cfg(target_arch = "x86_64")]
     /// Restores the Kvm Vm state.
     pub fn restore_state(&self, state: &VmState) -> Result<()> {
@@ -569,7 +567,6 @@ impl Vm {
     }
 }
 
-#[allow(unused)]
 #[cfg(target_arch = "x86_64")]
 #[derive(Versionize)]
 /// Structure holding VM kvm state.
@@ -914,7 +911,6 @@ impl Vcpu {
         }
     }
 
-    #[allow(unused)]
     #[cfg(target_arch = "x86_64")]
     fn save_state(&self) -> Result<VcpuState> {
         /*
@@ -978,9 +974,8 @@ impl Vcpu {
         })
     }
 
-    #[allow(unused)]
     #[cfg(target_arch = "x86_64")]
-    fn restore_state(&self, state: VcpuState) -> Result<()> {
+    fn restore_state(&self, state: &VcpuState) -> Result<()> {
         /*
          * Ordering requirements:
          *
@@ -1185,11 +1180,11 @@ impl Vcpu {
                     .send(VcpuResponse::Resumed)
                     .expect("failed to send resume status");
             }
-            // SaveState cannot be performed on a running Vcpu.
+            // SaveState or RestoreState cannot be performed on a running Vcpu.
             #[cfg(target_arch = "x86_64")]
-            Ok(VcpuEvent::SaveState) => {
+            Ok(VcpuEvent::SaveState) | Ok(VcpuEvent::RestoreState(_)) => {
                 self.response_sender
-                    .send(VcpuResponse::SaveStateNotAllowed)
+                    .send(VcpuResponse::NotAllowed)
                     .expect("failed to send save not allowed status");
             }
             // Unhandled exit of the other end.
@@ -1212,14 +1207,14 @@ impl Vcpu {
                 // Nothing special to do.
                 self.response_sender
                     .send(VcpuResponse::Resumed)
-                    .expect("failed to send resume status");
+                    .expect("vcpu channel unexpectedly closed");
                 // Move to 'running' state.
                 StateMachine::next(Self::running)
             }
             Ok(VcpuEvent::Pause) => {
                 self.response_sender
                     .send(VcpuResponse::Paused)
-                    .expect("failed to send pause status");
+                    .expect("vcpu channel unexpectedly closed");
                 StateMachine::next(Self::paused)
             }
             #[cfg(target_arch = "x86_64")]
@@ -1228,11 +1223,24 @@ impl Vcpu {
                 self.save_state()
                     .map(|vcpu_state| {
                         self.response_sender
-                            .send(VcpuResponse::SaveState(Box::new(vcpu_state)))
-                            .expect("failed to send vcpu state");
+                            .send(VcpuResponse::SavedState(Box::new(vcpu_state)))
+                            .expect("vcpu channel unexpectedly closed");
                     })
-                    .map_err(|e| self.response_sender.send(VcpuResponse::SaveStateFailed(e)))
-                    .expect("failed to send vcpu state");
+                    .map_err(|e| self.response_sender.send(VcpuResponse::Error(e)))
+                    .expect("vcpu channel unexpectedly closed");
+
+                StateMachine::next(Self::paused)
+            }
+            #[cfg(target_arch = "x86_64")]
+            Ok(VcpuEvent::RestoreState(vcpu_state)) => {
+                self.restore_state(&vcpu_state)
+                    .map(|()| {
+                        self.response_sender
+                            .send(VcpuResponse::RestoredState)
+                            .expect("vcpu channel unexpectedly closed");
+                    })
+                    .map_err(|e| self.response_sender.send(VcpuResponse::Error(e)))
+                    .expect("vcpu channel unexpectedly closed");
 
                 StateMachine::next(Self::paused)
             }
@@ -1249,7 +1257,7 @@ impl Vcpu {
     fn exit(&mut self, exit_code: u8) -> StateMachine<Self> {
         self.response_sender
             .send(VcpuResponse::Exited(exit_code))
-            .expect("failed to send Exited status");
+            .expect("vcpu channel unexpectedly closed");
 
         if let Err(e) = self.exit_evt.write(1) {
             METRICS.vcpu.failures.inc();
@@ -1304,38 +1312,40 @@ pub struct VcpuState {
     xsave: kvm_xsave,
 }
 
-// Allow currently unused Pause and Exit events. These will be used by the vmm later on.
-#[allow(unused)]
-#[derive(Debug)]
 /// List of events that the Vcpu can receive.
 pub enum VcpuEvent {
     /// Pause the Vcpu.
     Pause,
-    /// Event that should resume the Vcpu.
+    /// Event to resume the Vcpu.
     Resume,
-    /// Event that saves the state of a paused Vcpu.
+    /// Event to restore the state of a paused Vcpu.
+    #[cfg(target_arch = "x86_64")]
+    RestoreState(Box<VcpuState>),
+    /// Event to save the state of a paused Vcpu.
     #[cfg(target_arch = "x86_64")]
     SaveState,
-    // Serialize and Deserialize to follow after we get the support from kvm-ioctls.
 }
 
 /// List of responses that the Vcpu reports.
 pub enum VcpuResponse {
+    /// Requested action encountered an error.
+    #[cfg(target_arch = "x86_64")]
+    Error(Error),
+    /// Vcpu is stopped.
+    Exited(u8),
+    /// Requested action not allowed.
+    #[cfg(target_arch = "x86_64")]
+    NotAllowed,
     /// Vcpu is paused.
     Paused,
     /// Vcpu is resumed.
     Resumed,
-    /// Vcpu is stopped.
-    Exited(u8),
+    /// Vcpu state is restored.
+    #[cfg(target_arch = "x86_64")]
+    RestoredState,
     /// Vcpu state is saved.
     #[cfg(target_arch = "x86_64")]
-    SaveState(Box<VcpuState>),
-    /// Vcpu state could not be saved.
-    #[cfg(target_arch = "x86_64")]
-    SaveStateFailed(Error),
-    /// Vcpu state not allowed while running.
-    #[cfg(target_arch = "x86_64")]
-    SaveStateNotAllowed,
+    SavedState(Box<VcpuState>),
 }
 
 /// Wrapper over Vcpu that hides the underlying interactions with the Vcpu thread.
@@ -1412,20 +1422,19 @@ pub(crate) mod tests {
             match self {
                 Paused | Resumed | Exited(_) => (),
                 #[cfg(target_arch = "x86_64")]
-                SaveState(_) | SaveStateFailed(_) | SaveStateNotAllowed => (),
+                Error(_) | NotAllowed | RestoredState | SavedState(_) => (),
             };
             match (self, other) {
-                (Paused, Paused) => true,
-                (Resumed, Resumed) => true,
+                (Paused, Paused) | (Resumed, Resumed) => true,
                 (Exited(code), Exited(other_code)) => code == other_code,
                 #[cfg(target_arch = "x86_64")]
-                (SaveState(_), SaveState(_)) => true,
+                (NotAllowed, NotAllowed)
+                | (RestoredState, RestoredState)
+                | (SavedState(_), SavedState(_)) => true,
                 #[cfg(target_arch = "x86_64")]
-                (SaveStateFailed(ref err), SaveStateFailed(ref other_err)) => {
+                (Error(ref err), Error(ref other_err)) => {
                     format!("{:?}", err) == format!("{:?}", other_err)
                 }
-                #[cfg(target_arch = "x86_64")]
-                (SaveStateNotAllowed, SaveStateNotAllowed) => true,
                 _ => false,
             }
         }
@@ -1439,11 +1448,13 @@ pub(crate) mod tests {
                 Resumed => write!(f, "VcpuResponse::Resumed"),
                 Exited(code) => write!(f, "VcpuResponse::Exited({:?})", code),
                 #[cfg(target_arch = "x86_64")]
-                SaveState(_) => write!(f, "VcpuResponse::SaveState"),
+                RestoredState => write!(f, "VcpuResponse::RestoredState"),
                 #[cfg(target_arch = "x86_64")]
-                SaveStateFailed(ref err) => write!(f, "VcpuResponse::SaveStateFailed({:?})", err),
+                SavedState(_) => write!(f, "VcpuResponse::SavedState"),
                 #[cfg(target_arch = "x86_64")]
-                SaveStateNotAllowed => write!(f, "VcpuResponse::SaveStateNotAllowed"),
+                Error(ref err) => write!(f, "VcpuResponse::Error({:?})", err),
+                #[cfg(target_arch = "x86_64")]
+                NotAllowed => write!(f, "VcpuResponse::NotAllowed"),
             }
         }
     }
@@ -1803,14 +1814,14 @@ pub(crate) mod tests {
         assert_eq!(
             handle
                 .response_receiver()
-                .recv_timeout(Duration::from_millis(100))
+                .recv_timeout(Duration::from_millis(1000))
                 .expect("did not receive event response from vcpu"),
             response
         );
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn default_vcpu() -> (VcpuHandle, utils::eventfd::EventFd) {
+    fn vcpu_configured_for_boot() -> (VcpuHandle, utils::eventfd::EventFd) {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
         let mem_size = 64 << 20;
@@ -1840,7 +1851,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vcpu_pause_resume() {
-        let (vcpu_handle, vcpu_exit_evt) = default_vcpu();
+        let (vcpu_handle, vcpu_exit_evt) = vcpu_configured_for_boot();
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
@@ -1870,27 +1881,36 @@ pub(crate) mod tests {
 
     #[cfg(target_arch = "x86_64")]
     #[test]
-    fn test_vcpu_save_state() {
-        let (vcpu_handle, _vcpu_exit_evt) = default_vcpu();
+    fn test_vcpu_save_restore_state_events() {
+        let (vcpu_handle, _vcpu_exit_evt) = vcpu_configured_for_boot();
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
 
         // Queue a SaveState event, expect a response.
-        queue_event_expect_response(
-            &vcpu_handle,
-            VcpuEvent::SaveState,
-            VcpuResponse::SaveStateNotAllowed,
-        );
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::SaveState, VcpuResponse::NotAllowed);
 
         // Queue another Pause event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
 
-        // Queue a SaveState event, expect a response.
+        // Queue a SaveState event, get the response.
+        vcpu_handle
+            .send_event(VcpuEvent::SaveState)
+            .expect("failed to send event to vcpu");
+        let vcpu_state = match vcpu_handle
+            .response_receiver()
+            .recv_timeout(Duration::from_millis(1000))
+            .expect("did not receive event response from vcpu")
+        {
+            VcpuResponse::SavedState(state) => state,
+            _ => panic!("unexpected response"),
+        };
+
+        // Queue a RestoreState event, expect success.
         queue_event_expect_response(
             &vcpu_handle,
-            VcpuEvent::SaveState,
-            VcpuResponse::SaveState(Box::new(default_vcpu_state())),
+            VcpuEvent::RestoreState(vcpu_state),
+            VcpuResponse::RestoredState,
         );
     }
 
@@ -1926,13 +1946,12 @@ pub(crate) mod tests {
     #[test]
     fn test_vcpu_save_restore_state() {
         let (_vm, vcpu, _mem) = setup_vcpu(0x1000);
-        let state = vcpu.save_state();
-        assert!(state.is_ok());
-        assert!(vcpu.restore_state(state.unwrap()).is_ok());
+        let state = vcpu.save_state().unwrap();
+        assert!(vcpu.restore_state(&state).is_ok());
 
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
         let state = default_vcpu_state();
         // Setting default state should always fail.
-        assert!(vcpu.restore_state(state).is_err());
+        assert!(vcpu.restore_state(&state).is_err());
     }
 }

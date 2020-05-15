@@ -44,24 +44,36 @@ pub struct MicrovmState {
     pub device_states: DeviceStates,
 }
 
-/// Errors related to saving Microvm state.
+/// Errors related to saving and restoring Microvm state.
 #[derive(Debug)]
-pub enum SaveMicrovmStateError {
-    /// Failed to save vCPU state.
-    InvalidVcpuState,
+pub enum MicrovmStateError {
+    /// Provided MicroVM state is invalid.
+    InvalidInput,
+    /// Failed to restore VM state.
+    RestoreVcpuState(vstate::Error),
+    /// Failed to restore Vcpu state.
+    RestoreVmState(vstate::Error),
     /// Failed to save VM state.
-    InvalidVmState(vstate::Error),
+    SaveVcpuState(vstate::Error),
+    /// Failed to save Vcpu state.
+    SaveVmState(vstate::Error),
     /// Failed to send event.
     SignalVcpu(vstate::Error),
+    /// Vcpu is in unexpected state.
+    UnexpectedVcpuResponse,
 }
 
-impl Display for SaveMicrovmStateError {
+impl Display for MicrovmStateError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::SaveMicrovmStateError::*;
+        use self::MicrovmStateError::*;
         match self {
-            InvalidVcpuState => write!(f, "Unable to save Vcpu state."),
-            InvalidVmState(err) => write!(f, "Unable to save Vm state. Error: {:?}", err),
+            InvalidInput => write!(f, "Provided MicroVM state is invalid."),
+            RestoreVcpuState(err) => write!(f, "Unable to restore Vcpu state. Error: {:?}", err),
+            RestoreVmState(err) => write!(f, "Unable to restore Vm state. Error: {:?}", err),
+            SaveVcpuState(err) => write!(f, "Unable to save Vcpu state. Error: {:?}", err),
+            SaveVmState(err) => write!(f, "Unable to save Vm state. Error: {:?}", err),
             SignalVcpu(err) => write!(f, "Unable to signal Vcpu: {:?}", err),
+            UnexpectedVcpuResponse => write!(f, "Vcpu is in unexpected state."),
         }
     }
 }
@@ -78,7 +90,7 @@ pub enum CreateSnapshotError {
     /// Failed to open memory backing file.
     MemoryBackingFile(std::io::Error),
     /// Failed to save MicrovmState.
-    MicrovmState(SaveMicrovmStateError),
+    MicrovmState(MicrovmStateError),
     /// Failed to serialize microVM state.
     SerializeMicrovmState(snapshot::Error),
     /// Failed to open the snapshot backing file.
@@ -293,7 +305,7 @@ mod tests {
         let err = MemoryBackingFile(std::io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = MicrovmState(SaveMicrovmStateError::InvalidVcpuState);
+        let err = MicrovmState(MicrovmStateError::UnexpectedVcpuResponse);
         let _ = format!("{}{:?}", err, err);
 
         let err = SerializeMicrovmState(snapshot::Error::InvalidMagic(0));
@@ -305,12 +317,12 @@ mod tests {
 
     #[test]
     fn test_save_microvm_state_error_messages() {
-        use persist::SaveMicrovmStateError::*;
+        use persist::MicrovmStateError::*;
 
-        let err = InvalidVcpuState;
+        let err = UnexpectedVcpuResponse;
         let _ = format!("{}{:?}", err, err);
 
-        let err = InvalidVmState(vstate::Error::NotEnoughMemorySlots);
+        let err = SaveVmState(vstate::Error::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
         let err = SignalVcpu(vstate::Error::VcpuCountNotInitialized);
