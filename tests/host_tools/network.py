@@ -278,6 +278,14 @@ def mac_from_ip(ip_address):
     return "{}:{}:{}:{}:{}:{}".format(*mac_as_list)
 
 
+def get_guest_net_if_name(ssh_connection, guest_ip):
+    """Get network interface name based on its IPv4 address."""
+    cmd = "ip a s | grep '{}' | tr -s ' ' | cut -d' ' -f6".format(guest_ip)
+    _, guest_if_name, _ = ssh_connection.execute_command(cmd)
+    if_name = guest_if_name.read().strip()
+    return if_name if if_name != '' else None
+
+
 class Tap:
     """Functionality for creating a tap and cleaning up after it."""
 
