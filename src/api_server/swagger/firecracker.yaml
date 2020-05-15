@@ -552,7 +552,9 @@ definitions:
           snapshot is created.
       version:
         type: string
-        description: The snapshot format version.
+        description:
+          The microVM version for which we want to create the snapshot.
+          It is optional and it defaults to the current version.
 
   Drive:
     type: object
