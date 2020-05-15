@@ -33,9 +33,9 @@ pub struct CreateSnapshotParams {
     pub snapshot_path: PathBuf,
     /// Path to the file that will contain the guest memory.
     pub mem_file_path: PathBuf,
-    ///  Optional field for the snapshot format version. The default
-    /// value is the current app version.
-    pub version: Option<u16>,
+    /// Optional field for the microVM version. The default
+    /// value is the current version.
+    pub version: Option<String>,
 }
 
 /// Stores the configuration that will be used for loading a snapshot.

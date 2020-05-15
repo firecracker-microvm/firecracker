@@ -754,10 +754,10 @@ mod tests {
             .write_all(
                 b"PUT /snapshot/create HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
-                Content-Length: 64\r\n\r\n{ \
+                Content-Length: 71\r\n\r\n{ \
                 \"snapshot_path\": \"foo\", \
                 \"mem_file_path\": \"bar\", \
-                \"version\": 2 \
+                \"version\": \"0.23.0\" \
             }",
             )
             .unwrap();
