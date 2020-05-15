@@ -192,11 +192,12 @@ def test_session_tmp_path(test_session_root_path):
     shutil.rmtree(tmp_path)
 
 
-def _gcc_compile(src_file, output_file):
+def _gcc_compile(src_file, output_file, extra_flags="-static -O3"):
     """Build a source file with gcc."""
-    compile_cmd = 'gcc {} -o {} -static -O3'.format(
+    compile_cmd = 'gcc {} -o {} {}'.format(
         src_file,
-        output_file
+        output_file,
+        extra_flags
     )
     utils.run_cmd(compile_cmd)
 
@@ -232,6 +233,22 @@ def bin_vsock_path(test_session_root_path):
         vsock_helper_bin_path
     )
     yield vsock_helper_bin_path
+
+
+@pytest.fixture(scope='session')
+def change_net_config_space_bin(test_session_root_path):
+    """Build a binary that changes the MMIO config space."""
+    # pylint: disable=redefined-outer-name
+    change_net_config_space_bin = os.path.join(
+        test_session_root_path,
+        'change_net_config_space'
+    )
+    _gcc_compile(
+        'host_tools/change_net_config_space.c',
+        change_net_config_space_bin,
+        extra_flags=""
+    )
+    yield change_net_config_space_bin
 
 
 @pytest.fixture(scope='session')
