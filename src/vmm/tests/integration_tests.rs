@@ -17,6 +17,8 @@ mod mock_seccomp;
 mod test_utils;
 
 use std::io;
+#[cfg(target_arch = "x86_64")]
+use std::io::{Seek, SeekFrom};
 use std::thread;
 use std::time::Duration;
 
@@ -24,6 +26,8 @@ use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
 #[cfg(target_arch = "x86_64")]
 use snapshot::Snapshot;
+#[cfg(target_arch = "x86_64")]
+use vmm::builder::build_microvm_from_snapshot;
 use vmm::builder::{build_microvm_for_boot, setup_serial_device};
 use vmm::default_syscalls::get_seccomp_filter;
 #[cfg(target_arch = "x86_64")]
@@ -85,9 +89,6 @@ fn test_build_microvm() {
             let resources: VmResources = MockVmResources::new()
                 .with_boot_source(boot_source_cfg)
                 .into();
-            let mut event_manager = EventManager::new().unwrap();
-            let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
-
             let vmm = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter)
                 .unwrap();
 
@@ -168,6 +169,8 @@ fn test_pause_resume_microvm() {
             let vmm = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter)
                 .unwrap();
 
+            // There's a race between this thread and the vcpu thread, but this thread
+            // should be able to pause vcpu thread before it finishes running its test-binary.
             assert!(vmm.lock().unwrap().pause_vcpus().is_ok());
             // Pausing again the microVM should not fail (microVM remains in the
             // `Paused` state).
@@ -292,7 +295,7 @@ fn test_dirty_bitmap_success() {
 }
 
 #[cfg(target_arch = "x86_64")]
-fn create_snapshot(is_diff: bool) {
+fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     let snapshot_file = TempFile::new().unwrap();
     let memory_file = TempFile::new().unwrap();
 
@@ -367,13 +370,67 @@ fn create_snapshot(is_diff: bool) {
             assert_eq!(restored_microvm_state.vcpu_states.len(), 1);
         }
     }
+    (snapshot_file, memory_file)
+}
+
+#[cfg(target_arch = "x86_64")]
+fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
+    use vm_memory::GuestMemoryMmap;
+    use vmm::memory_snapshot::SnapshotMemory;
+
+    let pid = unsafe { libc::fork() };
+    match pid {
+        0 => {
+            set_panic_hook();
+            let mut event_manager = EventManager::new().unwrap();
+            let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
+
+            snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
+            let microvm_state: MicrovmState =
+                Snapshot::load(&mut snapshot_file.as_file(), VERSION_MAP.clone()).unwrap();
+            let mem = GuestMemoryMmap::restore(memory_file.as_file(), &microvm_state.memory_state)
+                .unwrap();
+
+            let vmm = build_microvm_from_snapshot(
+                &mut event_manager,
+                microvm_state,
+                mem,
+                false,
+                &empty_seccomp_filter,
+            )
+            .unwrap();
+            // For now we're happy we got this far, we don't test what the guest is actually doing.
+            vmm.lock().unwrap().stop(0);
+        }
+        vmm_pid => {
+            // Parent process: wait for the vmm to exit.
+            let mut vmm_status: i32 = -1;
+            let pid_done = unsafe { libc::waitpid(vmm_pid, &mut vmm_status, 0) };
+            assert_eq!(pid_done, vmm_pid);
+            restore_stdin();
+            // If any panics occurred, its exit status will be != 0.
+            assert!(unsafe { libc::WIFEXITED(vmm_status) });
+            assert_eq!(unsafe { libc::WEXITSTATUS(vmm_status) }, 0);
+        }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
 #[test]
-fn test_create_snapshot() {
+fn test_create_and_load_snapshot() {
     // Create diff snapshot.
-    create_snapshot(true);
+    let (snapshot_file, memory_file) = verify_create_snapshot(true);
+    // Create a new microVm from snapshot. This only tests code-level logic; it verifies
+    // that a microVM can be built with no errors from given snapshot.
+    // It does _not_ verify that the guest is actually restored properly. We're using
+    // python integration tests for that.
+    verify_load_snapshot(snapshot_file, memory_file);
+
     // Create full snapshot.
-    create_snapshot(false);
+    let (snapshot_file, memory_file) = verify_create_snapshot(false);
+    // Create a new microVm from snapshot. This only tests code-level logic; it verifies
+    // that a microVM can be built with no errors from given snapshot.
+    // It does _not_ verify that the guest is actually restored properly. We're using
+    // python integration tests for that.
+    verify_load_snapshot(snapshot_file, memory_file);
 }

@@ -3,29 +3,34 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
+#[cfg(target_arch = "x86_64")]
+use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
-use super::{Error, Vmm};
+use crate::device_manager::mmio::MMIODeviceManager;
+#[cfg(target_arch = "x86_64")]
+use crate::device_manager::{legacy::PortIODeviceManager, persist::MMIODevManagerConstructorArgs};
+#[cfg(target_arch = "x86_64")]
+use crate::persist::{MicrovmState, MicrovmStateError};
+use crate::vmm_config::boot_source::BootConfig;
+use crate::vstate::{KvmContext, Vcpu, VcpuConfig, Vm};
+use crate::{device_manager, Error, Vmm, VmmEventsObserver};
 
 use arch::InitrdConfig;
-#[cfg(target_arch = "x86_64")]
-use device_manager::legacy::PortIODeviceManager;
-use device_manager::mmio::MMIODeviceManager;
 use devices::legacy::Serial;
 use devices::virtio::{Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
 use kernel::cmdline::Cmdline as KernelCmdline;
 use polly::event_manager::{Error as EventManagerError, EventManager, Subscriber};
-use seccomp::BpfProgramRef;
+use seccomp::{BpfProgramRef, SeccompFilter};
+#[cfg(target_arch = "x86_64")]
+use snapshot::Persist;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
-use vmm_config::boot_source::BootConfig;
-use vstate::{KvmContext, Vcpu, VcpuConfig, Vm};
-use {device_manager, VmmEventsObserver};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -66,6 +71,9 @@ pub enum StartMicrovmError {
     RegisterEvent(EventManagerError),
     /// Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline.
     RegisterMmioDevice(device_manager::mmio::Error),
+    #[cfg(target_arch = "x86_64")]
+    /// Cannot restore microvm state.
+    RestoreMicrovmState(MicrovmStateError),
 }
 
 /// It's convenient to automatically convert `kernel::cmdline::Error`s
@@ -143,6 +151,8 @@ impl Display for StartMicrovmError {
                     err_msg
                 )
             }
+            #[cfg(target_arch = "x86_64")]
+            RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
         }
     }
 }
@@ -325,14 +335,89 @@ pub fn build_microvm_for_boot(
         &initrd,
         boot_cmdline,
     )?;
-    // Firecracker uses the same seccomp filter for all threads.
-    vmm.start_vcpus(vcpus, seccomp_filter.to_vec(), seccomp_filter)
+
+    // Move vcpus to their own threads and start their state machine in the 'Paused' state.
+    vmm.start_vcpus(vcpus, seccomp_filter).map_err(Internal)?;
+
+    // Load seccomp filters for the VMM thread.
+    // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
+    // altogether is the desired behaviour.
+    // Keep this as the last step before resuming vcpus.
+    SeccompFilter::apply(seccomp_filter.to_vec())
+        .map_err(Error::SeccompFilters)
         .map_err(Internal)?;
+
+    // The vcpus start off in the `Paused` state, let them run.
+    vmm.resume_vcpus().map_err(Internal)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager
         .add_subscriber(vmm.clone())
         .map_err(RegisterEvent)?;
+
+    Ok(vmm)
+}
+
+/// Builds and starts a microVM based on the provided MicrovmState.
+///
+/// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
+/// is returned.
+#[cfg(target_arch = "x86_64")]
+pub fn build_microvm_from_snapshot(
+    event_manager: &mut EventManager,
+    microvm_state: MicrovmState,
+    guest_memory: GuestMemoryMmap,
+    track_dirty_pages: bool,
+    seccomp_filter: BpfProgramRef,
+) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
+    use self::StartMicrovmError::*;
+    let vcpu_count = u8::try_from(microvm_state.vcpu_states.len())
+        .map_err(|_| MicrovmStateError::InvalidInput)
+        .map_err(RestoreMicrovmState)?;
+
+    // Build Vmm.
+    let (mut vmm, vcpus) = create_vmm_and_vcpus(
+        event_manager,
+        guest_memory.clone(),
+        track_dirty_pages,
+        vcpu_count,
+    )?;
+
+    // Restore kvm vm state.
+    vmm.vm
+        .restore_state(&microvm_state.vm_state)
+        .map_err(MicrovmStateError::RestoreVmState)
+        .map_err(RestoreMicrovmState)?;
+
+    // Restore devices states.
+    let mmio_ctor_args = MMIODevManagerConstructorArgs {
+        mem: guest_memory,
+        vm: vmm.vm.fd(),
+        event_manager,
+    };
+    vmm.mmio_device_manager =
+        MMIODeviceManager::restore(mmio_ctor_args, &microvm_state.device_states)
+            .map_err(MicrovmStateError::RestoreDevices)
+            .map_err(RestoreMicrovmState)?;
+
+    // Move vcpus to their own threads and start their state machine in the 'Paused' state.
+    vmm.start_vcpus(vcpus, seccomp_filter)
+        .map_err(StartMicrovmError::Internal)?;
+
+    // Restore vcpus kvm state.
+    vmm.restore_vcpu_states(microvm_state.vcpu_states)
+        .map_err(RestoreMicrovmState)?;
+
+    let vmm = Arc::new(Mutex::new(vmm));
+    event_manager
+        .add_subscriber(vmm.clone())
+        .map_err(StartMicrovmError::RegisterEvent)?;
+
+    // Load seccomp filters for the VMM thread.
+    // Keep this as the last step of the building process.
+    SeccompFilter::apply(seccomp_filter.to_vec())
+        .map_err(Error::SeccompFilters)
+        .map_err(StartMicrovmError::Internal)?;
 
     Ok(vmm)
 }

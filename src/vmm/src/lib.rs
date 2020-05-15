@@ -77,7 +77,7 @@ use memory_snapshot::SnapshotMemory;
 #[cfg(target_arch = "x86_64")]
 use persist::{MicrovmState, MicrovmStateError, VmInfo};
 use polly::event_manager::{self, EventManager, Subscriber};
-use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
+use seccomp::BpfProgramRef;
 #[cfg(target_arch = "x86_64")]
 use snapshot::Persist;
 use utils::epoll::{EpollEvent, EventSet};
@@ -251,7 +251,6 @@ impl Vmm {
     pub fn start_vcpus(
         &mut self,
         mut vcpus: Vec<Vcpu>,
-        vmm_seccomp_filter: BpfProgram,
         vcpu_seccomp_filter: BpfProgramRef,
     ) -> Result<()> {
         let vcpu_count = vcpus.len();
@@ -274,14 +273,6 @@ impl Vmm {
                     .map_err(Error::VcpuHandle)?,
             );
         }
-
-        // Load seccomp filters for the VMM thread.
-        // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
-        // altogether is the desired behaviour.
-        SeccompFilter::apply(vmm_seccomp_filter).map_err(Error::SeccompFilters)?;
-
-        // The vcpus start off in the `Paused` state, let them run.
-        self.resume_vcpus()?;
 
         Ok(())
     }

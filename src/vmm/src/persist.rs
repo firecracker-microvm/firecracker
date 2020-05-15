@@ -10,6 +10,10 @@ use std::fmt::{Display, Formatter};
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 
+use crate::device_manager::persist::Error as DevicePersistError;
+use crate::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
+use crate::vstate::{self, VcpuState, VmState};
+
 use device_manager::persist::DeviceStates;
 use memory_snapshot;
 use memory_snapshot::{GuestMemoryState, SnapshotMemory};
@@ -18,9 +22,6 @@ use version_map::FC_VERSION_TO_SNAP_VERSION;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
-use vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
-use vstate;
-use vstate::{VcpuState, VmState};
 
 use crate::Vmm;
 
@@ -53,13 +54,15 @@ pub enum MicrovmStateError {
     InvalidInput,
     /// Memory state error.
     Memory(memory_snapshot::Error),
-    /// Failed to restore VM state.
-    RestoreVcpuState(vstate::Error),
+    /// Failed to restore devices.
+    RestoreDevices(DevicePersistError),
     /// Failed to restore Vcpu state.
+    RestoreVcpuState(vstate::Error),
+    /// Failed to restore VM state.
     RestoreVmState(vstate::Error),
-    /// Failed to save VM state.
-    SaveVcpuState(vstate::Error),
     /// Failed to save Vcpu state.
+    SaveVcpuState(vstate::Error),
+    /// Failed to save VM state.
     SaveVmState(vstate::Error),
     /// Failed to send event.
     SignalVcpu(vstate::Error),
@@ -73,11 +76,12 @@ impl Display for MicrovmStateError {
         match self {
             InvalidInput => write!(f, "Provided MicroVM state is invalid."),
             Memory(err) => write!(f, "Memory error: {:?}", err),
-            RestoreVcpuState(err) => write!(f, "Unable to restore Vcpu state. Error: {:?}", err),
-            RestoreVmState(err) => write!(f, "Unable to restore Vm state. Error: {:?}", err),
-            SaveVcpuState(err) => write!(f, "Unable to save Vcpu state. Error: {:?}", err),
-            SaveVmState(err) => write!(f, "Unable to save Vm state. Error: {:?}", err),
-            SignalVcpu(err) => write!(f, "Unable to signal Vcpu: {:?}", err),
+            RestoreDevices(err) => write!(f, "Cannot restore devices. Error: {:?}", err),
+            RestoreVcpuState(err) => write!(f, "Cannot restore Vcpu state. Error: {:?}", err),
+            RestoreVmState(err) => write!(f, "Cannot restore Vm state. Error: {:?}", err),
+            SaveVcpuState(err) => write!(f, "Cannot save Vcpu state. Error: {:?}", err),
+            SaveVmState(err) => write!(f, "Cannot save Vm state. Error: {:?}", err),
+            SignalVcpu(err) => write!(f, "Cannot signal Vcpu: {:?}", err),
             UnexpectedVcpuResponse => write!(f, "Vcpu is in unexpected state."),
         }
     }
@@ -108,17 +112,17 @@ impl Display for CreateSnapshotError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::CreateSnapshotError::*;
         match self {
-            DirtyBitmap => write!(f, "Unable to get dirty bitmap"),
+            DirtyBitmap => write!(f, "Cannot get dirty bitmap"),
             InvalidVersion => write!(
                 f,
-                "Unable to translate microVM version to snapshot data version"
+                "Cannot translate microVM version to snapshot data version"
             ),
-            InvalidVmState(err) => write!(f, "Unable to save Vm state. Error: {:?}", err),
-            Memory(err) => write!(f, "Unable to write memory file: {:?}", err),
-            MemoryBackingFile(err) => write!(f, "Unable to open memory file: {:?}", err),
-            MicrovmState(err) => write!(f, "Unable to save microvm state: {}", err),
-            SerializeMicrovmState(err) => write!(f, "Unable to serialize MicrovmState: {:?}", err),
-            SnapshotBackingFile(err) => write!(f, "Unable to open snapshot file: {:?}", err),
+            InvalidVmState(err) => write!(f, "Cannot save Vm state. Error: {:?}", err),
+            Memory(err) => write!(f, "Cannot write memory file: {:?}", err),
+            MemoryBackingFile(err) => write!(f, "Cannot open memory file: {:?}", err),
+            MicrovmState(err) => write!(f, "Cannot save microvm state: {}", err),
+            SerializeMicrovmState(err) => write!(f, "Cannot serialize MicrovmState: {:?}", err),
+            SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {:?}", err),
         }
     }
 }
@@ -260,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_microvmstate_versionize() {
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut event_manager = EventManager::new().expect("Cannot create EventManager");
         let vmm = default_vmm_with_devices(&mut event_manager);
         let states = vmm.mmio_device_manager.save();
 
