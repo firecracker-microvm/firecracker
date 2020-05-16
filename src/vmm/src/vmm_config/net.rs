@@ -132,7 +132,7 @@ impl NetBuilder {
     /// in the builder's internal list.
     pub fn build(&mut self, netif_config: NetworkInterfaceConfig) -> Result<Arc<Mutex<Net>>> {
         let mac_conflict = |net: &Arc<Mutex<Net>>| {
-            let net = net.lock().unwrap();
+            let net = net.lock().expect("Poisoned lock");
             // Check if another net dev has same MAC.
             netif_config.guest_mac.is_some()
                 && netif_config.guest_mac.as_ref() == net.guest_mac()
@@ -151,7 +151,7 @@ impl NetBuilder {
         if let Some(index) = self
             .net_devices
             .iter()
-            .position(|net| net.lock().unwrap().id() == &netif_config.iface_id)
+            .position(|net| net.lock().expect("Poisoned lock").id() == &netif_config.iface_id)
         {
             self.net_devices.swap_remove(index);
         }
@@ -187,16 +187,6 @@ impl NetBuilder {
         )
         .map_err(NetworkInterfaceError::CreateNetworkDevice)
     }
-
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.net_devices.len()
-    }
-
-    #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
-        self.net_devices.len() == 0
-    }
 }
 
 #[cfg(test)]
@@ -204,6 +194,16 @@ mod tests {
     use std::str;
 
     use super::*;
+
+    impl NetBuilder {
+        pub fn len(&self) -> usize {
+            self.net_devices.len()
+        }
+
+        pub fn is_empty(&self) -> bool {
+            self.net_devices.len() == 0
+        }
+    }
 
     fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {

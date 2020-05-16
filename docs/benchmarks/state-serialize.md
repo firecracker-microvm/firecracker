@@ -1,7 +1,7 @@
 
 ### MicroVM state serialization benchmarks
 The benchmarks have been performed using a synthetic state snapshot that contains 100 structs and a 10k element array.
-Source code: [src/snapshot/benches/basic.rs](../../src/snapshot/benches/basic.rs).
+Source code: [src/snapshot/benches/main.rs](../../src/snapshot/benches/main.rs).
 Snapshot size: 83886 bytes.  
 
 ### Host configuration

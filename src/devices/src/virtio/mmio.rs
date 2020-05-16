@@ -55,10 +55,7 @@ pub struct MmioTransport {
 impl MmioTransport {
     /// Constructs a new MMIO transport for the given virtio device.
     pub fn new(mem: GuestMemoryMmap, device: Arc<Mutex<dyn VirtioDevice>>) -> MmioTransport {
-        let interrupt_status = device
-            .lock()
-            .expect("Poisoned device lock")
-            .interrupt_status();
+        let interrupt_status = device.lock().expect("Poisoned lock").interrupt_status();
 
         MmioTransport {
             device,
@@ -73,7 +70,7 @@ impl MmioTransport {
     }
 
     pub fn locked_device(&self) -> MutexGuard<dyn VirtioDevice + 'static> {
-        self.device.lock().expect("Poisoned device lock")
+        self.device.lock().expect("Poisoned lock")
     }
 
     // Gets the encapsulated VirtioDevice.

@@ -639,7 +639,7 @@ fn attach_block_devices(
     for block in blocks.list.iter() {
         let id;
         {
-            let locked = block.lock().unwrap();
+            let locked = block.lock().expect("Poisoned lock");
             if locked.is_root_device() {
                 cmdline.insert_str(if let Some(partuuid) = locked.partuuid() {
                     format!("root=PARTUUID={}", partuuid)
@@ -680,7 +680,7 @@ fn attach_net_devices(
         event_manager
             .add_subscriber(net_device.clone())
             .map_err(RegisterEvent)?;
-        let id = net_device.lock().unwrap().id().clone();
+        let id = net_device.lock().expect("Poisoned lock").id().clone();
         // The device mutex mustn't be locked here otherwise it will deadlock.
         let device = MmioTransport::new(vmm.guest_memory().clone(), net_device.clone());
         vmm.mmio_device_manager
@@ -703,7 +703,7 @@ fn attach_unixsock_vsock_device(
         .add_subscriber(unix_vsock.clone())
         .map_err(RegisterEvent)?;
 
-    let id = String::from(unix_vsock.lock().unwrap().id());
+    let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
     let device = MmioTransport::new(vmm.guest_memory().clone(), unix_vsock.clone());
     vmm.mmio_device_manager

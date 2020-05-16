@@ -108,8 +108,8 @@ impl EventManager {
     // all events registered at once. This way we can also remove the `interest_list` which is
     // only used once in this function.
     pub fn add_subscriber(&mut self, subscriber: Arc<Mutex<dyn Subscriber>>) -> Result<()> {
-        // Unwrapping here is safe because we want to panic in case the lock is poisoned.
-        let interest_list = subscriber.lock().unwrap().interest_list();
+        // Expecting here is safe because we want to panic in case the lock is poisoned.
+        let interest_list = subscriber.lock().expect("Poisoned lock").interest_list();
 
         for event in interest_list {
             self.register(event.data() as i32, event, subscriber.clone())?
@@ -201,10 +201,10 @@ impl EventManager {
             if self.subscribers.contains_key(&pollable) {
                 self.subscribers
                     .get_mut(&pollable)
-                    .unwrap()
+                    .unwrap() // Safe because we have already checked existence
                     .clone()
                     .lock()
-                    .unwrap()
+                    .expect("Poisoned lock")
                     .process(&event, self);
             }
             // TODO: Should we log an error in case the subscriber does not exist?

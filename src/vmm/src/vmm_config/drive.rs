@@ -103,7 +103,7 @@ impl BlockBuilder {
     fn has_root_device(&self) -> bool {
         // If there is a root device, it would be at the top of the list.
         if let Some(block) = self.list.get(0) {
-            block.lock().unwrap().is_root_device()
+            block.lock().expect("Poisoned lock").is_root_device()
         } else {
             false
         }
@@ -113,7 +113,7 @@ impl BlockBuilder {
     fn get_index_of_drive_id(&self, drive_id: &str) -> Option<usize> {
         self.list
             .iter()
-            .position(|b| b.lock().unwrap().id().eq(drive_id))
+            .position(|b| b.lock().expect("Poisoned lock").id().eq(drive_id))
     }
 
     /// Inserts a `Block` in the block devices list using the specified configuration.

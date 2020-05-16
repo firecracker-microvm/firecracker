@@ -2,6 +2,7 @@
 name = "snapshot"
 version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+autobenches = false
 
 [dependencies]
 serde = ">=1.0.27"
@@ -14,5 +15,5 @@ versionize_derive = { git = "https://github.com/firecracker-microvm/versionize_d
 criterion = "0.3.0"
 
 [[bench]]
-name = "basic"
+name = "main"
 harness = false
