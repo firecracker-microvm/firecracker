@@ -412,10 +412,10 @@ paths:
           description: The configuration used for creating a snaphot.
           required: true
           schema:
-            $ref: "#/definitions/CreateSnapshotParams"
+            $ref: "#/definitions/SnapshotCreateParams"
       responses:
-        501:
-          description: Not implemented yet
+        204:
+          description: Snapshot created
         400:
           description: Snapshot cannot be created due to bad input
           schema:
@@ -439,10 +439,10 @@ paths:
           description: The configuration used for loading a snaphot.
           required: true
           schema:
-            $ref: "#/definitions/LoadSnapshotParams"
+            $ref: "#/definitions/SnapshotLoadParams"
       responses:
-        501:
-          description: Not implemented yet
+        204:
+          description: Snapshot loaded
         400:
           description: Snapshot cannot be loaded due to bad input
           schema:
@@ -531,32 +531,6 @@ definitions:
       - C3
       - T2
 
-  CreateSnapshotParams:
-    type: object
-    required:
-      - mem_file_path
-      - snapshot_path
-    properties:
-      mem_file_path:
-        type: string
-        description: Path to the file that will contain the guest memory.
-      snapshot_path:
-        type: string
-        description: Path to the file that will contain the microVM state.
-      snapshot_type:
-        type: string
-        enum:
-          - Full
-          - Diff
-        description:
-          Type of snapshot to create. It is optional and by default, a full
-          snapshot is created.
-      version:
-        type: string
-        description:
-          The microVM version for which we want to create the snapshot.
-          It is optional and it defaults to the current version.
-
   Drive:
     type: object
     required:
@@ -633,23 +607,6 @@ definitions:
       vmm_version:
         description: MicroVM hypervisor build version.
         type: string
-
-  LoadSnapshotParams:
-    type: object
-    required:
-      - mem_file_path
-      - snapshot_path
-    properties:
-      enable_diff_snapshots:
-        type: boolean
-        description:
-          Enable support for incremental (diff) snapshots by tracking dirty guest pages.
-      mem_file_path:
-        type: string
-        description: Path to the file that contains the guest memory to be loaded.
-      snapshot_path:
-        type: string
-        description: Path to the file that contains the microVM state to be loaded.
 
   Logger:
     type: object
@@ -795,6 +752,49 @@ definitions:
       ops:
         $ref: "#/definitions/TokenBucket"
         description: Token bucket with operations as tokens
+
+  SnapshotCreateParams:
+    type: object
+    required:
+      - mem_file_path
+      - snapshot_path
+    properties:
+      mem_file_path:
+        type: string
+        description: Path to the file that will contain the guest memory.
+      snapshot_path:
+        type: string
+        description: Path to the file that will contain the microVM state.
+      snapshot_type:
+        type: string
+        enum:
+          - Full
+          - Diff
+        description:
+          Type of snapshot to create. It is optional and by default, a full
+          snapshot is created.
+      version:
+        type: string
+        description:
+          The microVM version for which we want to create the snapshot.
+          It is optional and it defaults to the current version.
+
+  SnapshotLoadParams:
+    type: object
+    required:
+      - mem_file_path
+      - snapshot_path
+    properties:
+      enable_diff_snapshots:
+        type: boolean
+        description:
+          Enable support for incremental (diff) snapshots by tracking dirty guest pages.
+      mem_file_path:
+        type: string
+        description: Path to the file that contains the guest memory to be loaded.
+      snapshot_path:
+        type: string
+        description: Path to the file that contains the microVM state to be loaded.
 
   TokenBucket:
     type: object

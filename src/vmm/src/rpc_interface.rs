@@ -12,14 +12,12 @@ use super::Vmm;
 
 use super::Error as VmmError;
 use arch::DeviceType;
-use builder::StartMicrovmError;
+use builder::{self, StartMicrovmError};
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
 use logger::METRICS;
 #[cfg(target_arch = "x86_64")]
-use persist;
-#[cfg(target_arch = "x86_64")]
-use persist::CreateSnapshotError;
+use persist::{self, CreateSnapshotError, LoadSnapshotError};
 use polly::event_manager::EventManager;
 use resources::VmResources;
 use seccomp::BpfProgram;
@@ -37,8 +35,7 @@ use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
 #[cfg(target_arch = "x86_64")]
-use vmm_config::snapshot::CreateSnapshotParams;
-use vmm_config::snapshot::LoadSnapshotParams;
+use vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
 use vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 
 /// This enum represents the public interface of the VMM. Each action contains various
@@ -72,6 +69,7 @@ pub enum VmmAction {
     /// Load the microVM state using as input the `LoadSnapshotParams`. This action can only be
     /// called before the microVM has booted. If this action is successful, the loaded microVM will
     /// be in `Paused` state. Should change this state to `Resumed` for the microVM to run.
+    #[cfg(target_arch = "x86_64")]
     LoadSnapshot(LoadSnapshotParams),
     /// Pause the guest, by pausing the microVM VCPUs.
     Pause,
@@ -113,6 +111,9 @@ pub enum VmmActionError {
     DriveConfig(DriveError),
     /// Internal Vmm error.
     InternalVmm(VmmError),
+    /// Loading a microVM snapshot failed.
+    #[cfg(target_arch = "x86_64")]
+    LoadSnapshot(LoadSnapshotError),
     /// The action `ConfigureLogger` failed because of bad user input.
     Logger(LoggerConfigError),
     /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed because of bad input.
@@ -146,6 +147,8 @@ impl Display for VmmActionError {
                 CreateSnapshot(err) => err.to_string(),
                 DriveConfig(err) => err.to_string(),
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
+                #[cfg(target_arch = "x86_64")]
+                LoadSnapshot(err) => format!("Load microVM snapshot error: {}", err),
                 Logger(err) => err.to_string(),
                 MachineConfig(err) => err.to_string(),
                 Metrics(err) => err.to_string(),
@@ -175,10 +178,6 @@ pub enum VmmData {
     Empty,
     /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(VmConfig),
-    /// No data is sent on the channel as the operation doesn't
-    /// have a handler implemented yet.
-    // This should be removed once we add an implementation for it.
-    NotFound,
 }
 
 /// Enables pre-boot setup and instantiation of a Firecracker VMM.
@@ -279,7 +278,18 @@ impl<'a> PrebootApiController<'a> {
                 .build_net_device(netif_body)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::NetworkConfig),
-            LoadSnapshot(_snapshot_load_cfg) => Ok(VmmData::NotFound),
+            #[cfg(target_arch = "x86_64")]
+            LoadSnapshot(snapshot_load_cfg) => persist::load_snapshot(
+                &mut self.event_manager,
+                &self.seccomp_filter,
+                snapshot_load_cfg,
+                VERSION_MAP.clone(),
+            )
+            .map(|vmm| {
+                self.built_vmm = Some(vmm);
+                VmmData::Empty
+            })
+            .map_err(VmmActionError::LoadSnapshot),
             SetVsockDevice(vsock_cfg) => self
                 .vm_resources
                 .set_vsock_device(vsock_cfg)
@@ -295,7 +305,7 @@ impl<'a> PrebootApiController<'a> {
                 .set_mmds_config(mmds_config)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::MmdsConfig),
-            StartMicroVm => super::builder::build_microvm_for_boot(
+            StartMicroVm => builder::build_microvm_for_boot(
                 &self.vm_resources,
                 &mut self.event_manager,
                 &self.seccomp_filter,
@@ -359,10 +369,11 @@ impl RuntimeApiController {
             | ConfigureMetrics(_)
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
-            | LoadSnapshot(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | SetVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
+            #[cfg(target_arch = "x86_64")]
+            LoadSnapshot(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
             StartMicroVm => Err(VmmActionError::StartMicrovm(
                 StartMicrovmError::MicroVMAlreadyRunning,
             )),

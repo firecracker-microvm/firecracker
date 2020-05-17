@@ -7,16 +7,21 @@
 #![cfg(target_arch = "x86_64")]
 
 use std::fmt::{Display, Formatter};
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
+use std::io;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
+use crate::builder::{self, StartMicrovmError};
 use crate::device_manager::persist::Error as DevicePersistError;
-use crate::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
+use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vstate::{self, VcpuState, VmState};
 
 use device_manager::persist::DeviceStates;
 use memory_snapshot;
 use memory_snapshot::{GuestMemoryState, SnapshotMemory};
+use polly::event_manager::EventManager;
+use seccomp::BpfProgramRef;
 use snapshot::Snapshot;
 use version_map::FC_VERSION_TO_SNAP_VERSION;
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -99,13 +104,13 @@ pub enum CreateSnapshotError {
     /// Failed to write memory to snapshot.
     Memory(memory_snapshot::Error),
     /// Failed to open memory backing file.
-    MemoryBackingFile(std::io::Error),
+    MemoryBackingFile(io::Error),
     /// Failed to save MicrovmState.
     MicrovmState(MicrovmStateError),
     /// Failed to serialize microVM state.
     SerializeMicrovmState(snapshot::Error),
     /// Failed to open the snapshot backing file.
-    SnapshotBackingFile(std::io::Error),
+    SnapshotBackingFile(io::Error),
 }
 
 impl Display for CreateSnapshotError {
@@ -123,6 +128,34 @@ impl Display for CreateSnapshotError {
             MicrovmState(err) => write!(f, "Cannot save microvm state: {}", err),
             SerializeMicrovmState(err) => write!(f, "Cannot serialize MicrovmState: {:?}", err),
             SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {:?}", err),
+        }
+    }
+}
+
+/// Errors associated with loading a snapshot.
+#[derive(Debug)]
+pub enum LoadSnapshotError {
+    /// Failed to build a microVM from snapshot.
+    BuildMicroVm(StartMicrovmError),
+    /// Failed to deserialize memory.
+    DeserializeMemory(memory_snapshot::Error),
+    /// Failed to deserialize microVM state.
+    DeserializeMicrovmState(snapshot::Error),
+    /// Failed to open memory backing file.
+    MemoryBackingFile(io::Error),
+    /// Failed to open the snapshot backing file.
+    SnapshotBackingFile(io::Error),
+}
+
+impl Display for LoadSnapshotError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::LoadSnapshotError::*;
+        match self {
+            BuildMicroVm(err) => write!(f, "Cannot build a microVM from snapshot: {}", err),
+            DeserializeMemory(err) => write!(f, "Cannot deserialize memory: {}", err),
+            DeserializeMicrovmState(err) => write!(f, "Cannot deserialize MicrovmState: {:?}", err),
+            MemoryBackingFile(err) => write!(f, "Cannot open memory file: {}", err),
+            SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {}", err),
         }
     }
 }
@@ -155,17 +188,18 @@ fn snapshot_state_to_file(
     version: Option<String>,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
+    use self::CreateSnapshotError::*;
     let mut snapshot_file = OpenOptions::new()
         .create(true)
         .write(true)
         .open(snapshot_path)
-        .map_err(CreateSnapshotError::SnapshotBackingFile)?;
+        .map_err(SnapshotBackingFile)?;
 
     // Translate the microVM version to its corresponding snapshot data format.
     let snapshot_data_version = match version {
         Some(version) => match FC_VERSION_TO_SNAP_VERSION.get(&version) {
             Some(data_version) => Ok(*data_version),
-            _ => Err(CreateSnapshotError::InvalidVersion),
+            _ => Err(InvalidVersion),
         },
         _ => Ok(version_map.latest_version()),
     }?;
@@ -173,7 +207,7 @@ fn snapshot_state_to_file(
     let mut snapshot = Snapshot::new(version_map, snapshot_data_version);
     snapshot
         .save(&mut snapshot_file, microvm_state)
-        .map_err(CreateSnapshotError::SerializeMicrovmState)?;
+        .map_err(SerializeMicrovmState)?;
 
     Ok(())
 }
@@ -183,36 +217,75 @@ fn snapshot_memory_to_file(
     mem_file_path: &PathBuf,
     snapshot_type: SnapshotType,
 ) -> std::result::Result<(), CreateSnapshotError> {
+    use self::CreateSnapshotError::*;
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(mem_file_path.clone())
-        .map_err(CreateSnapshotError::MemoryBackingFile)?;
+        .open(mem_file_path)
+        .map_err(MemoryBackingFile)?;
 
     // Set the length of the file to the full size of the memory area.
     let mem_size_mib = mem_size_mib(vmm.guest_memory());
     file.set_len((mem_size_mib * 1024 * 1024) as u64)
-        .map_err(CreateSnapshotError::MemoryBackingFile)?;
+        .map_err(MemoryBackingFile)?;
 
     match snapshot_type {
         SnapshotType::Diff => {
-            let dirty_bitmap = vmm
-                .get_dirty_bitmap()
-                .map_err(|_| CreateSnapshotError::DirtyBitmap)?;
+            let dirty_bitmap = vmm.get_dirty_bitmap().map_err(|_| DirtyBitmap)?;
             vmm.guest_memory()
                 .dump_dirty(&mut file, &dirty_bitmap)
-                .map_err(CreateSnapshotError::Memory)
+                .map_err(Memory)
         }
-        SnapshotType::Full => vmm
-            .guest_memory()
-            .dump(&mut file)
-            .map_err(CreateSnapshotError::Memory),
+        SnapshotType::Full => vmm.guest_memory().dump(&mut file).map_err(Memory),
     }
 }
 
 pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
     guest_memory.map_and_fold(0, |(_, region)| region.len(), |a, b| a + b) >> 20
+}
+
+/// Loads a Microvm snapshot producing a 'paused' Microvm.
+pub fn load_snapshot(
+    event_manager: &mut EventManager,
+    seccomp_filter: BpfProgramRef,
+    params: LoadSnapshotParams,
+    version_map: VersionMap,
+) -> std::result::Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
+    use self::LoadSnapshotError::*;
+    let track_dirty = params.enable_diff_snapshots;
+    let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
+    let guest_memory = guest_memory_from_file(&params.mem_file_path, &microvm_state.memory_state)?;
+    builder::build_microvm_from_snapshot(
+        event_manager,
+        microvm_state,
+        guest_memory,
+        track_dirty,
+        seccomp_filter,
+    )
+    .map_err(BuildMicroVm)
+}
+
+fn snapshot_state_from_file(
+    snapshot_path: &PathBuf,
+    version_map: VersionMap,
+) -> std::result::Result<MicrovmState, LoadSnapshotError> {
+    use self::LoadSnapshotError::{DeserializeMicrovmState, SnapshotBackingFile};
+    let mut snapshot_file = File::open(snapshot_path).map_err(SnapshotBackingFile)?;
+    Snapshot::load(&mut snapshot_file, version_map).map_err(DeserializeMicrovmState)
+}
+
+fn guest_memory_from_file(
+    mem_file_path: &PathBuf,
+    mem_state: &GuestMemoryState,
+) -> std::result::Result<GuestMemoryMmap, LoadSnapshotError> {
+    use self::LoadSnapshotError::{DeserializeMemory, MemoryBackingFile};
+    let mem_file = OpenOptions::new()
+        .write(true)
+        .read(true)
+        .open(mem_file_path)
+        .map_err(MemoryBackingFile)?;
+    GuestMemoryMmap::restore(&mem_file, mem_state).map_err(DeserializeMemory)
 }
 
 #[cfg(test)]
@@ -320,7 +393,7 @@ mod tests {
         ));
         let _ = format!("{}{:?}", err, err);
 
-        let err = MemoryBackingFile(std::io::Error::from_raw_os_error(0));
+        let err = MemoryBackingFile(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
         let err = MicrovmState(MicrovmStateError::UnexpectedVcpuResponse);
@@ -329,7 +402,7 @@ mod tests {
         let err = SerializeMicrovmState(snapshot::Error::InvalidMagic(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = SnapshotBackingFile(std::io::Error::from_raw_os_error(0));
+        let err = SnapshotBackingFile(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
     }
 
