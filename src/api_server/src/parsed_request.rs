@@ -95,11 +95,6 @@ impl ParsedRequest {
                     response.set_body(Body::new(vm_config.to_string()));
                     response
                 }
-                VmmData::NotFound => {
-                    info!("The request was executed successfully, but there is not an implementation \
-                     for it at this moment. Status code: 501 Not Implemented.");
-                    Response::new(Version::Http11, StatusCode::NotImplemented)
-                }
             },
             Err(vmm_action_error) => {
                 error!(
@@ -491,16 +486,6 @@ pub(crate) mod tests {
              Content-Length: 122\r\n\r\n{}",
             VmConfig::default().to_string()
         );
-        assert_eq!(&buf[..], expected_response.as_bytes());
-
-        // Vmm data not found.
-        let mut buf: [u8; 66] = [0; 66];
-        let response = ParsedRequest::convert_to_response(Ok(VmmData::NotFound));
-        assert!(response.write_all(&mut buf.as_mut()).is_ok());
-        let expected_response = "HTTP/1.1 501 \r\n\
-                                 Server: Firecracker API\r\n\
-                                 Connection: keep-alive\r\n\r\n"
-            .to_string();
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Error.
