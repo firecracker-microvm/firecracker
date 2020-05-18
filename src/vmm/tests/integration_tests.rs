@@ -324,7 +324,7 @@ fn create_snapshot(is_diff: bool) {
                 snapshot_type,
                 snapshot_path: snapshot_file.as_path().to_path_buf(),
                 mem_file_path: memory_file.as_path().to_path_buf(),
-                version: Some(23),
+                version: Some(String::from("0.23.0")),
             };
 
             {
