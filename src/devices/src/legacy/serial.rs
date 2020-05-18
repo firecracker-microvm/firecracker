@@ -85,8 +85,12 @@ impl Serial {
         out: Option<Box<dyn io::Write + Send>>,
         input: Option<Box<dyn ReadableFd + Send>>,
     ) -> Serial {
+        let interrupt_enable = match out {
+            Some(_) => IER_RECV_BIT,
+            None => 0,
+        };
         Serial {
-            interrupt_enable: 0,
+            interrupt_enable,
             interrupt_identification: DEFAULT_INTERRUPT_IDENTIFICATION,
             interrupt_evt,
             line_control: DEFAULT_LINE_CONTROL,
