@@ -543,7 +543,8 @@ definitions:
       snapshot_path:
         type: string
         description: Path to the file that will contain the microVM state.
-      snapshot_type: string
+      snapshot_type:
+        type: string
         enum:
           - Full
           - Diff
@@ -640,7 +641,7 @@ definitions:
       - snapshot_path
     properties:
       enable_diff_snapshots:
-        type: bool
+        type: boolean
         description:
           Enable support for incremental (diff) snapshots by tracking dirty guest pages.
       mem_file_path:
