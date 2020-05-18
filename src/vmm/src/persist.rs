@@ -128,7 +128,7 @@ pub fn create_snapshot(
 fn snapshot_state_to_file(
     microvm_state: &MicrovmState,
     snapshot_path: &PathBuf,
-    version: Option<u16>,
+    version: Option<String>,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
     let mut snapshot_file = OpenOptions::new()

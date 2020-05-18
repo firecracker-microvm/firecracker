@@ -9,18 +9,18 @@ use lazy_static::lazy_static;
 use versionize::VersionMap;
 
 lazy_static! {
-    // Note: this needs to be updated when the version changes.
+    // Note: until we have a better design, this needs to be updated when the version changes.
     /// Static instance used for handling microVM state versions.
     pub static ref VERSION_MAP: VersionMap = {
         VersionMap::new()
     };
 
-    /// Static instance used for mapping Firecracker release version to
-    /// snapshot data format version.
-    pub static ref FC_VERSION_TO_SNAP_VERSION: HashMap<u16, u16> = {
-        let mut hm = HashMap::new();
-        hm.insert(23, 1);
+    /// Static instance used for creating a 1:1 mapping between Firecracker release version
+    /// and snapshot data format version.
+    pub static ref FC_VERSION_TO_SNAP_VERSION: HashMap<String, u16> = {
+        let mut mapping = HashMap::new();
+        mapping.insert(String::from("0.23.0"), 1);
 
-        hm
+        mapping
     };
 }

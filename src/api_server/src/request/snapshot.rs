@@ -61,14 +61,14 @@ mod tests {
                 "snapshot_type": "Diff",
                 "snapshot_path": "foo",
                 "mem_file_path": "bar",
-                "version": 2
+                "version": "0.23.0"
               }"#;
 
         let mut expected_cfg = CreateSnapshotParams {
             snapshot_type: SnapshotType::Diff,
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
-            version: Some(2),
+            version: Some(String::from("0.23.0")),
         };
 
         match parse_put_snapshot(&Body::new(body), Some(&"create")) {
