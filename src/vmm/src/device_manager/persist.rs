@@ -23,6 +23,7 @@ use devices::virtio::vsock::persist::{VsockConstructorArgs, VsockState, VsockUds
 use devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 use devices::virtio::{MmioTransport, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK};
 use kvm_ioctls::VmFd;
+use polly::event_manager::{Error as EventMgrError, EventManager};
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -32,6 +33,7 @@ use vm_memory::GuestMemoryMmap;
 #[derive(Debug)]
 pub enum Error {
     Block(io::Error),
+    EventManager(EventMgrError),
     DeviceManager(super::mmio::Error),
     MmioTransport,
     Net(NetError),
@@ -92,6 +94,7 @@ pub struct DeviceStates {
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: GuestMemoryMmap,
     pub vm: &'a VmFd,
+    pub event_manager: &'a mut EventManager,
 }
 
 impl<'a> Persist<'a> for MMIODeviceManager {
@@ -111,7 +114,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 // Safe to unwrap() because we know the device exists.
                 .unwrap()
                 .lock()
-                .expect("Poisoned device lock");
+                .expect("Poisoned lock");
 
             let mmio_transport = bus_device
                 .as_any()
@@ -178,6 +181,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         let mut dev_manager = MMIODeviceManager::new(&mut dummy_mmio_base, dummy_irq_range);
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
+        let event_manager = constructor_args.event_manager;
 
         for block_state in &state.block_devices {
             let device = Arc::new(Mutex::new(
@@ -194,13 +198,17 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
-                device,
+                device: device.clone(),
             };
             let mmio_transport = MmioTransport::restore(restore_args, transport_state)
                 .map_err(|()| Error::MmioTransport)?;
             dev_manager
                 .register_virtio_mmio_device(vm, device_id, mmio_transport, &mmio_slot)
                 .map_err(Error::DeviceManager);
+
+            event_manager
+                .add_subscriber(device)
+                .map_err(Error::EventManager);
         }
         for net_state in &state.net_devices {
             let device = Arc::new(Mutex::new(
@@ -426,12 +434,14 @@ mod tests {
             vmm.mmio_device_manager.clone()
         };
 
+        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
         let device_states: DeviceStates =
             DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 1).unwrap();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.guest_memory().clone(),
             vm: vmm.vm.fd(),
+            event_manager: &mut event_manager,
         };
         let restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_states).unwrap();
