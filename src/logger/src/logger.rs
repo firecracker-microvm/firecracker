@@ -499,10 +499,7 @@ mod tests {
 
     fn log_channel() -> (LogWriter, LogReader) {
         let buf = Arc::new(Mutex::new(vec![]));
-        (
-            LogWriter { buf: buf.clone() },
-            LogReader { buf: buf.clone() },
-        )
+        (LogWriter { buf: buf.clone() }, LogReader { buf })
     }
 
     impl Logger {

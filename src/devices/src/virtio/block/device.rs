@@ -56,8 +56,7 @@ fn build_device_id(disk_image: &File) -> result::Result<String, Error> {
         blk_metadata.st_dev(),
         blk_metadata.st_rdev(),
         blk_metadata.st_ino()
-    )
-    .to_owned();
+    );
     Ok(device_id)
 }
 
@@ -141,7 +140,7 @@ impl Block {
             partuuid,
             disk_image_id: build_disk_image_id(&disk_image),
             disk_image,
-            disk_image_path: disk_image_path.clone(),
+            disk_image_path,
             disk_nsectors: disk_size / SECTOR_SIZE,
             avail_features,
             acked_features: 0u64,

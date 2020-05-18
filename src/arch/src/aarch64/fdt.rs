@@ -89,7 +89,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     device_info: &HashMap<(DeviceType, String), T>,
     gic_device: &Box<dyn GICDevice>,
     initrd: &Option<InitrdConfig>,
-) -> Result<(Vec<u8>)> {
+) -> Result<Vec<u8>> {
     // Alocate stuff necessary for the holding the blob.
     let mut fdt = vec![0; FDT_MAX_SIZE];
 

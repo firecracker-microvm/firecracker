@@ -459,9 +459,7 @@ mod tests {
             .add_subscriber(dummy_subscriber.clone())
             .unwrap();
 
-        assert!(event_manager
-            .add_subscriber(dummy_subscriber.clone())
-            .is_err())
+        assert!(event_manager.add_subscriber(dummy_subscriber).is_err())
     }
 
     #[test]

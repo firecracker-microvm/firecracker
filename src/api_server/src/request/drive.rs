@@ -201,6 +201,7 @@ mod tests {
                 "drive_id": "foo",
                 "path_on_host": "dummy"
               }"#;
+        #[allow(clippy::match_wild_err_arm)]
         match parse_patch_drive(&Body::new(body), Some(&"foo")) {
             Ok(ParsedRequest::Sync(VmmAction::UpdateBlockDevicePath(a, b))) => {
                 assert_eq!(a, "foo".to_string());

@@ -472,7 +472,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Error::CreateDir(path.clone(), io::Error::from_raw_os_error(2))
+                Error::CreateDir(path, io::Error::from_raw_os_error(2))
             ),
             format!("Failed to create directory /foo: {}", err2_str)
         );

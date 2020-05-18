@@ -76,4 +76,4 @@ pub const IRQ_BASE: u32 = 32;
 pub const IRQ_MAX: u32 = 159;
 
 /// Below this address will reside the GIC, above this address will reside the MMIO devices.
-pub const MAPPED_IO_START: u64 = (1 << 30); // 1 GB
+pub const MAPPED_IO_START: u64 = 1 << 30; // 1 GB

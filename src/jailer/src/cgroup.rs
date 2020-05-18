@@ -151,7 +151,7 @@ impl Cgroup {
                     {
                         return Err(Error::CgroupLineNotUnique(
                             PROC_MOUNTS.to_string(),
-                            controller.to_string(),
+                            (*controller).to_string(),
                         ));
                     }
                 }
@@ -166,7 +166,7 @@ impl Cgroup {
                 if !found_controllers.contains_key(controller) {
                     return Err(Error::CgroupLineNotFound(
                         PROC_MOUNTS.to_string(),
-                        controller.to_string(),
+                        (*controller).to_string(),
                     ));
                 }
             }

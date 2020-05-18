@@ -129,13 +129,10 @@ impl<T: Read + Write> ClientConnection<T> {
 
                 // Send an error response for the request that gave us the error.
                 let mut error_response = Response::new(Version::Http11, StatusCode::BadRequest);
-                error_response.set_body(Body::new(
-                    format!(
-                        "{{ \"error\": \"{}\nAll previous unanswered requests will be dropped.\" }}",
-                        inner.to_string()
-                    )
-                    .to_string(),
-                ));
+                error_response.set_body(Body::new(format!(
+                    "{{ \"error\": \"{}\nAll previous unanswered requests will be dropped.\" }}",
+                    inner.to_string()
+                )));
                 self.connection.enqueue_response(error_response);
             }
             Err(ConnectionError::InvalidWrite) => {

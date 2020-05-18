@@ -122,9 +122,7 @@ mod tests {
 
         // Restore the block device.
         let restored_block = Block::restore(
-            BlockConstructorArgs {
-                mem: guest_mem.clone(),
-            },
+            BlockConstructorArgs { mem: guest_mem },
             &BlockState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
         )
         .unwrap();

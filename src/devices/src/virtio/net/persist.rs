@@ -154,9 +154,7 @@ mod tests {
         // Deserialize and restore the net device.
         {
             let restored_net = Net::restore(
-                NetConstructorArgs {
-                    mem: guest_mem.clone(),
-                },
+                NetConstructorArgs { mem: guest_mem },
                 &NetState::deserialize(&mut mem.as_slice(), &version_map, 1).unwrap(),
             )
             .unwrap();

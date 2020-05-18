@@ -5,7 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std;
 use std::fmt;
 use std::io::{self, Read};
 use std::mem;
