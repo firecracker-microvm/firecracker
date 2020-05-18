@@ -11,13 +11,13 @@ use std::fs::OpenOptions;
 use std::path::PathBuf;
 
 use device_manager::persist::DeviceStates;
-use memory_dump;
-use memory_dump::DumpMemory;
+use memory_snapshot;
+use memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use snapshot::Snapshot;
 use version_map::FC_VERSION_TO_SNAP_VERSION;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::{GuestMemory, GuestMemoryRegion};
+use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 use vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vstate;
 use vstate::{VcpuState, VmState};
@@ -36,6 +36,8 @@ pub struct VmInfo {
 pub struct MicrovmState {
     /// Miscellaneous VM info.
     pub vm_info: VmInfo,
+    /// Memory state.
+    pub memory_state: GuestMemoryState,
     /// VM KVM state.
     pub vm_state: VmState,
     /// Vcpu states.
@@ -49,6 +51,8 @@ pub struct MicrovmState {
 pub enum MicrovmStateError {
     /// Provided MicroVM state is invalid.
     InvalidInput,
+    /// Memory state error.
+    Memory(memory_snapshot::Error),
     /// Failed to restore VM state.
     RestoreVcpuState(vstate::Error),
     /// Failed to restore Vcpu state.
@@ -68,6 +72,7 @@ impl Display for MicrovmStateError {
         use self::MicrovmStateError::*;
         match self {
             InvalidInput => write!(f, "Provided MicroVM state is invalid."),
+            Memory(err) => write!(f, "Memory error: {:?}", err),
             RestoreVcpuState(err) => write!(f, "Unable to restore Vcpu state. Error: {:?}", err),
             RestoreVmState(err) => write!(f, "Unable to restore Vm state. Error: {:?}", err),
             SaveVcpuState(err) => write!(f, "Unable to save Vcpu state. Error: {:?}", err),
@@ -85,8 +90,10 @@ pub enum CreateSnapshotError {
     DirtyBitmap,
     /// Failed to translate microVM version to snapshot data version.
     InvalidVersion,
+    /// Failed to save VM state.
+    InvalidVmState(vstate::Error),
     /// Failed to write memory to snapshot.
-    Memory(memory_dump::Error),
+    Memory(memory_snapshot::Error),
     /// Failed to open memory backing file.
     MemoryBackingFile(std::io::Error),
     /// Failed to save MicrovmState.
@@ -106,6 +113,7 @@ impl Display for CreateSnapshotError {
                 f,
                 "Unable to translate microVM version to snapshot data version"
             ),
+            InvalidVmState(err) => write!(f, "Unable to save Vm state. Error: {:?}", err),
             Memory(err) => write!(f, "Unable to write memory file: {:?}", err),
             MemoryBackingFile(err) => write!(f, "Unable to open memory file: {:?}", err),
             MicrovmState(err) => write!(f, "Unable to save microvm state: {}", err),
@@ -179,11 +187,7 @@ fn snapshot_memory_to_file(
         .map_err(CreateSnapshotError::MemoryBackingFile)?;
 
     // Set the length of the file to the full size of the memory area.
-    let mem_size_mib = vmm
-        .guest_memory()
-        .map_and_fold(0, |(_, region)| region.len(), |a, b| a + b)
-        >> 20;
-
+    let mem_size_mib = mem_size_mib(vmm.guest_memory());
     file.set_len((mem_size_mib * 1024 * 1024) as u64)
         .map_err(CreateSnapshotError::MemoryBackingFile)?;
 
@@ -194,15 +198,17 @@ fn snapshot_memory_to_file(
                 .map_err(|_| CreateSnapshotError::DirtyBitmap)?;
             vmm.guest_memory()
                 .dump_dirty(&mut file, &dirty_bitmap)
-                .map_err(CreateSnapshotError::Memory)?
+                .map_err(CreateSnapshotError::Memory)
         }
         SnapshotType::Full => vmm
             .guest_memory()
             .dump(&mut file)
-            .map_err(CreateSnapshotError::Memory)?,
+            .map_err(CreateSnapshotError::Memory),
     }
+}
 
-    Ok(())
+pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
+    guest_memory.map_and_fold(0, |(_, region)| region.len(), |a, b| a + b) >> 20
 }
 
 #[cfg(test)]
@@ -212,13 +218,15 @@ mod tests {
         default_kernel_cmdline, default_vmm, insert_block_devices, insert_net_device,
         insert_vsock_device, CustomBlockConfig,
     };
+    use crate::memory_snapshot::SnapshotMemory;
+    use crate::vmm_config::net::NetworkInterfaceConfig;
+    use crate::vmm_config::vsock::tests::default_config;
     use crate::vstate::tests::default_vcpu_state;
     use crate::Vmm;
+
     use polly::event_manager::EventManager;
     use snapshot::Persist;
     use utils::tempfile::TempFile;
-    use vmm_config::net::NetworkInterfaceConfig;
-    use vmm_config::vsock::tests::default_config;
 
     fn default_vmm_with_devices(event_manager: &mut EventManager) -> Vmm {
         let mut vmm = default_vmm();
@@ -262,11 +270,14 @@ mod tests {
         assert_eq!(states.net_devices.len(), 1);
         assert!(states.vsock_device.is_some());
 
+        let memory_state = vmm.guest_memory().describe();
+
         let microvm_state = MicrovmState {
+            device_states: states,
+            memory_state,
+            vcpu_states: vec![default_vcpu_state()],
             vm_info: VmInfo { mem_size_mib: 1u64 },
             vm_state: vmm.vm.save_state().unwrap(),
-            vcpu_states: vec![default_vcpu_state()],
-            device_states: states,
         };
 
         let mut buf = vec![0; 10000];
@@ -297,7 +308,10 @@ mod tests {
         let err = InvalidVersion;
         let _ = format!("{}{:?}", err, err);
 
-        let err = Memory(memory_dump::Error::WriteMemory(
+        let err = InvalidVmState(vstate::Error::NotEnoughMemorySlots);
+        let _ = format!("{}{:?}", err, err);
+
+        let err = Memory(memory_snapshot::Error::WriteMemory(
             GuestMemoryError::HostAddressNotAvailable,
         ));
         let _ = format!("{}{:?}", err, err);
