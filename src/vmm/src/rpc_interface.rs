@@ -160,7 +160,7 @@ impl Display for VmmActionError {
                         .to_string()
                 }
                 StartMicrovm(err) => err.to_string(),
-                /// The action `SetVsockDevice` failed because of bad user input.
+                // The action `SetVsockDevice` failed because of bad user input.
                 VsockConfig(err) => err.to_string(),
             }
         )

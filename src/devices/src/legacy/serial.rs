@@ -379,7 +379,7 @@ mod tests {
         let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_out = SharedBuffer::new();
 
-        let mut serial = Serial::new_out(intr_evt, Box::new(serial_out.clone()));
+        let mut serial = Serial::new_out(intr_evt, Box::new(serial_out));
         // A serial without in does not have any events in the list.
         assert!(serial.interest_list().is_empty());
         // Even though there is no in, process should not panic. Call it to validate this.
@@ -397,7 +397,7 @@ mod tests {
         let mut serial = Serial::new_in_out(
             intr_evt.try_clone().unwrap(),
             Box::new(serial_in_out.clone()),
-            Box::new(serial_in_out.clone()),
+            Box::new(serial_in_out),
         );
         // Check that the interest list contains the EPOLL_IN event.
         assert_eq!(serial.interest_list().len(), 1);

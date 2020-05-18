@@ -38,7 +38,7 @@ const PSR_I_BIT: u64 = 0x0000_0080;
 const PSR_A_BIT: u64 = 0x0000_0100;
 const PSR_D_BIT: u64 = 0x0000_0200;
 // Taken from arch/arm64/kvm/inject_fault.c.
-const PSTATE_FAULT_BITS_64: u64 = (PSR_MODE_EL1h | PSR_A_BIT | PSR_F_BIT | PSR_I_BIT | PSR_D_BIT);
+const PSTATE_FAULT_BITS_64: u64 = PSR_MODE_EL1h | PSR_A_BIT | PSR_F_BIT | PSR_I_BIT | PSR_D_BIT;
 
 // Following are macros that help with getting the ID of a aarch64 core register.
 // The core register are represented by the user_pt_regs structure. Look for it in

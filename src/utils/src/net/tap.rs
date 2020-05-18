@@ -5,8 +5,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use libc;
-use net_gen;
 use std::fs::File;
 use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::net::UdpSocket;

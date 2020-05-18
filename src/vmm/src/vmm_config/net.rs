@@ -246,13 +246,13 @@ mod tests {
         guest_mac_1 = "01:23:45:67:89:0b";
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
 
-        assert!(net_builder.build(netif_1.clone()).is_ok());
+        assert!(net_builder.build(netif_1).is_ok());
         assert_eq!(net_builder.net_devices.len(), 1);
 
         // Test update host_dev_name (the tap will be updated).
         host_dev_name_1 = "dev2";
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
-        assert!(net_builder.build(netif_1.clone()).is_ok());
+        assert!(net_builder.build(netif_1).is_ok());
         assert_eq!(net_builder.net_devices.len(), 1);
     }
 
@@ -266,7 +266,7 @@ mod tests {
 
         // Adding the first valid network config.
         let netif_1 = create_netif(id_1, host_dev_name_1, guest_mac_1);
-        assert!(net_builder.build(netif_1.clone()).is_ok());
+        assert!(net_builder.build(netif_1).is_ok());
 
         // Error Cases for CREATE
         // Error Case: Add new network config with the same mac as netif_1.
@@ -280,11 +280,7 @@ mod tests {
             guest_mac_1.to_string()
         );
         assert_eq!(
-            net_builder
-                .build(netif_2.clone())
-                .err()
-                .unwrap()
-                .to_string(),
+            net_builder.build(netif_2).err().unwrap().to_string(),
             expected_error
         );
         assert_eq!(net_builder.net_devices.len(), 1);
@@ -292,11 +288,7 @@ mod tests {
         // Error Case: Add new network config with the same dev_host_name as netif_1.
         let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
         assert_eq!(
-            net_builder
-                .build(netif_2.clone())
-                .err()
-                .unwrap()
-                .to_string(),
+            net_builder.build(netif_2).err().unwrap().to_string(),
             NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
                 TapError::CreateTap(std::io::Error::from_raw_os_error(16))
             ))
@@ -306,7 +298,7 @@ mod tests {
 
         // Adding the second valid network config.
         let netif_2 = create_netif(id_2, host_dev_name_2, guest_mac_2);
-        assert!(net_builder.build(netif_2.clone()).is_ok());
+        assert!(net_builder.build(netif_2).is_ok());
 
         // Error Cases for UPDATE
         // Error Case: Update netif_2 mac using the same mac as netif_1.
@@ -316,22 +308,14 @@ mod tests {
             guest_mac_1.to_string()
         );
         assert_eq!(
-            net_builder
-                .build(netif_2.clone())
-                .err()
-                .unwrap()
-                .to_string(),
+            net_builder.build(netif_2).err().unwrap().to_string(),
             expected_error
         );
 
         // Error Case: Update netif_2 dev_host_name using the same dev_host_name as netif_1.
         let netif_2 = create_netif(id_2, host_dev_name_1, guest_mac_2);
         assert_eq!(
-            net_builder
-                .build(netif_2.clone())
-                .err()
-                .unwrap()
-                .to_string(),
+            net_builder.build(netif_2).err().unwrap().to_string(),
             NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
                 TapError::CreateTap(std::io::Error::from_raw_os_error(16))
             ))

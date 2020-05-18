@@ -533,7 +533,7 @@ mod tests {
         );
         assert_eq!(
             arch::IRQ_BASE,
-            device_manager.id_to_dev_info[&(DeviceType::Virtio(type_id), id.clone())].irqs[0]
+            device_manager.id_to_dev_info[&(DeviceType::Virtio(type_id), id)].irqs[0]
         );
 
         let id = "bar";

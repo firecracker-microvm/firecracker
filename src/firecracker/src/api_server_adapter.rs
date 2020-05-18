@@ -43,7 +43,7 @@ impl ApiServerAdapter {
             controller: RuntimeApiController::new(vm_config, vmm),
         }));
         event_manager
-            .add_subscriber(api_adapter.clone())
+            .add_subscriber(api_adapter)
             .expect("Cannot register the api event to the event manager.");
         loop {
             event_manager

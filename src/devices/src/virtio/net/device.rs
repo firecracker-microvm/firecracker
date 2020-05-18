@@ -817,7 +817,7 @@ pub(crate) mod tests {
 
             let mut net = Net::new_with_tap(
                 format!("net-device{}", next_tap),
-                tap_dev_name.clone(),
+                tap_dev_name,
                 Some(&guest_mac),
                 RateLimiter::default(),
                 RateLimiter::default(),

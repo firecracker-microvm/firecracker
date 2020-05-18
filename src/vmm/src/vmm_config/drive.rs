@@ -221,7 +221,7 @@ mod tests {
         let dummy_path = dummy_file.as_path().to_str().unwrap().to_string();
         let dummy_id = String::from("1");
         let dummy_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path.clone(),
+            path_on_host: dummy_path,
             is_root_device: false,
             partuuid: None,
             is_read_only: false,
@@ -367,7 +367,7 @@ mod tests {
         let dummy_file_1 = TempFile::new().unwrap();
         let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
         let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path_1.clone(),
+            path_on_host: dummy_path_1,
             is_root_device: true,
             partuuid: None,
             is_read_only: false,
@@ -448,7 +448,7 @@ mod tests {
         let mut block_devs = BlockBuilder::new();
 
         // Add 2 block devices.
-        assert!(block_devs.insert(root_block_device.clone()).is_ok());
+        assert!(block_devs.insert(root_block_device).is_ok());
         assert!(block_devs.insert(dummy_block_device_2.clone()).is_ok());
 
         // Get index zero.
@@ -490,12 +490,12 @@ mod tests {
         dummy_block_device_2.path_on_host = dummy_path_2.clone();
         dummy_block_device_2.is_root_device = true;
         assert_eq!(
-            block_devs.insert(dummy_block_device_2.clone()),
+            block_devs.insert(dummy_block_device_2),
             Err(DriveError::RootBlockDeviceAlreadyAdded)
         );
 
         let root_block_device = BlockDeviceConfig {
-            path_on_host: dummy_path_1.clone(),
+            path_on_host: dummy_path_1,
             is_root_device: true,
             partuuid: None,
             is_read_only: false,

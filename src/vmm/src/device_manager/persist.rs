@@ -400,7 +400,7 @@ mod tests {
 
             // Add a block device.
             let drive_id = String::from("root");
-            let block_configs = vec![CustomBlockConfig::new(drive_id.clone(), true, None, true)];
+            let block_configs = vec![CustomBlockConfig::new(drive_id, true, None, true)];
             _block_files =
                 insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             // Add a net device.
@@ -431,7 +431,7 @@ mod tests {
                 .save()
                 .serialize(&mut buf.as_mut_slice(), &version_map, 1)
                 .unwrap();
-            vmm.mmio_device_manager.clone()
+            vmm.mmio_device_manager
         };
         tmp_sock_file.remove().unwrap();
 

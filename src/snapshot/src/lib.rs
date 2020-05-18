@@ -384,7 +384,7 @@ mod tests {
         // serialization.
         snapshot_mem.truncate(10);
         let restored_state_result: Result<Test, Error> =
-            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone());
+            Snapshot::load(&mut snapshot_mem.as_slice(), vm);
 
         assert_eq!(
             restored_state_result.unwrap_err(),
@@ -461,7 +461,7 @@ mod tests {
             .save(&mut snapshot_mem.as_mut_slice(), &state)
             .unwrap();
 
-        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm).unwrap();
         assert_eq!(restored_state.field1, state.field1);
         assert_eq!(restored_state.field2, 2);
         assert_eq!(restored_state.field3, "test");
@@ -484,7 +484,7 @@ mod tests {
             .save_with_crc64(&mut snapshot_mem.as_mut_slice(), &state_1)
             .unwrap();
 
-        let _: Test1 = Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        let _: Test1 = Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm).unwrap();
     }
 
     #[test]
@@ -511,7 +511,7 @@ mod tests {
         let expected_err = Error::Crc64(0x103F_8F52_8F51_20B1);
 
         let load_result: Result<Test1, Error> =
-            Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm.clone());
+            Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm);
         assert_eq!(load_result.unwrap_err(), expected_err);
     }
 
@@ -541,7 +541,7 @@ mod tests {
             .unwrap();
 
         let restored_state: kvm_pit_config =
-            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+            Snapshot::load(&mut snapshot_mem.as_slice(), vm).unwrap();
         assert_eq!(restored_state, state);
     }
 }
