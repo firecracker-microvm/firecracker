@@ -42,7 +42,7 @@ pub mod builder;
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
 pub(crate) mod device_manager;
-pub(crate) mod memory_dump;
+pub mod memory_snapshot;
 /// Save/restore utilities.
 pub mod persist;
 /// Resource store for configured microVM resources.
@@ -72,7 +72,8 @@ use device_manager::legacy::PortIODeviceManager;
 use device_manager::mmio::MMIODeviceManager;
 use devices::BusDevice;
 use logger::{LoggerError, MetricsError, METRICS};
-
+#[cfg(target_arch = "x86_64")]
+use memory_snapshot::SnapshotMemory;
 #[cfg(target_arch = "x86_64")]
 use persist::{MicrovmState, MicrovmStateError, VmInfo};
 use polly::event_manager::{self, EventManager, Subscriber};
@@ -384,22 +385,19 @@ impl Vmm {
     /// Saves the state of a paused Microvm.
     #[cfg(target_arch = "x86_64")]
     pub fn save_state(&mut self) -> std::result::Result<MicrovmState, MicrovmStateError> {
+        use self::MicrovmStateError::SaveVmState;
         let vcpu_states = self.save_vcpu_states()?;
 
-        let vm_state = self
-            .vm
-            .save_state()
-            .map_err(MicrovmStateError::SaveVmState)?;
+        let vm_state = self.vm.save_state().map_err(SaveVmState)?;
 
         let device_states = self.mmio_device_manager.save();
 
-        let mem_size_mib =
-            self.guest_memory()
-                .map_and_fold(0, |(_, region)| region.len(), |a, b| a + b)
-                >> 20;
+        let mem_size_mib = persist::mem_size_mib(self.guest_memory());
+        let memory_state = self.guest_memory().describe();
 
         Ok(MicrovmState {
             vm_info: VmInfo { mem_size_mib },
+            memory_state,
             vm_state,
             vcpu_states,
             device_states,
