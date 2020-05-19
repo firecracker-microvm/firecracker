@@ -1306,10 +1306,11 @@ pub(crate) mod tests {
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
-        net.activate(mem.clone()).unwrap();
 
         let net = Arc::new(Mutex::new(net));
         event_manager.add_subscriber(net.clone()).unwrap();
+
+        net.lock().unwrap().activate(mem.clone()).unwrap();
 
         // Process the activate event.
         let ev_count = event_manager.run_with_timeout(50).unwrap();
