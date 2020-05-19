@@ -20,7 +20,7 @@ mod metrics;
 pub use log::Level::*;
 pub use log::*;
 pub use logger::{LoggerError, LOGGER};
-pub use metrics::{Metric, MetricsError, METRICS};
+pub use metrics::{Metric, MetricsError, SharedMetric, METRICS};
 
 use std::sync::LockResult;
 
@@ -31,4 +31,10 @@ fn extract_guard<G>(lock_result: LockResult<G>) -> G {
         // (we might get an incomplete log line or something like that).
         Err(poisoned) => poisoned.into_inner(),
     }
+}
+
+pub fn update_metric_with_elapsed_time(metric: &SharedMetric, start_time_us: u64) -> u64 {
+    let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time_us;
+    metric.store(delta_us as usize);
+    delta_us
 }
