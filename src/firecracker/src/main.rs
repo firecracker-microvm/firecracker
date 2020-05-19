@@ -100,21 +100,19 @@ fn main() {
                 .takes_value(true)
                 .default_value("2")
                 .help(
-                    "Level of seccomp filtering that will be passed to executed path as \
-                    argument.\n
-                        - Level 0: No filtering.\n
-                        - Level 1: Seccomp filtering by syscall number.\n
-                        - Level 2: Seccomp filtering by syscall number and argument values.\n
-                    ",
+                    "Level of seccomp filtering (0: no filter | 1: filter by syscall number | 2: filter by syscall \
+                     number and argument values) that will be passed to executed path as argument."
                 ),
         )
         .arg(
             Argument::new("start-time-us")
-                .takes_value(true),
+                .takes_value(true)
+                .help("Process start time (wall clock, microseconds)."),
         )
         .arg(
             Argument::new("start-time-cpu-us")
-                .takes_value(true),
+                .takes_value(true)
+                .help("Process start CPU time (wall clock, microseconds)."),
         )
         .arg(
             Argument::new("config-file")
@@ -236,7 +234,7 @@ fn main() {
 
         let start_time_cpu_us = arguments.value_as_string("start-time-cpu-us").map(|s| {
             s.parse::<u64>()
-                .expect("'start-time-cpu_us' parameter expected to be of 'u64' type.")
+                .expect("'start-time-cpu-us' parameter expected to be of 'u64' type.")
         });
         let instance_info = InstanceInfo {
             id: instance_id,
