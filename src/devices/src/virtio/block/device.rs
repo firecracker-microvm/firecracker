@@ -357,8 +357,8 @@ impl VirtioDevice for Block {
             METRICS.block.cfg_fails.inc();
             return;
         }
-        let (_, right) = self.config_space.split_at_mut(offset as usize);
-        right.copy_from_slice(&data[..]);
+
+        self.config_space[offset as usize..(offset + data_len) as usize].copy_from_slice(data);
     }
 
     fn is_activated(&self) -> bool {
@@ -543,8 +543,16 @@ pub(crate) mod tests {
         block.read_config(0, &mut actual_config_space);
         assert_eq!(actual_config_space, expected_config_space);
 
+        // If priviledged user writes to `/dev/mem`, in block config space - byte by byte.
+        let expected_config_space = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x00, 0x11];
+        for i in 0..expected_config_space.len() {
+            block.write_config(i as u64, &expected_config_space[i..=i]);
+        }
+        block.read_config(0, &mut actual_config_space);
+        assert_eq!(actual_config_space, expected_config_space);
+
         // Invalid write.
-        let new_config_space: [u8; CONFIG_SPACE_SIZE] = [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf];
+        let new_config_space = [0xd, 0xe, 0xa, 0xd, 0xb, 0xe, 0xe, 0xf];
         block.write_config(5, &new_config_space);
         // Make sure nothing got written.
         block.read_config(0, &mut actual_config_space);
