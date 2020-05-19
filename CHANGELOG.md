@@ -33,6 +33,12 @@
 - Added metric for counting MAC address updates.
 - Added metrics for counting TAP read and write errors.
 - Added metrics for counting RX and TX partial writes.
+- Added metrics that measure the duration of pausing and resuming the microVM,
+  from the VMM perspective.
+- Added metric for measuring the duration of the last full/diff snapshot created,
+  from the VMM perspective.
+- Added metric for measuring the duration of loading a snapshot, from the VMM
+  perspective.
 
 ### Fixed
 

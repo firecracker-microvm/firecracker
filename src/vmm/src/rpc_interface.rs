@@ -15,7 +15,7 @@ use arch::DeviceType;
 use builder::{self, StartMicrovmError};
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
-use logger::METRICS;
+use logger::{update_metric_with_elapsed_time, METRICS};
 #[cfg(target_arch = "x86_64")]
 use persist::{self, CreateSnapshotError, LoadSnapshotError};
 use polly::event_manager::EventManager;
@@ -35,7 +35,7 @@ use vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
 #[cfg(target_arch = "x86_64")]
-use vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
+use vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 
 /// This enum represents the public interface of the VMM. Each action contains various
@@ -279,17 +279,9 @@ impl<'a> PrebootApiController<'a> {
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::NetworkConfig),
             #[cfg(target_arch = "x86_64")]
-            LoadSnapshot(snapshot_load_cfg) => persist::load_snapshot(
-                &mut self.event_manager,
-                &self.seccomp_filter,
-                &snapshot_load_cfg,
-                VERSION_MAP.clone(),
-            )
-            .map(|vmm| {
-                self.built_vmm = Some(vmm);
-                VmmData::Empty
-            })
-            .map_err(VmmActionError::LoadSnapshot),
+            LoadSnapshot(snapshot_load_cfg) => self
+                .load_snapshot(&snapshot_load_cfg)
+                .map(|_| VmmData::Empty),
             SetVsockDevice(vsock_cfg) => self
                 .vm_resources
                 .set_vsock_device(vsock_cfg)
@@ -324,6 +316,26 @@ impl<'a> PrebootApiController<'a> {
             #[cfg(target_arch = "x86_64")]
             CreateSnapshot(_) | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
+        let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
+        let loaded_vmm = persist::load_snapshot(
+            &mut self.event_manager,
+            &self.seccomp_filter,
+            load_params,
+            VERSION_MAP.clone(),
+        );
+
+        let elapsed_time_us =
+            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);
+        info!("'load snapshot' VMM action took {} us.", elapsed_time_us);
+
+        loaded_vmm
+            .map(|vmm| self.built_vmm = Some(vmm))
+            .map_err(VmmActionError::LoadSnapshot)
     }
 }
 
@@ -387,20 +399,36 @@ impl RuntimeApiController {
 
     /// Pauses the microVM by pausing the vCPUs.
     pub fn pause(&mut self) -> ActionResult {
+        let pause_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
         self.vmm
             .lock()
             .expect("Poisoned lock")
             .pause_vcpus()
-            .map_err(VmmActionError::InternalVmm)
+            .map_err(VmmActionError::InternalVmm)?;
+
+        let elapsed_time_us =
+            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_pause_vm, pause_start_us);
+        info!("'pause vm' VMM action took {} us.", elapsed_time_us);
+
+        Ok(())
     }
 
     /// Resumes the microVM by resuming the vCPUs.
     pub fn resume(&mut self) -> ActionResult {
+        let resume_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
         self.vmm
             .lock()
             .expect("Poisoned lock")
             .resume_vcpus()
-            .map_err(VmmActionError::InternalVmm)
+            .map_err(VmmActionError::InternalVmm)?;
+
+        let elapsed_time_us =
+            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_resume_vm, resume_start_us);
+        info!("'resume vm' VMM action took {} us.", elapsed_time_us);
+
+        Ok(())
     }
 
     /// Write the metrics on user demand (flush). We use the word `flush` here to highlight the fact
@@ -427,10 +455,36 @@ impl RuntimeApiController {
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn create_snapshot(&mut self, params: &CreateSnapshotParams) -> ActionResult {
+    fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
         let mut locked_vmm = self.vmm.lock().unwrap();
-        persist::create_snapshot(&mut locked_vmm, params, VERSION_MAP.clone())
-            .map_err(VmmActionError::CreateSnapshot)
+        let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
+        persist::create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())
+            .map_err(VmmActionError::CreateSnapshot)?;
+
+        match create_params.snapshot_type {
+            SnapshotType::Full => {
+                let elapsed_time_us = update_metric_with_elapsed_time(
+                    &METRICS.latencies_us.vmm_full_create_snapshot,
+                    create_start_us,
+                );
+                info!(
+                    "'create full snapshot' VMM action took {} us.",
+                    elapsed_time_us
+                );
+            }
+            SnapshotType::Diff => {
+                let elapsed_time_us = update_metric_with_elapsed_time(
+                    &METRICS.latencies_us.vmm_diff_create_snapshot,
+                    create_start_us,
+                );
+                info!(
+                    "'create diff snapshot' VMM action took {} us.",
+                    elapsed_time_us
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.

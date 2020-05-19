@@ -479,6 +479,31 @@ pub struct NetDeviceMetrics {
     pub tx_spoofed_mac_count: SharedMetric,
 }
 
+/// Performance metrics related for the moment only to snapshots.
+// These store the duration of creating/loading a snapshot and of
+// pausing/resuming the microVM.
+// If there are more than one `/snapshot/create` request in a minute
+// (until the metrics are flushed), only the duration of the last
+// snapshot creation is stored in the metric. If the user is interested
+// in all the durations, a `FlushMetrics` request should be sent after
+// each `create` request.
+#[derive(Default, Serialize)]
+pub struct PerformanceMetrics {
+    #[cfg(target_arch = "x86_64")]
+    /// Measures the snapshot full create time, at the VMM level, in microseconds.
+    pub vmm_full_create_snapshot: SharedMetric,
+    #[cfg(target_arch = "x86_64")]
+    /// Measures the snapshot diff create time, at the VMM level, in microseconds.
+    pub vmm_diff_create_snapshot: SharedMetric,
+    #[cfg(target_arch = "x86_64")]
+    /// Measures the snapshot load time, at the VMM level, in microseconds.
+    pub vmm_load_snapshot: SharedMetric,
+    /// Measures the microVM pausing duration, at the VMM level, in microseconds.
+    pub vmm_pause_vm: SharedMetric,
+    /// Measures the microVM resuming duration, at the VMM level, in microseconds.
+    pub vmm_resume_vm: SharedMetric,
+}
+
 /// Metrics specific to the i8042 device.
 #[derive(Default, Serialize)]
 pub struct RTCDeviceMetrics {
@@ -514,6 +539,15 @@ pub struct SerialDeviceMetrics {
     pub write_count: SharedMetric,
 }
 
+/// Metrics related to signals.
+#[derive(Default, Serialize)]
+pub struct SignalMetrics {
+    /// Number of times that SIGBUS was handled.
+    pub sigbus: SharedMetric,
+    /// Number of times that SIGSEGV was handled.
+    pub sigsegv: SharedMetric,
+}
+
 /// Metrics specific to VCPUs' mode of functioning.
 #[derive(Default, Serialize)]
 pub struct VcpuMetrics {
@@ -538,15 +572,6 @@ pub struct VmmMetrics {
     pub device_events: SharedMetric,
     /// Metric for signaling a panic has occurred.
     pub panic_count: SharedMetric,
-}
-
-/// Metrics related to signals.
-#[derive(Default, Serialize)]
-pub struct SignalMetrics {
-    /// Number of times that SIGBUS was handled.
-    pub sigbus: SharedMetric,
-    /// Number of times that SIGSEGV was handled.
-    pub sigsegv: SharedMetric,
 }
 
 /// Vsock-related metrics.
@@ -618,6 +643,8 @@ pub struct FirecrackerMetrics {
     pub get_api_requests: GetRequestsMetrics,
     /// Metrics related to the i8042 device.
     pub i8042: I8042DeviceMetrics,
+    /// Metrics related to performance measurements.
+    pub latencies_us: PerformanceMetrics,
     /// Logging related metrics.
     pub logger: LoggerSystemMetrics,
     /// Metrics specific to MMDS functionality.
