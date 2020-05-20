@@ -11,10 +11,10 @@ import host_tools.cargo_build as host
 MACHINE = platform.machine()
 """ Platform definition used to select the correct size target"""
 
-FC_BINARY_SIZE_TARGET = 2930992 if MACHINE == "x86_64" else 3132008
+FC_BINARY_SIZE_TARGET = 3124000 if MACHINE == "x86_64" else 3349336
 """Firecracker target binary size in bytes"""
 
-FC_BINARY_SIZE_LIMIT = 3100000 if MACHINE == "x86_64" else 3500000
+FC_BINARY_SIZE_LIMIT = 3300000 if MACHINE == "x86_64" else 3500000
 """Firecracker maximum binary size in bytes"""
 
 JAILER_BINARY_SIZE_TARGET = 2483592 if MACHINE == "x86_64" else 2714528
