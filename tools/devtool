@@ -832,6 +832,13 @@ check_swap () {
 	say_warn "WARNING: SWAP enabled"
 }
 
+check_vm() {
+    if [ $(dmesg | grep -c -i "hypervisor detected") -gt 0 ]; then
+        say_warn "WARNING: you are running in a virtual machine." \
+	"Firecracker is not well tested under nested virtualization."
+    fi
+}
+
 cmd_checkenv() {
     # Parse any command line args.
     while [ $# -gt 0 ]; do
@@ -849,6 +856,7 @@ cmd_checkenv() {
     say "Please check $QUICKSTART in case of any error."
     ensure_kvm_rw
     check_kernver
+    check_vm
     say "Checking Host Security Configuration."
     say "Please check $PROD_DOC in case of any error."
     check_KSM
