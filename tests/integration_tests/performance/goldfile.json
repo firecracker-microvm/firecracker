@@ -1,0 +1,15 @@
+{
+    "network_latency": {
+        "description" : "Average network latency for a Firecracker VM. The results are round-trip measured in milliseconds.",
+        "x86_64" : {
+            "target" : 0.140,
+            "delta" : 0.025
+        },
+        "aarch64" : {
+            "target" : 0.110,
+            "delta" : 0.015
+        }
+    }
+}
+
+
