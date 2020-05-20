@@ -57,6 +57,19 @@ curl --unix-socket /tmp/firecracker.socket -i \
     }'
 ```
 
+If you are using a configuration file instead of the API, add a section
+to your configuration file like this:
+
+```json
+"network-interfaces": [
+  {
+    "iface_id": "eth0",
+    "guest_mac": "AA:FC:00:00:00:01",
+    "host_dev_name": "tap0"
+  }
+],
+```
+
 Alternatively, if you are using firectl, add
 --tap-device=tap0/AA:FC:00:00:00:01` to your command line.
 
@@ -71,7 +84,14 @@ ip route add default via 172.16.0.1 dev eth0
 ```
 
 Now your guest should be able to route traffic to the internet (assuming that
-your host can get to the internet).
+your host can get to the internet). To do anything useful, you probably want
+to resolve DNS names. In production, you'd want to use the right DNS server for
+your environment. For testing, you can add a public DNS server to
+`/etc/resolv.conf` by adding a line like this:
+
+```
+nameserver 8.8.8.8
+```
 
 ## Cleaning up
 
