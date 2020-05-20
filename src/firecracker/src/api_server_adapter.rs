@@ -18,8 +18,6 @@ use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::machine_config::VmConfig;
 use vmm::Vmm;
 
-use super::FIRECRACKER_VERSION;
-
 struct ApiServerAdapter {
     api_event_fd: EventFd,
     from_api: Receiver<ApiRequest>,
@@ -109,7 +107,7 @@ pub fn run_with_api(
 
     // MMDS only supported with API.
     let mmds_info = MMDS.clone();
-    let api_shared_info = Arc::new(RwLock::new(instance_info));
+    let api_shared_info = Arc::new(RwLock::new(instance_info.clone()));
     let vmm_shared_info = api_shared_info.clone();
     let to_vmm_event_fd = api_event_fd
         .try_clone()
@@ -162,11 +160,13 @@ pub fn run_with_api(
 
     // Configure, build and start the microVM.
     let (vm_resources, vmm) = match config_json {
-        Some(json) => super::build_microvm_from_json(seccomp_filter, &mut event_manager, json),
+        Some(json) => {
+            super::build_microvm_from_json(seccomp_filter, &mut event_manager, json, &instance_info)
+        }
         None => PrebootApiController::build_microvm_from_requests(
             seccomp_filter,
             &mut event_manager,
-            FIRECRACKER_VERSION.to_string(),
+            instance_info,
             || {
                 let req = from_api
                     .recv()

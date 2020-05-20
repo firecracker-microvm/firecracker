@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 use self::logger_crate::{LevelFilter, LOGGER};
 use super::{open_file_nonblock, FcLineWriter};
+use vmm_config::instance_info::InstanceInfo;
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -113,7 +114,7 @@ impl Display for LoggerConfigError {
 /// Configures the logger as described in `logger_cfg`.
 pub fn init_logger(
     logger_cfg: LoggerConfig,
-    firecracker_version: &str,
+    instance_info: &InstanceInfo,
 ) -> std::result::Result<(), LoggerConfigError> {
     LOGGER
         .set_max_level(logger_cfg.level.into())
@@ -126,7 +127,10 @@ pub fn init_logger(
     );
     LOGGER
         .init(
-            format!("Running {} v{}", "Firecracker", firecracker_version),
+            format!(
+                "Running {} v{}",
+                instance_info.app_name, instance_info.vmm_version
+            ),
             Box::new(writer),
         )
         .map_err(|e| LoggerConfigError::InitializationFailure(e.to_string()))
@@ -144,6 +148,13 @@ mod tests {
 
     #[test]
     fn test_init_logger() {
+        let default_instance_info = InstanceInfo {
+            id: "".to_string(),
+            started: false,
+            vmm_version: "some_version".to_string(),
+            app_name: "".to_string(),
+        };
+
         // Error case: initializing logger with invalid pipe returns error.
         let desc = LoggerConfig {
             log_path: PathBuf::from("not_found_file_log"),
@@ -151,7 +162,7 @@ mod tests {
             show_level: false,
             show_log_origin: false,
         };
-        assert!(init_logger(desc, "some_version").is_err());
+        assert!(init_logger(desc, &default_instance_info).is_err());
 
         // Initializing logger with valid pipe is ok.
         let log_file = TempFile::new().unwrap();
@@ -162,8 +173,8 @@ mod tests {
             show_log_origin: true,
         };
 
-        assert!(init_logger(desc.clone(), "some_version").is_ok());
-        assert!(init_logger(desc, "some_version").is_err());
+        assert!(init_logger(desc.clone(), &default_instance_info).is_ok());
+        assert!(init_logger(desc, &default_instance_info).is_err());
 
         // Validate logfile works.
         warn!("this is a test");

@@ -750,7 +750,6 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "dumbo 0.1.0",
  "libc 0.2.68 (registry+https://github.com/rust-lang/crates.io-index)",
  "net_gen 0.1.0",
  "vmm-sys-util 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
