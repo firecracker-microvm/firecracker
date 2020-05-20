@@ -117,7 +117,7 @@ if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
 
 
-def test_images_s3_bucket():
+def _test_images_s3_bucket():
     """Auxiliary function for getting this session's bucket name."""
     return os.environ.get(
         ENV_TEST_IMAGES_S3_BUCKET,
@@ -125,7 +125,7 @@ def test_images_s3_bucket():
     )
 
 
-MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(test_images_s3_bucket())
+MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
 
 
 def init_microvm(root_path, bin_cloner_path):
