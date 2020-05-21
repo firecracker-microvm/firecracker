@@ -37,6 +37,9 @@ const TIOCGWINSZ: u64 = 0x5413;
 const FIOCLEX: u64 = 0x5451;
 const FIONBIO: u64 = 0x5421;
 
+// Hardcoded here instead of getting values from kvm-ioctls, so that filtered values cannot be
+// mistakenly or intentionally altered from outside our codebase.
+
 // See include/uapi/linux/if_tun.h in the kernel code.
 const KVM_GET_API_VERSION: u64 = 0xae00;
 const KVM_CREATE_VM: u64 = 0xae01;
@@ -58,7 +61,28 @@ const KVM_SET_FPU: u64 = 0x41a0_ae8d;
 const KVM_SET_LAPIC: u64 = 0x4400_ae8f;
 const KVM_GET_SREGS: u64 = 0x8138_ae83;
 const KVM_GET_LAPIC: u64 = 0x8400_ae8e;
+const KVM_GET_MSR_INDEX_LIST: u64 = 0xc004_ae02;
+const KVM_GET_MSR_FEATURE_INDEX_LIST: u64 = 0xc004_ae0a;
 const KVM_GET_SUPPORTED_CPUID: u64 = 0xc008_ae05;
+const KVM_GET_IRQCHIP: u64 = 0xc208_ae62;
+const KVM_SET_IRQCHIP: u64 = 0x8208_ae63;
+const KVM_SET_CLOCK: u64 = 0x4030_ae7b;
+const KVM_GET_CLOCK: u64 = 0x8030_ae7c;
+const KVM_GET_PIT2: u64 = 0x8070_ae9f;
+const KVM_SET_PIT2: u64 = 0x4070_aea0;
+const KVM_GET_REGS: u64 = 0x8090_ae81;
+const KVM_GET_MSRS: u64 = 0xc008_ae88;
+const KVM_GET_CPUID2: u64 = 0xc008_ae91;
+const KVM_GET_MP_STATE: u64 = 0x8004_ae98;
+const KVM_SET_MP_STATE: u64 = 0x4004_ae99;
+const KVM_GET_VCPU_EVENTS: u64 = 0x8040_ae9f;
+const KVM_SET_VCPU_EVENTS: u64 = 0x4040_aea0;
+const KVM_GET_DEBUGREGS: u64 = 0x8080_aea1;
+const KVM_SET_DEBUGREGS: u64 = 0x4080_aea2;
+const KVM_GET_XSAVE: u64 = 0x9000_aea4;
+const KVM_SET_XSAVE: u64 = 0x5000_aea5;
+const KVM_GET_XCRS: u64 = 0x8188_aea6;
+const KVM_SET_XCRS: u64 = 0x4188_aea7;
 
 // See include/uapi/linux/if_tun.h in the kernel code.
 const TUNSETIFF: u64 = 0x4004_54ca;
@@ -96,6 +120,32 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_MSRS)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_REGS)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_SREGS)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_MSR_INDEX_LIST)?],
+        and![Cond::new(
+            1,
+            ArgLen::DWORD,
+            Eq,
+            KVM_GET_MSR_FEATURE_INDEX_LIST
+        )?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_IRQCHIP)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_IRQCHIP)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_CLOCK)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_CLOCK)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_PIT2)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_PIT2)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_REGS)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_MSRS)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_CPUID2)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_MP_STATE)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_MP_STATE)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_VCPU_EVENTS)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_VCPU_EVENTS)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_DEBUGREGS)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_DEBUGREGS)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_XSAVE)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_XSAVE)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_XCRS)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_XCRS)?],
     ])
 }
 

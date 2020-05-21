@@ -38,6 +38,8 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                 ]],
             ),
             allow_syscall(libc::SYS_fstat),
+            #[cfg(target_arch = "x86_64")]
+            allow_syscall(libc::SYS_ftruncate),
             allow_syscall_if(
                 libc::SYS_futex,
                 or![
