@@ -93,7 +93,7 @@ pub struct TokenBucket {
     // Bucket defining traits.
     size: u64,
     // Initial burst size (number of free initial tokens, that can be consumed at no cost)
-    one_time_burst: Option<u64>,
+    one_time_burst: u64,
     // Complete refill time in milliseconds.
     refill_time: u64,
 
@@ -115,11 +115,7 @@ impl TokenBucket {
     /// for an initial burst of data.
     ///
     /// If the `size` or the `complete refill time` are zero, then `None` is returned.
-    pub fn new(
-        size: u64,
-        one_time_burst: Option<u64>,
-        complete_refill_time_ms: u64,
-    ) -> Option<Self> {
+    pub fn new(size: u64, one_time_burst: u64, complete_refill_time_ms: u64) -> Option<Self> {
         // If either token bucket capacity or refill time is 0, disable limiting.
         if size == 0 || complete_refill_time_ms == 0 {
             return None;
@@ -154,22 +150,21 @@ impl TokenBucket {
     // for such cases we need to support partial fulfilment of requests
     pub fn reduce(&mut self, mut tokens: u64) -> bool {
         // First things first: consume the one-time-burst budget.
-        if let Some(otb) = self.one_time_burst.as_mut() {
-            if *otb > 0 {
-                // We still have burst budget for *all* tokens requests.
-                if *otb >= tokens {
-                    *otb -= tokens;
-                    self.last_update = Instant::now();
-                    // No need to continue to the refill process, we still have burst budget to consume from.
-                    return true;
-                } else {
-                    // We still have burst budget for *some* of the tokens requests.
-                    // The tokens left unfulfilled will be consumed from current `self.budget`.
-                    tokens -= *otb;
-                    *otb = 0;
-                }
+        if self.one_time_burst > 0 {
+            // We still have burst budget for *all* tokens requests.
+            if self.one_time_burst >= tokens {
+                self.one_time_burst -= tokens;
+                self.last_update = Instant::now();
+                // No need to continue to the refill process, we still have burst budget to consume from.
+                return true;
+            } else {
+                // We still have burst budget for *some* of the tokens requests.
+                // The tokens left unfulfilled will be consumed from current `self.budget`.
+                tokens -= self.one_time_burst;
+                self.one_time_burst = 0;
             }
         }
+
         // Compute time passed since last refill/update.
         let time_delta = self.last_update.elapsed().as_nanos() as u64;
         self.last_update = Instant::now();
@@ -211,11 +206,9 @@ impl TokenBucket {
         // Of course there is a very small chance  that the last reduce() also used up burst
         // budget which should now be replenished, but for performance and code-complexity
         // reasons we're just gonna let that slide since it's practically inconsequential.
-        if let Some(otb) = self.one_time_burst.as_mut() {
-            if *otb > 0 {
-                *otb += tokens;
-                return;
-            }
+        if self.one_time_burst > 0 {
+            self.one_time_burst += tokens;
+            return;
         }
         self.budget = std::cmp::min(self.budget + tokens, self.size);
     }
@@ -227,7 +220,7 @@ impl TokenBucket {
 
     /// Returns the remaining one time burst budget.
     pub fn one_time_burst(&self) -> u64 {
-        self.one_time_burst.unwrap_or(0)
+        self.one_time_burst
     }
 
     /// Returns the time in milliseconds required to to completely fill the bucket.
@@ -323,10 +316,10 @@ impl RateLimiter {
     /// If the timerfd creation fails, an error is returned.
     pub fn new(
         bytes_total_capacity: u64,
-        bytes_one_time_burst: Option<u64>,
+        bytes_one_time_burst: u64,
         bytes_complete_refill_time_ms: u64,
         ops_total_capacity: u64,
-        ops_one_time_burst: Option<u64>,
+        ops_one_time_burst: u64,
         ops_complete_refill_time_ms: u64,
     ) -> io::Result<Self> {
         let bytes_token_bucket = TokenBucket::new(
@@ -468,7 +461,7 @@ impl Default for RateLimiter {
     /// Default RateLimiter is a no-op limiter with infinite budget.
     fn default() -> Self {
         // Safe to unwrap since this will not attempt to create timer_fd.
-        RateLimiter::new(0, None, 0, 0, None, 0).expect("Failed to build default RateLimiter")
+        RateLimiter::new(0, 0, 0, 0, 0, 0).expect("Failed to build default RateLimiter")
     }
 }
 
@@ -518,7 +511,7 @@ pub(crate) mod tests {
     #[test]
     fn test_token_bucket_create() {
         let before = Instant::now();
-        let tb = TokenBucket::new(1000, None, 1000).unwrap();
+        let tb = TokenBucket::new(1000, 0, 1000).unwrap();
         assert_eq!(tb.capacity(), 1000);
         assert_eq!(tb.budget(), 1000);
         assert!(*tb.get_last_update() >= before);
@@ -528,19 +521,19 @@ pub(crate) mod tests {
         assert_eq!(tb.get_processed_refill_time(), 1_000_000);
 
         // Verify invalid bucket configurations result in `None`.
-        assert!(TokenBucket::new(0, Some(1234), 1000).is_none());
-        assert!(TokenBucket::new(100, Some(1234), 0).is_none());
-        assert!(TokenBucket::new(0, Some(1234), 0).is_none());
+        assert!(TokenBucket::new(0, 1234, 1000).is_none());
+        assert!(TokenBucket::new(100, 1234, 0).is_none());
+        assert!(TokenBucket::new(0, 1234, 0).is_none());
     }
 
     #[test]
     fn test_token_bucket_preprocess() {
-        let tb = TokenBucket::new(1000, None, 1000).unwrap();
+        let tb = TokenBucket::new(1000, 0, 1000).unwrap();
         assert_eq!(tb.get_processed_capacity(), 1);
         assert_eq!(tb.get_processed_refill_time(), NANOSEC_IN_ONE_MILLISEC);
 
         let thousand = 1000;
-        let tb = TokenBucket::new(3 * 7 * 11 * 19 * thousand, None, 7 * 11 * 13 * 17).unwrap();
+        let tb = TokenBucket::new(3 * 7 * 11 * 19 * thousand, 0, 7 * 11 * 13 * 17).unwrap();
         assert_eq!(tb.get_processed_capacity(), 3 * 19);
         assert_eq!(
             tb.get_processed_refill_time(),
@@ -554,7 +547,7 @@ pub(crate) mod tests {
         // allowing rate of 1 token/ms.
         let capacity = 1000;
         let refill_ms = 1000;
-        let mut tb = TokenBucket::new(capacity, None, refill_ms as u64).unwrap();
+        let mut tb = TokenBucket::new(capacity, 0, refill_ms as u64).unwrap();
 
         assert!(tb.reduce(123));
         assert_eq!(tb.budget(), capacity - 123);
@@ -566,7 +559,7 @@ pub(crate) mod tests {
         assert!(!tb.reduce(capacity));
 
         // token bucket with capacity 1000 and refill time of 1000 milliseconds
-        let mut tb = TokenBucket::new(1000, Some(1100), 1000).unwrap();
+        let mut tb = TokenBucket::new(1000, 1100, 1000).unwrap();
         // safely assuming the thread can run these 3 commands in less than 500ms
         assert!(tb.reduce(1000));
         assert_eq!(tb.one_time_burst(), 100);
@@ -606,7 +599,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_rate_limiter_new() {
-        let l = RateLimiter::new(1000, Some(1001), 1002, 1003, Some(1004), 1005).unwrap();
+        let l = RateLimiter::new(1000, 1001, 1002, 1003, 1004, 1005).unwrap();
 
         let bw = l.bandwidth.unwrap();
         assert_eq!(bw.capacity(), 1000);
@@ -624,7 +617,7 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_manual_replenish() {
         // rate limiter with limit of 1000 bytes/s and 1000 ops/s
-        let mut l = RateLimiter::new(1000, None, 1000, 1000, None, 1000).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000).unwrap();
 
         // consume 123 bytes
         assert!(l.consume(123, TokenType::Bytes));
@@ -645,7 +638,7 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_bandwidth() {
         // rate limiter with limit of 1000 bytes/s
-        let mut l = RateLimiter::new(1000, None, 1000, 0, None, 0).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 0, 0, 0).unwrap();
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
@@ -678,7 +671,7 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_ops() {
         // rate limiter with limit of 1000 ops/s
-        let mut l = RateLimiter::new(0, None, 0, 1000, None, 1000).unwrap();
+        let mut l = RateLimiter::new(0, 0, 0, 1000, 0, 1000).unwrap();
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
@@ -711,7 +704,7 @@ pub(crate) mod tests {
     #[test]
     fn test_rate_limiter_full() {
         // rate limiter with limit of 1000 bytes/s and 1000 ops/s
-        let mut l = RateLimiter::new(1000, None, 1000, 1000, None, 1000).unwrap();
+        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000).unwrap();
 
         // limiter should not be blocked
         assert!(!l.is_blocked());
@@ -750,7 +743,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_update_buckets() {
-        let mut x = RateLimiter::new(1000, Some(2000), 1000, 10, Some(20), 1000).unwrap();
+        let mut x = RateLimiter::new(1000, 2000, 1000, 10, 20, 1000).unwrap();
 
         let initial_bw = x.bandwidth.clone();
         let initial_ops = x.ops.clone();
@@ -759,8 +752,8 @@ pub(crate) mod tests {
         assert_eq!(x.bandwidth, initial_bw);
         assert_eq!(x.ops, initial_ops);
 
-        let new_bw = TokenBucket::new(123, None, 57).unwrap();
-        let new_ops = TokenBucket::new(321, Some(12346), 89).unwrap();
+        let new_bw = TokenBucket::new(123, 0, 57).unwrap();
+        let new_ops = TokenBucket::new(321, 12346, 89).unwrap();
         x.update_buckets(
             BucketUpdate::Update(new_bw.clone()),
             BucketUpdate::Update(new_ops.clone()),
@@ -782,7 +775,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_rate_limiter_debug() {
-        let l = RateLimiter::new(1, Some(2), 3, 4, Some(5), 6).unwrap();
+        let l = RateLimiter::new(1, 2, 3, 4, 5, 6).unwrap();
         assert_eq!(
             format!("{:?}", l),
             format!(

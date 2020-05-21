@@ -64,11 +64,15 @@ macro_rules! get_bucket_update {
             Some(rl_cfg) => match rl_cfg.$metric {
                 // There is data to update.
                 Some(tb_cfg) => {
-                    TokenBucket::new(tb_cfg.size, tb_cfg.one_time_burst, tb_cfg.refill_time)
-                        // Updated active rate-limiter.
-                        .map(BucketUpdate::Update)
-                        // Updated/deactivated rate-limiter
-                        .unwrap_or(BucketUpdate::Disabled)
+                    TokenBucket::new(
+                        tb_cfg.size,
+                        tb_cfg.one_time_burst.unwrap_or(0),
+                        tb_cfg.refill_time,
+                    )
+                    // Updated active rate-limiter.
+                    .map(BucketUpdate::Update)
+                    // Updated/deactivated rate-limiter
+                    .unwrap_or(BucketUpdate::Disabled)
                 }
                 // No update to the rate-limiter.
                 None => BucketUpdate::None,

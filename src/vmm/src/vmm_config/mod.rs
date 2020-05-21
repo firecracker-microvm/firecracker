@@ -72,10 +72,10 @@ impl TryInto<RateLimiter> for RateLimiterConfig {
         let ops = self.ops.unwrap_or_default();
         RateLimiter::new(
             bw.size,
-            bw.one_time_burst,
+            bw.one_time_burst.unwrap_or(0),
             bw.refill_time,
             ops.size,
-            ops.one_time_burst,
+            ops.one_time_burst.unwrap_or(0),
             ops.refill_time,
         )
     }
