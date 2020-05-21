@@ -33,6 +33,6 @@ def test_microvm_initrd_with_serial(
 
     serial.rx(token='# ')
 
-    serial.tx(f"findmnt /")
+    serial.tx("findmnt /")
     serial.rx(
         token=f"/      {INITRD_FILESYSTEM} {INITRD_FILESYSTEM}")
