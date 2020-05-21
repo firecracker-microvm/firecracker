@@ -448,9 +448,9 @@ TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (
 # provide a way to do that outright, but luckily all of python is just lists of
 # of lists and a cursor, so exec() works fine here.
 for capability in MICROVM_S3_FETCHER.enum_capabilities():
-    test_microvm_cap_fixture = (
+    TEST_MICROVM_CAP_FIXTURE = (
         TEST_MICROVM_CAP_FIXTURE_TEMPLATE.replace('CAP', capability)
     )
     # pylint: disable=exec-used
     # This is the most straightforward way to achieve this result.
-    exec(test_microvm_cap_fixture)
+    exec(TEST_MICROVM_CAP_FIXTURE)
