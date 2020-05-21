@@ -16,7 +16,7 @@ use dumbo::ns::MmdsNetworkStack;
 use dumbo::{EthernetFrame, MacAddr, MAC_ADDR_LEN};
 use libc::EAGAIN;
 use logger::{Metric, METRICS};
-use rate_limiter::{RateLimiter, TokenBucket, TokenType};
+use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 #[cfg(not(test))]
 use std::io::Read;
 use std::io::Write;
@@ -556,10 +556,10 @@ impl Net {
     /// Updates the parameters for the rate limiters
     pub fn patch_rate_limiters(
         &mut self,
-        rx_bytes: Option<TokenBucket>,
-        rx_ops: Option<TokenBucket>,
-        tx_bytes: Option<TokenBucket>,
-        tx_ops: Option<TokenBucket>,
+        rx_bytes: BucketUpdate,
+        rx_ops: BucketUpdate,
+        tx_bytes: BucketUpdate,
+        tx_ops: BucketUpdate,
     ) {
         self.rx_rate_limiter.update_buckets(rx_bytes, rx_ops);
         self.tx_rate_limiter.update_buckets(tx_bytes, tx_ops);
@@ -1657,28 +1657,37 @@ pub(crate) mod tests {
         net.rx_rate_limiter = RateLimiter::new(10, None, 10, 2, None, 2).unwrap();
         net.tx_rate_limiter = RateLimiter::new(10, None, 10, 2, None, 2).unwrap();
 
-        let rx_bytes = TokenBucket::new(1000, Some(1001), 1002);
-        let rx_ops = TokenBucket::new(1003, Some(1004), 1005);
-        let tx_bytes = TokenBucket::new(1006, Some(1007), 1008);
-        let tx_ops = TokenBucket::new(1009, Some(1010), 1011);
+        let rx_bytes = TokenBucket::new(1000, Some(1001), 1002).unwrap();
+        let rx_ops = TokenBucket::new(1003, Some(1004), 1005).unwrap();
+        let tx_bytes = TokenBucket::new(1006, Some(1007), 1008).unwrap();
+        let tx_ops = TokenBucket::new(1009, Some(1010), 1011).unwrap();
 
         net.patch_rate_limiters(
-            Some(rx_bytes.clone()),
-            Some(rx_ops.clone()),
-            Some(tx_bytes.clone()),
-            Some(tx_ops.clone()),
+            BucketUpdate::Update(rx_bytes.clone()),
+            BucketUpdate::Update(rx_ops.clone()),
+            BucketUpdate::Update(tx_bytes.clone()),
+            BucketUpdate::Update(tx_ops.clone()),
         );
-
         let compare_buckets = |a: &TokenBucket, b: &TokenBucket| {
             assert_eq!(a.capacity(), b.capacity());
             assert_eq!(a.one_time_burst(), b.one_time_burst());
             assert_eq!(a.refill_time_ms(), b.refill_time_ms());
         };
-
         compare_buckets(net.rx_rate_limiter.bandwidth().unwrap(), &rx_bytes);
         compare_buckets(net.rx_rate_limiter.ops().unwrap(), &rx_ops);
         compare_buckets(net.tx_rate_limiter.bandwidth().unwrap(), &tx_bytes);
         compare_buckets(net.tx_rate_limiter.ops().unwrap(), &tx_ops);
+
+        net.patch_rate_limiters(
+            BucketUpdate::Disabled,
+            BucketUpdate::Disabled,
+            BucketUpdate::Disabled,
+            BucketUpdate::Disabled,
+        );
+        assert!(net.rx_rate_limiter.bandwidth().is_none());
+        assert!(net.rx_rate_limiter.ops().is_none());
+        assert!(net.tx_rate_limiter.bandwidth().is_none());
+        assert!(net.tx_rate_limiter.ops().is_none());
     }
 
     #[test]

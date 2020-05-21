@@ -21,7 +21,7 @@ pub struct TokenBucketState {
 impl Persist<'_> for TokenBucket {
     type State = TokenBucketState;
     type ConstructorArgs = ();
-    type Error = ();
+    type Error = io::Error;
 
     fn save(&self) -> Self::State {
         TokenBucketState {
@@ -40,7 +40,8 @@ impl Persist<'_> for TokenBucket {
             .unwrap_or(now);
 
         let mut token_bucket =
-            TokenBucket::new(state.size, state.one_time_burst, state.refill_time);
+            TokenBucket::new(state.size, state.one_time_burst, state.refill_time)
+                .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
 
         token_bucket.budget = state.budget;
         token_bucket.last_update = last_update;
@@ -93,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_token_bucket_persistence() {
-        let mut tb = TokenBucket::new(1000, Some(2000), 3000);
+        let mut tb = TokenBucket::new(1000, Some(2000), 3000).unwrap();
 
         // Check that TokenBucket restores correctly if untouched.
         let restored_tb = TokenBucket::restore((), &tb.save()).unwrap();

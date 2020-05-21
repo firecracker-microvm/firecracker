@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use libc::O_NONBLOCK;
 
-use rate_limiter::{RateLimiter, TokenBucket};
+use rate_limiter::RateLimiter;
 
 /// Wrapper for configuring the microVM boot source.
 pub mod boot_source;
@@ -53,12 +53,6 @@ pub struct TokenBucketConfig {
     pub refill_time: u64,
 }
 
-impl Into<TokenBucket> for TokenBucketConfig {
-    fn into(self) -> TokenBucket {
-        TokenBucket::new(self.size, self.one_time_burst, self.refill_time)
-    }
-}
-
 /// A public-facing, stateless structure, holding all the data we need to create a RateLimiter
 /// (live) object.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
@@ -68,18 +62,6 @@ pub struct RateLimiterConfig {
     pub bandwidth: Option<TokenBucketConfig>,
     /// Data used to initialize the RateLimiter::ops bucket.
     pub ops: Option<TokenBucketConfig>,
-}
-
-impl RateLimiterConfig {
-    /// Updates the configuration, merging in new options from `new_config`.
-    pub fn update(&mut self, new_config: &RateLimiterConfig) {
-        if new_config.bandwidth.is_some() {
-            self.bandwidth = new_config.bandwidth;
-        }
-        if new_config.ops.is_some() {
-            self.ops = new_config.ops;
-        }
-    }
 }
 
 impl TryInto<RateLimiter> for RateLimiterConfig {
@@ -129,17 +111,7 @@ mod tests {
         const ONE_TIME_BURST: u64 = 1024;
         const REFILL_TIME: u64 = 1000;
 
-        let b: TokenBucket = TokenBucketConfig {
-            size: SIZE,
-            one_time_burst: Some(ONE_TIME_BURST),
-            refill_time: REFILL_TIME,
-        }
-        .into();
-        assert_eq!(b.capacity(), SIZE);
-        assert_eq!(b.one_time_burst(), ONE_TIME_BURST);
-        assert_eq!(b.refill_time_ms(), REFILL_TIME);
-
-        let mut rlconf = RateLimiterConfig {
+        let rlconf = RateLimiterConfig {
             bandwidth: Some(TokenBucketConfig {
                 size: SIZE,
                 one_time_burst: Some(ONE_TIME_BURST),
@@ -158,24 +130,6 @@ mod tests {
         assert_eq!(rl.ops().unwrap().capacity(), SIZE * 2);
         assert_eq!(rl.ops().unwrap().one_time_burst(), 0);
         assert_eq!(rl.ops().unwrap().refill_time_ms(), REFILL_TIME * 2);
-
-        rlconf.update(&RateLimiterConfig {
-            bandwidth: Some(TokenBucketConfig {
-                size: SIZE * 2,
-                one_time_burst: Some(ONE_TIME_BURST * 2),
-                refill_time: REFILL_TIME * 2,
-            }),
-            ops: None,
-        });
-        assert_eq!(rlconf.bandwidth.unwrap().size, SIZE * 2);
-        assert_eq!(
-            rlconf.bandwidth.unwrap().one_time_burst,
-            Some(ONE_TIME_BURST * 2)
-        );
-        assert_eq!(rlconf.bandwidth.unwrap().refill_time, REFILL_TIME * 2);
-        assert_eq!(rlconf.ops.unwrap().size, SIZE * 2);
-        assert_eq!(rlconf.ops.unwrap().one_time_burst, None);
-        assert_eq!(rlconf.ops.unwrap().refill_time, REFILL_TIME * 2);
     }
 
     #[test]

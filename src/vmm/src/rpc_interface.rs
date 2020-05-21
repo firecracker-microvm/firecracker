@@ -510,15 +510,6 @@ impl RuntimeApiController {
                 .expect("Unexpected BusDevice type")
                 .device();
 
-            macro_rules! get_handler_arg {
-                ($rate_limiter: ident, $metric: ident) => {{
-                    new_cfg
-                        .$rate_limiter
-                        .map(|rl| rl.$metric.map(vmm_config::TokenBucketConfig::into))
-                        .unwrap_or(None)
-                }};
-            }
-
             virtio_device
                 .lock()
                 .expect("Poisoned lock")
@@ -526,10 +517,10 @@ impl RuntimeApiController {
                 .downcast_mut::<Net>()
                 .unwrap()
                 .patch_rate_limiters(
-                    get_handler_arg!(rx_rate_limiter, bandwidth),
-                    get_handler_arg!(rx_rate_limiter, ops),
-                    get_handler_arg!(tx_rate_limiter, bandwidth),
-                    get_handler_arg!(tx_rate_limiter, ops),
+                    new_cfg.rx_bytes(),
+                    new_cfg.rx_ops(),
+                    new_cfg.tx_bytes(),
+                    new_cfg.tx_ops(),
                 );
         } else {
             return Err(VmmActionError::NetworkConfig(
