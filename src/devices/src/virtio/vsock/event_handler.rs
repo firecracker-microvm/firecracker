@@ -113,70 +113,30 @@ where
         if let Err(e) = self.activate_evt.read() {
             error!("Failed to consume vsock activate event: {:?}", e);
         }
-
+        let activate_fd = self.activate_evt.as_raw_fd();
         // The subscriber must exist as we previously registered activate_evt via
         // `interest_list()`.
-        let self_subscriber = event_manager
-            .subscriber(self.activate_evt.as_raw_fd())
-            .unwrap();
+        let self_subscriber = match event_manager.subscriber(activate_fd) {
+            Ok(subscriber) => subscriber,
+            Err(e) => {
+                error!("Failed to process vsock activate evt: {:?}", e);
+                return;
+            }
+        };
 
-        event_manager
-            .register(
-                self.queue_events[RXQ_INDEX].as_raw_fd(),
-                EpollEvent::new(
-                    EventSet::IN,
-                    self.queue_events[RXQ_INDEX].as_raw_fd() as u64,
-                ),
-                self_subscriber.clone(),
-            )
-            .unwrap_or_else(|e| {
-                error!("Failed to register vsock rxq with event manager: {:?}", e);
-            });
+        // Interest list changes when the device is activated.
+        let interest_list = self.interest_list();
+        for event in interest_list {
+            event_manager
+                .register(event.data() as i32, event, self_subscriber.clone())
+                .unwrap_or_else(|e| {
+                    error!("Failed to register vsock events: {:?}", e);
+                });
+        }
 
-        event_manager
-            .register(
-                self.queue_events[TXQ_INDEX].as_raw_fd(),
-                EpollEvent::new(
-                    EventSet::IN,
-                    self.queue_events[TXQ_INDEX].as_raw_fd() as u64,
-                ),
-                self_subscriber.clone(),
-            )
-            .unwrap_or_else(|e| {
-                error!("Failed to register vsock txq with event manager: {:?}", e);
-            });
-
-        event_manager
-            .register(
-                self.queue_events[EVQ_INDEX].as_raw_fd(),
-                EpollEvent::new(
-                    EventSet::IN,
-                    self.queue_events[EVQ_INDEX].as_raw_fd() as u64,
-                ),
-                self_subscriber.clone(),
-            )
-            .unwrap_or_else(|e| {
-                error!("Failed to register vsock evq with event manager: {:?}", e);
-            });
-
-        event_manager
-            .register(
-                self.backend.as_raw_fd(),
-                EpollEvent::new(
-                    self.backend.get_polled_evset(),
-                    self.backend.as_raw_fd() as u64,
-                ),
-                self_subscriber,
-            )
-            .unwrap_or_else(|e| {
-                error!("Failed to register vsock backend events: {:?}", e);
-            });
-
-        event_manager
-            .unregister(self.activate_evt.as_raw_fd())
-            .unwrap_or_else(|e| {
-                error!("Failed to unregister vsock activate evt: {:?}", e);
-            })
+        event_manager.unregister(activate_fd).unwrap_or_else(|e| {
+            error!("Failed to unregister vsock activate evt: {:?}", e);
+        });
     }
 }
 
@@ -218,10 +178,35 @@ where
     }
 
     fn interest_list(&self) -> Vec<EpollEvent> {
-        vec![EpollEvent::new(
-            EventSet::IN,
-            self.activate_evt.as_raw_fd() as u64,
-        )]
+        // This function can be called during different points in the device lifetime:
+        //  - shortly after device creation,
+        //  - on device activation (is-activated already true at this point),
+        //  - on device restore from snapshot.
+        if self.is_activated() {
+            vec![
+                EpollEvent::new(
+                    EventSet::IN,
+                    self.queue_events[RXQ_INDEX].as_raw_fd() as u64,
+                ),
+                EpollEvent::new(
+                    EventSet::IN,
+                    self.queue_events[TXQ_INDEX].as_raw_fd() as u64,
+                ),
+                EpollEvent::new(
+                    EventSet::IN,
+                    self.queue_events[EVQ_INDEX].as_raw_fd() as u64,
+                ),
+                EpollEvent::new(
+                    self.backend.get_polled_evset(),
+                    self.backend.as_raw_fd() as u64,
+                ),
+            ]
+        } else {
+            vec![EpollEvent::new(
+                EventSet::IN,
+                self.activate_evt.as_raw_fd() as u64,
+            )]
+        }
     }
 }
 
