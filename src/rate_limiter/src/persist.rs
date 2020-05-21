@@ -12,7 +12,7 @@ use versionize_derive::Versionize;
 #[derive(Versionize)]
 pub struct TokenBucketState {
     size: u64,
-    one_time_burst: Option<u64>,
+    one_time_burst: u64,
     refill_time: u64,
     budget: u64,
     elapsed_ns: u64,
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_token_bucket_persistence() {
-        let mut tb = TokenBucket::new(1000, Some(2000), 3000).unwrap();
+        let mut tb = TokenBucket::new(1000, 2000, 3000).unwrap();
 
         // Check that TokenBucket restores correctly if untouched.
         let restored_tb = TokenBucket::restore((), &tb.save()).unwrap();
@@ -128,8 +128,7 @@ mod tests {
     #[test]
     fn test_rate_limiter_persistence() {
         let refill_time = 100_000;
-        let mut rate_limiter =
-            RateLimiter::new(100, None, refill_time, 10, None, refill_time).unwrap();
+        let mut rate_limiter = RateLimiter::new(100, 0, refill_time, 10, 0, refill_time).unwrap();
 
         // Check that RateLimiter restores correctly if untouched.
         let restored_rate_limiter =

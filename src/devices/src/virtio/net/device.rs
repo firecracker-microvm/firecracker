@@ -1376,7 +1376,7 @@ pub(crate) mod tests {
         net.assign_queues(rxq.create_queue(), txq.create_queue());
         net.activate(mem.clone()).unwrap();
 
-        net.rx_rate_limiter = RateLimiter::new(0, None, 0, 0, None, 0).unwrap();
+        net.rx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
         let rate_limiter_event =
             EpollEvent::new(EventSet::IN, net.rx_rate_limiter.as_raw_fd() as u64);
         check_metric_after_block!(
@@ -1395,7 +1395,7 @@ pub(crate) mod tests {
         net.assign_queues(rxq.create_queue(), txq.create_queue());
         net.activate(mem.clone()).unwrap();
 
-        net.tx_rate_limiter = RateLimiter::new(0, None, 0, 0, None, 0).unwrap();
+        net.tx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
         let rate_limiter_event =
             EpollEvent::new(EventSet::IN, net.tx_rate_limiter.as_raw_fd() as u64);
         net.process(&rate_limiter_event, &mut event_manager);
@@ -1421,7 +1421,7 @@ pub(crate) mod tests {
         // Test TX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
-            let mut rl = RateLimiter::new(0x1000, None, 100, 0, None, 0).unwrap();
+            let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0).unwrap();
             // use up the budget
             assert!(rl.consume(0x1000, TokenType::Bytes));
 
@@ -1471,7 +1471,7 @@ pub(crate) mod tests {
         // Test RX bandwidth rate limiting
         {
             // create bandwidth rate limiter that allows 40960 bytes/s with bucket size 4096 bytes
-            let mut rl = RateLimiter::new(0x1000, None, 100, 0, None, 0).unwrap();
+            let mut rl = RateLimiter::new(0x1000, 0, 100, 0, 0, 0).unwrap();
             // use up the budget
             assert!(rl.consume(0x1000, TokenType::Bytes));
 
@@ -1540,7 +1540,7 @@ pub(crate) mod tests {
         // Test TX ops rate limiting
         {
             // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, None, 0, 1, None, 100).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
             // use up the budget
             assert!(rl.consume(1, TokenType::Ops));
 
@@ -1585,7 +1585,7 @@ pub(crate) mod tests {
         // Test RX ops rate limiting
         {
             // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
-            let mut rl = RateLimiter::new(0, None, 0, 1, None, 100).unwrap();
+            let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
             // use up the budget
             assert!(rl.consume(0x800, TokenType::Ops));
 
@@ -1654,13 +1654,13 @@ pub(crate) mod tests {
         net.assign_queues(rxq.create_queue(), txq.create_queue());
         net.activate(mem.clone()).unwrap();
 
-        net.rx_rate_limiter = RateLimiter::new(10, None, 10, 2, None, 2).unwrap();
-        net.tx_rate_limiter = RateLimiter::new(10, None, 10, 2, None, 2).unwrap();
+        net.rx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2).unwrap();
+        net.tx_rate_limiter = RateLimiter::new(10, 0, 10, 2, 0, 2).unwrap();
 
-        let rx_bytes = TokenBucket::new(1000, Some(1001), 1002).unwrap();
-        let rx_ops = TokenBucket::new(1003, Some(1004), 1005).unwrap();
-        let tx_bytes = TokenBucket::new(1006, Some(1007), 1008).unwrap();
-        let tx_ops = TokenBucket::new(1009, Some(1010), 1011).unwrap();
+        let rx_bytes = TokenBucket::new(1000, 1001, 1002).unwrap();
+        let rx_ops = TokenBucket::new(1003, 1004, 1005).unwrap();
+        let tx_bytes = TokenBucket::new(1006, 1007, 1008).unwrap();
+        let tx_ops = TokenBucket::new(1009, 1010, 1011).unwrap();
 
         net.patch_rate_limiters(
             BucketUpdate::Update(rx_bytes.clone()),

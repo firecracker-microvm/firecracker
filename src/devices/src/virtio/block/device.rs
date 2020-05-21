@@ -427,7 +427,7 @@ pub(crate) mod tests {
     /// Create a default Block instance using file at the specified path to be used in tests.
     pub fn default_block_with_path(path: String) -> Block {
         // Rate limiting is enabled but with a high operation rate (10 million ops/s).
-        let rate_limiter = RateLimiter::new(0, None, 0, 100_000, None, 10).unwrap();
+        let rate_limiter = RateLimiter::new(0, 0, 0, 100_000, 0, 10).unwrap();
 
         let id = "test".to_string();
         // The default block device is read-write and non-root.
@@ -856,7 +856,7 @@ pub(crate) mod tests {
         let queue_evt = EpollEvent::new(EventSet::IN, block.queue_evts[0].as_raw_fd() as u64);
 
         // Create bandwidth rate limiter that allows only 80 bytes/s with bucket size of 8 bytes.
-        let mut rl = RateLimiter::new(8, None, 100, 0, None, 0).unwrap();
+        let mut rl = RateLimiter::new(8, 0, 100, 0, 0, 0).unwrap();
         // Use up the budget.
         assert!(rl.consume(8, TokenType::Bytes));
 
@@ -921,7 +921,7 @@ pub(crate) mod tests {
         let queue_evt = EpollEvent::new(EventSet::IN, block.queue_evts[0].as_raw_fd() as u64);
 
         // Create ops rate limiter that allows only 10 ops/s with bucket size of 1 ops.
-        let mut rl = RateLimiter::new(0, None, 0, 1, None, 100).unwrap();
+        let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
         // Use up the budget.
         assert!(rl.consume(1, TokenType::Ops));
 
