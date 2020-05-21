@@ -17,14 +17,14 @@ import pytest
 import framework.utils as utils
 import host_tools.cargo_build as host  # pylint: disable=import-error
 
-COVERAGE_TARGET_PCT = 84.41
+COVERAGE_TARGET_PCT = 84.32
 # This slight difference comes from
 # the brand string, On Intel, it contains
 # the frequency while on AMD it does not.
 # (the cpuid crate). In the future other
 # differences may appear.
 if "AMD" in platform.processor():
-    COVERAGE_TARGET_PCT = 84.35
+    COVERAGE_TARGET_PCT = 84.26
 
 COVERAGE_MAX_DELTA = 0.05
 
