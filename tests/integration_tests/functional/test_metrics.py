@@ -23,12 +23,4 @@ def test_flush_metrics(test_microvm_with_api):
 
     microvm.start()
 
-    # Empty fifo before triggering `FlushMetrics` so that we get accurate data.
-    _ = metrics_fifo.sequential_reader(100)
-
-    how_many_flushes = 3
-    for _ in range(how_many_flushes):
-        response = microvm.actions.put(action_type='FlushMetrics')
-        assert microvm.api_session.is_status_no_content(response.status_code)
-    lines = metrics_fifo.sequential_reader(how_many_flushes)
-    assert len(lines) == how_many_flushes
+    microvm.flush_metrics(metrics_fifo)
