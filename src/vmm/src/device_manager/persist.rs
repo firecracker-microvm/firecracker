@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use super::mmio::*;
 
+use devices::pseudo::BootTimer;
 use devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use devices::virtio::block::Block;
 use devices::virtio::net::persist::{Error as NetError, NetConstructorArgs, NetState};
@@ -24,6 +25,7 @@ use devices::virtio::{MmioTransport, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK};
 use kvm_ioctls::VmFd;
 use polly::event_manager::{Error as EventMgrError, EventManager};
 use snapshot::Persist;
+use utils::time::TimestampUs;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
@@ -86,7 +88,7 @@ pub struct DeviceStates {
     pub block_devices: Vec<ConnectedBlockState>,
     /// Net device states.
     pub net_devices: Vec<ConnectedNetState>,
-    /// Vsock device tests.
+    /// Vsock device state.
     pub vsock_device: Option<ConnectedVsockState>,
 }
 
@@ -114,6 +116,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .unwrap()
                 .lock()
                 .expect("Poisoned lock");
+
+            if let Some(boot_timer) = bus_device.as_any().downcast_ref::<BootTimer>() {
+                // No need to save BootTimer state.
+                continue;
+            }
 
             let mmio_transport = bus_device
                 .as_any()
@@ -174,13 +181,17 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
-        // These are only used during initial registration.
-        let mut dummy_mmio_base = 0;
+        // Only used during initial registration.
         let dummy_irq_range = (0, 0);
-        let mut dev_manager = MMIODeviceManager::new(&mut dummy_mmio_base, dummy_irq_range);
+        let mut dev_manager = MMIODeviceManager::new(arch::MMIO_MEM_START, dummy_irq_range);
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
         let event_manager = constructor_args.event_manager;
+
+        let boot_timer = BootTimer::new(TimestampUs::default());
+        dev_manager
+            .register_new_mmio_boot_timer(boot_timer)
+            .map_err(Error::DeviceManager)?;
 
         for block_state in &state.block_devices {
             let device = Arc::new(Mutex::new(
@@ -275,6 +286,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use builder::attach_boot_timer_device;
     use builder::tests::*;
     use utils::tempfile::TempFile;
     use vmm_config::net::NetworkInterfaceConfig;
@@ -353,9 +365,9 @@ mod tests {
 
     impl MMIODeviceManager {
         fn soft_clone(&self) -> Self {
-            let mut dummy_mmio_base = 0;
+            let dummy_mmio_base = 0;
             let dummy_irq_range = (0, 0);
-            let mut clone = MMIODeviceManager::new(&mut dummy_mmio_base, dummy_irq_range);
+            let mut clone = MMIODeviceManager::new(dummy_mmio_base, dummy_irq_range);
             // We only care about the device hashmap.
             clone.id_to_dev_info = self.id_to_dev_info.clone();
             clone
@@ -397,6 +409,10 @@ mod tests {
             let mut event_manager = EventManager::new().expect("Unable to create EventManager");
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
+
+            // Add a boot timer device.
+            let request_ts = TimestampUs::default();
+            attach_boot_timer_device(&mut vmm, request_ts);
 
             // Add a block device.
             let drive_id = String::from("root");

@@ -158,10 +158,11 @@ mod tests {
     use std::io::{BufRead, BufReader};
 
     use super::*;
+
+    use devices::pseudo::BootTimer;
+    use devices::BusDevice;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
-
-    use Vmm;
 
     #[test]
     fn test_init_logger() {
@@ -210,7 +211,9 @@ mod tests {
         }
 
         // Validate logging the boot time works.
-        Vmm::log_boot_time(&TimestampUs::default());
+        let mut boot_timer = BootTimer::new(TimestampUs::default());
+        boot_timer.write(0, &[123]);
+
         let mut line = String::new();
         loop {
             if line.contains("Guest-boot-time =") {

@@ -26,6 +26,7 @@ use std::io;
 
 mod bus;
 pub mod legacy;
+pub mod pseudo;
 pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice, Error as BusError};
