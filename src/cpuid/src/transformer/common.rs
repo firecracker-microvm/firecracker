@@ -132,7 +132,7 @@ pub fn use_host_cpuid_function(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use common::tests::get_topoext_fn;
     use kvm_bindings::kvm_cpuid_entry2;

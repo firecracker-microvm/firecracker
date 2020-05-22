@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that verify MMDS related functionality."""
 
+import json
+import random
+import string
 import host_tools.network as net_tools
 
 
@@ -10,15 +13,7 @@ def _assert_out(stdout, stderr, expected):
     assert stdout.read() == expected
 
 
-# Used when the output consists of a set of lines in no particular order, and
-# thus may differ from one run to another.
-def _assert_out_multiple(stdout, stderr, lines):
-    assert stderr.read() == ''
-    out = stdout.read()
-    assert sorted(out.split('\n')) == sorted(lines)
-
-
-def test_custom_ipv4_support_config(test_microvm_with_ssh, network_config):
+def test_custom_ipv4(test_microvm_with_ssh, network_config):
     """Test the API for MMDS custom ipv4 support."""
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
@@ -62,6 +57,12 @@ def test_custom_ipv4_support_config(test_microvm_with_ssh, network_config):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     config_data = {
+        'ipv4_address': '1.1.1.1'
+    }
+    response = test_microvm.mmds.put_config(json=config_data)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    config_data = {
         'ipv4_address': '169.254.169.250'
     }
     response = test_microvm.mmds.put_config(json=config_data)
@@ -84,59 +85,43 @@ def test_custom_ipv4_support_config(test_microvm_with_ssh, network_config):
     _, stdout, stderr = ssh_connection.execute_command(cmd)
     _assert_out(stdout, stderr, '')
 
-    pre = 'curl -s http://169.254.169.250/'
+    pre = 'curl -s -H "Accept: application/json" http://169.254.169.250/'
 
     cmd = pre + 'latest/meta-data/ami-id'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'ami-12345678')
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == 'ami-12345678'
 
     # The request is still valid if we append a
     # trailing slash to a leaf node.
     cmd = pre + 'latest/meta-data/ami-id/'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'ami-12345678')
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == 'ami-12345678'
 
     cmd = pre + 'latest/meta-data/network/interfaces/macs/'\
         '02:29:96:8f:6a:2d/subnet-id'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'subnet-be9b61d')
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == 'subnet-be9b61d'
 
     # Test reading a non-leaf node WITHOUT a trailing slash.
     cmd = pre + 'latest/meta-data'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out_multiple(
-        stdout,
-        stderr,
-        ['ami-id', 'reservation-id', 'local-hostname', 'public-hostname',
-            'network/']
-    )
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == data_store['latest']['meta-data']
 
     # Test reading a non-leaf node with a trailing slash.
     cmd = pre + 'latest/meta-data/'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out_multiple(
-        stdout,
-        stderr,
-        ['ami-id', 'reservation-id', 'local-hostname', 'public-hostname',
-            'network/']
-    )
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == data_store['latest']['meta-data']
 
 
-def test_mmds(test_microvm_with_ssh, network_config):
-    """Test the API and guest facing features of the Micro MetaData Service."""
+def test_json_response(test_microvm_with_ssh, network_config):
+    """Test the MMDS json response."""
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
-    # The MMDS is empty at this point.
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == {}
 
-    # PUT only allows full updates.
-    # The json used in MMDS is based on the one from the Instance Meta-data
-    # online documentation.
-    # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/
-    #                                                ec2-instance-metadata.html
     data_store = {
         'latest': {
             'meta-data': {
@@ -144,17 +129,14 @@ def test_mmds(test_microvm_with_ssh, network_config):
                 'reservation-id': 'r-fea54097',
                 'local-hostname': 'ip-10-251-50-12.ec2.internal',
                 'public-hostname': 'ec2-203-0-113-25.compute-1.amazonaws.com',
-                'network': {
-                    'interfaces': {
-                        'macs': {
-                            '02:29:96:8f:6a:2d': {
-                                'device-number': '13345342',
-                                'local-hostname': 'localhost',
-                                'subnet-id': 'subnet-be9b61d'
-                            }
-                        }
-                    }
-                }
+                'dummy_res': ['res1', 'res2']
+            },
+            "Limits": {
+                "CPU": 512,
+                "Memory": 512
+            },
+            "Usage": {
+                "CPU": 12.12
             }
         }
     }
@@ -165,37 +147,139 @@ def test_mmds(test_microvm_with_ssh, network_config):
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == data_store
 
-    # Change only the subnet id using PATCH method.
-    patch_json = {
+    test_microvm.basic_config(vcpu_count=1)
+    _tap = test_microvm.ssh_network_config(
+         network_config,
+         '1',
+         allow_mmds_requests=True
+    )
+
+    test_microvm.start()
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    cmd = 'ip route add 169.254.169.254 dev eth0'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, '')
+
+    pre = 'curl -s -H "Accept: application/json" http://169.254.169.254/'
+
+    cmd = pre + 'latest/meta-data/'
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == data_store['latest']['meta-data']
+
+    cmd = pre + 'latest/meta-data/ami-id/'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == 'ami-12345678'
+
+    cmd = pre + 'latest/meta-data/dummy_res/0'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == 'res1'
+
+    cmd = pre + 'latest/Usage/CPU'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == 12.12
+
+    cmd = pre + 'latest/Limits/CPU'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert json.load(stdout) == 512
+
+
+def test_imds_response(test_microvm_with_ssh, network_config):
+    """Test the MMDS IMDS response."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
+    data_store = {
         'latest': {
             'meta-data': {
-                'network': {
-                    'interfaces': {
-                        'macs': {
-                            '02:29:96:8f:6a:2d': {
-                                'subnet-id': 'subnet-12345'
-                            }
-                        }
-                    }
-                }
+                'ami-id': 'ami-12345678',
+                'reservation-id': 'r-fea54097',
+                'local-hostname': 'ip-10-251-50-12.ec2.internal',
+                'public-hostname': 'ec2-203-0-113-25.compute-1.amazonaws.com',
+                'dummy_obj': {
+                    'res_key': 'res_value',
+                },
+                'dummy_array': [
+                    'arr_val1',
+                    'arr_val2'
+                ]
+            },
+            "Limits": {
+                "CPU": 512,
+                "Memory": 512
+            },
+            "Usage": {
+                "CPU": 12.12
             }
         }
     }
-
-    response = test_microvm.mmds.patch(json=patch_json)
+    response = test_microvm.mmds.put(json=data_store)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    net_ifaces = data_store['latest']['meta-data']['network']['interfaces']
-    net_ifaces['macs']['02:29:96:8f:6a:2d']['subnet-id'] = 'subnet-12345'
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == data_store
 
-    # Now we start the guest and attempt to read some MMDS contents.
+    test_microvm.basic_config(vcpu_count=1)
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
 
-    # Set up the microVM with 1 vCPUs, 256 MiB of RAM, no network ifaces, and
-    # a root file system with the rw permission. The network interface is
-    # added after we get a unique MAC and IP.
+    test_microvm.start()
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    cmd = 'ip route add 169.254.169.254 dev eth0'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, '')
+
+    pre = 'curl -s http://169.254.169.254/'
+
+    cmd = pre + 'latest/meta-data/'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    expected = "ami-id\n" \
+               "dummy_array\n"\
+               "dummy_obj/\n"\
+               "local-hostname\n"\
+               "public-hostname\n"\
+               "reservation-id"
+
+    _assert_out(stdout, stderr, expected)
+
+    cmd = pre + 'latest/meta-data/ami-id/'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, 'ami-12345678')
+
+    cmd = pre + 'latest/meta-data/dummy_array/0'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, 'arr_val1')
+
+    cmd = pre + 'latest/Usage/CPU'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, 'Cannot retrieve value. The value has an'
+                                ' unsupported type.')
+
+    cmd = pre + 'latest/Limits/CPU'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, 'Cannot retrieve value. The value has an'
+                                ' unsupported type.')
+
+
+def test_larger_than_mss_payloads(test_microvm_with_ssh, network_config):
+    """Test MMDS content for payloads larger than MSS."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    # The MMDS is empty at this point.
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(
         network_config,
@@ -205,52 +289,57 @@ def test_mmds(test_microvm_with_ssh, network_config):
 
     test_microvm.start()
 
+    # Make sure MTU is 1500 bytes.
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
-    # Adding a route like this also tests the ARP implementation within the
-    # MMDS. We hard code the interface name to `eth0`. The naming is unlikely
-    # to change, especially while we keep using VIRTIO net. At some point we
-    # could add some functionality to retrieve the interface name based on the
-    # MAC address (which we already know) or smt.
+    cmd = 'ip link set dev eth0 mtu 1500'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, "")
+
+    cmd = 'ip a s eth0 | grep -i mtu | tr -s " " | cut -d " " -f 4,5'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, "mtu 1500\n")
+
+    # These values are usually used by booted up guest network interfaces.
+    mtu = 1500
+    ipv4_packet_headers_len = 20
+    tcp_segment_headers_len = 20
+    mss = mtu - ipv4_packet_headers_len - tcp_segment_headers_len
+
+    # Generate a random MMDS content, double of MSS.
+    letters = string.ascii_lowercase
+    larger_than_mss = ''.join(random.choice(letters) for i in range(2 * mss))
+    mss_equal = ''.join(random.choice(letters) for i in range(mss))
+    lower_than_mss = ''.join(random.choice(letters) for i in range(mss - 2))
+    data_store = {
+        'larger_than_mss': larger_than_mss,
+        'mss_equal': mss_equal,
+        'lower_than_mss': lower_than_mss
+    }
+    response = test_microvm.mmds.put(json=data_store)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == data_store
+
     cmd = 'ip route add 169.254.169.254 dev eth0'
     _, stdout, stderr = ssh_connection.execute_command(cmd)
     _assert_out(stdout, stderr, '')
 
     pre = 'curl -s http://169.254.169.254/'
 
-    cmd = pre + 'latest/meta-data/ami-id'
+    cmd = pre + 'larger_than_mss'
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'ami-12345678')
+    _assert_out(stdout, stderr, larger_than_mss)
 
-    # The request is still valid if we append a trailing slash to a leaf node.
-    cmd = pre + 'latest/meta-data/ami-id/'
+    cmd = pre + 'mss_equal'
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'ami-12345678')
+    _assert_out(stdout, stderr, mss_equal)
 
-    cmd = pre + 'latest/meta-data/network/interfaces/macs/'\
-        '02:29:96:8f:6a:2d/subnet-id'
+    cmd = pre + 'lower_than_mss'
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out(stdout, stderr, 'subnet-12345')
-
-    # Test reading a non-leaf node WITHOUT a trailing slash.
-    cmd = pre + 'latest/meta-data'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out_multiple(
-        stdout,
-        stderr,
-        ['ami-id', 'reservation-id', 'local-hostname', 'public-hostname',
-         'network/']
-    )
-
-    # Test reading a non-leaf node with a trailing slash.
-    cmd = pre + 'latest/meta-data/'
-    _, stdout, stderr = ssh_connection.execute_command(cmd)
-    _assert_out_multiple(
-        stdout,
-        stderr,
-        ['ami-id', 'reservation-id', 'local-hostname', 'public-hostname',
-         'network/']
-    )
+    _assert_out(stdout, stderr, lower_than_mss)
 
 
 def test_mmds_dummy(test_microvm_with_ssh):
@@ -263,7 +352,7 @@ def test_mmds_dummy(test_microvm_with_ssh):
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == {}
 
-    # Test that patch return NotFound when the MMDS is not initialized.
+    # Test that patch return NotInitialized when the MMDS is not initialized.
     dummy_json = {
         'latest': {
             'meta-data': {
@@ -272,9 +361,9 @@ def test_mmds_dummy(test_microvm_with_ssh):
         }
     }
     response = test_microvm.mmds.patch(json=dummy_json)
-    assert test_microvm.api_session.is_status_not_found(response.status_code)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
     fault_json = {
-        "fault_message": "The MMDS resource does not exist."
+        "fault_message": "The MMDS data store is not initialized."
     }
     assert response.json() == fault_json
 
@@ -283,6 +372,24 @@ def test_mmds_dummy(test_microvm_with_ssh):
     response = test_microvm.mmds.put(json=dummy_json)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == dummy_json
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == dummy_json
+
+    dummy_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'another_dummy',
+                'secret_key': 'eaasda48141411aeaeae'
+            }
+        }
+    }
+    response = test_microvm.mmds.patch(json=dummy_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == dummy_json

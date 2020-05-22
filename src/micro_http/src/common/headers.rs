@@ -18,6 +18,8 @@ pub enum Header {
     TransferEncoding,
     /// Header `Server`.
     Server,
+    /// Header `Accept`
+    Accept,
 }
 
 impl Header {
@@ -29,6 +31,7 @@ impl Header {
             Self::Expect => b"Expect",
             Self::TransferEncoding => b"Transfer-Encoding",
             Self::Server => b"Server",
+            Self::Accept => b"Accept",
         }
     }
 
@@ -47,6 +50,7 @@ impl Header {
                 "expect" => Ok(Self::Expect),
                 "transfer-encoding" => Ok(Self::TransferEncoding),
                 "server" => Ok(Self::Server),
+                "accept" => Ok(Self::Accept),
                 _ => Err(RequestError::InvalidHeader),
             }
         } else {
@@ -80,6 +84,9 @@ pub struct Headers {
     /// server must support it. It is useful only when receiving the body of the request and should
     /// be known immediately after parsing the headers.
     chunked: bool,
+    /// `Accept` header might be used by HTTP clients to enforce server responses with content
+    /// formatted in a specific way.
+    accept: MediaType,
 }
 
 impl Default for Headers {
@@ -89,6 +96,9 @@ impl Default for Headers {
             content_length: Default::default(),
             expect: Default::default(),
             chunked: Default::default(),
+            // The default `Accept` media type is plain text. This is inclusive enough
+            // for structured and unstructured text.
+            accept: MediaType::PlainText,
         }
     }
 }
@@ -137,6 +147,13 @@ impl Headers {
                                 Err(_) => Err(RequestError::UnsupportedHeader),
                             }
                         }
+                        Header::Accept => match MediaType::try_from(entry[1].trim().as_bytes()) {
+                            Ok(accept_type) => {
+                                self.accept = accept_type;
+                                Ok(())
+                            }
+                            Err(_) => Err(RequestError::UnsupportedHeader),
+                        },
                         Header::TransferEncoding => match entry[1].trim() {
                             "chunked" => {
                                 self.chunked = true;
@@ -179,6 +196,11 @@ impl Headers {
         self.expect
     }
 
+    /// Returns the `Accept` header `MediaType`.
+    pub fn accept(&self) -> MediaType {
+        self.accept
+    }
+
     /// Parses a byte slice into a Headers structure for a HTTP request.
     ///
     /// The byte slice is expected to have the following format: </br>
@@ -218,6 +240,11 @@ impl Headers {
             return Ok(headers);
         }
         Err(RequestError::InvalidRequest)
+    }
+
+    /// Accept header setter.
+    pub fn set_accept(&mut self, media_type: MediaType) {
+        self.accept = media_type;
     }
 }
 
@@ -296,6 +323,7 @@ mod tests {
                 content_length,
                 expect,
                 chunked,
+                accept: MediaType::PlainText,
             }
         }
     }
@@ -343,14 +371,27 @@ mod tests {
     #[test]
     fn test_try_from_headers() {
         // Valid headers.
-        assert_eq!(
-            Headers::try_from(
-                b"Last-Modified: Tue, 15 Nov 1994 12:45:26 GMT\r\nContent-Length: 55\r\n\r\n"
-            )
-            .unwrap()
-            .content_length,
-            55
-        );
+        let headers =  Headers::try_from(
+            b"Last-Modified: Tue, 15 Nov 1994 12:45:26 GMT\r\nAccept: application/json\r\nContent-Length: 55\r\n\r\n"
+        )
+            .unwrap();
+        assert_eq!(headers.content_length, 55);
+        assert_eq!(headers.accept, MediaType::ApplicationJson);
+
+        // Valid headers.
+        let headers =  Headers::try_from(
+            b"Last-Modified: Tue, 15 Nov 1994 12:45:26 GMT\r\nAccept: text/plain\r\nContent-Length: 49\r\n\r\n"
+        )
+            .unwrap();
+        assert_eq!(headers.content_length, 49);
+        assert_eq!(headers.accept, MediaType::PlainText);
+
+        // Valid headers.
+        let headers = Headers::try_from(
+            b"Last-Modified: Tue, 15 Nov 1994 12:45:26 GMT\r\nContent-Length: 29\r\n\r\n",
+        )
+        .unwrap();
+        assert_eq!(headers.content_length, 29);
 
         let bytes: [u8; 10] = [130, 140, 150, 130, 140, 150, 130, 140, 150, 160];
         // Invalid headers.
@@ -416,6 +457,19 @@ mod tests {
         assert!(header
             .parse_header_line(b"Content-Type: application/json")
             .is_ok());
+
+        // Test valid accept media type.
+        assert!(header
+            .parse_header_line(b"Accept: application/json")
+            .is_ok());
+        assert!(header.accept == MediaType::ApplicationJson);
+        assert!(header.parse_header_line(b"Accept: text/plain").is_ok());
+        assert!(header.accept == MediaType::PlainText);
+
+        // Test invalid accept media type.
+        assert!(header
+            .parse_header_line(b"Accept: application/json-patch")
+            .is_err());
     }
 
     #[test]
@@ -442,5 +496,8 @@ mod tests {
 
         let header = Header::try_from(b"content-length").unwrap();
         assert_eq!(header.raw(), b"Content-Length");
+
+        let header = Header::try_from(b"Accept").unwrap();
+        assert_eq!(header.raw(), b"Accept");
     }
 }

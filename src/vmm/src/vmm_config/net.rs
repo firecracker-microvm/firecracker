@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use super::RateLimiterConfig;
 use devices::virtio::Net;
 use dumbo::MacAddr;
-use utils::net::{Tap, TapError};
+use utils::net::TapError;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -40,13 +40,6 @@ pub struct NetworkInterfaceConfig {
 // that returns the value.
 fn default_allow_mmds_requests() -> bool {
     false
-}
-
-impl NetworkInterfaceConfig {
-    /// Returns the tap device that `host_dev_name` refers to.
-    pub fn open_tap(&self) -> Result<Tap> {
-        Tap::open_named(&self.host_dev_name).map_err(NetworkInterfaceError::OpenTap)
-    }
 }
 
 /// The data fed into a network iface update request. Currently, only the RX and TX rate limiters
@@ -139,7 +132,7 @@ impl NetBuilder {
     /// in the builder's internal list.
     pub fn build(&mut self, netif_config: NetworkInterfaceConfig) -> Result<Arc<Mutex<Net>>> {
         let mac_conflict = |net: &Arc<Mutex<Net>>| {
-            let net = net.lock().unwrap();
+            let net = net.lock().expect("Poisoned lock");
             // Check if another net dev has same MAC.
             netif_config.guest_mac.is_some()
                 && netif_config.guest_mac.as_ref() == net.guest_mac()
@@ -158,7 +151,7 @@ impl NetBuilder {
         if let Some(index) = self
             .net_devices
             .iter()
-            .position(|net| net.lock().unwrap().id() == &netif_config.iface_id)
+            .position(|net| net.lock().expect("Poisoned lock").id() == &netif_config.iface_id)
         {
             self.net_devices.swap_remove(index);
         }
@@ -172,8 +165,6 @@ impl NetBuilder {
 
     /// Creates a Net device from a NetworkInterfaceConfig.
     pub fn create_net(cfg: NetworkInterfaceConfig) -> Result<Net> {
-        let tap = cfg.open_tap()?;
-
         let rx_rate_limiter = cfg
             .rx_rate_limiter
             .map(super::RateLimiterConfig::try_into)
@@ -188,23 +179,13 @@ impl NetBuilder {
         // Create and return the Net device
         devices::virtio::net::Net::new_with_tap(
             cfg.iface_id,
-            tap,
+            cfg.host_dev_name.clone(),
             cfg.guest_mac.as_ref(),
             rx_rate_limiter.unwrap_or_default(),
             tx_rate_limiter.unwrap_or_default(),
             cfg.allow_mmds_requests,
         )
         .map_err(NetworkInterfaceError::CreateNetworkDevice)
-    }
-
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.net_devices.len()
-    }
-
-    #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
-        self.net_devices.len() == 0
     }
 }
 
@@ -213,6 +194,16 @@ mod tests {
     use std::str;
 
     use super::*;
+
+    impl NetBuilder {
+        pub fn len(&self) -> usize {
+            self.net_devices.len()
+        }
+
+        pub fn is_empty(&self) -> bool {
+            self.net_devices.len() == 0
+        }
+    }
 
     fn create_netif(id: &str, name: &str, mac: &str) -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {
@@ -306,9 +297,9 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            NetworkInterfaceError::OpenTap(TapError::CreateTap(std::io::Error::from_raw_os_error(
-                16
-            )))
+            NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
+                TapError::CreateTap(std::io::Error::from_raw_os_error(16))
+            ))
             .to_string()
         );
         assert_eq!(net_builder.net_devices.len(), 1);
@@ -341,9 +332,9 @@ mod tests {
                 .err()
                 .unwrap()
                 .to_string(),
-            NetworkInterfaceError::OpenTap(TapError::CreateTap(std::io::Error::from_raw_os_error(
-                16
-            )))
+            NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
+                TapError::CreateTap(std::io::Error::from_raw_os_error(16))
+            ))
             .to_string()
         );
     }

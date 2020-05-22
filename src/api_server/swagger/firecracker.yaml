@@ -2,9 +2,9 @@ swagger: "2.0"
 info:
   title: Firecracker API
   description: RESTful public-facing API.
-               The API is accessible through HTTP calls on specific URLs
-               carrying JSON modeled data.
-               The transport medium is a Unix Domain Socket.
+    The API is accessible through HTTP calls on specific URLs
+    carrying JSON modeled data.
+    The transport medium is a Unix Domain Socket.
   version: 0.21.0
   termsOfService: ""
   contact:
@@ -43,11 +43,11 @@ paths:
       summary: Creates a synchronous action.
       operationId: createSyncAction
       parameters:
-      - name: info
-        in: body
-        required: true
-        schema:
-          $ref: "#/definitions/InstanceActionInfo"
+        - name: info
+          in: body
+          required: true
+          schema:
+            $ref: "#/definitions/InstanceActionInfo"
       responses:
         204:
           description: The update was successful
@@ -68,12 +68,12 @@ paths:
         Will fail if update is not possible.
       operationId: putGuestBootSource
       parameters:
-      - name: body
-        in: body
-        description: Guest boot source properties
-        required: true
-        schema:
-          $ref: "#/definitions/BootSource"
+        - name: body
+          in: body
+          description: Guest boot source properties
+          required: true
+          schema:
+            $ref: "#/definitions/BootSource"
       responses:
         204:
           description: Boot source created/updated
@@ -95,17 +95,17 @@ paths:
         Will fail if update is not possible.
       operationId: putGuestDriveByID
       parameters:
-      - name: drive_id
-        in: path
-        description: The id of the guest drive
-        required: true
-        type: string
-      - name: body
-        in: body
-        description: Guest drive properties
-        required: true
-        schema:
-          $ref: "#/definitions/Drive"
+        - name: drive_id
+          in: path
+          description: The id of the guest drive
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Guest drive properties
+          required: true
+          schema:
+            $ref: "#/definitions/Drive"
       responses:
         204:
           description: Drive created/updated
@@ -124,17 +124,17 @@ paths:
         Will fail if update is not possible.
       operationId: patchGuestDriveByID
       parameters:
-      - name: drive_id
-        in: path
-        description: The id of the guest drive
-        required: true
-        type: string
-      - name: body
-        in: body
-        description: Guest drive properties
-        required: true
-        schema:
-          $ref: "#/definitions/PartialDrive"
+        - name: drive_id
+          in: path
+          description: The id of the guest drive
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Guest drive properties
+          required: true
+          schema:
+            $ref: "#/definitions/PartialDrive"
       responses:
         204:
           description: Drive updated
@@ -148,27 +148,27 @@ paths:
             $ref: "#/definitions/Error"
 
   /logger:
-      put:
-        summary: Initializes the logger by specifying a named pipe or a file for the logs output.
-        operationId: putLogger
-        parameters:
+    put:
+      summary: Initializes the logger by specifying a named pipe or a file for the logs output.
+      operationId: putLogger
+      parameters:
         - name: body
           in: body
           description: Logging system description
           required: true
           schema:
             $ref: "#/definitions/Logger"
-        responses:
-          204:
-            description: Logger created.
-          400:
-            description: Logger cannot be initialized due to bad input.
-            schema:
-              $ref: "#/definitions/Error"
-          default:
-            description: Internal server error.
-            schema:
-              $ref: "#/definitions/Error"
+      responses:
+        204:
+          description: Logger created.
+        400:
+          description: Logger cannot be initialized due to bad input.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error.
+          schema:
+            $ref: "#/definitions/Error"
 
   /machine-config:
     get:
@@ -198,11 +198,11 @@ paths:
         If any of the parameters has an incorrect value, the whole update fails.
       operationId: putMachineConfiguration
       parameters:
-      - name: body
-        in: body
-        description: Machine Configuration Parameters
-        schema:
-          $ref: "#/definitions/MachineConfiguration"
+        - name: body
+          in: body
+          description: Machine Configuration Parameters
+          schema:
+            $ref: "#/definitions/MachineConfiguration"
       responses:
         204:
           description: Machine Configuration created/updated
@@ -222,11 +222,11 @@ paths:
         If any of the parameters has an incorrect value, the whole update fails.
       operationId: patchMachineConfiguration
       parameters:
-      - name: body
-        in: body
-        description: A subset of Machine Configuration Parameters
-        schema:
-          $ref: "#/definitions/MachineConfiguration"
+        - name: body
+          in: body
+          description: A subset of Machine Configuration Parameters
+          schema:
+            $ref: "#/definitions/MachineConfiguration"
       responses:
         204:
           description: Machine Configuration created/updated
@@ -308,8 +308,8 @@ paths:
           description: The MMDS data store JSON.
           schema:
             type: object
-        400:
-          description: Cannot get the MMDS data store due to bad input.
+        404:
+          description: The MMDS data store content can not be found.
           schema:
             $ref: "#/definitions/Error"
         default:
@@ -328,7 +328,7 @@ paths:
           description: The MMDS configuration as JSON.
           required: true
           schema:
-            type: "#/definitions/MmdsConfig"
+            $ref: "#/definitions/MmdsConfig"
       responses:
         204:
           description: MMDS configuration was created/updated.
@@ -348,17 +348,17 @@ paths:
         Creates new network interface with ID specified by iface_id path parameter.
       operationId: putGuestNetworkInterfaceByID
       parameters:
-      - name: iface_id
-        in: path
-        description: The id of the guest network interface
-        required: true
-        type: string
-      - name: body
-        in: body
-        description: Guest network interface properties
-        required: true
-        schema:
-          $ref: "#/definitions/NetworkInterface"
+        - name: iface_id
+          in: path
+          description: The id of the guest network interface
+          required: true
+          type: string
+        - name: body
+          in: body
+          description: Guest network interface properties
+          required: true
+          schema:
+            $ref: "#/definitions/NetworkInterface"
       responses:
         204:
           description: Network interface created/updated
@@ -399,6 +399,84 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /snapshot/create:
+    put:
+      summary: Creates a full or diff snapshot. Post-boot only.
+      description:
+        Creates a snapshot of the microVM state. The microVM should be
+        in the `Paused` state.
+      operationId: createSnapshot
+      parameters:
+        - name: body
+          in: body
+          description: The configuration used for creating a snaphot.
+          required: true
+          schema:
+            $ref: "#/definitions/CreateSnapshotParams"
+      responses:
+        501:
+          description: Not implemented yet
+        400:
+          description: Snapshot cannot be created due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /snapshot/load:
+    put:
+      summary: Loads a snapshot. Pre-boot only.
+      description:
+        Loads the microVM state from a snapshot.
+        Only accepted on a fresh Firecracker process (before configuring
+        any resource other than the Logger).
+      operationId: loadSnapshot
+      parameters:
+        - name: body
+          in: body
+          description: The configuration used for loading a snaphot.
+          required: true
+          schema:
+            $ref: "#/definitions/LoadSnapshotParams"
+      responses:
+        501:
+          description: Not implemented yet
+        400:
+          description: Snapshot cannot be loaded due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
+  /vm:
+    patch:
+      summary: Updates the microVM state.
+      description:
+        Sets the desired state (Paused or Resumed) for the microVM.
+      operationId: patchVm
+      parameters:
+        - name: body
+          in: body
+          description: The microVM state
+          required: true
+          schema:
+            $ref: "#/definitions/Vm"
+      responses:
+        204:
+          description: Vm state updated
+        400:
+          description: Vm state cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /vsock:
     put:
       summary: Creates/updates a vsock device. Pre-boot only.
@@ -408,12 +486,12 @@ paths:
         May fail if update is not possible.
       operationId: putGuestVsock
       parameters:
-      - name: body
-        in: body
-        description: Guest vsock properties
-        required: true
-        schema:
-          $ref: "#/definitions/Vsock"
+        - name: body
+          in: body
+          description: Guest vsock properties
+          required: true
+          schema:
+            $ref: "#/definitions/Vsock"
       responses:
         204:
           description: Vsock created/updated
@@ -434,15 +512,15 @@ definitions:
     description:
       Boot source descriptor.
     properties:
-      kernel_image_path:
-        type: string
-        description: Host level path to the kernel image used to boot the guest
-      initrd_path:
-        type: string
-        description: Host level path to the initrd image used to boot the guest
       boot_args:
         type: string
         description: Kernel boot arguments
+      initrd_path:
+        type: string
+        description: Host level path to the initrd image used to boot the guest
+      kernel_image_path:
+        type: string
+        description: Host level path to the kernel image used to boot the guest
 
   CpuTemplate:
     type: string
@@ -453,19 +531,44 @@ definitions:
       - C3
       - T2
 
+  CreateSnapshotParams:
+    type: object
+    required:
+      - mem_file_path
+      - snapshot_path
+    properties:
+      mem_file_path:
+        type: string
+        description: Path to the file that will contain the guest memory.
+      snapshot_path:
+        type: string
+        description: Path to the file that will contain the microVM state.
+      snapshot_type:
+        type: string
+        enum:
+          - Full
+          - Diff
+        description:
+          Type of snapshot to create. It is optional and by default, a full
+          snapshot is created.
+      version:
+        type: string
+        description:
+          The microVM version for which we want to create the snapshot.
+          It is optional and it defaults to the current version.
+
   Drive:
     type: object
     required:
       - drive_id
-      - path_on_host
-      - is_root_device
       - is_read_only
+      - is_root_device
+      - path_on_host
     properties:
       drive_id:
         type: string
-      path_on_host:
-        type: string
-        description: Host level path for the guest drive
+      is_read_only:
+        type: boolean
       is_root_device:
         type: boolean
       partuuid:
@@ -474,8 +577,9 @@ definitions:
           Represents the unique id of the boot partition of this device. It is
           optional and it will be taken into account only if the is_root_device
           field is true.
-      is_read_only:
-        type: boolean
+      path_on_host:
+        type: string
+        description: Host level path for the guest drive
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
 
@@ -498,9 +602,9 @@ definitions:
         description: Enumeration indicating what type of action is contained in the payload
         type: string
         enum:
-        - FlushMetrics
-        - InstanceStart
-        - SendCtrlAltDel
+          - FlushMetrics
+          - InstanceStart
+          - SendCtrlAltDel
 
   InstanceInfo:
     type: object
@@ -511,6 +615,9 @@ definitions:
       - state
       - vmm_version
     properties:
+      app_name:
+        description: Application name.
+        type: string
       id:
         description: MicroVM / instance ID.
         type: string
@@ -526,9 +633,23 @@ definitions:
       vmm_version:
         description: MicroVM hypervisor build version.
         type: string
-      app_name:
-        description: Application name.
+
+  LoadSnapshotParams:
+    type: object
+    required:
+      - mem_file_path
+      - snapshot_path
+    properties:
+      enable_diff_snapshots:
+        type: boolean
+        description:
+          Enable support for incremental (diff) snapshots by tracking dirty guest pages.
+      mem_file_path:
         type: string
+        description: Path to the file that contains the guest memory to be loaded.
+      snapshot_path:
+        type: string
+        description: Path to the file that contains the microVM state to be loaded.
 
   Logger:
     type: object
@@ -537,14 +658,14 @@ definitions:
     required:
       - log_path
     properties:
-      log_path:
-        type: string
-        description: Path to the named pipe or file for the human readable log output.
       level:
         type: string
         description: Set the level.
         enum: [Error, Warning, Info, Debug]
         default: Warning
+      log_path:
+        type: string
+        description: Path to the named pipe or file for the human readable log output.
       show_level:
         type: boolean
         description: Whether or not to output the level in the logs.
@@ -560,23 +681,30 @@ definitions:
       Describes the number of vCPUs, memory size, Hyperthreading capabilities and
       the CPU template.
     required:
-      - vcpu_count
-      - mem_size_mib
       - ht_enabled
+      - mem_size_mib
+      - vcpu_count
     properties:
+      cpu_template:
+        $ref: "#/definitions/CpuTemplate"
+      ht_enabled:
+        type: boolean
+        description: Flag for enabling/disabling Hyperthreading
+      mem_size_mib:
+        type: integer
+        description: Memory size of VM
+      track_dirty_pages:
+        type: boolean
+        description:
+          Enable dirty page tracking. If this is enabled, then incremental guest memory
+          snapshots can be created. These belong to diff snapshots, which contain, besides
+          the microVM state, only the memory dirtied since a previous snapshot. Full snapshots
+          each contain a full copy of the guest memory.
       vcpu_count:
         type: integer
         minimum: 1
         maximum: 32
         description: Number of vCPUs (either 1 or an even number)
-      mem_size_mib:
-        type: integer
-        description: Memory size of VM
-      ht_enabled:
-        type: boolean
-        description: Flag for enabling/disabling Hyperthreading
-      cpu_template:
-        $ref: "#/definitions/CpuTemplate"
 
   Metrics:
     type: object
@@ -596,22 +724,18 @@ definitions:
     properties:
       ipv4_address:
         type: string
+        format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
+        default: "169.254.169.254"
+        description: A valid IPv4 link-local address.
 
   NetworkInterface:
     type: object
     description:
       Defines a network interface.
     required:
-      - iface_id
       - host_dev_name
+      - iface_id
     properties:
-      iface_id:
-        type: string
-      guest_mac:
-        type: string
-      host_dev_name:
-        type: string
-        description: Host level path for the guest network interface
       allow_mmds_requests:
         type: boolean
         description:
@@ -620,6 +744,13 @@ definitions:
           both ARP requests for 169.254.169.254 and TCP segments heading to the
           same address are intercepted by the device model, and do not reach
           the associated TAP device.
+      guest_mac:
+        type: string
+      host_dev_name:
+        type: string
+        description: Host level path for the guest network interface
+      iface_id:
+        type: string
       rx_rate_limiter:
         $ref: "#/definitions/RateLimiter"
       tx_rate_limiter:
@@ -677,14 +808,9 @@ definitions:
       bound in size by the amount of tokens available.
       Once the token bucket is empty, consumption speed is bound by the refill_rate.
     required:
-      - size
       - refill_time
+      - size
     properties:
-      size:
-        type: integer
-        format: int64
-        description: The total number of tokens this bucket can hold.
-        minimum: 0
       one_time_burst:
         type: integer
         format: int64
@@ -695,6 +821,24 @@ definitions:
         format: int64
         description: The amount of milliseconds it takes for the bucket to refill.
         minimum: 0
+      size:
+        type: integer
+        format: int64
+        description: The total number of tokens this bucket can hold.
+        minimum: 0
+
+  Vm:
+    type: object
+    description:
+      Defines the microVM running state. It is especially useful in the snapshotting context.
+    required:
+      - state
+    properties:
+      state:
+        type: string
+        enum:
+          - Paused
+          - Resumed
 
   Vsock:
     type: object
@@ -709,12 +853,10 @@ definitions:
       bound and listening on Unix sockets at `uds_path_<PORT>`.
       E.g. "/path/to/host_vsock.sock_52" for port number 52.
     required:
-      - vsock_id
       - guest_cid
       - uds_path
+      - vsock_id
     properties:
-      vsock_id:
-        type: string
       guest_cid:
         type: integer
         minimum: 3
@@ -722,3 +864,5 @@ definitions:
       uds_path:
         type: string
         description: Path to UNIX domain socket, used to proxy vsock connections.
+      vsock_id:
+        type: string

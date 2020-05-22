@@ -123,11 +123,11 @@ pub struct TcpIPv4Handler {
     // Handler IPv4 address used for every connection.
     local_ipv4_addr: Ipv4Addr,
     // Handler TCP port used for every connection.
-    local_port: u16,
+    pub(crate) local_port: u16,
     // This map holds the currently active endpoints, identified by their connection tuple.
     connections: HashMap<ConnectionTuple, Endpoint>,
     // Maximum number of concurrent connections we are willing to handle.
-    max_connections: usize,
+    pub(crate) max_connections: usize,
     // Holds connections which are able to send segments immediately.
     active_connections: HashSet<ConnectionTuple>,
     // Remembers the closest timestamp into the future when one of the connections has to deal
@@ -136,7 +136,7 @@ pub struct TcpIPv4Handler {
     // RST segments awaiting to be sent.
     rst_queue: Vec<(ConnectionTuple, RstConfig)>,
     // Maximum size of the RST queue.
-    max_pending_resets: usize,
+    pub(crate) max_pending_resets: usize,
 }
 
 // Only used locally, in the receive_packet method, to differentiate between different outcomes
@@ -178,11 +178,6 @@ impl TcpIPv4Handler {
     /// Setter for the local IPv4 address of this TCP handler.
     pub fn set_local_ipv4_addr(&mut self, ipv4_addr: Ipv4Addr) {
         self.local_ipv4_addr = ipv4_addr;
-    }
-
-    #[cfg(test)]
-    pub fn local_ipv4_addr(&self) -> Ipv4Addr {
-        self.local_ipv4_addr
     }
 
     /// Contains logic for handling incoming segments.
@@ -491,6 +486,12 @@ mod tests {
     use pdu::bytes::NetworkBytesMut;
 
     use super::*;
+
+    impl TcpIPv4Handler {
+        pub fn local_ipv4_addr(&self) -> Ipv4Addr {
+            self.local_ipv4_addr
+        }
+    }
 
     fn inner_tcp_mut<'a, 'b, T: NetworkBytesMut>(
         p: &'a mut IPv4Packet<'b, T>,

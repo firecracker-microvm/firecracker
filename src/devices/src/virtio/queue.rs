@@ -8,7 +8,6 @@
 use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
-
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 pub(super) const VIRTQ_DESC_F_NEXT: u16 = 0x1;
@@ -71,10 +70,7 @@ impl<'a> DescriptorChain<'a> {
             return None;
         }
 
-        let desc_head = match mem.checked_offset(desc_table, (index as usize) * 16) {
-            Some(a) => a,
-            None => return None,
-        };
+        let desc_head = mem.checked_offset(desc_table, (index as usize) * 16)?;
         mem.checked_offset(desc_head, 16)?;
 
         // These reads can't fail unless Guest memory is hopelessly broken.
@@ -140,11 +136,11 @@ impl<'a> DescriptorChain<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 /// A virtio queue's parameters.
 pub struct Queue {
     /// The maximal size in elements offered by the device
-    max_size: u16,
+    pub(crate) max_size: u16,
 
     /// The queue size in elements the driver selected
     pub size: u16,
@@ -161,8 +157,8 @@ pub struct Queue {
     /// Guest physical address of the used ring
     pub used_ring: GuestAddress,
 
-    next_avail: Wrapping<u16>,
-    next_used: Wrapping<u16>,
+    pub(crate) next_avail: Wrapping<u16>,
+    pub(crate) next_used: Wrapping<u16>,
 }
 
 impl Queue {
@@ -337,13 +333,6 @@ impl Queue {
 
         mem.write_obj(self.next_used.0 as u16, used_ring.unchecked_add(2))
             .unwrap();
-    }
-
-    /// Goes back one position in the available descriptor chain offered by the driver.
-    /// Rust does not support bidirectional iterators. This is the only way to revert the effect
-    /// of an iterator increment on the queue.
-    pub fn go_to_previous_position(&mut self) {
-        self.next_avail -= Wrapping(1);
     }
 
     /// Fetch the available ring index (`virtq_avail->idx`) from guest memory.

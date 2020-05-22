@@ -5,14 +5,17 @@
 
 use std::fs::File;
 
+use dumbo::ns::MmdsNetworkStack;
+use utils::net::ipv4addr::is_link_local_valid;
 use vmm_config::boot_source::{
     BootConfig, BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE,
 };
 use vmm_config::drive::*;
+use vmm_config::instance_info::InstanceInfo;
 use vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
 use vmm_config::machine_config::{VmConfig, VmConfigError};
 use vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
-use vmm_config::mmds::MmdsConfig;
+use vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use vmm_config::net::*;
 use vmm_config::vsock::*;
 use vstate::VcpuConfig;
@@ -38,6 +41,8 @@ pub enum Error {
     VmConfig(VmConfigError),
     /// Vsock device configuration error.
     VsockDevice(VsockConfigError),
+    /// MMDS configuration error.
+    MmdsConfig(MmdsConfigError),
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
@@ -83,13 +88,13 @@ impl VmResources {
     /// Configures Vmm resources as described by the `config_json` param.
     pub fn from_json(
         config_json: &str,
-        firecracker_version: &str,
+        instance_info: &InstanceInfo,
     ) -> std::result::Result<Self, Error> {
         let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
             .map_err(|_| Error::InvalidJson)?;
 
         if let Some(logger) = vmm_config.logger {
-            init_logger(logger, firecracker_version).map_err(Error::Logger)?;
+            init_logger(logger, instance_info).map_err(Error::Logger)?;
         }
 
         if let Some(metrics) = vmm_config.metrics {
@@ -102,19 +107,23 @@ impl VmResources {
                 .set_vm_config(&machine_config)
                 .map_err(Error::VmConfig)?;
         }
+
         resources
             .set_boot_source(vmm_config.boot_source)
             .map_err(Error::BootSource)?;
+
         for drive_config in vmm_config.block_devices.into_iter() {
             resources
                 .set_block_device(drive_config)
                 .map_err(Error::BlockDevice)?;
         }
+
         for net_config in vmm_config.net_devices.into_iter() {
             resources
                 .build_net_device(net_config)
                 .map_err(Error::NetDevice)?;
         }
+
         if let Some(vsock_config) = vmm_config.vsock_device {
             resources
                 .set_vsock_device(vsock_config)
@@ -122,8 +131,11 @@ impl VmResources {
         }
 
         if let Some(mmds_config) = vmm_config.mmds_config {
-            resources.set_mmds_config(mmds_config);
+            resources
+                .set_mmds_config(mmds_config)
+                .map_err(Error::MmdsConfig)?;
         }
+
         Ok(resources)
     }
 
@@ -136,6 +148,11 @@ impl VmResources {
             ht_enabled: self.vm_config().ht_enabled.unwrap(),
             cpu_template: self.vm_config().cpu_template,
         }
+    }
+
+    /// Returns whether dirty page tracking is enabled or not.
+    pub fn track_dirty_pages(&self) -> bool {
+        self.vm_config().track_dirty_pages
     }
 
     /// Returns the VmConfig.
@@ -170,6 +187,7 @@ impl VmResources {
         // Update all the fields that have a new value.
         self.vm_config.vcpu_count = Some(vcpu_count_value);
         self.vm_config.ht_enabled = Some(ht_enabled);
+        self.vm_config.track_dirty_pages = machine_config.track_dirty_pages;
 
         if machine_config.mem_size_mib.is_some() {
             self.vm_config.mem_size_mib = machine_config.mem_size_mib;
@@ -239,7 +257,7 @@ impl VmResources {
             // Update `Net` device `MmdsNetworkStack` IPv4 address.
             match &self.mmds_config {
                 Some(cfg) => cfg.ipv4_addr().map_or((), |ipv4_addr| {
-                    if let Some(mmds_ns) = net_device.lock().unwrap().mmds_ns_mut() {
+                    if let Some(mmds_ns) = net_device.lock().expect("Poisoned lock").mmds_ns_mut() {
                         mmds_ns.set_ipv4_addr(ipv4_addr);
                     };
                 }),
@@ -253,19 +271,24 @@ impl VmResources {
         self.vsock.insert(config)
     }
 
-    /// Settter for mmds config.
-    pub fn set_mmds_config(&mut self, config: MmdsConfig) {
+    /// Setter for mmds config.
+    pub fn set_mmds_config(&mut self, config: MmdsConfig) -> Result<MmdsConfigError> {
+        // Check IPv4 address validity.
+        let ipv4_addr = match config.ipv4_addr() {
+            Some(ipv4_addr) if is_link_local_valid(ipv4_addr) => Ok(ipv4_addr),
+            None => Ok(MmdsNetworkStack::default_ipv4_addr()),
+            _ => Err(MmdsConfigError::InvalidIpv4Addr),
+        }?;
+
         // Update existing built network device `MmdsNetworkStack` IPv4 address.
         for net_device in self.net_builder.iter_mut() {
-            if let Some(mmds_ns) = net_device.lock().unwrap().mmds_ns_mut() {
-                match config.ipv4_addr() {
-                    Some(ipv4_addr) => mmds_ns.set_ipv4_addr(ipv4_addr),
-                    None => mmds_ns.set_default_ipv4_addr(),
-                }
+            if let Some(mmds_ns) = net_device.lock().expect("Poisoned lock").mmds_ns_mut() {
+                mmds_ns.set_ipv4_addr(ipv4_addr)
             }
         }
 
         self.mmds_config = Some(config);
+        Ok(())
     }
 }
 
@@ -280,9 +303,9 @@ mod tests {
     use resources::VmResources;
     use utils::tempfile::TempFile;
     use vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
-    use vmm_config::drive::{BlockBuilder, BlockDeviceConfig, DriveError};
+    use vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
-    use vmm_config::net::{NetBuilder, NetworkInterfaceConfig, NetworkInterfaceError};
+    use vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use vmm_config::vsock::tests::{default_config, TempSockFile};
     use vmm_config::RateLimiterConfig;
     use vstate::VcpuConfig;
@@ -316,7 +339,7 @@ mod tests {
         (
             BlockDeviceConfig {
                 drive_id: "block1".to_string(),
-                path_on_host: tmp_file.as_path().to_path_buf(),
+                path_on_host: tmp_file.as_path().to_str().unwrap().to_string(),
                 is_root_device: false,
                 partuuid: Some("0eaa91a0-01".to_string()),
                 is_read_only: false,
@@ -382,6 +405,13 @@ mod tests {
         let kernel_file = TempFile::new().unwrap();
         let rootfs_file = TempFile::new().unwrap();
 
+        let default_instance_info = InstanceInfo {
+            id: "".to_string(),
+            started: false,
+            vmm_version: "SOME_VERSION".to_string(),
+            app_name: "".to_string(),
+        };
+
         // We will test different scenarios with invalid resources configuration and
         // check the expected errors. We include configuration for the kernel and rootfs
         // in every json because they are mandatory fields. If we don't configure
@@ -406,7 +436,7 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
             _ => unreachable!(),
         }
@@ -430,7 +460,7 @@ mod tests {
             kernel_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::BlockDevice(DriveError::InvalidBlockDevicePath)) => (),
             _ => unreachable!(),
         }
@@ -460,7 +490,7 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::VmConfig(VmConfigError::InvalidVcpuCount)) => (),
             _ => unreachable!(),
         }
@@ -490,7 +520,7 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::VmConfig(VmConfigError::InvalidMemorySize)) => (),
             _ => unreachable!(),
         }
@@ -518,7 +548,7 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
@@ -549,7 +579,7 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
@@ -584,8 +614,10 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
-            Err(Error::NetDevice(NetworkInterfaceError::OpenTap { .. })) => (),
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
+            Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
+                devices::virtio::net::Error::TapOpen { .. },
+            ))) => (),
             _ => unreachable!(),
         }
 
@@ -625,11 +657,12 @@ mod tests {
             kernel_file.as_path().to_str().unwrap(),
             rootfs_file.as_path().to_str().unwrap(),
         );
-        assert!(VmResources::from_json(json.as_str(), "some_version").is_ok());
+        assert!(VmResources::from_json(json.as_str(), &default_instance_info).is_ok());
 
         // Test all configuration, this time trying to configure the MMDS with an
         // empty body. It will make it access the code path in which it sets the
         // default MMDS configuration.
+        let kernel_file = TempFile::new().unwrap();
         json = format!(
             r#"{{
                     "boot-source": {{
@@ -647,7 +680,7 @@ mod tests {
                     "network-interfaces": [
                         {{
                             "iface_id": "netif",
-                            "host_dev_name": "hostname8",
+                            "host_dev_name": "hostname9",
                             "allow_mmds_requests": true
                         }}
                     ],
@@ -661,7 +694,7 @@ mod tests {
             kernel_file.as_path().to_str().unwrap(),
             rootfs_file.as_path().to_str().unwrap(),
         );
-        assert!(VmResources::from_json(json.as_str(), "some_version").is_ok());
+        assert!(VmResources::from_json(json.as_str(), &default_instance_info).is_ok());
     }
 
     #[test]
@@ -693,6 +726,7 @@ mod tests {
             mem_size_mib: Some(512),
             ht_enabled: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
+            track_dirty_pages: false,
         };
 
         assert_ne!(vm_resources.vm_config, aux_vm_config);
@@ -778,7 +812,7 @@ mod tests {
         let (mut new_block_device_cfg, _file) = default_block_cfg();
         let tmp_file = TempFile::new().unwrap();
         new_block_device_cfg.drive_id = "block2".to_string();
-        new_block_device_cfg.path_on_host = tmp_file.as_path().to_path_buf();
+        new_block_device_cfg.path_on_host = tmp_file.as_path().to_str().unwrap().to_string();
         assert_eq!(vm_resources.block.list.len(), 1);
         vm_resources.set_block_device(new_block_device_cfg).unwrap();
         assert_eq!(vm_resources.block.list.len(), 2);

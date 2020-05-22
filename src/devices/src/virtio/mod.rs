@@ -14,6 +14,7 @@ pub mod block;
 pub mod device;
 mod mmio;
 pub mod net;
+pub mod persist;
 mod queue;
 pub mod vsock;
 
@@ -21,6 +22,7 @@ pub use self::block::*;
 pub use self::device::*;
 pub use self::mmio::*;
 pub use self::net::*;
+pub use self::persist::*;
 pub use self::queue::*;
 pub use self::vsock::*;
 

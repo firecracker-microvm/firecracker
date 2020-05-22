@@ -16,7 +16,7 @@ SUCCESS_CODE = 0
 @pytest.mark.timeout(120)
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="rustfmt is not available on Rust 1.38 on aarch64"
+    reason="no need to test it on multiple platforms"
 )
 def test_rust_style():
     """Fail if there's misbehaving Rust style in this repo."""
@@ -42,7 +42,7 @@ def test_python_style():
         '--output-format=colorized --attr-rgx="[a-z_][a-z0-9_]{1,30}$" ' \
         '--argument-rgx="[a-z_][a-z0-9_]{1,30}$" ' \
         '--variable-rgx="[a-z_][a-z0-9_]{1,30}$" --disable=' \
-        'bad-continuation,fixme,too-many-instance-attributes,' \
+        'bad-continuation,fixme,too-many-instance-attributes,import-error,' \
         'too-many-locals,too-many-arguments',
 
         # pycodestyle

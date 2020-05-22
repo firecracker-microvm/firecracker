@@ -12,82 +12,34 @@ use crate::virtio::{VirtioDevice, RX_INDEX, TX_INDEX};
 
 impl Net {
     fn process_activate_event(&self, event_manager: &mut EventManager) {
+        debug!("net: activate event");
+        if let Err(e) = self.activate_evt.read() {
+            error!("Failed to consume net activate event: {:?}", e);
+        }
+        let activate_fd = self.activate_evt.as_raw_fd();
         // The subscriber must exist as we previously registered activate_evt via
         // `interest_list()`.
-        let self_subscriber = event_manager
-            .subscriber(self.activate_evt.as_raw_fd())
-            .unwrap();
+        let self_subscriber = match event_manager.subscriber(activate_fd) {
+            Ok(subscriber) => subscriber,
+            Err(e) => {
+                error!("Failed to process block activate evt: {:?}", e);
+                return;
+            }
+        };
 
-        event_manager
-            .register(
-                self.queue_evts[RX_INDEX].as_raw_fd(),
-                EpollEvent::new(EventSet::IN, self.queue_evts[RX_INDEX].as_raw_fd() as u64),
-                self_subscriber.clone(),
-            )
-            .unwrap_or_else(|e| {
-                error!(
-                    "Failed to register net rx queue with event manager: {:?}",
-                    e
-                );
-            });
+        // Interest list changes when the device is activated.
+        let interest_list = self.interest_list();
+        for event in interest_list {
+            event_manager
+                .register(event.data() as i32, event, self_subscriber.clone())
+                .unwrap_or_else(|e| {
+                    error!("Failed to register net events: {:?}", e);
+                });
+        }
 
-        event_manager
-            .register(
-                self.queue_evts[TX_INDEX].as_raw_fd(),
-                EpollEvent::new(EventSet::IN, self.queue_evts[TX_INDEX].as_raw_fd() as u64),
-                self_subscriber.clone(),
-            )
-            .unwrap_or_else(|e| {
-                error!(
-                    "Failed to register net tx queue with event manager: {:?}",
-                    e
-                );
-            });
-
-        event_manager
-            .register(
-                self.tap.as_raw_fd(),
-                EpollEvent::new(
-                    EventSet::IN | EventSet::EDGE_TRIGGERED,
-                    self.tap.as_raw_fd() as u64,
-                ),
-                self_subscriber.clone(),
-            )
-            .unwrap_or_else(|e| {
-                error!("Failed to register net tap with event manager: {:?}", e);
-            });
-
-        event_manager
-            .register(
-                self.tx_rate_limiter.as_raw_fd(),
-                EpollEvent::new(EventSet::IN, self.tx_rate_limiter.as_raw_fd() as u64),
-                self_subscriber.clone(),
-            )
-            .unwrap_or_else(|e| {
-                error!(
-                    "Failed to register net tx rate limiter with event manager: {:?}",
-                    e
-                );
-            });
-
-        event_manager
-            .register(
-                self.rx_rate_limiter.as_raw_fd(),
-                EpollEvent::new(EventSet::IN, self.rx_rate_limiter.as_raw_fd() as u64),
-                self_subscriber.clone(),
-            )
-            .unwrap_or_else(|e| {
-                error!(
-                    "Failed to register net rx rate limiter with event manager: {:?}",
-                    e
-                );
-            });
-
-        event_manager
-            .unregister(self.activate_evt.as_raw_fd())
-            .unwrap_or_else(|e| {
-                error!("Failed to unregister net activate evt: {:?}", e);
-            })
+        event_manager.unregister(activate_fd).unwrap_or_else(|e| {
+            error!("Failed to unregister net activate evt: {:?}", e);
+        });
     }
 }
 
@@ -137,10 +89,27 @@ impl Subscriber for Net {
     }
 
     fn interest_list(&self) -> Vec<EpollEvent> {
-        vec![EpollEvent::new(
-            EventSet::IN,
-            self.activate_evt.as_raw_fd() as u64,
-        )]
+        // This function can be called during different points in the device lifetime:
+        //  - shortly after device creation,
+        //  - on device activation (is-activated already true at this point),
+        //  - on device restore from snapshot.
+        if self.is_activated() {
+            vec![
+                EpollEvent::new(EventSet::IN, self.queue_evts[RX_INDEX].as_raw_fd() as u64),
+                EpollEvent::new(EventSet::IN, self.queue_evts[TX_INDEX].as_raw_fd() as u64),
+                EpollEvent::new(EventSet::IN, self.rx_rate_limiter.as_raw_fd() as u64),
+                EpollEvent::new(EventSet::IN, self.tx_rate_limiter.as_raw_fd() as u64),
+                EpollEvent::new(
+                    EventSet::IN | EventSet::EDGE_TRIGGERED,
+                    self.tap.as_raw_fd() as u64,
+                ),
+            ]
+        } else {
+            vec![EpollEvent::new(
+                EventSet::IN,
+                self.activate_evt.as_raw_fd() as u64,
+            )]
+        }
     }
 }
 

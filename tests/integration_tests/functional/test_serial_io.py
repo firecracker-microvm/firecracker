@@ -6,7 +6,7 @@ from framework.microvm import Serial
 from framework.state_machine import TestState
 
 
-class WaitLogin(TestState):
+class WaitLogin(TestState):  # pylint: disable=too-few-public-methods
     """Initial state when we wait for the login prompt."""
 
     def handle_input(self, serial, input_char) -> TestState:
@@ -18,7 +18,7 @@ class WaitLogin(TestState):
         return self
 
 
-class WaitPasswordPrompt(TestState):
+class WaitPasswordPrompt(TestState):  # pylint: disable=too-few-public-methods
     """Wait for the password prompt to be shown."""
 
     def handle_input(self, serial, input_char) -> TestState:
@@ -32,7 +32,7 @@ class WaitPasswordPrompt(TestState):
         return self
 
 
-class WaitIDResult(TestState):
+class WaitIDResult(TestState):  # pylint: disable=too-few-public-methods
     """Wait for the console to show the result of the 'id' shell command."""
 
     def handle_input(self, unused_serial, input_char) -> TestState:
@@ -42,10 +42,10 @@ class WaitIDResult(TestState):
         return self
 
 
-class TestFinished(TestState):
+class TestFinished(TestState):  # pylint: disable=too-few-public-methods
     """Test complete and successful."""
 
-    def handle_input(self, unused_serial, input_char) -> TestState:
+    def handle_input(self, unused_serial, _) -> TestState:
         """Return self since the test is about to end."""
         return self
 

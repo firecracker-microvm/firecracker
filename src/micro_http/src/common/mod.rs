@@ -127,7 +127,7 @@ impl Body {
 }
 
 /// Supported HTTP Methods.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Method {
     /// GET Method.
     Get,

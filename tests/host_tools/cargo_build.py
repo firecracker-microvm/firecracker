@@ -44,8 +44,8 @@ def cargo_test(path, extra_args='', extra_env=''):
     """Trigger unit tests depending on flags provided."""
     path = os.path.join(path, CARGO_UNITTEST_REL_PATH)
     cmd = 'CARGO_TARGET_DIR={} {} RUST_TEST_THREADS=1 RUST_BACKTRACE=1 ' \
-          'cargo test {} ' \
-          '--all --no-fail-fast'.format(path, extra_env, extra_args)
+          'RUSTFLAGS="{}" cargo test {} --all --no-fail-fast'.format(
+            path, extra_env, get_rustflags(), extra_args)
     utils.run_cmd(cmd)
 
 
@@ -57,7 +57,7 @@ def get_firecracker_binaries():
     """
     target = DEFAULT_BUILD_TARGET
     cd_cmd = "cd {}".format(FC_WORKSPACE_DIR)
-    env_cmd = "TARGET_CC=musl-gcc"
+    env_cmd = 'TARGET_CC=musl-gcc RUSTFLAGS="{}"'.format(get_rustflags())
     cargo_cmd = "cargo build --release --target {}".format(target)
     cmd = "{} && {} {}".format(cd_cmd, env_cmd, cargo_cmd)
 
@@ -70,3 +70,11 @@ def get_firecracker_binaries():
     jailer_bin_path = "{}/{}".format(out_dir, JAILER_BINARY_NAME)
 
     return fc_bin_path, jailer_bin_path
+
+
+def get_rustflags():
+    """Get the relevant rustflags for building/unit testing."""
+    rustflags = "-D warnings"
+    if platform.machine() == "aarch64":
+        rustflags += " -C link-arg=-lgcc -C link-arg=-lfdt "
+    return rustflags

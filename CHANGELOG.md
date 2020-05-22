@@ -4,20 +4,32 @@
 
 ### Added
 
-- Added a new API call, `PUT /metrics`, for configuring the metrics
-  system.
-- Added `app_name` field in InstanceInfo struct for storing the
-  application name.
+- Added a new API call, `PUT /metrics`, for configuring the metrics system.
+- Added `app_name` field in InstanceInfo struct for storing the application
+  name.
 - New command-line parameters for `firecracker`, named `--log-path`,
   `--level`, `--show-level` and `--show-log-origin` that can be used
   for configuring the Logger when starting the process. When using
   this method for configuration, only `--log-path` is mandatory.
 - Added a [guide](docs/devctr-image.md) for updating the dev container image.
 - Added a new API call, `PUT /mmds/config`, for configuring the
-  `MMDS` with a custom IPv4 address.
+  `MMDS` with a custom valid link-local IPv4 address.
+- Added experimental JSON response format support for MMDS guest applications
+  requests.
+- Added `track_dirty_pages` field to `machine-config`. If enabled, Firecracker
+  can create incremental guest memory snapshots by saving the dirty guest pages
+  in a sparse file.
+- Added a new API call, `PATCH /vm`, for changing the microVM state (to
+  `Paused` or `Resumed`).
+- Added a new API call, `PUT /snapshot/create`, for creating a full or diff
+  snapshot.
+- Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 
 ### Fixed
 - Added `--version` flag to both Firecracker and Jailer.
+- Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS
+  requests originating from guest.
+- Fixed folder permissions in the jail (#1802).
 
 ### Changed
 - Updated CVE-2019-3016 mitigation information in
@@ -32,6 +44,16 @@
   updates to existing configurations.
 - `PATCH /network-interfaces/{id}` only allowed post-boot. Use `PUT` for
   pre-boot updates to existing configurations.
+- Changed returned status code from `500 Internal Server Error` to
+  `501 Not Implemented`, for queries on the MMDS endpoint in IMDS format, when
+  the requested resource value type is unsupported.
+- Allowed the MMDS data store to be initialized with all supported JSON types.
+  Retrieval of these values within the guest, besides String, Array, and
+  Dictionary, is only possible in JSON mode.
+- `PATCH` request on `/mmds` before the data store is initialized returns 
+  `403 BadRequest`.
+- Segregated MMDS documentation in MMDS design documentation and MMDS user
+  guide documentation.
 
 ## [0.21.0]
 
@@ -211,7 +233,7 @@
 - When running with `jailer` the location of the API socket has changed to
   `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
 - `PUT` and `PATCH` requests on `/mmds` with data containing any value type
-  other than `String`, `Array`, `Object` will return status code 400.
+  other than `String`, `Array`, `Object` will returns status code 400.
 - Improved multiple error messages.
 - Removed all kernel modules from the recommended kernel config.
 

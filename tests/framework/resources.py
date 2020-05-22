@@ -303,7 +303,8 @@ class MachineConfigure():
             vcpu_count=None,
             mem_size_mib=None,
             ht_enabled=None,
-            cpu_template=None):
+            cpu_template=None,
+            track_dirty_pages=None):
         """Compose the json associated to this type of API request."""
         datax = {}
         if vcpu_count is not None:
@@ -317,6 +318,9 @@ class MachineConfigure():
 
         if cpu_template is not None:
             datax['cpu_template'] = cpu_template
+
+        if track_dirty_pages is not None:
+            datax['track_dirty_pages'] = track_dirty_pages
 
         return datax
 
@@ -420,6 +424,38 @@ class Network():
 
         if rx_rate_limiter is not None:
             datax['rx_rate_limiter'] = rx_rate_limiter
+
+        return datax
+
+
+class Vm():
+    """Facility for handling the state for a microvm."""
+
+    VM_CFG_RESOURCE = 'vm'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+
+        self._vm_cfg_url = api_url + self.VM_CFG_RESOURCE
+        self._api_session = api_session
+
+    def patch(self, **args):
+        """Apply an update to the microvm state."""
+        datax = self.create_json(**args)
+
+        return self._api_session.patch(
+            self._vm_cfg_url,
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(state):
+        """Create the json for the vm specific API request."""
+        datax = {
+            'state': state
+        }
 
         return datax
 

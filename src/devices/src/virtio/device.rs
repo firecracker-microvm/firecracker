@@ -40,7 +40,10 @@ pub trait VirtioDevice: AsAny + Send {
     fn device_type(&self) -> u32;
 
     /// Returns the device queues.
-    fn queues(&mut self) -> &mut [Queue];
+    fn queues(&self) -> &[Queue];
+
+    /// Returns a mutable reference to the device queues.
+    fn queues_mut(&mut self) -> &mut [Queue];
 
     /// Returns the device queues event fds.
     fn queue_events(&self) -> &[EventFd];
@@ -104,5 +107,11 @@ pub trait VirtioDevice: AsAny + Send {
     /// event, and queue events.
     fn reset(&mut self) -> Option<(EventFd, Vec<EventFd>)> {
         None
+    }
+}
+
+impl std::fmt::Debug for dyn VirtioDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "VirtioDevice type {}", self.device_type())
     }
 }

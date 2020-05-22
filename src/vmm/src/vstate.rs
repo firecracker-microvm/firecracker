@@ -31,13 +31,17 @@ use kvm_bindings::{
     Msrs, KVM_CLOCK_TSC_STABLE, KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE,
     KVM_MAX_CPUID_ENTRIES, KVM_PIT_SPEAKER_DUMMY,
 };
-use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION};
+use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::*;
 use logger::{Metric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
 use utils::sm::StateMachine;
+#[cfg(target_arch = "x86_64")]
+use versionize::{VersionMap, Versionize, VersionizeResult};
+#[cfg(target_arch = "x86_64")]
+use versionize_derive::Versionize;
 use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
 };
@@ -435,29 +439,12 @@ impl Vm {
         &mut self,
         guest_mem: &GuestMemoryMmap,
         kvm_max_memslots: usize,
+        track_dirty_pages: bool,
     ) -> Result<()> {
         if guest_mem.num_regions() > kvm_max_memslots {
             return Err(Error::NotEnoughMemorySlots);
         }
-        guest_mem
-            .with_regions(|index, region| {
-                // It's safe to unwrap because the guest address is valid.
-                let host_addr = guest_mem.get_host_address(region.start_addr()).unwrap();
-                info!("Guest memory starts at {:x?}", host_addr);
-
-                let memory_region = kvm_userspace_memory_region {
-                    slot: index as u32,
-                    guest_phys_addr: region.start_addr().raw_value() as u64,
-                    memory_size: region.len() as u64,
-                    userspace_addr: host_addr as u64,
-                    flags: 0,
-                };
-                // Safe because we mapped the memory region, we made sure that the regions
-                // are not overlapping.
-                unsafe { self.fd.set_user_memory_region(memory_region) }
-            })
-            .map_err(Error::SetUserMemoryRegion)?;
-
+        self.set_kvm_memory_regions(guest_mem, track_dirty_pages)?;
         #[cfg(target_arch = "x86_64")]
         self.fd
             .set_tss_address(arch::x86_64::layout::KVM_TSS_ADDRESS as usize)
@@ -489,7 +476,7 @@ impl Vm {
     /// Gets a reference to the irqchip of the VM
     #[cfg(target_arch = "aarch64")]
     pub fn get_irqchip(&self) -> &Box<dyn GICDevice> {
-        &self.irqchip_handle.as_ref().unwrap()
+        &self.irqchip_handle.as_ref().expect("IRQ chip not set")
     }
 
     /// Gets a reference to the kvm file descriptor owned by this VM.
@@ -553,10 +540,38 @@ impl Vm {
             .map_err(Error::VmSetIrqChip)?;
         Ok(())
     }
+
+    pub(crate) fn set_kvm_memory_regions(
+        &self,
+        guest_mem: &GuestMemoryMmap,
+        track_dirty_pages: bool,
+    ) -> Result<()> {
+        let mut flags = 0u32;
+        if track_dirty_pages {
+            flags |= KVM_MEM_LOG_DIRTY_PAGES;
+        }
+        guest_mem
+            .with_regions(|index, region| {
+                let memory_region = kvm_userspace_memory_region {
+                    slot: index as u32,
+                    guest_phys_addr: region.start_addr().raw_value() as u64,
+                    memory_size: region.len() as u64,
+                    // It's safe to unwrap because the guest address is valid.
+                    userspace_addr: guest_mem.get_host_address(region.start_addr()).unwrap() as u64,
+                    flags,
+                };
+
+                // Safe because the fd is a valid KVM file descriptor.
+                unsafe { self.fd.set_user_memory_region(memory_region) }
+            })
+            .map_err(Error::SetUserMemoryRegion)?;
+        Ok(())
+    }
 }
 
 #[allow(unused)]
 #[cfg(target_arch = "x86_64")]
+#[derive(Versionize)]
 /// Structure holding VM kvm state.
 pub struct VmState {
     pitstate: kvm_pit_state2,
@@ -586,11 +601,10 @@ pub struct Vcpu {
     id: u8,
     create_ts: TimestampUs,
     mmio_bus: Option<devices::Bus>,
-    #[cfg_attr(all(test, target_arch = "aarch64"), allow(unused))]
     exit_evt: EventFd,
 
     #[cfg(target_arch = "x86_64")]
-    io_bus: devices::Bus,
+    pio_bus: Option<devices::Bus>,
     #[cfg(target_arch = "x86_64")]
     cpuid: CpuId,
     #[cfg(target_arch = "x86_64")]
@@ -700,7 +714,6 @@ impl Vcpu {
     /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
     /// * `cpuid` - The `CpuId` listing the supported capabilities of this vcpu.
     /// * `msr_list` - The `MsrList` listing the supported MSRs for this vcpu.
-    /// * `io_bus` - The io-bus used to access port-io devices.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
     /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
     #[cfg(target_arch = "x86_64")]
@@ -709,7 +722,6 @@ impl Vcpu {
         vm_fd: &VmFd,
         cpuid: CpuId,
         msr_list: MsrList,
-        io_bus: devices::Bus,
         exit_evt: EventFd,
         create_ts: TimestampUs,
     ) -> Result<Self> {
@@ -724,7 +736,7 @@ impl Vcpu {
             create_ts,
             mmio_bus: None,
             exit_evt,
-            io_bus,
+            pio_bus: None,
             cpuid,
             msr_list,
             event_receiver,
@@ -778,20 +790,26 @@ impl Vcpu {
         self.mpidr
     }
 
+    #[cfg(target_arch = "x86_64")]
+    /// Sets a PIO bus for this vcpu.
+    pub fn set_pio_bus(&mut self, pio_bus: devices::Bus) {
+        self.pio_bus = Some(pio_bus);
+    }
+
     /// Sets a MMIO bus for this vcpu.
     pub fn set_mmio_bus(&mut self, mmio_bus: devices::Bus) {
         self.mmio_bus = Some(mmio_bus);
     }
 
     #[cfg(target_arch = "x86_64")]
-    /// Configures a x86_64 specific vcpu and should be called once per vcpu.
+    /// Configures a x86_64 specific vcpu for booting Linux and should be called once per vcpu.
     ///
     /// # Arguments
     ///
     /// * `machine_config` - The machine configuration of this microvm needed for the CPUID configuration.
     /// * `guest_mem` - The guest memory used by this microvm.
     /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
-    pub fn configure_x86_64(
+    pub fn configure_x86_64_for_boot(
         &mut self,
         guest_mem: &GuestMemoryMmap,
         kernel_start_addr: GuestAddress,
@@ -831,14 +849,14 @@ impl Vcpu {
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Configures an aarch64 specific vcpu.
+    /// Configures an aarch64 specific vcpu for booting Linux.
     ///
     /// # Arguments
     ///
     /// * `vm_fd` - The kvm `VmFd` for this microvm.
     /// * `guest_mem` - The guest memory used by this microvm.
     /// * `kernel_load_addr` - Offset from `guest_mem` at which the kernel is loaded.
-    pub fn configure_aarch64(
+    pub fn configure_aarch64_for_boot(
         &mut self,
         vm_fd: &VmFd,
         guest_mem: &GuestMemoryMmap,
@@ -869,7 +887,7 @@ impl Vcpu {
     /// Moves the vcpu to its own thread and constructs a VcpuHandle.
     /// The handle can be used to control the remote vcpu.
     pub fn start_threaded(mut self, seccomp_filter: BpfProgram) -> Result<VcpuHandle> {
-        let event_sender = self.event_sender.take().unwrap();
+        let event_sender = self.event_sender.take().expect("vCPU already started");
         let response_receiver = self.response_receiver.take().unwrap();
         let vcpu_thread = thread::Builder::new()
             .name(format!("fc_vcpu {}", self.cpu_index()))
@@ -1020,27 +1038,31 @@ impl Vcpu {
             Ok(run) => match run {
                 #[cfg(target_arch = "x86_64")]
                 VcpuExit::IoIn(addr, data) => {
-                    self.io_bus.read(u64::from(addr), data);
-                    METRICS.vcpu.exit_io_in.inc();
+                    if let Some(pio_bus) = &self.pio_bus {
+                        pio_bus.read(u64::from(addr), data);
+                        METRICS.vcpu.exit_io_in.inc();
+                    }
                     Ok(VcpuEmulation::Handled)
                 }
                 #[cfg(target_arch = "x86_64")]
                 VcpuExit::IoOut(addr, data) => {
                     self.check_boot_complete_signal(u64::from(addr), data);
 
-                    self.io_bus.write(u64::from(addr), data);
-                    METRICS.vcpu.exit_io_out.inc();
+                    if let Some(pio_bus) = &self.pio_bus {
+                        pio_bus.write(u64::from(addr), data);
+                        METRICS.vcpu.exit_io_out.inc();
+                    }
                     Ok(VcpuEmulation::Handled)
                 }
                 VcpuExit::MmioRead(addr, data) => {
-                    if let Some(ref mmio_bus) = self.mmio_bus {
+                    if let Some(mmio_bus) = &self.mmio_bus {
                         mmio_bus.read(addr, data);
                         METRICS.vcpu.exit_mmio_read.inc();
                     }
                     Ok(VcpuEmulation::Handled)
                 }
                 VcpuExit::MmioWrite(addr, data) => {
-                    if let Some(ref mmio_bus) = self.mmio_bus {
+                    if let Some(mmio_bus) = &self.mmio_bus {
                         #[cfg(target_arch = "aarch64")]
                         self.check_boot_complete_signal(addr, data);
 
@@ -1163,6 +1185,13 @@ impl Vcpu {
                     .send(VcpuResponse::Resumed)
                     .expect("failed to send resume status");
             }
+            // SaveState cannot be performed on a running Vcpu.
+            #[cfg(target_arch = "x86_64")]
+            Ok(VcpuEvent::SaveState) => {
+                self.response_sender
+                    .send(VcpuResponse::SaveStateNotAllowed)
+                    .expect("failed to send save not allowed status");
+            }
             // Unhandled exit of the other end.
             Err(TryRecvError::Disconnected) => {
                 // Move to 'exited' state.
@@ -1187,8 +1216,26 @@ impl Vcpu {
                 // Move to 'running' state.
                 StateMachine::next(Self::running)
             }
-            // All other events have no effect on current 'paused' state.
-            Ok(_) => StateMachine::next(Self::paused),
+            Ok(VcpuEvent::Pause) => {
+                self.response_sender
+                    .send(VcpuResponse::Paused)
+                    .expect("failed to send pause status");
+                StateMachine::next(Self::paused)
+            }
+            #[cfg(target_arch = "x86_64")]
+            Ok(VcpuEvent::SaveState) => {
+                // Save vcpu state.
+                self.save_state()
+                    .map(|vcpu_state| {
+                        self.response_sender
+                            .send(VcpuResponse::SaveState(Box::new(vcpu_state)))
+                            .expect("failed to send vcpu state");
+                    })
+                    .map_err(|e| self.response_sender.send(VcpuResponse::SaveStateFailed(e)))
+                    .expect("failed to send vcpu state");
+
+                StateMachine::next(Self::paused)
+            }
             // Unhandled exit of the other end.
             Err(_) => {
                 // Move to 'exited' state.
@@ -1229,6 +1276,7 @@ impl Vcpu {
     // All channels get closed on the other side while this Vcpu thread is still running.
     // This Vcpu thread should just do a clean finish without reporting back to the main thread.
     fn exit(&mut self, _: u8) -> StateMachine<Self> {
+        self.exit_evt.write(1).unwrap();
         // State machine reached its end.
         StateMachine::finish()
     }
@@ -1241,6 +1289,7 @@ impl Drop for Vcpu {
 }
 
 #[cfg(target_arch = "x86_64")]
+#[derive(Versionize)]
 /// Structure holding VCPU kvm state.
 pub struct VcpuState {
     cpuid: CpuId,
@@ -1264,10 +1313,12 @@ pub enum VcpuEvent {
     Pause,
     /// Event that should resume the Vcpu.
     Resume,
+    /// Event that saves the state of a paused Vcpu.
+    #[cfg(target_arch = "x86_64")]
+    SaveState,
     // Serialize and Deserialize to follow after we get the support from kvm-ioctls.
 }
 
-#[derive(Debug, PartialEq)]
 /// List of responses that the Vcpu reports.
 pub enum VcpuResponse {
     /// Vcpu is paused.
@@ -1276,6 +1327,15 @@ pub enum VcpuResponse {
     Resumed,
     /// Vcpu is stopped.
     Exited(u8),
+    /// Vcpu state is saved.
+    #[cfg(target_arch = "x86_64")]
+    SaveState(Box<VcpuState>),
+    /// Vcpu state could not be saved.
+    #[cfg(target_arch = "x86_64")]
+    SaveStateFailed(Error),
+    /// Vcpu state not allowed while running.
+    #[cfg(target_arch = "x86_64")]
+    SaveStateNotAllowed,
 }
 
 /// Wrapper over Vcpu that hides the underlying interactions with the Vcpu thread.
@@ -1327,16 +1387,15 @@ enum VcpuEmulation {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #[cfg(target_arch = "x86_64")]
     use std::convert::TryInto;
+    use std::fmt;
     use std::fs::File;
     #[cfg(target_arch = "x86_64")]
     use std::os::unix::io::AsRawFd;
     #[cfg(target_arch = "x86_64")]
     use std::path::PathBuf;
-    #[cfg(target_arch = "x86_64")]
-    use std::sync::mpsc;
     use std::sync::{Arc, Barrier};
     #[cfg(target_arch = "x86_64")]
     use std::time::Duration;
@@ -1345,6 +1404,49 @@ mod tests {
     use super::*;
 
     use utils::signal::validate_signal_num;
+
+    impl PartialEq for VcpuResponse {
+        fn eq(&self, other: &Self) -> bool {
+            use VcpuResponse::*;
+            // Guard match with no wildcard to make sure we catch new enum variants.
+            match self {
+                Paused | Resumed | Exited(_) => (),
+                #[cfg(target_arch = "x86_64")]
+                SaveState(_) | SaveStateFailed(_) | SaveStateNotAllowed => (),
+            };
+            match (self, other) {
+                (Paused, Paused) => true,
+                (Resumed, Resumed) => true,
+                (Exited(code), Exited(other_code)) => code == other_code,
+                #[cfg(target_arch = "x86_64")]
+                (SaveState(_), SaveState(_)) => true,
+                #[cfg(target_arch = "x86_64")]
+                (SaveStateFailed(ref err), SaveStateFailed(ref other_err)) => {
+                    format!("{:?}", err) == format!("{:?}", other_err)
+                }
+                #[cfg(target_arch = "x86_64")]
+                (SaveStateNotAllowed, SaveStateNotAllowed) => true,
+                _ => false,
+            }
+        }
+    }
+
+    impl fmt::Debug for VcpuResponse {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use VcpuResponse::*;
+            match self {
+                Paused => write!(f, "VcpuResponse::Paused"),
+                Resumed => write!(f, "VcpuResponse::Resumed"),
+                Exited(code) => write!(f, "VcpuResponse::Exited({:?})", code),
+                #[cfg(target_arch = "x86_64")]
+                SaveState(_) => write!(f, "VcpuResponse::SaveState"),
+                #[cfg(target_arch = "x86_64")]
+                SaveStateFailed(ref err) => write!(f, "VcpuResponse::SaveStateFailed({:?})", err),
+                #[cfg(target_arch = "x86_64")]
+                SaveStateNotAllowed => write!(f, "VcpuResponse::SaveStateNotAllowed"),
+            }
+        }
+    }
 
     // In tests we need to close any pending Vcpu threads on test completion.
     impl Drop for VcpuHandle {
@@ -1364,7 +1466,7 @@ mod tests {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), mem_size)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
-        assert!(vm.memory_init(&gm, kvm.max_memslots()).is_ok());
+        assert!(vm.memory_init(&gm, kvm.max_memslots(), false).is_ok());
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
 
@@ -1377,7 +1479,6 @@ mod tests {
                 vm.fd(),
                 vm.supported_cpuid().clone(),
                 vm.supported_msrs().clone(),
-                devices::Bus::new(),
                 exit_evt,
                 super::super::TimestampUs::default(),
             )
@@ -1391,6 +1492,22 @@ mod tests {
         }
 
         (vm, vcpu, gm)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn default_vcpu_state() -> VcpuState {
+        VcpuState {
+            cpuid: CpuId::new(1),
+            msrs: Msrs::new(1),
+            debug_regs: Default::default(),
+            lapic: Default::default(),
+            mp_state: Default::default(),
+            regs: Default::default(),
+            sregs: Default::default(),
+            vcpu_events: Default::default(),
+            xcrs: Default::default(),
+            xsave: Default::default(),
+        }
     }
 
     #[test]
@@ -1420,7 +1537,9 @@ mod tests {
 
         // Create valid memory region and test that the initialization is successful.
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        assert!(vm.memory_init(&gm, kvm_context.max_memslots()).is_ok());
+        assert!(vm
+            .memory_init(&gm, kvm_context.max_memslots(), true)
+            .is_ok());
 
         // Set the maximum number of memory slots to 1 in KvmContext to check the error
         // path of memory_init. Create 2 non-overlapping memory slots.
@@ -1430,7 +1549,9 @@ mod tests {
             (GuestAddress(0x1001), 0x2000),
         ])
         .unwrap();
-        assert!(vm.memory_init(&gm, kvm_context.max_memslots()).is_err());
+        assert!(vm
+            .memory_init(&gm, kvm_context.max_memslots(), true)
+            .is_err());
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1450,7 +1571,6 @@ mod tests {
             vm.fd(),
             vm.supported_cpuid().clone(),
             vm.supported_msrs().clone(),
-            devices::Bus::new(),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
             super::super::TimestampUs::default(),
         )
@@ -1491,19 +1611,19 @@ mod tests {
         };
 
         assert!(vcpu
-            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64_for_boot(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
 
         // Test configure while using the T2 template.
         vcpu_config.cpu_template = Some(CpuFeaturesTemplate::T2);
         assert!(vcpu
-            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64_for_boot(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
 
         // Test configure while using the C3 template.
         vcpu_config.cpu_template = Some(CpuFeaturesTemplate::C3);
         assert!(vcpu
-            .configure_x86_64(&vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64_for_boot(&vm_mem, GuestAddress(0), &vcpu_config)
             .is_ok());
     }
 
@@ -1513,7 +1633,7 @@ mod tests {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let mut vm = Vm::new(kvm.fd()).expect("new vm failed");
-        assert!(vm.memory_init(&gm, kvm.max_memslots()).is_ok());
+        assert!(vm.memory_init(&gm, kvm.max_memslots(), false).is_ok());
 
         // Try it for when vcpu id is 0.
         let mut vcpu = Vcpu::new_aarch64(
@@ -1525,7 +1645,7 @@ mod tests {
         .unwrap();
 
         assert!(vcpu
-            .configure_aarch64(vm.fd(), &gm, GuestAddress(0))
+            .configure_aarch64_for_boot(vm.fd(), &gm, GuestAddress(0))
             .is_ok());
 
         // Try it for when vcpu id is NOT 0.
@@ -1538,7 +1658,7 @@ mod tests {
         .unwrap();
 
         assert!(vcpu
-            .configure_aarch64(vm.fd(), &gm, GuestAddress(0))
+            .configure_aarch64_for_boot(vm.fd(), &gm, GuestAddress(0))
             .is_ok());
     }
 
@@ -1690,22 +1810,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "x86_64")]
-    // Sends an event to a vcpu and expects no response.
-    fn queue_event_expect_timeout(handle: &VcpuHandle, event: VcpuEvent) {
-        handle
-            .send_event(event)
-            .expect("failed to send event to vcpu");
-        assert_eq!(
-            handle
-                .response_receiver()
-                .recv_timeout(Duration::from_millis(100)),
-            Err(mpsc::RecvTimeoutError::Timeout)
-        );
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_vcpu_pause_resume() {
+    fn default_vcpu() -> (VcpuHandle, utils::eventfd::EventFd) {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
         let mem_size = 64 << 20;
@@ -1721,13 +1826,21 @@ mod tests {
             ht_enabled: false,
             cpu_template: None,
         };
-        vcpu.configure_x86_64(&vm_mem, entry_addr, &vcpu_config)
+        vcpu.configure_x86_64_for_boot(&vm_mem, entry_addr, &vcpu_config)
             .expect("failed to configure vcpu");
 
         let seccomp_filter = seccomp::SeccompFilter::empty().try_into().unwrap();
         let vcpu_handle = vcpu
             .start_threaded(seccomp_filter)
             .expect("failed to start vcpu");
+
+        (vcpu_handle, vcpu_exit_evt)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_vcpu_pause_resume() {
+        let (vcpu_handle, vcpu_exit_evt) = default_vcpu();
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
@@ -1739,8 +1852,8 @@ mod tests {
         let err = vcpu_exit_evt.read().unwrap_err();
         assert_eq!(err.raw_os_error().unwrap(), libc::EAGAIN);
 
-        // Queue another Pause event, expect no answer.
-        queue_event_expect_timeout(&vcpu_handle, VcpuEvent::Pause);
+        // Queue another Pause event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
@@ -1753,6 +1866,32 @@ mod tests {
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_vcpu_save_state() {
+        let (vcpu_handle, _vcpu_exit_evt) = default_vcpu();
+
+        // Queue a Resume event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        // Queue a SaveState event, expect a response.
+        queue_event_expect_response(
+            &vcpu_handle,
+            VcpuEvent::SaveState,
+            VcpuResponse::SaveStateNotAllowed,
+        );
+
+        // Queue another Pause event, expect a response.
+        queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);
+
+        // Queue a SaveState event, expect a response.
+        queue_event_expect_response(
+            &vcpu_handle,
+            VcpuEvent::SaveState,
+            VcpuResponse::SaveState(Box::new(default_vcpu_state())),
+        );
     }
 
     #[test]
@@ -1792,18 +1931,7 @@ mod tests {
         assert!(vcpu.restore_state(state.unwrap()).is_ok());
 
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
-        let state = VcpuState {
-            cpuid: CpuId::new(1),
-            msrs: Msrs::new(1),
-            debug_regs: Default::default(),
-            lapic: Default::default(),
-            mp_state: Default::default(),
-            regs: Default::default(),
-            sregs: Default::default(),
-            vcpu_events: Default::default(),
-            xcrs: Default::default(),
-            xsave: Default::default(),
-        };
+        let state = default_vcpu_state();
         // Setting default state should always fail.
         assert!(vcpu.restore_state(state).is_err());
     }

@@ -64,7 +64,7 @@ use std::sync::Mutex;
 
 use serde::{Serialize, Serializer};
 
-use super::buf_guard;
+use super::extract_guard;
 
 lazy_static! {
     /// Static instance used for handling metrics.
@@ -104,7 +104,7 @@ impl<T: Serialize> Metrics<T> {
             return Err(MetricsError::AlreadyInitialized);
         }
         {
-            let mut g = buf_guard(&self.metrics_buf);
+            let mut g = extract_guard(self.metrics_buf.lock());
 
             *g = Some(metrics_dest);
         }
@@ -121,7 +121,7 @@ impl<T: Serialize> Metrics<T> {
         if self.is_initialized.load(Ordering::Relaxed) {
             match serde_json::to_string(&self.app_metrics) {
                 Ok(msg) => {
-                    if let Some(guard) = buf_guard(&self.metrics_buf).as_mut() {
+                    if let Some(guard) = extract_guard(self.metrics_buf.lock()).as_mut() {
                         // No need to explicitly call flush because the underlying LineWriter flushes
                         // automatically whenever a newline is detected (and we always end with a
                         // newline the current write).

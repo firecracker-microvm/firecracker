@@ -9,3 +9,5 @@
 pub mod legacy;
 /// Memory Mapped I/O Manager.
 pub mod mmio;
+/// Device managers (de)serialization support.
+pub mod persist;
