@@ -273,12 +273,13 @@ mod tests {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
     use std::sync::mpsc::channel;
+    use std::thread;
     use std::time::Duration;
-    use std::{fs, thread};
 
     use super::*;
     use micro_http::HttpConnection;
     use mmds::MMDS;
+    use utils::tempfile::TempFile;
     use vmm::builder::StartMicrovmError;
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::instance_info::InstanceInfo;
@@ -562,8 +563,11 @@ mod tests {
 
     #[test]
     fn test_bind_and_run() {
-        let path_to_socket = "/tmp/api_server_test_socket.sock";
-        fs::remove_file(path_to_socket).unwrap_or_default();
+        let mut tmp_socket = TempFile::new().unwrap();
+        tmp_socket.remove().unwrap();
+        let path_to_socket = tmp_socket.as_path().to_str().unwrap().to_owned();
+        let api_thread_path_to_socket = path_to_socket.clone();
+
         let vmm_shared_info = Arc::new(RwLock::new(InstanceInfo {
             started: false,
             id: "test_handle_request".to_string(),
@@ -588,7 +592,7 @@ mod tests {
                 )
                 .expect("Cannot create API server")
                 .bind_and_run(
-                    PathBuf::from(path_to_socket.to_string()),
+                    PathBuf::from(api_thread_path_to_socket),
                     Some(1),
                     Some(1),
                     SeccompFilter::empty().try_into().unwrap(),
@@ -599,7 +603,7 @@ mod tests {
 
         // Wait for the server to set itself up.
         thread::sleep(Duration::new(0, 10_000_000));
-        let mut sock = UnixStream::connect(PathBuf::from(path_to_socket.to_string())).unwrap();
+        let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
 
         // Send a GET instance-info request.
         assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
