@@ -351,8 +351,8 @@ mod tests {
         }
     }
 
-    impl Clone for MMIODeviceManager {
-        fn clone(&self) -> Self {
+    impl MMIODeviceManager {
+        fn soft_clone(&self) -> Self {
             let mut dummy_mmio_base = 0;
             let dummy_irq_range = (0, 0);
             let mut clone = MMIODeviceManager::new(&mut dummy_mmio_base, dummy_irq_range);
@@ -431,7 +431,9 @@ mod tests {
                 .save()
                 .serialize(&mut buf.as_mut_slice(), &version_map, 1)
                 .unwrap();
-            vmm.mmio_device_manager
+
+            // We only want to keep the device map from the original MmioDeviceManager.
+            vmm.mmio_device_manager.soft_clone()
         };
         tmp_sock_file.remove().unwrap();
 
