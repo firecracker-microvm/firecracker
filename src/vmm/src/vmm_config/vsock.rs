@@ -97,42 +97,18 @@ pub(crate) mod tests {
     use super::*;
     use utils::tempfile::TempFile;
 
-    // Placeholder for the path where a socket file will be created.
-    // The socket file will be removed when the scope ends.
-    #[derive(Clone)]
-    pub(crate) struct TempSockFile {
-        path: String,
-    }
-
-    impl TempSockFile {
-        pub fn new(tmp_file: TempFile) -> Self {
-            TempSockFile {
-                path: String::from(tmp_file.as_path().to_str().unwrap()),
-            }
-        }
-        pub fn path(&self) -> &String {
-            &self.path
-        }
-    }
-
-    impl Drop for TempSockFile {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.path);
-        }
-    }
-
-    pub(crate) fn default_config(tmp_sock_file: &TempSockFile) -> VsockDeviceConfig {
-        let vsock_dev_id = "vsock";
+    pub(crate) fn default_config(tmp_sock_file: &TempFile) -> VsockDeviceConfig {
         VsockDeviceConfig {
-            vsock_id: vsock_dev_id.to_string(),
+            vsock_id: "vsock".to_string(),
             guest_cid: 3,
-            uds_path: tmp_sock_file.path().clone(),
+            uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
         }
     }
 
     #[test]
     fn test_vsock_create() {
-        let tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
         let vsock_config = default_config(&tmp_sock_file);
         VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
     }
@@ -140,7 +116,8 @@ pub(crate) mod tests {
     #[test]
     fn test_vsock_insert() {
         let mut store = VsockBuilder::new();
-        let tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
         let mut vsock_config = default_config(&tmp_sock_file);
 
         store.insert(vsock_config.clone()).unwrap();
