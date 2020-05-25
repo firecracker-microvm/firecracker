@@ -5,7 +5,6 @@
 
 // Currently only supports x86_64.
 #![cfg(target_arch = "x86_64")]
-
 // TODO: remove once serialization is used.
 #![allow(unused)]
 
@@ -279,7 +278,6 @@ mod tests {
     use builder::tests::*;
     use utils::tempfile::TempFile;
     use vmm_config::net::NetworkInterfaceConfig;
-    use vmm_config::vsock::tests::TempSockFile;
     use vmm_config::vsock::VsockDeviceConfig;
 
     use polly::event_manager::EventManager;
@@ -392,7 +390,8 @@ mod tests {
         let version_map = VersionMap::new();
         // These need to survive so the restored blocks find them.
         let _block_files;
-        let _tmp_sock_file;
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         let original_mmio_device_manager = {
             let mut event_manager = EventManager::new().expect("Unable to create EventManager");
@@ -420,16 +419,13 @@ mod tests {
                 network_interface,
             );
             // Add a vsock device.
-            let orig_tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
             let vsock_dev_id = "vsock";
             let vsock_config = VsockDeviceConfig {
                 vsock_id: vsock_dev_id.to_string(),
                 guest_cid: 3,
-                uds_path: orig_tmp_sock_file.path().clone(),
+                uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
             };
             insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
-            // This will be used by the restored device and will cleanup the UDS when test ends.
-            _tmp_sock_file = orig_tmp_sock_file.clone();
 
             vmm.mmio_device_manager
                 .save()
@@ -437,6 +433,7 @@ mod tests {
                 .unwrap();
             vmm.mmio_device_manager.clone()
         };
+        tmp_sock_file.remove().unwrap();
 
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();

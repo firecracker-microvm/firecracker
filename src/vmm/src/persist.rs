@@ -206,7 +206,7 @@ mod tests {
     use snapshot::Persist;
     use utils::tempfile::TempFile;
     use vmm_config::net::NetworkInterfaceConfig;
-    use vmm_config::vsock::tests::{default_config, TempSockFile};
+    use vmm_config::vsock::tests::default_config;
 
     fn default_vmm_with_devices(event_manager: &mut EventManager) -> Vmm {
         let mut vmm = default_vmm();
@@ -229,7 +229,8 @@ mod tests {
         insert_net_device(&mut vmm, &mut cmdline, event_manager, network_interface);
 
         // Add vsock device.
-        let tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
         let vsock_config = default_config(&tmp_sock_file);
 
         insert_vsock_device(&mut vmm, &mut cmdline, event_manager, vsock_config);

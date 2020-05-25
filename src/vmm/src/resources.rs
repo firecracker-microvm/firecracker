@@ -306,7 +306,7 @@ mod tests {
     use vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
     use vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
-    use vmm_config::vsock::tests::{default_config, TempSockFile};
+    use vmm_config::vsock::tests::default_config;
     use vmm_config::RateLimiterConfig;
     use vstate::VcpuConfig;
 
@@ -821,7 +821,8 @@ mod tests {
     #[test]
     fn test_set_vsock_device() {
         let mut vm_resources = default_vm_resources();
-        let tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
         let new_vsock_cfg = default_config(&tmp_sock_file);
         assert!(vm_resources.vsock.get().is_none());
         vm_resources

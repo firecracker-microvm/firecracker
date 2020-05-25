@@ -726,7 +726,7 @@ pub mod tests {
     use vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use vmm_config::drive::BlockDeviceConfig;
     use vmm_config::net::NetworkInterfaceConfig;
-    use vmm_config::vsock::tests::{default_config, TempSockFile};
+    use vmm_config::vsock::tests::default_config;
     use vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
 
     pub(crate) struct CustomBlockConfig {
@@ -1113,7 +1113,8 @@ pub mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let mut vmm = default_vmm();
 
-        let tmp_sock_file = TempSockFile::new(TempFile::new().unwrap());
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
         let vsock_config = default_config(&tmp_sock_file);
 
         let mut cmdline = default_kernel_cmdline();
