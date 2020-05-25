@@ -57,8 +57,6 @@ pub struct MicrovmState {
 pub enum MicrovmStateError {
     /// Provided MicroVM state is invalid.
     InvalidInput,
-    /// Memory state error.
-    Memory(memory_snapshot::Error),
     /// Failed to restore devices.
     RestoreDevices(DevicePersistError),
     /// Failed to restore Vcpu state.
@@ -80,7 +78,6 @@ impl Display for MicrovmStateError {
         use self::MicrovmStateError::*;
         match self {
             InvalidInput => write!(f, "Provided MicroVM state is invalid."),
-            Memory(err) => write!(f, "Memory error: {:?}", err),
             RestoreDevices(err) => write!(f, "Cannot restore devices. Error: {:?}", err),
             RestoreVcpuState(err) => write!(f, "Cannot restore Vcpu state. Error: {:?}", err),
             RestoreVmState(err) => write!(f, "Cannot restore Vm state. Error: {:?}", err),
@@ -375,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_snapshot_error_messages() {
+    fn test_create_snapshot_error_display() {
         use persist::CreateSnapshotError::*;
         use vm_memory::GuestMemoryError;
 
@@ -407,16 +404,53 @@ mod tests {
     }
 
     #[test]
-    fn test_save_microvm_state_error_messages() {
+    fn test_load_snapshot_error_display() {
+        use persist::LoadSnapshotError::*;
+
+        let err = BuildMicroVm(StartMicrovmError::InitrdLoad);
+        let _ = format!("{}{:?}", err, err);
+
+        let err = DeserializeMemory(memory_snapshot::Error::FileHandle(
+            io::Error::from_raw_os_error(0),
+        ));
+        let _ = format!("{}{:?}", err, err);
+
+        let err = DeserializeMicrovmState(snapshot::Error::Io(0));
+        let _ = format!("{}{:?}", err, err);
+
+        let err = MemoryBackingFile(io::Error::from_raw_os_error(0));
+        let _ = format!("{}{:?}", err, err);
+
+        let err = SnapshotBackingFile(io::Error::from_raw_os_error(0));
+        let _ = format!("{}{:?}", err, err);
+    }
+
+    #[test]
+    fn test_microvm_state_error_display() {
         use persist::MicrovmStateError::*;
 
-        let err = UnexpectedVcpuResponse;
+        let err = InvalidInput;
+        let _ = format!("{}{:?}", err, err);
+
+        let err = RestoreDevices(DevicePersistError::MmioTransport);
+        let _ = format!("{}{:?}", err, err);
+
+        let err = RestoreVcpuState(vstate::Error::HTNotInitialized);
+        let _ = format!("{}{:?}", err, err);
+
+        let err = RestoreVmState(vstate::Error::NotEnoughMemorySlots);
+        let _ = format!("{}{:?}", err, err);
+
+        let err = SaveVcpuState(vstate::Error::HTNotInitialized);
         let _ = format!("{}{:?}", err, err);
 
         let err = SaveVmState(vstate::Error::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
         let err = SignalVcpu(vstate::Error::VcpuCountNotInitialized);
+        let _ = format!("{}{:?}", err, err);
+
+        let err = UnexpectedVcpuResponse;
         let _ = format!("{}{:?}", err, err);
     }
 }
