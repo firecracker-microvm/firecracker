@@ -158,34 +158,32 @@ def _check_tx_rate_limiting(test_microvm, guest_ips, host_ips):
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
-    iperf_cmd = '{} -c {} -t {} -f KBytes -w {} -N'.format(
-        IPERF_BINARY,
-        host_ips[0],
-        IPERF_TRANSMIT_TIME,
-        IPERF_TCP_WINDOW
-    )
     print("Run guest TX iperf with no rate-limit")
-    iperf_out = _run_iperf_on_guest(test_microvm, iperf_cmd, guest_ips[0])
-    _, rate_no_limit_kbps = _process_iperf_output(iperf_out)
+    rate_no_limit_kbps = _get_tx_bandwidth_with_duration(
+        test_microvm,
+        guest_ips[0],
+        host_ips[0],
+        IPERF_TRANSMIT_TIME
+    )
     print("TX rate_no_limit_kbps: {}".format(rate_no_limit_kbps))
 
     # Calculate the number of bytes that are expected to be sent
     # in each second once the rate limiting is enabled.
     expected_kbps = int(RATE_LIMIT_BYTES / (REFILL_TIME_MS / 1000.0) / 1024)
-    print("Configured TX expected_kbps: {}".format(expected_kbps))
+    print("Rate-Limit TX expected_kbps: {}".format(expected_kbps))
 
     # Sanity check that bandwidth with no rate limiting is at least double
     # than the one expected when rate limiting is in place.
     assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 100
 
-    # Second step: check bandwith when rate limiting is on.
+    # Second step: check bandwidth when rate limiting is on.
     _check_tx_bandwidth(test_microvm, guest_ips[1], host_ips[1], expected_kbps)
 
     # Third step: get the number of bytes when rate limiting is on and there is
     # an initial burst size from where to consume.
-
     print("Run guest TX iperf with exact burst size")
-    # Use iperf to obtain the bandwidth when there is burst to consume from.
+    # Use iperf to obtain the bandwidth when there is burst to consume from,
+    # send exactly BURST_SIZE packets.
     iperf_cmd = '{} -c {} -n {} -f KBytes -w {} -N'.format(
         IPERF_BINARY,
         host_ips[2],
@@ -210,36 +208,31 @@ def _check_rx_rate_limiting(test_microvm, guest_ips):
 
     # First step: get the transfer rate when no rate limiting is enabled.
     # We are receiving the result in KBytes from iperf.
-    iperf_cmd = '{} {} -c {} -t {} -f KBytes -w {} -N'.format(
-        test_microvm.jailer.netns_cmd_prefix(),
-        IPERF_BINARY,
-        guest_ips[0],
-        IPERF_TRANSMIT_TIME,
-        IPERF_TCP_WINDOW
-    )
     print("Run guest RX iperf with no rate-limit")
-    iperf_out = _run_local_iperf(iperf_cmd)
-    print(iperf_out)
-    _, rate_no_limit_kbps = _process_iperf_output(iperf_out)
+    rate_no_limit_kbps = _get_rx_bandwidth_with_duration(
+        test_microvm,
+        guest_ips[0],
+        IPERF_TRANSMIT_TIME
+    )
     print("RX rate_no_limit_kbps: {}".format(rate_no_limit_kbps))
 
     # Calculate the number of bytes that are expected to be sent
     # in each second once the rate limiting is enabled.
     expected_kbps = int(RATE_LIMIT_BYTES / (REFILL_TIME_MS / 1000.0) / 1024)
-    print("Configured RX expected_kbps: {}".format(expected_kbps))
+    print("Rate-Limit RX expected_kbps: {}".format(expected_kbps))
 
     # Sanity check that bandwidth with no rate limiting is at least double
     # than the one expected when rate limiting is in place.
     assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 100
 
-    # Second step: check bandwith when rate limiting is on.
+    # Second step: check bandwidth when rate limiting is on.
     _check_rx_bandwidth(test_microvm, guest_ips[1], expected_kbps)
 
     # Third step: get the number of bytes when rate limiting is on and there is
     # an initial burst size from where to consume.
-
     print("Run guest TX iperf with exact burst size")
-    # Use iperf to obtain the bandwidth when there is burst to consume from.
+    # Use iperf to obtain the bandwidth when there is burst to consume from,
+    # send exactly BURST_SIZE packets.
     iperf_cmd = '{} {} -c {} -n {} -f KBytes -w {} -N'.format(
         test_microvm.jailer.netns_cmd_prefix(),
         IPERF_BINARY,
