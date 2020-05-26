@@ -157,25 +157,21 @@ impl Serial {
         }
     }
 
-    fn thr_empty(&mut self) -> io::Result<()> {
+    fn thr_empty_interrupt(&mut self) -> io::Result<()> {
         if self.is_thr_intr_enabled() {
             self.add_intr_bit(IIR_THR_BIT);
-            self.trigger_interrupt()?
+            self.interrupt_evt.write(1)?
         }
         Ok(())
     }
 
-    fn recv_data(&mut self) -> io::Result<()> {
+    fn recv_data_interrupt(&mut self) -> io::Result<()> {
         if self.is_recv_intr_enabled() {
             self.add_intr_bit(IIR_RECV_BIT);
-            self.trigger_interrupt()?
+            self.interrupt_evt.write(1)?
         }
         self.line_status |= LSR_DATA_BIT;
         Ok(())
-    }
-
-    fn trigger_interrupt(&mut self) -> io::Result<()> {
-        self.interrupt_evt.write(1)
     }
 
     fn iir_reset(&mut self) {
@@ -195,7 +191,7 @@ impl Serial {
                 if self.is_loop() {
                     if self.in_buffer.len() < LOOP_SIZE {
                         self.in_buffer.push_back(value);
-                        self.recv_data()?;
+                        self.recv_data_interrupt()?;
                     }
                 } else {
                     if let Some(out) = self.out.as_mut() {
@@ -204,7 +200,7 @@ impl Serial {
                         out.flush()?;
                         METRICS.uart.flush_count.inc();
                     }
-                    self.thr_empty()?;
+                    self.thr_empty_interrupt()?;
                 }
             }
             IER => self.interrupt_enable = value & IER_FIFO_BITS,
@@ -244,10 +240,26 @@ impl Serial {
         }
     }
 
+    fn recv_bytes(&mut self) -> io::Result<usize> {
+        if let Some(input) = self.input.as_mut() {
+            let mut out = [0u8; 32];
+            return input.read(&mut out).and_then(|count| {
+                if count > 0 {
+                    self.raw_input(&out[..count])?;
+                    Ok(count)
+                } else {
+                    Ok(0)
+                }
+            });
+        }
+
+        Ok(0)
+    }
+
     fn raw_input(&mut self, data: &[u8]) -> io::Result<()> {
         if !self.is_loop() {
             self.in_buffer.extend(data);
-            self.recv_data()?;
+            self.recv_data_interrupt()?;
         }
         Ok(())
     }
@@ -276,35 +288,47 @@ impl BusDevice for Serial {
 }
 
 impl Subscriber for Serial {
-    /// Handle a read event (EPOLLIN) on the serial input fd.
-    fn process(&mut self, event: &EpollEvent, _: &mut EventManager) {
+    /// Handle events on the serial input fd.
+    fn process(&mut self, event: &EpollEvent, ev_mgr: &mut EventManager) {
         let source = event.fd();
-        let event_set = event.event_set();
 
-        // TODO: also check for errors. Pending high level discussions on how we want
-        // to handle errors in devices.
-        let supported_events = EventSet::IN;
-        if !supported_events.contains(event_set) {
-            warn!(
-                "Received unknown event: {:?} from source: {:?}",
-                event_set, source
-            );
+        // We expect to be interested only in serial input.
+        let interest_list = self.interest_list();
+        if interest_list.len() != 1 {
+            warn!("Unexpected events/sources interest list.");
             return;
         }
 
-        if let Some(input) = self.input.as_mut() {
-            if input.as_raw_fd() == source {
-                let mut out = [0u8; 32];
-                match input.read(&mut out[..]) {
-                    Ok(count) => {
-                        self.raw_input(&out[..count])
-                            .unwrap_or_else(|e| warn!("Serial error on input: {}", e));
-                    }
-                    Err(e) => {
-                        warn!("error while reading stdin: {:?}", e);
+        // Safe to unwrap. Checked before if interest list has one element.
+        let supported_event = interest_list.first().unwrap();
+
+        // Check if the event source is the serial input.
+        if supported_event.fd() != source {
+            warn!("Unexpected event source: {}", source);
+            return;
+        }
+
+        // We expect to receive: `EventSet::IN`, `EventSet::HANG_UP` or
+        // `EventSet::ERROR`. To process all these events we just have to
+        // read from the serial input.
+        match self.recv_bytes() {
+            Ok(count) => {
+                // Check if the serial input have to be unregistered.
+                let event_set = event.event_set();
+                let unregister_condition =
+                    event_set.contains(EventSet::ERROR) | event_set.contains(EventSet::HANG_UP);
+                if count == 0 && unregister_condition {
+                    // Unregister the serial input source.
+                    match ev_mgr.unregister(supported_event.fd()) {
+                        Ok(_) => warn!("Detached the serial input due to peer error/close."),
+                        Err(e) => error!(
+                            "Peer is unreachable. Could not detach the serial input: {:?}",
+                            e
+                        ),
                     }
                 }
             }
+            Err(e) => error!("error while reading stdin: {:?}", e),
         }
     }
 
@@ -360,7 +384,16 @@ mod tests {
     }
     impl io::Read for SharedBuffer {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            self.internal.lock().unwrap().read_buf.as_slice().read(buf)
+            let count = self
+                .internal
+                .lock()
+                .unwrap()
+                .read_buf
+                .as_slice()
+                .read(buf)?;
+            // Need to clear what is read, to simulate consumed inflight bytes.
+            self.internal.lock().unwrap().read_buf.drain(0..count);
+            Ok(count)
         }
     }
     impl AsRawFd for SharedBuffer {
@@ -381,8 +414,9 @@ mod tests {
 
         let mut serial = Serial::new_out(intr_evt, Box::new(serial_out));
         // A serial without in does not have any events in the list.
+
         assert!(serial.interest_list().is_empty());
-        // Even though there is no in, process should not panic. Call it to validate this.
+        // Even though there is no in or hangup, process should not panic. Call it to validate this.
         let epoll_event = EpollEvent::new(EventSet::IN, 0);
         serial.process(&epoll_event, &mut event_manager);
     }
@@ -399,7 +433,7 @@ mod tests {
             Box::new(serial_in_out.clone()),
             Box::new(serial_in_out),
         );
-        // Check that the interest list contains the EPOLL_IN event.
+        // Check that the interest list contains one event set.
         assert_eq!(serial.interest_list().len(), 1);
 
         // Process an invalid event type does not panic.
@@ -409,6 +443,47 @@ mod tests {
         // Process an event with a `RawFd` that does not correspond to `intr_evt` does not panic.
         let invalid_event = EpollEvent::new(EventSet::IN, 0);
         serial.process(&invalid_event, &mut event_manager);
+    }
+
+    #[test]
+    fn test_event_handling_err_and_hup() {
+        let mut event_manager = EventManager::new().unwrap();
+        let serial_in_out = SharedBuffer::new();
+        let mut serial = Serial::new_in_out(
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            Box::new(serial_in_out.clone()),
+            Box::new(serial_in_out.clone()),
+        );
+
+        // Check that the interest list contains one event set.
+        let expected_medium_bytes = [b'a'; 32];
+        assert_eq!(serial.interest_list().len(), 1);
+        {
+            let mut guard = serial_in_out.internal.lock().unwrap();
+            // Write 33 bytes to the serial console. `IN` handling consumes 32 bytes from the
+            // inflight bytes. Add one more byte to be able to process it in a following
+            // processing round.
+            guard.read_buf.write_all(&expected_medium_bytes).unwrap();
+            guard.read_buf.write_all(&[b'a']).unwrap();
+        }
+
+        assert!(serial.in_buffer.is_empty());
+        let err_hup_ev = EpollEvent::new(
+            EventSet::ERROR | EventSet::HANG_UP,
+            serial_in_out.as_raw_fd() as u64,
+        );
+        // Process 32 bytes.
+        serial.process(&err_hup_ev, &mut event_manager);
+        // Process one more byte left.
+        serial.process(&err_hup_ev, &mut event_manager);
+        assert_eq!(serial.in_buffer.len(), expected_medium_bytes.len() + 1);
+        serial.in_buffer.clear();
+
+        // Process one more round of `EventSet::HANG_UP`.
+        // Check that the processing does not bring anything new to the serial
+        // `in_buffer`.
+        serial.process(&err_hup_ev, &mut event_manager);
+        assert!(serial.in_buffer.is_empty());
     }
 
     #[test]
@@ -464,6 +539,40 @@ mod tests {
         // Check if reading from the largest u8 offset returns 0.
         serial.read(0xff, &mut data[..]);
         assert_eq!(data[0], 0);
+    }
+
+    #[test]
+    fn test_serial_recv_bytes() {
+        // Exercise bytes retrieval without any input.
+        {
+            let mut serial = Serial::new(EventFd::new(libc::EFD_NONBLOCK).unwrap(), None, None);
+
+            let count = serial.recv_bytes().unwrap();
+            assert!(count == 0);
+        }
+
+        // Prepare the input buffer and send bytes on the "medium".
+        {
+            let serial_in_out = SharedBuffer::new();
+            let mut serial = Serial::new_in_out(
+                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+                Box::new(serial_in_out.clone()),
+                Box::new(serial_in_out.clone()),
+            );
+
+            // Serial `recv_bytes` consumes chunks of 32 bytes from the serial input.
+            // Write 33 bytes to assert on the consumption of only 32 bytes later on.
+            let expected_medium_bytes = [b'a'; 32];
+            {
+                let mut guard = serial_in_out.internal.lock().unwrap();
+                guard.read_buf.write_all(&expected_medium_bytes).unwrap();
+                guard.read_buf.write_all(&[b'a']).unwrap();
+            }
+
+            let count = serial.recv_bytes().unwrap();
+            assert!(serial.in_buffer.len() == count);
+            assert!(serial.in_buffer == expected_medium_bytes);
+        }
     }
 
     #[test]
