@@ -239,7 +239,7 @@ ensure_build_dir() {
 # owned by root. This fixes that by recursively changing the ownership of build/
 # to the current user.
 #
-fix_build_dir_perms() {
+cmd_fix_perms() {
     # Yes, running Docker to get elevated privileges, just to chown some files
     # is a dirty hack.
     run_devctr \
@@ -415,6 +415,8 @@ cmd_help() {
     echo ""
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
+    echo "    fix_perms"
+    echo "        Fixes permissions when devtool dies in the middle of a privileged session."
     echo ""
 }
 
@@ -546,7 +548,7 @@ cmd_test() {
 
     # Running as root would have created some root-owned files under the build
     # dir. Let's fix that.
-    fix_build_dir_perms
+    cmd_fix_perms
 
     return $ret
 }
@@ -594,7 +596,7 @@ cmd_shell() {
         # Running as root may have created some root-owned files under the build
         # dir. Let's fix that.
         #
-        fix_build_dir_perms
+        cmd_fix_perms
     else
         say "Dropping to shell prompt as user $(whoami) ..."
         say "Note: $FC_ROOT_DIR is bind-mounted under $CTR_FC_ROOT_DIR"

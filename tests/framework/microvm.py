@@ -10,6 +10,7 @@ destroy microvms.
 - Use the Firecracker Open API spec to populate Microvm API resource URLs.
 """
 
+import json
 import logging
 import os
 from queue import Queue
@@ -237,6 +238,22 @@ class Microvm:
     def memory_events_queue(self, queue):
         """Set the memory usage events queue."""
         self._memory_events_queue = queue
+
+    def flush_metrics(self, metrics_fifo):
+        """Flush the microvm metrics.
+
+        Requires specifying the configured metrics file.
+        """
+        # Empty the metrics pipe.
+        _ = metrics_fifo.sequential_reader(100)
+
+        response = self.actions.put(action_type='FlushMetrics')
+        assert self.api_session.is_status_no_content(response.status_code)
+
+        lines = metrics_fifo.sequential_reader(100)
+        assert len(lines) == 1
+
+        return json.loads(lines[0])
 
     def append_to_log_data(self, data):
         """Append a message to the log data."""
