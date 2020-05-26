@@ -258,27 +258,50 @@ def _check_tx_rate_limit_patch(test_microvm, guest_ips, host_ips):
 
     # Check that a TX rate limiter can be applied to a previously unlimited
     # interface.
-    _patch_iface_bw(test_microvm, "1", "TX", bucket_size)
+    _patch_iface_bw(test_microvm, "1", "TX", bucket_size, REFILL_TIME_MS)
     _check_tx_bandwidth(test_microvm, guest_ips[0], host_ips[0], expected_kbps)
 
     # Check that a TX rate limiter can be updated.
-    _patch_iface_bw(test_microvm, "2", "TX", bucket_size)
+    _patch_iface_bw(test_microvm, "2", "TX", bucket_size, REFILL_TIME_MS)
     _check_tx_bandwidth(test_microvm, guest_ips[1], host_ips[1], expected_kbps)
+
+    # Check that a TX rate limiter can be removed.
+    _patch_iface_bw(test_microvm, "1", "TX", 0, 0)
+    rate_no_limit_kbps = _get_tx_bandwidth_with_duration(
+        test_microvm,
+        guest_ips[0],
+        host_ips[0],
+        IPERF_TRANSMIT_TIME
+    )
+    # Check that bandwidth when rate-limit disabled is at least 1.5x larger
+    # than the one when rate limiting was enabled.
+    assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 50
 
 
 def _check_rx_rate_limit_patch(test_microvm, guest_ips):
     """Patch the RX rate limiters and check the new limits."""
     bucket_size = int(RATE_LIMIT_BYTES * 2)
-    rate_limit_kbps = int(bucket_size / (REFILL_TIME_MS / 1000.0) / 1024)
+    expected_kbps = int(bucket_size / (REFILL_TIME_MS / 1000.0) / 1024)
 
     # Check that an RX rate limiter can be applied to a previously unlimited
     # interface.
-    _patch_iface_bw(test_microvm, "1", "RX", bucket_size)
-    _check_rx_bandwidth(test_microvm, guest_ips[0], rate_limit_kbps)
+    _patch_iface_bw(test_microvm, "1", "RX", bucket_size, REFILL_TIME_MS)
+    _check_rx_bandwidth(test_microvm, guest_ips[0], expected_kbps)
 
     # Check that an RX rate limiter can be updated.
-    _patch_iface_bw(test_microvm, "2", "RX", bucket_size)
-    _check_rx_bandwidth(test_microvm, guest_ips[1], rate_limit_kbps)
+    _patch_iface_bw(test_microvm, "2", "RX", bucket_size, REFILL_TIME_MS)
+    _check_rx_bandwidth(test_microvm, guest_ips[1], expected_kbps)
+
+    # Check that an RX rate limiter can be removed.
+    _patch_iface_bw(test_microvm, "1", "RX", 0, 0)
+    rate_no_limit_kbps = _get_rx_bandwidth_with_duration(
+        test_microvm,
+        guest_ips[0],
+        IPERF_TRANSMIT_TIME
+    )
+    # Check that bandwidth when rate-limit disabled is at least 1.5x larger
+    # than the one when rate limiting was enabled.
+    assert _get_percentage_difference(rate_no_limit_kbps, expected_kbps) > 50
 
 
 def _check_tx_bandwidth(
@@ -395,7 +418,13 @@ def _get_rx_bandwidth_with_duration(
     return observed_kbps
 
 
-def _patch_iface_bw(test_microvm, iface_id, rx_or_tx, new_bucket_size):
+def _patch_iface_bw(
+        test_microvm,
+        iface_id,
+        rx_or_tx,
+        new_bucket_size,
+        new_refill_time
+):
     """Update the bandwidth rate limiter for a given interface.
 
     Update the `rx_or_tx` rate limiter, on interface `iface_id` to the
@@ -407,7 +436,7 @@ def _patch_iface_bw(test_microvm, iface_id, rx_or_tx, new_bucket_size):
         "{}_rate_limiter".format(rx_or_tx.lower()): {
             'bandwidth': {
                 'size': new_bucket_size,
-                'refill_time': REFILL_TIME_MS
+                'refill_time': new_refill_time
             }
         }
     }
