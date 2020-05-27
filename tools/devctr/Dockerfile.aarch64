@@ -16,7 +16,7 @@ ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
 ENV PATH="$PATH:$CARGO_HOME/bin"
 
-# Install system dependecies
+# Install system dependencies
 #
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
@@ -36,7 +36,6 @@ RUN apt-get update \
         libssl-dev \
         lsof \
         make \
-        musl-tools \
         net-tools \
         openssh-client \
         pkgconf \
