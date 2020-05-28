@@ -17,6 +17,7 @@ from subprocess import run, PIPE
 
 from retry import retry
 
+import host_tools.cpu_load as cpu_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 
@@ -119,6 +120,10 @@ class Microvm:
         else:
             self._memory_events_queue = None
 
+        # Cpu load monitoring has to be explicitly enabled using
+        # the `enable_cpu_load_monitor` method.
+        self._cpu_load_monitor = None
+
         # External clone/exec tool, because Python can't into clone
         self.bin_cloner_path = bin_cloner_path
 
@@ -137,6 +142,11 @@ class Microvm:
         if self._memory_events_queue and not self._memory_events_queue.empty():
             raise mem_tools.MemoryUsageExceededException(
                 self._memory_events_queue.get())
+
+        if self._cpu_load_monitor:
+            self._cpu_load_monitor.signal_stop()
+            self._cpu_load_monitor.join()
+            self._cpu_load_monitor.check_samples()
 
     @property
     def api_session(self):
@@ -214,6 +224,20 @@ class Microvm:
     def memory_events_queue(self, queue):
         """Set the memory usage events queue."""
         self._memory_events_queue = queue
+
+    def enable_cpu_load_monitor(self, threshold):
+        """Enable the cpu load monitor."""
+        process_pid = self.jailer_clone_pid
+        # We want to monitor the emulation thread, which is currently
+        # the first one created.
+        # A possible improvement is to find it by name.
+        thread_pid = self.jailer_clone_pid
+        self._cpu_load_monitor = cpu_tools.CpuLoadMonitor(
+            process_pid,
+            thread_pid,
+            threshold
+        )
+        self._cpu_load_monitor.start()
 
     def create_jailed_resource(self, path, create_jail=False):
         """Create a hard link to some resource inside this microvm."""
