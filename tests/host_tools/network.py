@@ -319,3 +319,13 @@ class Tap:
     def netns(self):
         """Return the network namespace of this tap."""
         return self._netns
+
+    def set_tx_queue_len(self, tx_queue_len):
+        """Set the length of the tap's TX queue."""
+        utils.run_cmd(
+            'ip netns exec {} ip link set {} txqueuelen {}'.format(
+                self.netns,
+                self.name,
+                tx_queue_len
+            )
+        )
