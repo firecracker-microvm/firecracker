@@ -73,7 +73,7 @@
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
 # (Yet another step on our way to reproducible builds.)
-DEVCTR_IMAGE="fcuvm/dev:v15"
+DEVCTR_IMAGE="fcuvm/dev:v16"
 
 # Naming things is hard
 MY_NAME="Firecracker $(basename "$0")"
@@ -480,13 +480,9 @@ cmd_build() {
     # Run the cargo build process inside the container.
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
-    #
-    # Note: we need to pass an explicit TARGET_CC to cargo, because the `cc`
-    # crate gets confused for aarch64 musl.
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
-        --env TARGET_CC=musl-gcc \
         -- \
         cargo build \
             --target-dir "$CTR_CARGO_TARGET_DIR" \
