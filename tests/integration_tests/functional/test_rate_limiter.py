@@ -151,6 +151,48 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
     _check_rx_rate_limit_patch(test_microvm, guest_ips)
 
 
+def test_rx_rate_limiting_cpu_load(test_microvm_with_ssh, network_config):
+    """Run iperf rx with rate limiting; verify cpu load is below threshold."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    test_microvm.basic_config()
+
+    # Enable monitor that checks if the cpu load is over the threshold.
+    # After multiple runs, the average value for the cpu load
+    # seems to be around 10%. Setting the threshold a little
+    # higher to skip false positives.
+    threshold = 20
+    test_microvm.enable_cpu_load_monitor(threshold)
+
+    # Create interface with aggressive rate limiting enabled.
+    rx_rate_limiter_no_burst = {
+        'bandwidth': {
+            'size': 65536,  # 64KBytes
+            'refill_time': 1000  # 1s
+        }
+    }
+    _tap, _host_ip, guest_ip = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        rx_rate_limiter=rx_rate_limiter_no_burst
+    )
+
+    test_microvm.start()
+
+    # Start iperf server on guest.
+    _start_iperf_on_guest(test_microvm, guest_ip)
+
+    # Run iperf client sending UDP traffic.
+    iperf_cmd = '{} {} -u -c {} -b 1000000000 -t{} -f KBytes'.format(
+        test_microvm.jailer.netns_cmd_prefix(),
+        IPERF_BINARY,
+        guest_ip,
+        IPERF_TRANSMIT_TIME * 5
+    )
+    _iperf_out = _run_local_iperf(iperf_cmd)
+
+
 def _check_tx_rate_limiting(test_microvm, guest_ips, host_ips):
     """Check that the transmit rate is within expectations."""
     # Start iperf on the host as this is the tx rate limiting test.
