@@ -563,11 +563,26 @@ where
         self.pending_rx.insert(PendingRx::Rst);
     }
 
+    /// Return the connections state.
+    pub fn state(&self) -> ConnState {
+        self.state
+    }
+
+    /// Send some raw, untracked, data straight to the underlying connected stream.
+    /// Returns: number of bytes written, or the error describing the write failure.
+    ///
+    /// Warning: this will bypass the connection state machine and write directly to the
+    /// underlying stream. No account of this write is kept, which includes bypassing
+    /// vsock flow control.
+    pub fn send_bytes_raw(&mut self, buf: &[u8]) -> Result<usize> {
+        self.stream.write(buf).map_err(Error::StreamWrite)
+    }
+
     /// Send some raw data (a byte-slice) to the host stream.
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
-    pub fn send_bytes(&mut self, buf: &[u8]) -> Result<()> {
+    fn send_bytes(&mut self, buf: &[u8]) -> Result<()> {
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
         // events on the underlying stream. Therefore, there's no point in attempting a write
         // at this point. `self.notify()` will get called when EPOLLOUT arrives, and it will
@@ -600,11 +615,6 @@ where
         }
 
         Ok(())
-    }
-
-    /// Return the connections state.
-    pub fn state(&self) -> ConnState {
-        self.state
     }
 
     /// Check if the credit information the peer has last received from us is outdated.

@@ -636,11 +636,20 @@ impl VsockMuxer {
             // If this is a host-initiated connection that has just become established, we'll have
             // to send an ack message to the host end.
             if prev_state == ConnState::LocalInit && conn.state() == ConnState::Established {
-                conn.send_bytes(format!("OK {}\n", key.local_port).as_bytes())
-                    .unwrap_or_else(|err| {
+                let msg = format!("OK {}\n", key.local_port);
+                match conn.send_bytes_raw(msg.as_bytes()) {
+                    Ok(written) if written == msg.len() => (),
+                    Ok(_) => {
+                        // If we can't write a dozen bytes to a pristine connection something
+                        // must be really wrong. Killing it.
+                        conn.kill();
+                        warn!("vsock: unable to fully write connection ack msg.");
+                    }
+                    Err(err) => {
                         conn.kill();
                         warn!("vsock: unable to ack host connection: {:?}", err);
-                    });
+                    }
+                };
             }
 
             // If the connection wasn't previously scheduled for RX, add it to our RX queue.
