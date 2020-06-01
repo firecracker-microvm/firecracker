@@ -421,6 +421,13 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
+                Error::Chmod(path.clone(), io::Error::from_raw_os_error(2))
+            ),
+            "Failed to change permissions on \"/foo\": No such file or directory (os error 2)",
+        );
+        assert_eq!(
+            format!(
+                "{}",
                 Error::CgroupLineNotFound(proc_mounts.to_string(), controller.to_string())
             ),
             "sysfs configurations not found in /proc/mounts",
@@ -636,6 +643,18 @@ mod tests {
                 Error::Write(file_path, io::Error::from_raw_os_error(2))
             ),
             format!("Failed to write to /foo/bar: {}", err2_str),
+        );
+    }
+
+    #[test]
+    fn test_to_cstring() {
+        let path = Path::new("some_path");
+        let cstring_path = to_cstring(path).unwrap();
+        assert_eq!(cstring_path, CString::new("some_path").unwrap());
+        let path_with_nul = Path::new("some_path\0");
+        assert_eq!(
+            format!("{}", to_cstring(path_with_nul).unwrap_err()),
+            "Encountered interior \\0 while parsing a string"
         );
     }
 }
