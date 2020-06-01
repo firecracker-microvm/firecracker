@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::ffi::CStr;
+use std::ffi::{CStr, OsString};
 use std::fs::{self, canonicalize, File, Permissions};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::IntoRawFd;
@@ -210,14 +210,11 @@ impl Env {
             .map_err(|e| Error::ChangeFileOwner(path_buf, e))
     }
 
-    pub fn run(mut self) -> Result<()> {
+    fn copy_exec_to_chroot(&mut self) -> Result<OsString> {
         let exec_file_name = self
             .exec_file_path
             .file_name()
             .ok_or_else(|| Error::FileName(self.exec_file_path.clone()))?;
-
-        let chroot_exec_file = PathBuf::from("/").join(exec_file_name);
-
         // We do a quick push here to get the global path of the executable inside the chroot,
         // without having to create a new PathBuf. We'll then do a pop to revert to the actual
         // chroot_dir right after the copy.
@@ -232,30 +229,40 @@ impl Env {
 
         // Pop exec_file_name.
         self.chroot_dir.pop();
+        Ok(exec_file_name.to_os_string())
+    }
+
+    fn join_netns(path: &str) -> Result<()> {
+        // This will take ownership of the raw fd.
+        // TODO: for some reason, if we use as_raw_fd here instead, the resulting fd cannot
+        // be used with setns, because we get an EBADFD error. I wonder why?
+        let netns_fd = File::open(path)
+            .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
+            .into_raw_fd();
+
+        // Safe because we are passing valid parameters.
+        SyscallReturnCode(unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) })
+            .into_empty_result()
+            .map_err(Error::SetNetNs)?;
+
+        // Since we have ownership here, we also have to close the fd after joining the
+        // namespace. Safe because we are passing valid parameters.
+        SyscallReturnCode(unsafe { libc::close(netns_fd) })
+            .into_empty_result()
+            .map_err(Error::CloseNetNsFd)
+    }
+
+    pub fn run(mut self) -> Result<()> {
+        let exec_file_name = self.copy_exec_to_chroot()?;
+        let chroot_exec_file = PathBuf::from("/").join(&exec_file_name);
 
         // Join the specified network namespace, if applicable.
         if let Some(ref path) = self.netns {
-            // This will take ownership of the raw fd.
-            // TODO: for some reason, if we use as_raw_fd here instead, the resulting fd cannot
-            // be used with setns, because we get an EBADFD error. I wonder why?
-            let netns_fd = File::open(path)
-                .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
-                .into_raw_fd();
-
-            // Safe because we are passing valid parameters.
-            SyscallReturnCode(unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) })
-                .into_empty_result()
-                .map_err(Error::SetNetNs)?;
-
-            // Since we have ownership here, we also have to close the fd after joining the
-            // namespace. Safe because we are passing valid parameters.
-            SyscallReturnCode(unsafe { libc::close(netns_fd) })
-                .into_empty_result()
-                .map_err(Error::CloseNetNsFd)?;
+            Env::join_netns(path)?;
         }
 
         // We have to setup cgroups at this point, because we can't do it anymore after chrooting.
-        let cgroup = Cgroup::new(self.id.as_str(), self.numa_node, exec_file_name)?;
+        let cgroup = Cgroup::new(self.id.as_str(), self.numa_node, &exec_file_name)?;
         cgroup.attach_pid()?;
 
         // If daemonization was requested, open /dev/null before chrooting.
@@ -338,6 +345,7 @@ mod tests {
     use std::os::linux::fs::MetadataExt;
     use std::os::unix::ffi::OsStrExt;
     use utils::tempdir::TempDir;
+    use utils::tempfile::TempFile;
 
     #[derive(Clone)]
     struct ArgVals<'a> {
@@ -559,13 +567,6 @@ mod tests {
         // process management; it can't be isolated from side effects.
     }
 
-    fn skip_not_found(err: std::io::Error) -> std::io::Result<()> {
-        match err.kind() {
-            std::io::ErrorKind::NotFound => Ok(()),
-            _ => Err(err),
-        }
-    }
-
     fn get_major(dev: u64) -> u32 {
         unsafe { libc::major(dev) }
     }
@@ -596,8 +597,13 @@ mod tests {
         for (dev, major, minor) in dev_infos {
             let dev_str = CStr::from_bytes_with_nul(dev).unwrap().to_str().unwrap();
 
-            // Create a new device node (removing the old one if needed).
-            fs::remove_file(dev_str).or_else(skip_not_found).unwrap();
+            // Checking this just to be super sure there's no file at `dev_str` path (though
+            // it shouldn't be as we deleted it at the end of the previous test run).
+            if Path::new(dev_str).exists() {
+                fs::remove_file(dev_str).unwrap();
+            }
+
+            // Create a new device node.
             env.mknod_and_own_dev(dev, major, minor).unwrap();
 
             // Ensure device's properties.
@@ -609,6 +615,88 @@ mod tests {
                 metadata.permissions().mode(),
                 libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR
             );
+
+            // Trying to create again the same device node is not allowed.
+            assert_eq!(
+                format!("{}", env.mknod_and_own_dev(dev, major, minor).unwrap_err()),
+                format!(
+                    "Failed to create {}\u{0} via mknod inside the jail: File exists (os error 17)",
+                    dev_str
+                )
+            );
+            // Remove the device node.
+            fs::remove_file(dev_str).expect("Could not remove file.");
         }
+    }
+
+    #[test]
+    fn test_copy_exec_to_chroot() {
+        // Create a standard environment.
+        let arg_parser = build_arg_parser();
+        let mut args = arg_parser.arguments().clone();
+
+        // Create tmp resources for `exec_file` and `chroot_base`.
+        let some_file = TempFile::new_with_prefix("/tmp/").unwrap();
+        let some_file_path = some_file.as_path().to_str().unwrap();
+        let some_file_name = some_file.as_path().file_name().unwrap();
+        let some_dir = TempDir::new().unwrap();
+        let some_dir_path = some_dir.as_path().to_str().unwrap();
+
+        let some_arg_vals = ArgVals {
+            node: "1",
+            id: "bd65600d-8669-4903-8a14-af88203add38",
+            exec_file: some_file_path,
+            uid: "1001",
+            gid: "1002",
+            chroot_base: some_dir_path,
+            netns: Some("zzzns"),
+            daemonize: false,
+        };
+        fs::write(some_file_path, "some_content").unwrap();
+        args.parse(&make_args(&some_arg_vals)).unwrap();
+        let mut env = Env::new(&args, 0, 0).unwrap();
+
+        // Create the required chroot dir hierarchy.
+        fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
+
+        assert_eq!(
+            env.copy_exec_to_chroot().unwrap(),
+            some_file_name.to_os_string()
+        );
+
+        let dest_path = env.chroot_dir.to_path_buf().join(some_file_name);
+        // Check that `fs::copy()` copied src content and permission bits to destination.
+        let metadata_src = fs::metadata(&env.exec_file_path).unwrap();
+        let metadata_dest = fs::metadata(&dest_path).unwrap();
+        let content_src = fs::read(&env.exec_file_path).unwrap();
+        let content_dest = fs::read(&dest_path).unwrap();
+        assert_eq!(content_src, content_dest);
+        assert_eq!(content_dest, b"some_content");
+        assert_eq!(metadata_src.permissions(), metadata_dest.permissions());
+
+        // Clean up the environment.
+        fs::remove_dir_all(env.chroot_dir()).expect("Could not remove dir hierarchy.");
+    }
+
+    #[test]
+    fn test_join_netns() {
+        let mut path = "invalid_path";
+        assert_eq!(
+            format!("{}", Env::join_netns(path).unwrap_err()),
+            format!(
+                "Failed to open file {}: No such file or directory (os error 2)",
+                path
+            )
+        );
+
+        let tmp_file = TempFile::new().unwrap();
+        path = tmp_file.as_path().to_str().unwrap();
+        assert_eq!(
+            format!("{}", Env::join_netns(path).unwrap_err()),
+            "Failed to join network namespace: netns: Invalid argument (os error 22)"
+        );
+
+        // Testing `join_netns()` with a valid network namespace is not that easy
+        // as Rust std library doesn't offer support for creating such namespaces.
     }
 }
