@@ -111,7 +111,7 @@ async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE)
 
-    # Capture stdin/stdout
+    # Capture stdout/stderr
     stdout, stderr = await proc.communicate()
 
     output_message = f"\n[{proc.pid}] Command:\n{cmd}"
