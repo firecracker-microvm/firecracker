@@ -5,7 +5,7 @@ use std::{boxed::Box, result};
 
 use kvm_ioctls::DeviceFd;
 
-use super::gic::{Error, GICDevice};
+use super::{Error, GICDevice};
 
 type Result<T> = result::Result<T, Error>;
 
