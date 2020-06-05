@@ -1,12 +1,14 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+mod gicv2;
+mod gicv3;
+
 use std::{boxed::Box, result};
 
 use kvm_ioctls::{DeviceFd, VmFd};
 
-use super::gicv2::GICv2;
-use super::gicv3::GICv3;
+use {super::layout, gicv2::GICv2, gicv3::GICv3};
 
 /// Errors thrown while setting up the GIC.
 #[derive(Debug)]
