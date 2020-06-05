@@ -277,11 +277,7 @@ fn guest_memory_from_file(
     mem_state: &GuestMemoryState,
 ) -> std::result::Result<GuestMemoryMmap, LoadSnapshotError> {
     use self::LoadSnapshotError::{DeserializeMemory, MemoryBackingFile};
-    let mem_file = OpenOptions::new()
-        .write(true)
-        .read(true)
-        .open(mem_file_path)
-        .map_err(MemoryBackingFile)?;
+    let mem_file = File::open(mem_file_path).map_err(MemoryBackingFile)?;
     GuestMemoryMmap::restore(&mem_file, mem_state).map_err(DeserializeMemory)
 }
 
