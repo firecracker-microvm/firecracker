@@ -4,8 +4,6 @@
 mod fdt;
 /// Module for the global interrupt controller configuration.
 pub mod gic;
-mod gicv2;
-mod gicv3;
 /// Layout for this aarch64 system.
 pub mod layout;
 /// Logic for configuring aarch64 registers.
