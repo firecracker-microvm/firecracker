@@ -172,8 +172,7 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
     :param noshell: don't run the command in a sub-shell
     :returns: tuple of (return code, stdout, stderr)
     """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    loop = asyncio.get_event_loop()
 
     return loop.run_until_complete(
         run_cmd_async(cmd=cmd,
