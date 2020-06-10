@@ -16,6 +16,7 @@ extern crate vmm;
 mod parsed_request;
 mod request;
 
+use serde_json::json;
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::{fmt, io};
@@ -251,17 +252,8 @@ impl ApiServer {
         response
     }
 
-    // Builds a string that looks like (where $ stands for substitution):
-    //  {
-    //    "$k": "$v"
-    //  }
-    // Mainly used for building fault message response json bodies.
-    fn basic_json_body<K: AsRef<str>, V: AsRef<str>>(k: K, v: V) -> String {
-        format!("{{\n  \"{}\": \"{}\"\n}}", k.as_ref(), v.as_ref())
-    }
-
-    fn json_fault_message<T: AsRef<str>>(msg: T) -> String {
-        ApiServer::basic_json_body("fault_message", msg)
+    fn json_fault_message<T: AsRef<str> + serde::Serialize>(msg: T) -> String {
+        json!({ "fault_message": msg }).to_string()
     }
 }
 
