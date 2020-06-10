@@ -353,93 +353,98 @@ pub(crate) mod tests {
     #[test]
     fn test_error_into_response() {
         // Generic error.
-        let mut buf: [u8; 150] = [0; 150];
+        let mut buf: [u8; 145] = [0; 145];
         let response: Response =
             Error::Generic(StatusCode::BadRequest, "message".to_string()).into();
         assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let body = ApiServer::json_fault_message("message");
         let expected_response = format!(
             "HTTP/1.1 400 \r\n\
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 32\r\n\r\n\
+             Content-Length: {}\r\n\r\n\
              {}",
-            ApiServer::basic_json_body("fault_message", "message")
+            body.len(),
+            body
         );
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Empty ID error.
-        let mut buf: [u8; 166] = [0; 166];
+        let mut buf: [u8; 161] = [0; 161];
         let response: Response = Error::EmptyID.into();
         assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let body = ApiServer::json_fault_message("The ID cannot be empty.");
         let expected_response = format!(
             "HTTP/1.1 400 \r\n\
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 48\r\n\r\n\
+             Content-Length: {}\r\n\r\n\
              {}",
-            ApiServer::basic_json_body("fault_message", "The ID cannot be empty.")
+            body.len(),
+            body,
         );
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Invalid ID error.
-        let mut buf: [u8; 217] = [0; 217];
+        let mut buf: [u8; 212] = [0; 212];
         let response: Response = Error::InvalidID.into();
         assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let body = ApiServer::json_fault_message(
+            "API Resource IDs can only contain alphanumeric characters and underscores.",
+        );
         let expected_response = format!(
             "HTTP/1.1 400 \r\n\
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 99\r\n\r\n\
+             Content-Length: {}\r\n\r\n\
              {}",
-            ApiServer::basic_json_body(
-                "fault_message",
-                "API Resource IDs can only contain alphanumeric characters and underscores."
-            )
+            body.len(),
+            body,
         );
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Invalid path or method error.
-        let mut buf: [u8; 188] = [0; 188];
+        let mut buf: [u8; 183] = [0; 183];
         let response: Response = Error::InvalidPathMethod("path".to_string(), Method::Get).into();
         assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let body = ApiServer::json_fault_message(format!(
+            "Invalid request method and/or path: {} {}.",
+            std::str::from_utf8(Method::Get.raw()).unwrap(),
+            "path"
+        ));
         let expected_response = format!(
             "HTTP/1.1 400 \r\n\
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 70\r\n\r\n\
+             Content-Length: {}\r\n\r\n\
              {}",
-            ApiServer::basic_json_body(
-                "fault_message",
-                format!(
-                    "Invalid request method and/or path: {} {}.",
-                    std::str::from_utf8(Method::Get.raw()).unwrap(),
-                    "path"
-                )
-            )
+            body.len(),
+            body,
         );
         assert_eq!(&buf[..], expected_response.as_bytes());
 
         // Serde error.
-        let mut buf: [u8; 254] = [0; 254];
+        let mut buf: [u8; 249] = [0; 249];
         let serde_error = serde_json::Value::from_str("").unwrap_err();
         let response: Response = Error::SerdeJson(serde_error).into();
         assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        let body = ApiServer::json_fault_message(
+            "An error occurred when deserializing the json body of a request: \
+             EOF while parsing a value at line 1 column 0.",
+        );
         let expected_response = format!(
             "HTTP/1.1 400 \r\n\
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 135\r\n\r\n\
+             Content-Length: {}\r\n\r\n\
              {}",
-            ApiServer::basic_json_body(
-                "fault_message",
-                "An error occurred when deserializing the json body of a request: \
-                 EOF while parsing a value at line 1 column 0."
-            )
+            body.len(),
+            body,
         );
         assert_eq!(&buf[..], expected_response.as_bytes());
     }
@@ -490,7 +495,7 @@ pub(crate) mod tests {
 
         // Error.
         let error = VmmActionError::StartMicrovm(StartMicrovmError::MissingKernelConfig);
-        let mut buf: [u8; 193] = [0; 193];
+        let mut buf: [u8; 188] = [0; 188];
         let json = ApiServer::json_fault_message(error.to_string());
         let response = ParsedRequest::convert_to_response(Err(error));
         response.write_all(&mut buf.as_mut()).unwrap();
