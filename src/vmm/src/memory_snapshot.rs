@@ -103,9 +103,7 @@ impl SnapshotMemory for GuestMemoryMmap {
     /// Dumps all contents of GuestMemoryMmap to a writer.
     fn dump<T: std::io::Write>(&self, writer: &mut T) -> std::result::Result<(), Error> {
         self.with_regions_mut(|_, region| {
-            region
-                .write_to(MemoryRegionAddress(0), writer, region.len() as usize)
-                .map(|_| ())
+            region.write_all_to(MemoryRegionAddress(0), writer, region.len() as usize)
         })
         .map_err(Error::WriteMemory)
     }
@@ -140,18 +138,18 @@ impl SnapshotMemory for GuestMemoryMmap {
                         write_size += page_size;
                     } else if write_size > 0 {
                         // We are at the end of a batch of dirty pages.
-                        region
-                            .write_to(MemoryRegionAddress(dirty_batch_start), writer, write_size)
-                            .map(|_| ())?;
+                        region.write_all_to(
+                            MemoryRegionAddress(dirty_batch_start),
+                            writer,
+                            write_size,
+                        )?;
                         write_size = 0;
                     }
                 }
             }
 
             if write_size > 0 {
-                region
-                    .write_to(MemoryRegionAddress(dirty_batch_start), writer, write_size)
-                    .map(|_| ())?;
+                region.write_all_to(MemoryRegionAddress(dirty_batch_start), writer, write_size)?;
             }
 
             writer_offset += region.len();
