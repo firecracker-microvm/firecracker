@@ -234,7 +234,7 @@ pub fn checked_id(id: &str) -> Result<&str, Error> {
 pub(crate) mod tests {
     use super::*;
 
-    use std::io::Write;
+    use std::io::{Cursor, Write};
     use std::os::unix::net::UnixStream;
     use std::str::FromStr;
 
@@ -353,10 +353,10 @@ pub(crate) mod tests {
     #[test]
     fn test_error_into_response() {
         // Generic error.
-        let mut buf: [u8; 145] = [0; 145];
+        let mut buf = Cursor::new(vec![0]);
         let response: Response =
             Error::Generic(StatusCode::BadRequest, "message".to_string()).into();
-        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        assert!(response.write_all(&mut buf).is_ok());
         let body = ApiServer::json_fault_message("message");
         let expected_response = format!(
             "HTTP/1.1 400 \r\n\
@@ -368,12 +368,12 @@ pub(crate) mod tests {
             body.len(),
             body
         );
-        assert_eq!(&buf[..], expected_response.as_bytes());
+        assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
         // Empty ID error.
-        let mut buf: [u8; 161] = [0; 161];
+        let mut buf = Cursor::new(vec![0]);
         let response: Response = Error::EmptyID.into();
-        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        assert!(response.write_all(&mut buf).is_ok());
         let body = ApiServer::json_fault_message("The ID cannot be empty.");
         let expected_response = format!(
             "HTTP/1.1 400 \r\n\
@@ -385,12 +385,12 @@ pub(crate) mod tests {
             body.len(),
             body,
         );
-        assert_eq!(&buf[..], expected_response.as_bytes());
+        assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
         // Invalid ID error.
-        let mut buf: [u8; 212] = [0; 212];
+        let mut buf = Cursor::new(vec![0]);
         let response: Response = Error::InvalidID.into();
-        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        assert!(response.write_all(&mut buf).is_ok());
         let body = ApiServer::json_fault_message(
             "API Resource IDs can only contain alphanumeric characters and underscores.",
         );
@@ -404,12 +404,12 @@ pub(crate) mod tests {
             body.len(),
             body,
         );
-        assert_eq!(&buf[..], expected_response.as_bytes());
+        assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
         // Invalid path or method error.
-        let mut buf: [u8; 183] = [0; 183];
+        let mut buf = Cursor::new(vec![0]);
         let response: Response = Error::InvalidPathMethod("path".to_string(), Method::Get).into();
-        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        assert!(response.write_all(&mut buf).is_ok());
         let body = ApiServer::json_fault_message(format!(
             "Invalid request method and/or path: {} {}.",
             std::str::from_utf8(Method::Get.raw()).unwrap(),
@@ -425,13 +425,13 @@ pub(crate) mod tests {
             body.len(),
             body,
         );
-        assert_eq!(&buf[..], expected_response.as_bytes());
+        assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
         // Serde error.
-        let mut buf: [u8; 249] = [0; 249];
+        let mut buf = Cursor::new(vec![0]);
         let serde_error = serde_json::Value::from_str("").unwrap_err();
         let response: Response = Error::SerdeJson(serde_error).into();
-        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        assert!(response.write_all(&mut buf).is_ok());
         let body = ApiServer::json_fault_message(
             "An error occurred when deserializing the json body of a request: \
              EOF while parsing a value at line 1 column 0.",
@@ -446,7 +446,7 @@ pub(crate) mod tests {
             body.len(),
             body,
         );
-        assert_eq!(&buf[..], expected_response.as_bytes());
+        assert_eq!(buf.into_inner(), expected_response.as_bytes());
     }
 
     #[test]
@@ -468,21 +468,21 @@ pub(crate) mod tests {
     #[test]
     fn test_convert_to_response() {
         // Empty Vmm data.
-        let mut buf: [u8; 66] = [0; 66];
+        let mut buf = Cursor::new(vec![0]);
         let response = ParsedRequest::convert_to_response(Ok(VmmData::Empty));
-        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        assert!(response.write_all(&mut buf).is_ok());
         let expected_response = "HTTP/1.1 204 \r\n\
                                  Server: Firecracker API\r\n\
                                  Connection: keep-alive\r\n\r\n"
             .to_string();
-        assert_eq!(&buf[..], expected_response.as_bytes());
+        assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
         // With Vmm data.
-        let mut buf: [u8; 241] = [0; 241];
+        let mut buf = Cursor::new(vec![0]);
         let response = ParsedRequest::convert_to_response(Ok(VmmData::MachineConfiguration(
             VmConfig::default(),
         )));
-        assert!(response.write_all(&mut buf.as_mut()).is_ok());
+        assert!(response.write_all(&mut buf).is_ok());
         let expected_response = format!(
             "HTTP/1.1 200 \r\n\
              Server: Firecracker API\r\n\
@@ -491,14 +491,14 @@ pub(crate) mod tests {
              Content-Length: 122\r\n\r\n{}",
             VmConfig::default().to_string()
         );
-        assert_eq!(&buf[..], expected_response.as_bytes());
+        assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
         // Error.
         let error = VmmActionError::StartMicrovm(StartMicrovmError::MissingKernelConfig);
-        let mut buf: [u8; 188] = [0; 188];
+        let mut buf = Cursor::new(vec![0]);
         let json = ApiServer::json_fault_message(error.to_string());
         let response = ParsedRequest::convert_to_response(Err(error));
-        response.write_all(&mut buf.as_mut()).unwrap();
+        response.write_all(&mut buf).unwrap();
 
         let expected_response = format!(
             "HTTP/1.1 400 \r\n\
@@ -509,7 +509,7 @@ pub(crate) mod tests {
             json.len(),
             json,
         );
-        assert_eq!(&buf[..], expected_response.as_bytes());
+        assert_eq!(buf.into_inner(), expected_response.as_bytes());
     }
 
     #[test]
