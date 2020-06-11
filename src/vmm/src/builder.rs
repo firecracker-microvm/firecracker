@@ -615,7 +615,6 @@ fn create_vcpus(
         let vcpu = Vcpu::new_x86_64(
             cpu_idx,
             vm.fd(),
-            vm.supported_cpuid().clone(),
             vm.supported_msrs().clone(),
             exit_evt,
             request_ts.clone(),
@@ -645,9 +644,14 @@ pub fn configure_system_for_boot(
     #[cfg(target_arch = "x86_64")]
     {
         for vcpu in vcpus.iter_mut() {
-            vcpu.configure_x86_64_for_boot(vmm.guest_memory(), entry_addr, &vcpu_config)
-                .map_err(Error::Vcpu)
-                .map_err(Internal)?;
+            vcpu.configure_x86_64_for_boot(
+                vmm.guest_memory(),
+                entry_addr,
+                &vcpu_config,
+                vmm.vm.supported_cpuid().clone(),
+            )
+            .map_err(Error::Vcpu)
+            .map_err(Internal)?;
         }
 
         // Write the kernel command line to guest memory. This is x86_64 specific, since on

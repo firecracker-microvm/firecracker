@@ -142,6 +142,9 @@ pub enum Error {
     /// Cannot run the VCPUs.
     VcpuRun(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
+    /// Failed to get KVM vcpu cpuid.
+    VcpuGetCpuid(kvm_ioctls::Error),
+    #[cfg(target_arch = "x86_64")]
     /// Failed to set KVM vcpu cpuid.
     VcpuSetCpuid(kvm_ioctls::Error),
     #[cfg(target_arch = "x86_64")]
@@ -278,6 +281,8 @@ impl Display for Error {
             VcpuGetXcrs(e) => write!(f, "Failed to get KVM vcpu xcrs: {}", e),
             #[cfg(target_arch = "x86_64")]
             VcpuGetXsave(e) => write!(f, "Failed to get KVM vcpu xsave: {}", e),
+            #[cfg(target_arch = "x86_64")]
+            VcpuGetCpuid(e) => write!(f, "Failed to get KVM vcpu cpuid: {}", e),
             #[cfg(target_arch = "x86_64")]
             VcpuSetCpuid(e) => write!(f, "Failed to set KVM vcpu cpuid: {}", e),
             #[cfg(target_arch = "x86_64")]
@@ -603,8 +608,6 @@ pub struct Vcpu {
     #[cfg(target_arch = "x86_64")]
     pio_bus: Option<devices::Bus>,
     #[cfg(target_arch = "x86_64")]
-    cpuid: CpuId,
-    #[cfg(target_arch = "x86_64")]
     msr_list: MsrList,
 
     #[cfg(target_arch = "aarch64")]
@@ -709,7 +712,6 @@ impl Vcpu {
     ///
     /// * `id` - Represents the CPU number between [0, max vcpus).
     /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
-    /// * `cpuid` - The `CpuId` listing the supported capabilities of this vcpu.
     /// * `msr_list` - The `MsrList` listing the supported MSRs for this vcpu.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
     /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
@@ -717,7 +719,6 @@ impl Vcpu {
     pub fn new_x86_64(
         id: u8,
         vm_fd: &VmFd,
-        cpuid: CpuId,
         msr_list: MsrList,
         exit_evt: EventFd,
         create_ts: TimestampUs,
@@ -726,7 +727,6 @@ impl Vcpu {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
 
-        // Initially the cpuid per vCPU is the one supported by this VM.
         Ok(Vcpu {
             fd: kvm_vcpu,
             id,
@@ -734,7 +734,6 @@ impl Vcpu {
             mmio_bus: None,
             exit_evt,
             pio_bus: None,
-            cpuid,
             msr_list,
             event_receiver,
             event_sender: Some(event_sender),
@@ -806,16 +805,19 @@ impl Vcpu {
     /// * `machine_config` - The machine configuration of this microvm needed for the CPUID configuration.
     /// * `guest_mem` - The guest memory used by this microvm.
     /// * `kernel_start_addr` - Offset from `guest_mem` at which the kernel starts.
+    /// * `vcpu_config` - The vCPU configuration.
+    /// * `cpuid` - The capabilities exposed by this vCPU.
     pub fn configure_x86_64_for_boot(
         &mut self,
         guest_mem: &GuestMemoryMmap,
         kernel_start_addr: GuestAddress,
         vcpu_config: &VcpuConfig,
+        mut cpuid: CpuId,
     ) -> Result<()> {
         let cpuid_vm_spec = VmSpec::new(self.id, vcpu_config.vcpu_count, vcpu_config.ht_enabled)
             .map_err(Error::CpuId)?;
 
-        filter_cpuid(&mut self.cpuid, &cpuid_vm_spec).map_err(|e| {
+        filter_cpuid(&mut cpuid, &cpuid_vm_spec).map_err(|e| {
             METRICS.vcpu.filter_cpuid.inc();
             error!("Failure in configuring CPUID for vcpu {}: {:?}", self.id, e);
             Error::CpuId(e)
@@ -824,17 +826,15 @@ impl Vcpu {
         if let Some(template) = vcpu_config.cpu_template {
             match template {
                 CpuFeaturesTemplate::T2 => {
-                    t2::set_cpuid_entries(&mut self.cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
+                    t2::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
                 }
                 CpuFeaturesTemplate::C3 => {
-                    c3::set_cpuid_entries(&mut self.cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
+                    c3::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
                 }
             }
         }
 
-        self.fd
-            .set_cpuid2(&self.cpuid)
-            .map_err(Error::VcpuSetCpuid)?;
+        self.fd.set_cpuid2(&cpuid).map_err(Error::VcpuSetCpuid)?;
 
         arch::x86_64::msr::setup_msrs(&self.fd).map_err(Error::MSRSConfiguration)?;
         arch::x86_64::regs::setup_regs(&self.fd, kernel_start_addr.raw_value() as u64)
@@ -960,8 +960,12 @@ impl Vcpu {
             .fd
             .get_vcpu_events()
             .map_err(Error::VcpuGetVcpuEvents)?;
+
         Ok(VcpuState {
-            cpuid: self.cpuid.clone(),
+            cpuid: self
+                .fd
+                .get_cpuid2(kvm_bindings::KVM_MAX_CPUID_ENTRIES)
+                .map_err(Error::VcpuGetCpuid)?,
             msrs,
             debug_regs,
             lapic,
@@ -1488,7 +1492,6 @@ pub(crate) mod tests {
             vcpu = Vcpu::new_x86_64(
                 1,
                 vm.fd(),
-                vm.supported_cpuid().clone(),
                 vm.supported_msrs().clone(),
                 exit_evt,
                 super::super::TimestampUs::default(),
@@ -1580,7 +1583,6 @@ pub(crate) mod tests {
         let _vcpu = Vcpu::new_x86_64(
             1,
             vm.fd(),
-            vm.supported_cpuid().clone(),
             vm.supported_msrs().clone(),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
             super::super::TimestampUs::default(),
@@ -1622,19 +1624,34 @@ pub(crate) mod tests {
         };
 
         assert!(vcpu
-            .configure_x86_64_for_boot(&vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64_for_boot(
+                &vm_mem,
+                GuestAddress(0),
+                &vcpu_config,
+                _vm.supported_cpuid().clone()
+            )
             .is_ok());
 
         // Test configure while using the T2 template.
         vcpu_config.cpu_template = Some(CpuFeaturesTemplate::T2);
         assert!(vcpu
-            .configure_x86_64_for_boot(&vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64_for_boot(
+                &vm_mem,
+                GuestAddress(0),
+                &vcpu_config,
+                _vm.supported_cpuid().clone(),
+            )
             .is_ok());
 
         // Test configure while using the C3 template.
         vcpu_config.cpu_template = Some(CpuFeaturesTemplate::C3);
         assert!(vcpu
-            .configure_x86_64_for_boot(&vm_mem, GuestAddress(0), &vcpu_config)
+            .configure_x86_64_for_boot(
+                &vm_mem,
+                GuestAddress(0),
+                &vcpu_config,
+                _vm.supported_cpuid().clone(),
+            )
             .is_ok());
     }
 
@@ -1837,8 +1854,13 @@ pub(crate) mod tests {
             ht_enabled: false,
             cpu_template: None,
         };
-        vcpu.configure_x86_64_for_boot(&vm_mem, entry_addr, &vcpu_config)
-            .expect("failed to configure vcpu");
+        vcpu.configure_x86_64_for_boot(
+            &vm_mem,
+            entry_addr,
+            &vcpu_config,
+            _vm.supported_cpuid().clone(),
+        )
+        .expect("failed to configure vcpu");
 
         let seccomp_filter = seccomp::SeccompFilter::empty().try_into().unwrap();
         let vcpu_handle = vcpu
