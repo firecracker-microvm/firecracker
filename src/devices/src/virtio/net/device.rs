@@ -612,7 +612,7 @@ impl Net {
             DeviceState::Inactive => unreachable!(),
         };
         METRICS.net.rx_tap_event_count.inc();
-        if self.queues[RX_INDEX].is_empty(mem) {
+        if self.queues[RX_INDEX].is_empty(mem) && self.rx_deferred_frame {
             METRICS.net.no_rx_avail_buffer.inc();
             return;
         }
@@ -1402,6 +1402,7 @@ pub(crate) mod tests {
 
         // The RX queue is empty.
         let tap_event = EpollEvent::new(EventSet::IN, net.tap.as_raw_fd() as u64);
+        net.rx_deferred_frame = true;
         check_metric_after_block!(
             &METRICS.net.no_rx_avail_buffer,
             1,
