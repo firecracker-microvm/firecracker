@@ -534,7 +534,11 @@ impl EpollHandler for NetEpollHandler {
             RX_TAP_EVENT => {
                 METRICS.net.rx_tap_event_count.inc();
 
-                if self.rx.queue.is_empty(&self.mem) {
+                // While there are no available RX queue buffers and there's a deferred_frame
+                // don't process any more incoming. Otherwise start processing a frame. In the
+                // process the deferred_frame flag will be set in order to avoid freezing the
+                // RX queue.
+                if self.rx.queue.is_empty(&self.mem) && self.rx.deferred_frame {
                     return Err(DeviceError::NoAvailBuffers);
                 }
 
@@ -1461,7 +1465,8 @@ mod tests {
         let mem = GuestMemory::new(&[(GuestAddress(0), 0x10000)]).unwrap();
         let (mut h, _txq, rxq) = default_test_netepollhandler(&mem, test_mutators);
 
-        // The RX queue is empty.
+        // The RX queue is empty and rx.deferred_frame flag is set.
+        h.rx.deferred_frame = true;
         match h.handle_event(RX_TAP_EVENT, epoll::Events::EPOLLIN) {
             Err(DeviceError::NoAvailBuffers) => (),
             _ => panic!("invalid"),
