@@ -1976,4 +1976,22 @@ pub(crate) mod tests {
         // Setting default state should always fail.
         assert!(vcpu.restore_state(&state).is_err());
     }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_vcpu_cpuid_restore() {
+        let (_vm, vcpu, _mem) = setup_vcpu(0x1000);
+        let mut state = vcpu.save_state().unwrap();
+        // Mutate the cpuid.
+        state.cpuid.as_mut_slice()[0].eax = 0x1234_5678;
+        assert!(vcpu.restore_state(&state).is_ok());
+
+        unsafe { libc::close(vcpu.fd.as_raw_fd()) };
+
+        let (_vm, vcpu, _mem) = setup_vcpu(0x1000);
+        assert!(vcpu.restore_state(&state).is_ok());
+
+        // Validate the mutated cpuid is saved.
+        assert!(vcpu.save_state().unwrap().cpuid.as_slice()[0].eax == 0x1234_5678);
+    }
 }
