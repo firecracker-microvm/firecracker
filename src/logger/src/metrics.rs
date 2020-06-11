@@ -601,7 +601,7 @@ struct SerializeToUtcTimestampMs;
 impl Serialize for SerializeToUtcTimestampMs {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_i64(
-            utils::time::get_time(utils::time::ClockType::Monotonic) as i64 / 1_000_000,
+            utils::time::get_time_ns(utils::time::ClockType::Monotonic) as i64 / 1_000_000,
         )
     }
 }

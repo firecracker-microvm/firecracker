@@ -76,7 +76,7 @@ impl RTC {
         RTC {
             // This is used only for duration measuring purposes.
             previous_now: Instant::now(),
-            tick_offset: utils::time::get_time(utils::time::ClockType::Real) as i64,
+            tick_offset: utils::time::get_time_ns(utils::time::ClockType::Real) as i64,
             match_value: 0,
             load: 0,
             imsc: 0,
@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(v, 123);
 
         // Read and write to the LR register.
-        let v = utils::time::get_time(utils::time::ClockType::Real);
+        let v = utils::time::get_time_ns(utils::time::ClockType::Real);
         byte_order::write_le_u32(&mut data, (v / utils::time::NANOS_PER_SECOND) as u32);
         let previous_now_before = rtc.previous_now;
         rtc.write(RTCLR, &data);

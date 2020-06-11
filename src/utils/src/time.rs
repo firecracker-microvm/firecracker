@@ -114,8 +114,8 @@ pub struct TimestampUs {
 impl Default for TimestampUs {
     fn default() -> TimestampUs {
         TimestampUs {
-            time_us: get_time(ClockType::Monotonic) / 1000,
-            cputime_us: get_time(ClockType::ProcessCpu) / 1000,
+            time_us: get_time_us(ClockType::Monotonic),
+            cputime_us: get_time_us(ClockType::ProcessCpu),
         }
     }
 }
@@ -131,7 +131,7 @@ pub fn timestamp_cycles() -> u64 {
     }
     #[cfg(not(target_arch = "x86_64"))]
     {
-        get_time(ClockType::Monotonic)
+        get_time_ns(ClockType::Monotonic)
     }
 }
 
@@ -140,7 +140,7 @@ pub fn timestamp_cycles() -> u64 {
 /// # Arguments
 ///
 /// * `clock_type` - Identifier of the Linux Kernel clock on which to act.
-pub fn get_time(clock_type: ClockType) -> u64 {
+pub fn get_time_ns(clock_type: ClockType) -> u64 {
     let mut time_struct = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,
@@ -149,6 +149,15 @@ pub fn get_time(clock_type: ClockType) -> u64 {
     unsafe { libc::clock_gettime(clock_type.into(), &mut time_struct) };
     seconds_to_nanoseconds(time_struct.tv_sec).expect("Time conversion overflow") as u64
         + (time_struct.tv_nsec as u64)
+}
+
+/// Returns a timestamp in microseconds based on the provided clock type.
+///
+/// # Arguments
+///
+/// * `clock_type` - Identifier of the Linux Kernel clock on which to act.
+pub fn get_time_us(clock_type: ClockType) -> u64 {
+    get_time_ns(clock_type) / 1000
 }
 
 /// Converts a timestamp in seconds to an equivalent one in nanoseconds.
@@ -168,18 +177,20 @@ mod tests {
     #[test]
     fn test_get_time() {
         for _ in 0..1000 {
-            assert!(get_time(ClockType::Monotonic) <= get_time(ClockType::Monotonic));
+            assert!(get_time_ns(ClockType::Monotonic) <= get_time_ns(ClockType::Monotonic));
         }
 
         for _ in 0..1000 {
-            assert!(get_time(ClockType::ProcessCpu) <= get_time(ClockType::ProcessCpu));
+            assert!(get_time_ns(ClockType::ProcessCpu) <= get_time_ns(ClockType::ProcessCpu));
         }
 
         for _ in 0..1000 {
-            assert!(get_time(ClockType::ThreadCpu) <= get_time(ClockType::ThreadCpu));
+            assert!(get_time_ns(ClockType::ThreadCpu) <= get_time_ns(ClockType::ThreadCpu));
         }
 
-        assert_ne!(get_time(ClockType::Real), 0);
+        assert_ne!(get_time_ns(ClockType::Real), 0);
+        assert_ne!(get_time_us(ClockType::Real), 0);
+        assert!(get_time_ns(ClockType::Real) / 1000 <= get_time_us(ClockType::Real));
     }
 
     #[test]
