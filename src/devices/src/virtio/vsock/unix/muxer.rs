@@ -1342,4 +1342,41 @@ mod tests {
         // Check that fwd_cnt is 0 - "OK ..." was not accounted for.
         assert_eq!(conn.fwd_cnt().0, 0);
     }
+
+    #[test]
+    fn test_regression_rxq_pop() {
+        // Address one of the issues found while fixing the following issue:
+        // https://github.com/firecracker-microvm/firecracker/issues/1751
+        // This test checks that a connection is not popped out of the muxer
+        // rxq when multiple flags are set
+        let mut ctx = MuxerTestContext::new("regression_rxq_pop");
+        let peer_port = 1025;
+        let (mut stream, local_port) = ctx.local_connect(peer_port);
+
+        // Send some data.
+        let data = [5u8, 6, 7, 8];
+        stream.write_all(&data).unwrap();
+        ctx.notify_muxer();
+
+        // Get the connection from the connection map.
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        let conn = ctx.muxer.conn_map.get_mut(&key).unwrap();
+
+        // Forcefully insert another flag.
+        conn.insert_credit_update();
+
+        // Call recv twice in order to check that the connection is still
+        // in the rxq.
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+
+        // Since initially the connection had two flags set, now there should
+        // not be any pending RX in the muxer.
+        assert!(!ctx.muxer.has_pending_rx());
+    }
 }

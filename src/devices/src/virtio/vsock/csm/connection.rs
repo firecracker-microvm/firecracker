@@ -757,6 +757,11 @@ mod tests {
         pub(crate) fn fwd_cnt(&self) -> Wrapping<u32> {
             self.fwd_cnt
         }
+
+        /// Forcefully insert a credit update flag.
+        pub(crate) fn insert_credit_update(&mut self) {
+            self.pending_rx.insert(PendingRx::CreditUpdate);
+        }
     }
 
     fn init_pkt(pkt: &mut VsockPacket, op: u16, len: u32) -> &mut VsockPacket {
