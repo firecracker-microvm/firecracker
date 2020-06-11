@@ -1320,4 +1320,26 @@ mod tests {
 
         assert!(!ctx.muxer.has_pending_rx());
     }
+
+    #[test]
+    fn test_regression_handshake() {
+        // Address one of the issues found while fixing the following issue:
+        // https://github.com/firecracker-microvm/firecracker/issues/1751
+        // This test checks that the handshake message is not accounted for
+        let mut ctx = MuxerTestContext::new("regression_handshake");
+        let peer_port = 1025;
+
+        // Create a local connection.
+        let (_, local_port) = ctx.local_connect(peer_port);
+
+        // Get the connection from the connection map.
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        let conn = ctx.muxer.conn_map.get_mut(&key).unwrap();
+
+        // Check that fwd_cnt is 0 - "OK ..." was not accounted for.
+        assert_eq!(conn.fwd_cnt().0, 0);
+    }
 }

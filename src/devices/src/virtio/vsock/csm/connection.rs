@@ -749,6 +749,16 @@ mod tests {
         }
     }
 
+    impl<S> VsockConnection<S>
+    where
+        S: Read + Write + AsRawFd,
+    {
+        /// Get the fwd_cnt value from the connection.
+        pub(crate) fn fwd_cnt(&self) -> Wrapping<u32> {
+            self.fwd_cnt
+        }
+    }
+
     fn init_pkt(pkt: &mut VsockPacket, op: u16, len: u32) -> &mut VsockPacket {
         for b in pkt.hdr_mut() {
             *b = 0;
