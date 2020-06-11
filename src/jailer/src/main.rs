@@ -342,8 +342,8 @@ fn main() {
 
     Env::new(
         arg_parser.arguments(),
-        utils::time::get_time(utils::time::ClockType::Monotonic) / 1000,
-        utils::time::get_time(utils::time::ClockType::ProcessCpu) / 1000,
+        utils::time::get_time_us(utils::time::ClockType::Monotonic),
+        utils::time::get_time_us(utils::time::ClockType::ProcessCpu),
     )
     .and_then(|env| {
         fs::create_dir_all(env.chroot_dir())

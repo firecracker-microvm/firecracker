@@ -105,8 +105,7 @@ impl ApiServer {
         let mut server = HttpServer::new(path).expect("Error creating the HTTP server");
 
         if let Some(start_time) = start_time_us {
-            let delta_us =
-                (utils::time::get_time(utils::time::ClockType::Monotonic) / 1000) - start_time;
+            let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
             METRICS
                 .api_server
                 .process_startup_time_us
@@ -115,7 +114,7 @@ impl ApiServer {
 
         if let Some(cpu_start_time) = start_time_cpu_us {
             let delta_us =
-                utils::time::get_time(utils::time::ClockType::ProcessCpu) / 1000 - cpu_start_time;
+                utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - cpu_start_time;
             METRICS
                 .api_server
                 .process_startup_time_cpu_us
