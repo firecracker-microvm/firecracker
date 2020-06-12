@@ -178,81 +178,94 @@ where
             return Ok(());
         }
 
+        if self.pending_rx.remove(PendingRx::Rw) {
+            // We're due to produce a data packet, by reading the data from the host-side
+            // Unix socket.
+
+            match self.state {
+                // A data packet is only valid for established connections, and connections for
+                // which our peer has initiated a graceful shutdown, but can still receive data.
+                ConnState::Established | ConnState::PeerClosed(false, _) => (),
+                _ => {
+                    // Any other connection state is invalid at this point, and we need to kill it
+                    // with fire.
+                    pkt.set_op(uapi::VSOCK_OP_RST);
+                    return Ok(());
+                }
+            }
+
+            // Oh wait, before we start bringing in the big data, can our peer handle receiving so
+            // much bytey goodness?
+            if self.need_credit_update_from_peer() {
+                self.last_fwd_cnt_to_peer = self.fwd_cnt;
+                pkt.set_op(uapi::VSOCK_OP_CREDIT_REQUEST);
+                return Ok(());
+            }
+
+            let buf = pkt.buf_mut().ok_or(VsockError::PktBufMissing)?;
+
+            // The maximum amount of data we can read in is limited by both the RX buffer size and
+            // the peer available buffer space.
+            let max_len = std::cmp::min(buf.len(), self.peer_avail_credit());
+
+            // Read data from the stream straight to the RX buffer, for maximum throughput.
+            match self.stream.read(&mut buf[..max_len]) {
+                Ok(read_cnt) => {
+                    if read_cnt == 0 {
+                        // A 0-length read means the host stream was closed down. In that case,
+                        // we'll ask our peer to shut down the connection. We can neither send nor
+                        // receive any more data.
+                        self.state = ConnState::LocalClosed;
+                        self.expiry = Some(
+                            Instant::now() + Duration::from_millis(defs::CONN_SHUTDOWN_TIMEOUT_MS),
+                        );
+                        pkt.set_op(uapi::VSOCK_OP_SHUTDOWN)
+                            .set_flag(uapi::VSOCK_FLAGS_SHUTDOWN_RCV)
+                            .set_flag(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
+                    } else {
+                        // On a successful data read, we fill in the packet with the RW op, and
+                        // length of the read data.
+                        pkt.set_op(uapi::VSOCK_OP_RW).set_len(read_cnt as u32);
+                    }
+                    self.rx_cnt += Wrapping(pkt.len());
+                    self.last_fwd_cnt_to_peer = self.fwd_cnt;
+                    return Ok(());
+                }
+                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                    // This shouldn't actually happen (receiving EWOULDBLOCK after EPOLLIN), but
+                    // apparently it does, so we need to handle it greacefully.
+                    warn!(
+                        "vsock: unexpected EWOULDBLOCK while reading from backing stream: \
+                         lp={}, pp={}, err={:?}",
+                        self.local_port, self.peer_port, err
+                    );
+                }
+                Err(err) => {
+                    // We are not expecting any other errors when reading from the underlying
+                    // stream. If any show up, we'll immediately kill this connection.
+                    error!(
+                        "vsock: error reading from backing stream: lp={}, pp={}, err={:?}",
+                        self.local_port, self.peer_port, err
+                    );
+                    pkt.set_op(uapi::VSOCK_OP_RST);
+                    self.last_fwd_cnt_to_peer = self.fwd_cnt;
+                    return Ok(());
+                }
+            };
+        }
+
         // A credit update is basically a no-op, so we should only waste a perfectly fine RX
-        // buffer on it if we really have nothing else to say.
+        // buffer on it if we really have nothing else to say, hence we check for this RX
+        // indication last.
         if self.pending_rx.remove(PendingRx::CreditUpdate) && !self.has_pending_rx() {
             pkt.set_op(uapi::VSOCK_OP_CREDIT_UPDATE);
             self.last_fwd_cnt_to_peer = self.fwd_cnt;
             return Ok(());
         }
 
-        // Alright, if we got to here, we need to cough up a data packet. We've already checked
-        // for all other pending RX indications.
-        if !self.pending_rx.remove(PendingRx::Rw) {
-            return Err(VsockError::NoData);
-        }
-
-        match self.state {
-            // A data packet is only valid for established connections, and connections for
-            // which our peer has initiated a graceful shutdown, but can still receive data.
-            ConnState::Established | ConnState::PeerClosed(false, _) => (),
-            _ => {
-                // Any other connection state is invalid at this point, and we need to kill it
-                // with fire.
-                pkt.set_op(uapi::VSOCK_OP_RST);
-                return Ok(());
-            }
-        }
-
-        // Oh wait, before we start bringing in the big data, can our peer handle receiving so
-        // much bytey goodness?
-        if self.need_credit_update_from_peer() {
-            self.last_fwd_cnt_to_peer = self.fwd_cnt;
-            pkt.set_op(uapi::VSOCK_OP_CREDIT_REQUEST);
-            return Ok(());
-        }
-
-        let buf = pkt.buf_mut().ok_or(VsockError::PktBufMissing)?;
-
-        // The maximum amount of data we can read in is limited by both the RX buffer size and
-        // the peer available buffer space.
-        let max_len = std::cmp::min(buf.len(), self.peer_avail_credit());
-
-        // Read data from the stream straight to the RX buffer, for maximum throughput.
-        match self.stream.read(&mut buf[..max_len]) {
-            Ok(read_cnt) => {
-                if read_cnt == 0 {
-                    // A 0-length read means the host stream was closed down. In that case,
-                    // we'll ask our peer to shut down the connection. We can neither send nor
-                    // receive any more data.
-                    self.state = ConnState::LocalClosed;
-                    self.expiry = Some(
-                        Instant::now() + Duration::from_millis(defs::CONN_SHUTDOWN_TIMEOUT_MS),
-                    );
-                    pkt.set_op(uapi::VSOCK_OP_SHUTDOWN)
-                        .set_flag(uapi::VSOCK_FLAGS_SHUTDOWN_RCV)
-                        .set_flag(uapi::VSOCK_FLAGS_SHUTDOWN_SEND);
-                } else {
-                    // On a successful data read, we fill in the packet with the RW op, and
-                    // length of the read data.
-                    pkt.set_op(uapi::VSOCK_OP_RW).set_len(read_cnt as u32);
-                }
-            }
-            Err(err) => {
-                // We are not expecting any errors when reading from the underlying stream. If
-                // any show up, we'll immediately kill this connection.
-                error!(
-                    "vsock: error reading from backing stream: lp={}, pp={}, err={:?}",
-                    self.local_port, self.peer_port, err
-                );
-                pkt.set_op(uapi::VSOCK_OP_RST);
-            }
-        };
-
-        self.rx_cnt += Wrapping(pkt.len());
-        self.last_fwd_cnt_to_peer = self.fwd_cnt;
-
-        Ok(())
+        // We've already checked for all conditions that would have produced a packet, so
+        // if we got to here, we don't know how to yield one.
+        Err(VsockError::NoData)
     }
 
     /// Deliver a guest-generated packet to this connection.
@@ -439,7 +452,13 @@ where
                         "vsock: error flushing TX buf for (lp={}, pp={}): {:?}",
                         self.local_port, self.peer_port, err
                     );
-                    self.kill();
+                    match err {
+                        Error::TxBufFlush(inner) if inner.kind() == ErrorKind::WouldBlock => {
+                            // This should never happen (EWOULDBLOCK after EPOLLOUT), but
+                            // it does, so let's absorb it.
+                        }
+                        _ => self.kill(),
+                    };
                     0
                 });
             self.fwd_cnt += Wrapping(flushed as u32);
@@ -544,11 +563,26 @@ where
         self.pending_rx.insert(PendingRx::Rst);
     }
 
+    /// Return the connections state.
+    pub fn state(&self) -> ConnState {
+        self.state
+    }
+
+    /// Send some raw, untracked, data straight to the underlying connected stream.
+    /// Returns: number of bytes written, or the error describing the write failure.
+    ///
+    /// Warning: this will bypass the connection state machine and write directly to the
+    /// underlying stream. No account of this write is kept, which includes bypassing
+    /// vsock flow control.
+    pub fn send_bytes_raw(&mut self, buf: &[u8]) -> Result<usize> {
+        self.stream.write(buf).map_err(Error::StreamWrite)
+    }
+
     /// Send some raw data (a byte-slice) to the host stream.
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
-    pub fn send_bytes(&mut self, buf: &[u8]) -> Result<()> {
+    fn send_bytes(&mut self, buf: &[u8]) -> Result<()> {
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
         // events on the underlying stream. Therefore, there's no point in attempting a write
         // at this point. `self.notify()` will get called when EPOLLOUT arrives, and it will
@@ -583,14 +617,11 @@ where
         Ok(())
     }
 
-    /// Return the connections state.
-    pub fn state(&self) -> ConnState {
-        self.state
-    }
-
     /// Check if the credit information the peer has last received from us is outdated.
     fn peer_needs_credit_update(&self) -> bool {
-        (self.fwd_cnt - self.last_fwd_cnt_to_peer).0 as usize >= defs::CONN_CREDIT_UPDATE_THRESHOLD
+        let peer_seen_free_buf =
+            Wrapping(defs::CONN_TX_BUF_SIZE) - (self.fwd_cnt - self.last_fwd_cnt_to_peer);
+        peer_seen_free_buf < Wrapping(defs::CONN_CREDIT_UPDATE_THRESHOLD)
     }
 
     /// Check if we need to ask the peer for a credit update before sending any more data its
@@ -619,7 +650,7 @@ where
             .set_src_port(self.local_port)
             .set_dst_port(self.peer_port)
             .set_type(uapi::VSOCK_TYPE_STREAM)
-            .set_buf_alloc(defs::CONN_TX_BUF_SIZE as u32)
+            .set_buf_alloc(defs::CONN_TX_BUF_SIZE)
             .set_fwd_cnt(self.fwd_cnt.0)
     }
 }
@@ -715,6 +746,21 @@ mod tests {
         }
         fn flush(&mut self) -> IoResult<()> {
             Ok(())
+        }
+    }
+
+    impl<S> VsockConnection<S>
+    where
+        S: Read + Write + AsRawFd,
+    {
+        /// Get the fwd_cnt value from the connection.
+        pub(crate) fn fwd_cnt(&self) -> Wrapping<u32> {
+            self.fwd_cnt
+        }
+
+        /// Forcefully insert a credit update flag.
+        pub(crate) fn insert_credit_update(&mut self) {
+            self.pending_rx.insert(PendingRx::CreditUpdate);
         }
     }
 
@@ -1038,7 +1084,7 @@ mod tests {
         assert!(ctx.conn.has_pending_rx());
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_CREDIT_UPDATE);
-        assert_eq!(ctx.pkt.buf_alloc(), csm_defs::CONN_TX_BUF_SIZE as u32);
+        assert_eq!(ctx.pkt.buf_alloc(), csm_defs::CONN_TX_BUF_SIZE);
         assert_eq!(ctx.pkt.fwd_cnt(), ctx.conn.fwd_cnt.0);
     }
 
@@ -1048,10 +1094,23 @@ mod tests {
 
         // Force a stale state, where the peer hasn't been updated on our credit situation.
         ctx.conn.last_fwd_cnt_to_peer = Wrapping(0);
-        ctx.conn.fwd_cnt = Wrapping(csm_defs::CONN_CREDIT_UPDATE_THRESHOLD as u32);
 
-        // Fake a data send from the peer, to bring us over the credit update threshold.
+        // Since a credit update token is sent when the fwd_cnt value exceeds
+        // CONN_TX_BUF_SIZE - CONN_CREDIT_UPDATE_THRESHOLD, we initialize
+        // fwd_cnt at 6 bytes below the threshold.
+        let initial_fwd_cnt =
+            csm_defs::CONN_TX_BUF_SIZE as u32 - csm_defs::CONN_CREDIT_UPDATE_THRESHOLD as u32 - 6;
+        ctx.conn.fwd_cnt = Wrapping(initial_fwd_cnt);
+
+        // Use a 4-byte packet for triggering the credit update threshold.
         let data = &[1, 2, 3, 4];
+
+        // Check that there is no pending RX.
+        ctx.init_data_pkt(data);
+        ctx.send();
+        assert!(!ctx.conn.has_pending_rx());
+
+        // Send a packet again.
         ctx.init_data_pkt(data);
         ctx.send();
 
@@ -1059,10 +1118,7 @@ mod tests {
         assert!(ctx.conn.has_pending_rx());
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_CREDIT_UPDATE);
-        assert_eq!(
-            ctx.pkt.fwd_cnt() as usize,
-            csm_defs::CONN_CREDIT_UPDATE_THRESHOLD + data.len()
-        );
+        assert_eq!(ctx.pkt.fwd_cnt(), initial_fwd_cnt + data.len() as u32 * 2);
         assert_eq!(ctx.conn.fwd_cnt, ctx.conn.last_fwd_cnt_to_peer);
     }
 
@@ -1155,7 +1211,7 @@ mod tests {
         // Fill up the TX buffer.
         let data = vec![0u8; ctx.pkt.buf().unwrap().len()];
         ctx.init_data_pkt(data.as_slice());
-        for _i in 0..(csm_defs::CONN_TX_BUF_SIZE / data.len()) {
+        for _i in 0..(csm_defs::CONN_TX_BUF_SIZE / data.len() as u32) {
             ctx.send();
         }
 

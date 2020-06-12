@@ -22,7 +22,7 @@ pub struct TxBuf {
 
 impl TxBuf {
     /// Total buffer size, in bytes.
-    const SIZE: usize = defs::CONN_TX_BUF_SIZE;
+    const SIZE: usize = defs::CONN_TX_BUF_SIZE as usize;
 
     /// Ring-buffer constructor.
     pub fn new() -> Self {
@@ -122,7 +122,11 @@ impl TxBuf {
         // Attempt our second write. This will return immediately if a second write isn't
         // needed, since checking for an empty buffer is the first thing we do in this
         // function.
-        Ok(written + self.flush_to(sink)?)
+        //
+        // Interesting corner case: if we've already written some data in the first pass,
+        // and then the second write fails, we will consider the flush action a success
+        // and return the number of bytes written in the first pass.
+        Ok(written + self.flush_to(sink).unwrap_or(0))
     }
 
     /// Check if the buffer holds any data that hasn't yet been flushed out.

@@ -58,7 +58,7 @@ pub struct ConnMapKey {
 }
 
 /// A muxer RX queue item.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum MuxerRx {
     /// The packet must be fetched from the connection identified by `ConnMapKey`.
     ConnRx(ConnMapKey),
@@ -126,7 +126,7 @@ impl VsockChannel for VsockMuxer {
             self.rxq = MuxerRxQ::from_conn_map(&self.conn_map);
         }
 
-        while let Some(rx) = self.rxq.pop() {
+        while let Some(rx) = self.rxq.peek() {
             let res = match rx {
                 // We need to build an RST packet, going from `local_port` to `peer_port`.
                 MuxerRx::RstPkt {
@@ -143,6 +143,7 @@ impl VsockChannel for VsockMuxer {
                         .set_flags(0)
                         .set_buf_alloc(0)
                         .set_fwd_cnt(0);
+                    self.rxq.pop().unwrap();
                     return Ok(());
                 }
 
@@ -150,9 +151,14 @@ impl VsockChannel for VsockMuxer {
                 // to say.
                 MuxerRx::ConnRx(key) => {
                     let mut conn_res = Err(VsockError::NoData);
+                    let mut do_pop = true;
                     self.apply_conn_mutation(key, |conn| {
                         conn_res = conn.recv_pkt(pkt);
+                        do_pop = !conn.has_pending_rx();
                     });
+                    if do_pop {
+                        self.rxq.pop().unwrap();
+                    }
                     conn_res
                 }
             };
@@ -630,11 +636,20 @@ impl VsockMuxer {
             // If this is a host-initiated connection that has just become established, we'll have
             // to send an ack message to the host end.
             if prev_state == ConnState::LocalInit && conn.state() == ConnState::Established {
-                conn.send_bytes(format!("OK {}\n", key.local_port).as_bytes())
-                    .unwrap_or_else(|err| {
+                let msg = format!("OK {}\n", key.local_port);
+                match conn.send_bytes_raw(msg.as_bytes()) {
+                    Ok(written) if written == msg.len() => (),
+                    Ok(_) => {
+                        // If we can't write a dozen bytes to a pristine connection something
+                        // must be really wrong. Killing it.
+                        conn.kill();
+                        warn!("vsock: unable to fully write connection ack msg.");
+                    }
+                    Err(err) => {
                         conn.kill();
                         warn!("vsock: unable to ack host connection: {:?}", err);
-                    });
+                    }
+                };
             }
 
             // If the connection wasn't previously scheduled for RX, add it to our RX queue.
@@ -1303,6 +1318,65 @@ mod tests {
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RESPONSE);
         assert_eq!(ctx.pkt.dst_port(), peer_port_last as u32 + 1);
 
+        assert!(!ctx.muxer.has_pending_rx());
+    }
+
+    #[test]
+    fn test_regression_handshake() {
+        // Address one of the issues found while fixing the following issue:
+        // https://github.com/firecracker-microvm/firecracker/issues/1751
+        // This test checks that the handshake message is not accounted for
+        let mut ctx = MuxerTestContext::new("regression_handshake");
+        let peer_port = 1025;
+
+        // Create a local connection.
+        let (_, local_port) = ctx.local_connect(peer_port);
+
+        // Get the connection from the connection map.
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        let conn = ctx.muxer.conn_map.get_mut(&key).unwrap();
+
+        // Check that fwd_cnt is 0 - "OK ..." was not accounted for.
+        assert_eq!(conn.fwd_cnt().0, 0);
+    }
+
+    #[test]
+    fn test_regression_rxq_pop() {
+        // Address one of the issues found while fixing the following issue:
+        // https://github.com/firecracker-microvm/firecracker/issues/1751
+        // This test checks that a connection is not popped out of the muxer
+        // rxq when multiple flags are set
+        let mut ctx = MuxerTestContext::new("regression_rxq_pop");
+        let peer_port = 1025;
+        let (mut stream, local_port) = ctx.local_connect(peer_port);
+
+        // Send some data.
+        let data = [5u8, 6, 7, 8];
+        stream.write_all(&data).unwrap();
+        ctx.notify_muxer();
+
+        // Get the connection from the connection map.
+        let key = ConnMapKey {
+            local_port,
+            peer_port,
+        };
+        let conn = ctx.muxer.conn_map.get_mut(&key).unwrap();
+
+        // Forcefully insert another flag.
+        conn.insert_credit_update();
+
+        // Call recv twice in order to check that the connection is still
+        // in the rxq.
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+        assert!(ctx.muxer.has_pending_rx());
+        ctx.recv();
+
+        // Since initially the connection had two flags set, now there should
+        // not be any pending RX in the muxer.
         assert!(!ctx.muxer.has_pending_rx());
     }
 }
