@@ -110,7 +110,7 @@ impl ApiServer {
             METRICS
                 .api_server
                 .process_startup_time_us
-                .add(delta_us as usize);
+                .store(delta_us as usize);
         }
 
         if let Some(cpu_start_time) = start_time_cpu_us {
@@ -119,7 +119,7 @@ impl ApiServer {
             METRICS
                 .api_server
                 .process_startup_time_cpu_us
-                .add(delta_us as usize);
+                .store(delta_us as usize);
         }
 
         // Load seccomp filters on the API thread.

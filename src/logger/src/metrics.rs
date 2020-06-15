@@ -194,6 +194,8 @@ pub trait Metric {
     }
     /// Returns current value of the counter.
     fn count(&self) -> usize;
+    /// Stores `value` to the current counter.
+    fn store(&self, value: usize);
 }
 
 /// Representation of a metric that is expected to be incremented from more than one thread, so more
@@ -220,6 +222,13 @@ impl Metric for SharedMetric {
 
     fn count(&self) -> usize {
         self.0.load(Ordering::Relaxed)
+    }
+
+    // It is necessary to also reset the old value in order to flush later the correct one,
+    // which is `value` (see the `Serialize` implementation for SharedMetric a few lines below).
+    fn store(&self, value: usize) {
+        self.0.store(value, Ordering::Relaxed);
+        self.1.store(0, Ordering::Relaxed)
     }
 }
 
@@ -350,7 +359,7 @@ pub struct BlockDeviceMetrics {
     pub write_bytes: SharedMetric,
     /// Number of successful read operations.
     pub read_count: SharedMetric,
-    /// Number of sucessful write operations.
+    /// Number of successful write operations.
     pub write_count: SharedMetric,
 }
 
@@ -671,7 +680,7 @@ mod tests {
 
         // We're going to create a number of threads that will attempt to increase this metric
         // in parallel. If everything goes fine we still can't be sure the synchronization works,
-        // but it something fails, then we definitely have a problem :-s
+        // but if something fails, then we definitely have a problem :-s
 
         const NUM_THREADS_TO_SPAWN: usize = 4;
         const NUM_INCREMENTS_PER_THREAD: usize = 10_0000;
@@ -698,6 +707,13 @@ mod tests {
             m2.count(),
             M2_INITIAL_COUNT + NUM_THREADS_TO_SPAWN * NUM_INCREMENTS_PER_THREAD
         );
+
+        // Trying to store multiple values in the metric will result in keeping only the last
+        // value there.
+        m2.store(1);
+        m2.store(2);
+        assert_eq!(m2.0.load(Ordering::Relaxed), 2);
+        assert_eq!(m2.1.load(Ordering::Relaxed), 0);
     }
 
     #[test]
