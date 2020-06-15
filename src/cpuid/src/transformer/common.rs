@@ -36,7 +36,10 @@ pub fn update_feature_info_entry(
     let max_cpus_per_package = u32::from(common::get_max_cpus_per_package(vm_spec.cpu_count)?);
 
     // X86 hypervisor feature
-    entry.ecx.write_bit(ecx::HYPERVISOR_BITINDEX, true);
+    entry
+        .ecx
+        .write_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX, true)
+        .write_bit(ecx::HYPERVISOR_BITINDEX, true);
 
     entry
         .ebx
@@ -165,7 +168,8 @@ mod tests {
 
         assert!(update_feature_info_entry(&mut entry, &vm_spec).is_ok());
 
-        assert!(entry.edx.read_bit(edx::HTT_BITINDEX) == expected_htt)
+        assert_eq!(entry.edx.read_bit(edx::HTT_BITINDEX), expected_htt);
+        assert_eq!(entry.ecx.read_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX), true);
     }
 
     fn check_update_cache_parameters_entry(

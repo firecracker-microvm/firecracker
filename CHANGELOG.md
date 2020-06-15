@@ -31,6 +31,7 @@
 - Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS
   requests originating from guest.
 - Fixed folder permissions in the jail (#1802).
+- Boot time on AMD achieves the desired performance (i.e under 150ms).
 
 ### Changed
 - Updated CVE-2019-3016 mitigation information in
