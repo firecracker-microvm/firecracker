@@ -27,6 +27,7 @@
 - Added metrics for the vsock device.
 
 ### Fixed
+
 - Added `--version` flag to both Firecracker and Jailer.
 - Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS
   requests originating from guest.
@@ -34,6 +35,7 @@
 - Boot time on AMD achieves the desired performance (i.e under 150ms).
 
 ### Changed
+
 - Updated CVE-2019-3016 mitigation information in
   [Production Host Setup](docs/prod-host-setup.md)
 - In case of using an invalid JSON as a 'config-file' for Firecracker,
@@ -52,7 +54,7 @@
 - Allowed the MMDS data store to be initialized with all supported JSON types.
   Retrieval of these values within the guest, besides String, Array, and
   Dictionary, is only possible in JSON mode.
-- `PATCH` request on `/mmds` before the data store is initialized returns 
+- `PATCH` request on `/mmds` before the data store is initialized returns
   `403 BadRequest`.
 - Segregated MMDS documentation in MMDS design documentation and MMDS user
   guide documentation.
@@ -70,7 +72,7 @@
 - Fixed #1469 - Broken GitHub location for Firecracker release binary.
 - The jailer allows changing the default api socket path by using the extra
   arguments passed to firecracker.
-- Fixed #1456 - Occasional KVM_EXIT_SHUTDOWN and bad syscall (14) during 
+- Fixed #1456 - Occasional KVM_EXIT_SHUTDOWN and bad syscall (14) during
   VM shutdown.
 - Updated the production host setup guide with steps for addressing
   CVE-2019-18960.
@@ -79,7 +81,7 @@
   un-swapped.
 
 ### Changed
-  
+
 - Removed redundant `--seccomp-level` jailer parameter since it can be
   simply forwarded to the Firecracker executable using "end of command
   options" convention.
@@ -101,19 +103,19 @@
 
 ### Fixed
 
-- Fixed CVE-2019-18960 - Fixed a logical error in bounds checking performed 
+- Fixed CVE-2019-18960 - Fixed a logical error in bounds checking performed
   on vsock virtio descriptors.
 - Fixed #1283 - Can't start a VM in AARCH64 with vcpus number more than 16.
-- Fixed #1088 - The backtrace are printed on `panic`, no longer causing a 
+- Fixed #1088 - The backtrace are printed on `panic`, no longer causing a
   seccomp fault.
-- Fixed #1375 - Change logger options type from Value to Vec<LogOption> to
+- Fixed #1375 - Change logger options type from `Value` to `Vec<LogOption>` to
   prevent potential unwrap on None panics.
 - Fixed #1436 - Raise interrupt for TX queue used descriptors
-- Fixed #1439 - Prevent achieving 100% cpu load when the net device rx is 
+- Fixed #1439 - Prevent achieving 100% cpu load when the net device rx is
   throttled by the ratelimiter
-- Fixed #1437 - Invalid fields in rate limiter related API requests are 
+- Fixed #1437 - Invalid fields in rate limiter related API requests are
   now failing with a proper error message.
-- Fixed #1316 - correctly determine the size of a virtio device backed 
+- Fixed #1316 - correctly determine the size of a virtio device backed
   by a block device.
 - Fixed #1383 - Log failed api requests.
 
