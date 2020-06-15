@@ -39,6 +39,12 @@
   from the VMM perspective.
 - Added metric for measuring the duration of loading a snapshot, from the VMM
   perspective.
+- Added metrics that measure the duration of pausing and resuming the microVM,
+  from the API (user) perspective.
+- Added metric for measuring the duration of the last full/diff snapshot created,
+  from the API (user) perspective.
+- Added metric for measuring the duration of loading a snapshot, from the API
+  (user) perspective.
 
 ### Fixed
 
