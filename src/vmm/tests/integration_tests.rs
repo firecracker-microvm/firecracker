@@ -309,7 +309,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 
             {
                 let mut locked_vmm = vmm.lock().unwrap();
-                persist::create_snapshot(&mut locked_vmm, snapshot_params, VERSION_MAP.clone())
+                persist::create_snapshot(&mut locked_vmm, &snapshot_params, VERSION_MAP.clone())
                     .unwrap();
             }
 

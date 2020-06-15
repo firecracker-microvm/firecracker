@@ -160,19 +160,19 @@ impl Display for LoadSnapshotError {
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(
     vmm: &mut Vmm,
-    params: CreateSnapshotParams,
+    params: &CreateSnapshotParams,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
     let microvm_state = vmm
         .save_state()
         .map_err(CreateSnapshotError::MicrovmState)?;
 
-    snapshot_memory_to_file(vmm, &params.mem_file_path, params.snapshot_type)?;
+    snapshot_memory_to_file(vmm, &params.mem_file_path, &params.snapshot_type)?;
 
     snapshot_state_to_file(
         &microvm_state,
         &params.snapshot_path,
-        params.version,
+        &params.version,
         version_map,
     )?;
 
@@ -182,7 +182,7 @@ pub fn create_snapshot(
 fn snapshot_state_to_file(
     microvm_state: &MicrovmState,
     snapshot_path: &PathBuf,
-    version: Option<String>,
+    version: &Option<String>,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
@@ -194,7 +194,7 @@ fn snapshot_state_to_file(
 
     // Translate the microVM version to its corresponding snapshot data format.
     let snapshot_data_version = match version {
-        Some(version) => match FC_VERSION_TO_SNAP_VERSION.get(&version) {
+        Some(version) => match FC_VERSION_TO_SNAP_VERSION.get(version) {
             Some(data_version) => Ok(*data_version),
             _ => Err(InvalidVersion),
         },
@@ -212,7 +212,7 @@ fn snapshot_state_to_file(
 fn snapshot_memory_to_file(
     vmm: &Vmm,
     mem_file_path: &PathBuf,
-    snapshot_type: SnapshotType,
+    snapshot_type: &SnapshotType,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
     let mut file = OpenOptions::new()
@@ -246,7 +246,7 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
 pub fn load_snapshot(
     event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
-    params: LoadSnapshotParams,
+    params: &LoadSnapshotParams,
     version_map: VersionMap,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
     use self::LoadSnapshotError::*;

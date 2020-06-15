@@ -282,7 +282,7 @@ impl<'a> PrebootApiController<'a> {
             LoadSnapshot(snapshot_load_cfg) => persist::load_snapshot(
                 &mut self.event_manager,
                 &self.seccomp_filter,
-                snapshot_load_cfg,
+                &snapshot_load_cfg,
                 VERSION_MAP.clone(),
             )
             .map(|vmm| {
@@ -347,7 +347,7 @@ impl RuntimeApiController {
             // Supported operations allowed post-boot.
             #[cfg(target_arch = "x86_64")]
             CreateSnapshot(snapshot_create_cfg) => self
-                .create_snapshot(snapshot_create_cfg)
+                .create_snapshot(&snapshot_create_cfg)
                 .map(|_| VmmData::Empty),
             FlushMetrics => self.flush_metrics().map(|_| VmmData::Empty),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
@@ -427,7 +427,7 @@ impl RuntimeApiController {
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn create_snapshot(&mut self, params: CreateSnapshotParams) -> ActionResult {
+    fn create_snapshot(&mut self, params: &CreateSnapshotParams) -> ActionResult {
         let mut locked_vmm = self.vmm.lock().unwrap();
         persist::create_snapshot(&mut locked_vmm, params, VERSION_MAP.clone())
             .map_err(VmmActionError::CreateSnapshot)
