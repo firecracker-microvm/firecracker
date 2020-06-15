@@ -9,19 +9,6 @@ use cpu_leaf::*;
 // unique topology of the next level. This allows 64 logical processors/package.
 const LEAFBH_INDEX1_APICID: u32 = 6;
 
-pub fn update_feature_info_entry(
-    entry: &mut kvm_cpuid_entry2,
-    vm_spec: &VmSpec,
-) -> Result<(), Error> {
-    use cpu_leaf::leaf_0x1::*;
-
-    common::update_feature_info_entry(entry, vm_spec)?;
-
-    entry.ecx.write_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX, true);
-
-    Ok(())
-}
-
 fn update_deterministic_cache_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
@@ -141,7 +128,7 @@ pub struct IntelCpuidTransformer {}
 impl CpuidTransformer for IntelCpuidTransformer {
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
         match entry.function {
-            leaf_0x1::LEAF_NUM => Some(intel::update_feature_info_entry),
+            leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
             leaf_0x4::LEAF_NUM => Some(intel::update_deterministic_cache_entry),
             leaf_0x6::LEAF_NUM => Some(intel::update_power_management_entry),
             leaf_0xa::LEAF_NUM => Some(intel::update_perf_mon_entry),
@@ -160,27 +147,6 @@ mod tests {
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_THREAD;
     use kvm_bindings::kvm_cpuid_entry2;
     use transformer::VmSpec;
-
-    #[test]
-    fn test_update_feature_info_entry() {
-        use cpu_leaf::leaf_0x1::*;
-
-        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
-        let mut entry = &mut kvm_cpuid_entry2 {
-            function: leaf_0x1::LEAF_NUM,
-            index: 0,
-            flags: 0,
-            eax: 0,
-            ebx: 0,
-            ecx: 0,
-            edx: 0,
-            padding: [0, 0, 0],
-        };
-
-        assert!(update_feature_info_entry(&mut entry, &vm_spec).is_ok());
-
-        assert_eq!(entry.ecx.read_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX), true);
-    }
 
     #[test]
     fn test_update_perf_mon_entry() {
