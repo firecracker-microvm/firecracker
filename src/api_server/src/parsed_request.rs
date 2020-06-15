@@ -81,7 +81,7 @@ impl ParsedRequest {
     }
 
     pub fn convert_to_response(
-        request_outcome: std::result::Result<VmmData, VmmActionError>,
+        request_outcome: &std::result::Result<VmmData, VmmActionError>,
     ) -> Response {
         match request_outcome {
             Ok(vmm_data) => match vmm_data {
@@ -469,7 +469,7 @@ pub(crate) mod tests {
     fn test_convert_to_response() {
         // Empty Vmm data.
         let mut buf = Cursor::new(vec![0]);
-        let response = ParsedRequest::convert_to_response(Ok(VmmData::Empty));
+        let response = ParsedRequest::convert_to_response(&Ok(VmmData::Empty));
         assert!(response.write_all(&mut buf).is_ok());
         let expected_response = "HTTP/1.1 204 \r\n\
                                  Server: Firecracker API\r\n\
@@ -479,7 +479,7 @@ pub(crate) mod tests {
 
         // With Vmm data.
         let mut buf = Cursor::new(vec![0]);
-        let response = ParsedRequest::convert_to_response(Ok(VmmData::MachineConfiguration(
+        let response = ParsedRequest::convert_to_response(&Ok(VmmData::MachineConfiguration(
             VmConfig::default(),
         )));
         assert!(response.write_all(&mut buf).is_ok());
@@ -497,7 +497,7 @@ pub(crate) mod tests {
         let error = VmmActionError::StartMicrovm(StartMicrovmError::MissingKernelConfig);
         let mut buf = Cursor::new(vec![0]);
         let json = ApiServer::json_fault_message(error.to_string());
-        let response = ParsedRequest::convert_to_response(Err(error));
+        let response = ParsedRequest::convert_to_response(&Err(error));
         response.write_all(&mut buf).unwrap();
 
         let expected_response = format!(

@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::{fmt, io};
 
-use logger::{Metric, METRICS};
+use logger::{update_metric_with_elapsed_time, Metric, METRICS};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
@@ -33,6 +33,8 @@ use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::instance_info::InstanceInfo;
+#[cfg(target_arch = "x86_64")]
+use vmm::vmm_config::snapshot::SnapshotType;
 
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
@@ -136,10 +138,14 @@ impl ApiServer {
             match server.requests() {
                 Ok(request_vec) => {
                     for server_request in request_vec {
+                        let request_processing_start_us =
+                            utils::time::get_time_us(utils::time::ClockType::Monotonic);
                         server
                             .respond(
                                 // Use `self.handle_request()` as the processing callback.
-                                server_request.process(|request| self.handle_request(request)),
+                                server_request.process(|request| {
+                                    self.handle_request(request, request_processing_start_us)
+                                }),
                             )
                             .or_else(|e| {
                                 error!("API Server encountered an error on response: {}", e);
@@ -157,9 +163,11 @@ impl ApiServer {
         }
     }
 
-    fn handle_request(&self, request: &Request) -> Response {
+    fn handle_request(&self, request: &Request, request_processing_start_us: u64) -> Response {
         match ParsedRequest::try_from_request(request) {
-            Ok(ParsedRequest::Sync(vmm_action)) => self.serve_vmm_action_request(vmm_action),
+            Ok(ParsedRequest::Sync(vmm_action)) => {
+                self.serve_vmm_action_request(vmm_action, request_processing_start_us)
+            }
             Ok(ParsedRequest::GetInstanceInfo) => self.get_instance_info(),
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
@@ -171,13 +179,47 @@ impl ApiServer {
         }
     }
 
-    fn serve_vmm_action_request(&self, vmm_action: Box<VmmAction>) -> Response {
+    fn serve_vmm_action_request(
+        &self,
+        vmm_action: Box<VmmAction>,
+        request_processing_start_us: u64,
+    ) -> Response {
+        let metric_with_action = match *vmm_action {
+            #[cfg(target_arch = "x86_64")]
+            VmmAction::CreateSnapshot(ref params) => match params.snapshot_type {
+                SnapshotType::Full => Some((
+                    &METRICS.latencies_us.full_create_snapshot,
+                    "create full snapshot",
+                )),
+                SnapshotType::Diff => Some((
+                    &METRICS.latencies_us.diff_create_snapshot,
+                    "create diff snapshot",
+                )),
+            },
+            #[cfg(target_arch = "x86_64")]
+            VmmAction::LoadSnapshot(_) => {
+                Some((&METRICS.latencies_us.load_snapshot, "load snapshot"))
+            }
+            VmmAction::Pause => Some((&METRICS.latencies_us.pause_vm, "pause vm")),
+            VmmAction::Resume => Some((&METRICS.latencies_us.resume_vm, "resume vm")),
+            _ => None,
+        };
+
         self.api_request_sender
             .send(vmm_action)
             .expect("Failed to send VMM message");
         self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
         let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
-        ParsedRequest::convert_to_response(vmm_outcome)
+        let response = ParsedRequest::convert_to_response(&vmm_outcome);
+
+        if vmm_outcome.is_ok() {
+            if let Some((metric, action)) = metric_with_action {
+                let elapsed_time_us =
+                    update_metric_with_elapsed_time(metric, request_processing_start_us);
+                info!("'{}' API request took {} us.", action, elapsed_time_us);
+            }
+        }
+        response
     }
 
     fn get_instance_info(&self) -> Response {
@@ -271,9 +313,12 @@ mod tests {
     use micro_http::HttpConnection;
     use mmds::MMDS;
     use utils::tempfile::TempFile;
+    use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::instance_info::InstanceInfo;
+    #[cfg(target_arch = "x86_64")]
+    use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
     #[test]
     fn test_error_messages() {
@@ -331,8 +376,50 @@ mod tests {
                 StartMicrovmError::MicroVMAlreadyRunning,
             ))))
             .unwrap();
-        let response = api_server.serve_vmm_action_request(Box::new(VmmAction::StartMicroVm));
+        let response = api_server.serve_vmm_action_request(Box::new(VmmAction::StartMicroVm), 0);
         assert_eq!(response.status(), StatusCode::BadRequest);
+
+        let start_time_us = utils::time::get_time_us(ClockType::Monotonic);
+        assert_eq!(METRICS.latencies_us.pause_vm.count(), 0);
+        to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
+        let response =
+            api_server.serve_vmm_action_request(Box::new(VmmAction::Pause), start_time_us);
+        assert_eq!(response.status(), StatusCode::NoContent);
+        assert_ne!(METRICS.latencies_us.pause_vm.count(), 0);
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            assert_eq!(METRICS.latencies_us.diff_create_snapshot.count(), 0);
+            to_api
+                .send(Box::new(Err(VmmActionError::OperationNotSupportedPreBoot)))
+                .unwrap();
+            let response = api_server.serve_vmm_action_request(
+                Box::new(VmmAction::CreateSnapshot(CreateSnapshotParams {
+                    snapshot_type: SnapshotType::Diff,
+                    snapshot_path: PathBuf::new(),
+                    mem_file_path: PathBuf::new(),
+                    version: None,
+                })),
+                start_time_us,
+            );
+            assert_eq!(response.status(), StatusCode::BadRequest);
+            // The metric should not be updated if the request wasn't successful.
+            assert_eq!(METRICS.latencies_us.diff_create_snapshot.count(), 0);
+
+            to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
+            let response = api_server.serve_vmm_action_request(
+                Box::new(VmmAction::CreateSnapshot(CreateSnapshotParams {
+                    snapshot_type: SnapshotType::Diff,
+                    snapshot_path: PathBuf::new(),
+                    mem_file_path: PathBuf::new(),
+                    version: None,
+                })),
+                start_time_us,
+            );
+            assert_eq!(response.status(), StatusCode::NoContent);
+            assert_ne!(METRICS.latencies_us.diff_create_snapshot.count(), 0);
+            assert_eq!(METRICS.latencies_us.full_create_snapshot.count(), 0);
+        }
     }
 
     #[test]
@@ -495,21 +582,21 @@ mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req);
+        let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::BadRequest);
 
         // Test a Get Info request.
         sender.write_all(b"GET / HTTP/1.1\r\n\r\n").unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req);
+        let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::OK);
 
         // Test a Get Mmds request.
         sender.write_all(b"GET /mmds HTTP/1.1\r\n\r\n").unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req);
+        let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::OK);
 
         // Test a Put Mmds request.
@@ -522,7 +609,7 @@ mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req);
+        let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::NoContent);
 
         // Test a Patch Mmds request.
@@ -535,7 +622,7 @@ mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req);
+        let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::NoContent);
 
         // Test erroneous request.
@@ -548,7 +635,7 @@ mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        let response = api_server.handle_request(&req);
+        let response = api_server.handle_request(&req, 0);
         assert_eq!(response.status(), StatusCode::BadRequest);
     }
 
