@@ -39,7 +39,7 @@ impl Into<OutputFormat> for MediaType {
     }
 }
 
-/// Builds the `micro_http::Response` with a given HTTP version, status code, and body.
+// Builds the `micro_http::Response` with a given HTTP version, status code, and body.
 fn build_response(http_version: Version, status_code: StatusCode, body: Body) -> Response {
     let mut response = Response::new(http_version, status_code);
     response.set_body(body);
