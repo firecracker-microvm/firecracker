@@ -92,7 +92,6 @@ pub fn update_extended_apic_id_entry(
 ) -> Result<(), Error> {
     use cpu_leaf::leaf_0x8000001e::*;
 
-    let mut core_id = u32::from(vm_spec.cpu_index);
     // When hyper-threading is enabled each pair of 2 consecutive logical CPUs
     // will have the same core id since they represent 2 threads in the same core.
     // For Example:
@@ -100,9 +99,7 @@ pub fn update_extended_apic_id_entry(
     // logical CPU 1 -> core id: 0
     // logical CPU 2 -> core id: 1
     // logical CPU 3 -> core id: 1
-    if vm_spec.ht_enabled {
-        core_id /= 2;
-    }
+    let core_id = u32::from(vm_spec.cpu_index / vm_spec.cpus_per_core());
 
     entry
         .eax
@@ -117,7 +114,7 @@ pub fn update_extended_apic_id_entry(
         .write_bits_in_range(&ebx::CORE_ID_BITRANGE, core_id)
         .write_bits_in_range(
             &ebx::THREADS_PER_CORE_BITRANGE,
-            u32::from(vm_spec.ht_enabled),
+            u32::from(vm_spec.cpus_per_core() - 1),
         );
 
     entry
@@ -337,7 +334,7 @@ mod tests {
     fn test_1vcpu_ht_on() {
         check_update_amd_features_entry(1, true);
 
-        check_update_extended_apic_id_entry(0, 1, true, 0, 1);
+        check_update_extended_apic_id_entry(0, 1, true, 0, 0);
     }
 
     #[test]

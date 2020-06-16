@@ -73,15 +73,14 @@ fn update_extended_topology_entry(
         0 => {
             // To get the next level APIC ID, shift right with at most 1 because we have
             // maximum 2 hyperthreads per core that can be represented by 1 bit.
-            entry.eax.write_bits_in_range(
-                &eax::APICID_BITRANGE,
-                (vm_spec.cpu_count > 1 && vm_spec.ht_enabled) as u32,
-            );
+            entry
+                .eax
+                .write_bits_in_range(&eax::APICID_BITRANGE, u32::from(vm_spec.cpu_bits));
             // When cpu_count == 1 or HT is disabled, there is 1 logical core at this level
             // Otherwise there are 2
             entry.ebx.write_bits_in_range(
                 &ebx::NUM_LOGICAL_PROCESSORS_BITRANGE,
-                1 + (vm_spec.cpu_count > 1 && vm_spec.ht_enabled) as u32,
+                u32::from(vm_spec.cpus_per_core()),
             );
 
             entry

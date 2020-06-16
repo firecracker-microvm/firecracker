@@ -82,7 +82,7 @@ pub fn update_cache_parameters_entry(
             // The L1 & L2 cache is shared by at most 2 hyperthreads
             entry.eax.write_bits_in_range(
                 &eax::MAX_CPUS_PER_CORE_BITRANGE,
-                (vm_spec.cpu_count > 1 && vm_spec.ht_enabled) as u32,
+                u32::from(vm_spec.cpus_per_core() - 1),
             );
         }
         // L3 Cache
