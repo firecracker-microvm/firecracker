@@ -82,12 +82,12 @@ pub enum Error {
 type Result<T> = result::Result<T, Error>;
 
 /// Creates the flattened device tree for this aarch64 microVM.
-pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
+pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
     cmdline: &CStr,
-    device_info: &HashMap<(DeviceType, String), T>,
-    gic_device: &Box<dyn GICDevice>,
+    device_info: &HashMap<(DeviceType, String), T, S>,
+    gic_device: &dyn GICDevice,
     initrd: &Option<InitrdConfig>,
 ) -> Result<Vec<u8>> {
     // Alocate stuff necessary for the holding the blob.
@@ -116,7 +116,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     create_timer_node(&mut fdt)?;
     create_clock_node(&mut fdt)?;
     create_psci_node(&mut fdt)?;
-    create_devices_node(&mut fdt, device_info)?;
+    create_devices_node(&mut fdt, &device_info)?;
 
     // End Header node.
     append_end_node(&mut fdt)?;
@@ -299,26 +299,28 @@ fn generate_prop64(cells: &[u64]) -> Vec<u8> {
 }
 
 // Following are the auxiliary function for creating the different nodes that we append to our FDT.
-fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &Vec<u64>) -> Result<()> {
+fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &[u64]) -> Result<()> {
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/arm/cpus.yaml.
     append_begin_node(fdt, "cpus")?;
     // As per documentation, on ARM v8 64-bit systems value should be set to 2.
     append_property_u32(fdt, "#address-cells", 0x02)?;
     append_property_u32(fdt, "#size-cells", 0x0)?;
-    let num_cpus = vcpu_mpidr.len();
 
-    for cpu_index in 0..num_cpus {
+    let num_cpus = vcpu_mpidr.len();
+    for (cpu_index, mpidr) in vcpu_mpidr.iter().enumerate() {
         let cpu_name = format!("cpu@{:x}", cpu_index);
         append_begin_node(fdt, &cpu_name)?;
         append_property_string(fdt, "device_type", "cpu")?;
         append_property_string(fdt, "compatible", "arm,arm-v8")?;
         if num_cpus > 1 {
-            // This is required on armv8 64-bit. See aforementioned documentation.
+            // If the microVM has more than 1 vcpu we need to enable the power
+            // state coordination interface (PSCI) which will decide for us which
+            // vcpu is running or halted.
             append_property_string(fdt, "enable-method", "psci")?;
         }
         // Set the field to first 24 bits of the MPIDR - Multiprocessor Affinity Register.
         // See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488c/BABHBJCI.html.
-        append_property_u64(fdt, "reg", vcpu_mpidr[cpu_index] & 0x7FFFFF)?;
+        append_property_u64(fdt, "reg", mpidr & 0x7F_FFFF)?;
         append_end_node(fdt)?;
     }
     append_end_node(fdt)?;
@@ -364,7 +366,7 @@ fn create_chosen_node(
     Ok(())
 }
 
-fn create_gic_node(fdt: &mut Vec<u8>, gic_device: &Box<dyn GICDevice>) -> Result<()> {
+fn create_gic_node(fdt: &mut Vec<u8>, gic_device: &dyn GICDevice) -> Result<()> {
     let gic_reg_prop = generate_prop64(gic_device.device_properties());
 
     append_begin_node(fdt, "intc")?;
@@ -400,7 +402,7 @@ fn create_clock_node(fdt: &mut Vec<u8>) -> Result<()> {
     append_begin_node(fdt, "apb-pclk")?;
     append_property_string(fdt, "compatible", "fixed-clock")?;
     append_property_u32(fdt, "#clock-cells", 0x0)?;
-    append_property_u32(fdt, "clock-frequency", 24000000)?;
+    append_property_u32(fdt, "clock-frequency", 24_000_000)?;
     append_property_string(fdt, "clock-output-names", "clk24mhz")?;
     append_property_u32(fdt, "phandle", CLOCK_PHANDLE)?;
     append_end_node(fdt)?;
@@ -498,9 +500,9 @@ fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
     Ok(())
 }
 
-fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
+fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     fdt: &mut Vec<u8>,
-    dev_info: &HashMap<(DeviceType, String), T>,
+    dev_info: &HashMap<(DeviceType, String), T, S>,
 ) -> Result<()> {
     // Create one temp Vec to store all virtio devices
     let mut ordered_virtio_device: Vec<&T> = Vec::new();
@@ -571,15 +573,12 @@ mod tests {
             ),
             (
                 (DeviceType::Virtio(1), "virtio".to_string()),
-                MMIODeviceInfo {
-                    addr: 0x00 + LEN,
-                    irq: 2,
-                },
+                MMIODeviceInfo { addr: LEN, irq: 2 },
             ),
             (
                 (DeviceType::RTC, "rtc".to_string()),
                 MMIODeviceInfo {
-                    addr: 0x00 + 2 * LEN,
+                    addr: 2 * LEN,
                     irq: 3,
                 },
             ),
@@ -595,7 +594,7 @@ mod tests {
             vec![0],
             &CString::new("console=tty0").unwrap(),
             &dev_info,
-            &gic,
+            gic.as_ref(),
             &None,
         )
         .is_ok())
@@ -613,7 +612,7 @@ mod tests {
             vec![0],
             &CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
-            &gic,
+            gic.as_ref(),
             &None,
         )
         .unwrap();
@@ -654,7 +653,7 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1).unwrap();
         let initrd = InitrdConfig {
-            address: GuestAddress(0x10000000),
+            address: GuestAddress(0x1000_0000),
             size: 0x1000,
         };
 
@@ -663,7 +662,7 @@ mod tests {
             vec![0],
             &CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
-            &gic,
+            gic.as_ref(),
             &Some(initrd),
         )
         .unwrap();

@@ -46,7 +46,7 @@ pub trait GICDevice {
         Self: Sized;
 
     /// Setup the device-specific attributes
-    fn init_device_attributes(gic_device: &Box<dyn GICDevice>) -> Result<()>
+    fn init_device_attributes(gic_device: &dyn GICDevice) -> Result<()>
     where
         Self: Sized;
 
@@ -76,10 +76,10 @@ pub trait GICDevice {
         Self: Sized,
     {
         let attr = kvm_bindings::kvm_device_attr {
-            group: group,
-            attr: attr,
-            addr: addr,
-            flags: flags,
+            group,
+            attr,
+            addr,
+            flags,
         };
         fd.set_device_attr(&attr)
             .map_err(Error::SetDeviceAttribute)?;
@@ -88,7 +88,7 @@ pub trait GICDevice {
     }
 
     /// Finalize the setup of a GIC device
-    fn finalize_device(gic_device: &Box<dyn GICDevice>) -> Result<()>
+    fn finalize_device(gic_device: &dyn GICDevice) -> Result<()>
     where
         Self: Sized,
     {
@@ -128,9 +128,9 @@ pub trait GICDevice {
 
         let device = Self::create_device(vgic_fd, vcpu_count);
 
-        Self::init_device_attributes(&device)?;
+        Self::init_device_attributes(device.as_ref())?;
 
-        Self::finalize_device(&device)?;
+        Self::finalize_device(device.as_ref())?;
 
         Ok(device)
     }
