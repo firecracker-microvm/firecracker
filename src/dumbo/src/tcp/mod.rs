@@ -94,8 +94,8 @@ mod tests {
     use super::*;
     use micro_http::{Request, Response, StatusCode, Version};
 
-    /// In tcp tests, some of the functions require a callback parameter. Since we do not care,
-    /// for the purpose of those tests, what that callback does, we need to provide a dummy one.
+    // In tcp tests, some of the functions require a callback parameter. Since we do not care,
+    // for the purpose of those tests, what that callback does, we need to provide a dummy one.
     pub fn mock_callback(_request: Request) -> Response {
         Response::new(Version::Http11, StatusCode::OK)
     }

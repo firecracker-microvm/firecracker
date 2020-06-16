@@ -151,6 +151,9 @@ impl ApiServer {
                                 error!("API Server encountered an error on response: {}", e);
                                 Ok(())
                             })?;
+                        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
+                            - request_processing_start_us;
+                        debug!("Total previous API call duration: {} us.", delta_us);
                     }
                 }
                 Err(e) => {
