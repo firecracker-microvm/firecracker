@@ -78,18 +78,18 @@ impl GICDevice for GICv2 {
 
     fn create_device(fd: DeviceFd, vcpu_count: u64) -> Box<dyn GICDevice> {
         Box::new(GICv2 {
-            fd: fd,
+            fd,
             properties: [
                 GICv2::get_dist_addr(),
                 GICv2::get_dist_size(),
                 GICv2::get_cpu_addr(),
                 GICv2::get_cpu_size(),
             ],
-            vcpu_count: vcpu_count,
+            vcpu_count,
         })
     }
 
-    fn init_device_attributes(gic_device: &Box<dyn GICDevice>) -> Result<()> {
+    fn init_device_attributes(gic_device: &dyn GICDevice) -> Result<()> {
         /* Setting up the distributor attribute.
         We are placing the GIC below 1GB so we need to substract the size of the distributor. */
         Self::set_device_attribute(
