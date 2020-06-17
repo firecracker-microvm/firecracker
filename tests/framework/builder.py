@@ -4,29 +4,43 @@
 
 import json
 import os
+import tempfile
+from pathlib import Path
 from conftest import init_microvm
-from framework.artifacts import Artifact, DiskArtifact
+from framework.artifacts import Artifact, DiskArtifact, Snapshot, SnapshotType
+import framework.utils as utils
 
 
 class MicrovmBuilder:
     """Build fresh microvms or restore from snapshot."""
 
-    def __init__(self, root_path, bin_cloner_path):
-        """Initialize microvm root and cloning binary."""
-        self.root_path = root_path
-        self.bin_cloner_path = bin_cloner_path
+    ROOT_PREFIX = "fctest-"
 
-    def build(self, kernel: Artifact, disks: [DiskArtifact], config: Artifact):
+    def __init__(self, bin_cloner_path):
+        """Initialize microvm root and cloning binary."""
+        self.bin_cloner_path = bin_cloner_path
+        self.init_root_path()
+
+    def init_root_path(self):
+        """Initialize microvm root path."""
+        self.root_path = tempfile.mkdtemp(MicrovmBuilder.ROOT_PREFIX)
+
+    def build(self,
+              kernel: Artifact,
+              disks: [DiskArtifact],
+              ssh_key: Artifact,
+              config: Artifact,
+              enable_diff_snapshots=False):
         """Build a fresh microvm."""
+        self.init_root_path()
+
         vm = init_microvm(self.root_path, self.bin_cloner_path)
-        vm.setup()
 
         # Link the microvm to kernel, rootfs, ssh_key artifacts.
         vm.kernel_file = kernel.local_path()
         vm.rootfs_file = disks[0].local_path()
-        ssh_key = disks[0].ssh_key()
 
-        # Download ssh key into microvm root.
+        # Download ssh key into the microvm root.
         ssh_key.download(self.root_path)
         vm.ssh_config['ssh_key_path'] = ssh_key.local_path()
         os.chmod(vm.ssh_config['ssh_key_path'], 0o400)
@@ -40,11 +54,88 @@ class MicrovmBuilder:
         # Apply the microvm artifact configuration
         vm.basic_config(vcpu_count=int(microvm_config['vcpu_count']),
                         mem_size_mib=int(microvm_config['mem_size_mib']),
-                        ht_enabled=bool(microvm_config['ht_enabled']))
-
+                        ht_enabled=bool(microvm_config['ht_enabled']),
+                        track_dirty_pages=enable_diff_snapshots,
+                        boot_args='console=ttyS0 reboot=k panic=1')
         return vm
 
-    # TBD: Snapshot support is not fully merged. Once that is read
-    # this function will provide a way to spin up clones.
-    def build_from_snapshot(self, snapshot: Artifact):
+    def build_from_snapshot(self,
+                            snapshot: Snapshot,
+                            host_ip,
+                            guest_ip,
+                            netmask_len,
+                            resume=False,
+                            # Enable incremental snapshot capability.
+                            enable_diff_snapshots=False):
         """Build a microvm from a snapshot artifact."""
+        self.init_root_path()
+        vm = init_microvm(self.root_path, self.bin_cloner_path)
+
+        vm.spawn(log_level='Debug')
+
+        # Hardlink all the snapshot files into the microvm jail.
+        jailed_mem = vm.create_jailed_resource(snapshot.mem)
+        jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
+        assert len(snapshot.disks) > 0, "Snapshot requiures at least one disk."
+        _jailed_disk = vm.create_jailed_resource(snapshot.disks[0])
+        vm.ssh_config['ssh_key_path'] = snapshot.ssh_key
+
+        vm.create_tap_and_ssh_config(host_ip=host_ip,
+                                     guest_ip=guest_ip,
+                                     netmask_len=netmask_len,
+                                     tapname="tap0")
+
+        response = vm.snapshot_load.put(mem_file_path=jailed_mem,
+                                        snapshot_path=jailed_vmstate,
+                                        diff=enable_diff_snapshots)
+
+        assert vm.api_session.is_status_no_content(response.status_code)
+
+        if resume:
+            # Resume microvm
+            response = vm.vm.patch(state='Resumed')
+            assert vm.api_session.is_status_no_content(response.status_code)
+
+        # Return a resumed microvm.
+        return vm
+
+
+class SnapshotBuilder:  # pylint: disable=too-few-public-methods
+    """Create a snapshot from a running microvm."""
+
+    def __init__(self, microvm):
+        """Initialize the snapshot builder."""
+        self._microvm = microvm
+
+    def create(self,
+               disks: [DiskArtifact],
+               ssh_key: Artifact,
+               snapshot_type: SnapshotType = SnapshotType.FULL):
+        """Create a Snapshot object from a microvm and artifacts."""
+        # Disable API timeout as the APIs for snapshot related procedures
+        # take longer.
+        self._microvm.api_session.untime()
+        chroot_path = self._microvm.jailer.chroot_path()
+        snapshot_dir = os.path.join(chroot_path, "snapshot")
+        Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
+        cmd = 'chown {}:{} {}'.format(self._microvm.jailer.uid,
+                                      self._microvm.jailer.gid,
+                                      snapshot_dir)
+        utils.run_cmd(cmd)
+        self._microvm.pause_to_snapshot(
+            mem_file_path="/snapshot/vm.mem",
+            snapshot_path="/snapshot/vm.vmstate",
+            diff=snapshot_type == SnapshotType.DIFF)
+
+        # Create a copy of the ssh_key artifact.
+        ssh_key_copy = ssh_key.copy()
+        mem_path = os.path.join(snapshot_dir, "vm.mem")
+        vmstate_path = os.path.join(snapshot_dir, "vm.vmstate")
+        return Snapshot(mem=mem_path,
+                        vmstate=vmstate_path,
+                        # TODO: To support more disks we need to figure out a
+                        # simple and flexible way to store snapshot artifacts
+                        # in S3. This should be done in a PR where we add tests
+                        # that resume from S3 snapshot artifacts.
+                        disks=[disks[0].local_path()],
+                        ssh_key=ssh_key_copy.local_path())

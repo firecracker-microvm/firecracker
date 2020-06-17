@@ -221,6 +221,76 @@ class Logger():
         return datax
 
 
+class SnapshotCreate():
+    """Facility for sending create snapshot commands on the microvm."""
+
+    SNAPSHOT_CREATE_URL = 'snapshot/create'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        self._snapshot_cfg_url = api_url + self.SNAPSHOT_CREATE_URL
+        self._api_session = api_session
+
+    def put(self, **args):
+        """Create a snapshot of the microvm."""
+        datax = self.create_json(**args)
+        return self._api_session.put(
+            "{}".format(self._snapshot_cfg_url),
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(mem_file_path, snapshot_path, diff=False, version=None):
+        """Compose the json associated to this type of API request."""
+        if diff:
+            snapshot_type = 'Diff'
+        else:
+            snapshot_type = 'Full'
+        datax = {
+            'mem_file_path': mem_file_path,
+            'snapshot_path': snapshot_path,
+            'snapshot_type': snapshot_type,
+        }
+        if version is not None:
+            datax['version'] = version
+
+        return datax
+
+
+class SnapshotLoad():
+    """Facility for sending load snapshot commands on the microvm."""
+
+    SNAPSHOT_LOAD_URL = 'snapshot/load'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        self._snapshot_cfg_url = api_url + self.SNAPSHOT_LOAD_URL
+        self._api_session = api_session
+
+    def put(self, **args):
+        """Load a snapshot of the microvm."""
+        datax = self.create_json(**args)
+        return self._api_session.put(
+            "{}".format(self._snapshot_cfg_url),
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(mem_file_path, snapshot_path, diff=False):
+        """Compose the json associated to this type of API request."""
+        datax = {
+            'mem_file_path': mem_file_path,
+            'snapshot_path': snapshot_path,
+        }
+        if diff:
+            datax['enable_diff_snapshots'] = True
+        return datax
+
+
 class Metrics:
     """Facility for setting up the metrics system and sending API requests."""
 

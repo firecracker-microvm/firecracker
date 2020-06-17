@@ -319,21 +319,3 @@ class Tap:
     def netns(self):
         """Return the network namespace of this tap."""
         return self._netns
-
-    def __del__(self):
-        """Destructor doing tap interface clean up."""
-        # pylint: disable=subprocess-run-check
-        _ = utils.run_cmd(
-            'ip netns exec {} ip link set {} down'.format(
-                self.netns,
-                self.name
-            )
-        )
-        _ = utils.run_cmd(
-            'ip netns exec {} ip link delete {}'.format(self.netns, self.name))
-        _ = utils.run_cmd(
-            'ip netns exec {} ip tuntap del mode tap name {}'.format(
-                self.netns,
-                self.name
-            )
-        )

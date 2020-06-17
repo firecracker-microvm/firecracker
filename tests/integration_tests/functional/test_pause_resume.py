@@ -20,10 +20,14 @@ def _test_pause_resume(context):
                 .format(context.microvm.name(),
                         context.kernel.name(),
                         context.disk.name()))
+    rw_disk = context.disk.copy()
+    # Local artifacts created with copy() do not reference ssh keys.
+    ssh_key = context.disk.ssh_key()
 
-    microvm = vm_builder.build(context.kernel,
-                               [context.disk],
-                               context.microvm)
+    microvm = vm_builder.build(kernel=context.kernel,
+                               disks=[rw_disk],
+                               ssh_key=ssh_key,
+                               config=context.microvm)
     tap = microvm.ssh_network_config(context.custom['network_config'], '1')
 
     # Pausing the microVM before being started is not allowed.
@@ -80,8 +84,7 @@ def _test_pause_resume(context):
     platform.machine() != "x86_64",
     reason="Not supported yet."
 )
-def test_pause_resume(test_session_root_path,
-                      network_config,
+def test_pause_resume(network_config,
                       bin_cloner_path):
     """Test scenario: boot/pause/resume for all available configurations."""
     logger = logging.getLogger("pause_resume")
@@ -96,7 +99,7 @@ def test_pause_resume(test_session_root_path,
     # Create a test context and add builder, logger, network.
     test_context = TestContext()
     test_context.custom = {
-        'builder': MicrovmBuilder(test_session_root_path, bin_cloner_path),
+        'builder': MicrovmBuilder(bin_cloner_path),
         'network_config': network_config,
         'logger': logger
     }
