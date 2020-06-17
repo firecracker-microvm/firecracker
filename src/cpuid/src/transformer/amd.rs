@@ -13,7 +13,7 @@ use transformer::common::use_host_cpuid_function;
 const LARGEST_EXTENDED_FN: u32 = 0x8000_001f;
 // This value allows at most 64 logical threads within a package.
 // See also the documentation for leaf_0x80000008::ecx::THREAD_ID_SIZE_BITRANGE
-const THREAD_ID_MAX_SIZE: u32 = 6;
+const THREAD_ID_MAX_SIZE: u32 = 7;
 // This value means there is 1 node per processor.
 // See also the documentation for leaf_0x8000001e::ecx::NODES_PER_PROCESSOR_BITRANGE.
 const NODES_PER_PROCESSOR: u32 = 0;
@@ -67,7 +67,7 @@ pub fn update_amd_features_entry(
 ) -> Result<(), Error> {
     use cpu_leaf::leaf_0x80000008::*;
 
-    // We don't support more then 64 threads right now.
+    // We don't support more then 128 threads right now.
     // It's safe to put them all on the same processor.
     entry
         .ecx
