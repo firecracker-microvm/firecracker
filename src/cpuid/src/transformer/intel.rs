@@ -20,7 +20,7 @@ fn update_deterministic_cache_entry(
     // Put all the cores in the same socket
     entry.eax.write_bits_in_range(
         &eax::MAX_CORES_PER_PACKAGE_BITRANGE,
-        u32::from(vm_spec.cpu_count - 1),
+        u32::from(vm_spec.cpu_count / vm_spec.cpus_per_core()) - 1,
     );
 
     Ok(())
@@ -281,11 +281,11 @@ mod tests {
     fn test_2vcpu_ht_on() {
         // test update_deterministic_cache_entry
         // test L1
-        check_update_deterministic_cache_entry(2, true, 1, 1);
+        check_update_deterministic_cache_entry(2, true, 1, 0);
         // test L2
-        check_update_deterministic_cache_entry(2, true, 2, 1);
+        check_update_deterministic_cache_entry(2, true, 2, 0);
         // test L3
-        check_update_deterministic_cache_entry(2, true, 3, 1);
+        check_update_deterministic_cache_entry(2, true, 3, 0);
 
         // test update_extended_topology_entry
         // index 0
