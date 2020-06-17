@@ -6,8 +6,8 @@ use bit_helper::BitHelper;
 use cpu_leaf::*;
 
 // The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
-// unique topology of the next level. This allows 64 logical processors/package.
-const LEAFBH_INDEX1_APICID: u32 = 6;
+// unique topology of the next level. This allows 128 logical processors/package.
+const LEAFBH_INDEX1_APICID: u32 = 7;
 
 fn update_deterministic_cache_entry(
     entry: &mut kvm_cpuid_entry2,
