@@ -65,6 +65,19 @@ fn build_response(http_version: Version, status_code: StatusCode, body: Body) ->
     response
 }
 
+// Make the URI a correct JSON pointer value.
+fn sanitize_uri(mut uri: String) -> String {
+    let mut len = u32::MAX as usize;
+    // Loop while the deduping decreases the sanitized len.
+    // Each iteration will attempt to dedup "//".
+    while uri.len() < len {
+        len = uri.len();
+        uri = uri.replace("//", "/");
+    }
+
+    uri
+}
+
 pub fn parse_request(request_bytes: &[u8]) -> Response {
     let request = Request::try_from(request_bytes);
     match request {
@@ -88,12 +101,16 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                 return response;
             }
 
+            // The data store expects a strict json path, so we need to
+            // sanitize the URI.
+            let json_pointer = sanitize_uri(uri.to_string());
+
             // The lock can be held by one thread only, so it is safe to unwrap.
             // If another thread poisoned the lock, we abort the execution.
             let response = MMDS
                 .lock()
                 .expect("Poisoned lock")
-                .get_value(uri.to_string(), request.headers.accept().into());
+                .get_value(json_pointer, request.headers.accept().into());
 
             match response {
                 Ok(response_body) => build_response(
