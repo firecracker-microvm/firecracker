@@ -17,6 +17,8 @@
 - Added experimental JSON response format support for MMDS guest applications
   requests.
 - Added metrics for the vsock device. 
+- Added devtool strip command which removes debug symbols from the release
+  binaries.
 
 ### Fixed
 
