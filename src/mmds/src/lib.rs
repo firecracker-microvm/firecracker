@@ -185,6 +185,25 @@ mod tests {
     }
 
     #[test]
+    fn test_sanitize_uri() {
+        let sanitized = "/a/b/c/d";
+        assert_eq!(sanitize_uri("/a/b/c/d".to_owned()), sanitized);
+        assert_eq!(sanitize_uri("/a////b/c//d".to_owned()), sanitized);
+        assert_eq!(sanitize_uri("/a///b/c///d".to_owned()), sanitized);
+        assert_eq!(sanitize_uri("/a//b/c////d".to_owned()), sanitized);
+        assert_eq!(sanitize_uri("///////a//b///c//d".to_owned()), sanitized);
+        assert_eq!(sanitize_uri("a".to_owned()), "a");
+        assert_eq!(sanitize_uri("a/".to_owned()), "a/");
+        assert_eq!(sanitize_uri("aa//".to_owned()), "aa/");
+        assert_eq!(sanitize_uri("aa".to_owned()), "aa");
+        assert_eq!(sanitize_uri("/".to_owned()), "/");
+        assert_eq!(sanitize_uri("".to_owned()), "");
+        assert_eq!(sanitize_uri("////".to_owned()), "/");
+        assert_eq!(sanitize_uri("aa//bb///cc//d".to_owned()), "aa/bb/cc/d");
+        assert_eq!(sanitize_uri("//aa//bb///cc//d".to_owned()), "/aa/bb/cc/d");
+    }
+
+    #[test]
     fn test_parse_request() {
         let data = r#"{
             "name": {
