@@ -69,6 +69,11 @@ def get_firecracker_binaries():
     fc_bin_path = "{}/{}".format(out_dir, FC_BINARY_NAME)
     jailer_bin_path = "{}/{}".format(out_dir, JAILER_BINARY_NAME)
 
+    utils.run_cmd(
+        "strip --strip-debug {} {}"
+        .format(fc_bin_path, jailer_bin_path)
+    )
+
     return fc_bin_path, jailer_bin_path
 
 

@@ -25,6 +25,8 @@
   snapshot.
 - Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 - Added metrics for the vsock device.
+- Added devtool strip command which removes debug symbols from the release
+  binaries.
 
 ### Fixed
 
