@@ -139,8 +139,8 @@ say_noln() {
 #
 say_err() {
     [ -t 2 ] && [ -n "$TERM" ] \
-        && echo "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
-        || echo "[$MY_NAME] $*" 1>&2
+        && echo -e "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
+        || echo -e "[$MY_NAME] $*" 1>&2
 }
 
 # Send a warning-highlighted text to stdout
@@ -232,6 +232,19 @@ ensure_build_dir() {
             } || \
             die "Error: wrong permissions for $dir. Should be +x+w"
     done
+}
+
+# Makes sure that Firecracker release binaries were built.
+# This is relevant in the context of stripping the already built release binaries.
+ensure_release_binaries_exist() {
+    target=$1
+    profile=$2
+    firecracker_bin_path="$CARGO_TARGET_DIR/$target/$profile/firecracker"
+    jailer_bin_path="$CARGO_TARGET_DIR/$target/$profile/jailer"
+
+    # Both binaries must exist for the stripping to be succesgitsful.
+    [ -f $firecracker_bin_path ] && [ -f $jailer_bin_path ] || \
+    die "Missing release binaries. Needed files:\n* $firecracker_bin_path\n* $jailer_bin_path."
 }
 
 # Fix build/ dir permissions after a privileged container run.
@@ -385,6 +398,15 @@ cmd_help() {
     echo "        -l, --libc musl|gnu   Choose the libc flavor against which Firecracker will"
     echo "                              be linked. Default is musl."
     echo ""
+    echo "    strip [--target-libc musl|gnu]"
+    echo "        Strip debug symbols from the Firecracker release binaries."
+    echo ""
+    echo "        --target-libc musl|gnu   Choose the target libc flavor which determines the"
+    echo "                                 toolchain used to build Firecracker release binaries."
+    echo "                                 Stripping will occur only for the Firecracker release"
+    echo "                                 binaries corresponding to the inferred toolchain. Default"
+    echo "                                 is musl."
+    echo ""
     echo "    fmt"
     echo "        Auto-format all Rust source files, to match the Firecracker requirements."
     echo "        This should be used as the last step in every commit, to ensure that the"
@@ -495,6 +517,55 @@ cmd_build() {
         cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
         say "Build successful."
         say "Binaries placed under $cargo_bin_dir"
+    }
+
+    return $ret
+}
+
+cmd_strip() {
+    profile="release"
+    libc="musl"
+    target="$(uname -m)-unknown-linux-${libc}"
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")  { cmd_help; exit 1;     } ;;
+            "--target-libc")
+                shift
+                [[ "$1" =~ ^(musl|gnu)$ ]] || \
+                    die "Invalid libc: $1. Valid options are \"musl\" and \"gnu\"."
+                libc="$1"
+                target="$(uname -m)-unknown-linux-${libc}"
+                ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
+    # Check prerequisites
+    ensure_devctr
+    ensure_build_dir
+    ensure_release_binaries_exist $target $profile
+
+    say "Starting stripping the debug symbols for $profile binaries built against $target target."
+    strip_flags="--strip-debug"
+    say "Strip flags: $strip_flags."
+
+    run_devctr \
+      --user "$(id -u):$(id -g)" \
+      -- \
+      strip $strip_flags\
+        "$CTR_CARGO_TARGET_DIR/$target/$profile/firecracker" \
+        "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer"
+    ret=$?
+
+    [ $ret -eq 0 ] && {
+        cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
+        say "Stripping was successful."
+        say "Stripped binaries placed under $cargo_bin_dir."
     }
 
     return $ret

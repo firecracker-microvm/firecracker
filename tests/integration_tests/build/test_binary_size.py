@@ -11,16 +11,31 @@ import host_tools.cargo_build as host
 MACHINE = platform.machine()
 """ Platform definition used to select the correct size target"""
 
-FC_BINARY_SIZE_TARGET = 3200000 if MACHINE == "x86_64" else 3251464
+SIZES_DICT = {
+    "x86_64": {
+        "FC_BINARY_SIZE_TARGET": 1955168,
+        "JAILER_BINARY_SIZE_TARGET": 1439512,
+        "FC_BINARY_SIZE_LIMIT": 2052927,
+        "JAILER_BINARY_SIZE_LIMIT": 1511488,
+    },
+    "aarch64": {
+        "FC_BINARY_SIZE_TARGET": 1531384,
+        "JAILER_BINARY_SIZE_TARGET": 1338312,
+        "FC_BINARY_SIZE_LIMIT": 1607953,
+        "JAILER_BINARY_SIZE_LIMIT": 1511488,
+    }
+}
+
+FC_BINARY_SIZE_TARGET = SIZES_DICT[MACHINE]["FC_BINARY_SIZE_TARGET"]
 """Firecracker target binary size in bytes"""
 
-FC_BINARY_SIZE_LIMIT = 3500000 if MACHINE == "x86_64" else 3400000
+FC_BINARY_SIZE_LIMIT = SIZES_DICT[MACHINE]["FC_BINARY_SIZE_LIMIT"]
 """Firecracker maximum binary size in bytes"""
 
-JAILER_BINARY_SIZE_TARGET = 2568384 if MACHINE == "x86_64" else 2792688
+JAILER_BINARY_SIZE_TARGET = SIZES_DICT[MACHINE]["JAILER_BINARY_SIZE_TARGET"]
 """Jailer target binary size in bytes"""
 
-JAILER_BINARY_SIZE_LIMIT = 3000000
+JAILER_BINARY_SIZE_LIMIT = SIZES_DICT[MACHINE]["JAILER_BINARY_SIZE_LIMIT"]
 """Jailer maximum binary size in bytes"""
 
 BINARY_SIZE_TOLERANCE = 0.05
