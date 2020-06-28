@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added user confirmation before running test container as root with all
+  capabilities.
 - Added a new API call, `PUT /metrics`, for configuring the metrics system.
 - Added `app_name` field in InstanceInfo struct for storing the application
   name.

@@ -287,6 +287,30 @@ get_user_confirmation() {
     return 1
 }
 
+# Notify the user of what is about to happen: 
+# 1. Granting a container that is not theirs root access with all capabilities.
+# 2. Prompt the user for confirmation before proceeding.
+# 3. Log what they have agreed to - in case of inadvertent use of:
+#  
+#     ```bash
+#     yes | ./tools/devtool test
+#     ```
+#
+get_root_capall_permission() {
+  local questionanswer
+  echo 'Container docker.io/fcuvm/dev requires root with all root capabilities.'
+  read -p "Do you want to continue? (yes/no): " questionanswer
+  if [[ ${questionanswer} != [Yy] && ${questionanswer} != [Yy][Ee][Ss] ]]; then
+      die "Aborting because of input '${questionanswer}'."
+  fi
+  # Incase someone is inadvertently running $(yes | ./tools/devtool test):
+  echo '************************************************************************'
+  echo 'YOU AGREED TO RUN docker.io/fcuvm/dev AS ROOT WITH ALL CAPABILITIES.'
+  echo 'CTRL+C IF THIS IS NOT WHAT YOU INTENDED.'
+  echo '************************************************************************'
+  return 0
+}
+
 # Validate the user supplied version number.
 # It must be composed of 3 groups of integers separated by dot.
 #
@@ -593,6 +617,8 @@ cmd_test() {
     ensure_devctr
     ensure_build_dir
 
+    # Get user permission to run as root with all capabilities.
+    get_root_capall_permission
 
     # If we got to here, we've got all we need to continue.
     say "$(date -u +'%F %H:%M:%S %Z')"
