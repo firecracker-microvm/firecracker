@@ -213,9 +213,9 @@ impl Request {
             Some(headers_end) => {
                 // Parse the request headers.
                 // Start by removing the leading CR LF from them.
-                let headers_start = request_line_end
-                    .checked_add(CRLF_LEN)
-                    .ok_or(RequestError::Overflow)?;
+                // The addition is safe because `find()` guarantees that `request_line_end`
+                // precedes 2 `CRLF` sequences.
+                let headers_start = request_line_end + CRLF_LEN;
                 // Slice access is safe because starting from `request_line_end` there are at least two CRLF
                 // (enforced by `find` at the start of this method).
                 let headers_and_body = &byte_stream[headers_start..];
@@ -238,9 +238,9 @@ impl Request {
                     }
                     content_length => {
                         // Multiplication is safe because `CRLF_LEN` is a small constant.
-                        let crlf_end = headers_end
-                            .checked_add(2 * CRLF_LEN)
-                            .ok_or(RequestError::Overflow)?;
+                        // Addition is also safe because `headers_end` started out as the result
+                        // of `find(<something>, CRLFCRLF)`, then `CRLF_LEN` was subtracted from it.
+                        let crlf_end = headers_end + 2 * CRLF_LEN;
                         // This can't underflow because `headers_and_body.len()` >= `crlf_end`.
                         let body_len = headers_and_body.len() - crlf_end;
                         // Headers suggest we have a body, but the buffer is shorter than the specified

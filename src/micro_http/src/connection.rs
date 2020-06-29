@@ -41,7 +41,7 @@ pub struct HttpConnection<T> {
     body_vec: Vec<u8>,
     /// Represents how many bytes from the body of the request are still
     /// to be read.
-    body_bytes_to_be_read: i32,
+    body_bytes_to_be_read: u32,
     /// A queue of all requests that have been fully received and parsed.
     parsed_requests: VecDeque<Request>,
     /// A queue of requests that are waiting to be sent.
@@ -119,8 +119,13 @@ impl<T: Read + Write> HttpConnection<T> {
     /// # Errors
     /// `StreamError` is returned if any error occurred while reading the stream.
     /// `ConnectionClosed` is returned if the client closed the connection.
+    /// `Overflow` is returned if an arithmetic overflow occurs while parsing the request.
     fn read_bytes(&mut self) -> Result<usize, ConnectionError> {
+        if self.read_cursor >= BUFFER_SIZE {
+            return Err(ConnectionError::ParseError(RequestError::Overflow));
+        }
         // Append new bytes to what we already have in the buffer.
+        // The slice access is safe, the index is checked above.
         let bytes_read = self
             .stream
             .read(&mut self.buffer[self.read_cursor..])
@@ -130,7 +135,9 @@ impl<T: Read + Write> HttpConnection<T> {
         if bytes_read == 0 {
             return Err(ConnectionError::ConnectionClosed);
         }
-        Ok(bytes_read + self.read_cursor)
+        bytes_read
+            .checked_add(self.read_cursor)
+            .ok_or(ConnectionError::ParseError(RequestError::Overflow))
     }
 
     /// Parses bytes in `buffer` for a valid request line.
@@ -143,10 +150,22 @@ impl<T: Read + Write> HttpConnection<T> {
         start: &mut usize,
         end: usize,
     ) -> Result<bool, ConnectionError> {
+        if end < *start {
+            return Err(ConnectionError::ParseError(RequestError::Underflow));
+        }
+        if end > self.buffer.len() {
+            return Err(ConnectionError::ParseError(RequestError::Overflow));
+        }
+        // The slice access is safe because `end` is checked to be smaller than the buffer size
+        // and larger than `start`.
         match find(&self.buffer[*start..end], &[CR, LF]) {
             Some(line_end_index) => {
+                // The unchecked addition `start + line_end_index` is safe because `line_end_index`
+                // is returned by `find` and thus guaranteed to be in-bounds. This also makes the
+                // slice access safe.
                 let line = &self.buffer[*start..(*start + line_end_index)];
 
+                // The unchecked addition is safe because of the previous `find()`.
                 *start = *start + line_end_index + CRLF_LEN;
 
                 // Form the request with a valid request line, which is the bare minimum
@@ -169,7 +188,8 @@ impl<T: Read + Write> HttpConnection<T> {
                     // for the next `try_read` call to complete it.
                     // This can only happen if another request was sent before this one, as the
                     // limit for the length of a request line in this implementation is 1024 bytes.
-                    self.shift_buffer_left(*start, end);
+                    self.shift_buffer_left(*start, end)
+                        .map_err(ConnectionError::ParseError)?;
                 }
                 Ok(false)
             }
@@ -186,6 +206,13 @@ impl<T: Read + Write> HttpConnection<T> {
         line_start_index: &mut usize,
         end_cursor: usize,
     ) -> Result<bool, ConnectionError> {
+        if end_cursor > self.buffer.len() {
+            return Err(ConnectionError::ParseError(RequestError::Overflow));
+        }
+        if end_cursor < *line_start_index {
+            return Err(ConnectionError::ParseError(RequestError::Underflow));
+        }
+        // Safe to access the slice as the bounds are checked above.
         match find(&self.buffer[*line_start_index..end_cursor], &[CR, LF]) {
             // `line_start_index` points to the end of the most recently found CR LF
             // sequence. That means that if we found the next CR LF sequence at this index,
@@ -194,9 +221,14 @@ impl<T: Read + Write> HttpConnection<T> {
 
             // We have found the end of the header.
             Some(0) => {
-                // If our current state is `WaitingForHeaders`, it means that we already have
-                // a valid request formed from a request line, so it's safe to unwrap.
-                let request = self.pending_request.as_mut().unwrap();
+                // The current state is `WaitingForHeaders`, ensuring a valid request formed from a
+                // request line.
+                let request = self
+                    .pending_request
+                    .as_mut()
+                    .ok_or(ConnectionError::ParseError(
+                        RequestError::HeadersWithoutPendingRequest,
+                    ))?;
                 if request.headers.content_length() == 0 {
                     self.state = ConnectionState::RequestReady;
                 } else {
@@ -213,16 +245,28 @@ impl<T: Read + Write> HttpConnection<T> {
                 }
 
                 // Update the index for the next header.
-                *line_start_index += CRLF_LEN;
+                *line_start_index = line_start_index
+                    .checked_add(CRLF_LEN)
+                    .ok_or(ConnectionError::ParseError(RequestError::Overflow))?;
                 Ok(true)
             }
             // We have found the end of a header line.
             Some(relative_line_end_index) => {
-                let request = self.pending_request.as_mut().unwrap();
+                let request = self
+                    .pending_request
+                    .as_mut()
+                    .ok_or(ConnectionError::ParseError(
+                        RequestError::HeadersWithoutPendingRequest,
+                    ))?;
                 // The `line_end_index` relative to the whole buffer.
-                let line_end_index = relative_line_end_index + *line_start_index;
+                let line_end_index = relative_line_end_index
+                    .checked_add(*line_start_index)
+                    .ok_or(ConnectionError::ParseError(RequestError::Overflow))?;
 
                 // Get the line slice and parse it.
+                // The slice access is safe because `line_end_index` is a sum of `line_end_index`
+                // and something else, and `line_end_index` itself is guaranteed to be within
+                // `self.buffer`'s bounds by the `find()`.
                 let line = &self.buffer[*line_start_index..line_end_index];
                 match request.headers.parse_header_line(line) {
                     // If a header is unsupported we ignore it.
@@ -233,7 +277,9 @@ impl<T: Read + Write> HttpConnection<T> {
                 };
 
                 // Update the `line_start_index` to where we finished parsing.
-                *line_start_index = line_end_index + CRLF_LEN;
+                *line_start_index = line_end_index
+                    .checked_add(CRLF_LEN)
+                    .ok_or(ConnectionError::ParseError(RequestError::Overflow))?;
                 Ok(true)
             }
             // If we have an incomplete header line.
@@ -247,7 +293,8 @@ impl<T: Read + Write> HttpConnection<T> {
                 // Move the incomplete header line from the end of the buffer to
                 // the beginning, so that we can append the rest of the line and
                 // parse it in the next `try_read` call.
-                self.shift_buffer_left(*line_start_index, end_cursor);
+                self.shift_buffer_left(*line_start_index, end_cursor)
+                    .map_err(ConnectionError::ParseError)?;
                 Ok(false)
             }
         }
@@ -265,12 +312,21 @@ impl<T: Read + Write> HttpConnection<T> {
     ) -> Result<bool, ConnectionError> {
         // If what we have just read is not enough to complete the request and
         // there are more bytes pertaining to the body of the request.
-        if self.body_bytes_to_be_read > end_cursor as i32 - *line_start_index as i32 {
+        if end_cursor > self.buffer.len() {
+            return Err(ConnectionError::ParseError(RequestError::Overflow));
+        }
+        let start_to_end = end_cursor
+            .checked_sub(*line_start_index)
+            .ok_or(ConnectionError::ParseError(RequestError::Underflow))?
+            as u32;
+        if self.body_bytes_to_be_read > start_to_end {
             // Append everything that we read to our current incomplete body and update
             // `body_bytes_to_be_read`.
+            // The slice access is safe, otherwise `checked_sub` would have failed.
             self.body_vec
                 .extend_from_slice(&self.buffer[*line_start_index..end_cursor]);
-            self.body_bytes_to_be_read -= end_cursor as i32 - *line_start_index as i32;
+            // Safe to subtract directly as the `if` condition prevents underflow.
+            self.body_bytes_to_be_read -= start_to_end;
 
             // Clear the buffer and reset the starting index.
             for i in 0..BUFFER_SIZE {
@@ -282,14 +338,21 @@ impl<T: Read + Write> HttpConnection<T> {
         }
 
         // Append only the remaining necessary bytes to the body of the request.
-        self.body_vec.extend_from_slice(
-            &self.buffer
-                [*line_start_index..(*line_start_index + self.body_bytes_to_be_read as usize)],
-        );
-        *line_start_index += self.body_bytes_to_be_read as usize;
+        let line_end = line_start_index
+            .checked_add(self.body_bytes_to_be_read as usize)
+            .ok_or(ConnectionError::ParseError(RequestError::Overflow))?;
+        // The slice access is safe as `line_end` is a sum of `line_start_index` + something else.
+        self.body_vec
+            .extend_from_slice(&self.buffer[*line_start_index..line_end]);
+        *line_start_index = line_end;
         self.body_bytes_to_be_read = 0;
 
-        let request = self.pending_request.as_mut().unwrap();
+        let request = self
+            .pending_request
+            .as_mut()
+            .ok_or(ConnectionError::ParseError(
+                RequestError::BodyWithoutPendingRequest,
+            ))?;
         // If there are no more bytes to be read for this request.
         // Assign the body of the request.
         let placeholder: Vec<_> = self
@@ -371,22 +434,37 @@ impl<T: Read + Write> HttpConnection<T> {
         self.response_queue.push_back(response);
     }
 
-    fn shift_buffer_left(&mut self, line_start_index: usize, end_cursor: usize) {
+    fn shift_buffer_left(
+        &mut self,
+        line_start_index: usize,
+        end_cursor: usize,
+    ) -> Result<(), RequestError> {
+        if end_cursor > self.buffer.len() {
+            return Err(RequestError::Overflow);
+        }
         // We don't want to shift something that is already at the beginning.
+        let delta_bytes = end_cursor
+            .checked_sub(line_start_index)
+            .ok_or(RequestError::Underflow)?;
         if line_start_index != 0 {
             // Move the bytes from `line_start_index` to the beginning of the buffer.
-            for cursor in 0..(end_cursor - line_start_index) {
+            for cursor in 0..delta_bytes {
+                // The unchecked addition is safe, guaranteed by the result of the substraction
+                // above.
+                // The slice access is safe, as `line_start_index + cursor` is <= `end_cursor`,
+                // checked at the start of the function.
                 self.buffer[cursor] = self.buffer[line_start_index + cursor];
             }
 
             // Clear the rest of the buffer.
-            for cursor in (end_cursor - line_start_index)..end_cursor {
+            for cursor in delta_bytes..end_cursor {
                 self.buffer[cursor] = 0;
             }
         }
 
         // Update `read_cursor`.
-        self.read_cursor = end_cursor - line_start_index;
+        self.read_cursor = delta_bytes;
+        Ok(())
     }
 
     /// Returns the first parsed request in the queue or `None` if the queue
@@ -405,6 +483,7 @@ impl<T: Read + Write> HttpConnection<T> {
 mod tests {
     use super::*;
     use common::{Method, Version};
+    use std::net::Shutdown;
     use std::os::unix::net::UnixStream;
 
     #[test]
@@ -794,5 +873,215 @@ mod tests {
         let mut response_buffer = vec![0u8; expected_response.len()];
         receiver.read_exact(&mut response_buffer).unwrap();
         assert_eq!(response_buffer, expected_response);
+    }
+
+    #[test]
+    fn test_try_read_negative_content_len() {
+        // Request with negative `Content-Length` header.
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        receiver.set_nonblocking(true).expect("Can't modify socket");
+        let mut conn = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT http://localhost/home HTTP/1.1\r\n\
+                                 Content-Length: -1\r\n\r\n",
+            )
+            .unwrap();
+        assert_eq!(
+            conn.try_read().unwrap_err(),
+            ConnectionError::ParseError(RequestError::InvalidHeader)
+        );
+    }
+
+    #[test]
+    fn test_read_bytes() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        receiver.set_nonblocking(true).expect("Can't modify socket");
+        let mut conn = HttpConnection::new(receiver);
+
+        // Cursor positioned at buffer end. Read should fail.
+        conn.read_cursor = BUFFER_SIZE;
+        sender.write_all(b"hello\0").unwrap();
+        assert_eq!(
+            conn.read_bytes().unwrap_err(),
+            ConnectionError::ParseError(RequestError::Overflow)
+        );
+
+        // Cursor positioned before buffer end. Partial read should succeed.
+        conn.read_cursor = BUFFER_SIZE - 3;
+        sender.write_all(b"hello\0").unwrap();
+        assert_eq!(conn.read_bytes(), Ok(BUFFER_SIZE));
+
+        // Read the remaining 9 bytes - 3 left from the first "hello" and the 2nd full "hello".
+        conn.read_cursor = 0;
+        assert_eq!(conn.read_bytes(), Ok(9));
+        sender.shutdown(Shutdown::Write).unwrap();
+        assert_eq!(
+            conn.read_bytes().unwrap_err(),
+            ConnectionError::ConnectionClosed
+        );
+    }
+
+    #[test]
+    fn test_shift_buffer_left() {
+        let (_, receiver) = UnixStream::pair().unwrap();
+        let mut conn = HttpConnection::new(receiver);
+
+        assert_eq!(
+            conn.shift_buffer_left(0, conn.buffer.len() + 1)
+                .unwrap_err(),
+            RequestError::Overflow
+        );
+        assert_eq!(
+            conn.shift_buffer_left(1, 0).unwrap_err(),
+            RequestError::Underflow
+        );
+        assert!(conn.shift_buffer_left(1, conn.buffer.len()).is_ok());
+    }
+
+    #[test]
+    fn test_parse_request_line() {
+        let (_, receiver) = UnixStream::pair().unwrap();
+        let mut conn = HttpConnection::new(receiver);
+
+        // Error case: end past buffer end.
+        assert_eq!(
+            conn.parse_request_line(&mut 0, conn.buffer.len() + 1)
+                .unwrap_err(),
+            ConnectionError::ParseError(RequestError::Overflow)
+        );
+
+        // Error case: start is past end.
+        assert_eq!(
+            conn.parse_request_line(&mut 1, 0).unwrap_err(),
+            ConnectionError::ParseError(RequestError::Underflow)
+        );
+
+        // Error case: the request line is longer than BUFFER_SIZE.
+        assert_eq!(
+            conn.parse_request_line(&mut 0, BUFFER_SIZE).unwrap_err(),
+            ConnectionError::ParseError(RequestError::InvalidRequest)
+        );
+
+        // OK case.
+        assert_eq!(conn.parse_request_line(&mut 1, BUFFER_SIZE), Ok(false));
+
+        // Error case: invalid content.
+        conn.buffer[0..8].copy_from_slice(b"foo\r\nbar");
+        assert_eq!(
+            conn.parse_request_line(&mut 0, BUFFER_SIZE).unwrap_err(),
+            ConnectionError::ParseError(RequestError::InvalidRequest)
+        );
+
+        // OK case.
+        conn.buffer[0..29].copy_from_slice(b"GET http://foo/bar HTTP/1.1\r\n");
+        assert_eq!(conn.parse_request_line(&mut 0, BUFFER_SIZE), Ok(true));
+    }
+
+    #[test]
+    fn test_parse_headers() {
+        let (_, receiver) = UnixStream::pair().unwrap();
+        let mut conn = HttpConnection::new(receiver);
+
+        // Error case: end_cursor past buffer end.
+        assert_eq!(
+            conn.parse_headers(&mut 0, conn.buffer.len() + 1)
+                .unwrap_err(),
+            ConnectionError::ParseError(RequestError::Overflow)
+        );
+
+        // Error case: line_start_index is past end_cursor.
+        assert_eq!(
+            conn.parse_headers(&mut 1, 0).unwrap_err(),
+            ConnectionError::ParseError(RequestError::Underflow)
+        );
+
+        // Error case: no request pending.
+        // CRLF can be at the start of the buffer...
+        conn.buffer[0] = CR;
+        conn.buffer[1] = LF;
+        assert_eq!(
+            conn.parse_headers(&mut 0, BUFFER_SIZE).unwrap_err(),
+            ConnectionError::ParseError(RequestError::HeadersWithoutPendingRequest)
+        );
+        // ...or somewhere in the middle.
+        conn.buffer[0] = 0;
+        conn.buffer[1] = CR;
+        conn.buffer[2] = LF;
+        assert_eq!(
+            conn.parse_headers(&mut 0, BUFFER_SIZE).unwrap_err(),
+            ConnectionError::ParseError(RequestError::HeadersWithoutPendingRequest)
+        );
+
+        // Error case: invalid header.
+        conn.pending_request = Some(Request {
+            request_line: RequestLine::new(Method::Get, "http://foo/bar", Version::Http11),
+            headers: Headers::new(0, true, true),
+            body: None,
+        });
+        assert_eq!(
+            conn.parse_headers(&mut 0, BUFFER_SIZE).unwrap_err(),
+            ConnectionError::ParseError(RequestError::InvalidHeader)
+        );
+
+        // OK case: incomplete header line.
+        let hdr = b"Custom-Header-Testing: 1";
+        conn.buffer[..hdr.len()].copy_from_slice(hdr);
+        assert_eq!(conn.parse_headers(&mut 0, hdr.len()), Ok(false));
+
+        // OK case: complete header line.
+        let hdr = b"Custom-Header-Testing: 1\r\n";
+        conn.buffer[..hdr.len()].copy_from_slice(hdr);
+        assert_eq!(conn.parse_headers(&mut 0, hdr.len()), Ok(true));
+
+        // OK case: complete header line, end of header.
+        let hdr = b"\r\n";
+        conn.buffer[..hdr.len()].copy_from_slice(hdr);
+        assert_eq!(conn.parse_headers(&mut 0, hdr.len()), Ok(true));
+    }
+
+    #[test]
+    fn test_parse_body() {
+        let (_, receiver) = UnixStream::pair().unwrap();
+        let mut conn = HttpConnection::new(receiver);
+
+        // Error case: end_cursor past buffer end.
+        assert_eq!(
+            conn.parse_body(&mut 0usize, conn.buffer.len() + 1)
+                .unwrap_err(),
+            ConnectionError::ParseError(RequestError::Overflow)
+        );
+
+        // Error case: line_start_index is past end_cursor.
+        assert_eq!(
+            conn.parse_body(&mut 1usize, 0usize).unwrap_err(),
+            ConnectionError::ParseError(RequestError::Underflow)
+        );
+
+        // OK case: consume the buffer.
+        conn.body_bytes_to_be_read = 1;
+        assert_eq!(conn.parse_body(&mut 0usize, 0usize), Ok(false));
+
+        // Error case: there's more body to be parsed, but no pending request set.
+        assert_eq!(
+            conn.parse_body(&mut 0, BUFFER_SIZE).unwrap_err(),
+            ConnectionError::ParseError(RequestError::BodyWithoutPendingRequest)
+        );
+
+        // Error case: read more bytes than we should have into the body of the request.
+        conn.pending_request = Some(Request {
+            request_line: RequestLine::new(Method::Get, "http://foo/bar", Version::Http11),
+            headers: Headers::new(0, true, true),
+            body: None,
+        });
+        conn.body_vec = vec![0xde, 0xad, 0xbe, 0xef];
+        assert_eq!(
+            conn.parse_body(&mut 0, BUFFER_SIZE).unwrap_err(),
+            ConnectionError::ParseError(RequestError::InvalidRequest)
+        );
+
+        // OK case.
+        conn.body_vec.clear();
+        assert_eq!(conn.parse_body(&mut 0, BUFFER_SIZE), Ok(true));
     }
 }
