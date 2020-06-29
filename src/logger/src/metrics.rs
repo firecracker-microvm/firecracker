@@ -428,6 +428,8 @@ pub struct NetDeviceMetrics {
     pub rx_queue_event_count: SharedMetric,
     /// Number of events associated with the rate limiter installed on the receiving path.
     pub rx_event_rate_limiter_count: SharedMetric,
+    /// Number of RX rate limiter throttling events.
+    pub rx_rate_limiter_throttled: SharedMetric,
     /// Number of events received on the associated tap.
     pub rx_tap_event_count: SharedMetric,
     /// Number of bytes received.
@@ -452,6 +454,8 @@ pub struct NetDeviceMetrics {
     pub tx_queue_event_count: SharedMetric,
     /// Number of events associated with the rate limiter installed on the transmitting path.
     pub tx_rate_limiter_event_count: SharedMetric,
+    /// Number of RX rate limiter throttling events.
+    pub tx_rate_limiter_throttled: SharedMetric,
     /// Number of packets with a spoofed mac, sent by the guest.
     pub tx_spoofed_mac_count: SharedMetric,
 }
