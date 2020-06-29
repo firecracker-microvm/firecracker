@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::super::VmmAction;
-use parsed_request::{Error, ParsedRequest};
-use request::Body;
+use crate::parsed_request::{Error, ParsedRequest};
+use crate::request::Body;
 #[cfg(target_arch = "x86_64")]
-use request::{Method, StatusCode};
+use crate::request::{Method, StatusCode};
 #[cfg(target_arch = "x86_64")]
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
 use vmm::vmm_config::snapshot::{Vm, VmState};

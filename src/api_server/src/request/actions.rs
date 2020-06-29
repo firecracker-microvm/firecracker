@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::super::VmmAction;
-use logger::{Metric, METRICS};
-use parsed_request::{Error, ParsedRequest};
-use request::Body;
+use crate::parsed_request::{Error, ParsedRequest};
+use crate::request::Body;
 #[cfg(target_arch = "aarch64")]
-use request::StatusCode;
+use crate::request::StatusCode;
+use logger::{Metric, METRICS};
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed
