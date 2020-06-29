@@ -17,7 +17,7 @@ use super::super::InitrdConfig;
 use super::get_fdt_addr;
 use super::gic::GICDevice;
 use super::layout::FDT_MAX_SIZE;
-use aarch64::fdt::Error::CstringFDTTransform;
+use crate::aarch64::fdt::Error::CstringFDTTransform;
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
@@ -530,8 +530,8 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aarch64::gic::create_gic;
-    use aarch64::{arch_memory_regions, layout};
+    use crate::aarch64::gic::create_gic;
+    use crate::aarch64::{arch_memory_regions, layout};
     use kvm_ioctls::Kvm;
 
     const LEN: u64 = 4096;
