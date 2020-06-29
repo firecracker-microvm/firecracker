@@ -29,6 +29,7 @@
   binaries.
 - Added the `tx_malformed_frames` metric for the virtio net device, emitted
   when a TX frame missing the VNET header is encountered.
+- Added metrics for counting rate limiter throttling events.
 
 ### Fixed
 
