@@ -4,9 +4,9 @@
 use serde_json::{Map, Value};
 
 use super::super::VmmAction;
+use crate::parsed_request::{checked_id, Error, ParsedRequest};
+use crate::request::{Body, StatusCode};
 use logger::{Metric, METRICS};
-use parsed_request::{checked_id, Error, ParsedRequest};
-use request::{Body, StatusCode};
 use vmm::vmm_config::drive::BlockDeviceConfig;
 
 struct PatchDrivePayload {

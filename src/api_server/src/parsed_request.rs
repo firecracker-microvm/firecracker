@@ -4,23 +4,23 @@
 use serde_json::Value;
 
 use super::VmmData;
-use micro_http::{Body, Method, Request, Response, StatusCode, Version};
-use request::actions::parse_put_actions;
-use request::boot_source::parse_put_boot_source;
-use request::drive::{parse_patch_drive, parse_put_drive};
-use request::instance_info::parse_get_instance_info;
-use request::logger::parse_put_logger;
-use request::machine_configuration::{
+use crate::request::actions::parse_put_actions;
+use crate::request::boot_source::parse_put_boot_source;
+use crate::request::drive::{parse_patch_drive, parse_put_drive};
+use crate::request::instance_info::parse_get_instance_info;
+use crate::request::logger::parse_put_logger;
+use crate::request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
-use request::metrics::parse_put_metrics;
-use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
-use request::net::{parse_patch_net, parse_put_net};
-use request::snapshot::parse_patch_vm_state;
+use crate::request::metrics::parse_put_metrics;
+use crate::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
+use crate::request::net::{parse_patch_net, parse_put_net};
+use crate::request::snapshot::parse_patch_vm_state;
 #[cfg(target_arch = "x86_64")]
-use request::snapshot::parse_put_snapshot;
-use request::vsock::parse_put_vsock;
-use ApiServer;
+use crate::request::snapshot::parse_put_snapshot;
+use crate::request::vsock::parse_put_vsock;
+use crate::ApiServer;
+use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 

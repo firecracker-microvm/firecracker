@@ -1,9 +1,9 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::parsed_request::{Error, ParsedRequest};
+use crate::request::Body;
 use micro_http::StatusCode;
-use parsed_request::{Error, ParsedRequest};
-use request::Body;
 use vmm::rpc_interface::VmmAction::SetMmdsConfiguration;
 use vmm::vmm_config::mmds::MmdsConfig;
 
