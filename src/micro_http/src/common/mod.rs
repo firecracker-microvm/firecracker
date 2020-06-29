@@ -16,6 +16,10 @@ pub mod ascii {
 /// Errors associated with parsing the HTTP Request from a u8 slice.
 #[derive(Debug, PartialEq)]
 pub enum RequestError {
+    /// No request was pending while the request body was being parsed.
+    BodyWithoutPendingRequest,
+    /// No request was pending while the request headers were being parsed.
+    HeadersWithoutPendingRequest,
     /// The HTTP Method is not supported or it is invalid.
     InvalidHttpMethod(&'static str),
     /// Request URI is invalid.
@@ -37,6 +41,14 @@ pub enum RequestError {
 impl Display for RequestError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
+            Self::BodyWithoutPendingRequest => write!(
+                f,
+                "No request was pending while the request body was being parsed."
+            ),
+            Self::HeadersWithoutPendingRequest => write!(
+                f,
+                "No request was pending while the request headers were being parsed."
+            ),
             Self::InvalidHttpMethod(inner) => write!(f, "Invalid HTTP Method: {}", inner),
             Self::InvalidUri(inner) => write!(f, "Invalid URI: {}", inner),
             Self::InvalidHttpVersion(inner) => write!(f, "Invalid HTTP Version: {}", inner),
@@ -298,6 +310,14 @@ mod tests {
 
     #[test]
     fn test_display_request_error() {
+        assert_eq!(
+            format!("{}", RequestError::BodyWithoutPendingRequest),
+            "No request was pending while the request body was being parsed."
+        );
+        assert_eq!(
+            format!("{}", RequestError::HeadersWithoutPendingRequest),
+            "No request was pending while the request headers were being parsed."
+        );
         assert_eq!(
             format!("{}", RequestError::InvalidHeader),
             "Invalid header."

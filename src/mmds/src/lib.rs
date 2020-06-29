@@ -137,6 +137,16 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
             }
         }
         Err(e) => match e {
+            RequestError::BodyWithoutPendingRequest => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(e.to_string()),
+            ),
+            RequestError::HeadersWithoutPendingRequest => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(e.to_string()),
+            ),
             RequestError::InvalidHttpVersion(err_msg) => build_response(
                 Version::default(),
                 StatusCode::NotImplemented,
