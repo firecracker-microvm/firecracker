@@ -760,6 +760,7 @@ impl VirtioDevice for Net {
         self.guest_mac = Some(MacAddr::from_bytes_unchecked(
             &self.config_space.guest_mac[..MAC_ADDR_LEN],
         ));
+        METRICS.net.mac_address_updates.inc();
     }
 
     fn is_activated(&self) -> bool {
@@ -1015,6 +1016,7 @@ pub(crate) mod tests {
         // Check that the guest MAC was updated.
         let expected_guest_mac = MacAddr::from_bytes_unchecked(&new_config);
         assert_eq!(expected_guest_mac, net.guest_mac.unwrap());
+        assert_eq!(METRICS.net.mac_address_updates.count(), 1);
 
         // Partial write (this is how the kernel sets a new mac address) - byte by byte.
         let new_config = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66];

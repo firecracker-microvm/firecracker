@@ -418,6 +418,8 @@ pub struct NetDeviceMetrics {
     pub activate_fails: SharedMetric,
     /// Number of times when interacting with the space config of a network device failed.
     pub cfg_fails: SharedMetric,
+    //// Number of times the mac address was updated through the config space.
+    pub mac_address_updates: SharedMetric,
     /// No available buffer for the net device rx queue.
     pub no_rx_avail_buffer: SharedMetric,
     /// No available buffer for the net device tx queue.
