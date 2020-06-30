@@ -20,7 +20,6 @@ extern crate versionize;
 extern crate versionize_derive;
 extern crate vm_memory;
 
-use rate_limiter::Error as RateLimiterError;
 use std::io;
 
 mod bus;
@@ -39,15 +38,12 @@ pub(crate) fn report_net_event_fail(err: Error) {
 
 #[derive(Debug)]
 pub enum Error {
-    FailedReadingQueue {
-        event_type: &'static str,
-        underlying: io::Error,
-    },
+    /// Failed to read from the TAP device.
     FailedReadTap,
+    /// Failed to signal the virtio used queue.
     FailedSignalingUsedQueue(io::Error),
-    RateLimited(RateLimiterError),
-    PayloadExpected,
+    /// IO error.
     IoError(io::Error),
-    NoAvailBuffers,
-    SpuriousEvent,
+    /// Device received malformed payload.
+    MalformedPayload,
 }
