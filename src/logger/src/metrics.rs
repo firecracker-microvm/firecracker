@@ -430,6 +430,8 @@ pub struct NetDeviceMetrics {
     pub rx_queue_event_count: SharedMetric,
     /// Number of events associated with the rate limiter installed on the receiving path.
     pub rx_event_rate_limiter_count: SharedMetric,
+    /// Number of RX partial writes to guest.
+    pub rx_partial_writes: SharedMetric,
     /// Number of RX rate limiter throttling events.
     pub rx_rate_limiter_throttled: SharedMetric,
     /// Number of events received on the associated tap.
@@ -442,6 +444,8 @@ pub struct NetDeviceMetrics {
     pub rx_fails: SharedMetric,
     /// Number of successful read operations while receiving data.
     pub rx_count: SharedMetric,
+    /// Number of times reading from TAP failed.
+    pub tap_read_fails: SharedMetric,
     /// Number of times writing to TAP failed.
     pub tap_write_fails: SharedMetric,
     /// Number of transmitted bytes.

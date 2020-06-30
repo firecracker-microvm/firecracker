@@ -31,6 +31,8 @@
   when a TX frame missing the VNET header is encountered.
 - Added metrics for counting rate limiter throttling events.
 - Added metric for counting MAC address updates.
+- Added metrics for counting TAP read and write errors.
+- Added metrics for counting RX and TX partial writes.
 
 ### Fixed
 

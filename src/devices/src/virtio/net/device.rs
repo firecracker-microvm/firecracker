@@ -297,9 +297,11 @@ impl Net {
                         }
                         Err(e) => {
                             error!("Failed to write slice: {:?}", e);
-                            METRICS.net.rx_fails.inc();
                             if let GuestMemoryError::PartialBuffer { completed, .. } = e {
                                 write_count += completed;
+                                METRICS.net.rx_partial_writes.inc();
+                            } else {
+                                METRICS.net.rx_fails.inc();
                             }
                             break;
                         }
@@ -425,7 +427,7 @@ impl Net {
                         Some(err) if err == EAGAIN => (),
                         _ => {
                             error!("Failed to read tap: {:?}", e);
-                            METRICS.net.rx_fails.inc();
+                            METRICS.net.tap_read_fails.inc();
                             return Err(DeviceError::FailedReadTap);
                         }
                     };
@@ -1206,7 +1208,7 @@ pub(crate) mod tests {
             };
 
             let mut net = Net::default_net(test_mutators);
-            check_metric_after_block!(&METRICS.net.rx_fails, 1, net.process_rx());
+            check_metric_after_block!(&METRICS.net.tap_read_fails, 1, net.process_rx());
         }
     }
 
@@ -1423,7 +1425,7 @@ pub(crate) mod tests {
         // Fake an avail buffer; this time, tap reading should error out.
         rxq.avail.idx.set(1);
         check_metric_after_block!(
-            &METRICS.net.rx_fails,
+            &METRICS.net.tap_read_fails,
             1,
             net.process(&tap_event, &mut event_manager)
         );
