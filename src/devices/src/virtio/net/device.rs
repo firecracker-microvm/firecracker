@@ -443,19 +443,24 @@ impl Net {
         }
     }
 
+    // Process the deferred frame first, then continue reading from tap.
+    fn handle_deferred_frame(&mut self) -> result::Result<(), DeviceError> {
+        if self.rate_limited_rx_single_frame() {
+            self.rx_deferred_frame = false;
+            // process_rx() was interrupted possibly before consuming all
+            // packets in the tap; try continuing now.
+            self.process_rx()
+        } else if self.rx_deferred_irqs {
+            self.rx_deferred_irqs = false;
+            self.signal_used_queue()
+        } else {
+            Ok(())
+        }
+    }
+
     fn resume_rx(&mut self) -> result::Result<(), DeviceError> {
         if self.rx_deferred_frame {
-            if self.rate_limited_rx_single_frame() {
-                self.rx_deferred_frame = false;
-                // process_rx() was interrupted possibly before consuming all
-                // packets in the tap; try continuing now.
-                self.process_rx()
-            } else if self.rx_deferred_irqs {
-                self.rx_deferred_irqs = false;
-                self.signal_used_queue()
-            } else {
-                Ok(())
-            }
+            self.handle_deferred_frame()
         } else {
             Ok(())
         }
@@ -625,14 +630,8 @@ impl Net {
         // Process a deferred frame first if available. Don't read from tap again
         // until we manage to receive this deferred frame.
         {
-            if self.rate_limited_rx_single_frame() {
-                self.rx_deferred_frame = false;
-                self.process_rx().unwrap_or_else(report_net_event_fail);
-            } else if self.rx_deferred_irqs {
-                self.rx_deferred_irqs = false;
-                self.signal_used_queue()
-                    .unwrap_or_else(report_net_event_fail);
-            }
+            self.handle_deferred_frame()
+                .unwrap_or_else(report_net_event_fail);
         } else {
             self.process_rx().unwrap_or_else(report_net_event_fail);
         }
