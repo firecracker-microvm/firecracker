@@ -442,6 +442,8 @@ pub struct NetDeviceMetrics {
     pub rx_fails: SharedMetric,
     /// Number of successful read operations while receiving data.
     pub rx_count: SharedMetric,
+    /// Number of times writing to TAP failed.
+    pub tap_write_fails: SharedMetric,
     /// Number of transmitted bytes.
     pub tx_bytes_count: SharedMetric,
     /// Number of malformed TX frames.
@@ -452,6 +454,8 @@ pub struct NetDeviceMetrics {
     pub tx_count: SharedMetric,
     /// Number of transmitted packets.
     pub tx_packets_count: SharedMetric,
+    /// Number of TX partial reads from guest.
+    pub tx_partial_reads: SharedMetric,
     /// Number of events associated with the transmitting queue.
     pub tx_queue_event_count: SharedMetric,
     /// Number of events associated with the rate limiter installed on the transmitting path.
