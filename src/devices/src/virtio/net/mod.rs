@@ -30,8 +30,12 @@ pub enum Error {
     TapSetVnetHdrSize(TapError),
     /// Enabling tap interface failed.
     TapEnable(TapError),
-    /// EventFd
+    /// EventFd error.
     EventFd(io::Error),
+    /// IO error.
+    IO(io::Error),
+    /// The VNET header is missing from the frame.
+    VnetHeaderMissing,
 }
 
 pub type Result<T> = result::Result<T, Error>;

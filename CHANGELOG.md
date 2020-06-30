@@ -18,9 +18,8 @@
   requests.
 - Added metrics for the vsock device. 
 - Added devtool strip command which removes debug symbols from the release
-  binaries.
-- Any number of whitespace characters are accepted after ":" when parsing HTTP
-  headers.
+- Added the `tx_malformed_frames` metric for the virtio net device, emitted
+  when a TX frame missing the VNET header is encountered.
 
 ### Fixed
 
@@ -28,6 +27,8 @@
 - Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS
   requests originating from guest.
 - Fixed folder permissions in the jail (#1802).
+- Any number of whitespace characters are accepted after ":" when parsing HTTP
+  headers.
 
 ### Changed
 - Updated CVE-2019-3016 mitigation information in
