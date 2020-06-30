@@ -128,7 +128,7 @@ impl Headers {
         // Headers must be ASCII, so also UTF-8 valid.
         match std::str::from_utf8(header_line) {
             Ok(headers_str) => {
-                let entry = headers_str.split(": ").collect::<Vec<&str>>();
+                let entry = headers_str.splitn(2, ':').collect::<Vec<&str>>();
                 if entry.len() != 2 {
                     return Err(RequestError::InvalidHeader);
                 }
@@ -378,9 +378,10 @@ mod tests {
         assert_eq!(headers.content_length, 55);
         assert_eq!(headers.accept, MediaType::ApplicationJson);
 
-        // Valid headers.
+        // Valid headers. (${HEADER_NAME} : WHITESPACE ${HEADER_VALUE})
+        // Any number of whitespace characters should be accepted including zero.
         let headers =  Headers::try_from(
-            b"Last-Modified: Tue, 15 Nov 1994 12:45:26 GMT\r\nAccept: text/plain\r\nContent-Length: 49\r\n\r\n"
+            b"Last-Modified: Tue, 15 Nov 1994 12:45:26 GMT\r\nAccept:text/plain\r\nContent-Length:   49\r\n\r\n"
         )
             .unwrap();
         assert_eq!(headers.content_length, 49);
@@ -470,6 +471,47 @@ mod tests {
         assert!(header
             .parse_header_line(b"Accept: application/json-patch")
             .is_err());
+    }
+
+    #[test]
+    fn test_parse_header_whitespace() {
+        let mut header = Headers::default();
+        // Test that any number of whitespace characters are accepted before the header value.
+        // For Content-Length
+        assert!(header.parse_header_line(b"Content-Length:24").is_ok());
+        assert!(header.parse_header_line(b"Content-Length:   24").is_ok());
+
+        // For ContentType
+        assert!(header
+            .parse_header_line(b"Content-Type:application/json")
+            .is_ok());
+        assert!(header
+            .parse_header_line(b"Content-Type:    application/json")
+            .is_ok());
+
+        // For Accept
+        assert!(header.parse_header_line(b"Accept:application/json").is_ok());
+        assert!(header
+            .parse_header_line(b"Accept:  application/json")
+            .is_ok());
+
+        // For Transfer-Encoding
+        assert!(header
+            .parse_header_line(b"Transfer-Encoding:chunked")
+            .is_ok());
+        assert!(header.chunked());
+        assert!(header
+            .parse_header_line(b"Transfer-Encoding:    chunked")
+            .is_ok());
+        assert!(header.chunked());
+
+        // For Server
+        assert!(header.parse_header_line(b"Server:xxx.yyy.zzz").is_ok());
+        assert!(header.parse_header_line(b"Server:   xxx.yyy.zzz").is_ok());
+
+        // For Expect
+        assert!(header.parse_header_line(b"Expect:100-continue").is_ok());
+        assert!(header.parse_header_line(b"Expect:    100-continue").is_ok());
     }
 
     #[test]
