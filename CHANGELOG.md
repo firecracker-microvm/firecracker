@@ -27,6 +27,8 @@
 - Added metrics for the vsock device.
 - Added devtool strip command which removes debug symbols from the release
   binaries.
+- Any number of whitespace characters are accepted after ":" when parsing HTTP
+  headers.
 
 ### Fixed
 
