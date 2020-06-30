@@ -440,6 +440,8 @@ pub struct NetDeviceMetrics {
     pub rx_count: SharedMetric,
     /// Number of transmitted bytes.
     pub tx_bytes_count: SharedMetric,
+    /// Number of malformed TX frames.
+    pub tx_malformed_frames: SharedMetric,
     /// Number of errors while transmitting data.
     pub tx_fails: SharedMetric,
     /// Number of successful write operations while transmitting data.

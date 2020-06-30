@@ -25,10 +25,10 @@
   snapshot.
 - Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 - Added metrics for the vsock device.
-- Added devtool strip command which removes debug symbols from the release
+- Added `devtool strip` command which removes debug symbols from the release
   binaries.
-- Any number of whitespace characters are accepted after ":" when parsing HTTP
-  headers.
+- Added the `tx_malformed_frames` metric for the virtio net device, emitted
+  when a TX frame missing the VNET header is encountered.
 
 ### Fixed
 
@@ -37,6 +37,8 @@
   requests originating from guest.
 - Fixed folder permissions in the jail (#1802).
 - Boot time on AMD achieves the desired performance (i.e under 150ms).
+- Any number of whitespace characters are accepted after ":" when parsing HTTP
+  headers.
 
 ### Changed
 
