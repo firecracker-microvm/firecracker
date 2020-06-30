@@ -120,88 +120,88 @@ In your **second shell** prompt:
 - get the kernel and rootfs, if you don't have any available:
 
   ```bash
-    arch=`uname -m`
-    dest_kernel="hello-vmlinux.bin"
-    dest_rootfs="hello-rootfs.ext4"
-    image_bucket_url="https://s3.amazonaws.com/spec.ccfc.min/img"
+  arch=`uname -m`
+  dest_kernel="hello-vmlinux.bin"
+  dest_rootfs="hello-rootfs.ext4"
+  image_bucket_url="https://s3.amazonaws.com/spec.ccfc.min/img"
 
-    if [ ${arch} = "x86_64" ]; then
-            kernel="${image_bucket_url}/hello/kernel/hello-vmlinux.bin"
-            rootfs="${image_bucket_url}/hello/fsfiles/hello-rootfs.ext4"
-    elif [ ${arch} = "aarch64" ]; then
-            kernel="${image_bucket_url}/aarch64/ubuntu_with_ssh/kernel/vmlinux.bin"
-            rootfs="${image_bucket_url}/aarch64/ubuntu_with_ssh/fsfiles/xenial.rootfs.ext4"
-    else
-            echo "Cannot run firecracker on $arch architecture!"
-            exit 1
-    fi
+  if [ ${arch} = "x86_64" ]; then
+      kernel="${image_bucket_url}/hello/kernel/hello-vmlinux.bin"
+      rootfs="${image_bucket_url}/hello/fsfiles/hello-rootfs.ext4"
+  elif [ ${arch} = "aarch64" ]; then
+      kernel="${image_bucket_url}/aarch64/ubuntu_with_ssh/kernel/vmlinux.bin"
+      rootfs="${image_bucket_url}/aarch64/ubuntu_with_ssh/fsfiles/xenial.rootfs.ext4"
+  else
+      echo "Cannot run firecracker on $arch architecture!"
+      exit 1
+  fi
 
-    echo "Downloading $kernel..."
-    curl -fsSL -o $dest_kernel $kernel
+  echo "Downloading $kernel..."
+  curl -fsSL -o $dest_kernel $kernel
 
-    echo "Downloading $rootfs..."
-    curl -fsSL -o $dest_rootfs $rootfs
+  echo "Downloading $rootfs..."
+  curl -fsSL -o $dest_rootfs $rootfs
 
-    echo "Saved kernel file to $dest_kernel and root block device to $dest_rootfs."
+  echo "Saved kernel file to $dest_kernel and root block device to $dest_rootfs."
   ```
 
 - set the guest kernel (assuming you are in the same directory as the
   above script was run):
 
   ```bash
-    arch=`uname -m`
-    kernel_path=$(pwd)"/hello-vmlinux.bin"
+  arch=`uname -m`
+  kernel_path=$(pwd)"/hello-vmlinux.bin"
 
-    if [ ${arch} = "x86_64" ]; then
+  if [ ${arch} = "x86_64" ]; then
       curl --unix-socket /tmp/firecracker.socket -i \
-          -X PUT 'http://localhost/boot-source'   \
-          -H 'Accept: application/json'           \
-          -H 'Content-Type: application/json'     \
-          -d "{
-                \"kernel_image_path\": \"${kernel_path}\",
-                \"boot_args\": \"console=ttyS0 reboot=k panic=1 pci=off\"
-           }"
-    elif [ ${arch} = "aarch64" ]; then
-        curl --unix-socket /tmp/firecracker.socket -i \
-          -X PUT 'http://localhost/boot-source'   \
-          -H 'Accept: application/json'           \
-          -H 'Content-Type: application/json'     \
-          -d "{
-                \"kernel_image_path\": \"${kernel_path}\",
-                \"boot_args\": \"keep_bootcon console=ttyS0 reboot=k panic=1 pci=off\"
-           }"
-    else
-        echo "Cannot run firecracker on $arch architecture!"
-        exit 1
-    fi
+        -X PUT 'http://localhost/boot-source'   \
+        -H 'Accept: application/json'           \
+        -H 'Content-Type: application/json'     \
+        -d "{
+              \"kernel_image_path\": \"${kernel_path}\",
+              \"boot_args\": \"console=ttyS0 reboot=k panic=1 pci=off\"
+         }"
+  elif [ ${arch} = "aarch64" ]; then
+      curl --unix-socket /tmp/firecracker.socket -i \
+        -X PUT 'http://localhost/boot-source'   \
+        -H 'Accept: application/json'           \
+        -H 'Content-Type: application/json'     \
+        -d "{
+              \"kernel_image_path\": \"${kernel_path}\",
+              \"boot_args\": \"keep_bootcon console=ttyS0 reboot=k panic=1 pci=off\"
+         }"
+  else
+      echo "Cannot run firecracker on $arch architecture!"
+      exit 1
+  fi
   ```
 
 - set the guest rootfs:
 
   ```bash
-    rootfs_path=$(pwd)"/hello-rootfs.ext4"
-    curl --unix-socket /tmp/firecracker.socket -i \
-      -X PUT 'http://localhost/drives/rootfs' \
-      -H 'Accept: application/json'           \
-      -H 'Content-Type: application/json'     \
-      -d "{
-            \"drive_id\": \"rootfs\",
-            \"path_on_host\": \"${rootfs_path}\",
-            \"is_root_device\": true,
-            \"is_read_only\": false
-       }"
+  rootfs_path=$(pwd)"/hello-rootfs.ext4"
+  curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT 'http://localhost/drives/rootfs' \
+    -H 'Accept: application/json'           \
+    -H 'Content-Type: application/json'     \
+    -d "{
+          \"drive_id\": \"rootfs\",
+          \"path_on_host\": \"${rootfs_path}\",
+          \"is_root_device\": true,
+          \"is_read_only\": false
+     }"
   ```
 
 - start the guest machine:
 
   ```bash
   curl --unix-socket /tmp/firecracker.socket -i \
-      -X PUT 'http://localhost/actions'       \
-      -H  'Accept: application/json'          \
-      -H  'Content-Type: application/json'    \
-      -d '{
-          "action_type": "InstanceStart"
-       }'
+    -X PUT 'http://localhost/actions'       \
+    -H  'Accept: application/json'          \
+    -H  'Content-Type: application/json'    \
+    -d '{
+        "action_type": "InstanceStart"
+     }'
   ```
 
 Going back to your first shell, you should now see a serial TTY prompting you
@@ -218,14 +218,14 @@ the `InstanceStart` call, via this API command:
 
 ```bash
 curl --unix-socket /tmp/firecracker.socket -i  \
-    -X PUT 'http://localhost/machine-config' \
-    -H 'Accept: application/json'            \
-    -H 'Content-Type: application/json'      \
-    -d '{
-        "vcpu_count": 2,
-        "mem_size_mib": 1024,
-        "ht_enabled": false
-    }'
+  -X PUT 'http://localhost/machine-config' \
+  -H 'Accept: application/json'            \
+  -H 'Content-Type: application/json'      \
+  -d '{
+      "vcpu_count": 2,
+      "mem_size_mib": 1024,
+      "ht_enabled": false
+  }'
 ```
 
 ### Configuring the microVM without sending API requests
