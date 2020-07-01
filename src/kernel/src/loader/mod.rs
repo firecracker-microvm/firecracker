@@ -215,7 +215,7 @@ where
         .seek(SeekFrom::Start(0))
         .map_err(|_| Error::SeekKernelImage)?;
 
-    kernel_load_offset = kernel_load_offset + start_address;
+    kernel_load_offset += start_address;
     guest_mem
         .read_from(
             GuestAddress(kernel_load_offset),
