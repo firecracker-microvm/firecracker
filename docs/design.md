@@ -139,7 +139,7 @@ that support bursts or specific bandwidth/operations limitations.
 
 ### MicroVM Metadata Service
 
-Firecracker microVMs expose access to a minimal the MicroVM-Metadata Service
+Firecracker microVMs expose access to a minimal MicroVM-Metadata Service
 (MMDS) to the guest through the API endpoint. The metadata stored by the
 service is fully configured by users.
 
