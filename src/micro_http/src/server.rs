@@ -146,7 +146,10 @@ impl<T: Read + Write> ClientConnection<T> {
                 }
             }
         }
-        self.in_flight_response_count += parsed_requests.len() as u32;
+        self.in_flight_response_count = self
+            .in_flight_response_count
+            .checked_add(parsed_requests.len() as u32)
+            .ok_or(ServerError::Overflow)?;
         // If the state of the connection has changed, we need to update
         // the event set in the `epoll` structure.
         if self.connection.pending_write() {
@@ -178,11 +181,15 @@ impl<T: Read + Write> ClientConnection<T> {
         Ok(())
     }
 
-    fn enqueue_response(&mut self, response: Response) {
+    fn enqueue_response(&mut self, response: Response) -> Result<()> {
         if self.state != ClientConnectionState::Closed {
             self.connection.enqueue_response(response);
         }
-        self.in_flight_response_count -= 1;
+        self.in_flight_response_count = self
+            .in_flight_response_count
+            .checked_sub(1)
+            .ok_or(ServerError::Underflow)?;
+        Ok(())
     }
 
     // Returns `true` if the connection is closed and safe to drop.
@@ -450,6 +457,7 @@ impl HttpServer {
     ///
     /// # Errors
     /// `IOError` is returned when an `epoll::ctl` operation fails.
+    /// `Underflow` is returned when `enqueue_response` fails.
     pub fn respond(&mut self, response: ServerResponse) -> Result<()> {
         if let Some(client_connection) = self.connections.get_mut(&(response.id as i32)) {
             // If the connection was incoming before we enqueue the response, we change its
@@ -458,7 +466,7 @@ impl HttpServer {
                 client_connection.state = ClientConnectionState::AwaitingOutgoing;
                 Self::epoll_mod(&self.epoll, response.id as RawFd, epoll::EventSet::OUT)?;
             }
-            client_connection.enqueue_response(response.response);
+            client_connection.enqueue_response(response.response)?;
         }
         Ok(())
     }

@@ -107,6 +107,7 @@ impl ResponseHeaders {
         let delimitator = b", ";
         for (idx, method) in self.allow.iter().enumerate() {
             buf.write_all(method.raw())?;
+            // We check above that `self.allow` is not empty.
             if idx < self.allow.len() - 1 {
                 buf.write_all(delimitator)?;
             }

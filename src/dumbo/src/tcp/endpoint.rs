@@ -341,6 +341,16 @@ fn parse_request_bytes(byte_stream: &[u8], callback: fn(Request) -> Response) ->
                 StatusCode::BadRequest,
                 Body::new("Invalid headers.".to_string()),
             ),
+            RequestError::Overflow => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(e.to_string()),
+            ),
+            RequestError::Underflow => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(e.to_string()),
+            ),
             // `micro-http` supports a predefined list of HTTP headers.
             // It shouldn't reach this point, because it ignores the
             // HTTP unsupported headers.
