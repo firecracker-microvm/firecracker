@@ -11,11 +11,14 @@ import yaml
 import framework.utils as utils
 
 SUCCESS_CODE = 0
+MACHINE = platform.machine()
+TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
+           "{}-unknown-linux-musl".format(MACHINE)]
 
 
 @pytest.mark.timeout(120)
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    MACHINE != "x86_64",
     reason="no need to test it on multiple platforms"
 )
 def test_rust_style():
@@ -30,7 +33,7 @@ def test_rust_style():
 
 @pytest.mark.timeout(120)
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    MACHINE != "x86_64",
     reason="no need to test it on multiple platforms"
 )
 def test_python_style():
@@ -66,14 +69,15 @@ def test_python_style():
     ])
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="no need to test it on multiple platforms"
+@pytest.mark.parametrize(
+    "target",
+    TARGETS
 )
-def test_rust_clippy():
+def test_rust_clippy(target):
     """Fails if clippy generates any error, warnings are ignored."""
     utils.run_cmd(
-        'cargo clippy --all --profile test -- -D warnings')
+        'cargo clippy --target {} --all --profile test'
+        ' -- -D warnings'.format(target))
 
 
 def check_swagger_style(yaml_spec):
@@ -87,7 +91,7 @@ def check_swagger_style(yaml_spec):
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    MACHINE != "x86_64",
     reason="no need to test it on multiple platforms"
 )
 def test_firecracker_swagger():
