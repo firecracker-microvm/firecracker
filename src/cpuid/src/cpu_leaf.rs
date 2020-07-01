@@ -203,7 +203,6 @@ pub mod leaf_0xa {
 pub mod leaf_0xb {
     pub const LEAF_NUM: u32 = 0xb;
 
-    pub const LEVEL_TYPE_INVALID: u32 = 0;
     pub const LEVEL_TYPE_THREAD: u32 = 1;
     pub const LEVEL_TYPE_CORE: u32 = 2;
 
@@ -285,10 +284,9 @@ pub mod leaf_0x80000008 {
 
         // The number of bits in the initial ApicId value that indicate thread ID within a package
         // Possible values:
-        // 0-3 -> Reserved
-        // 4 -> 1 Die, up to 16 threads
-        // 5 -> 2 Die, up to 32 threads
-        // 6 -> 3,4 Die, up to 64 threads
+        // 0-5 -> Reserved
+        // 6 -> up to 64 threads
+        // 7 -> up to 128 threads
         pub const THREAD_ID_SIZE_BITRANGE: BitRange = bit_range!(15, 12);
         // The number of threads in the package - 1
         pub const NUM_THREADS_BITRANGE: BitRange = bit_range!(7, 0);

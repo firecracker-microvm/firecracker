@@ -13,7 +13,7 @@ use transformer::common::use_host_cpuid_function;
 const LARGEST_EXTENDED_FN: u32 = 0x8000_001f;
 // This value allows at most 64 logical threads within a package.
 // See also the documentation for leaf_0x80000008::ecx::THREAD_ID_SIZE_BITRANGE
-const THREAD_ID_MAX_SIZE: u32 = 6;
+const THREAD_ID_MAX_SIZE: u32 = 7;
 // This value means there is 1 node per processor.
 // See also the documentation for leaf_0x8000001e::ecx::NODES_PER_PROCESSOR_BITRANGE.
 const NODES_PER_PROCESSOR: u32 = 0;
@@ -67,7 +67,7 @@ pub fn update_amd_features_entry(
 ) -> Result<(), Error> {
     use cpu_leaf::leaf_0x80000008::*;
 
-    // We don't support more then 64 threads right now.
+    // We don't support more then 128 threads right now.
     // It's safe to put them all on the same processor.
     entry
         .ecx
@@ -92,7 +92,6 @@ pub fn update_extended_apic_id_entry(
 ) -> Result<(), Error> {
     use cpu_leaf::leaf_0x8000001e::*;
 
-    let mut core_id = u32::from(vm_spec.cpu_id);
     // When hyper-threading is enabled each pair of 2 consecutive logical CPUs
     // will have the same core id since they represent 2 threads in the same core.
     // For Example:
@@ -100,21 +99,22 @@ pub fn update_extended_apic_id_entry(
     // logical CPU 1 -> core id: 0
     // logical CPU 2 -> core id: 1
     // logical CPU 3 -> core id: 1
-    if vm_spec.ht_enabled {
-        core_id /= 2;
-    }
+    let core_id = u32::from(vm_spec.cpu_index / vm_spec.cpus_per_core());
 
     entry
         .eax
         // the Extended APIC ID is the id of the current logical CPU
-        .write_bits_in_range(&eax::EXTENDED_APIC_ID_BITRANGE, u32::from(vm_spec.cpu_id));
+        .write_bits_in_range(
+            &eax::EXTENDED_APIC_ID_BITRANGE,
+            u32::from(vm_spec.cpu_index),
+        );
 
     entry
         .ebx
         .write_bits_in_range(&ebx::CORE_ID_BITRANGE, core_id)
         .write_bits_in_range(
             &ebx::THREADS_PER_CORE_BITRANGE,
-            u32::from(vm_spec.ht_enabled),
+            u32::from(vm_spec.cpus_per_core() - 1),
         );
 
     entry
@@ -130,7 +130,7 @@ pub struct AmdCpuidTransformer {}
 
 impl CpuidTransformer for AmdCpuidTransformer {
     fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
-        use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, false)?;
+        use_host_cpuid_function(cpuid, leaf_0x8000001e::LEAF_NUM, false)?;
         use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)?;
         self.process_entries(cpuid, vm_spec)
     }
@@ -334,7 +334,7 @@ mod tests {
     fn test_1vcpu_ht_on() {
         check_update_amd_features_entry(1, true);
 
-        check_update_extended_apic_id_entry(0, 1, true, 0, 1);
+        check_update_extended_apic_id_entry(0, 1, true, 0, 0);
     }
 
     #[test]

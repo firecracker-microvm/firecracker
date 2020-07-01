@@ -6,8 +6,8 @@ use bit_helper::BitHelper;
 use cpu_leaf::*;
 
 // The APIC ID shift in leaf 0xBh specifies the number of bits to shit the x2APIC ID to get a
-// unique topology of the next level. This allows 64 logical processors/package.
-const LEAFBH_INDEX1_APICID: u32 = 6;
+// unique topology of the next level. This allows 128 logical processors/package.
+const LEAFBH_INDEX1_APICID: u32 = 7;
 
 fn update_deterministic_cache_entry(
     entry: &mut kvm_cpuid_entry2,
@@ -20,7 +20,7 @@ fn update_deterministic_cache_entry(
     // Put all the cores in the same socket
     entry.eax.write_bits_in_range(
         &eax::MAX_CORES_PER_PACKAGE_BITRANGE,
-        u32::from(vm_spec.cpu_count - 1),
+        u32::from(vm_spec.cpu_count / vm_spec.cpus_per_core()) - 1,
     );
 
     Ok(())
@@ -50,7 +50,7 @@ fn update_perf_mon_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) -> Res
     Ok(())
 }
 
-fn update_extended_cache_topology_entry(
+fn update_extended_topology_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
@@ -62,57 +62,49 @@ fn update_extended_cache_topology_entry(
     entry.ecx = 0 as u32;
     // EDX bits 31..0 contain x2APIC ID of current logical processor
     // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
-    entry.edx = u32::from(vm_spec.cpu_id);
+    entry.edx = u32::from(vm_spec.cpu_index);
+
+    // "If SMT is not present in a processor implementation but CPUID leaf 0BH is supported,
+    // CPUID.EAX=0BH, ECX=0 will return EAX = 0, EBX = 1 and level type = 1.
+    // Number of logical processors at the core level is reported at level type = 2."
+    // (Intel® 64 Architecture x2APIC Specification, Ch. 2.8)
     match entry.index {
         // Thread Level Topology; index = 0
         0 => {
             // To get the next level APIC ID, shift right with at most 1 because we have
             // maximum 2 hyperthreads per core that can be represented by 1 bit.
-            entry.eax.write_bits_in_range(
-                &eax::APICID_BITRANGE,
-                (vm_spec.cpu_count > 1 && vm_spec.ht_enabled) as u32,
-            );
+            entry
+                .eax
+                .write_bits_in_range(&eax::APICID_BITRANGE, u32::from(vm_spec.cpu_bits));
             // When cpu_count == 1 or HT is disabled, there is 1 logical core at this level
             // Otherwise there are 2
             entry.ebx.write_bits_in_range(
                 &ebx::NUM_LOGICAL_PROCESSORS_BITRANGE,
-                1 + (vm_spec.cpu_count > 1 && vm_spec.ht_enabled) as u32,
+                u32::from(vm_spec.cpus_per_core()),
             );
 
-            entry.ecx.write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, {
-                if vm_spec.cpu_count == 1 {
-                    // There are no hyperthreads for 1 VCPU, set the level type = 2 (Core)
-                    LEVEL_TYPE_CORE
-                } else {
-                    LEVEL_TYPE_THREAD
-                }
-            });
+            entry
+                .ecx
+                .write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, LEVEL_TYPE_THREAD);
         }
         // Core Level Processor Topology; index = 1
         1 => {
             entry
                 .eax
                 .write_bits_in_range(&eax::APICID_BITRANGE, LEAFBH_INDEX1_APICID);
+            entry.ebx.write_bits_in_range(
+                &ebx::NUM_LOGICAL_PROCESSORS_BITRANGE,
+                u32::from(vm_spec.cpu_count),
+            );
             entry
                 .ecx
                 .write_bits_in_range(&ecx::LEVEL_NUMBER_BITRANGE, entry.index as u32);
-            if vm_spec.cpu_count == 1 {
-                // For 1 vCPU, this level is invalid
-                entry
-                    .ecx
-                    .write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, LEVEL_TYPE_INVALID);
-            } else {
-                entry.ebx.write_bits_in_range(
-                    &ebx::NUM_LOGICAL_PROCESSORS_BITRANGE,
-                    u32::from(vm_spec.cpu_count),
-                );
-                entry
-                    .ecx
-                    .write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, LEVEL_TYPE_CORE);
-            }
+            entry
+                .ecx
+                .write_bits_in_range(&ecx::LEVEL_TYPE_BITRANGE, LEVEL_TYPE_CORE);
         }
         // Core Level Processor Topology; index >=2
-        // No other levels available; This should already be set to correctly,
+        // No other levels available; This should already be set correctly,
         // and it is added here as a "re-enforcement" in case we run on
         // different hardware
         level => {
@@ -132,7 +124,7 @@ impl CpuidTransformer for IntelCpuidTransformer {
             leaf_0x4::LEAF_NUM => Some(intel::update_deterministic_cache_entry),
             leaf_0x6::LEAF_NUM => Some(intel::update_power_management_entry),
             leaf_0xa::LEAF_NUM => Some(intel::update_perf_mon_entry),
-            leaf_0xb::LEAF_NUM => Some(intel::update_extended_cache_topology_entry),
+            leaf_0xb::LEAF_NUM => Some(intel::update_extended_topology_entry),
             0x8000_0002..=0x8000_0004 => Some(common::update_brand_string_entry),
             _ => None,
         }
@@ -143,7 +135,6 @@ impl CpuidTransformer for IntelCpuidTransformer {
 mod tests {
     use super::*;
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_CORE;
-    use cpu_leaf::leaf_0xb::LEVEL_TYPE_INVALID;
     use cpu_leaf::leaf_0xb::LEVEL_TYPE_THREAD;
     use kvm_bindings::kvm_cpuid_entry2;
     use transformer::VmSpec;
@@ -200,7 +191,7 @@ mod tests {
         );
     }
 
-    fn check_update_extended_cache_topology_entry(
+    fn check_update_extended_topology_entry(
         cpu_count: u8,
         ht_enabled: bool,
         index: u32,
@@ -222,7 +213,7 @@ mod tests {
             padding: [0, 0, 0],
         };
 
-        assert!(update_extended_cache_topology_entry(&mut entry, &vm_spec).is_ok());
+        assert!(update_extended_topology_entry(&mut entry, &vm_spec).is_ok());
 
         assert!(entry.eax.read_bits_in_range(&eax::APICID_BITRANGE) == expected_apicid);
         assert!(
@@ -245,18 +236,11 @@ mod tests {
         // test L3
         check_update_deterministic_cache_entry(1, false, 3, 0);
 
-        // test update_extended_cache_topology_entry
+        // test update_extended_topology_entry
         // index 0
-        check_update_extended_cache_topology_entry(1, false, 0, 0, 1, LEVEL_TYPE_CORE);
+        check_update_extended_topology_entry(1, false, 0, 0, 1, LEVEL_TYPE_THREAD);
         // index 1
-        check_update_extended_cache_topology_entry(
-            1,
-            false,
-            1,
-            LEAFBH_INDEX1_APICID,
-            0,
-            LEVEL_TYPE_INVALID,
-        );
+        check_update_extended_topology_entry(1, false, 1, LEAFBH_INDEX1_APICID, 1, LEVEL_TYPE_CORE);
     }
 
     #[test]
@@ -269,18 +253,11 @@ mod tests {
         // test L3
         check_update_deterministic_cache_entry(1, true, 3, 0);
 
-        // test update_extended_cache_topology_entry
+        // test update_extended_topology_entry
         // index 0
-        check_update_extended_cache_topology_entry(1, true, 0, 0, 1, LEVEL_TYPE_CORE);
+        check_update_extended_topology_entry(1, true, 0, 0, 1, LEVEL_TYPE_THREAD);
         // index 1
-        check_update_extended_cache_topology_entry(
-            1,
-            true,
-            1,
-            LEAFBH_INDEX1_APICID,
-            0,
-            LEVEL_TYPE_INVALID,
-        );
+        check_update_extended_topology_entry(1, true, 1, LEAFBH_INDEX1_APICID, 1, LEVEL_TYPE_CORE);
     }
 
     #[test]
@@ -293,41 +270,27 @@ mod tests {
         // test L3
         check_update_deterministic_cache_entry(2, false, 3, 1);
 
-        // test update_extended_cache_topology_entry
+        // test update_extended_topology_entry
         // index 0
-        check_update_extended_cache_topology_entry(2, false, 0, 0, 1, LEVEL_TYPE_THREAD);
+        check_update_extended_topology_entry(2, false, 0, 0, 1, LEVEL_TYPE_THREAD);
         // index 1
-        check_update_extended_cache_topology_entry(
-            2,
-            false,
-            1,
-            LEAFBH_INDEX1_APICID,
-            2,
-            LEVEL_TYPE_CORE,
-        );
+        check_update_extended_topology_entry(2, false, 1, LEAFBH_INDEX1_APICID, 2, LEVEL_TYPE_CORE);
     }
 
     #[test]
     fn test_2vcpu_ht_on() {
         // test update_deterministic_cache_entry
         // test L1
-        check_update_deterministic_cache_entry(2, true, 1, 1);
+        check_update_deterministic_cache_entry(2, true, 1, 0);
         // test L2
-        check_update_deterministic_cache_entry(2, true, 2, 1);
+        check_update_deterministic_cache_entry(2, true, 2, 0);
         // test L3
-        check_update_deterministic_cache_entry(2, true, 3, 1);
+        check_update_deterministic_cache_entry(2, true, 3, 0);
 
-        // test update_extended_cache_topology_entry
+        // test update_extended_topology_entry
         // index 0
-        check_update_extended_cache_topology_entry(2, true, 0, 1, 2, LEVEL_TYPE_THREAD);
+        check_update_extended_topology_entry(2, true, 0, 1, 2, LEVEL_TYPE_THREAD);
         // index 1
-        check_update_extended_cache_topology_entry(
-            2,
-            true,
-            1,
-            LEAFBH_INDEX1_APICID,
-            2,
-            LEVEL_TYPE_CORE,
-        );
+        check_update_extended_topology_entry(2, true, 1, LEAFBH_INDEX1_APICID, 2, LEVEL_TYPE_CORE);
     }
 }

@@ -603,7 +603,7 @@ type VcpuCell = Cell<Option<*const Vcpu>>;
 /// A wrapper around creating and using a kvm-based VCPU.
 pub struct Vcpu {
     fd: VcpuFd,
-    id: u8,
+    index: u8,
     create_ts: TimestampUs,
     mmio_bus: Option<devices::Bus>,
     exit_evt: EventFd,
@@ -720,19 +720,19 @@ impl Vcpu {
     /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
     #[cfg(target_arch = "x86_64")]
     pub fn new_x86_64(
-        id: u8,
+        index: u8,
         vm_fd: &VmFd,
         msr_list: MsrList,
         exit_evt: EventFd,
         create_ts: TimestampUs,
     ) -> Result<Self> {
-        let kvm_vcpu = vm_fd.create_vcpu(id).map_err(Error::VcpuFd)?;
+        let kvm_vcpu = vm_fd.create_vcpu(index).map_err(Error::VcpuFd)?;
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
 
         Ok(Vcpu {
             fd: kvm_vcpu,
-            id,
+            index,
             create_ts,
             mmio_bus: None,
             exit_evt,
@@ -766,7 +766,7 @@ impl Vcpu {
 
         Ok(Vcpu {
             fd: kvm_vcpu,
-            id,
+            index: id,
             create_ts,
             mmio_bus: None,
             exit_evt,
@@ -780,7 +780,7 @@ impl Vcpu {
 
     /// Returns the cpu index as seen by the guest OS.
     pub fn cpu_index(&self) -> u8 {
-        self.id
+        self.index
     }
 
     /// Gets the MPIDR register value.
@@ -817,12 +817,15 @@ impl Vcpu {
         vcpu_config: &VcpuConfig,
         mut cpuid: CpuId,
     ) -> Result<()> {
-        let cpuid_vm_spec = VmSpec::new(self.id, vcpu_config.vcpu_count, vcpu_config.ht_enabled)
+        let cpuid_vm_spec = VmSpec::new(self.index, vcpu_config.vcpu_count, vcpu_config.ht_enabled)
             .map_err(Error::CpuId)?;
 
         filter_cpuid(&mut cpuid, &cpuid_vm_spec).map_err(|e| {
             METRICS.vcpu.filter_cpuid.inc();
-            error!("Failure in configuring CPUID for vcpu {}: {:?}", self.id, e);
+            error!(
+                "Failure in configuring CPUID for vcpu {}: {:?}",
+                self.index, e
+            );
             Error::CpuId(e)
         })?;
 
@@ -871,13 +874,18 @@ impl Vcpu {
         // We already checked that the capability is supported.
         kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
         // Non-boot cpus are powered off initially.
-        if self.id > 0 {
+        if self.index > 0 {
             kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
         }
 
         self.fd.vcpu_init(&kvi).map_err(Error::VcpuArmInit)?;
-        arch::aarch64::regs::setup_regs(&self.fd, self.id, kernel_load_addr.raw_value(), guest_mem)
-            .map_err(Error::REGSConfiguration)?;
+        arch::aarch64::regs::setup_regs(
+            &self.fd,
+            self.index,
+            kernel_load_addr.raw_value(),
+            guest_mem,
+        )
+        .map_err(Error::REGSConfiguration)?;
 
         self.mpidr = arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::REGSConfiguration)?;
 
@@ -1133,7 +1141,7 @@ impl Vcpu {
         if let Err(e) = SeccompFilter::apply(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on vCPU {}: Error: {}",
-                self.id, e
+                self.index, e
             );
         }
 
@@ -1725,9 +1733,9 @@ pub(crate) mod tests {
 
         // Validate TLS vcpu is the local vcpu by changing the `id` then validating against
         // the one in TLS.
-        vcpu.id = 12;
+        vcpu.index = 12;
         unsafe {
-            assert!(Vcpu::run_on_thread_local(|v| assert_eq!(v.id, 12)).is_ok());
+            assert!(Vcpu::run_on_thread_local(|v| assert_eq!(v.index, 12)).is_ok());
         }
 
         // Reset vcpu TLS.

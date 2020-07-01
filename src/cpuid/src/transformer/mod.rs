@@ -15,27 +15,29 @@ use common::get_vendor_id;
 pub struct VmSpec {
     /// The vendor id of the CPU
     cpu_vendor_id: [u8; 12],
-    /// The id of the current logical cpu in the range [0..cpu_count].
-    cpu_id: u8,
-    /// The total number of logical cpus.
-    cpu_count: u8,
-    /// Specifies whether hyper-threading is enabled.
-    ht_enabled: bool,
     /// The desired brand string for the guest.
     brand_string: BrandString,
+
+    /// The index of the current logical cpu in the range [0..cpu_count].
+    cpu_index: u8,
+    /// The total number of logical cpus.
+    cpu_count: u8,
+
+    /// The number of bits needed to enumerate logical CPUs per core.
+    cpu_bits: u8,
 }
 
 impl VmSpec {
     /// Creates a new instance of VmSpec with the specified parameters
     /// The brand string is deduced from the vendor_id
-    pub fn new(cpu_id: u8, cpu_count: u8, ht_enabled: bool) -> Result<VmSpec, Error> {
+    pub fn new(cpu_index: u8, cpu_count: u8, ht_enabled: bool) -> Result<VmSpec, Error> {
         let cpu_vendor_id = get_vendor_id().map_err(Error::InternalError)?;
 
         Ok(VmSpec {
             cpu_vendor_id,
-            cpu_id,
+            cpu_index,
             cpu_count,
-            ht_enabled,
+            cpu_bits: (cpu_count > 1 && ht_enabled) as u8,
             brand_string: BrandString::from_vendor_id(&cpu_vendor_id),
         })
     }
@@ -43,6 +45,11 @@ impl VmSpec {
     /// Returns an immutable reference to cpu_vendor_id
     pub fn cpu_vendor_id(&self) -> &[u8; 12] {
         &self.cpu_vendor_id
+    }
+
+    /// Returns the number of cpus per core
+    pub fn cpus_per_core(&self) -> u8 {
+        1 << self.cpu_bits
     }
 }
 
@@ -91,6 +98,25 @@ pub trait CpuidTransformer {
 mod tests {
     use super::*;
     use kvm_bindings::kvm_cpuid_entry2;
+
+    #[test]
+    fn test_vmspec() {
+        let vm_spec = VmSpec::new(0, 1, true).unwrap();
+        assert_eq!(vm_spec.cpu_bits, 0);
+        assert_eq!(vm_spec.cpus_per_core(), 1);
+
+        let vm_spec = VmSpec::new(0, 1, false).unwrap();
+        assert_eq!(vm_spec.cpu_bits, 0);
+        assert_eq!(vm_spec.cpus_per_core(), 1);
+
+        let vm_spec = VmSpec::new(0, 2, false).unwrap();
+        assert_eq!(vm_spec.cpu_bits, 0);
+        assert_eq!(vm_spec.cpus_per_core(), 1);
+
+        let vm_spec = VmSpec::new(0, 2, true).unwrap();
+        assert_eq!(vm_spec.cpu_bits, 1);
+        assert_eq!(vm_spec.cpus_per_core(), 2);
+    }
 
     const PROCESSED_FN: u32 = 1;
     const EXPECTED_INDEX: u32 = 100;
