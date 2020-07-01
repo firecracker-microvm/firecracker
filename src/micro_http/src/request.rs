@@ -8,6 +8,9 @@ pub use common::RequestError;
 use common::{Body, Method, Version};
 use headers::Headers;
 
+// This type represents the RequestLine raw parts: method, uri and version.
+type RequestLineParts<'a> = (&'a [u8], &'a [u8], &'a [u8]);
+
 /// Finds the first occurence of `sequence` in the `bytes` slice.
 ///
 /// Returns the starting position of the `sequence` in `bytes` or `None` if the
@@ -57,6 +60,7 @@ impl Uri {
         const HTTP_SCHEME_PREFIX: &str = "http://";
 
         if self.string.starts_with(HTTP_SCHEME_PREFIX) {
+            // Slice access is safe because we checked above that `self.string` size <= `HTTP_SCHEME_PREFIX.len()`.
             let without_scheme = &self.string[HTTP_SCHEME_PREFIX.len()..];
             if without_scheme.is_empty() {
                 return "";
@@ -64,6 +68,7 @@ impl Uri {
             // The host in this case includes the port and contains the bytes after http:// up to
             // the next '/'.
             match without_scheme.bytes().position(|byte| byte == b'/') {
+                // Slice access is safe because `position` validates that `len` is a valid index.
                 Some(len) => &without_scheme[len..],
                 None => "",
             }
@@ -86,24 +91,36 @@ pub struct RequestLine {
 }
 
 impl RequestLine {
-    fn parse_request_line(request_line: &[u8]) -> (&[u8], &[u8], &[u8]) {
+    fn parse_request_line(
+        request_line: &[u8],
+    ) -> std::result::Result<RequestLineParts, RequestError> {
         if let Some(method_end) = find(request_line, &[SP]) {
+            // The slice access is safe because `find` validates that `method_end` < `request_line` size.
             let method = &request_line[..method_end];
 
-            let uri_and_version = &request_line[(method_end + 1)..];
+            // `uri_start` <= `request_line` size.
+            let uri_start = method_end.checked_add(1).ok_or(RequestError::Overflow)?;
+
+            // Slice access is safe because `uri_start` <= `request_line` size.
+            // If `uri_start` == `request_line` size, then `uri_and_version` will be an empty slice.
+            let uri_and_version = &request_line[uri_start..];
 
             if let Some(uri_end) = find(uri_and_version, &[SP]) {
+                // Slice access is safe because `find` validates that `uri_end` < `uri_and_version` size.
                 let uri = &uri_and_version[..uri_end];
 
-                let version = &uri_and_version[(uri_end + 1)..];
+                // `version_start` <= `uri_and_version` size.
+                let version_start = uri_end.checked_add(1).ok_or(RequestError::Overflow)?;
 
-                return (method, uri, version);
+                // Slice access is safe because `version_start` <= `uri_and_version` size.
+                let version = &uri_and_version[version_start..];
+
+                return Ok((method, uri, version));
             }
-
-            return (method, uri_and_version, b"");
         }
 
-        (b"", b"", b"")
+        // Request Line can be valid only if it contains the method, uri and version separated with SP.
+        Err(RequestError::InvalidRequest)
     }
 
     /// Tries to parse a byte stream in a request line. Fails if the request line is malformed.
@@ -113,7 +130,7 @@ impl RequestLine {
     /// `InvalidHttpVersion` is returned if the specified HTTP version is unsupported.
     /// `InvalidUri` is returned if the specified Uri is not valid.
     pub fn try_from(request_line: &[u8]) -> Result<Self, RequestError> {
-        let (method, uri, version) = Self::parse_request_line(request_line);
+        let (method, uri, version) = Self::parse_request_line(request_line)?;
 
         Ok(Self {
             method: Method::try_from(method)?,
@@ -123,9 +140,10 @@ impl RequestLine {
     }
 
     // Returns the minimum length of a valid request. The request must contain
-    // the method (GET), the URI (minmum 1 character), the HTTP version(HTTP/DIGIT.DIGIT) and
+    // the method (GET), the URI (minimum 1 character), the HTTP version(HTTP/DIGIT.DIGIT) and
     // 2 separators (SP).
     fn min_len() -> usize {
+        // Addition is safe because these are small constants.
         Method::Get.raw().len() + 1 + Version::Http10.raw().len() + 2
     }
 }
@@ -148,8 +166,9 @@ impl Request {
     /// The byte slice is expected to have the following format: </br>
     ///     * Request Line: "GET SP Request-uri SP HTTP/1.0 CRLF" - Mandatory </br>
     ///     * Request Headers "<headers> CRLF"- Optional </br>
+    ///     * Empty Line "CRLF" </br>
     ///     * Entity Body - Optional </br>
-    /// The request headers and the entity body is not parsed and None is returned because
+    /// The request headers and the entity body are not parsed and None is returned because
     /// these are not used by the MMDS server.
     /// The only supported method is GET and the HTTP protocol is expected to be HTTP/1.0
     /// or HTTP/1.1.
@@ -163,7 +182,7 @@ impl Request {
     /// extern crate micro_http;
     /// use micro_http::Request;
     ///
-    /// let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n");
+    /// let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n\r\n").unwrap();
     /// ```
     pub fn try_from(byte_stream: &[u8]) -> Result<Self, RequestError> {
         // The first line of the request is the Request Line. The line ending is CR LF.
@@ -173,6 +192,7 @@ impl Request {
             None => return Err(RequestError::InvalidRequest),
         };
 
+        // Slice access is safe because `find` validates that `request_line_end` < `byte_stream` size.
         let request_line_bytes = &byte_stream[..request_line_end];
         if request_line_bytes.len() < RequestLine::min_len() {
             return Err(RequestError::InvalidRequest);
@@ -193,8 +213,20 @@ impl Request {
             Some(headers_end) => {
                 // Parse the request headers.
                 // Start by removing the leading CR LF from them.
-                let headers_and_body = &byte_stream[(request_line_end + CRLF_LEN)..];
+                let headers_start = request_line_end
+                    .checked_add(CRLF_LEN)
+                    .ok_or(RequestError::Overflow)?;
+                // Slice access is safe because starting from `request_line_end` there are at least two CRLF
+                // (enforced by `find` at the start of this method).
+                let headers_and_body = &byte_stream[headers_start..];
+                // Because we advanced the start with CRLF_LEN, we now have to subtract CRLF_LEN
+                // from the end in order to keep the same window.
+                // Underflow is not possible here because `byte_stream[request_line_end..]` starts with CR LF,
+                // so `headers_end` can be either zero (this case is treated separately in the first match arm)
+                // or >= 3 (current case).
                 let headers_end = headers_end - CRLF_LEN;
+                // Slice access is safe because `headers_end` is checked above
+                // (`find` gives a valid position, and  subtracting 2 can't underflow).
                 let headers = Headers::try_from(&headers_and_body[..headers_end])?;
 
                 // Parse the body of the request.
@@ -205,16 +237,22 @@ impl Request {
                         None
                     }
                     content_length => {
+                        // Multiplication is safe because `CRLF_LEN` is a small constant.
+                        let crlf_end = headers_end
+                            .checked_add(2 * CRLF_LEN)
+                            .ok_or(RequestError::Overflow)?;
+                        // This can't underflow because `headers_and_body.len()` >= `crlf_end`.
+                        let body_len = headers_and_body.len() - crlf_end;
                         // Headers suggest we have a body, but the buffer is shorter than the specified
                         // content length.
-                        if headers_and_body.len() - (headers_end + 2 * CRLF_LEN)
-                            < content_length as usize
-                        {
+                        if body_len < content_length as usize {
                             return Err(RequestError::InvalidRequest);
                         }
-                        let body_as_bytes = &headers_and_body[(headers_end + 2 * CRLF_LEN)..];
+                        // Slice access is safe because `crlf_end` is the index after two CRLF
+                        // (it is <= `headers_and_body` size).
+                        let body_as_bytes = &headers_and_body[crlf_end..];
                         // If the actual length of the body is different than the `Content-Length` value
-                        // in the headers then this request is invalid.
+                        // in the headers, then this request is invalid.
                         if body_as_bytes.len() == content_length as usize {
                             Some(Body::new(body_as_bytes))
                         } else {
@@ -343,6 +381,13 @@ mod tests {
             expected_request_line
         );
 
+        // Test for invalid request missing the separator.
+        let request_line = b"GET";
+        assert_eq!(
+            RequestLine::try_from(request_line).unwrap_err(),
+            RequestError::InvalidRequest
+        );
+
         // Test for invalid method.
         let request_line = b"POST http://localhost/home HTTP/1.0";
         assert_eq!(
@@ -368,14 +413,14 @@ mod tests {
         let request_line = b"nothing";
         assert_eq!(
             RequestLine::try_from(request_line).unwrap_err(),
-            RequestError::InvalidHttpMethod("Unsupported HTTP method.")
+            RequestError::InvalidRequest
         );
 
         // Test for invalid format with no version.
         let request_line = b"GET /";
         assert_eq!(
             RequestLine::try_from(request_line).unwrap_err(),
-            RequestError::InvalidHttpVersion("Unsupported HTTP version.")
+            RequestError::InvalidRequest
         );
     }
 
@@ -397,6 +442,13 @@ mod tests {
         assert_eq!(request.uri(), &Uri::new("http://localhost/home"));
         assert_eq!(request.http_version(), Version::Http10);
         assert!(request.body.is_none());
+
+        // Test for invalid Request (missing CR LF).
+        let request_bytes = b"GET / HTTP/1.1";
+        assert_eq!(
+            Request::try_from(request_bytes).unwrap_err(),
+            RequestError::InvalidRequest
+        );
 
         // Test for invalid Request (length is less than minimum).
         let request_bytes = b"GET";
@@ -442,7 +494,6 @@ mod tests {
         // Test for an invalid content length.
         let request = Request::try_from(
             b"PATCH http://localhost/home HTTP/1.1\r\n\
-                                     Expect: 100-continue\r\n\
                                      Content-Length: 5000\r\n\r\nthis is a short body",
         )
         .unwrap_err();
