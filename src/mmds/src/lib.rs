@@ -65,6 +65,19 @@ fn build_response(http_version: Version, status_code: StatusCode, body: Body) ->
     response
 }
 
+// Make the URI a correct JSON pointer value.
+fn sanitize_uri(mut uri: String) -> String {
+    let mut len = u32::MAX as usize;
+    // Loop while the deduping decreases the sanitized len.
+    // Each iteration will attempt to dedup "//".
+    while uri.len() < len {
+        len = uri.len();
+        uri = uri.replace("//", "/");
+    }
+
+    uri
+}
+
 pub fn parse_request(request_bytes: &[u8]) -> Response {
     let request = Request::try_from(request_bytes);
     match request {
@@ -88,12 +101,16 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                 return response;
             }
 
+            // The data store expects a strict json path, so we need to
+            // sanitize the URI.
+            let json_pointer = sanitize_uri(uri.to_string());
+
             // The lock can be held by one thread only, so it is safe to unwrap.
             // If another thread poisoned the lock, we abort the execution.
             let response = MMDS
                 .lock()
                 .expect("Poisoned lock")
-                .get_value(uri.to_string(), request.headers.accept().into());
+                .get_value(json_pointer, request.headers.accept().into());
 
             match response {
                 Ok(response_body) => build_response(
@@ -165,6 +182,25 @@ mod tests {
         let actual_response = parse_request(request.as_bytes());
         assert!(expected_response.status() == actual_response.status());
         assert!(expected_response.body().unwrap() == actual_response.body().unwrap());
+    }
+
+    #[test]
+    fn test_sanitize_uri() {
+        let sanitized = "/a/b/c/d";
+        assert_eq!(sanitize_uri("/a/b/c/d".to_owned()), sanitized);
+        assert_eq!(sanitize_uri("/a////b/c//d".to_owned()), sanitized);
+        assert_eq!(sanitize_uri("/a///b/c///d".to_owned()), sanitized);
+        assert_eq!(sanitize_uri("/a//b/c////d".to_owned()), sanitized);
+        assert_eq!(sanitize_uri("///////a//b///c//d".to_owned()), sanitized);
+        assert_eq!(sanitize_uri("a".to_owned()), "a");
+        assert_eq!(sanitize_uri("a/".to_owned()), "a/");
+        assert_eq!(sanitize_uri("aa//".to_owned()), "aa/");
+        assert_eq!(sanitize_uri("aa".to_owned()), "aa");
+        assert_eq!(sanitize_uri("/".to_owned()), "/");
+        assert_eq!(sanitize_uri("".to_owned()), "");
+        assert_eq!(sanitize_uri("////".to_owned()), "/");
+        assert_eq!(sanitize_uri("aa//bb///cc//d".to_owned()), "aa/bb/cc/d");
+        assert_eq!(sanitize_uri("//aa//bb///cc//d".to_owned()), "/aa/bb/cc/d");
     }
 
     #[test]
