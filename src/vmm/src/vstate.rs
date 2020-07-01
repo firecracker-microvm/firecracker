@@ -50,7 +50,7 @@ use vmm_config::machine_config::CpuFeaturesTemplate;
 #[cfg(target_arch = "x86_64")]
 const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x03f0;
 #[cfg(target_arch = "aarch64")]
-const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x40000000;
+const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x4000_0000;
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
@@ -480,8 +480,11 @@ impl Vm {
 
     /// Gets a reference to the irqchip of the VM
     #[cfg(target_arch = "aarch64")]
-    pub fn get_irqchip(&self) -> &Box<dyn GICDevice> {
-        &self.irqchip_handle.as_ref().expect("IRQ chip not set")
+    pub fn get_irqchip(&self) -> &dyn GICDevice {
+        self.irqchip_handle
+            .as_ref()
+            .expect("IRQ chip not set")
+            .as_ref()
     }
 
     /// Gets a reference to the kvm file descriptor owned by this VM.

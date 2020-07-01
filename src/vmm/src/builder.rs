@@ -679,7 +679,7 @@ pub fn configure_system_for_boot(
                 .map_err(Internal)?;
         }
 
-        let vcpu_mpidr = vcpus.into_iter().map(|cpu| cpu.get_mpidr()).collect();
+        let vcpu_mpidr = vcpus.iter_mut().map(|cpu| cpu.get_mpidr()).collect();
         arch::aarch64::configure_system(
             &vmm.guest_memory,
             &boot_cmdline.as_cstring().map_err(LoadCommandline)?,
