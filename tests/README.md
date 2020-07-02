@@ -3,9 +3,30 @@
 The tests herein are meant to uphold the security, quality, and performance
 contracts of Firecracker.
 
+## Requirements
+
+- A bare-metal `Linux` host with `uname -r` >= 4.14.
+- [Docker](https://docs.docker.com/engine/install/) or
+  [Podman](https://podman.io/getting-started).
+
+If you have configured [Docker to run rootless](https://docs.docker.com/engine/security/rootless/)
+You can follow the Podman instructions to run the test suite.
+
+**Firecracker does not require nor suggest you configure [Docker to run rootful](https://americanexpress.io/do-not-run-dockerized-applications-as-root/).**
+
 ## Running
 
 To run all tests:
+
+``` sh
+sudo tools/devtool test
+```
+
+If you omit sudo when using rootless Docker or Podman, you will be prompted for
+your superuser credentials - this permission is revoked (`sudo -k`) after one
+use.
+
+If Docker is configured to run rootful, you can omit the use of sudo
 
 ``` sh
 tools/devtool test
@@ -43,11 +64,6 @@ For help on usage, see `tools/devtool help`.
 ### Output
 
 - Output, including testrun results, goes to `stdout`. Errors go to `stderr`.
-
-### Dependencies
-
-- A bare-metal `Linux` host with `uname -r` >= 4.14.
-- Docker.
 
 ## Rustacean Integration Tests
 

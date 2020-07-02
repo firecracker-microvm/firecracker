@@ -8,7 +8,6 @@
 - [Building From Source](#building-from-source)
 - [Running the Integration Test Suite](#running-the-integration-test-suite)
 - [Appendix A: Setting Up KVM Access](#appendix-a-setting-up-kvm-access)
-- [Appendix B: Setting Up Docker](#appendix-b-setting-up-docker)
 
 ## Prerequisites
 
@@ -255,10 +254,16 @@ API requests for post-boot operations.
 
 The quickest way to build and test Firecracker is by using our development
 tool ([`tools/devtool`](../tools/devtool)). It employs a
-per-architecture [Docker container](../tools/devctr/)  to store the software toolchain
-used throughout the development process. If you need help setting up
-[Docker](https://docker.com) on your system, you can check out
-[Appendix B: Setting Up Docker](#appendix-b-setting-up-docker).
+per-architecture [OCI container](../tools/devctr/)  to store the software toolchain
+used throughout the development process.
+If you need help setting up an OCI container engine please see:
+
+- Docker:
+  - [Official Installation instructions](https://docs.docker.com/engine/install/)
+  - [Stack Overflow Docker topic](https://stackoverflow.com/questions/tagged/docker)
+- Podman:
+  - [Official Installation instructions](https://podman.io/getting-started)
+  - [Stack Overflow Podman topic](https://stackoverflow.com/questions/tagged/podman)
 
 ### Getting the Firecracker Sources
 
@@ -371,47 +376,3 @@ You can check if you have access to `/dev/kvm` with:
 
 **Note:** If you've just added your user to the `kvm` group via `usermod`, don't
 forget to log out and then back in, so this change takes effect.
-
-## Appendix B: Setting Up Docker
-
-To get Docker, you can either use the
-[official Docker install instructions](https://docs.docker.com/install/)
-, or the package manager available on your specific Linux distribution:
-
-- on Debian / Ubuntu
-
-  ```bash
-  sudo apt-get update
-  sudo apt-get install docker.io
-  ```
-
-- on Fedora / CentOS / RHEL / Amazon Linux
-
-  ```bash
-  sudo yum install docker
-  ```
-
-Then, for any of the above, you will need to start the Docker daemon
-and add your user to the `docker` group.
-
-```bash
-sudo systemctl start docker
-sudo usermod -aG docker $USER
-```
-
-Don't forget to log out and then back in again, so that the user
-change takes effect.
-
-If you wish to have Docker started automatically after boot, you can:
-
-```bash
-sudo systemctl enable docker
-```
-
-We recommend testing your Docker configuration by running a lightweight
-test container and checking for net connectivity:
-
-```bash
-docker pull alpine
-docker run --rm -it alpine ping -c 3 amazon.com
-```

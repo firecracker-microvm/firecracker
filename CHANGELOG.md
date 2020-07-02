@@ -4,6 +4,7 @@
 
 ### Added
 
+- Podman OCI engine added for rootless `devtool build` and root `devtool test`.
 - Added a new API call, `PUT /metrics`, for configuring the metrics system.
 - Added `app_name` field in InstanceInfo struct for storing the application
   name.

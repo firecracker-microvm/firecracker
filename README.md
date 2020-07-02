@@ -39,12 +39,30 @@ To get started with Firecracker, download the latest
 [release](https://github.com/firecracker-microvm/firecracker/releases) binaries
 or build it from source.
 
-You can build Firecracker on any Unix/Linux system that has Docker running
-(we use a development container) and `bash` installed, as follows:
+You can build Firecracker on any Unix/Linux system that has `bash` or equivalent
+shell and the Docker daemon running or Podman installed (we use an OCI container
+for development).
+If you have configured [Docker to run rootless](https://docs.docker.com/engine/security/rootless/)
+You can follow the Podman instructions to run the test suite - generally this
+requires running `sudo devtool test`.
+Apart from `test`, no other commands require root user or privileged access.
+
+**Firecracker project does not require nor suggest you configure [Docker to run rootful](https://americanexpress.io/do-not-run-dockerized-applications-as-root/).**
+
+To understand your user permissions and your OCI engine:
 
 ```bash
 git clone https://github.com/firecracker-microvm/firecracker
 cd firecracker
+tools/devtool shell -- -c "echo 'User \$(whoami) can get Firecracking'; exit"
+tools/devtool shell --privileged -- -c "echo 'User \$(whoami) can get Firecracking'; exit"
+sudo sh -c "tools/devtool shell -- -c 'echo \"User \$(whoami) can get Firecracking\"; exit'"
+sudo sh -c "tools/devtool shell --privileged -- -c 'echo \"User \$(whoami) can get Firecracking\"; exit'"
+```
+
+To build Firecracker:
+
+```bash
 tools/devtool build
 toolchain="$(uname -m)-unknown-linux-musl"
 ```

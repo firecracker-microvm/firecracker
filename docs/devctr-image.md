@@ -2,21 +2,22 @@
 
 ## What's the Container Image?
 
-Firecracker uses a [Docker container](https://www.docker.com/) to standardize
-the build process. This also fixes the build tools and dependencies to specific
+Firecracker uses a [OCI container](https://www.opencontainers.org/) to standardize
+the build process. The build tools will work with either a Docker daemon running
+or Podman installed. This also fixes the build tools and dependencies to specific
 versions. Every once in a while, something needs to be updated. To do this, a
-new container image needs to be built locally, then published to the Docker
+new container image needs to be built locally, then published to the docker.io
 registry. The Firecracker CI suite must also be updated to use the new image.
 
 ## Prerequisites
 
-1. A Docker account. You must create this by yourself on
+1. A Docker Hub account. You must create this by yourself on
    [Docker hub](https://hub.docker.com/).
 1. Access to the
    [`fcuvm` Docker organization](https://cloud.docker.com/u/fcuvm/).
-1. The `docker` package installed locally. You should already have this if
-   you've ever built Firecracker from source.
-1. Access to both an `x86_64` and `aarch64` machines to build the container
+1. The `docker` or `podman` package installed locally. You should already have
+   this if you've ever built Firecracker from source.
+1. Access to one or both an `x86_64` and `aarch64` machines to build the container
    images.
 
 ## Steps
@@ -28,15 +29,22 @@ registry. The Firecracker CI suite must also be updated to use the new image.
 
     ```bash
     docker login
+    # or
+    podman login docker.io
     ```
 
-1. Navigate to the Firecracker directory. Verify that you have the latest
-   container image locally.
+    The following Docker commands are interchangeable with Podman, so we will
+    not repeat them.
+
+1. Verify your OCI engine and user permissions, this will also ensure you have
+   the latest container image:
 
     ```bash
-    docker images
-    REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
-    fcuvm/dev           v14                 9bbc159ad600        2 months ago        2.31GB
+    cd firecracker
+    tools/devtool shell -- -c "echo 'User \$(whoami) can get Firecracking'; exit"
+    tools/devtool shell --privileged -- -c "echo 'User \$(whoami) can get Firecracking'; exit"
+    sudo sh -c "tools/devtool shell -- -c 'echo \"User \$(whoami) can get Firecracking\"; exit'"
+    sudo sh -c "tools/devtool shell --privileged -- -c 'echo \"User \$(whoami) can get Firecracking\"; exit'"
     ```
 
 1. Make your necessary changes, if any, to the
