@@ -418,6 +418,8 @@ pub struct NetDeviceMetrics {
     pub activate_fails: SharedMetric,
     /// Number of times when interacting with the space config of a network device failed.
     pub cfg_fails: SharedMetric,
+    //// Number of times the mac address was updated through the config space.
+    pub mac_address_updates: SharedMetric,
     /// No available buffer for the net device rx queue.
     pub no_rx_avail_buffer: SharedMetric,
     /// No available buffer for the net device tx queue.
@@ -428,6 +430,10 @@ pub struct NetDeviceMetrics {
     pub rx_queue_event_count: SharedMetric,
     /// Number of events associated with the rate limiter installed on the receiving path.
     pub rx_event_rate_limiter_count: SharedMetric,
+    /// Number of RX partial writes to guest.
+    pub rx_partial_writes: SharedMetric,
+    /// Number of RX rate limiter throttling events.
+    pub rx_rate_limiter_throttled: SharedMetric,
     /// Number of events received on the associated tap.
     pub rx_tap_event_count: SharedMetric,
     /// Number of bytes received.
@@ -438,6 +444,10 @@ pub struct NetDeviceMetrics {
     pub rx_fails: SharedMetric,
     /// Number of successful read operations while receiving data.
     pub rx_count: SharedMetric,
+    /// Number of times reading from TAP failed.
+    pub tap_read_fails: SharedMetric,
+    /// Number of times writing to TAP failed.
+    pub tap_write_fails: SharedMetric,
     /// Number of transmitted bytes.
     pub tx_bytes_count: SharedMetric,
     /// Number of malformed TX frames.
@@ -448,10 +458,14 @@ pub struct NetDeviceMetrics {
     pub tx_count: SharedMetric,
     /// Number of transmitted packets.
     pub tx_packets_count: SharedMetric,
+    /// Number of TX partial reads from guest.
+    pub tx_partial_reads: SharedMetric,
     /// Number of events associated with the transmitting queue.
     pub tx_queue_event_count: SharedMetric,
     /// Number of events associated with the rate limiter installed on the transmitting path.
     pub tx_rate_limiter_event_count: SharedMetric,
+    /// Number of RX rate limiter throttling events.
+    pub tx_rate_limiter_throttled: SharedMetric,
     /// Number of packets with a spoofed mac, sent by the guest.
     pub tx_spoofed_mac_count: SharedMetric,
 }

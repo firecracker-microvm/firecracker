@@ -230,6 +230,7 @@ impl Net {
         // If limiter.consume() fails it means there is no more TokenType::Ops
         // budget and rate limiting is in effect.
         if !self.rx_rate_limiter.consume(1, TokenType::Ops) {
+            METRICS.net.rx_rate_limiter_throttled.inc();
             return false;
         }
         // If limiter.consume() fails it means there is no more TokenType::Bytes
@@ -240,6 +241,7 @@ impl Net {
         {
             // revert the OPS consume()
             self.rx_rate_limiter.manual_replenish(1, TokenType::Ops);
+            METRICS.net.rx_rate_limiter_throttled.inc();
             return false;
         }
 
@@ -296,9 +298,11 @@ impl Net {
                         }
                         Err(e) => {
                             error!("Failed to write slice: {:?}", e);
-                            METRICS.net.rx_fails.inc();
                             if let GuestMemoryError::PartialBuffer { completed, .. } = e {
                                 write_count += completed;
+                                METRICS.net.rx_partial_writes.inc();
+                            } else {
+                                METRICS.net.rx_fails.inc();
                             }
                             break;
                         }
@@ -382,7 +386,7 @@ impl Net {
             }
             Err(e) => {
                 error!("Failed to write to tap: {:?}", e);
-                METRICS.net.tx_fails.inc();
+                METRICS.net.tap_write_fails.inc();
             }
         };
         Ok(false)
@@ -424,7 +428,7 @@ impl Net {
                         Some(err) if err == EAGAIN => (),
                         _ => {
                             error!("Failed to read tap: {:?}", e);
-                            METRICS.net.rx_fails.inc();
+                            METRICS.net.tap_read_fails.inc();
                             return Err(DeviceError::FailedReadTap);
                         }
                     };
@@ -444,19 +448,24 @@ impl Net {
         }
     }
 
+    // Process the deferred frame first, then continue reading from tap.
+    fn handle_deferred_frame(&mut self) -> result::Result<(), DeviceError> {
+        if self.rate_limited_rx_single_frame() {
+            self.rx_deferred_frame = false;
+            // process_rx() was interrupted possibly before consuming all
+            // packets in the tap; try continuing now.
+            self.process_rx()
+        } else if self.rx_deferred_irqs {
+            self.rx_deferred_irqs = false;
+            self.signal_used_queue()
+        } else {
+            Ok(())
+        }
+    }
+
     fn resume_rx(&mut self) -> result::Result<(), DeviceError> {
         if self.rx_deferred_frame {
-            if self.rate_limited_rx_single_frame() {
-                self.rx_deferred_frame = false;
-                // process_rx() was interrupted possibly before consuming all
-                // packets in the tap; try continuing now.
-                self.process_rx()
-            } else if self.rx_deferred_irqs {
-                self.rx_deferred_irqs = false;
-                self.signal_used_queue()
-            } else {
-                Ok(())
-            }
+            self.handle_deferred_frame()
         } else {
             Ok(())
         }
@@ -484,6 +493,7 @@ impl Net {
                 // Stop processing the queue and return this descriptor chain to the
                 // avail ring, for later processing.
                 tx_queue.undo_pop();
+                METRICS.net.tx_rate_limiter_throttled.inc();
                 break;
             }
 
@@ -512,6 +522,7 @@ impl Net {
                 // Stop processing the queue and return this descriptor chain to the
                 // avail ring, for later processing.
                 tx_queue.undo_pop();
+                METRICS.net.tx_rate_limiter_throttled.inc();
                 break;
             }
 
@@ -533,9 +544,11 @@ impl Net {
                     }
                     Err(e) => {
                         error!("Failed to read slice: {:?}", e);
-                        METRICS.net.tx_fails.inc();
                         if let GuestMemoryError::PartialBuffer { completed, .. } = e {
                             read_count += completed;
+                            METRICS.net.tx_partial_reads.inc();
+                        } else {
+                            METRICS.net.tx_fails.inc();
                         }
                         break;
                     }
@@ -601,6 +614,8 @@ impl Net {
             // If the limiter is not blocked, resume the receiving of bytes.
             if !self.rx_rate_limiter.is_blocked() {
                 self.resume_rx().unwrap_or_else(report_net_event_fail);
+            } else {
+                METRICS.net.rx_rate_limiter_throttled.inc();
             }
         }
     }
@@ -619,6 +634,7 @@ impl Net {
 
         // While limiter is blocked, don't process any more incoming.
         if self.rx_rate_limiter.is_blocked() {
+            METRICS.net.rx_rate_limiter_throttled.inc();
             return;
         }
 
@@ -626,14 +642,8 @@ impl Net {
         // Process a deferred frame first if available. Don't read from tap again
         // until we manage to receive this deferred frame.
         {
-            if self.rate_limited_rx_single_frame() {
-                self.rx_deferred_frame = false;
-                self.process_rx().unwrap_or_else(report_net_event_fail);
-            } else if self.rx_deferred_irqs {
-                self.rx_deferred_irqs = false;
-                self.signal_used_queue()
-                    .unwrap_or_else(report_net_event_fail);
-            }
+            self.handle_deferred_frame()
+                .unwrap_or_else(report_net_event_fail);
         } else {
             self.process_rx().unwrap_or_else(report_net_event_fail);
         }
@@ -648,6 +658,8 @@ impl Net {
         // If the limiter is not blocked, continue transmitting bytes.
         {
             self.process_tx().unwrap_or_else(report_net_event_fail);
+        } else {
+            METRICS.net.tx_rate_limiter_throttled.inc();
         }
     }
 
@@ -753,6 +765,7 @@ impl VirtioDevice for Net {
         self.guest_mac = Some(MacAddr::from_bytes_unchecked(
             &self.config_space.guest_mac[..MAC_ADDR_LEN],
         ));
+        METRICS.net.mac_address_updates.inc();
     }
 
     fn is_activated(&self) -> bool {
@@ -1007,6 +1020,7 @@ pub(crate) mod tests {
         // Check that the guest MAC was updated.
         let expected_guest_mac = MacAddr::from_bytes_unchecked(&new_config);
         assert_eq!(expected_guest_mac, net.guest_mac.unwrap());
+        assert_eq!(METRICS.net.mac_address_updates.count(), 1);
 
         // Partial write (this is how the kernel sets a new mac address) - byte by byte.
         let new_config = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
@@ -1194,7 +1208,7 @@ pub(crate) mod tests {
             };
 
             let mut net = Net::default_net(test_mutators);
-            check_metric_after_block!(&METRICS.net.rx_fails, 1, net.process_rx());
+            check_metric_after_block!(&METRICS.net.tap_read_fails, 1, net.process_rx());
         }
     }
 
@@ -1411,7 +1425,7 @@ pub(crate) mod tests {
         // Fake an avail buffer; this time, tap reading should error out.
         rxq.avail.idx.set(1);
         check_metric_after_block!(
-            &METRICS.net.rx_fails,
+            &METRICS.net.tap_read_fails,
             1,
             net.process(&tap_event, &mut event_manager)
         );
@@ -1429,6 +1443,7 @@ pub(crate) mod tests {
         net.rx_rate_limiter = RateLimiter::new(0, 0, 0, 0, 0, 0).unwrap();
         let rate_limiter_event =
             EpollEvent::new(EventSet::IN, net.rx_rate_limiter.as_raw_fd() as u64);
+        // There is no actual event on the rate limiter's timerfd.
         check_metric_after_block!(
             &METRICS.net.event_fails,
             1,
@@ -1449,6 +1464,7 @@ pub(crate) mod tests {
         let rate_limiter_event =
             EpollEvent::new(EventSet::IN, net.tx_rate_limiter.as_raw_fd() as u64);
         net.process(&rate_limiter_event, &mut event_manager);
+        // There is no actual event on the rate limiter's timerfd.
         check_metric_after_block!(
             &METRICS.net.event_fails,
             1,
@@ -1493,6 +1509,7 @@ pub(crate) mod tests {
 
                 // assert that limiter is blocked
                 assert!(net.tx_rate_limiter.is_blocked());
+                assert_eq!(METRICS.net.tx_rate_limiter_throttled.count(), 1);
                 // make sure the data is still queued for processing
                 assert_eq!(txq.used.idx.get(), 0);
             }
@@ -1503,9 +1520,9 @@ pub(crate) mod tests {
 
             // following TX procedure should succeed because bandwidth should now be available
             {
-                // tx_count increments 1 from process_tx() and 1 from write_to_mmds_or_tap()
                 let tx_limiter_event =
                     EpollEvent::new(EventSet::IN, net.tx_rate_limiter.as_raw_fd() as u64);
+                // tx_count increments 1 from process_tx() and 1 from write_to_mmds_or_tap()
                 check_metric_after_block!(
                     &METRICS.net.tx_count,
                     2,
@@ -1544,6 +1561,7 @@ pub(crate) mod tests {
 
                 // assert that limiter is blocked
                 assert!(net.rx_rate_limiter.is_blocked());
+                assert_eq!(METRICS.net.rx_rate_limiter_throttled.count(), 1);
                 assert!(net.rx_deferred_frame);
                 // assert that no operation actually completed (limiter blocked it)
                 assert_eq!(net.interrupt_evt.read().unwrap(), 2);
@@ -1561,7 +1579,12 @@ pub(crate) mod tests {
                 net.interrupt_evt.write(1).unwrap();
                 let rx_limiter_event =
                     EpollEvent::new(EventSet::IN, net.rx_rate_limiter.as_raw_fd() as u64);
-                net.process(&rx_limiter_event, &mut event_manager);
+                // no longer throttled
+                check_metric_after_block!(
+                    &METRICS.net.rx_rate_limiter_throttled,
+                    0,
+                    net.process(&rx_limiter_event, &mut event_manager)
+                );
                 // validate the rate_limiter is no longer blocked
                 assert!(!net.rx_rate_limiter.is_blocked());
                 // make sure the virtio queue operation completed this time
@@ -1608,7 +1631,11 @@ pub(crate) mod tests {
                 net.queue_evts[TX_INDEX].write(1).unwrap();
                 let tx_event =
                     EpollEvent::new(EventSet::IN, net.queue_evts[TX_INDEX].as_raw_fd() as u64);
-                net.process(&tx_event, &mut event_manager);
+                check_metric_after_block!(
+                    METRICS.net.tx_rate_limiter_throttled,
+                    1,
+                    net.process(&tx_event, &mut event_manager)
+                );
 
                 // assert that limiter is blocked
                 assert!(net.tx_rate_limiter.is_blocked());
@@ -1624,7 +1651,12 @@ pub(crate) mod tests {
             {
                 let tx_rate_limiter_event =
                     EpollEvent::new(EventSet::IN, net.tx_rate_limiter.as_raw_fd() as u64);
-                net.process(&tx_rate_limiter_event, &mut event_manager);
+                // no longer throttled
+                check_metric_after_block!(
+                    &METRICS.net.tx_rate_limiter_throttled,
+                    0,
+                    net.process(&tx_rate_limiter_event, &mut event_manager)
+                );
                 // validate the rate_limiter is no longer blocked
                 assert!(!net.tx_rate_limiter.is_blocked());
                 // make sure the data queue advanced
@@ -1654,10 +1686,16 @@ pub(crate) mod tests {
                 net.interrupt_evt.write(1).unwrap();
                 // trigger the RX handler
                 let rx_event = EpollEvent::new(EventSet::IN, net.tap.as_raw_fd() as u64);
-                net.process(&rx_event, &mut event_manager);
+                check_metric_after_block!(
+                    METRICS.net.rx_rate_limiter_throttled,
+                    1,
+                    net.process(&rx_event, &mut event_manager)
+                );
+                //net.process(&rx_event, &mut event_manager);
 
                 // assert that limiter is blocked
                 assert!(net.rx_rate_limiter.is_blocked());
+                assert!(METRICS.net.rx_rate_limiter_throttled.count() >= 1);
                 assert!(net.rx_deferred_frame);
                 // assert that no operation actually completed (limiter blocked it)
                 assert_eq!(net.interrupt_evt.read().unwrap(), 2);
