@@ -1186,10 +1186,10 @@ impl SeccompLevel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SeccompCmpArgLen as ArgLen;
+    use crate::SeccompCmpOp::*;
+    use crate::SeccompCondition as Cond;
     use std::thread;
-    use SeccompCmpArgLen as ArgLen;
-    use SeccompCmpOp::*;
-    use SeccompCondition as Cond;
 
     // The type of the `req` parameter is different for the `musl` library. This will enable
     // successful build for other non-musl libraries.
