@@ -7,11 +7,11 @@ use std::os::unix::io::RawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 
-use common::{Body, Version};
-pub use common::{ConnectionError, RequestError, ServerError};
-use connection::HttpConnection;
-use request::Request;
-use response::{Response, StatusCode};
+use crate::common::{Body, Version};
+pub use crate::common::{ConnectionError, RequestError, ServerError};
+use crate::connection::HttpConnection;
+use crate::request::Request;
+use crate::response::{Response, StatusCode};
 use std::collections::HashMap;
 
 use utils::epoll;
@@ -538,7 +538,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
 
-    use common::Body;
+    use crate::common::Body;
     use utils::tempfile::TempFile;
 
     fn get_temp_socket_file() -> TempFile {

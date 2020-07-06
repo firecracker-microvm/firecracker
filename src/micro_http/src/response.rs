@@ -3,10 +3,10 @@
 
 use std::io::{Error as WriteError, Write};
 
-use ascii::{COLON, CR, LF, SP};
-use common::{Body, Version};
-use headers::{Header, MediaType};
-use Method;
+use crate::ascii::{COLON, CR, LF, SP};
+use crate::common::{Body, Version};
+use crate::headers::{Header, MediaType};
+use crate::Method;
 
 /// Wrapper over a response status code.
 ///
