@@ -17,13 +17,13 @@ use crate::device_manager::persist::Error as DevicePersistError;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vstate::{self, VcpuState, VmState};
 
-use device_manager::persist::DeviceStates;
-use memory_snapshot;
-use memory_snapshot::{GuestMemoryState, SnapshotMemory};
+use crate::device_manager::persist::DeviceStates;
+use crate::memory_snapshot;
+use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
+use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
 use polly::event_manager::EventManager;
 use seccomp::BpfProgramRef;
 use snapshot::Snapshot;
-use version_map::FC_VERSION_TO_SNAP_VERSION;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn test_create_snapshot_error_display() {
-        use persist::CreateSnapshotError::*;
+        use crate::persist::CreateSnapshotError::*;
         use vm_memory::GuestMemoryError;
 
         let err = DirtyBitmap;
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_load_snapshot_error_display() {
-        use persist::LoadSnapshotError::*;
+        use crate::persist::LoadSnapshotError::*;
 
         let err = BuildMicroVm(StartMicrovmError::InitrdLoad);
         let _ = format!("{}{:?}", err, err);
@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_microvm_state_error_display() {
-        use persist::MicrovmStateError::*;
+        use crate::persist::MicrovmStateError::*;
 
         let err = InvalidInput;
         let _ = format!("{}{:?}", err, err);

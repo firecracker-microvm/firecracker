@@ -12,7 +12,6 @@ use std::{fmt, io};
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
-use devices;
 use devices::pseudo::BootTimer;
 use devices::{virtio::MmioTransport, BusDevice};
 use kernel::cmdline as kernel_cmdline;
@@ -287,9 +286,8 @@ impl DeviceInfoForFDT for MMIODeviceInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::builder;
     use super::*;
-    use arch;
+    use crate::builder;
     use devices::virtio::{ActivateResult, Queue, VirtioDevice};
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;

@@ -2,6 +2,7 @@
 name = "vmm"
 version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2018"
 
 [dependencies]
 kvm-bindings = { git = "https://github.com/firecracker-microvm/kvm-bindings", tag = "v0.2.0-2", features = ["fam-wrappers"] }

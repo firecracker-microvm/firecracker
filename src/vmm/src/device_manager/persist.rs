@@ -286,13 +286,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use builder::attach_boot_timer_device;
-    use builder::tests::*;
-    use utils::tempfile::TempFile;
-    use vmm_config::net::NetworkInterfaceConfig;
-    use vmm_config::vsock::VsockDeviceConfig;
-
+    use crate::builder::attach_boot_timer_device;
+    use crate::builder::tests::*;
+    use crate::vmm_config::net::NetworkInterfaceConfig;
+    use crate::vmm_config::vsock::VsockDeviceConfig;
     use polly::event_manager::EventManager;
+    use utils::tempfile::TempFile;
 
     impl PartialEq for ConnectedBlockState {
         fn eq(&self, other: &ConnectedBlockState) -> bool {
