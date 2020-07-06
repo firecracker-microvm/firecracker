@@ -2,14 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Workaround to `macro_reexport`.
-#[macro_use]
 extern crate lazy_static;
 extern crate libc;
-#[cfg_attr(test, macro_use)]
 extern crate log;
 extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 extern crate serde_json;
 extern crate utils;
 
@@ -17,12 +13,12 @@ mod init;
 mod logger;
 mod metrics;
 
+use std::sync::LockResult;
+
+pub use crate::logger::{LoggerError, LOGGER};
+pub use crate::metrics::{Metric, MetricsError, SharedMetric, METRICS};
 pub use log::Level::*;
 pub use log::*;
-pub use logger::{LoggerError, LOGGER};
-pub use metrics::{Metric, MetricsError, SharedMetric, METRICS};
-
-use std::sync::LockResult;
 
 fn extract_guard<G>(lock_result: LockResult<G>) -> G {
     match lock_result {
