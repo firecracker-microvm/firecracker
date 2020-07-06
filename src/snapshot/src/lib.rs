@@ -32,7 +32,7 @@ extern crate versionize;
 extern crate versionize_derive;
 
 mod persist;
-pub use persist::Persist;
+pub use crate::persist::Persist;
 
 use std::io::{Read, Write};
 use versionize::crc::{CRC64Reader, CRC64Writer};
