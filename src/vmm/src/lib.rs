@@ -67,16 +67,19 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use arch::DeviceType;
 #[cfg(target_arch = "x86_64")]
-use device_manager::legacy::PortIODeviceManager;
-use device_manager::mmio::MMIODeviceManager;
+use crate::device_manager::legacy::PortIODeviceManager;
+use crate::device_manager::mmio::MMIODeviceManager;
+#[cfg(target_arch = "x86_64")]
+use crate::memory_snapshot::SnapshotMemory;
+#[cfg(target_arch = "x86_64")]
+use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
+#[cfg(target_arch = "x86_64")]
+use crate::vstate::VcpuState;
+use crate::vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
+use arch::DeviceType;
 use devices::BusDevice;
 use logger::{LoggerError, MetricsError, METRICS};
-#[cfg(target_arch = "x86_64")]
-use memory_snapshot::SnapshotMemory;
-#[cfg(target_arch = "x86_64")]
-use persist::{MicrovmState, MicrovmStateError, VmInfo};
 use polly::event_manager::{self, EventManager, Subscriber};
 use seccomp::BpfProgramRef;
 #[cfg(target_arch = "x86_64")]
@@ -84,9 +87,6 @@ use snapshot::Persist;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap};
-#[cfg(target_arch = "x86_64")]
-use vstate::VcpuState;
-use vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
 /// Success exit code.
 pub const FC_EXIT_CODE_OK: u8 = 0;

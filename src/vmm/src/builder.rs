@@ -776,16 +776,16 @@ pub mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
+    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
+    use crate::vmm_config::vsock::tests::default_config;
+    use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use arch::DeviceType;
     use devices::virtio::{TYPE_BLOCK, TYPE_VSOCK};
     use kernel::cmdline::Cmdline;
     use polly::event_manager::EventManager;
     use utils::tempfile::TempFile;
-    use vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
-    use vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
-    use vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
-    use vmm_config::vsock::tests::default_config;
-    use vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
 
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
@@ -1196,7 +1196,7 @@ pub mod tests {
 
     #[test]
     fn test_error_messages() {
-        use builder::StartMicrovmError::*;
+        use crate::builder::StartMicrovmError::*;
         let err = AttachBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
