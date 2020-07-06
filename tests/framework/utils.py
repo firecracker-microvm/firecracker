@@ -148,7 +148,13 @@ def run_cmd_list_async(cmd_list):
     :param cmd_list: list of commands to execute
     :return: None
     """
-    loop = asyncio.get_event_loop()
+    loop = None
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        # Create event loop when one is not available
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
     cmds = []
     # Create a list of partial functions to run
@@ -172,7 +178,13 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
     :param noshell: don't run the command in a sub-shell
     :returns: tuple of (return code, stdout, stderr)
     """
-    loop = asyncio.get_event_loop()
+    loop = None
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        # Create event loop when one is not available
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
     return loop.run_until_complete(
         run_cmd_async(cmd=cmd,
