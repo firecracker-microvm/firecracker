@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use net_gen::ifreq;
 use std::fs::File;
 use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::os::raw::*;
@@ -34,6 +35,40 @@ const TUNTAP: ::std::os::raw::c_uint = 84;
 ioctl_iow_nr!(TUNSETIFF, TUNTAP, 202, ::std::os::raw::c_int);
 ioctl_iow_nr!(TUNSETOFFLOAD, TUNTAP, 208, ::std::os::raw::c_uint);
 ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
+
+struct IfReqBuilder(ifreq);
+
+impl IfReqBuilder {
+    fn new() -> Self {
+        Self(Default::default())
+    }
+
+    fn if_name(mut self, if_name: &[u8; IFACE_NAME_MAX_LEN]) -> Self {
+        // Since we don't call as_mut on the same union field more than once, this block is safe.
+        let ifrn_name = unsafe { self.0.ifr_ifrn.ifrn_name.as_mut() };
+        ifrn_name.copy_from_slice(if_name.as_ref());
+
+        self
+    }
+
+    fn flags(mut self, flags: i16) -> Self {
+        // Since we don't call as_mut on the same union field more than once, this block is safe.
+        let ifru_flags = unsafe { self.0.ifr_ifru.ifru_flags.as_mut() };
+        *ifru_flags = flags;
+
+        self
+    }
+
+    fn execute<F: AsRawFd>(mut self, socket: &F, ioctl: u64) -> Result<ifreq> {
+        // ioctl is safe. Called with a valid socket fd, and we check the return.
+        let ret = unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) };
+        if ret < 0 {
+            return Err(Error::IoctlError(IoError::last_os_error()));
+        }
+
+        Ok(self.0)
+    }
+}
 
 /// Handle for a network tap interface.
 ///
@@ -82,29 +117,13 @@ impl Tap {
         if fd < 0 {
             return Err(Error::OpenTun(IoError::last_os_error()));
         }
-
         // We just checked that the fd is valid.
         let tuntap = unsafe { File::from_raw_fd(fd) };
 
-        // This is pretty messy because of the unions used by ifreq. Since we
-        // don't call as_mut on the same union field more than once, this block
-        // is safe.
-        let mut ifreq: net_gen::ifreq = Default::default();
-        unsafe {
-            let ifrn_name = ifreq.ifr_ifrn.ifrn_name.as_mut();
-            ifrn_name.copy_from_slice(terminated_if_name.as_ref());
-            let ifru_flags = ifreq.ifr_ifru.ifru_flags.as_mut();
-            *ifru_flags =
-                (net_gen::IFF_TAP | net_gen::IFF_NO_PI | net_gen::IFF_VNET_HDR) as c_short;
-        }
-
-        // ioctl is safe since we call it with a valid tap fd and check the return
-        // value.
-        let ret = unsafe { ioctl_with_mut_ref(&tuntap, TUNSETIFF(), &mut ifreq) };
-
-        if ret < 0 {
-            return Err(Error::CreateTap(IoError::last_os_error()));
-        }
+        let ifreq = IfReqBuilder::new()
+            .if_name(&terminated_if_name)
+            .flags((net_gen::IFF_TAP | net_gen::IFF_NO_PI | net_gen::IFF_VNET_HDR) as i16)
+            .execute(&tuntap, TUNSETIFF())?;
 
         // Safe since only the name is accessed, and it's cloned out.
         Ok(Tap {
@@ -211,6 +230,16 @@ pub mod tests {
         unsafe { mem::transmute(addr_in) }
     }
 
+    impl IfReqBuilder {
+        fn addr(mut self, addr: net_gen::sockaddr) -> Self {
+            // Since we don't call as_mut on the same union field more than once, this block is safe.
+            let ifru_addr = unsafe { self.0.ifr_ifru.ifru_addr.as_mut() };
+            *ifru_addr = addr;
+
+            self
+        }
+    }
+
     impl Tap {
         // We do not run unit tests in parallel so we should have no problem
         // assigning the same IP.
@@ -230,39 +259,16 @@ pub mod tests {
                 .to_string()
         }
 
-        fn get_ifreq(&self) -> net_gen::ifreq {
-            let mut ifreq: net_gen::ifreq = Default::default();
-
-            // This sets the name of the interface, which is the only entry
-            // in a single-field union.
-            unsafe {
-                let ifrn_name = ifreq.ifr_ifrn.ifrn_name.as_mut();
-                ifrn_name.clone_from_slice(&self.if_name);
-            }
-
-            ifreq
-        }
-
         /// Enable the tap interface.
         pub fn enable(&self) -> Result<()> {
             let sock = create_socket();
-
-            let mut ifreq = self.get_ifreq();
-
-            // We only access one field of the ifru union, hence this is safe.
-            unsafe {
-                let ifru_flags = ifreq.ifr_ifru.ifru_flags.as_mut();
-                *ifru_flags = (net_gen::net_device_flags_IFF_UP
-                    | net_gen::net_device_flags_IFF_RUNNING) as i16;
-            }
-
-            // ioctl is safe. Called with a valid sock fd, and we check the return.
-            let ret = unsafe {
-                ioctl_with_ref(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS), &ifreq)
-            };
-            if ret < 0 {
-                return Err(Error::IoctlError(IoError::last_os_error()));
-            }
+            IfReqBuilder::new()
+                .if_name(&self.if_name)
+                .flags(
+                    (net_gen::net_device_flags_IFF_UP | net_gen::net_device_flags_IFF_RUNNING)
+                        as i16,
+                )
+                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS))?;
 
             Ok(())
         }
@@ -284,21 +290,10 @@ pub mod tests {
             let sock = create_socket();
             let addr = create_sockaddr(ip_addr);
 
-            let mut ifreq = self.get_ifreq();
-
-            // We only access one field of the ifru union, hence this is safe.
-            unsafe {
-                let ifru_addr = ifreq.ifr_ifru.ifru_addr.as_mut();
-                *ifru_addr = addr;
-            }
-
-            // ioctl is safe. Called with a valid sock fd, and we check the return.
-            let ret = unsafe {
-                ioctl_with_ref(&sock, c_ulong::from(net_gen::sockios::SIOCSIFADDR), &ifreq)
-            };
-            if ret < 0 {
-                return Err(Error::IoctlError(IoError::last_os_error()));
-            }
+            IfReqBuilder::new()
+                .if_name(&self.if_name)
+                .addr(addr)
+                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFADDR))?;
 
             Ok(())
         }
@@ -308,25 +303,10 @@ pub mod tests {
             let sock = create_socket();
             let addr = create_sockaddr(netmask);
 
-            let mut ifreq = self.get_ifreq();
-
-            // We only access one field of the ifru union, hence this is safe.
-            unsafe {
-                let ifru_addr = ifreq.ifr_ifru.ifru_addr.as_mut();
-                *ifru_addr = addr;
-            }
-
-            // ioctl is safe. Called with a valid sock fd, and we check the return.
-            let ret = unsafe {
-                ioctl_with_ref(
-                    &sock,
-                    c_ulong::from(net_gen::sockios::SIOCSIFNETMASK),
-                    &ifreq,
-                )
-            };
-            if ret < 0 {
-                return Err(Error::IoctlError(IoError::last_os_error()));
-            }
+            IfReqBuilder::new()
+                .if_name(&self.if_name)
+                .addr(addr)
+                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFNETMASK))?;
 
             Ok(())
         }
