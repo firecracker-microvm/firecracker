@@ -3,10 +3,10 @@
 
 #[macro_use]
 extern crate bitflags;
-#[macro_use]
 extern crate vmm_sys_util;
 
 pub use vmm_sys_util::{errno, eventfd, ioctl, tempdir, tempfile, terminal};
+pub use vmm_sys_util::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
 
 pub mod arg_parser;
 pub mod byte_order;

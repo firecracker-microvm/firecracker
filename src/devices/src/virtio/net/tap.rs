@@ -10,7 +10,7 @@ use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::net::UdpSocket;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
-use vmm_sys_util::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
+use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
@@ -88,14 +88,6 @@ impl Tap {
     /// # Arguments
     ///
     /// * `if_name` - the name of the interface.
-    /// # Example
-    ///
-    /// ```
-    /// extern crate utils;
-    ///
-    /// use utils::net::Tap;
-    /// Tap::open_named("doc-test-tap").unwrap();
-    /// ```
     pub fn open_named(if_name: &str) -> Result<Tap> {
         let terminated_if_name = build_terminated_if_name(if_name)?;
 
