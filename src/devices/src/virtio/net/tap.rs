@@ -7,7 +7,6 @@
 
 use std::fs::File;
 use std::io::{Error as IoError, Read, Result as IoResult, Write};
-use std::net::UdpSocket;
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
@@ -19,8 +18,6 @@ const IFACE_NAME_MAX_LEN: usize = 16;
 /// List of errors the tap implementation can throw.
 #[derive(Debug)]
 pub enum Error {
-    /// Failed to create a socket.
-    CreateSocket(IoError),
     /// Unable to create tap interface.
     CreateTap(IoError),
     /// Invalid interface name.
@@ -47,23 +44,6 @@ ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
 pub struct Tap {
     tap_file: File,
     if_name: [u8; IFACE_NAME_MAX_LEN],
-}
-
-impl PartialEq for Tap {
-    fn eq(&self, other: &Tap) -> bool {
-        self.if_name == other.if_name
-    }
-}
-
-fn create_socket() -> Result<UdpSocket> {
-    // This is safe since we check the return value.
-    let sock = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
-    if sock < 0 {
-        return Err(Error::CreateSocket(IoError::last_os_error()));
-    }
-
-    // This is safe; nothing else will use or hold onto the raw sock fd.
-    Ok(unsafe { UdpSocket::from_raw_fd(sock) })
 }
 
 // Returns a byte vector representing the contents of a null terminated C string which
@@ -144,29 +124,6 @@ impl Tap {
         Ok(())
     }
 
-    /// Enable the tap interface.
-    pub fn enable(&self) -> Result<()> {
-        let sock = create_socket()?;
-
-        let mut ifreq = self.get_ifreq();
-
-        // We only access one field of the ifru union, hence this is safe.
-        unsafe {
-            let ifru_flags = ifreq.ifr_ifru.ifru_flags.as_mut();
-            *ifru_flags =
-                (net_gen::net_device_flags_IFF_UP | net_gen::net_device_flags_IFF_RUNNING) as i16;
-        }
-
-        // ioctl is safe. Called with a valid sock fd, and we check the return.
-        let ret =
-            unsafe { ioctl_with_ref(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS), &ifreq) };
-        if ret < 0 {
-            return Err(Error::IoctlError(IoError::last_os_error()));
-        }
-
-        Ok(())
-    }
-
     /// Set the size of the vnet hdr.
     pub fn set_vnet_hdr_size(&self, size: c_int) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
@@ -176,19 +133,6 @@ impl Tap {
         }
 
         Ok(())
-    }
-
-    fn get_ifreq(&self) -> net_gen::ifreq {
-        let mut ifreq: net_gen::ifreq = Default::default();
-
-        // This sets the name of the interface, which is the only entry
-        // in a single-field union.
-        unsafe {
-            let ifrn_name = ifreq.ifr_ifrn.ifrn_name.as_mut();
-            ifrn_name.clone_from_slice(&self.if_name);
-        }
-
-        ifreq
     }
 }
 
@@ -215,7 +159,7 @@ impl AsRawFd for Tap {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
 
     use std::io::Read;
     use std::mem;
@@ -241,6 +185,17 @@ mod tests {
     const VETH_OFFSET: usize = 10;
     static NEXT_IP: AtomicUsize = AtomicUsize::new(1);
 
+    fn create_socket() -> UdpSocket {
+        // This is safe since we check the return value.
+        let sock = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
+        if sock < 0 {
+            panic!("Unable to create tap socket");
+        }
+
+        // This is safe; nothing else will use or hold onto the raw sock fd.
+        unsafe { UdpSocket::from_raw_fd(sock) }
+    }
+
     // Create a sockaddr_in from an IPv4 address, and expose it as
     // an opaque sockaddr suitable for usage by socket ioctls.
     fn create_sockaddr(ip_addr: Ipv4Addr) -> net_gen::sockaddr {
@@ -255,21 +210,78 @@ mod tests {
 
         unsafe { mem::transmute(addr_in) }
     }
+
     impl Tap {
         // We do not run unit tests in parallel so we should have no problem
         // assigning the same IP.
 
         /// Create a new tap interface.
-        pub fn new() -> Result<Tap> {
+        fn new() -> Result<Tap> {
             // The name of the tap should be {module_name}{index} so that
             // we make sure it stays different when tests are run concurrently.
             let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
             Self::open_named(&format!("tap{}", next_ip))
         }
 
+        fn tap_name_to_string(&self) -> String {
+            let null_pos = self.if_name.iter().position(|x| *x == 0).unwrap();
+            str::from_utf8(&self.if_name[..null_pos])
+                .expect("Cannot convert from UTF-8")
+                .to_string()
+        }
+
+        fn get_ifreq(&self) -> net_gen::ifreq {
+            let mut ifreq: net_gen::ifreq = Default::default();
+
+            // This sets the name of the interface, which is the only entry
+            // in a single-field union.
+            unsafe {
+                let ifrn_name = ifreq.ifr_ifrn.ifrn_name.as_mut();
+                ifrn_name.clone_from_slice(&self.if_name);
+            }
+
+            ifreq
+        }
+
+        /// Enable the tap interface.
+        pub fn enable(&self) -> Result<()> {
+            let sock = create_socket();
+
+            let mut ifreq = self.get_ifreq();
+
+            // We only access one field of the ifru union, hence this is safe.
+            unsafe {
+                let ifru_flags = ifreq.ifr_ifru.ifru_flags.as_mut();
+                *ifru_flags = (net_gen::net_device_flags_IFF_UP
+                    | net_gen::net_device_flags_IFF_RUNNING) as i16;
+            }
+
+            // ioctl is safe. Called with a valid sock fd, and we check the return.
+            let ret = unsafe {
+                ioctl_with_ref(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS), &ifreq)
+            };
+            if ret < 0 {
+                return Err(Error::IoctlError(IoError::last_os_error()));
+            }
+
+            Ok(())
+        }
+
+        /// Set the TAP's MAC to the given address
+        fn set_mac(&self, mac_addr: &str) {
+            Command::new("ip")
+                .arg("link")
+                .arg("set")
+                .arg(self.tap_name_to_string())
+                .arg("address")
+                .arg(mac_addr)
+                .status()
+                .expect("Failed to execute ip link");
+        }
+
         // Set the host-side IP address for the tap interface.
-        pub fn set_ip_addr(&self, ip_addr: Ipv4Addr) -> Result<()> {
-            let sock = create_socket()?;
+        fn set_ip_addr(&self, ip_addr: Ipv4Addr) -> Result<()> {
+            let sock = create_socket();
             let addr = create_sockaddr(ip_addr);
 
             let mut ifreq = self.get_ifreq();
@@ -292,8 +304,8 @@ mod tests {
         }
 
         // Set the netmask for the subnet that the tap interface will exist on.
-        pub fn set_netmask(&self, netmask: Ipv4Addr) -> Result<()> {
-            let sock = create_socket()?;
+        fn set_netmask(&self, netmask: Ipv4Addr) -> Result<()> {
+            let sock = create_socket();
             let addr = create_sockaddr(netmask);
 
             let mut ifreq = self.get_ifreq();
@@ -318,13 +330,6 @@ mod tests {
 
             Ok(())
         }
-    }
-
-    fn tap_name_to_string(tap: &Tap) -> String {
-        let null_pos = tap.if_name.iter().position(|x| *x == 0).unwrap();
-        str::from_utf8(&tap.if_name[..null_pos])
-            .expect("Cannot convert from UTF-8")
-            .to_string()
     }
 
     #[test]
@@ -361,26 +366,6 @@ mod tests {
     }
 
     #[test]
-    fn test_tap_partial_eq() {
-        assert_ne!(Tap::new().unwrap(), Tap::new().unwrap());
-    }
-
-    #[test]
-    fn test_tap_configure() {
-        // `fetch_add` adds to the current value, returning the previous value.
-        let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
-
-        let tap = Tap::new().unwrap();
-        let ip_addr: Ipv4Addr = format!("{}{}", TAP_IP_PREFIX, next_ip).parse().unwrap();
-        let netmask: Ipv4Addr = SUBNET_MASK.parse().unwrap();
-
-        let ret = tap.set_ip_addr(ip_addr);
-        assert!(ret.is_ok());
-        let ret = tap.set_netmask(netmask);
-        assert!(ret.is_ok());
-    }
-
-    #[test]
     fn test_set_options() {
         // This line will fail to provide an initialized FD if the test is not run as root.
         let tap = Tap::new().unwrap();
@@ -393,23 +378,6 @@ mod tests {
         };
         assert!(faulty_tap.set_vnet_hdr_size(16).is_err());
         assert!(faulty_tap.set_offload(0).is_err());
-    }
-
-    #[test]
-    fn test_tap_enable() {
-        let tap = Tap::new().unwrap();
-        let ret = tap.enable();
-        assert!(ret.is_ok());
-    }
-
-    #[test]
-    fn test_tap_get_ifreq() {
-        let tap = Tap::new().unwrap();
-        let ret = tap.get_ifreq();
-        assert_eq!(
-            "__BindgenUnionField",
-            format!("{:?}", ret.ifr_ifrn.ifrn_name)
-        );
     }
 
     #[test]
@@ -563,19 +531,6 @@ mod tests {
         assert!(found_packet_sz.is_some());
     }
 
-    /// Set the TAP's MAC to the given address
-    fn set_tap_mac(tap: &Tap, mac_addr: &str) {
-        let tap_name = tap_name_to_string(&tap);
-        Command::new("ip")
-            .arg("link")
-            .arg("set")
-            .arg(tap_name)
-            .arg("address")
-            .arg(mac_addr)
-            .status()
-            .expect("Failed to execute ip link");
-    }
-
     #[test]
     fn test_write() {
         // `fetch_add` adds to the current value, returning the previous value.
@@ -585,7 +540,7 @@ mod tests {
         let tap_ip: Ipv4Addr = format!("{}{}", TAP_IP_PREFIX, next_ip).parse().unwrap();
         let mut tap = make_tap(tap_ip);
         let tap_mac = "12:34:56:78:9a:bd";
-        set_tap_mac(&tap, tap_mac);
+        tap.set_mac(tap_mac);
 
         let payload = DATA_STRING.as_bytes();
 
