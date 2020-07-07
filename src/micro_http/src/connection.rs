@@ -49,6 +49,9 @@ pub struct HttpConnection<T> {
     /// A buffer containing the bytes of a response that is currently
     /// being sent.
     response_buffer: Option<Vec<u8>>,
+    /// Represents how many bytes from the body of the request are
+    /// currently read.
+    total_body_bytes_read: usize,
 }
 
 impl<T: Read + Write> HttpConnection<T> {
@@ -65,6 +68,7 @@ impl<T: Read + Write> HttpConnection<T> {
             parsed_requests: VecDeque::new(),
             response_queue: VecDeque::new(),
             response_buffer: None,
+            total_body_bytes_read: 0,
         }
     }
 
@@ -263,9 +267,27 @@ impl<T: Read + Write> HttpConnection<T> {
         line_start_index: &mut usize,
         end_cursor: usize,
     ) -> Result<bool, ConnectionError> {
+        let request = self.pending_request.as_mut().unwrap();
+        self.total_body_bytes_read += end_cursor - *line_start_index;
+
         // If what we have just read is not enough to complete the request and
         // there are more bytes pertaining to the body of the request.
         if self.body_bytes_to_be_read > end_cursor as i32 - *line_start_index as i32 {
+            // If the current number of bytes read from body is not the one expected..
+            if self.total_body_bytes_read != request.headers.content_length() as usize
+                // and at the current `read`, `self.buffer` wasn't fully filled..
+                && end_cursor < BUFFER_SIZE
+                // and we already have some bytes read from the body
+                // (we are not at the first iteration of parsing the body and at
+                // this iteration we expect to read 0 bytes too if the request > 1024B),
+                && self.total_body_bytes_read != 0
+            {
+                // then it means that we passed a content-length larger than the request
+                // body size.
+                // some `InvalidContentLength` variant should be added here instead.
+                return Err(ConnectionError::ParseError(RequestError::InvalidRequest));
+            }
+
             // Append everything that we read to our current incomplete body and update
             // `body_bytes_to_be_read`.
             self.body_vec
@@ -289,7 +311,6 @@ impl<T: Read + Write> HttpConnection<T> {
         *line_start_index += self.body_bytes_to_be_read as usize;
         self.body_bytes_to_be_read = 0;
 
-        let request = self.pending_request.as_mut().unwrap();
         // If there are no more bytes to be read for this request.
         // Assign the body of the request.
         let placeholder: Vec<_> = self
@@ -421,10 +442,9 @@ mod tests {
                                  Transfer-Encoding: chunked\r\n\r\n",
             )
             .unwrap();
-        assert!(conn.try_read().is_ok());
-
         sender.write_all(b"this is not\n\r\na json \nbody").unwrap();
-        conn.try_read().unwrap();
+
+        assert!(conn.try_read().is_ok());
         let request = conn.pop_parsed_request().unwrap();
 
         let expected_request = Request {
@@ -794,5 +814,57 @@ mod tests {
         let mut response_buffer = vec![0u8; expected_response.len()];
         receiver.read_exact(&mut response_buffer).unwrap();
         assert_eq!(response_buffer, expected_response);
+    }
+
+    #[test]
+    fn test_try_read_with_content_length_specified() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        receiver.set_nonblocking(true).expect("Can't modify socket");
+        let mut conn = HttpConnection::new(receiver);
+
+        // Check that passing a shorter content-length fails.
+        sender
+            .write_all(
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Transfer-Encoding: chunked\r\n\
+                                 Content-Length: 10\r\n\r\nthis is some\n\r\na json \nbody",
+            )
+            .unwrap();
+
+        assert_eq!(
+            conn.try_read().unwrap_err(),
+            ConnectionError::ParseError(RequestError::InvalidRequest)
+        );
+
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        receiver.set_nonblocking(true).expect("Can't modify socket");
+        let mut conn = HttpConnection::new(receiver);
+        // Check that passing a larger content-length fails.
+        sender
+            .write_all(
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Transfer-Encoding: chunked\r\n\
+                                 Content-Length: 40\r\n\r\nthis is some\n\r\na json \nbody",
+            )
+            .unwrap();
+
+        assert_eq!(
+            conn.try_read().unwrap_err(),
+            ConnectionError::ParseError(RequestError::InvalidRequest)
+        );
+
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        receiver.set_nonblocking(true).expect("Can't modify socket");
+        let mut conn = HttpConnection::new(receiver);
+        //Passing the right content-length works.
+        sender
+            .write_all(
+                b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Transfer-Encoding: chunked\r\n\
+                                 Content-Length: 27\r\n\r\nthis is some\n\r\na json \nbody",
+            )
+            .unwrap();
+
+        assert!(conn.try_read().is_ok());
     }
 }

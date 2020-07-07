@@ -828,4 +828,135 @@ mod tests {
         second_socket.shutdown(std::net::Shutdown::Both).unwrap();
         assert!(server.requests().is_ok());
     }
+
+    #[test]
+    fn test_read_invalid_request() {
+        let path_to_socket = get_temp_socket_file();
+
+        let mut server = HttpServer::new(path_to_socket.as_path()).unwrap();
+        server.start_server().unwrap();
+
+        let mut socket = UnixStream::connect(path_to_socket.as_path()).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        assert!(server.requests().unwrap().is_empty());
+        // We specify a content-length larger than the the request body's size.
+        // Also, checking this for a request > 1024B.
+        socket
+            .write_all(
+                b"PUT http://localhost/home HTTP/1.1\r\n\
+                                 Content-Length: 3000\r\n\
+                                 Transfer-Encoding: chunked\r\n\r\n",
+            )
+            .unwrap();
+        socket
+            .write_all(
+                r#"{
+            "latest": {
+                  "meta-data": {
+                       "ami-id": "ami-12345678",
+                       "reservation-id": "r-fea54097",
+                       "local-hostname": "ip-10-251-50-12.ec2.internal",
+                       "public-hostname": "ec2-203-0-113-25.compute-1.amazonaws.com",
+                       "network": {
+                            "interfaces": {
+                                 "macs": {
+                                      "02:29:96:8f:6a:2d": {
+                                           "device-number": "133322354534212314356",
+                                           "local-hostname": "localhost",
+                                           "subnet-id": "subnet-be9b61d3423",
+					                       "device-number2": "1346543322354534212314356",
+                                           "subnet-id2": "subnet-be9b61fdgdfgdfhhd3423"
+                                      }
+                                  }
+                             }
+                       }
+                  },
+		          "Limits": {
+                       "CPU": 512,
+                       "Memory": 512
+            	  },
+                  "Usage": {
+                       "CPU": 12.12
+                  }
+            }
+        }"#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        assert!(server.requests().unwrap().is_empty());
+        assert!(server.requests().unwrap().is_empty());
+        assert!(server.requests().unwrap().is_empty());
+
+        let mut buf: [u8; 199] = [0; 199];
+        assert!(socket.read(&mut buf[..]).unwrap() > 0);
+        let error_message = b"HTTP/1.1 400 \r\n\
+                              Server: Firecracker API\r\n\
+                              Connection: keep-alive\r\n\
+                              Content-Type: application/json\r\n\
+                              Content-Length: 81\r\n\r\n{ \"error\": \"Invalid request.\n\
+                              All previous unanswered requests will be dropped.\" }";
+        assert_eq!(&buf[..], &error_message[..]);
+    }
+
+    #[test]
+    fn test_read_successful_request() {
+        let path_to_socket = get_temp_socket_file();
+
+        let mut server = HttpServer::new(path_to_socket.as_path()).unwrap();
+        server.start_server().unwrap();
+
+        let mut socket = UnixStream::connect(path_to_socket.as_path()).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        assert!(server.requests().unwrap().is_empty());
+
+        // We specify the right content-length (which is the body's size).
+        // Also, checking this for a request > 1024B.
+        socket
+            .write_all(
+                b"PUT http://localhost/home HTTP/1.1\r\n\
+                                 Content-Length: 1221\r\n\
+                                 Transfer-Encoding: chunked\r\n\r\n",
+            )
+            .unwrap();
+        socket
+            .write_all(
+                r#"{
+            "latest": {
+                  "meta-data": {
+                       "ami-id": "ami-12345678",
+                       "reservation-id": "r-fea54097",
+                       "local-hostname": "ip-10-251-50-12.ec2.internal",
+                       "public-hostname": "ec2-203-0-113-25.compute-1.amazonaws.com",
+                       "network": {
+                            "interfaces": {
+                                 "macs": {
+                                      "02:29:96:8f:6a:2d": {
+                                           "device-number": "133322354534212314356",
+                                           "local-hostname": "localhost",
+                                           "subnet-id": "subnet-be9b61d3423",
+					                       "device-number2": "1346543322354534212314356",
+                                           "subnet-id2": "subnet-be9b61fdgdfgdfhhd3423"
+                                      }
+                                  }
+                             }
+                       }
+                  },
+		          "Limits": {
+                       "CPU": 512,
+                       "Memory": 512
+            	  },
+                  "Usage": {
+                       "CPU": 12.12
+                  }
+            }
+        }"#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        assert!(server.requests().unwrap().is_empty());
+        // Check that we have a valid request.
+        assert_eq!(server.requests().unwrap().len(), 1);
+    }
 }
