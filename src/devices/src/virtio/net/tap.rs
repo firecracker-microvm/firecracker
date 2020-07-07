@@ -195,7 +195,6 @@ pub mod tests {
     const TAP_IP_PREFIX: &str = "192.168.241.";
     const IP_HEADER_LENGTH: usize = 20;
     const UDP_HEADER_LENGTH: usize = 8;
-    const ARP_PACKET_LENGTH: usize = 52;
     const UDP_PAYLOAD_OFFSET: usize = 52;
 
     // We skip the first 10 bytes because the IFF_VNET_HDR flag is set when the interface
@@ -261,12 +260,23 @@ pub mod tests {
 
         /// Enable the tap interface.
         pub fn enable(&self) -> Result<()> {
+            // Disable IPv6 router advertisment requests
+            Command::new("sh")
+                .arg("-c")
+                .arg(format!(
+                    "echo 0 > /proc/sys/net/ipv6/conf/{}/accept_ra",
+                    self.tap_name_to_string()
+                ))
+                .output()
+                .unwrap();
+
             let sock = create_socket();
             IfReqBuilder::new()
                 .if_name(&self.if_name)
                 .flags(
-                    (net_gen::net_device_flags_IFF_UP | net_gen::net_device_flags_IFF_RUNNING)
-                        as i16,
+                    (net_gen::net_device_flags_IFF_UP
+                        | net_gen::net_device_flags_IFF_RUNNING
+                        | net_gen::net_device_flags_IFF_NOARP) as i16,
                 )
                 .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS))?;
 
@@ -429,44 +439,6 @@ pub mod tests {
         res
     }
 
-    // Builds an ARP response packet from the given ARP request.
-    fn build_arp_response(req: &[u8]) -> Vec<u8> {
-        // A 10 bytes long header because IFF_VNET_HDR flag is set when the tap is created.
-        let v_header = [0u8; 10];
-
-        // The ethernet packet from the given packet.
-        let eth_packet = &req[VETH_OFFSET..];
-
-        // The source MAC address from the ethernet packet.
-        let eth_packet_src_mac_address = &eth_packet[6..12];
-
-        // The packet representation of the FAKE_MAC address value.
-        let fake_mac_address: [u8; 6] = [18, 52, 86, 120, 154, 188];
-
-        // The bytes representing etherType value.
-        // For ARP etherType = x0806.
-        let ether_type = &eth_packet[12..14];
-
-        // The ARP header from the given packet.
-        let arp_payload = &eth_packet[14..];
-
-        // The first 8 octets of the ARP packet header.
-        let arp_start = [0, 1, 8, 0, 6, 4, 0, 2];
-        // The sender info octets of the ARP packet header
-        let arp_sender_info = [18, 52, 86, 120, 154, 188, 192, 168, 241, 3];
-
-        // The target info octets of the ARP packet header
-        let arp_target_info = &arp_payload[8..18];
-
-        let mut resp = concat_slices(&v_header, &eth_packet_src_mac_address);
-        resp = concat_slices(&resp, &fake_mac_address);
-        resp = concat_slices(&resp, &ether_type);
-        resp = concat_slices(&resp, &arp_start);
-        resp = concat_slices(&resp, &arp_sender_info);
-        resp = concat_slices(&resp, &arp_target_info);
-        resp
-    }
-
     #[test]
     fn test_read() {
         // `fetch_add` adds to the current value, returning the previous value.
@@ -488,27 +460,14 @@ pub mod tests {
         socket.set_read_timeout(Some(Duration::new(5, 0))).unwrap();
         socket.send_to(DATA_STRING.as_bytes(), dst_addr).unwrap();
 
-        let mut found_packet_sz = None;
-
-        while found_packet_sz.is_none() {
-            let mut buf = [0u8; 1024];
-            let result = tap.read(&mut buf);
-            assert!(result.is_ok());
-            let size = result.unwrap();
-            let received_packet = &buf[..size];
-            if size == ARP_PACKET_LENGTH {
-                let arp_res = build_arp_response(&received_packet);
-                assert!(tap.write(&arp_res[..]).is_ok());
-                assert!(tap.flush().is_ok());
-                continue;
-            }
-            // Get inner string from the payload part of the packet after the packet header.
-            let inner_string = str::from_utf8(&received_packet[UDP_PAYLOAD_OFFSET..]).unwrap();
-            assert_eq!(inner_string, DATA_STRING);
-            found_packet_sz = Some(size);
-        }
-
-        assert!(found_packet_sz.is_some());
+        let mut buf = [0u8; 1024];
+        let result = tap.read(&mut buf);
+        assert!(result.is_ok());
+        let size = result.unwrap();
+        let received_packet = &buf[..size];
+        // Get inner string from the payload part of the packet after the packet header.
+        let inner_string = str::from_utf8(&received_packet[UDP_PAYLOAD_OFFSET..]).unwrap();
+        assert_eq!(inner_string, DATA_STRING);
     }
 
     #[test]
