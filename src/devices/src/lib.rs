@@ -16,6 +16,8 @@ extern crate net_gen;
 extern crate polly;
 extern crate rate_limiter;
 extern crate snapshot;
+#[macro_use]
+extern crate utils;
 extern crate versionize;
 extern crate versionize_derive;
 extern crate vm_memory;
