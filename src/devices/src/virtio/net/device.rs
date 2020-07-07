@@ -786,7 +786,7 @@ impl VirtioDevice for Net {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use std::net::Ipv4Addr;
     use std::os::unix::io::AsRawFd;
     use std::sync::atomic::{AtomicUsize, Ordering};
