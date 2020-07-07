@@ -183,6 +183,7 @@ pub mod tests {
     use std::io::Read;
     use std::mem;
     use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+    use std::os::unix::ffi::OsStrExt;
     use std::process::Command;
     use std::str;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -195,23 +196,28 @@ pub mod tests {
     const TAP_IP_PREFIX: &str = "192.168.241.";
     const IP_HEADER_LENGTH: usize = 20;
     const UDP_HEADER_LENGTH: usize = 8;
-    const UDP_PAYLOAD_OFFSET: usize = 52;
 
-    // We skip the first 10 bytes because the IFF_VNET_HDR flag is set when the interface
-    // is created, and the legacy header is 10 bytes long without a certain flag which
-    // is not set in Tap::new().
-    const VETH_OFFSET: usize = 10;
+    // The size of the virtio net header
+    const VNET_HDR_SIZE: usize = 10;
+    const PAYLOAD_SIZE: usize = 512;
+    const PACKET_SIZE: usize = 1024;
     static NEXT_IP: AtomicUsize = AtomicUsize::new(1);
 
-    fn create_socket() -> UdpSocket {
+    fn create_socket() -> File {
         // This is safe since we check the return value.
-        let sock = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
-        if sock < 0 {
+        let socket = unsafe {
+            libc::socket(
+                libc::AF_PACKET,
+                libc::SOCK_RAW,
+                libc::ETH_P_ALL.to_be() as i32,
+            )
+        };
+        if socket < 0 {
             panic!("Unable to create tap socket");
         }
 
-        // This is safe; nothing else will use or hold onto the raw sock fd.
-        unsafe { UdpSocket::from_raw_fd(sock) }
+        // This is safe; nothing else will use or hold onto the raw socket fd.
+        unsafe { File::from_raw_fd(socket) }
     }
 
     // Create a sockaddr_in from an IPv4 address, and expose it as
@@ -256,6 +262,15 @@ pub mod tests {
             str::from_utf8(&self.if_name[..null_pos])
                 .expect("Cannot convert from UTF-8")
                 .to_string()
+        }
+
+        fn if_index(&self) -> Result<i32> {
+            let sock = create_socket();
+            let ifreq = IfReqBuilder::new()
+                .if_name(&self.if_name)
+                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCGIFINDEX))?;
+
+            Ok(unsafe { *ifreq.ifr_ifru.ifru_ivalue.as_ref() })
         }
 
         /// Enable the tap interface.
@@ -319,6 +334,59 @@ pub mod tests {
                 .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFNETMASK))?;
 
             Ok(())
+        }
+    }
+
+    struct TapTrafficSimulator {
+        socket: File,
+        send_addr: libc::sockaddr_ll,
+    }
+
+    impl TapTrafficSimulator {
+        pub fn new(tap_index: i32) -> Self {
+            // Create sockaddr_ll struct.
+            let send_addr_ptr = &unsafe { mem::zeroed() } as *const libc::sockaddr_storage;
+            unsafe {
+                let sock_addr: *mut libc::sockaddr_ll = send_addr_ptr as *mut libc::sockaddr_ll;
+                (*sock_addr).sll_family = libc::AF_PACKET as libc::sa_family_t;
+                (*sock_addr).sll_protocol = (libc::ETH_P_ALL as u16).to_be();
+                (*sock_addr).sll_halen = libc::ETH_ALEN as u8;
+                (*sock_addr).sll_ifindex = tap_index;
+            }
+
+            // Bind socket to tap interface.
+            let socket = create_socket();
+            let ret = unsafe {
+                libc::bind(
+                    socket.as_raw_fd(),
+                    send_addr_ptr as *const _,
+                    mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
+                )
+            };
+            if ret == -1 {
+                panic!("Can't create TapChannel");
+            }
+
+            Self {
+                socket,
+                send_addr: unsafe { *(send_addr_ptr as *const _) },
+            }
+        }
+
+        pub fn push_tx_packet(&self, buf: &[u8]) {
+            let res = unsafe {
+                libc::sendto(
+                    self.socket.as_raw_fd(),
+                    buf.as_ptr() as *const _,
+                    buf.len(),
+                    0,
+                    (&self.send_addr as *const libc::sockaddr_ll) as *const _,
+                    mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
+                )
+            };
+            if res == -1 {
+                panic!("Can't inject tx_packet");
+            }
         }
     }
 
@@ -441,33 +509,19 @@ pub mod tests {
 
     #[test]
     fn test_read() {
-        // `fetch_add` adds to the current value, returning the previous value.
-        // reserve 2 fake IPs, one for the tap and the other for the virtual host
-        let next_ip = NEXT_IP.fetch_add(2, Ordering::SeqCst);
-        let tap_ip: Ipv4Addr = format!("{}{}", TAP_IP_PREFIX, next_ip).parse().unwrap();
-        let mut tap = make_tap(tap_ip);
+        let mut tap = Tap::new().unwrap();
+        tap.enable().unwrap();
+        let tap_traffic_simulator = TapTrafficSimulator::new(tap.if_index().unwrap());
 
-        // Now we want to set the target address to something that's near the IP address
-        // of the TAP (within its subnet) so the OS will think that the TAP is the next hop
-        // and forward the Udp packet through the TAP, where we can read it.
-        let dst_ip = format!("{}{}", TAP_IP_PREFIX, next_ip + 1).parse().unwrap();
-        let dst_port = 44445;
-        let dst_addr = SocketAddrV4::new(dst_ip, dst_port);
+        let packet = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
+        tap_traffic_simulator.push_tx_packet(packet.as_bytes());
 
-        let src_port = 44444;
-        let src_addr = SocketAddrV4::new(tap_ip, src_port);
-        let socket = UdpSocket::bind(src_addr).expect("Failed to bind UDP socket");
-        socket.set_read_timeout(Some(Duration::new(5, 0))).unwrap();
-        socket.send_to(DATA_STRING.as_bytes(), dst_addr).unwrap();
-
-        let mut buf = [0u8; 1024];
-        let result = tap.read(&mut buf);
-        assert!(result.is_ok());
-        let size = result.unwrap();
-        let received_packet = &buf[..size];
-        // Get inner string from the payload part of the packet after the packet header.
-        let inner_string = str::from_utf8(&received_packet[UDP_PAYLOAD_OFFSET..]).unwrap();
-        assert_eq!(inner_string, DATA_STRING);
+        let mut buf = [0u8; PACKET_SIZE];
+        assert!(tap.read(&mut buf).is_ok());
+        assert_eq!(
+            &buf[VNET_HDR_SIZE..packet.len() + VNET_HDR_SIZE],
+            packet.as_bytes()
+        );
     }
 
     #[test]
