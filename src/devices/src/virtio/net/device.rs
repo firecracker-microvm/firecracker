@@ -84,7 +84,6 @@ pub struct Net {
     pub(crate) id: String,
 
     pub(crate) tap: Tap,
-    pub(crate) tap_if_name: String,
 
     pub(crate) avail_features: u64,
     pub(crate) acked_features: u64,
@@ -172,7 +171,6 @@ impl Net {
         Ok(Net {
             id,
             tap,
-            tap_if_name,
             avail_features,
             acked_features: 0u64,
             queues,
