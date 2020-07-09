@@ -856,7 +856,7 @@ pub mod tests {
                 true,
             )
             .unwrap();
-            net.tap.enable().unwrap();
+            net.tap.enable();
             net.test_mutators = test_mutators;
 
             net

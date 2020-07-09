@@ -180,7 +180,6 @@ impl AsRawFd for Tap {
 #[cfg(test)]
 pub mod tests {
 
-    use std::io::Read;
     use std::mem;
     use std::os::unix::ffi::OsStrExt;
     use std::process::Command;
@@ -214,16 +213,6 @@ pub mod tests {
     }
 
     impl Tap {
-        // We do not run unit tests in parallel so we should have no problem
-        // assigning the same IP.
-
-        /// Create a new tap interface.
-        fn new() -> Result<Tap> {
-            // The name of the tap should be {module_name}{index} so that
-            // we make sure it stays different when tests are run concurrently.
-            Self::open_named("")
-        }
-
         fn tap_name_to_string(&self) -> String {
             let null_pos = self.if_name.iter().position(|x| *x == 0).unwrap();
             str::from_utf8(&self.if_name[..null_pos])
@@ -231,17 +220,18 @@ pub mod tests {
                 .to_string()
         }
 
-        fn if_index(&self) -> Result<i32> {
+        fn if_index(&self) -> i32 {
             let sock = create_socket();
             let ifreq = IfReqBuilder::new()
                 .if_name(&self.if_name)
-                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCGIFINDEX))?;
+                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCGIFINDEX))
+                .unwrap();
 
-            Ok(unsafe { *ifreq.ifr_ifru.ifru_ivalue.as_ref() })
+            unsafe { *ifreq.ifr_ifru.ifru_ivalue.as_ref() }
         }
 
         /// Enable the tap interface.
-        pub fn enable(&self) -> Result<()> {
+        pub fn enable(&self) {
             // Disable IPv6 router advertisment requests
             Command::new("sh")
                 .arg("-c")
@@ -260,9 +250,8 @@ pub mod tests {
                         | net_gen::net_device_flags_IFF_RUNNING
                         | net_gen::net_device_flags_IFF_NOARP) as i16,
                 )
-                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS))?;
-
-            Ok(())
+                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS))
+                .unwrap();
         }
     }
 
@@ -371,7 +360,7 @@ pub mod tests {
     #[test]
     fn test_set_options() {
         // This line will fail to provide an initialized FD if the test is not run as root.
-        let tap = Tap::new().unwrap();
+        let tap = Tap::open_named("").unwrap();
         tap.set_vnet_hdr_size(16).unwrap();
         tap.set_offload(0).unwrap();
 
@@ -385,15 +374,15 @@ pub mod tests {
 
     #[test]
     fn test_raw_fd() {
-        let tap = Tap::new().unwrap();
+        let tap = Tap::open_named("").unwrap();
         assert_eq!(tap.as_raw_fd(), tap.tap_file.as_raw_fd());
     }
 
     #[test]
     fn test_read() {
-        let mut tap = Tap::new().unwrap();
-        tap.enable().unwrap();
-        let tap_traffic_simulator = TapTrafficSimulator::new(tap.if_index().unwrap());
+        let mut tap = Tap::open_named("").unwrap();
+        tap.enable();
+        let tap_traffic_simulator = TapTrafficSimulator::new(tap.if_index());
 
         let packet = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
         tap_traffic_simulator.push_tx_packet(packet.as_bytes());
@@ -408,9 +397,9 @@ pub mod tests {
 
     #[test]
     fn test_write() {
-        let mut tap = Tap::new().unwrap();
-        tap.enable().unwrap();
-        let tap_traffic_simulator = TapTrafficSimulator::new(tap.if_index().unwrap());
+        let mut tap = Tap::open_named("").unwrap();
+        tap.enable();
+        let tap_traffic_simulator = TapTrafficSimulator::new(tap.if_index());
 
         let mut packet = [0u8; PACKET_SIZE];
         let payload = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
