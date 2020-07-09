@@ -182,26 +182,19 @@ pub mod tests {
 
     use std::io::Read;
     use std::mem;
-    use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
     use std::os::unix::ffi::OsStrExt;
     use std::process::Command;
     use std::str;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
 
     use super::*;
 
-    const DATA_STRING: &str = "test for tap";
-    const SUBNET_MASK: &str = "255.255.255.0";
-    const TAP_IP_PREFIX: &str = "192.168.241.";
-    const IP_HEADER_LENGTH: usize = 20;
-    const UDP_HEADER_LENGTH: usize = 8;
-
     // The size of the virtio net header
     const VNET_HDR_SIZE: usize = 10;
+    // The size of the ethernet frame header
+    const ETH_HDR_SIZE: usize = 14;
+
     const PAYLOAD_SIZE: usize = 512;
     const PACKET_SIZE: usize = 1024;
-    static NEXT_IP: AtomicUsize = AtomicUsize::new(1);
 
     fn create_socket() -> File {
         // This is safe since we check the return value.
@@ -220,31 +213,6 @@ pub mod tests {
         unsafe { File::from_raw_fd(socket) }
     }
 
-    // Create a sockaddr_in from an IPv4 address, and expose it as
-    // an opaque sockaddr suitable for usage by socket ioctls.
-    fn create_sockaddr(ip_addr: Ipv4Addr) -> net_gen::sockaddr {
-        // IPv4 addresses big-endian (network order), but Ipv4Addr will give us
-        // a view of those bytes directly so we can avoid any endian trickiness.
-        let addr_in = net_gen::sockaddr_in {
-            sin_family: net_gen::AF_INET as u16,
-            sin_port: 0,
-            sin_addr: unsafe { mem::transmute(ip_addr.octets()) },
-            __pad: [0; 8usize],
-        };
-
-        unsafe { mem::transmute(addr_in) }
-    }
-
-    impl IfReqBuilder {
-        fn addr(mut self, addr: net_gen::sockaddr) -> Self {
-            // Since we don't call as_mut on the same union field more than once, this block is safe.
-            let ifru_addr = unsafe { self.0.ifr_ifru.ifru_addr.as_mut() };
-            *ifru_addr = addr;
-
-            self
-        }
-    }
-
     impl Tap {
         // We do not run unit tests in parallel so we should have no problem
         // assigning the same IP.
@@ -253,8 +221,7 @@ pub mod tests {
         fn new() -> Result<Tap> {
             // The name of the tap should be {module_name}{index} so that
             // we make sure it stays different when tests are run concurrently.
-            let next_ip = NEXT_IP.fetch_add(1, Ordering::SeqCst);
-            Self::open_named(&format!("tap{}", next_ip))
+            Self::open_named("")
         }
 
         fn tap_name_to_string(&self) -> String {
@@ -294,44 +261,6 @@ pub mod tests {
                         | net_gen::net_device_flags_IFF_NOARP) as i16,
                 )
                 .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS))?;
-
-            Ok(())
-        }
-
-        /// Set the TAP's MAC to the given address
-        fn set_mac(&self, mac_addr: &str) {
-            Command::new("ip")
-                .arg("link")
-                .arg("set")
-                .arg(self.tap_name_to_string())
-                .arg("address")
-                .arg(mac_addr)
-                .status()
-                .expect("Failed to execute ip link");
-        }
-
-        // Set the host-side IP address for the tap interface.
-        fn set_ip_addr(&self, ip_addr: Ipv4Addr) -> Result<()> {
-            let sock = create_socket();
-            let addr = create_sockaddr(ip_addr);
-
-            IfReqBuilder::new()
-                .if_name(&self.if_name)
-                .addr(addr)
-                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFADDR))?;
-
-            Ok(())
-        }
-
-        // Set the netmask for the subnet that the tap interface will exist on.
-        fn set_netmask(&self, netmask: Ipv4Addr) -> Result<()> {
-            let sock = create_socket();
-            let addr = create_sockaddr(netmask);
-
-            IfReqBuilder::new()
-                .if_name(&self.if_name)
-                .addr(addr)
-                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFNETMASK))?;
 
             Ok(())
         }
@@ -386,6 +315,22 @@ pub mod tests {
             };
             if res == -1 {
                 panic!("Can't inject tx_packet");
+            }
+        }
+
+        pub fn pop_rx_packet(&self, buf: &mut [u8]) {
+            let res = unsafe {
+                libc::recvfrom(
+                    self.socket.as_raw_fd(),
+                    buf.as_ptr() as *mut _,
+                    buf.len(),
+                    0,
+                    (&mut mem::zeroed() as *mut libc::sockaddr_storage) as *mut _,
+                    &mut (mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t),
+                )
+            };
+            if res == -1 {
+                panic!("Can't pop rx_packet");
             }
         }
     }
@@ -444,69 +389,6 @@ pub mod tests {
         assert_eq!(tap.as_raw_fd(), tap.tap_file.as_raw_fd());
     }
 
-    fn make_tap(tap_ip: Ipv4Addr) -> Tap {
-        let tap = Tap::new().unwrap();
-        tap.set_ip_addr(tap_ip).unwrap();
-        tap.set_netmask(SUBNET_MASK.parse().unwrap()).unwrap();
-        tap.enable().unwrap();
-        tap
-    }
-
-    fn concat_slices<T: Clone>(a: &[T], b: &[T]) -> Vec<T> {
-        let mut result = Vec::with_capacity(a.len() + b.len());
-        result.extend_from_slice(a);
-        result.extend_from_slice(b);
-        result
-    }
-
-    // Builds an IPv4 packet, with an UDP datagram as a payload.
-    fn build_udp_packet(payload: &[u8]) -> Vec<u8> {
-        let payload_len: u8 = payload.len() as u8;
-
-        // A 10 bytes long header because IFF_VNET_HDR flag is set when the tap is created.
-        let v_header = [0u8; 10];
-
-        // The ethernet header consisting of:
-        // 1. Destination MAC address (6 bytes).
-        // 2. Source MAC address (6 bytes).
-        // 3. EtherType (x0800 for IPv4).
-        let ethernet_header: [u8; 14] =
-            [18, 52, 86, 120, 154, 189, 18, 52, 86, 120, 154, 188, 8, 0];
-
-        let ipv4_version = [69, 0];
-
-        // The IP total length value.
-        let total_length: [u8; 2] = [
-            0,
-            IP_HEADER_LENGTH as u8 + UDP_HEADER_LENGTH as u8 + payload_len,
-        ];
-
-        // Static header values:
-        // Identification, Flags, Fragment Offset, Time To Live, Protocol number (17 for UDP),
-        // Header Checksum.
-        let ipv4_header_values = [0, 0, 0, 0, 200, 17, 143, 89];
-
-        let src_ip_address: [u8; 4] = [192, 168, 241, 13];
-        let dest_ip_address: [u8; 4] = [192, 168, 241, 12];
-
-        // UDP Packet header.
-        let src_port: [u8; 2] = [173, 156];
-        let dest_port: [u8; 2] = [173, 160];
-        let udp_length_and_checksum: [u8; 4] = [0, 20, 71, 134];
-
-        let mut res = concat_slices(&v_header, &ethernet_header);
-        res = concat_slices(&res, &ipv4_version);
-        res = concat_slices(&res, &total_length);
-        res = concat_slices(&res, &ipv4_header_values);
-        res = concat_slices(&res, &src_ip_address);
-        res = concat_slices(&res, &dest_ip_address);
-        res = concat_slices(&res, &src_port);
-        res = concat_slices(&res, &dest_port);
-        res = concat_slices(&res, &udp_length_and_checksum);
-        res = concat_slices(&res, payload);
-        res
-    }
-
     #[test]
     fn test_read() {
         let mut tap = Tap::new().unwrap();
@@ -526,33 +408,20 @@ pub mod tests {
 
     #[test]
     fn test_write() {
-        // `fetch_add` adds to the current value, returning the previous value.
-        // reserve 2 IPs one for the tap and the other for the UdpSocket
-        let next_ip = NEXT_IP.fetch_add(2, Ordering::SeqCst);
+        let mut tap = Tap::new().unwrap();
+        tap.enable().unwrap();
+        let tap_traffic_simulator = TapTrafficSimulator::new(tap.if_index().unwrap());
 
-        let tap_ip: Ipv4Addr = format!("{}{}", TAP_IP_PREFIX, next_ip).parse().unwrap();
-        let mut tap = make_tap(tap_ip);
-        let tap_mac = "12:34:56:78:9a:bd";
-        tap.set_mac(tap_mac);
+        let mut packet = [0u8; PACKET_SIZE];
+        let payload = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
+        packet[ETH_HDR_SIZE..payload.len() + ETH_HDR_SIZE].copy_from_slice(payload.as_bytes());
+        assert!(tap.write(&packet).is_ok());
 
-        let payload = DATA_STRING.as_bytes();
-
-        let dst_port = 44448;
-        let dst_addr = SocketAddrV4::new(tap_ip, dst_port);
-
-        let socket = UdpSocket::bind(dst_addr).expect("Failed to bind UDP socket");
-        socket.set_read_timeout(Some(Duration::new(5, 0))).unwrap();
-
-        let buf = build_udp_packet(&payload);
-        assert!(tap.write(&buf[..]).is_ok());
-        assert!(tap.flush().is_ok());
-
-        let mut buf = [0u8; 256];
-        let recv_result = socket.recv_from(&mut buf);
-        assert!(recv_result.is_ok());
-
-        let size = recv_result.unwrap().0;
-        let data = str::from_utf8(&buf[..size]).unwrap();
-        assert_eq!(data, DATA_STRING);
+        let mut read_buf = [0u8; PACKET_SIZE];
+        tap_traffic_simulator.pop_rx_packet(&mut read_buf);
+        assert_eq!(
+            &read_buf[..PACKET_SIZE - VNET_HDR_SIZE],
+            &packet[VNET_HDR_SIZE..]
+        );
     }
 }
