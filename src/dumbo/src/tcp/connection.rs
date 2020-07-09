@@ -12,7 +12,7 @@ use pdu::bytes::NetworkBytes;
 use pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use pdu::Incomplete;
 use tcp::{seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT};
-use utils::rand::xor_rng_u32;
+use utils::rand::xor_psuedo_rng_u32;
 use ByteBuffer;
 
 bitflags! {
@@ -235,7 +235,7 @@ impl Connection {
         let ack_to_send = Wrapping(segment.sequence_number()) + Wrapping(1);
 
         // Let's pick the initial sequence number.
-        let isn = Wrapping(xor_rng_u32());
+        let isn = Wrapping(xor_psuedo_rng_u32());
         let first_not_sent = isn + Wrapping(1);
         let remote_rwnd_edge = first_not_sent + Wrapping(u32::from(segment.window_size()));
 
