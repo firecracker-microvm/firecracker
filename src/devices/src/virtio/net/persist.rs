@@ -54,7 +54,7 @@ impl Persist<'_> for Net {
     fn save(&self) -> Self::State {
         NetState {
             id: self.id().clone(),
-            tap_if_name: self.tap_if_name.clone(),
+            tap_if_name: self.tap.if_name_as_str().to_string(),
             rx_rate_limiter_state: self.rx_rate_limiter.save(),
             tx_rate_limiter_state: self.tx_rate_limiter.save(),
             mmds_ns: self.mmds_ns.as_ref().map(|mmds| mmds.save()),
@@ -147,7 +147,7 @@ mod tests {
 
             // Save some fields that we want to check later.
             id = net.id.clone();
-            tap_if_name = net.tap_if_name.clone();
+            tap_if_name = net.tap.if_name_as_str().to_string();
             allow_mmds_requests = net.mmds_ns.is_some();
             virtio_state = VirtioDeviceState::from_device(&net);
         }
@@ -172,7 +172,7 @@ mod tests {
 
             // Test that net specific fields are the same.
             assert_eq!(&restored_net.id, &id);
-            assert_eq!(&restored_net.tap_if_name, &tap_if_name);
+            assert_eq!(&restored_net.tap.if_name_as_str(), &tap_if_name);
             assert_eq!(restored_net.mmds_ns.is_some(), allow_mmds_requests);
             assert_eq!(restored_net.rx_rate_limiter, RateLimiter::default());
             assert_eq!(restored_net.tx_rate_limiter, RateLimiter::default());

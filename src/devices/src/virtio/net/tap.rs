@@ -132,6 +132,15 @@ impl Tap {
         })
     }
 
+    pub fn if_name_as_str(&self) -> &str {
+        let len = self
+            .if_name
+            .iter()
+            .position(|x| *x == 0)
+            .unwrap_or(IFACE_NAME_MAX_LEN);
+        std::str::from_utf8(&self.if_name[..len]).unwrap_or("")
+    }
+
     /// Set the offload flags for the tap interface.
     pub fn set_offload(&self, flags: c_uint) -> Result<()> {
         // ioctl is safe. Called with a valid tap fd, and we check the return.
@@ -183,7 +192,6 @@ pub mod tests {
     use std::mem;
     use std::os::unix::ffi::OsStrExt;
     use std::process::Command;
-    use std::str;
 
     use super::*;
 
@@ -213,13 +221,6 @@ pub mod tests {
     }
 
     impl Tap {
-        fn tap_name_to_string(&self) -> String {
-            let null_pos = self.if_name.iter().position(|x| *x == 0).unwrap();
-            str::from_utf8(&self.if_name[..null_pos])
-                .expect("Cannot convert from UTF-8")
-                .to_string()
-        }
-
         fn if_index(&self) -> i32 {
             let sock = create_socket();
             let ifreq = IfReqBuilder::new()
@@ -237,7 +238,7 @@ pub mod tests {
                 .arg("-c")
                 .arg(format!(
                     "echo 0 > /proc/sys/net/ipv6/conf/{}/accept_ra",
-                    self.tap_name_to_string()
+                    self.if_name_as_str()
                 ))
                 .output()
                 .unwrap();
@@ -334,6 +335,11 @@ pub mod tests {
                 .len()
         );
 
+        // Empty name - The tap should be named "tap0" by default
+        let tap = Tap::open_named("").unwrap();
+        assert_eq!(b"tap0\0\0\0\0\0\0\0\0\0\0\0\0", &tap.if_name);
+        assert_eq!("tap0", tap.if_name_as_str());
+
         // 16 characters - too long.
         let name = "a123456789abcdef";
         match Tap::open_named(name) {
@@ -344,10 +350,8 @@ pub mod tests {
         // 15 characters - OK.
         let name = "a123456789abcde";
         let tap = Tap::open_named(name).unwrap();
-        assert_eq!(
-            name,
-            std::str::from_utf8(&tap.if_name[0..(IFACE_NAME_MAX_LEN - 1)]).unwrap()
-        );
+        assert_eq!(&format!("{}\0", name).as_bytes(), &tap.if_name);
+        assert_eq!(name, tap.if_name_as_str());
     }
 
     #[test]
