@@ -80,6 +80,7 @@
   `403 BadRequest`.
 - Segregated MMDS documentation in MMDS design documentation and MMDS user
   guide documentation.
+- The logger `level` field is now case-insensitive.
 
 ## [0.21.0]
 

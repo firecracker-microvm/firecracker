@@ -617,7 +617,7 @@ definitions:
     properties:
       level:
         type: string
-        description: Set the level.
+        description: Set the level. The possible values are case-insensitive.
         enum: [Error, Warning, Info, Debug]
         default: Warning
       log_path:
