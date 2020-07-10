@@ -421,8 +421,10 @@ pub(crate) mod tests {
     }
 
     impl<'a> VirtqDesc<'a> {
+        pub const ALIGNMENT: u64 = 16;
+
         fn new(start: GuestAddress, mem: &'a GuestMemoryMmap) -> Self {
-            assert_eq!(start.0 & 0xf, 0);
+            assert_eq!(start.0 & (Self::ALIGNMENT - 1), 0);
 
             let addr = SomeplaceInMemory::new(start, mem);
             let len = addr.next_place();
