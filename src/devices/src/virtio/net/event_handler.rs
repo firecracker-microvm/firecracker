@@ -115,72 +115,41 @@ impl Subscriber for Net {
 
 #[cfg(test)]
 pub mod tests {
-    use std::sync::{Arc, Mutex};
-
     use super::*;
+    use crate::virtio::net::device::tests::{NetEvent, NetQueue, TestHelper};
 
     #[test]
     fn test_event_handler() {
-        let mut event_manager = EventManager::new().unwrap();
-        let mut net = Net::default_net();
-        let mem = Net::default_guest_memory();
-        let (rxq, txq) = Net::virtqueues(&mem);
-        net.assign_queues(rxq.create_queue(), txq.create_queue());
-
-        let net = Arc::new(Mutex::new(net));
-        event_manager.add_subscriber(net.clone()).unwrap();
+        let mut th = TestHelper::default();
 
         // Push a queue event, use the TX_QUEUE_EVENT in this test.
-        {
-            let daddr = 0x2000;
-            assert!(daddr > txq.end().0);
-
-            txq.avail.idx.set(1);
-            txq.avail.ring[0].set(0);
-            txq.dtable[0].set(daddr, 0x1000, 0, 0);
-
-            net.lock().unwrap().queue_evts[TX_INDEX].write(1).unwrap();
-        }
+        th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
 
         // EventManager should report no events since net has only registered
         // its activation event so far (even though there is also a queue event pending).
-        let ev_count = event_manager.run_with_timeout(50).unwrap();
+        let ev_count = th.event_manager.run_with_timeout(50).unwrap();
         assert_eq!(ev_count, 0);
 
         // Manually force a queue event and check it's ignored pre-activation.
-        {
-            let mut n = net.lock().unwrap();
-            let raw_txq_evt = n.queue_evts[TX_INDEX].as_raw_fd() as u64;
-            // Artificially push event.
-            n.process(
-                &EpollEvent::new(EventSet::IN, raw_txq_evt),
-                &mut event_manager,
-            );
-            // Validate there was no queue operation.
-            assert_eq!(txq.used.idx.get(), 0);
-        }
+        th.simulate_event(NetEvent::TxQueue);
+        // Validate there was no queue operation.
+        assert_eq!(th.txq.used.idx.get(), 0);
 
         // Now activate the device.
-        net.lock().unwrap().activate(mem.clone()).unwrap();
-        // Process the activate event.
-        let ev_count = event_manager.run_with_timeout(50).unwrap();
-        assert_eq!(ev_count, 1);
+        th.activate_net();
 
         // Handle the previously pushed queue event through EventManager.
-        event_manager
+        th.event_manager
             .run_with_timeout(100)
             .expect("Metrics event timeout or error.");
         // Make sure the data queue advanced.
-        assert_eq!(txq.used.idx.get(), 1);
+        assert_eq!(th.txq.used.idx.get(), 1);
 
         // Inject invalid event.
-        let invalid_event = EpollEvent::new(EventSet::IN, 1000);
         check_metric_after_block!(
             &METRICS.net.event_fails,
             1,
-            net.lock()
-                .unwrap()
-                .process(&invalid_event, &mut event_manager)
+            th.simulate_event(NetEvent::Custom(1000))
         );
     }
 }
