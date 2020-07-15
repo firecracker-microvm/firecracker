@@ -115,7 +115,7 @@ pub struct Net {
     pub(crate) mmds_ns: Option<MmdsNetworkStack>,
 
     #[cfg(test)]
-    test_mutators: tests::TestMutators,
+    mocks: tests::Mocks,
 }
 
 impl Net {
@@ -192,7 +192,7 @@ impl Net {
             guest_mac: guest_mac.copied(),
 
             #[cfg(test)]
-            test_mutators: tests::TestMutators::default(),
+            mocks: tests::Mocks::default(),
         })
     }
 
@@ -787,6 +787,7 @@ impl VirtioDevice for Net {
 #[macro_use]
 pub mod tests {
     use std::net::Ipv4Addr;
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::AsRawFd;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
@@ -825,27 +826,40 @@ pub mod tests {
         }};
     }
 
-    // Used to simulate tap read fails in tests.
-    pub struct TestMutators {
-        pub tap_read_fail: bool,
+    pub enum ReadTapMock {
+        Failure,
+        MockFrame(Vec<u8>),
     }
 
-    impl Default for TestMutators {
-        fn default() -> TestMutators {
-            TestMutators {
-                tap_read_fail: false,
+    // Used to simulate tap read fails in tests.
+    pub struct Mocks {
+        read_tap: ReadTapMock,
+    }
+
+    impl Mocks {
+        fn set_read_tap(&mut self, read_tap: ReadTapMock) {
+            self.read_tap = read_tap;
+        }
+    }
+
+    impl Default for Mocks {
+        fn default() -> Mocks {
+            Mocks {
+                read_tap: ReadTapMock::MockFrame(
+                    utils::rand::rand_alphanumerics(1234).as_bytes().to_vec(),
+                ),
             }
         }
     }
 
     impl Net {
-        pub fn default_net(test_mutators: TestMutators) -> Net {
+        pub fn default_net() -> Net {
             let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
             let tap_dev_name = format!("net-device{}", next_tap);
 
             let guest_mac = Net::default_guest_mac();
 
-            let mut net = Net::new_with_tap(
+            let net = Net::new_with_tap(
                 format!("net-device{}", next_tap),
                 tap_dev_name,
                 Some(&guest_mac),
@@ -855,7 +869,6 @@ pub mod tests {
             )
             .unwrap();
             net.tap.enable();
-            net.test_mutators = test_mutators;
 
             net
         }
@@ -898,23 +911,16 @@ pub mod tests {
     }
 
     impl Net {
-        // This needs to be public to be accessible from the non-cfg-test `impl Net`.
         pub fn read_tap(&mut self) -> io::Result<usize> {
-            use std::cmp::min;
-
-            let count = min(1234, self.rx_frame_buf.len());
-
-            for i in 0..count {
-                self.rx_frame_buf[i] = 5;
-            }
-
-            if self.test_mutators.tap_read_fail {
-                Err(io::Error::new(
+            match &self.mocks.read_tap {
+                ReadTapMock::MockFrame(frame) => {
+                    self.rx_frame_buf[..frame.len()].copy_from_slice(&frame);
+                    Ok(frame.len())
+                }
+                ReadTapMock::Failure => Err(io::Error::new(
                     io::ErrorKind::Other,
                     "Read tap synthetically failed.",
-                ))
-            } else {
-                Ok(count)
+                )),
             }
         }
     }
@@ -952,14 +958,14 @@ pub mod tests {
 
     #[test]
     fn test_virtio_device_type() {
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         net.set_mac(MacAddr::parse_str("11:22:33:44:55:66").unwrap());
         assert_eq!(net.device_type(), TYPE_NET);
     }
 
     #[test]
     fn test_virtio_device_features() {
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         net.set_mac(MacAddr::parse_str("11:22:33:44:55:66").unwrap());
 
         // Test `features()` and `ack_features()`.
@@ -987,7 +993,7 @@ pub mod tests {
 
     #[test]
     fn test_virtio_device_read_config() {
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         net.set_mac(MacAddr::parse_str("11:22:33:44:55:66").unwrap());
 
         // Test `read_config()`. This also validates the MAC was properly configured.
@@ -1004,7 +1010,7 @@ pub mod tests {
 
     #[test]
     fn test_virtio_device_rewrite_config() {
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         net.set_mac(MacAddr::parse_str("11:22:33:44:55:66").unwrap());
 
         let new_config: [u8; 6] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
@@ -1038,7 +1044,7 @@ pub mod tests {
     #[allow(clippy::cognitive_complexity)]
     fn test_event_processing() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
@@ -1191,18 +1197,15 @@ pub mod tests {
         }
 
         {
-            let test_mutators = TestMutators {
-                tap_read_fail: true,
-            };
-
-            let mut net = Net::default_net(test_mutators);
+            let mut net = Net::default_net();
+            net.mocks.set_read_tap(ReadTapMock::Failure);
             check_metric_after_block!(&METRICS.net.tap_read_fails, 1, net.process_rx());
         }
     }
 
     #[test]
     fn test_mmds_detour_and_injection() {
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
 
         let sha = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
         let spa = Ipv4Addr::new(10, 1, 2, 3);
@@ -1263,7 +1266,7 @@ pub mod tests {
 
     #[test]
     fn test_mac_spoofing_detection() {
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
 
         let guest_mac = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
         let not_guest_mac = MacAddr::parse_str("33:33:33:33:33:33").unwrap();
@@ -1330,7 +1333,7 @@ pub mod tests {
     #[test]
     fn test_process_error_cases() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
@@ -1363,11 +1366,8 @@ pub mod tests {
     #[test]
     fn test_read_tap_fail_event_handler() {
         let mut event_manager = EventManager::new().unwrap();
-        let test_mutators = TestMutators {
-            tap_read_fail: true,
-        };
-
-        let mut net = Net::default_net(test_mutators);
+        let mut net = Net::default_net();
+        net.mocks.set_read_tap(ReadTapMock::Failure);
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
@@ -1393,7 +1393,7 @@ pub mod tests {
     #[test]
     fn test_rx_rate_limiter_handling() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
@@ -1413,7 +1413,7 @@ pub mod tests {
     #[test]
     fn test_tx_rate_limiter_handling() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
@@ -1434,7 +1434,7 @@ pub mod tests {
     #[test]
     fn test_bandwidth_rate_limiter() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
@@ -1556,7 +1556,7 @@ pub mod tests {
     #[test]
     fn test_ops_rate_limiter() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
@@ -1685,7 +1685,7 @@ pub mod tests {
 
     #[test]
     fn test_patch_rate_limiters() {
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
@@ -1731,7 +1731,7 @@ pub mod tests {
     fn test_tx_queue_interrupt() {
         // Regression test for https://github.com/firecracker-microvm/firecracker/issues/1436 .
         let mut event_manager = EventManager::new().unwrap();
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
@@ -1758,7 +1758,7 @@ pub mod tests {
 
     #[test]
     fn test_virtio_device() {
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());

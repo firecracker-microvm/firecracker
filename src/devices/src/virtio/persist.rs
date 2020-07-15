@@ -243,9 +243,8 @@ mod tests {
     }
 
     fn default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
-        use crate::virtio::net::device::tests::TestMutators;
         let mem = default_mem();
-        let net = Arc::new(Mutex::new(Net::default_net(TestMutators::default())));
+        let net = Arc::new(Mutex::new(Net::default_net()));
         let mmio_transport = MmioTransport::new(mem.clone(), net.clone());
 
         (mmio_transport, mem, net)

@@ -118,12 +118,11 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::virtio::net::device::tests::*;
 
     #[test]
     fn test_event_handler() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut net = Net::default_net(TestMutators::default());
+        let mut net = Net::default_net();
         let mem = Net::default_guest_memory();
         let (rxq, txq) = Net::virtqueues(&mem);
         net.assign_queues(rxq.create_queue(), txq.create_queue());
