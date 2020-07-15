@@ -831,6 +831,15 @@ pub mod tests {
         MockFrame(Vec<u8>),
     }
 
+    impl ReadTapMock {
+        fn mock_frame(&self) -> Vec<u8> {
+            if let ReadTapMock::MockFrame(frame) = self {
+                return frame.clone();
+            }
+            panic!("Can't get last mock frame");
+        }
+    }
+
     // Used to simulate tap read fails in tests.
     pub struct Mocks {
         read_tap: ReadTapMock,
@@ -1135,13 +1144,13 @@ pub mod tests {
             assert!(!net.rx_deferred_frame);
 
             // this should work just fine
+            let frame = &net.mocks.read_tap.mock_frame();
             let tap_event = EpollEvent::new(EventSet::IN, net.tap.as_raw_fd() as u64);
             net.process(&tap_event, &mut event_manager);
             assert!(net.rx_deferred_frame);
             net.check_used_queue_signal(3);
-            // The #cfg(test) enabled version of read_tap always returns 1234 bytes (or the len of
-            // the buffer, whichever is smaller).
-            assert_eq!(rxq.used.ring[0].get().len, 1234);
+            rxq.check_used_elem(0, 0, frame.len() as u32);
+            rxq.dtable[0].check_data(&frame);
 
             // Since deferred_frame is now true, activating the same event again will trigger
             // a different execution path.
@@ -1532,6 +1541,7 @@ pub mod tests {
 
             // following RX procedure should succeed because bandwidth should now be available
             {
+                let frame = &net.mocks.read_tap.mock_frame();
                 let rx_limiter_event =
                     EpollEvent::new(EventSet::IN, net.rx_rate_limiter.as_raw_fd() as u64);
                 // no longer throttled
@@ -1546,9 +1556,8 @@ pub mod tests {
                 net.check_used_queue_signal(1);
                 // make sure the data queue advanced
                 assert_eq!(rxq.used.idx.get(), 1);
-                // The #cfg(test) enabled version of read_tap always returns 1234 bytes
-                // (or the len of the buffer, whichever is smaller).
-                assert_eq!(rxq.used.ring[0].get().len, 1234);
+                rxq.check_used_elem(0, 0, frame.len() as u32);
+                rxq.dtable[0].check_data(&frame);
             }
         }
     }
@@ -1669,6 +1678,7 @@ pub mod tests {
 
             // following RX procedure should succeed because ops should now be available
             {
+                let frame = &net.mocks.read_tap.mock_frame();
                 let rx_rate_limiter_event =
                     EpollEvent::new(EventSet::IN, net.rx_rate_limiter.as_raw_fd() as u64);
                 net.process(&rx_rate_limiter_event, &mut event_manager);
@@ -1676,9 +1686,8 @@ pub mod tests {
                 net.check_used_queue_signal(1);
                 // make sure the data queue advanced
                 assert_eq!(rxq.used.idx.get(), 1);
-                // The #cfg(test) enabled version of read_tap always returns 1234 bytes
-                // (or the len of the buffer, whichever is smaller).
-                assert_eq!(rxq.used.ring[0].get().len, 1234);
+                rxq.check_used_elem(0, 0, frame.len() as u32);
+                rxq.dtable[0].check_data(&frame);
             }
         }
     }
