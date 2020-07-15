@@ -120,7 +120,6 @@ impl Persist<'_> for Net {
 mod tests {
     use super::*;
     use crate::virtio::device::VirtioDevice;
-    use crate::virtio::net::device::tests::*;
     use crate::virtio::TYPE_NET;
 
     use std::sync::atomic::Ordering;
@@ -138,7 +137,7 @@ mod tests {
 
         // Create and save the net device.
         {
-            let mut net = Net::default_net(TestMutators::default());
+            let mut net = Net::default_net();
             net.activate(guest_mem.clone()).unwrap();
 
             <Net as Persist>::save(&net)
