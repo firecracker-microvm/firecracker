@@ -1,0 +1,13 @@
+[Unit]
+Description=Firecracker starting microvm %I
+After=network.target
+
+[Service]
+PrivateTmp=true
+Type=simple
+PIDFile=/var/run/firecracker/%i.pid
+ExecStartPre=-/bin/rm /var/run/firecracker/%I.socket
+ExecStart=/usr/sbin/firecracker --api-sock /var/run/firecracker/%I.socket --config-file /etc/firecracker/%I.json
+
+[Install]
+WantedBy=multi-user.target
