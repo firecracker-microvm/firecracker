@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+extern crate vmm_sys_util;
+
 use std::ffi::{CStr, OsString};
 use std::fs::{self, canonicalize, File, Permissions};
 use std::os::unix::fs::PermissionsExt;
@@ -14,8 +16,8 @@ use libc;
 use cgroup::Cgroup;
 use chroot::chroot;
 use utils::arg_parser::Error::MissingValue;
-use utils::syscall::SyscallReturnCode;
 use utils::{arg_parser, validators};
+use vmm_sys_util::syscall::SyscallReturnCode;
 use {Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;

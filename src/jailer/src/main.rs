@@ -5,6 +5,7 @@ extern crate libc;
 extern crate regex;
 
 extern crate utils;
+extern crate vmm_sys_util;
 
 mod cgroup;
 mod chroot;
