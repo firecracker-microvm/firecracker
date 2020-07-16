@@ -9,6 +9,7 @@ from pathlib import Path
 from conftest import init_microvm
 from framework.artifacts import Artifact, DiskArtifact, Snapshot, SnapshotType
 import framework.utils as utils
+import host_tools.logging as log_tools
 
 
 class MicrovmBuilder:
@@ -59,11 +60,15 @@ class MicrovmBuilder:
                         boot_args='console=ttyS0 reboot=k panic=1')
         return vm
 
+    # This function currently returns the vm and a metrics_fifo which
+    # is needed by the performance integration tests.
+    # TODO: Move all metrics functionality to microvm (encapsulating the fifo)
+    # so we do not need to move it around polluting the code.
     def build_from_snapshot(self,
                             snapshot: Snapshot,
-                            host_ip,
-                            guest_ip,
-                            netmask_len,
+                            host_ip=None,
+                            guest_ip=None,
+                            netmask_len=None,
                             resume=False,
                             # Enable incremental snapshot capability.
                             enable_diff_snapshots=False):
@@ -71,7 +76,14 @@ class MicrovmBuilder:
         self.init_root_path()
         vm = init_microvm(self.root_path, self.bin_cloner_path)
 
-        vm.spawn(log_level='Debug')
+        vm.spawn(log_level='Info')
+
+        metrics_file_path = os.path.join(vm.path, 'metrics.log')
+        metrics_fifo = log_tools.Fifo(metrics_file_path)
+        response = vm.metrics.put(
+            metrics_path=vm.create_jailed_resource(metrics_fifo.path)
+        )
+        assert vm.api_session.is_status_no_content(response.status_code)
 
         # Hardlink all the snapshot files into the microvm jail.
         jailed_mem = vm.create_jailed_resource(snapshot.mem)
@@ -80,10 +92,11 @@ class MicrovmBuilder:
         _jailed_disk = vm.create_jailed_resource(snapshot.disks[0])
         vm.ssh_config['ssh_key_path'] = snapshot.ssh_key
 
-        vm.create_tap_and_ssh_config(host_ip=host_ip,
-                                     guest_ip=guest_ip,
-                                     netmask_len=netmask_len,
-                                     tapname="tap0")
+        if host_ip is not None:
+            vm.create_tap_and_ssh_config(host_ip=host_ip,
+                                         guest_ip=guest_ip,
+                                         netmask_len=netmask_len,
+                                         tapname="tap0")
 
         response = vm.snapshot_load.put(mem_file_path=jailed_mem,
                                         snapshot_path=jailed_vmstate,
@@ -97,7 +110,7 @@ class MicrovmBuilder:
             assert vm.api_session.is_status_no_content(response.status_code)
 
         # Return a resumed microvm.
-        return vm
+        return vm, metrics_fifo
 
 
 class SnapshotBuilder:  # pylint: disable=too-few-public-methods

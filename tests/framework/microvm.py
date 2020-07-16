@@ -257,6 +257,17 @@ class Microvm:
 
         return json.loads(lines[0])
 
+    def get_all_metrics(self, metrics_fifo):
+        """Return all metric data points written by FC.
+
+        Requires specifying the configured metrics file.
+        """
+        # Empty the metrics pipe.
+        response = self.actions.put(action_type='FlushMetrics')
+        assert self.api_session.is_status_no_content(response.status_code)
+
+        return metrics_fifo.sequential_reader(1000)
+
     def append_to_log_data(self, data):
         """Append a message to the log data."""
         self._log_data += data
@@ -572,8 +583,12 @@ class Microvm:
                 netmask_len
             )
         )
-        self.ssh_config['hostname'] = guest_ip
+        self.config_ssh(guest_ip)
         return tap
+
+    def config_ssh(self, guest_ip):
+        """Configure ssh."""
+        self.ssh_config['hostname'] = guest_ip
 
     def start(self):
         """Start the microvm.
