@@ -65,12 +65,12 @@ def _test_seq_snapshots(context):
 
     for i in range(seq_len):
         logger.info("Load snapshot #{}, mem {}".format(i, snapshot.mem))
-        microvm = vm_builder.build_from_snapshot(snapshot,
-                                                 host_ip,
-                                                 guest_ip,
-                                                 netmask_len,
-                                                 True,
-                                                 enable_diff_snapshots)
+        microvm, _ = vm_builder.build_from_snapshot(snapshot,
+                                                    host_ip,
+                                                    guest_ip,
+                                                    netmask_len,
+                                                    True,
+                                                    enable_diff_snapshots)
 
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
