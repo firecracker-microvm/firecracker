@@ -221,7 +221,7 @@ pub mod tests {
     }
 
     impl Tap {
-        fn if_index(&self) -> i32 {
+        pub fn if_index(&self) -> i32 {
             let sock = create_socket();
             let ifreq = IfReqBuilder::new()
                 .if_name(&self.if_name)
@@ -256,7 +256,7 @@ pub mod tests {
         }
     }
 
-    struct TapTrafficSimulator {
+    pub struct TapTrafficSimulator {
         socket: File,
         send_addr: libc::sockaddr_ll,
     }

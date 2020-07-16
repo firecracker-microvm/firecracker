@@ -19,9 +19,9 @@ use libc::EAGAIN;
 use logger::{Metric, METRICS};
 use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
-use std::io::Write;
 #[cfg(not(test))]
-use std::io::{self, Read};
+use std::io;
+use std::io::{Read, Write};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -798,6 +798,7 @@ pub mod tests {
         frame_bytes_from_buf, frame_bytes_from_buf_mut, init_vnet_hdr, vnet_hdr_len,
     };
 
+    use crate::virtio::net::tap::tests::TapTrafficSimulator;
     use crate::virtio::net::QUEUE_SIZES;
     use crate::virtio::queue::tests::{VirtQueue, VirtqDesc};
     use crate::virtio::{
@@ -816,7 +817,7 @@ pub mod tests {
         VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
         VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
     };
-    use vm_memory::Address;
+    use vm_memory::{Address, GuestMemory};
 
     static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
 
@@ -831,6 +832,7 @@ pub mod tests {
     pub enum ReadTapMock {
         Failure,
         MockFrame(Vec<u8>),
+        TapFrame,
     }
 
     impl ReadTapMock {
@@ -910,6 +912,18 @@ pub mod tests {
             self.interrupt_evt.write(1).unwrap();
             assert_eq!(self.interrupt_evt.read().unwrap(), count + 1);
         }
+
+        fn inject_tap_tx_frame(&self, len: usize) -> Vec<u8> {
+            assert!(len >= vnet_hdr_len());
+            let tap_traffic_simulator = TapTrafficSimulator::new(self.tap.if_index());
+            let mut frame = utils::rand::rand_alphanumerics(len - vnet_hdr_len())
+                .as_bytes()
+                .to_vec();
+            tap_traffic_simulator.push_tx_packet(&frame);
+            frame.splice(0..0, vec![b'\0'; vnet_hdr_len()]);
+
+            frame
+        }
     }
 
     impl Net {
@@ -923,6 +937,7 @@ pub mod tests {
                     io::ErrorKind::Other,
                     "Read tap synthetically failed.",
                 )),
+                ReadTapMock::TapFrame => self.tap.read(&mut self.rx_frame_buf),
             }
         }
     }
@@ -1047,6 +1062,50 @@ pub mod tests {
             }
             event_fd.write(1).unwrap();
         }
+
+        /// Generate a tap frame of `frame_len` and check that it is deferred
+        fn check_rx_deferred_frame(&mut self, frame_len: usize) -> Vec<u8> {
+            self.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+            let used_idx = self.rxq.used.idx.get();
+
+            // Inject frame to tap and run epoll.
+            let frame = self.net().inject_tap_tx_frame(frame_len);
+            check_metric_after_block!(
+                METRICS.net.rx_packets_count,
+                0,
+                self.event_manager.run_with_timeout(100).unwrap()
+            );
+            // Check that the frame has been deferred.
+            assert!(self.net().rx_deferred_frame);
+            // Check that the descriptor chain has been discarded.
+            assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
+            self.net().check_used_queue_signal(1);
+
+            frame
+        }
+
+        /// Check that after adding a valid Rx queue descriptor chain a previously deferred frame
+        /// is eventually received by the guest
+        fn check_rx_queue_resume(&mut self, expected_frame: &[u8]) {
+            let used_idx = self.rxq.used.idx.get();
+            // Add a valid Rx avail descriptor chain and run epoll.
+            self.add_desc_chain(
+                NetQueue::Rx,
+                0,
+                &[(0, expected_frame.len() as u32, VIRTQ_DESC_F_WRITE)],
+            );
+            check_metric_after_block!(
+                METRICS.net.rx_packets_count,
+                1,
+                self.event_manager.run_with_timeout(100).unwrap()
+            );
+            // Check that the expected frame was sent to the Rx queue eventually.
+            assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
+            self.net().check_used_queue_signal(1);
+            self.rxq
+                .check_used_elem(used_idx, 0, expected_frame.len() as u32);
+            self.rxq.dtable[0].check_data(&expected_frame);
+        }
     }
 
     #[test]
@@ -1162,6 +1221,159 @@ pub mod tests {
         new_config_read = [0u8; 6];
         net.read_config(0, &mut new_config_read);
         assert_eq!(new_config, new_config_read);
+    }
+
+    #[test]
+    fn test_rx_missing_queue_signal() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+        th.net().queue_evts[RX_INDEX].read().unwrap();
+        check_metric_after_block!(
+            METRICS.net.event_fails,
+            1,
+            th.simulate_event(NetEvent::RxQueue)
+        );
+
+        // Check that the used queue didn't advance.
+        assert_eq!(th.rxq.used.idx.get(), 0);
+    }
+
+    #[test]
+    fn test_rx_read_only_descriptor() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+
+        th.add_desc_chain(
+            NetQueue::Rx,
+            0,
+            &[
+                (0, 100, VIRTQ_DESC_F_WRITE),
+                (1, 100, 0),
+                (2, 1000, VIRTQ_DESC_F_WRITE),
+            ],
+        );
+        let frame = th.check_rx_deferred_frame(1000);
+        th.rxq.check_used_elem(0, 0, 100);
+
+        th.check_rx_queue_resume(&frame);
+    }
+
+    #[test]
+    fn test_rx_short_writable_descriptor() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 100, VIRTQ_DESC_F_WRITE)]);
+        let frame = th.check_rx_deferred_frame(1000);
+        th.rxq.check_used_elem(0, 0, 100);
+
+        th.check_rx_queue_resume(&frame);
+    }
+
+    #[test]
+    fn test_rx_partial_write() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+
+        // The descriptor chain is created so that the last descriptor doesn't fit in the
+        // guest memory.
+        let offset = th.mem.last_addr().raw_value() - th.data_addr() - 300;
+        th.add_desc_chain(
+            NetQueue::Rx,
+            offset,
+            &[
+                (0, 100, VIRTQ_DESC_F_WRITE),
+                (1, 50, VIRTQ_DESC_F_WRITE),
+                (2, 4096, VIRTQ_DESC_F_WRITE),
+            ],
+        );
+        let expected_len = 150 + th.mem.last_addr().raw_value() + 1 - th.rxq.dtable[2].addr.get();
+        let frame = th.check_rx_deferred_frame(1000);
+        th.rxq.check_used_elem(0, 0, expected_len as u32);
+
+        th.check_rx_queue_resume(&frame);
+    }
+
+    #[test]
+    fn test_rx_complex_desc_chain() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+
+        // Create a valid Rx avail descriptor chain with multiple descriptors.
+        th.add_desc_chain(
+            NetQueue::Rx,
+            0,
+            // Add gaps between the descriptor ids in order to ensure that we follow
+            // the `next` field.
+            &[
+                (3, 100, VIRTQ_DESC_F_WRITE),
+                (5, 50, VIRTQ_DESC_F_WRITE),
+                (11, 4096, VIRTQ_DESC_F_WRITE),
+            ],
+        );
+        // Inject frame to tap and run epoll.
+        let frame = th.net().inject_tap_tx_frame(1000);
+        check_metric_after_block!(
+            METRICS.net.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        // Check that the frame wasn't deferred.
+        assert!(!th.net().rx_deferred_frame);
+        // Check that the used queue has advanced.
+        assert_eq!(th.rxq.used.idx.get(), 1);
+        th.net().check_used_queue_signal(1);
+        // Check that the frame has been written successfully to the Rx descriptor chain.
+        th.rxq.check_used_elem(0, 3, frame.len() as u32);
+        th.rxq.dtable[3].check_data(&frame[..100]);
+        th.rxq.dtable[5].check_data(&frame[100..150]);
+        th.rxq.dtable[11].check_data(&frame[150..]);
+    }
+
+    #[test]
+    fn test_rx_multiple_frames() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+
+        // Create 2 valid Rx avail descriptor chains. Each one has enough space to fit the
+        // following 2 frames. But only 1 frame has to be written to each chain.
+        th.add_desc_chain(
+            NetQueue::Rx,
+            0,
+            &[(0, 500, VIRTQ_DESC_F_WRITE), (1, 500, VIRTQ_DESC_F_WRITE)],
+        );
+        th.add_desc_chain(
+            NetQueue::Rx,
+            1000,
+            &[(2, 500, VIRTQ_DESC_F_WRITE), (3, 500, VIRTQ_DESC_F_WRITE)],
+        );
+        // Inject 2 frames to tap and run epoll.
+        let frame_1 = th.net().inject_tap_tx_frame(200);
+        let frame_2 = th.net().inject_tap_tx_frame(300);
+        check_metric_after_block!(
+            METRICS.net.rx_packets_count,
+            2,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        // Check that the frames weren't deferred.
+        assert!(!th.net().rx_deferred_frame);
+        // Check that the used queue has advanced.
+        assert_eq!(th.rxq.used.idx.get(), 2);
+        th.net().check_used_queue_signal(1);
+        // Check that the 1st frame was written successfully to the 1st Rx descriptor chain.
+        th.rxq.check_used_elem(0, 0, frame_1.len() as u32);
+        th.rxq.dtable[0].check_data(&frame_1);
+        th.rxq.dtable[1].check_data(&[0; 500]);
+        // Check that the 2nd frame was written successfully to the 2nd Rx descriptor chain.
+        th.rxq.check_used_elem(1, 2, frame_2.len() as u32);
+        th.rxq.dtable[2].check_data(&frame_2);
+        th.rxq.dtable[3].check_data(&[0; 500]);
     }
 
     #[test]
