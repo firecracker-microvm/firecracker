@@ -808,6 +808,7 @@ pub mod tests {
     use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use logger::{Metric, METRICS};
+    use net_gen::ETH_HLEN;
     use polly::event_manager::{EventManager, Subscriber};
     use rate_limiter::{RateLimiter, TokenBucket, TokenType};
     use std::sync::{Mutex, MutexGuard};
@@ -1106,6 +1107,30 @@ pub mod tests {
                 .check_used_elem(used_idx, 0, expected_frame.len() as u32);
             self.rxq.dtable[0].check_data(&expected_frame);
         }
+
+        // Generates a frame of `frame_len` and writes it to the provided descriptor chain.
+        // Doesn't generate an error if the descriptor chain is longer than `frame_len`.
+        fn write_tx_frame(&self, desc_list: &[(u16, u32, u16)], frame_len: usize) -> Vec<u8> {
+            let mut frame = utils::rand::rand_alphanumerics(frame_len)
+                .as_bytes()
+                .to_vec();
+            let prefix_len = vnet_hdr_len() + ETH_HLEN as usize;
+            frame.splice(..prefix_len, vec![0; prefix_len]);
+
+            let mut frame_slice = frame.as_slice();
+            for &(index, len, _) in desc_list {
+                let chunk_size = cmp::min(frame_slice.len(), len as usize);
+                self.mem
+                    .write_slice(
+                        &frame_slice[..chunk_size],
+                        GuestAddress::new(self.txq.dtable[index as usize].addr.get()),
+                    )
+                    .unwrap();
+                frame_slice = &frame_slice[chunk_size..];
+            }
+
+            frame
+        }
     }
 
     #[test]
@@ -1374,6 +1399,168 @@ pub mod tests {
         th.rxq.check_used_elem(1, 2, frame_2.len() as u32);
         th.rxq.dtable[2].check_data(&frame_2);
         th.rxq.dtable[3].check_data(&[0; 500]);
+    }
+
+    #[test]
+    fn test_tx_missing_queue_signal() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+
+        th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
+        th.net().queue_evts[TX_INDEX].read().unwrap();
+        check_metric_after_block!(
+            METRICS.net.event_fails,
+            1,
+            th.simulate_event(NetEvent::TxQueue)
+        );
+
+        // Check that the used queue didn't advance.
+        assert_eq!(th.txq.used.idx.get(), 0);
+        // Check that the frame wasn't sent to the tap.
+        assert!(!tap_traffic_simulator.pop_rx_packet(&mut [0; 1000]));
+    }
+
+    #[test]
+    fn test_tx_writeable_descriptor() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+
+        let desc_list = [(0, 100, 0), (1, 100, VIRTQ_DESC_F_WRITE), (2, 500, 0)];
+        th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
+        let frame = th.write_tx_frame(&desc_list, 700);
+        th.event_manager.run_with_timeout(100).unwrap();
+
+        // Check that the used queue advanced.
+        assert_eq!(th.txq.used.idx.get(), 1);
+        th.net().check_used_queue_signal(1);
+        th.txq.check_used_elem(0, 0, 0);
+        // Check that the frame was partially sent to the tap.
+        let mut buf = vec![0; 1000];
+        assert!(tap_traffic_simulator.pop_rx_packet(&mut buf[vnet_hdr_len()..]));
+        assert_eq!(&buf[..100], &frame[..100]);
+        assert_eq!(&buf[100..1000], vec![0; 900].as_slice());
+    }
+
+    #[test]
+    fn test_tx_short_frame() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+
+        // Send an invalid frame (too small, VNET header missing).
+        th.add_desc_chain(NetQueue::Tx, 0, &[(0, 1, 0)]);
+        check_metric_after_block!(
+            &METRICS.net.tx_malformed_frames,
+            1,
+            th.event_manager.run_with_timeout(100)
+        );
+
+        // Check that the used queue advanced.
+        assert_eq!(th.txq.used.idx.get(), 1);
+        th.net().check_used_queue_signal(1);
+        th.txq.check_used_elem(0, 0, 0);
+        // Check that the frame wasn't sent to the tap.
+        assert!(!tap_traffic_simulator.pop_rx_packet(&mut [0; 1000]));
+    }
+
+    #[test]
+    fn test_tx_partial_read() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+
+        // The descriptor chain is created so that the last descriptor doesn't fit in the
+        // guest memory.
+        let offset = th.mem.last_addr().raw_value() + 1 - th.data_addr() - 300;
+        let desc_list = [(0, 100, 0), (1, 50, 0), (2, 4096, 0)];
+        th.add_desc_chain(NetQueue::Tx, offset, &desc_list);
+        let expected_len =
+            (150 + th.mem.last_addr().raw_value() + 1 - th.txq.dtable[2].addr.get()) as usize;
+        let frame = th.write_tx_frame(&desc_list, expected_len);
+        check_metric_after_block!(
+            METRICS.net.tx_partial_reads,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        // Check that the used queue advanced.
+        assert_eq!(th.txq.used.idx.get(), 1);
+        th.net().check_used_queue_signal(1);
+        th.txq.check_used_elem(0, 0, 0);
+        // Check that the frame was partially sent to the tap.
+        let mut buf = vec![0; 1000];
+        assert!(tap_traffic_simulator.pop_rx_packet(&mut buf[vnet_hdr_len()..]));
+        assert_eq!(&buf[..expected_len], &frame[..expected_len]);
+        assert_eq!(
+            &buf[expected_len..1000],
+            vec![0; 1000 - expected_len].as_slice()
+        );
+    }
+
+    #[test]
+    fn test_tx_complex_descriptor() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+
+        // Add gaps between the descriptor ids in order to ensure that we follow
+        // the `next` field.
+        let desc_list = [(3, 100, 0), (5, 50, 0), (11, 850, 0)];
+        th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
+        let frame = th.write_tx_frame(&desc_list, 1000);
+
+        check_metric_after_block!(
+            METRICS.net.tx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        // Check that the used queue advanced.
+        assert_eq!(th.txq.used.idx.get(), 1);
+        th.net().check_used_queue_signal(1);
+        th.txq.check_used_elem(0, 3, 0);
+        // Check that the frame was sent to the tap.
+        let mut buf = vec![0; 1000];
+        assert!(tap_traffic_simulator.pop_rx_packet(&mut buf[vnet_hdr_len()..]));
+        assert_eq!(&buf[..1000], &frame[..1000]);
+    }
+
+    #[test]
+    fn test_tx_multiple_frame() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+
+        // Write the first frame to the Tx queue
+        let desc_list = [(0, 50, 0), (1, 100, 0), (2, 150, 0)];
+        th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
+        let frame_1 = th.write_tx_frame(&desc_list, 300);
+        // Write the second frame to the Tx queue
+        let desc_list = [(3, 100, 0), (4, 200, 0), (5, 300, 0)];
+        th.add_desc_chain(NetQueue::Tx, 500, &desc_list);
+        let frame_2 = th.write_tx_frame(&desc_list, 600);
+
+        check_metric_after_block!(
+            METRICS.net.tx_packets_count,
+            2,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        // Check that the used queue advanced.
+        assert_eq!(th.txq.used.idx.get(), 2);
+        th.net().check_used_queue_signal(1);
+        th.txq.check_used_elem(0, 0, 0);
+        th.txq.check_used_elem(1, 3, 0);
+        // Check that the first frame was sent to the tap.
+        let mut buf = vec![0; 300];
+        assert!(tap_traffic_simulator.pop_rx_packet(&mut buf[vnet_hdr_len()..]));
+        assert_eq!(&buf[..300], &frame_1[..300]);
+        // Check that the second frame was sent to the tap.
+        let mut buf = vec![0; 600];
+        assert!(tap_traffic_simulator.pop_rx_packet(&mut buf[vnet_hdr_len()..]));
+        assert_eq!(&buf[..600], &frame_2[..600]);
     }
 
     #[test]
