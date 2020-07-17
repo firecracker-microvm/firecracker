@@ -194,11 +194,10 @@ pub mod tests {
     use std::process::Command;
 
     use super::*;
+    use net_gen::ETH_HLEN;
 
     // The size of the virtio net header
     const VNET_HDR_SIZE: usize = 10;
-    // The size of the ethernet frame header
-    const ETH_HDR_SIZE: usize = 14;
 
     const PAYLOAD_SIZE: usize = 512;
     const PACKET_SIZE: usize = 1024;
@@ -286,6 +285,12 @@ pub mod tests {
                 panic!("Can't create TapChannel");
             }
 
+            // Enable nonblocking
+            let ret = unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) };
+            if ret == -1 {
+                panic!("Couldn't make TapChannel non-blocking");
+            }
+
             Self {
                 socket,
                 send_addr: unsafe { *(send_addr_ptr as *const _) },
@@ -308,8 +313,8 @@ pub mod tests {
             }
         }
 
-        pub fn pop_rx_packet(&self, buf: &mut [u8]) {
-            let res = unsafe {
+        pub fn pop_rx_packet(&self, buf: &mut [u8]) -> bool {
+            let ret = unsafe {
                 libc::recvfrom(
                     self.socket.as_raw_fd(),
                     buf.as_ptr() as *mut _,
@@ -319,9 +324,10 @@ pub mod tests {
                     &mut (mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t),
                 )
             };
-            if res == -1 {
-                panic!("Can't pop rx_packet");
+            if ret == -1 {
+                return false;
             }
+            true
         }
     }
 
@@ -407,11 +413,12 @@ pub mod tests {
 
         let mut packet = [0u8; PACKET_SIZE];
         let payload = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
-        packet[ETH_HDR_SIZE..payload.len() + ETH_HDR_SIZE].copy_from_slice(payload.as_bytes());
+        packet[ETH_HLEN as usize..payload.len() + ETH_HLEN as usize]
+            .copy_from_slice(payload.as_bytes());
         assert!(tap.write(&packet).is_ok());
 
         let mut read_buf = [0u8; PACKET_SIZE];
-        tap_traffic_simulator.pop_rx_packet(&mut read_buf);
+        assert!(tap_traffic_simulator.pop_rx_packet(&mut read_buf));
         assert_eq!(
             &read_buf[..PACKET_SIZE - VNET_HDR_SIZE],
             &packet[VNET_HDR_SIZE..]
