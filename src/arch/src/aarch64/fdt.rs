@@ -24,6 +24,8 @@ use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, Gue
 const GIC_PHANDLE: u32 = 1;
 // This is a value for uniquely identifying the FDT node containing the clock definition.
 const CLOCK_PHANDLE: u32 = 2;
+// This is a value for uniquely identifying the FDT node containing the gpio controller.
+const GPIO_PHANDLE: u32 = 3;
 // Read the documentation specified when appending the root node to the FDT.
 const ADDRESS_CELLS: u32 = 0x2;
 const SIZE_CELLS: u32 = 0x2;
@@ -37,6 +39,10 @@ const GIC_FDT_IRQ_TYPE_PPI: u32 = 1;
 // From https://elixir.bootlin.com/linux/v4.9.62/source/include/dt-bindings/interrupt-controller/irq.h#L17
 const IRQ_TYPE_EDGE_RISING: u32 = 1;
 const IRQ_TYPE_LEVEL_HI: u32 = 4;
+
+// Keys and Buttons
+// System Power Down
+const KEY_POWER: u32 = 116;
 
 // This links to libfdt which handles the creation of the binary blob
 // flattened device tree (fdt) that is passed to the kernel and indicates
@@ -500,6 +506,41 @@ fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
     Ok(())
 }
 
+fn create_gpio_node<T: DeviceInfoForFDT + Clone + Debug>(
+    fdt: &mut Vec<u8>,
+    dev_info: &T,
+) -> Result<()> {
+    // PL061 GPIO controller node
+    let compatible = b"arm,pl061\0arm,primecell\0";
+    let gpio_reg_prop = generate_prop64(&[dev_info.addr(), dev_info.length()]);
+    let irq = generate_prop32(&[GIC_FDT_IRQ_TYPE_SPI, dev_info.irq(), IRQ_TYPE_LEVEL_HI]);
+    append_begin_node(fdt, &format!("pl061@{:x}", dev_info.addr()))?;
+    append_property(fdt, "compatible", compatible)?;
+    append_property(fdt, "reg", &gpio_reg_prop)?;
+    append_property(fdt, "interrupts", &irq)?;
+    append_property_null(fdt, "gpio-controller")?;
+    append_property_u32(fdt, "#gpio-cells", 2)?;
+    append_property_u32(fdt, "clocks", CLOCK_PHANDLE)?;
+    append_property_string(fdt, "clock-names", "apb_pclk")?;
+    append_property_u32(fdt, "phandle", GPIO_PHANDLE)?;
+    append_end_node(fdt)?;
+
+    // gpio-keys node
+    append_begin_node(fdt, "/gpio-keys")?;
+    append_property_string(fdt, "compatible", "gpio-keys")?;
+    append_property_u32(fdt, "#size-cells", 0)?;
+    append_property_u32(fdt, "#address-cells", 1)?;
+    append_begin_node(fdt, "/gpio-keys/poweroff")?;
+    append_property_string(fdt, "label", "GPIO Key Poweroff")?;
+    append_property_u32(fdt, "linux,code", KEY_POWER)?;
+    let gpios = generate_prop32(&[GPIO_PHANDLE, 3, 0]);
+    append_property(fdt, "gpios", &gpios)?;
+    append_end_node(fdt)?;
+    append_end_node(fdt)?;
+
+    Ok(())
+}
+
 fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     fdt: &mut Vec<u8>,
     dev_info: &HashMap<(DeviceType, String), T, S>,
@@ -510,6 +551,7 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
     for ((device_type, _device_id), info) in dev_info {
         match device_type {
             DeviceType::BootTimer => (), // since it's not a real device
+            DeviceType::GPIO => create_gpio_node(fdt, info)?,
             DeviceType::RTC => create_rtc_node(fdt, info)?,
             DeviceType::Serial => create_serial_node(fdt, info)?,
             DeviceType::Virtio(_) => {

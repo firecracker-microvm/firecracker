@@ -51,6 +51,9 @@ pub enum DeviceType {
     RTC,
     /// Device Type: BootTimer.
     BootTimer,
+    /// Device Type: GPIO.
+    #[cfg(target_arch = "aarch64")]
+    GPIO,
 }
 
 /// Type for passing information about the initrd in the guest memory.

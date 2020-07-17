@@ -9,6 +9,7 @@
 
 extern crate libc;
 
+extern crate chrono;
 extern crate dumbo;
 #[macro_use]
 extern crate logger;
@@ -16,6 +17,7 @@ extern crate net_gen;
 extern crate polly;
 extern crate rate_limiter;
 extern crate snapshot;
+extern crate timer;
 #[macro_use]
 extern crate utils;
 extern crate versionize;

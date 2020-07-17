@@ -8,10 +8,16 @@
 mod i8042;
 #[cfg(target_arch = "aarch64")]
 mod rtc_pl031;
+#[cfg(target_arch = "aarch64")]
+mod gpio_pl061;
 mod serial;
 
 pub use self::i8042::Error as I8042DeviceError;
 pub use self::i8042::I8042Device;
 #[cfg(target_arch = "aarch64")]
+pub use self::gpio_pl061::Error as GPIODeviceError;
+#[cfg(target_arch = "aarch64")]
 pub use self::rtc_pl031::RTC;
+#[cfg(target_arch = "aarch64")]
+pub use self::gpio_pl061::GPIO;
 pub use self::serial::{ReadableFd, Serial};

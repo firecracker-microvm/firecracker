@@ -72,6 +72,16 @@ const MMIO_LEN: u64 = 0x1000;
 /// to its configuration space.
 pub const MMIO_CFG_SPACE_OFF: u64 = 0x100;
 
+/// The irq field is interpreted like this:
+/// bits:  | 31 ... 24 | 23  ... 16 | 15    ...    0 |
+/// field: | irq_type  | vcpu_index |     irq_id     |
+
+/// The irq_type field has the following values:
+/// - irq_type[0]: out-of-kernel GIC: irq_id 0 is IRQ, irq_id 1 is FIQ
+/// - irq_type[1]: in-kernel GIC: SPI, irq_id between 32 and 1019(incl.), the vcpu_index field is ignored
+/// - irq_type[2]: in-kernel GIC: PPI, irq_id between 16 and 31 (incl.)
+const SPI_IRQ_BASE: u32 = 0x01000020;
+
 /// Stores the address range and irq allocated to this device.
 #[derive(Clone, Debug, PartialEq, Versionize)]
 pub struct MMIODeviceInfo {
@@ -86,6 +96,8 @@ pub struct MMIODeviceInfo {
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub(crate) bus: devices::Bus,
+    #[cfg(target_arch = "aarch64")]
+    pub gpio_pl061: Option<Arc<Mutex<devices::legacy::GPIO>>>,
     mmio_base: u64,
     irq: u32,
     last_irq: u32,
@@ -101,6 +113,8 @@ impl MMIODeviceManager {
             last_irq: irq_interval.1,
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
+            #[cfg(target_arch = "aarch64")]
+            gpio_pl061: None,
         }
     }
 
@@ -249,6 +263,20 @@ impl MMIODeviceManager {
         self.register_mmio_device(identifier, slot, Arc::new(Mutex::new(device)))
     }
 
+    #[cfg(target_arch = "aarch64")]
+    /// Create and register a new MMIO GPIO device.
+    pub fn register_new_mmio_gpio(&mut self) -> Result<()> {
+        // Create and attach a new GPIO device.
+        let slot = self.allocate_new_slot(1)?;
+
+        let irq = (SPI_IRQ_BASE + slot.irqs[0]) as u32;
+        let device = Arc::new(Mutex::new(devices::legacy::GPIO::new(irq)));
+        let identifier = (DeviceType::GPIO, DeviceType::GPIO.to_string());
+        self.register_mmio_device(identifier, slot, device.clone())?;
+        self.gpio_pl061 = Some(device);
+        Ok(())
+    }
+
     /// Gets the information of the devices registered up to some point in time.
     pub fn get_device_info(&self) -> &HashMap<(DeviceType, String), MMIODeviceInfo> {
         &self.id_to_dev_info
@@ -307,6 +335,7 @@ mod tests {
             device: Arc<Mutex<dyn devices::virtio::VirtioDevice>>,
             cmdline: &mut kernel_cmdline::Cmdline,
             dev_id: &str,
+            #[cfg(target_arch = "aarch64")] gpio_pl061: None,
         ) -> Result<u64> {
             let mmio_device = MmioTransport::new(guest_mem, device);
             let mmio_slot =

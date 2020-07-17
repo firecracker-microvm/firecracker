@@ -598,6 +598,10 @@ fn attach_legacy_devices_aarch64(
 
     vmm.mmio_device_manager
         .register_new_mmio_rtc(vmm.vm.fd())
+        .map_err(Error::RegisterMMIODevice)?;
+
+    vmm.mmio_device_manager
+        .register_new_mmio_gpio()
         .map_err(Error::RegisterMMIODevice)
 }
 
