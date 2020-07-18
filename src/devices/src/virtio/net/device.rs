@@ -888,6 +888,13 @@ pub mod tests {
             self.queues.push(rxq);
             self.queues.push(txq);
         }
+
+        // Check that the used queue event has been generated `count` times.
+        pub fn check_used_queue_signal(&self, count: u64) {
+            // Leave at least one event here so that reading it later won't block.
+            self.interrupt_evt.write(1).unwrap();
+            assert_eq!(self.interrupt_evt.read().unwrap(), count + 1);
+        }
     }
 
     impl Net {
@@ -1059,8 +1066,7 @@ pub mod tests {
                 net.rx_deferred_irqs = false;
                 rxq.used.idx.set(0);
                 net.queues[RX_INDEX] = rxq.create_queue();
-                net.interrupt_evt.write(1).unwrap();
-                assert_eq!(net.interrupt_evt.read().unwrap(), 1);
+                net.check_used_queue_signal(0);
             }
 
             {
@@ -1074,8 +1080,7 @@ pub mod tests {
                 );
                 assert_eq!(rxq.used.idx.get(), 1);
                 assert!(net.rx_deferred_irqs);
-                net.interrupt_evt.write(1).unwrap();
-                assert_eq!(net.interrupt_evt.read().unwrap(), 1);
+                net.check_used_queue_signal(0);
 
                 // resetting values
                 rxq.used.idx.set(0);
@@ -1124,11 +1129,10 @@ pub mod tests {
             assert!(!net.rx_deferred_frame);
 
             // this should work just fine
-            net.interrupt_evt.write(1).unwrap();
             let tap_event = EpollEvent::new(EventSet::IN, net.tap.as_raw_fd() as u64);
             net.process(&tap_event, &mut event_manager);
             assert!(net.rx_deferred_frame);
-            assert_eq!(net.interrupt_evt.read().unwrap(), 4);
+            net.check_used_queue_signal(3);
             // The #cfg(test) enabled version of read_tap always returns 1234 bytes (or the len of
             // the buffer, whichever is smaller).
             assert_eq!(rxq.used.ring[0].get().len, 1234);
@@ -1141,10 +1145,9 @@ pub mod tests {
             rxq.used.idx.set(0);
 
             // this should also be successful
-            net.interrupt_evt.write(1).unwrap();
             net.process(&tap_event, &mut event_manager);
             assert!(net.rx_deferred_frame);
-            assert_eq!(net.interrupt_evt.read().unwrap(), 2);
+            net.check_used_queue_signal(1);
 
             // ... but the following shouldn't, because we emulate receiving much more data than
             // we can fit inside a single descriptor
@@ -1153,14 +1156,13 @@ pub mod tests {
             net.queues[RX_INDEX] = rxq.create_queue();
             rxq.used.idx.set(0);
 
-            net.interrupt_evt.write(1).unwrap();
             check_metric_after_block!(
                 &METRICS.net.rx_fails,
                 1,
                 net.process(&tap_event, &mut event_manager)
             );
             assert!(net.rx_deferred_frame);
-            assert_eq!(net.interrupt_evt.read().unwrap(), 2);
+            net.check_used_queue_signal(1);
 
             // A mismatch shows the reception was unsuccessful.
             assert_ne!(rxq.used.ring[0].get().len as usize, net.rx_bytes_read);
@@ -1176,7 +1178,6 @@ pub mod tests {
             rxq.dtable[1].set(daddr + 0x1000, 0x1000, VIRTQ_DESC_F_WRITE, 0);
 
             net.queue_evts[RX_INDEX].write(1).unwrap();
-            net.interrupt_evt.write(1).unwrap();
 
             // rx_count increments 1 from rx_single_frame() and 1 from process_rx()
             let rx_event =
@@ -1186,7 +1187,7 @@ pub mod tests {
                 2,
                 net.process(&rx_event, &mut event_manager)
             );
-            assert_eq!(net.interrupt_evt.read().unwrap(), 2);
+            net.check_used_queue_signal(1);
         }
 
         {
@@ -1511,8 +1512,6 @@ pub mod tests {
 
             // following RX procedure should fail because of bandwidth rate limiting
             {
-                // leave at least one event here so that reading it later won't block
-                net.interrupt_evt.write(1).unwrap();
                 // trigger the RX handler
                 let rx_event = EpollEvent::new(EventSet::IN, net.tap.as_raw_fd() as u64);
                 net.process(&rx_event, &mut event_manager);
@@ -1522,7 +1521,7 @@ pub mod tests {
                 assert_eq!(METRICS.net.rx_rate_limiter_throttled.count(), 1);
                 assert!(net.rx_deferred_frame);
                 // assert that no operation actually completed (limiter blocked it)
-                assert_eq!(net.interrupt_evt.read().unwrap(), 2);
+                net.check_used_queue_signal(1);
                 // make sure the data is still queued for processing
                 assert_eq!(rxq.used.idx.get(), 0);
             }
@@ -1533,8 +1532,6 @@ pub mod tests {
 
             // following RX procedure should succeed because bandwidth should now be available
             {
-                // leave at least one event here so that reading it later won't block
-                net.interrupt_evt.write(1).unwrap();
                 let rx_limiter_event =
                     EpollEvent::new(EventSet::IN, net.rx_rate_limiter.as_raw_fd() as u64);
                 // no longer throttled
@@ -1546,7 +1543,7 @@ pub mod tests {
                 // validate the rate_limiter is no longer blocked
                 assert!(!net.rx_rate_limiter.is_blocked());
                 // make sure the virtio queue operation completed this time
-                assert_eq!(net.interrupt_evt.read().unwrap(), 2);
+                net.check_used_queue_signal(1);
                 // make sure the data queue advanced
                 assert_eq!(rxq.used.idx.get(), 1);
                 // The #cfg(test) enabled version of read_tap always returns 1234 bytes
@@ -1640,8 +1637,6 @@ pub mod tests {
 
             // following RX procedure should fail because of ops rate limiting
             {
-                // leave at least one event here so that reading it later won't block
-                net.interrupt_evt.write(1).unwrap();
                 // trigger the RX handler
                 let rx_event = EpollEvent::new(EventSet::IN, net.tap.as_raw_fd() as u64);
                 check_metric_after_block!(
@@ -1656,16 +1651,14 @@ pub mod tests {
                 assert!(METRICS.net.rx_rate_limiter_throttled.count() >= 1);
                 assert!(net.rx_deferred_frame);
                 // assert that no operation actually completed (limiter blocked it)
-                assert_eq!(net.interrupt_evt.read().unwrap(), 2);
+                net.check_used_queue_signal(1);
                 // make sure the data is still queued for processing
                 assert_eq!(rxq.used.idx.get(), 0);
 
-                // leave at least one event here so that reading it later won't block
-                net.interrupt_evt.write(1).unwrap();
                 // trigger the RX handler again, this time it should do the limiter fast path exit
                 net.process(&rx_event, &mut event_manager);
                 // assert that no operation actually completed, that the limiter blocked it
-                assert_eq!(net.interrupt_evt.read().unwrap(), 1);
+                net.check_used_queue_signal(0);
                 // make sure the data is still queued for processing
                 assert_eq!(rxq.used.idx.get(), 0);
             }
@@ -1676,13 +1669,11 @@ pub mod tests {
 
             // following RX procedure should succeed because ops should now be available
             {
-                // leave at least one event here so that reading it later won't block
-                net.interrupt_evt.write(1).unwrap();
                 let rx_rate_limiter_event =
                     EpollEvent::new(EventSet::IN, net.rx_rate_limiter.as_raw_fd() as u64);
                 net.process(&rx_rate_limiter_event, &mut event_manager);
                 // make sure the virtio queue operation completed this time
-                assert_eq!(net.interrupt_evt.read().unwrap(), 2);
+                net.check_used_queue_signal(1);
                 // make sure the data queue advanced
                 assert_eq!(rxq.used.idx.get(), 1);
                 // The #cfg(test) enabled version of read_tap always returns 1234 bytes
@@ -1762,7 +1753,7 @@ pub mod tests {
         // Verify if TX queue was processed.
         assert_eq!(txq.used.idx.get(), 1);
         // Check if interrupt was triggered.
-        assert_eq!(net.interrupt_evt.read().unwrap(), 1);
+        net.check_used_queue_signal(1);
     }
 
     #[test]
@@ -1790,7 +1781,6 @@ pub mod tests {
             VIRTIO_MMIO_INT_VRING as usize
         );
 
-        net.interrupt_evt().write(1).unwrap();
-        assert_eq!(net.interrupt_evt().read().unwrap() as usize, 1);
+        net.check_used_queue_signal(0);
     }
 }
