@@ -868,15 +868,6 @@ pub mod tests {
             GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap()
         }
 
-        pub fn rx_single_frame_no_irq_coalescing(&mut self) -> bool {
-            let ret = self.rx_single_frame();
-            if self.rx_deferred_irqs {
-                self.rx_deferred_irqs = false;
-                let _ = self.signal_used_queue();
-            }
-            ret
-        }
-
         // Returns handles to virtio queues creation/activation and manipulation.
         pub fn virtqueues(mem: &GuestMemoryMmap) -> (VirtQueue, VirtQueue) {
             let rxq = VirtQueue::new(GuestAddress(0), mem, 16);
@@ -1060,15 +1051,16 @@ pub mod tests {
                 rxq.avail.ring[0].set(0);
                 rxq.avail.idx.set(1);
                 rxq.dtable[0].set(daddr, 0x1000, 0, 0);
-                assert!(!net.rx_single_frame_no_irq_coalescing());
+                assert!(!net.rx_single_frame());
+                assert!(net.rx_deferred_irqs);
                 assert_eq!(rxq.used.idx.get(), 1);
 
                 // resetting values
+                net.rx_deferred_irqs = false;
                 rxq.used.idx.set(0);
                 net.queues[RX_INDEX] = rxq.create_queue();
                 net.interrupt_evt.write(1).unwrap();
-                // The prev rx_single_frame_no_irq_coalescing() call should have written one more.
-                assert_eq!(net.interrupt_evt.read().unwrap(), 2);
+                assert_eq!(net.interrupt_evt.read().unwrap(), 1);
             }
 
             {
@@ -1078,18 +1070,19 @@ pub mod tests {
                 check_metric_after_block!(
                     &METRICS.net.rx_fails,
                     1,
-                    assert!(!net.rx_single_frame_no_irq_coalescing())
+                    assert!(!net.rx_single_frame())
                 );
                 assert_eq!(rxq.used.idx.get(), 1);
+                assert!(net.rx_deferred_irqs);
+                net.interrupt_evt.write(1).unwrap();
+                assert_eq!(net.interrupt_evt.read().unwrap(), 1);
 
+                // resetting values
                 rxq.used.idx.set(0);
                 net.queues[RX_INDEX] = rxq.create_queue();
-                net.interrupt_evt.write(1).unwrap();
-                assert_eq!(net.interrupt_evt.read().unwrap(), 2);
+                net.rx_deferred_irqs = false;
+                net.rx_bytes_read = 0;
             }
-
-            // set rx_count back to 0
-            net.rx_bytes_read = 0;
         }
 
         {
