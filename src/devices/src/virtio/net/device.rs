@@ -784,11 +784,11 @@ impl VirtioDevice for Net {
 }
 
 #[cfg(test)]
+#[macro_use]
 pub mod tests {
     use std::net::Ipv4Addr;
     use std::os::unix::io::AsRawFd;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
     use std::time::Duration;
     use std::{io, mem, thread};
 
@@ -1364,35 +1364,6 @@ pub mod tests {
             &METRICS.net.event_fails,
             1,
             net.process(&tx_rate_limiter_ev, &mut event_manager)
-        );
-    }
-
-    #[test]
-    fn test_invalid_event() {
-        let mut event_manager = EventManager::new().unwrap();
-        let mut net = Net::default_net(TestMutators::default());
-
-        let mem = Net::default_guest_memory();
-        let (rxq, txq) = Net::virtqueues(&mem);
-        net.assign_queues(rxq.create_queue(), txq.create_queue());
-
-        let net = Arc::new(Mutex::new(net));
-        event_manager.add_subscriber(net.clone()).unwrap();
-
-        net.lock().unwrap().activate(mem.clone()).unwrap();
-
-        // Process the activate event.
-        let ev_count = event_manager.run_with_timeout(50).unwrap();
-        assert_eq!(ev_count, 1);
-
-        // Inject invalid event.
-        let invalid_event = EpollEvent::new(EventSet::IN, 1000);
-        check_metric_after_block!(
-            &METRICS.net.event_fails,
-            1,
-            net.lock()
-                .unwrap()
-                .process(&invalid_event, &mut event_manager)
         );
     }
 
