@@ -1124,10 +1124,6 @@ pub mod tests {
             assert!(!net.rx_deferred_frame);
 
             // this should work just fine
-            rxq.avail.idx.set(1);
-            rxq.avail.ring[0].set(0);
-            rxq.dtable[0].set(daddr, 0x1000, VIRTQ_DESC_F_WRITE, 0);
-
             net.interrupt_evt.write(1).unwrap();
             let tap_event = EpollEvent::new(EventSet::IN, net.tap.as_raw_fd() as u64);
             net.process(&tap_event, &mut event_manager);
