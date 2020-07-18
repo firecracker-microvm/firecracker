@@ -173,5 +173,15 @@ pub mod tests {
             .expect("Metrics event timeout or error.");
         // Make sure the data queue advanced.
         assert_eq!(txq.used.idx.get(), 1);
+
+        // Inject invalid event.
+        let invalid_event = EpollEvent::new(EventSet::IN, 1000);
+        check_metric_after_block!(
+            &METRICS.net.event_fails,
+            1,
+            net.lock()
+                .unwrap()
+                .process(&invalid_event, &mut event_manager)
+        );
     }
 }

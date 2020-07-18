@@ -12,6 +12,7 @@ pub const RX_INDEX: usize = 0;
 // The index of the tx queue from Net device queues/queues_evts vector.
 pub const TX_INDEX: usize = 1;
 
+#[macro_use]
 pub mod device;
 pub mod event_handler;
 pub mod persist;
