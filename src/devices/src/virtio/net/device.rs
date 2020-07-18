@@ -1212,43 +1212,48 @@ pub mod tests {
         }
     }
 
+    fn create_arp_request(
+        src_mac: MacAddr,
+        src_ip: Ipv4Addr,
+        dst_mac: MacAddr,
+        dst_ip: Ipv4Addr,
+    ) -> ([u8; MAX_BUFFER_SIZE], usize) {
+        let mut frame_buf = [b'\0'; MAX_BUFFER_SIZE];
+        let frame_len;
+        // Create an ethernet frame.
+        let incomplete_frame = EthernetFrame::write_incomplete(
+            frame_bytes_from_buf_mut(&mut frame_buf).unwrap(),
+            dst_mac,
+            src_mac,
+            ETHERTYPE_ARP,
+        )
+        .ok()
+        .unwrap();
+        // Set its length to hold an ARP request.
+        let mut frame = incomplete_frame.with_payload_len_unchecked(ETH_IPV4_FRAME_LEN);
+
+        // Save the total frame length.
+        frame_len = vnet_hdr_len() + frame.payload_offset() + ETH_IPV4_FRAME_LEN;
+
+        // Create the ARP request.
+        let arp_request =
+            EthIPv4ArpFrame::write_request(frame.payload_mut(), src_mac, src_ip, dst_mac, dst_ip);
+        // Validate success.
+        assert!(arp_request.is_ok());
+
+        (frame_buf, frame_len)
+    }
+
     #[test]
     fn test_mmds_detour_and_injection() {
         let mut net = Net::default_net();
 
-        let sha = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
-        let spa = Ipv4Addr::new(10, 1, 2, 3);
-        let tha = MacAddr::parse_str("22:22:22:22:22:22").unwrap();
-        let tpa = Ipv4Addr::new(169, 254, 169, 254);
+        let src_mac = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
+        let src_ip = Ipv4Addr::new(10, 1, 2, 3);
+        let dst_mac = MacAddr::parse_str("22:22:22:22:22:22").unwrap();
+        let dst_ip = Ipv4Addr::new(169, 254, 169, 254);
 
-        let packet_len;
-        {
-            // Create an ethernet frame.
-            let eth_frame_i = EthernetFrame::write_incomplete(
-                frame_bytes_from_buf_mut(&mut net.tx_frame_buf).unwrap(),
-                tha,
-                sha,
-                ETHERTYPE_ARP,
-            )
-            .ok()
-            .unwrap();
-            // Set its length to hold an ARP request.
-            let mut eth_frame_complete = eth_frame_i.with_payload_len_unchecked(ETH_IPV4_FRAME_LEN);
-
-            // Save the total frame length.
-            packet_len = vnet_hdr_len() + eth_frame_complete.payload_offset() + ETH_IPV4_FRAME_LEN;
-
-            // Create the ARP request.
-            let arp_req = EthIPv4ArpFrame::write_request(
-                eth_frame_complete.payload_mut(),
-                sha,
-                spa,
-                tha,
-                tpa,
-            );
-            // Validate success.
-            assert!(arp_req.is_ok());
-        }
+        let (frame_buf, frame_len) = create_arp_request(src_mac, src_ip, dst_mac, dst_ip);
 
         // Call the code which sends the packet to the host or MMDS.
         // Validate the frame was consumed by MMDS and that the metrics reflect that.
@@ -1258,9 +1263,9 @@ pub mod tests {
             assert!(Net::write_to_mmds_or_tap(
                 net.mmds_ns.as_mut(),
                 &mut net.tx_rate_limiter,
-                &net.tx_frame_buf[..packet_len],
+                &frame_buf[..frame_len],
                 &mut net.tap,
-                Some(sha),
+                Some(src_mac),
             )
             .unwrap())
         );
@@ -1283,34 +1288,7 @@ pub mod tests {
         let dst_mac = MacAddr::parse_str("22:22:22:22:22:22").unwrap();
         let dst_ip = Ipv4Addr::new(10, 1, 1, 1);
 
-        let packet_len;
-        {
-            // Create an ethernet frame.
-            let eth_frame_i = EthernetFrame::write_incomplete(
-                frame_bytes_from_buf_mut(&mut net.tx_frame_buf).unwrap(),
-                dst_mac,
-                guest_mac,
-                ETHERTYPE_ARP,
-            )
-            .ok()
-            .unwrap();
-            // Set its length to hold an ARP request.
-            let mut eth_frame_complete = eth_frame_i.with_payload_len_unchecked(ETH_IPV4_FRAME_LEN);
-
-            // Save the total frame length.
-            packet_len = vnet_hdr_len() + eth_frame_complete.payload_offset() + ETH_IPV4_FRAME_LEN;
-
-            // Create the ARP request.
-            let arp_req = EthIPv4ArpFrame::write_request(
-                eth_frame_complete.payload_mut(),
-                guest_mac,
-                guest_ip,
-                dst_mac,
-                dst_ip,
-            );
-            // Validate success.
-            assert!(arp_req.is_ok());
-        }
+        let (frame_buf, frame_len) = create_arp_request(guest_mac, guest_ip, dst_mac, dst_ip);
 
         // Check that a legit MAC doesn't affect the spoofed MAC metric.
         check_metric_after_block!(
@@ -1319,7 +1297,7 @@ pub mod tests {
             Net::write_to_mmds_or_tap(
                 net.mmds_ns.as_mut(),
                 &mut net.tx_rate_limiter,
-                &net.tx_frame_buf[..packet_len],
+                &frame_buf[..frame_len],
                 &mut net.tap,
                 Some(guest_mac),
             )
@@ -1332,7 +1310,7 @@ pub mod tests {
             Net::write_to_mmds_or_tap(
                 net.mmds_ns.as_mut(),
                 &mut net.tx_rate_limiter,
-                &net.tx_frame_buf[..packet_len],
+                &frame_buf[..frame_len],
                 &mut net.tap,
                 Some(not_guest_mac),
             )
