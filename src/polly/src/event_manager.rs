@@ -131,7 +131,7 @@ impl EventManager {
         };
 
         self.epoll
-            .ctl(epoll::ControlOperation::Add, pollable, &epoll_event)
+            .ctl(epoll::ControlOperation::Add, pollable, epoll_event)
             .map_err(Error::Poll)?;
 
         self.subscribers.insert(pollable, subscriber);
@@ -146,7 +146,7 @@ impl EventManager {
                     .ctl(
                         epoll::ControlOperation::Delete,
                         pollable,
-                        &epoll::EpollEvent::default(),
+                        epoll::EpollEvent::default(),
                     )
                     .map_err(Error::Poll)?;
             }
@@ -161,7 +161,7 @@ impl EventManager {
     pub fn modify(&mut self, pollable: Pollable, epoll_event: EpollEvent) -> Result<()> {
         if self.subscribers.contains_key(&pollable) {
             self.epoll
-                .ctl(epoll::ControlOperation::Modify, pollable, &epoll_event)
+                .ctl(epoll::ControlOperation::Modify, pollable, epoll_event)
                 .map_err(Error::Poll)?;
         } else {
             return Err(Error::NotFound(pollable));
