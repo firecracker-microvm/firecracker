@@ -7,6 +7,6 @@ edition = "2018"
 [dependencies]
 bitflags = "1.2.0"
 libc = ">=0.2.39"
-vmm-sys-util = ">=0.2.1"
+vmm-sys-util = ">=0.6.1"
 
 net_gen = { path = "../net_gen" }
