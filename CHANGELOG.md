@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added metric for throttled block device events.
 - Added a new API call, `PUT /metrics`, for configuring the metrics system.
 - Added `app_name` field in InstanceInfo struct for storing the application
   name.
