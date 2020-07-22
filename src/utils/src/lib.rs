@@ -3,7 +3,7 @@
 
 extern crate vmm_sys_util;
 
-pub use vmm_sys_util::{epoll, errno, eventfd, ioctl, rand, tempdir, tempfile, terminal};
+pub use vmm_sys_util::{epoll, errno, eventfd, ioctl, rand, syscall, tempdir, tempfile, terminal};
 pub use vmm_sys_util::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
 
 pub mod arg_parser;
@@ -12,6 +12,5 @@ pub mod net;
 pub mod signal;
 pub mod sm;
 pub mod structs;
-pub mod syscall;
 pub mod time;
 pub mod validators;
