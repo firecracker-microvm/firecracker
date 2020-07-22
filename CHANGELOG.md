@@ -46,6 +46,7 @@
   from the API (user) perspective.
 - Added metric for measuring the duration of loading a snapshot, from the API
   (user) perspective.
+- Added devtool -s|--shield flag.
 
 ### Fixed
 

@@ -57,6 +57,12 @@
 #
 #
 # TODO:
+#   - Transform `devtool` with dependency injection in mind. `devtool` commands
+#     can be seen as individual entries/dependencies for `devtool`, which is a
+#     thin layer over them. Keep in mind that some commands, and thus `devtool`,
+#     may require different host dependencies. The ideal objective would be to have
+#     zero host dependencies and offload dependencies to the development docker container,
+#     where is possible.
 #   - Cache test binaries, preserving them across `./devtool test` invocations.
 #     At the moment, Firecracker is rebuilt everytime a test is run.
 #   - List tests by parsing the `pytest --collect-only` output.
@@ -118,36 +124,60 @@ CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
 # These options are not command-specific, so we store them as global vars
 OPT_UNATTENDED=false
 
+# Shield relevant mountpoints.
+SYSFS_MOUNTPOINT=$(cat /proc/mounts | grep "^sysfs \/.\+ sysfs .*$" | cut -d' ' -f2 | head -n 1)
+CPUSET_MOUNTPOINT=$(cat /proc/mounts | grep -P "^[^ ]+ (/.+) (?:cpuset |cgroup (?:[^ ]*,)?cpuset[, ])"\
+                                               | cut -d' ' -f2 | head -n 1)
+
+# Shield relevant exit codes.
+ESKIP=12
+ESINGLENUMANODE=13
 
 # Send a decorated message to stdout, followed by a new line
 #
 say() {
-    [ -t 1 ] && [ -n "$TERM" ] \
-        && echo "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
-        || echo "[$MY_NAME] $*"
+    run_devctr \
+    --user "$(id -u):$(id -g)" \
+    --workdir "$CTR_FC_ROOT_DIR" \
+    -- \
+    python3 -c "
+import tools.log_utils as lu
+lu.say_info(\"$1\")"
 }
 
 # Send a decorated message to stdout, without a trailing new line
 #
 say_noln() {
-    [ -t 1 ] && [ -n "$TERM" ] \
-        && echo -n "$(tput setaf 2)[$MY_NAME]$(tput sgr0) $*" \
-        || echo "[$MY_NAME] $*"
+    run_devctr \
+    --user "$(id -u):$(id -g)" \
+    --workdir "$CTR_FC_ROOT_DIR" \
+    -- \
+    python3 -c "
+import tools.log_utils as lu
+lu.say_info(\"$1\", False)"
 }
 
 # Send a text message to stderr
 #
 say_err() {
-    [ -t 2 ] && [ -n "$TERM" ] \
-        && echo -e "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
-        || echo -e "[$MY_NAME] $*" 1>&2
+    run_devctr \
+    --user "$(id -u):$(id -g)" \
+    --workdir "$CTR_FC_ROOT_DIR" \
+    -- \
+    python3 -c "
+import tools.log_utils as lu
+lu.say_err(\"$1\")"
 }
 
 # Send a warning-highlighted text to stdout
 say_warn() {
-    [ -t 1 ] && [ -n "$TERM" ] \
-        && echo "$(tput setaf 3)[$MY_NAME] $*$(tput sgr0)" \
-        || echo "[$MY_NAME] $*"
+    run_devctr \
+    --user "$(id -u):$(id -g)" \
+    --workdir "$CTR_FC_ROOT_DIR" \
+    -- \
+    python3 -c "
+import tools.log_utils as lu
+lu.say_warn(\"$1\")"
 }
 
 # Exit with an error message and (optional) code
@@ -159,7 +189,8 @@ die() {
         code="$2"
         shift 2
     }
-    say_err "$@"
+
+    [ ! -z "$@" ] && say_err "$@"
     exit $code
 }
 
@@ -168,6 +199,69 @@ die() {
 ok_or_die() {
     code=$?
     [[ $code -eq 0 ]] || die -c $code "$@"
+}
+
+validate_shield() {
+    local shield=$1
+
+    run_devctr \
+    --user "$(id -u):$(id -g)" \
+    --workdir "$CTR_FC_ROOT_DIR" \
+    --mount type=bind,source="$SYSFS_MOUNTPOINT",target="/host_sys" \
+    --mount type=bind,source="$CPUSET_MOUNTPOINT",target="/host_cpuset" \
+    -- \
+    python3 -c "
+import tools.shield_utils as su
+su.validate(\"$shield\")"
+    ok_or_die
+}
+
+shield_environment() {
+    local numa_node_id=$1
+    local cpus_count=$2
+    if [ ! -z $numa_node_id ] && [ ! -z $cpus_count ]; then
+        # Get available cpuset cpus list.
+        local cpuset_cpus=$(run_devctr \
+        --user "$(id -u):$(id -g)" \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        --mount type=bind,source="$SYSFS_MOUNTPOINT",target="/host_sys" \
+        --mount type=bind,source="$CPUSET_MOUNTPOINT",target="/host_cpuset" \
+        -- \
+        python3 -c "import tools.shield_utils as su
+print(su.ensure_environment($numa_node_id, $cpus_count, return_to_stdout=True))")
+        ok_or_die "Failed to ensure the shielded environment ($?)."
+
+        # Create system cpuset.
+        run_devctr \
+        --privileged \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        --mount type=bind,source="$SYSFS_MOUNTPOINT",target="/host_sys" \
+        --mount type=bind,source="$CPUSET_MOUNTPOINT",target="/host_cpuset" \
+        -- \
+        python3 -c "import tools.shield_utils as su
+su.create_system_cpuset($numa_node_id)" || ENVIRONMENT_SHIELDED=$? > /dev/null
+
+        # Verify exit codes.
+        [[ -z $ENVIRONMENT_SHIELDED ]] && ENVIRONMENT_SHIELDED=0
+        [[ $ENVIRONMENT_SHIELDED -eq $ESINGLENUMANODE ]] || [[ $ENVIRONMENT_SHIELDED -eq $ESKIP ]] || [[ $ENVIRONMENT_SHIELDED -eq 0 ]]
+        ok_or_die "Failed to create the system cpuset ($ENVIRONMENT_SHIELDED)."
+
+        retval=$cpuset_cpus
+    fi
+}
+
+cleanup_shield() {
+    # Teardown the created 'system' cpuset.
+    [[ -z $ENVIRONMENT_SHIELDED ]] || \
+    [[ $ENVIRONMENT_SHIELDED -eq $ESINGLENUMANODE ]] || \
+    run_devctr \
+        --user "$(id -u):$(id -g)" \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        --mount type=bind,source="$SYSFS_MOUNTPOINT",target="/host_sys" \
+        --mount type=bind,source="$CPUSET_MOUNTPOINT",target="/host_cpuset" \
+        -- \
+        python3 -c "import tools.shield_utils as su
+su.teardown_system_cpuset()" || die
 }
 
 # Check if Docker is available and exit if it's not.
@@ -194,7 +288,6 @@ ensure_docker() {
 # available on this system.
 #
 ensure_devctr() {
-
     # We depend on having Docker present.
     ensure_docker
 
@@ -430,10 +523,18 @@ cmd_help() {
     echo "        the contents of CHANGELOG.md enclosed between the header corresponding to "
     echo "        the specified version and the one corresponding to the previous version."
     echo ""
-    echo "    test [-- [<pytest args>]]"
+    echo "    test [-s|--shield <shield>] -- [<pytest args>]]"
     echo "        Run the Firecracker integration tests."
     echo "        The Firecracker testing system is based on pytest. All arguments after --"
     echo "        will be passed through to pytest."
+    echo "        -s, --shield <shield>    Specify a shield pattern: NUMA_NODE_ID;CPUS_COUNT. The shield"
+    echo "                                 consists from a docker container with cpuset.cpus and cpuset.mems."
+    echo "                                 The cpuset.cpus and cpuset.mems correspond to NUMA_NODE_ID. CPUS_COUNT"
+    echo "                                 are selected as CPU cores which are not used by cpuset other than '/'"
+    echo "                                 (root) and 'docker'. It also creates a new cpuset called 'system'."
+    echo "                                 By default, this cpuset is bound to other node than the one used by the shield,"
+    echo "                                 if possible. If the system cpuset can not be created, due to a lack of available"
+    echo "                                 NUMA nodes, the creation is skipped and the shield is ignored."
     echo ""
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
@@ -575,11 +676,22 @@ cmd_strip() {
 # Please see `$0 help` for more information.
 #
 cmd_test() {
+    # Inherited from `shield.py`.
+    trap cleanup_shield EXIT
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")      { cmd_help; exit 1; } ;;
+            "-s"|"--shield")
+                shift
+                validate_shield $1
+
+                # Pattern match on the shield: {TESTS_NUMA_NODE_ID};{CPUS_COUNT}.
+                [[ "$1" =~ ^(0|[1-9][0-9]*)\;([1-9][0-9]*)$ ]] && \
+                local tests_numa_node_id=${BASH_REMATCH[1]} && \
+                local cpus_count=${BASH_REMATCH[2]}
+                ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -593,10 +705,13 @@ cmd_test() {
     ensure_devctr
     ensure_build_dir
 
-
     # If we got to here, we've got all we need to continue.
     say "$(date -u +'%F %H:%M:%S %Z')"
     say "Starting test run ..."
+
+    # Produce `$CPUSET_CPUS`.
+    shield_environment $tests_numa_node_id $cpus_count
+    local cpuset_cpus=$retval
 
     # Testing (running Firecracker via the jailer) needs root access,
     # in order to set-up the Firecracker jail (manipulating cgroups, net
@@ -608,6 +723,8 @@ cmd_test() {
         --ulimit core=0 \
         --ulimit nofile=4096:4096 \
         --workdir "$CTR_FC_ROOT_DIR/tests" \
+        --cpuset-cpus="$cpuset_cpus" \
+        --cpuset-mems="$tests_numa_node_id" \
         -- \
         pytest "$@"
 
