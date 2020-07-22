@@ -9,7 +9,6 @@ extern crate snapshot;
 extern crate utils;
 extern crate vm_memory;
 extern crate vmm;
-extern crate vmm_sys_util;
 
 mod mock_devices;
 mod mock_resources;
@@ -27,6 +26,7 @@ use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
 #[cfg(target_arch = "x86_64")]
 use snapshot::Snapshot;
+use utils::tempfile::TempFile;
 #[cfg(target_arch = "x86_64")]
 use vmm::builder::build_microvm_from_snapshot;
 use vmm::builder::{build_microvm_for_boot, setup_serial_device};
@@ -42,7 +42,6 @@ use vmm::vmm_config::boot_source::BootSourceConfig;
 #[cfg(target_arch = "x86_64")]
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::Vmm;
-use vmm_sys_util::tempfile::TempFile;
 
 use mock_devices::MockSerialInput;
 #[cfg(target_arch = "x86_64")]

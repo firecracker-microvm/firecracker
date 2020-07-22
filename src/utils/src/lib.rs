@@ -3,7 +3,13 @@
 
 extern crate vmm_sys_util;
 
-pub use vmm_sys_util::{epoll, errno, eventfd, ioctl, rand, syscall, tempdir, tempfile, terminal};
+// We use `utils` as a wrapper over `vmm_sys_util` to control the latter
+// dependency easier (i.e. update only in one place `vmm_sys_util` version).
+// More specifically, we are re-exporting modules from `vmm_sys_util` as part
+// of the `utils` crate.
+pub use vmm_sys_util::{
+    epoll, errno, eventfd, fam, ioctl, rand, syscall, tempdir, tempfile, terminal,
+};
 pub use vmm_sys_util::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
 
 pub mod arg_parser;

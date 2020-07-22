@@ -30,6 +30,3 @@ snapshot = { path = "../snapshot"}
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }
-
-[dev-dependencies]
-vmm-sys-util = ">=0.4.0"
