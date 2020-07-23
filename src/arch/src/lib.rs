@@ -14,7 +14,7 @@ pub mod aarch64;
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
     arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
-    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_START,
+    layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, regs, Error, MMIO_MEM_START,
 };
 
 /// Module for x86_64 related functionality.
