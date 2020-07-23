@@ -57,7 +57,7 @@ impl VmSpec {
 #[derive(Debug, Clone)]
 pub enum Error {
     /// A FamStructWrapper operation has failed
-    FamError(vmm_sys_util::fam::Error),
+    FamError(utils::fam::Error),
     /// A call to an internal helper method failed
     InternalError(super::common::Error),
     /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
@@ -97,7 +97,6 @@ pub trait CpuidTransformer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kvm_bindings::kvm_cpuid_entry2;
 
     #[test]
     fn test_vmspec() {
