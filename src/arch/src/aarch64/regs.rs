@@ -8,32 +8,46 @@
 use std::{fmt, mem, result};
 
 use super::get_fdt_addr;
-use kvm_bindings::{
-    kvm_regs, user_pt_regs, KVM_REG_ARM64, KVM_REG_ARM64_SYSREG, KVM_REG_ARM64_SYSREG_CRM_MASK,
-    KVM_REG_ARM64_SYSREG_CRM_SHIFT, KVM_REG_ARM64_SYSREG_CRN_MASK, KVM_REG_ARM64_SYSREG_CRN_SHIFT,
-    KVM_REG_ARM64_SYSREG_OP0_MASK, KVM_REG_ARM64_SYSREG_OP0_SHIFT, KVM_REG_ARM64_SYSREG_OP1_MASK,
-    KVM_REG_ARM64_SYSREG_OP1_SHIFT, KVM_REG_ARM64_SYSREG_OP2_MASK, KVM_REG_ARM64_SYSREG_OP2_SHIFT,
-    KVM_REG_ARM_COPROC_MASK, KVM_REG_ARM_CORE, KVM_REG_SIZE_MASK, KVM_REG_SIZE_U32,
-    KVM_REG_SIZE_U64,
-};
+use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
 use vm_memory::GuestMemoryMmap;
 
 /// Errors thrown while setting aarch64 registers.
 #[derive(Debug)]
 pub enum Error {
-    /// Failed to set core register (PC, PSTATE or general purpose ones).
-    SetCoreRegister(kvm_ioctls::Error),
+    /// Failed to get core register (PC, PSTATE or general purpose ones).
+    GetCoreRegister(kvm_ioctls::Error, String),
+    /// Failed to get multiprocessor state.
+    GetMP(kvm_ioctls::Error),
+    /// Failed to get the register list.
+    GetRegList(kvm_ioctls::Error),
     /// Failed to get a system register.
     GetSysRegister(kvm_ioctls::Error),
+    /// Failed to set core register (PC, PSTATE or general purpose ones).
+    SetCoreRegister(kvm_ioctls::Error, String),
+    /// Failed to Set multiprocessor state.
+    SetMP(kvm_ioctls::Error),
+    /// Failed to get a system register.
+    SetSysRegister(kvm_ioctls::Error),
 }
 type Result<T> = result::Result<T, Error>;
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            self::Error::SetCoreRegister(ref e) => write!(f, "Failed to set core register: {}", e),
+            self::Error::GetCoreRegister(ref e, ref desc) => {
+                write!(f, "Failed to get {} register: {}", desc, e)
+            }
+            self::Error::GetMP(ref e) => write!(f, "Failed to get multiprocessor state: {}", e),
+            self::Error::GetRegList(ref e) => {
+                write!(f, "Failed to retrieve list of registers: {}", e)
+            }
             self::Error::GetSysRegister(ref e) => write!(f, "Failed to get system register: {}", e),
+            self::Error::SetCoreRegister(ref e, ref desc) => {
+                write!(f, "Failed to set {} register: {}", desc, e)
+            }
+            self::Error::SetMP(ref e) => write!(f, "Failed to set multiprocessor state: {}", e),
+            self::Error::SetSysRegister(ref e) => write!(f, "Failed to set system register: {}", e),
         }
     }
 }
@@ -49,6 +63,11 @@ const PSR_D_BIT: u64 = 0x0000_0200;
 // Taken from arch/arm64/kvm/inject_fault.c.
 const PSTATE_FAULT_BITS_64: u64 = PSR_MODE_EL1h | PSR_A_BIT | PSR_F_BIT | PSR_I_BIT | PSR_D_BIT;
 
+// Number of general purpose registers (i.e X0..X31)
+const NR_GP_REGS: usize = 31;
+// Number of FP_VREG registers.
+const NR_FP_VREGS: usize = 32;
+
 // Following are macros that help with getting the ID of a aarch64 core register.
 // The core register are represented by the user_pt_regs structure. Look for it in
 // arch/arm64/include/uapi/asm/ptrace.h.
@@ -60,13 +79,14 @@ const PSTATE_FAULT_BITS_64: u64 = PSR_MODE_EL1h | PSR_A_BIT | PSR_F_BIT | PSR_I_
 // Doing `offset__of!(user_pt_regs, pstate)` in our rust code will trigger the following:
 // unsafe { &(*(0 as *const user_pt_regs)).pstate as *const _ as usize }
 // The dereference expression produces an lvalue, but that lvalue is not actually read from,
-// we're just doing pointer math on it, so in theory, it should safe.
+// we're just doing pointer math on it, so in theory, it should be safe.
 macro_rules! offset__of {
     ($str:ty, $field:ident) => {
         unsafe { &(*(std::ptr::null::<$str>())).$field as *const _ as usize }
     };
 }
 
+/// Gets a core id.
 macro_rules! arm64_core_reg_id {
     ($size: tt, $offset: tt) => {
         // The core registers of an arm64 machine are represented
@@ -145,14 +165,14 @@ pub fn setup_boot_regs(
         arm64_core_reg_id!(KVM_REG_SIZE_U64, pstate),
         PSTATE_FAULT_BITS_64,
     )
-    .map_err(Error::SetCoreRegister)?;
+    .map_err(|e| Error::SetCoreRegister(e, "processor state".to_string()))?;
 
     // Other vCPUs are powered off initially awaiting PSCI wakeup.
     if cpu_id == 0 {
         // Setting the PC (Processor Counter) to the current program address (kernel address).
         let pc = offset__of!(user_pt_regs, pc) + kreg_off;
         vcpu.set_one_reg(arm64_core_reg_id!(KVM_REG_SIZE_U64, pc), boot_ip as u64)
-            .map_err(Error::SetCoreRegister)?;
+            .map_err(|e| Error::SetCoreRegister(e, "program counter".to_string()))?;
 
         // Last mandatory thing to set -> the address pointing to the FDT (also called DTB).
         // "The device tree blob (dtb) must be placed on an 8-byte boundary and must
@@ -163,7 +183,7 @@ pub fn setup_boot_regs(
             arm64_core_reg_id!(KVM_REG_SIZE_U64, regs0),
             get_fdt_addr(mem) as u64,
         )
-        .map_err(Error::SetCoreRegister)?;
+        .map_err(|e| Error::SetCoreRegister(e, "X0".to_string()))?;
     }
     Ok(())
 }
@@ -196,6 +216,197 @@ pub fn read_mpidr(vcpu: &VcpuFd) -> Result<u64> {
     vcpu.get_one_reg(MPIDR_EL1).map_err(Error::GetSysRegister)
 }
 
+/// Get the state of the core registers.
+///
+/// # Arguments
+///
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+/// * `state` - Structure for returning the state of the core registers.
+pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Result<()> {
+    let mut off = offset__of!(user_pt_regs, regs);
+    // There are 31 user_pt_regs:
+    // https://elixir.free-electrons.com/linux/v4.14.174/source/arch/arm64/include/uapi/asm/ptrace.h#L72
+    // These actually are the general-purpose registers of the Armv8-a
+    // architecture (i.e x0-x30 if used as a 64bit register or w0-w30 when used as a 32bit register).
+    for i in 0..NR_GP_REGS {
+        let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
+        state.push(kvm_one_reg {
+            id,
+            addr: vcpu
+                .get_one_reg(id)
+                .map_err(|e| Error::GetCoreRegister(e, format!("X{}", i)))?,
+        });
+        off += std::mem::size_of::<u64>();
+    }
+
+    // We are now entering the "Other register" section of the ARMv8-a architecture.
+    // First one, stack pointer.
+    let off = offset__of!(user_pt_regs, sp);
+    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
+    state.push(kvm_one_reg {
+        id,
+        addr: vcpu
+            .get_one_reg(id)
+            .map_err(|e| Error::GetCoreRegister(e, "stack pointer".to_string()))?,
+    });
+
+    // Second one, the program counter.
+    let off = offset__of!(user_pt_regs, pc);
+    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
+    state.push(kvm_one_reg {
+        id,
+        addr: vcpu
+            .get_one_reg(id)
+            .map_err(|e| Error::GetCoreRegister(e, "program counter".to_string()))?,
+    });
+
+    // Next is the processor state.
+    let off = offset__of!(user_pt_regs, pstate);
+    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
+    state.push(kvm_one_reg {
+        id,
+        addr: vcpu
+            .get_one_reg(id)
+            .map_err(|e| Error::GetCoreRegister(e, "processor state".to_string()))?,
+    });
+
+    // The stack pointer associated with EL1.
+    let off = offset__of!(kvm_regs, sp_el1);
+    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
+    state.push(kvm_one_reg {
+        id,
+        addr: vcpu
+            .get_one_reg(id)
+            .map_err(|e| Error::GetCoreRegister(e, "SP_EL1".to_string()))?,
+    });
+
+    // Exception Link Register for EL1, when taking an exception to EL1, this register
+    // holds the address to which to return afterwards.
+    let off = offset__of!(kvm_regs, elr_el1);
+    let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
+    state.push(kvm_one_reg {
+        id,
+        addr: vcpu
+            .get_one_reg(id)
+            .map_err(|e| Error::GetCoreRegister(e, "ELR_EL1".to_string()))?,
+    });
+
+    // Saved Program Status Registers, there are 5 of them used in the kernel.
+    let mut off = offset__of!(kvm_regs, spsr);
+    for i in 0..KVM_NR_SPSR {
+        let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
+        state.push(kvm_one_reg {
+            id,
+            addr: vcpu
+                .get_one_reg(id)
+                .map_err(|e| Error::GetCoreRegister(e, format!("SPSR{}", i)))?,
+        });
+        off += std::mem::size_of::<u64>();
+    }
+
+    // Now moving on to floating point registers which are stored in the user_fpsimd_state in the kernel:
+    // https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/include/uapi/asm/kvm.h#L53
+    let mut off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, vregs);
+    for i in 0..NR_FP_VREGS {
+        let id = arm64_core_reg_id!(KVM_REG_SIZE_U128, off);
+        state.push(kvm_one_reg {
+            id,
+            addr: vcpu
+                .get_one_reg(id)
+                .map_err(|e| Error::GetCoreRegister(e, format!("FP_VREG{}", i)))?,
+        });
+        off += mem::size_of::<u128>();
+    }
+
+    // Floating-point Status Register.
+    let off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, fpsr);
+    let id = arm64_core_reg_id!(KVM_REG_SIZE_U32, off);
+    state.push(kvm_one_reg {
+        id,
+        addr: vcpu
+            .get_one_reg(id)
+            .map_err(|e| Error::GetCoreRegister(e, "FPSR".to_string()))?,
+    });
+
+    // Floating-point Control Register.
+    let off = offset__of!(kvm_regs, fp_regs) + offset__of!(user_fpsimd_state, fpcr);
+    let id = arm64_core_reg_id!(KVM_REG_SIZE_U32, off);
+    state.push(kvm_one_reg {
+        id,
+        addr: vcpu
+            .get_one_reg(id)
+            .map_err(|e| Error::GetCoreRegister(e, "FPCR".to_string()))?,
+    });
+
+    Ok(())
+}
+
+/// Get the state of the system registers.
+///
+/// # Arguments
+///
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+/// * `state` - Structure for returning the state of the system registers.
+pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Result<()> {
+    // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
+    // around 500 registers.
+    let mut reg_list = RegList::new(512);
+    vcpu.get_reg_list(&mut reg_list)
+        .map_err(Error::GetRegList)?;
+
+    // At this point reg_list should contain: core registers and system registers.
+    // The register list contains the number of registers and their ids. We will be needing to
+    // call KVM_GET_ONE_REG on each id in order to save all of them. We carve out from the list
+    // the core registers which are represented in the kernel by kvm_regs structure and for which
+    // we can calculate the id based on the offset in the structure.
+    reg_list.retain(|regid| is_system_register(*regid));
+
+    // Now, for the rest of the registers left in the previously fetched register list, we are
+    // simply calling KVM_GET_ONE_REG.
+    let indices = reg_list.as_slice();
+    for index in indices.iter() {
+        state.push(kvm_bindings::kvm_one_reg {
+            id: *index,
+            addr: vcpu.get_one_reg(*index).map_err(Error::GetSysRegister)?,
+        });
+    }
+
+    Ok(())
+}
+
+/// Set the state of the system registers.
+///
+/// # Arguments
+///
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+/// * `state` - Structure containing the state of the system registers.
+pub fn restore_registers(vcpu: &VcpuFd, state: &[kvm_one_reg]) -> Result<()> {
+    for reg in state {
+        vcpu.set_one_reg(reg.id, reg.addr)
+            .map_err(Error::SetSysRegister)?;
+    }
+    Ok(())
+}
+
+/// Get the multistate processor.
+///
+/// # Arguments
+///
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+pub fn get_mpstate(vcpu: &VcpuFd) -> Result<kvm_mp_state> {
+    vcpu.get_mp_state().map_err(Error::GetMP)
+}
+
+/// Set the state of the system registers.
+///
+/// # Arguments
+///
+/// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
+/// * `state` - Structure for returning the state of the system registers.
+pub fn set_mpstate(vcpu: &VcpuFd, state: kvm_mp_state) -> Result<()> {
+    vcpu.set_mp_state(state).map_err(Error::SetMP)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,7 +425,7 @@ mod tests {
         assert!(res.is_err());
         assert_eq!(
             format!("{}", res.unwrap_err()),
-            "Failed to set core register: Exec format error (os error 8)"
+            "Failed to set processor state register: Exec format error (os error 8)"
         );
 
         let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
