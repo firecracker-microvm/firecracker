@@ -13,7 +13,8 @@ use kvm_bindings::{
     KVM_REG_ARM64_SYSREG_CRM_SHIFT, KVM_REG_ARM64_SYSREG_CRN_MASK, KVM_REG_ARM64_SYSREG_CRN_SHIFT,
     KVM_REG_ARM64_SYSREG_OP0_MASK, KVM_REG_ARM64_SYSREG_OP0_SHIFT, KVM_REG_ARM64_SYSREG_OP1_MASK,
     KVM_REG_ARM64_SYSREG_OP1_SHIFT, KVM_REG_ARM64_SYSREG_OP2_MASK, KVM_REG_ARM64_SYSREG_OP2_SHIFT,
-    KVM_REG_ARM_CORE, KVM_REG_SIZE_U64,
+    KVM_REG_ARM_COPROC_MASK, KVM_REG_ARM_CORE, KVM_REG_SIZE_MASK, KVM_REG_SIZE_U32,
+    KVM_REG_SIZE_U64,
 };
 use kvm_ioctls::VcpuFd;
 use vm_memory::GuestMemoryMmap;
@@ -167,6 +168,25 @@ pub fn setup_boot_regs(
     Ok(())
 }
 
+/// Specifies whether a particular register is a system register or not.
+/// The kernel splits the registers on aarch64 in core registers and system registers.
+/// So, below we get the system registers by checking that they are not core registers.
+///
+/// # Arguments
+///
+/// * `regid` - The index of the register we are checking.
+pub fn is_system_register(regid: u64) -> bool {
+    if (regid & KVM_REG_ARM_COPROC_MASK as u64) == KVM_REG_ARM_CORE as u64 {
+        return false;
+    }
+
+    let size = regid & KVM_REG_SIZE_MASK;
+    if size != KVM_REG_SIZE_U32 && size != KVM_REG_SIZE_U64 {
+        panic!("Unexpected register size for system register {}", size);
+    }
+    true
+}
+
 /// Read the MPIDR - Multiprocessor Affinity Register.
 ///
 /// # Arguments
@@ -221,5 +241,16 @@ mod tests {
 
         vcpu.vcpu_init(&kvi).unwrap();
         assert_eq!(read_mpidr(&vcpu).unwrap(), 0x8000_0000);
+    }
+
+    #[test]
+    fn test_is_system_register() {
+        let offset = offset__of!(user_pt_regs, pc);
+        let regid = arm64_core_reg_id!(KVM_REG_SIZE_U64, offset);
+        assert!(!is_system_register(regid));
+        let regid = KVM_REG_ARM64 as u64
+            | KVM_REG_SIZE_U64 as u64
+            | kvm_bindings::KVM_REG_ARM64_SYSREG as u64;
+        assert!(is_system_register(regid));
     }
 }
