@@ -911,13 +911,7 @@ mod tests {
             .recv_timeout(Duration::from_millis(1000))
             .expect("did not receive event response from vcpu")
         {
-            #[cfg(target_arch = "x86_64")]
             VcpuResponse::SavedState(state) => state,
-            #[cfg(target_arch = "aarch64")]
-            VcpuResponse::Error(e) => {
-                assert_eq!(e.to_string(), "Failed to run action on vcpu: Saving the state is not yet supported on this architecture".to_string());
-                Box::new(VcpuState::default())
-            }
             _ => panic!("unexpected response"),
         };
 
@@ -925,12 +919,7 @@ mod tests {
         queue_event_expect_response(
             &vcpu_handle,
             VcpuEvent::RestoreState(vcpu_state),
-            #[cfg(target_arch = "x86_64")]
             VcpuResponse::RestoredState,
-            #[cfg(target_arch = "aarch64")]
-            VcpuResponse::Error(Error::VcpuResponse(
-                crate::vstate::vcpu::VcpuError::UnsupportedAction("Restoring the state"),
-            )),
         );
     }
 
