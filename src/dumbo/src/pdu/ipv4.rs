@@ -11,9 +11,9 @@ use std::convert::From;
 use std::net::Ipv4Addr;
 use std::result::Result;
 
-use pdu::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
-use pdu::ethernet;
-use pdu::Incomplete;
+use crate::pdu::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
+use crate::pdu::ethernet;
+use crate::pdu::Incomplete;
 
 const VERSION_AND_IHL_OFFSET: usize = 0;
 const DSCP_AND_ECN_OFFSET: usize = 1;
@@ -680,7 +680,7 @@ mod tests {
 
         {
             let mut eth =
-                ::pdu::ethernet::EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, 0)
+                crate::pdu::ethernet::EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, 0)
                     .unwrap();
             IPv4Packet::from_bytes_unchecked(eth.inner_mut().payload_mut())
                 .set_destination_address(ip);
@@ -689,7 +689,7 @@ mod tests {
 
         {
             let mut eth =
-                ::pdu::ethernet::EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, 0)
+                crate::pdu::ethernet::EthernetFrame::write_incomplete(buf.as_mut(), mac, mac, 0)
                     .unwrap();
             IPv4Packet::from_bytes_unchecked(eth.inner_mut().payload_mut())
                 .set_destination_address(other_ip);

@@ -11,8 +11,8 @@
 
 use std::net::Ipv4Addr;
 
-use pdu::bytes::NetworkBytesMut;
-use pdu::{ChecksumProto, Incomplete};
+use crate::pdu::bytes::NetworkBytesMut;
+use crate::pdu::{ChecksumProto, Incomplete};
 
 use super::bytes::{InnerBytes, NetworkBytes};
 
@@ -209,7 +209,7 @@ impl<'a, T: NetworkBytesMut> Incomplete<UdpDatagram<'a, T>> {
 mod tests {
     use std::fmt;
 
-    use pdu::udp::UdpDatagram;
+    use crate::pdu::udp::UdpDatagram;
 
     use super::*;
 
