@@ -20,7 +20,7 @@ pub mod persist;
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
-use data_store::{Error as MmdsError, Mmds, OutputFormat};
+use crate::data_store::{Error as MmdsError, Mmds, OutputFormat};
 use micro_http::{Body, MediaType, Method, Request, Response, StatusCode, Version};
 
 lazy_static! {
