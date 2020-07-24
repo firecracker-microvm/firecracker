@@ -16,7 +16,6 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::Barrier;
 use std::thread;
 
-use super::TimestampUs;
 use super::{FC_EXIT_CODE_GENERIC_ERROR, FC_EXIT_CODE_OK};
 
 use arch;
@@ -46,12 +45,6 @@ use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
 };
 use vmm_config::machine_config::CpuFeaturesTemplate;
-
-#[cfg(target_arch = "x86_64")]
-const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x03f0;
-#[cfg(target_arch = "aarch64")]
-const MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE: u64 = 0x4000_0000;
-const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub(crate) const VCPU_RTSIG_OFFSET: i32 = 0;
@@ -604,7 +597,6 @@ type VcpuCell = Cell<Option<*const Vcpu>>;
 pub struct Vcpu {
     fd: VcpuFd,
     index: u8,
-    create_ts: TimestampUs,
     mmio_bus: Option<devices::Bus>,
     exit_evt: EventFd,
 
@@ -717,14 +709,12 @@ impl Vcpu {
     /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
     /// * `msr_list` - The `MsrList` listing the supported MSRs for this vcpu.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
-    /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
     #[cfg(target_arch = "x86_64")]
     pub fn new_x86_64(
         index: u8,
         vm_fd: &VmFd,
         msr_list: MsrList,
         exit_evt: EventFd,
-        create_ts: TimestampUs,
     ) -> Result<Self> {
         let kvm_vcpu = vm_fd.create_vcpu(index).map_err(Error::VcpuFd)?;
         let (event_sender, event_receiver) = channel();
@@ -733,7 +723,6 @@ impl Vcpu {
         Ok(Vcpu {
             fd: kvm_vcpu,
             index,
-            create_ts,
             mmio_bus: None,
             exit_evt,
             pio_bus: None,
@@ -752,14 +741,8 @@ impl Vcpu {
     /// * `id` - Represents the CPU number between [0, max vcpus).
     /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
-    /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
     #[cfg(target_arch = "aarch64")]
-    pub fn new_aarch64(
-        id: u8,
-        vm_fd: &VmFd,
-        exit_evt: EventFd,
-        create_ts: TimestampUs,
-    ) -> Result<Self> {
+    pub fn new_aarch64(id: u8, vm_fd: &VmFd, exit_evt: EventFd) -> Result<Self> {
         let kvm_vcpu = vm_fd.create_vcpu(id).map_err(Error::VcpuFd)?;
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
@@ -767,7 +750,6 @@ impl Vcpu {
         Ok(Vcpu {
             fd: kvm_vcpu,
             index: id,
-            create_ts,
             mmio_bus: None,
             exit_evt,
             mpidr: 0,
@@ -914,14 +896,6 @@ impl Vcpu {
         ))
     }
 
-    fn check_boot_complete_signal(&self, addr: u64, data: &[u8]) {
-        if addr == MAGIC_IOPORT_SIGNAL_GUEST_BOOT_COMPLETE
-            && data[0] == MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE
-        {
-            super::Vmm::log_boot_time(&self.create_ts);
-        }
-    }
-
     #[cfg(target_arch = "x86_64")]
     fn save_state(&self) -> Result<VcpuState> {
         /*
@@ -1056,8 +1030,6 @@ impl Vcpu {
                 }
                 #[cfg(target_arch = "x86_64")]
                 VcpuExit::IoOut(addr, data) => {
-                    self.check_boot_complete_signal(u64::from(addr), data);
-
                     if let Some(pio_bus) = &self.pio_bus {
                         pio_bus.write(u64::from(addr), data);
                         METRICS.vcpu.exit_io_out.inc();
@@ -1073,9 +1045,6 @@ impl Vcpu {
                 }
                 VcpuExit::MmioWrite(addr, data) => {
                     if let Some(mmio_bus) = &self.mmio_bus {
-                        #[cfg(target_arch = "aarch64")]
-                        self.check_boot_complete_signal(addr, data);
-
                         mmio_bus.write(addr, data);
                         METRICS.vcpu.exit_mmio_write.inc();
                     }
@@ -1500,19 +1469,11 @@ pub(crate) mod tests {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             vm.setup_irqchip().unwrap();
-            vcpu = Vcpu::new_x86_64(
-                1,
-                vm.fd(),
-                vm.supported_msrs().clone(),
-                exit_evt,
-                super::super::TimestampUs::default(),
-            )
-            .unwrap();
+            vcpu = Vcpu::new_x86_64(1, vm.fd(), vm.supported_msrs().clone(), exit_evt).unwrap();
         }
         #[cfg(target_arch = "aarch64")]
         {
-            vcpu = Vcpu::new_aarch64(1, vm.fd(), exit_evt, super::super::TimestampUs::default())
-                .unwrap();
+            vcpu = Vcpu::new_aarch64(1, vm.fd(), exit_evt).unwrap();
             vm.setup_irqchip(1).expect("Cannot setup irqchip");
         }
 
@@ -1596,7 +1557,6 @@ pub(crate) mod tests {
             vm.fd(),
             vm.supported_msrs().clone(),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            super::super::TimestampUs::default(),
         )
         .unwrap();
         // Trying to setup irqchip after KVM_VCPU_CREATE was called will result in error.
@@ -1610,13 +1570,8 @@ pub(crate) mod tests {
 
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         let vcpu_count = 1;
-        let _vcpu = Vcpu::new_aarch64(
-            1,
-            vm.fd(),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
+        let _vcpu =
+            Vcpu::new_aarch64(1, vm.fd(), EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap();
 
         vm.setup_irqchip(vcpu_count).expect("Cannot setup irqchip");
         // Trying to setup two irqchips will result in EEXIST error.
@@ -1675,26 +1630,16 @@ pub(crate) mod tests {
         assert!(vm.memory_init(&gm, kvm.max_memslots(), false).is_ok());
 
         // Try it for when vcpu id is 0.
-        let mut vcpu = Vcpu::new_aarch64(
-            0,
-            vm.fd(),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
+        let mut vcpu =
+            Vcpu::new_aarch64(0, vm.fd(), EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap();
 
         assert!(vcpu
             .configure_aarch64_for_boot(vm.fd(), &gm, GuestAddress(0))
             .is_ok());
 
         // Try it for when vcpu id is NOT 0.
-        let mut vcpu = Vcpu::new_aarch64(
-            1,
-            vm.fd(),
-            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            super::super::TimestampUs::default(),
-        )
-        .unwrap();
+        let mut vcpu =
+            Vcpu::new_aarch64(1, vm.fd(), EventFd::new(libc::EFD_NONBLOCK).unwrap()).unwrap();
 
         assert!(vcpu
             .configure_aarch64_for_boot(vm.fd(), &gm, GuestAddress(0))

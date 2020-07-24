@@ -268,8 +268,9 @@ fn snapshot_state_from_file(
     version_map: VersionMap,
 ) -> std::result::Result<MicrovmState, LoadSnapshotError> {
     use self::LoadSnapshotError::{DeserializeMicrovmState, SnapshotBackingFile};
-    let mut snapshot_file = File::open(snapshot_path).map_err(SnapshotBackingFile)?;
-    Snapshot::load(&mut snapshot_file, version_map).map_err(DeserializeMicrovmState)
+    let mut snapshot_reader =
+        std::io::BufReader::new(File::open(snapshot_path).map_err(SnapshotBackingFile)?);
+    Snapshot::load(&mut snapshot_reader, version_map).map_err(DeserializeMicrovmState)
 }
 
 fn guest_memory_from_file(

@@ -361,6 +361,8 @@ pub struct BlockDeviceMetrics {
     pub read_count: SharedMetric,
     /// Number of successful write operations.
     pub write_count: SharedMetric,
+    /// Number of rate limiter throttling events.
+    pub rate_limiter_throttled_events: SharedMetric,
 }
 
 /// Metrics specific to the i8042 device.

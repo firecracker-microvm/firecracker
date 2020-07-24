@@ -74,7 +74,7 @@ impl Header {
 pub struct Headers {
     /// The `Content-Length` header field tells us how many bytes we need to receive
     /// from the source after the headers.
-    content_length: i32,
+    content_length: u32,
     /// The `Expect` header field is set when the headers contain the entry "Expect: 100-continue".
     /// This means that, per HTTP/1.1 specifications, we must send a response with the status code
     /// 100 after we have received the headers in order to receive the body of the request. This
@@ -134,7 +134,7 @@ impl Headers {
                 }
                 if let Ok(head) = Header::try_from(entry[0].as_bytes()) {
                     match head {
-                        Header::ContentLength => match entry[1].trim().parse::<i32>() {
+                        Header::ContentLength => match entry[1].trim().parse::<u32>() {
                             Ok(content_length) => {
                                 self.content_length = content_length;
                                 Ok(())
@@ -180,7 +180,7 @@ impl Headers {
     }
 
     /// Returns the content length of the body.
-    pub fn content_length(&self) -> i32 {
+    pub fn content_length(&self) -> u32 {
         self.content_length
     }
 
@@ -318,7 +318,7 @@ mod tests {
     use super::*;
 
     impl Headers {
-        pub fn new(content_length: i32, expect: bool, chunked: bool) -> Self {
+        pub fn new(content_length: u32, expect: bool, chunked: bool) -> Self {
             Self {
                 content_length,
                 expect,
@@ -471,6 +471,12 @@ mod tests {
         assert!(header
             .parse_header_line(b"Accept: application/json-patch")
             .is_err());
+
+        // Invalid content length.
+        assert_eq!(
+            header.parse_header_line(b"Content-Length: -1"),
+            Err(RequestError::InvalidHeader)
+        );
     }
 
     #[test]

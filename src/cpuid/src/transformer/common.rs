@@ -138,7 +138,6 @@ pub fn use_host_cpuid_function(
 mod tests {
     use super::*;
     use common::tests::get_topoext_fn;
-    use kvm_bindings::kvm_cpuid_entry2;
     use transformer::VmSpec;
 
     #[test]
@@ -300,7 +299,7 @@ mod tests {
         // check that it returns Err when there are too many entriesentry.function == topoext_fn
         let mut cpuid = CpuId::new(kvm_bindings::KVM_MAX_CPUID_ENTRIES);
         match use_host_cpuid_function(&mut cpuid, topoext_fn, true) {
-            Err(Error::FamError(vmm_sys_util::fam::Error::SizeLimitExceeded)) => {}
+            Err(Error::FamError(utils::fam::Error::SizeLimitExceeded)) => {}
             _ => panic!("Wrong behavior"),
         }
     }

@@ -83,7 +83,6 @@ use seccomp::BpfProgramRef;
 use snapshot::Persist;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
-use utils::time::TimestampUs;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap};
 #[cfg(target_arch = "x86_64")]
 use vstate::VcpuState;
@@ -353,20 +352,6 @@ impl Vmm {
         unsafe {
             libc::_exit(exit_code);
         }
-    }
-
-    fn log_boot_time(t0_ts: &TimestampUs) {
-        let now_tm_us = TimestampUs::default();
-
-        let boot_time_us = now_tm_us.time_us - t0_ts.time_us;
-        let boot_time_cpu_us = now_tm_us.cputime_us - t0_ts.cputime_us;
-        info!(
-            "Guest-boot-time = {:>6} us {} ms, {:>6} CPU us {} CPU ms",
-            boot_time_us,
-            boot_time_us / 1000,
-            boot_time_cpu_us,
-            boot_time_cpu_us / 1000
-        );
     }
 
     /// Returns a reference to the inner KVM Vm object.

@@ -60,6 +60,8 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     )?],
                 ],
             ),
+            #[cfg(target_env = "gnu")]
+            allow_syscall(libc::SYS_getpid),
             allow_syscall(libc::SYS_getrandom),
             allow_syscall_if(libc::SYS_ioctl, super::create_ioctl_seccomp_rule()?),
             allow_syscall(libc::SYS_lseek),
@@ -105,6 +107,8 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     (sigrtmin() + super::super::vstate::VCPU_RTSIG_OFFSET) as u64
                 )?]],
             ),
+            #[cfg(target_env = "gnu")]
+            allow_syscall(libc::SYS_tgkill),
             allow_syscall(libc::SYS_timerfd_create),
             allow_syscall(libc::SYS_timerfd_settime),
             allow_syscall(libc::SYS_write),

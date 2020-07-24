@@ -160,7 +160,9 @@ impl Block {
         if let Err(e) = self.queue_evts[0].read() {
             error!("Failed to get queue event: {:?}", e);
             METRICS.block.event_fails.inc();
-        } else if !self.rate_limiter.is_blocked() && self.process_queue(0) {
+        } else if self.rate_limiter.is_blocked() {
+            METRICS.block.rate_limiter_throttled_events.inc();
+        } else if self.process_queue(0) {
             let _ = self.signal_used_queue();
         }
     }
@@ -192,6 +194,7 @@ impl Block {
                         // Stop processing the queue and return this descriptor chain to the
                         // avail ring, for later processing.
                         queue.undo_pop();
+                        METRICS.block.rate_limiter_throttled_events.inc();
                         break;
                     }
                     // Exercise the rate limiter only if this request is of data transfer type.
@@ -209,6 +212,7 @@ impl Block {
                             // Stop processing the queue and return this descriptor chain to the
                             // avail ring, for later processing.
                             queue.undo_pop();
+                            METRICS.block.rate_limiter_throttled_events.inc();
                             break;
                         }
                     }
@@ -874,7 +878,11 @@ pub(crate) mod tests {
         {
             // Trigger the attempt to write.
             block.queue_evts[0].write(1).unwrap();
-            block.process(&queue_evt, &mut event_manager);
+            check_metric_after_block!(
+                &METRICS.block.rate_limiter_throttled_events,
+                1,
+                block.process(&queue_evt, &mut event_manager)
+            );
 
             // Assert that limiter is blocked.
             assert!(block.rate_limiter().is_blocked());
@@ -890,9 +898,14 @@ pub(crate) mod tests {
 
         // Following write procedure should succeed because bandwidth should now be available.
         {
-            block.process(&rate_limiter_evt, &mut event_manager);
+            check_metric_after_block!(
+                &METRICS.block.rate_limiter_throttled_events,
+                0,
+                block.process(&rate_limiter_evt, &mut event_manager)
+            );
             // Validate the rate_limiter is no longer blocked.
             assert!(!block.rate_limiter().is_blocked());
+
             // Make sure the virtio queue operation completed this time.
             assert_eq!(block.interrupt_evt.read().unwrap(), 1);
 
@@ -939,7 +952,11 @@ pub(crate) mod tests {
         {
             // Trigger the attempt to write.
             block.queue_evts[0].write(1).unwrap();
-            block.process(&queue_evt, &mut event_manager);
+            check_metric_after_block!(
+                &METRICS.block.rate_limiter_throttled_events,
+                1,
+                block.process(&queue_evt, &mut event_manager)
+            );
 
             // Assert that limiter is blocked.
             assert!(block.rate_limiter().is_blocked());
@@ -953,7 +970,11 @@ pub(crate) mod tests {
         {
             // Trigger the attempt to write.
             block.queue_evts[0].write(1).unwrap();
-            block.process(&queue_evt, &mut event_manager);
+            check_metric_after_block!(
+                &METRICS.block.rate_limiter_throttled_events,
+                1,
+                block.process(&queue_evt, &mut event_manager)
+            );
 
             // Assert that limiter is blocked.
             assert!(block.rate_limiter().is_blocked());
@@ -969,7 +990,11 @@ pub(crate) mod tests {
 
         // Following write procedure should succeed because ops budget should now be available.
         {
-            block.process(&rate_limiter_evt, &mut event_manager);
+            check_metric_after_block!(
+                &METRICS.block.rate_limiter_throttled_events,
+                0,
+                block.process(&rate_limiter_evt, &mut event_manager)
+            );
             // Validate the rate_limiter is no longer blocked.
             assert!(!block.rate_limiter().is_blocked());
             // Make sure the virtio queue operation completed this time.

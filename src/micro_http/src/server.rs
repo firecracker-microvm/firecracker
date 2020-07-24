@@ -409,7 +409,7 @@ impl HttpServer {
     /// epoll.ctl(
     ///     epoll::ControlOperation::Add,
     ///     server.epoll().as_raw_fd(),
-    ///     &epoll::EpollEvent::new(epoll::EventSet::IN, 1234u64),
+    ///     epoll::EpollEvent::new(epoll::EventSet::IN, 1234u64),
     /// )
     /// .unwrap();
     ///
@@ -513,7 +513,7 @@ impl HttpServer {
     fn epoll_mod(epoll: &epoll::Epoll, stream_fd: RawFd, evset: epoll::EventSet) -> Result<()> {
         let event = epoll::EpollEvent::new(evset, stream_fd as u64);
         epoll
-            .ctl(epoll::ControlOperation::Modify, stream_fd, &event)
+            .ctl(epoll::ControlOperation::Modify, stream_fd, event)
             .map_err(ServerError::IOError)
     }
 
@@ -526,7 +526,7 @@ impl HttpServer {
             .ctl(
                 epoll::ControlOperation::Add,
                 stream_fd,
-                &epoll::EpollEvent::new(epoll::EventSet::IN, stream_fd as u64),
+                epoll::EpollEvent::new(epoll::EventSet::IN, stream_fd as u64),
             )
             .map_err(ServerError::IOError)
     }
