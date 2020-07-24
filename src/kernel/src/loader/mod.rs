@@ -7,7 +7,6 @@
 
 //! Helper for loading a kernel image in the guest memory.
 
-use std;
 use std::ffi::CString;
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
