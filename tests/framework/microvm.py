@@ -151,7 +151,7 @@ class Microvm:
 
         if self._memory_monitor and self._memory_monitor.is_alive():
             self._memory_monitor.signal_stop()
-            self._memory_monitor.join()
+            self._memory_monitor.join(timeout=1)
             self._memory_monitor.check_samples()
 
         if self._cpu_load_monitor:
