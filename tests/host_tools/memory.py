@@ -34,6 +34,7 @@ class MemoryMonitor(Thread):
         Thread.__init__(self)
         self._pid = None
         self._guest_mem_mib = None
+        self._guest_mem_start = None
         self._exceeded_queue = Queue()
         self._threshold = self.MEMORY_THRESHOLD
         self._should_stop = False
@@ -98,14 +99,18 @@ class MemoryMonitor(Thread):
                 if not tokens:
                     break
                 try:
+                    address = int(tokens[0])
                     total_size = int(tokens[1])
                     rss = int(tokens[2])
                 except ValueError:
                     # This line doesn't contain memory related information.
                     continue
-                if total_size == self.guest_mem_mib * 1024:
-                    # This is the guest's memory region.
-                    # TODO Check for the address of the guest's memory instead.
+                if self._guest_mem_start is None and \
+                   total_size == self.guest_mem_mib * 1024:
+                    # This is the start of the guest's memory region.
+                    self._guest_mem_start = address
+                    continue
+                if self.is_in_guest_mem_region(address):
                     continue
                 mem_total += rss
 
@@ -117,6 +122,13 @@ class MemoryMonitor(Thread):
                 return
 
             time.sleep(self.MEMORY_SAMPLE_TIMEOUT_S)
+
+    def is_in_guest_mem_region(self, address):
+        """Check if the address is inside the guest memory region."""
+        if self._guest_mem_start is None:
+            return False
+        guest_mem_end = self._guest_mem_start + self.guest_mem_mib
+        return self._guest_mem_start <= address < guest_mem_end
 
     def check_samples(self):
         """Check that there are no samples over the threshold."""
