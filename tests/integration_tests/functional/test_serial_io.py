@@ -58,7 +58,7 @@ def test_serial_console_login(test_microvm_with_ssh):
 
     # We don't need to monitor the memory for this test because we are
     # just rebooting and the process dies before pmap gets the RSS.
-    microvm.memory_events_queue = None
+    microvm.memory_monitor = None
 
     # Set up the microVM with 1 vCPU and a serial console.
     microvm.basic_config(vcpu_count=1,

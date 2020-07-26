@@ -13,7 +13,6 @@ destroy microvms.
 import json
 import logging
 import os
-from queue import Queue
 import re
 import select
 import time
@@ -124,9 +123,9 @@ class Microvm:
 
         # Deal with memory monitoring.
         if monitor_memory:
-            self._memory_events_queue = Queue()
+            self._memory_monitor = mem_tools.MemoryMonitor()
         else:
-            self._memory_events_queue = None
+            self._memory_monitor = None
 
         # Cpu load monitoring has to be explicitly enabled using
         # the `enable_cpu_load_monitor` method.
@@ -150,9 +149,10 @@ class Microvm:
             utils.run_cmd(
                 'screen -XS {} kill'.format(self._session_name))
 
-        if self._memory_events_queue and not self._memory_events_queue.empty():
-            raise mem_tools.MemoryUsageExceededException(
-                self._memory_events_queue.get())
+        if self._memory_monitor and self._memory_monitor.is_alive():
+            self._memory_monitor.signal_stop()
+            self._memory_monitor.join()
+            self._memory_monitor.check_samples()
 
         if self._cpu_load_monitor:
             self._cpu_load_monitor.signal_stop()
@@ -242,14 +242,14 @@ class Microvm:
         self._ssh_config.__setattr__(key, value)
 
     @property
-    def memory_events_queue(self):
-        """Get the memory usage events queue."""
-        return self._memory_events_queue
+    def memory_monitor(self):
+        """Get the memory monitor."""
+        return self._memory_monitor
 
-    @memory_events_queue.setter
-    def memory_events_queue(self, queue):
-        """Set the memory usage events queue."""
-        self._memory_events_queue = queue
+    @memory_monitor.setter
+    def memory_monitor(self, monitor):
+        """Set the memory monitor."""
+        self._memory_monitor = monitor
 
     def flush_metrics(self, metrics_fifo):
         """Flush the microvm metrics.
@@ -516,12 +516,10 @@ class Microvm:
         )
         assert self._api_session.is_status_no_content(response.status_code)
 
-        if self.memory_events_queue:
-            mem_tools.threaded_memory_monitor(
-                mem_size_mib,
-                self.jailer_clone_pid,
-                self._memory_events_queue
-            )
+        if self.memory_monitor:
+            self.memory_monitor.guest_mem_mib = mem_size_mib
+            self.memory_monitor.pid = self.jailer_clone_pid
+            self.memory_monitor.start()
 
         boot_source_args = {
             'kernel_image_path': self.create_jailed_resource(self.kernel_file),
