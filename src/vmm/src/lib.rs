@@ -122,6 +122,12 @@ pub enum Error {
     EventManager(event_manager::Error),
     /// I8042 Error.
     I8042Error(devices::legacy::I8042DeviceError),
+    /// GPIO Error.
+    #[cfg(target_arch = "aarch64")]
+    GPIOError(devices::legacy::GPIODeviceError),
+    /// GPIO Controller Invalid Error.
+    #[cfg(target_arch = "aarch64")]
+    GPIOInvalidError,
     /// Cannot access kernel file.
     KernelFile(io::Error),
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
@@ -173,6 +179,10 @@ impl Display for Error {
             EventFd(e) => write!(f, "Event fd error: {}", e),
             EventManager(e) => write!(f, "Event manager error: {:?}", e),
             I8042Error(e) => write!(f, "I8042 error: {}", e),
+            #[cfg(target_arch = "aarch64")]
+            GPIOError(e) => write!(f, "GPIO controller error: {}", e),
+            #[cfg(target_arch = "aarch64")]
+            GPIOInvalidError => write!(f, "Invalid GPIO controller."),
             KernelFile(e) => write!(f, "Cannot access kernel file: {}", e),
             KvmContext(e) => write!(f, "Failed to validate KVM support: {:?}", e),
             #[cfg(target_arch = "x86_64")]
@@ -330,6 +340,19 @@ impl Vmm {
             .expect("i8042 lock was poisoned")
             .trigger_ctrl_alt_del()
             .map_err(Error::I8042Error)
+    }
+
+    /// Injects gpio input pin 3 keypress in the gpio controller device.
+    #[cfg(target_arch = "aarch64")]
+    pub fn press_gpio_power_off(&mut self) -> Result<()> {
+        match self.mmio_device_manager.gpio_pl061 {
+            Some(ref gpio_pl061) => gpio_pl061
+                .lock()
+                .expect("gpio controller lock was poisoned")
+                .trigger_key(3, self.vm.fd())
+                .map_err(Error::GPIOError),
+            None => Err(Error::GPIOInvalidError),
+        }
     }
 
     /// Waits for all vCPUs to exit and terminates the Firecracker process.

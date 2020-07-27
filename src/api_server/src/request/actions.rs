@@ -16,6 +16,7 @@ enum ActionType {
     FlushMetrics,
     InstanceStart,
     SendCtrlAltDel,
+    PressGPIOPowerOff,
 }
 
 // The model of the json body from a sync request. We use Serde to transform each associated
@@ -46,6 +47,17 @@ pub fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
 
             #[cfg(target_arch = "x86_64")]
             Ok(ParsedRequest::new_sync(VmmAction::SendCtrlAltDel))
+        }
+        ActionType::PressGPIOPowerOff => {
+            // PressGPIOPowerOff not supported on x86_64.
+            #[cfg(target_arch = "x86_64")]
+            return Err(Error::Generic(
+                StatusCode::BadRequest,
+                "PressGPIOPowerOff does not supported on x86_64.".to_string(),
+            ));
+
+            #[cfg(target_arch = "aarch64")]
+            Ok(ParsedRequest::new_sync(VmmAction::PressGPIOPowerOff))
         }
     }
 }
@@ -89,6 +101,28 @@ mod tests {
 
             let result = parse_put_actions(&Body::new(json));
             assert!(result.is_err());
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            let json = r#"{
+                "action_type": "PressGPIOPowerOff"
+            }"#;
+
+            let result = parse_put_actions(&Body::new(json));
+            assert!(result.is_err());
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            let json = r#"{
+                "action_type": "PressGPIOPowerOff"
+            }"#;
+
+            let req: ParsedRequest = ParsedRequest::new_sync(VmmAction::PressGPIOPowerOff);
+            let result = parse_put_actions(&Body::new(json));
+            assert!(result.is_ok());
+            assert!(result.unwrap().eq(&req));
         }
 
         {

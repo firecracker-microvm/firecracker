@@ -71,3 +71,40 @@ curl --unix-socket /tmp/firecracker.socket -i \
              \"action_type\": \"SendCtrlAltDel\"
     }"
 ```
+
+## PressGPIOPowerOff
+
+This action will inject GPIO Pin 3 keypress to the microvm. With specified configuration,
+gpio-keys driver could generate `KEY_POWER` button event based on this gpio changes.
+If udev rules(`70-power-switch.rules`) add the `power-switch` tag to the selected device,
+then when a `KEY_POWER` keypress is received, systemd-logind will initiate a shutdown in
+guest os. Since Firecracker exits on CPU reset, `PressGPIOPowerOff` can be used to trigger
+a clean shutdown of the microVM.
+
+For this action, Firecracker adds an emulated GPIO Pl061 controller and gpio-keys node
+in microvm.
+Driver support for both these devices needs to be present in the guest OS. For Linux,
+that means the guest kernel needs `CONFIG_GPIO_PL061`, `CONFIG_KEYBOARD_GPIO` and
+`CONFIG_KEYBOARD_GPIO_POLLED`.
+
+**Note1**: we must check `/lib/udev/rules.d/70-power-switch.rules` in the
+fs and add one following line in it if it doesn't exist.
+
+```bash
+SUBSYSTEM=="input", KERNEL=="event*", SUBSYSTEMS=="platform", ATTRS{keys}=="116",
+TAG+="power-switch"
+```
+
+**Note2** This action is only supported on `aarch64` architecture.
+
+### PressGPIOPowerOff Example
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT "http://localhost/actions" \
+    -H  "accept: application/json" \
+    -H  "Content-Type: application/json" \
+    -d "{
+             \"action_type\": \"PressGPIOPowerOff\"
+    }"
+```

@@ -73,6 +73,12 @@ pub enum VmmAction {
     LoadSnapshot(LoadSnapshotParams),
     /// Pause the guest, by pausing the microVM VCPUs.
     Pause,
+    /// Press emulated GPIO Pin 3 Button, which will generate a `KEY_POWER` button event in the
+    /// guest through gpio-keys driver.
+    /// If udev rules(70-power-switch.rules) add the "power-switch" tag to the selected device,
+    /// then when a KEY_POWER keypress is received, systemd-logind initiates a graceful shutdown.
+    #[cfg(target_arch = "aarch64")]
+    PressGPIOPowerOff,
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
     /// Set the MMDS configuration.
@@ -315,6 +321,8 @@ impl<'a> PrebootApiController<'a> {
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             CreateSnapshot(_) | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
+            #[cfg(target_arch = "aarch64")]
+            PressGPIOPowerOff => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
 
@@ -364,6 +372,8 @@ impl RuntimeApiController {
             FlushMetrics => self.flush_metrics().map(|_| VmmData::Empty),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
             Pause => self.pause().map(|_| VmmData::Empty),
+            #[cfg(target_arch = "aarch64")]
+            PressGPIOPowerOff => self.press_gpio_power_off().map(|_| VmmData::Empty),
             Resume => self.resume().map(|_| VmmData::Empty),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del().map(|_| VmmData::Empty),
@@ -451,6 +461,15 @@ impl RuntimeApiController {
             .lock()
             .expect("Poisoned lock")
             .send_ctrl_alt_del()
+            .map_err(VmmActionError::InternalVmm)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn press_gpio_power_off(&mut self) -> ActionResult {
+        self.vmm
+            .lock()
+            .expect("Poisoned lock")
+            .press_gpio_power_off()
             .map_err(VmmActionError::InternalVmm)
     }
 
