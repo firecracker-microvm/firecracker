@@ -2,9 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter};
-use std::fs::OpenOptions;
-use std::io::{Seek, SeekFrom};
-use std::path::Path;
 use std::result;
 use std::sync::{Arc, Mutex};
 
@@ -12,7 +9,6 @@ use super::Vmm;
 
 use super::Error as VmmError;
 use crate::builder::{self, StartMicrovmError};
-use crate::device_manager::mmio::MMIO_CFG_SPACE_OFF;
 #[cfg(target_arch = "x86_64")]
 use crate::persist::{self, CreateSnapshotError, LoadSnapshotError};
 use crate::resources::VmResources;
@@ -489,10 +485,10 @@ impl RuntimeApiController {
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
-    fn update_block_device_path<P: AsRef<Path>>(
+    fn update_block_device_path(
         &mut self,
         drive_id: &str,
-        path_on_host: P,
+        path_on_host: String,
     ) -> result::Result<(), DriveError> {
         if let Some(busdev) = self
             .vmm
@@ -500,7 +496,6 @@ impl RuntimeApiController {
             .expect("Poisoned lock")
             .get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id)
         {
-            let new_size;
             // Call the update_disk_image() handler on Block. Release the lock when done.
             {
                 let virtio_dev = busdev
@@ -522,35 +517,17 @@ impl RuntimeApiController {
                     .downcast_mut::<Block>()
                     .expect("Unexpected VirtioDevice type");
 
-                // Try to open the file specified by path_on_host using the permissions of the block_device.
-                let mut disk_image = OpenOptions::new()
-                    .read(true)
-                    .write(!block.is_read_only())
-                    .open(path_on_host)
-                    .map_err(DriveError::OpenBlockDevice)?;
-
-                // Use seek() instead of stat() (std::fs::Metadata) to support block devices.
-                new_size = disk_image
-                    .seek(SeekFrom::End(0))
-                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                // Return cursor to the start of the file.
-                disk_image
-                    .seek(SeekFrom::Start(0))
-                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-
                 // Now we have a Block, so call its update handler.
                 block
-                    .update_disk_image(disk_image)
-                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                    .update_disk_image(path_on_host)
+                    .map_err(DriveError::BlockDeviceUpdateFailed)?;
             }
 
-            // Update the virtio config space and kick the driver to pick up the changes.
-            let new_cfg = devices::virtio::block::device::build_config_space(new_size);
-            let mut locked_dev = busdev.lock().expect("Poisoned lock");
-            locked_dev.write(MMIO_CFG_SPACE_OFF, &new_cfg[..]);
+            // Kick the driver to pick up the changes.
+            let locked_dev = busdev.lock().expect("Poisoned lock");
             locked_dev
                 .interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG)
-                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                .map_err(DriveError::BlockDeviceUpdateFailed)?;
 
             Ok(())
         } else {

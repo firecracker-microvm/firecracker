@@ -20,7 +20,7 @@ type Result<T> = result::Result<T, DriveError>;
 #[derive(Debug)]
 pub enum DriveError {
     /// Cannot update the block device.
-    BlockDeviceUpdateFailed,
+    BlockDeviceUpdateFailed(io::Error),
     /// Unable to seek the block device backing file due to invalid permissions or
     /// the file was corrupted.
     CreateBlockDevice(io::Error),
@@ -39,18 +39,18 @@ pub enum DriveError {
 impl Display for DriveError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::DriveError::*;
-        match *self {
-            CreateBlockDevice(ref e) => write!(
+        match self {
+            CreateBlockDevice(e) => write!(
                 f,
                 "Unable to seek the block device backing file due to invalid permissions or \
                  the file was corrupted. Error number: {}",
                 e
             ),
-            BlockDeviceUpdateFailed => write!(f, "The update operation failed!"),
-            CreateRateLimiter(ref e) => write!(f, "Cannot create RateLimiter: {}", e),
+            BlockDeviceUpdateFailed(e) => write!(f, "The update operation failed: {}", e),
+            CreateRateLimiter(e) => write!(f, "Cannot create RateLimiter: {}", e),
             InvalidBlockDeviceID => write!(f, "Invalid block device ID!"),
             InvalidBlockDevicePath => write!(f, "Invalid block device path!"),
-            OpenBlockDevice(ref e) => write!(
+            OpenBlockDevice(e) => write!(
                 f,
                 "Cannot open block device. Invalid permission/path: {}",
                 e

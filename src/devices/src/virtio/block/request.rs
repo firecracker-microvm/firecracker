@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::convert::From;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::mem;
 use std::result;
 
@@ -15,6 +15,7 @@ use virtio_gen::virtio_blk::*;
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
 
 use super::super::DescriptorChain;
+use super::device::DiskProperties;
 use super::{Error, SECTOR_SHIFT, SECTOR_SIZE};
 
 #[derive(Debug)]
@@ -191,12 +192,10 @@ impl Request {
         Ok(req)
     }
 
-    pub fn execute<T: Seek + Read + Write>(
+    pub(crate) fn execute(
         &self,
-        disk: &mut T,
-        disk_nsectors: u64,
+        disk: &mut DiskProperties,
         mem: &GuestMemoryMmap,
-        disk_id: &[u8],
     ) -> result::Result<u32, ExecuteError> {
         let mut top: u64 = u64::from(self.data_len) / SECTOR_SIZE;
         if u64::from(self.data_len) % SECTOR_SIZE != 0 {
@@ -205,28 +204,30 @@ impl Request {
         top = top
             .checked_add(self.sector)
             .ok_or(ExecuteError::BadRequest(Error::InvalidOffset))?;
-        if top > disk_nsectors {
+        if top > disk.nsectors() {
             return Err(ExecuteError::BadRequest(Error::InvalidOffset));
         }
 
-        disk.seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
+        let diskfile = disk.file_mut();
+        diskfile
+            .seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
             .map_err(ExecuteError::Seek)?;
 
         match self.request_type {
             RequestType::In => {
-                mem.read_from(self.data_addr, disk, self.data_len as usize)
+                mem.read_from(self.data_addr, diskfile, self.data_len as usize)
                     .map_err(ExecuteError::Read)?;
                 METRICS.block.read_bytes.add(self.data_len as usize);
                 METRICS.block.read_count.inc();
                 return Ok(self.data_len);
             }
             RequestType::Out => {
-                mem.write_to(self.data_addr, disk, self.data_len as usize)
+                mem.write_to(self.data_addr, diskfile, self.data_len as usize)
                     .map_err(ExecuteError::Write)?;
                 METRICS.block.write_bytes.add(self.data_len as usize);
                 METRICS.block.write_count.inc();
             }
-            RequestType::Flush => match disk.flush() {
+            RequestType::Flush => match diskfile.flush() {
                 Ok(_) => {
                     METRICS.block.flush_count.inc();
                     return Ok(0);
@@ -234,6 +235,7 @@ impl Request {
                 Err(e) => return Err(ExecuteError::Flush(e)),
             },
             RequestType::GetDeviceID => {
+                let disk_id = disk.image_id();
                 if (self.data_len as usize) < disk_id.len() {
                     return Err(ExecuteError::BadRequest(Error::InvalidOffset));
                 }

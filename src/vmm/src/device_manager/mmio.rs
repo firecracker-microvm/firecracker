@@ -67,10 +67,6 @@ type Result<T> = ::std::result::Result<T, Error>;
 /// Currently hardcoded to 4K.
 const MMIO_LEN: u64 = 0x1000;
 
-/// This represents the offset at which the device should call BusDevice::write in order to write
-/// to its configuration space.
-pub const MMIO_CFG_SPACE_OFF: u64 = 0x100;
-
 /// Stores the address range and irq allocated to this device.
 #[derive(Clone, Debug, PartialEq, Versionize)]
 pub struct MMIODeviceInfo {
