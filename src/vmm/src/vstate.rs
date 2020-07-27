@@ -861,7 +861,7 @@ impl Vcpu {
         }
 
         self.fd.vcpu_init(&kvi).map_err(Error::VcpuArmInit)?;
-        arch::aarch64::regs::setup_regs(
+        arch::aarch64::regs::setup_boot_regs(
             &self.fd,
             self.index,
             kernel_load_addr.raw_value(),
