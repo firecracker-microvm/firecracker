@@ -29,61 +29,103 @@ use super::{
 
 use crate::Error as DeviceError;
 
-pub fn build_config_space(disk_size: u64) -> Vec<u8> {
-    // We only support disk size, which uses the first two words of the configuration space.
-    // If the image is not a multiple of the sector size, the tail bits are not exposed.
-    // The config space is little endian.
-    if disk_size % SECTOR_SIZE != 0 {
-        warn!(
-            "Disk size {} is not a multiple of sector size {}; \
-             the remainder will not be visible to the guest.",
-            disk_size, SECTOR_SIZE
+/// Helper object for setting up all `Block` fields derived from its backing file.
+pub(crate) struct DiskProperties {
+    file_path: String,
+    file: File,
+    nsectors: u64,
+    image_id: Vec<u8>,
+}
+
+impl DiskProperties {
+    pub fn new(disk_image_path: String, is_disk_read_only: bool) -> io::Result<Self> {
+        let mut disk_image = OpenOptions::new()
+            .read(true)
+            .write(!is_disk_read_only)
+            .open(PathBuf::from(&disk_image_path))?;
+        let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
+
+        // We only support disk size, which uses the first two words of the configuration space.
+        // If the image is not a multiple of the sector size, the tail bits are not exposed.
+        if disk_size % SECTOR_SIZE != 0 {
+            warn!(
+                "Disk size {} is not a multiple of sector size {}; \
+                 the remainder will not be visible to the guest.",
+                disk_size, SECTOR_SIZE
+            );
+        }
+
+        Ok(Self {
+            nsectors: disk_size >> SECTOR_SHIFT,
+            image_id: Self::build_disk_image_id(&disk_image),
+            file_path: disk_image_path,
+            file: disk_image,
+        })
+    }
+
+    pub fn file_mut(&mut self) -> &mut File {
+        &mut self.file
+    }
+
+    pub fn nsectors(&self) -> u64 {
+        self.nsectors
+    }
+
+    pub fn image_id(&self) -> &[u8] {
+        &self.image_id
+    }
+
+    fn build_device_id(disk_file: &File) -> result::Result<String, Error> {
+        let blk_metadata = disk_file.metadata().map_err(Error::GetFileMetadata)?;
+        // This is how kvmtool does it.
+        let device_id = format!(
+            "{}{}{}",
+            blk_metadata.st_dev(),
+            blk_metadata.st_rdev(),
+            blk_metadata.st_ino()
         );
+        Ok(device_id)
     }
-    let mut config = Vec::with_capacity(CONFIG_SPACE_SIZE);
-    let num_sectors = disk_size >> SECTOR_SHIFT;
-    for i in 0..CONFIG_SPACE_SIZE {
-        config.push((num_sectors >> (8 * i)) as u8);
-    }
-    config
-}
 
-fn build_device_id(disk_image: &File) -> result::Result<String, Error> {
-    let blk_metadata = disk_image.metadata().map_err(Error::GetFileMetadata)?;
-    // This is how kvmtool does it.
-    let device_id = format!(
-        "{}{}{}",
-        blk_metadata.st_dev(),
-        blk_metadata.st_rdev(),
-        blk_metadata.st_ino()
-    );
-    Ok(device_id)
-}
-
-fn build_disk_image_id(disk_image: &File) -> Vec<u8> {
-    let mut default_disk_image_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
-    match build_device_id(disk_image) {
-        Err(_) => {
-            warn!("Could not generate device id. We'll use a default.");
+    fn build_disk_image_id(disk_file: &File) -> Vec<u8> {
+        let mut default_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
+        match Self::build_device_id(disk_file) {
+            Err(_) => {
+                warn!("Could not generate device id. We'll use a default.");
+            }
+            Ok(m) => {
+                // The kernel only knows to read a maximum of VIRTIO_BLK_ID_BYTES.
+                // This will also zero out any leftover bytes.
+                let disk_id = m.as_bytes();
+                let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
+                default_id[..bytes_to_copy].clone_from_slice(&disk_id[..bytes_to_copy])
+            }
         }
-        Ok(m) => {
-            // The kernel only knows to read a maximum of VIRTIO_BLK_ID_BYTES.
-            // This will also zero out any leftover bytes.
-            let disk_id = m.as_bytes();
-            let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
-            default_disk_image_id[..bytes_to_copy].clone_from_slice(&disk_id[..bytes_to_copy])
-        }
+        default_id
     }
-    default_disk_image_id
+
+    /// Backing file path.
+    pub fn file_path(&self) -> &String {
+        &self.file_path
+    }
+
+    /// Provides vec containing the virtio block configuration space
+    /// buffer. The config space is populated with the disk size based
+    /// on the backing file size.
+    pub fn virtio_block_config_space(&self) -> Vec<u8> {
+        // The config space is little endian.
+        let mut config = Vec::with_capacity(CONFIG_SPACE_SIZE);
+        for i in 0..CONFIG_SPACE_SIZE {
+            config.push((self.nsectors >> (8 * i)) as u8);
+        }
+        config
+    }
 }
 
 /// Virtio device for exposing block level read/write operations on a host file.
 pub struct Block {
     // Host file and properties.
-    disk_image: File,
-    pub(crate) disk_image_path: String,
-    disk_nsectors: u64,
-    disk_image_id: Vec<u8>,
+    pub(crate) disk: DiskProperties,
 
     // Virtio fields.
     pub(crate) avail_features: u64,
@@ -117,12 +159,7 @@ impl Block {
         is_disk_root: bool,
         rate_limiter: RateLimiter,
     ) -> io::Result<Block> {
-        let mut disk_image = OpenOptions::new()
-            .read(true)
-            .write(!is_disk_read_only)
-            .open(PathBuf::from(&disk_image_path))?;
-
-        let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
+        let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only)?;
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
 
@@ -138,14 +175,11 @@ impl Block {
             id,
             root_device: is_disk_root,
             partuuid,
-            disk_image_id: build_disk_image_id(&disk_image),
-            disk_image,
-            disk_image_path,
-            disk_nsectors: disk_size / SECTOR_SIZE,
+            rate_limiter,
+            config_space: disk_properties.virtio_block_config_space(),
+            disk: disk_properties,
             avail_features,
             acked_features: 0u64,
-            config_space: build_config_space(disk_size),
-            rate_limiter,
             interrupt_status: Arc::new(AtomicUsize::new(0)),
             interrupt_evt: EventFd::new(libc::EFD_NONBLOCK)?,
             queue_evts,
@@ -216,12 +250,7 @@ impl Block {
                             break;
                         }
                     }
-                    let status = match request.execute(
-                        &mut self.disk_image,
-                        self.disk_nsectors,
-                        mem,
-                        &self.disk_image_id,
-                    ) {
+                    let status = match request.execute(&mut self.disk, mem) {
                         Ok(l) => {
                             len = l;
                             VIRTIO_BLK_S_OK
@@ -266,15 +295,11 @@ impl Block {
         Ok(())
     }
 
-    /// Update the backing file for the Block device.
-    pub fn update_disk_image(&mut self, disk_image: File) -> result::Result<(), DeviceError> {
-        self.disk_image = disk_image;
-        self.disk_nsectors = self
-            .disk_image
-            .seek(SeekFrom::End(0))
-            .map_err(DeviceError::IoError)?
-            / SECTOR_SIZE;
-        self.disk_image_id = build_disk_image_id(&self.disk_image);
+    /// Update the backing file and the config space of the block device.
+    pub fn update_disk_image(&mut self, disk_image_path: String) -> io::Result<()> {
+        let disk_properties = DiskProperties::new(disk_image_path, self.is_read_only())?;
+        self.disk = disk_properties;
+        self.config_space = self.disk.virtio_block_config_space();
         METRICS.block.update_count.inc();
         Ok(())
     }
@@ -488,6 +513,29 @@ pub(crate) mod tests {
         );
         // Validate the queue operation finished successfully.
         assert_eq!(b.interrupt_evt.read().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_disk_backing_file_helper() {
+        let num_sectors = 2;
+        let f = TempFile::new().unwrap();
+        let size = SECTOR_SIZE * num_sectors;
+        f.as_file().set_len(size).unwrap();
+
+        let disk_properties =
+            DiskProperties::new(String::from(f.as_path().to_str().unwrap()), true).unwrap();
+
+        assert_eq!(size, SECTOR_SIZE * num_sectors);
+        assert_eq!(disk_properties.nsectors, num_sectors);
+        let cfg = disk_properties.virtio_block_config_space();
+        assert_eq!(cfg.len(), CONFIG_SPACE_SIZE);
+        for (i, byte) in cfg.iter().enumerate() {
+            assert_eq!(*byte, (num_sectors >> (8 * i)) as u8);
+        }
+        // Testing `backing_file.virtio_block_disk_image_id()` implies
+        // duplicating that logic in tests, so skipping it.
+
+        assert!(DiskProperties::new("invalid-disk-path".to_string(), true).is_err());
     }
 
     #[test]
@@ -789,7 +837,7 @@ pub(crate) mod tests {
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
-        let blk_metadata = block.disk_image.metadata();
+        let blk_metadata = block.disk.file.metadata();
 
         // Test that the driver receives the correct device id.
         {
@@ -1020,12 +1068,11 @@ pub(crate) mod tests {
         id[..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize)]
             .clone_from_slice(&part_id[..cmp::min(part_id.len(), VIRTIO_BLK_ID_BYTES as usize)]);
 
-        block.update_disk_image(f.into_file()).unwrap();
+        block
+            .update_disk_image(String::from(path.to_str().unwrap()))
+            .unwrap();
 
-        assert_eq!(
-            block.disk_image.metadata().unwrap().st_ino(),
-            mdata.st_ino()
-        );
-        assert_eq!(block.disk_image_id, id);
+        assert_eq!(block.disk.file.metadata().unwrap().st_ino(), mdata.st_ino());
+        assert_eq!(block.disk.image_id, id);
     }
 }
