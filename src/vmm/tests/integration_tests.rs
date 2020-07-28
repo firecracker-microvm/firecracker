@@ -43,12 +43,12 @@ use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::Vmm;
 
-use mock_devices::MockSerialInput;
+use crate::mock_devices::MockSerialInput;
 #[cfg(target_arch = "x86_64")]
-use mock_resources::NOISY_KERNEL_IMAGE;
-use mock_resources::{MockBootSourceConfig, MockVmResources};
-use mock_seccomp::MockSeccomp;
-use test_utils::{restore_stdin, set_panic_hook};
+use crate::mock_resources::NOISY_KERNEL_IMAGE;
+use crate::mock_resources::{MockBootSourceConfig, MockVmResources};
+use crate::mock_seccomp::MockSeccomp;
+use crate::test_utils::{restore_stdin, set_panic_hook};
 
 fn default_vmm(_kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
     let mut event_manager = EventManager::new().unwrap();

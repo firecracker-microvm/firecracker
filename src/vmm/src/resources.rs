@@ -5,20 +5,20 @@
 
 use std::fs::File;
 
-use mmds::ns::MmdsNetworkStack;
-use utils::net::ipv4addr::is_link_local_valid;
-use vmm_config::boot_source::{
+use crate::vmm_config::boot_source::{
     BootConfig, BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE,
 };
-use vmm_config::drive::*;
-use vmm_config::instance_info::InstanceInfo;
-use vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
-use vmm_config::machine_config::{VmConfig, VmConfigError};
-use vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
-use vmm_config::mmds::{MmdsConfig, MmdsConfigError};
-use vmm_config::net::*;
-use vmm_config::vsock::*;
-use vstate::VcpuConfig;
+use crate::vmm_config::drive::*;
+use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
+use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
+use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
+use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
+use crate::vmm_config::net::*;
+use crate::vmm_config::vsock::*;
+use crate::vstate::VcpuConfig;
+use mmds::ns::MmdsNetworkStack;
+use utils::net::ipv4addr::is_link_local_valid;
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -298,17 +298,17 @@ mod tests {
     use std::os::linux::fs::MetadataExt;
 
     use super::*;
+    use crate::resources::VmResources;
+    use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
+    use crate::vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
+    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
+    use crate::vmm_config::vsock::tests::default_config;
+    use crate::vmm_config::RateLimiterConfig;
+    use crate::vstate::VcpuConfig;
     use dumbo::MacAddr;
     use logger::{LevelFilter, LOGGER};
-    use resources::VmResources;
     use utils::tempfile::TempFile;
-    use vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
-    use vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
-    use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
-    use vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
-    use vmm_config::vsock::tests::default_config;
-    use vmm_config::RateLimiterConfig;
-    use vstate::VcpuConfig;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
         NetworkInterfaceConfig {

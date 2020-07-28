@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::{fmt, io};
 
+use crate::parsed_request::ParsedRequest;
 use logger::{update_metric_with_elapsed_time, Metric, METRICS};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
@@ -28,7 +29,6 @@ pub use micro_http::{
 };
 use mmds::data_store;
 use mmds::data_store::Mmds;
-use parsed_request::ParsedRequest;
 use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};

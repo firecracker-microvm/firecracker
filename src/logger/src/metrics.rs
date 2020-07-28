@@ -55,13 +55,13 @@
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
-use std;
 use std::fmt;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+use lazy_static::lazy_static;
 use serde::{Serialize, Serializer};
 
 use super::extract_guard;

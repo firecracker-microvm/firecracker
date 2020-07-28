@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
 use super::super::VmmAction;
+use crate::parsed_request::{method_to_error, Error, ParsedRequest};
+use crate::request::{Body, Method, StatusCode};
 use logger::{Metric, METRICS};
-use parsed_request::{method_to_error, Error, ParsedRequest};
-use request::{Body, Method, StatusCode};
 use vmm::vmm_config::machine_config::VmConfig;
 
 pub fn parse_get_machine_config() -> Result<ParsedRequest, Error> {

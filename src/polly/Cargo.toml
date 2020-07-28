@@ -2,6 +2,7 @@
 name = "polly"
 version = "0.0.1"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2018"
 
 [dependencies]
 libc = ">=0.2.39"

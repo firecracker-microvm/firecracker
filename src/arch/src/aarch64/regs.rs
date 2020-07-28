@@ -179,7 +179,7 @@ pub fn read_mpidr(vcpu: &VcpuFd) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aarch64::{arch_memory_regions, layout};
+    use crate::aarch64::{arch_memory_regions, layout};
     use kvm_ioctls::Kvm;
 
     #[test]

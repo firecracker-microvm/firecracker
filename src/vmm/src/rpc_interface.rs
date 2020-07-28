@@ -11,32 +11,32 @@ use std::sync::{Arc, Mutex};
 use super::Vmm;
 
 use super::Error as VmmError;
-use arch::DeviceType;
-use builder::{self, StartMicrovmError};
-use device_manager::mmio::MMIO_CFG_SPACE_OFF;
-use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
-use logger::{update_metric_with_elapsed_time, METRICS};
+use crate::builder::{self, StartMicrovmError};
+use crate::device_manager::mmio::MMIO_CFG_SPACE_OFF;
 #[cfg(target_arch = "x86_64")]
-use persist::{self, CreateSnapshotError, LoadSnapshotError};
-use polly::event_manager::EventManager;
-use resources::VmResources;
-use seccomp::BpfProgram;
+use crate::persist::{self, CreateSnapshotError, LoadSnapshotError};
+use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
-use version_map::VERSION_MAP;
-use vmm_config;
-use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
-use vmm_config::drive::{BlockDeviceConfig, DriveError};
-use vmm_config::instance_info::InstanceInfo;
-use vmm_config::logger::{LoggerConfig, LoggerConfigError};
-use vmm_config::machine_config::{VmConfig, VmConfigError};
-use vmm_config::metrics::{MetricsConfig, MetricsConfigError};
-use vmm_config::mmds::{MmdsConfig, MmdsConfigError};
-use vmm_config::net::{
+use crate::version_map::VERSION_MAP;
+use crate::vmm_config;
+use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
+use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
+use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
+use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
+use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
+use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
+use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
 #[cfg(target_arch = "x86_64")]
-use vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
-use vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
+use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
+use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
+use arch::DeviceType;
+use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
+use logger::{update_metric_with_elapsed_time, METRICS};
+use polly::event_manager::EventManager;
+use seccomp::BpfProgram;
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).

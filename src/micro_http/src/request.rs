@@ -3,10 +3,10 @@
 
 use std::str::from_utf8;
 
-use common::ascii::{CR, CRLF_LEN, LF, SP};
-pub use common::RequestError;
-use common::{Body, Method, Version};
-use headers::Headers;
+use crate::common::ascii::{CR, CRLF_LEN, LF, SP};
+pub use crate::common::RequestError;
+use crate::common::{Body, Method, Version};
+use crate::headers::Headers;
 
 // This type represents the RequestLine raw parts: method, uri and version.
 type RequestLineParts<'a> = (&'a [u8], &'a [u8], &'a [u8]);

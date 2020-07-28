@@ -18,7 +18,7 @@ use std::thread;
 
 use super::{FC_EXIT_CODE_GENERIC_ERROR, FC_EXIT_CODE_OK};
 
-use arch;
+use crate::vmm_config::machine_config::CpuFeaturesTemplate;
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
 #[cfg(target_arch = "x86_64")]
@@ -44,7 +44,6 @@ use versionize_derive::Versionize;
 use vm_memory::{
     Address, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap, GuestMemoryRegion,
 };
-use vmm_config::machine_config::CpuFeaturesTemplate;
 
 /// Signal number (SIGRTMIN) used to kick Vcpus.
 pub(crate) const VCPU_RTSIG_OFFSET: i32 = 0;
@@ -1401,7 +1400,7 @@ pub(crate) mod tests {
 
     impl PartialEq for VcpuResponse {
         fn eq(&self, other: &Self) -> bool {
-            use VcpuResponse::*;
+            use crate::VcpuResponse::*;
             // Guard match with no wildcard to make sure we catch new enum variants.
             match self {
                 Paused | Resumed | Exited(_) => (),
@@ -1426,7 +1425,7 @@ pub(crate) mod tests {
 
     impl fmt::Debug for VcpuResponse {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            use VcpuResponse::*;
+            use crate::VcpuResponse::*;
             match self {
                 Paused => write!(f, "VcpuResponse::Paused"),
                 Resumed => write!(f, "VcpuResponse::Resumed"),
@@ -1747,7 +1746,7 @@ pub(crate) mod tests {
 
     #[cfg(target_arch = "x86_64")]
     fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
-        use vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
+        use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
 
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let parent = path.parent().unwrap();

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::super::VmmAction;
+use crate::parsed_request::{checked_id, Error, ParsedRequest};
+use crate::request::{Body, StatusCode};
 use logger::{Metric, METRICS};
-use parsed_request::{checked_id, Error, ParsedRequest};
-use request::{Body, StatusCode};
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
 pub fn parse_put_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
@@ -60,8 +60,6 @@ pub fn parse_patch_net(body: &Body, id_from_path: Option<&&str>) -> Result<Parse
 
 #[cfg(test)]
 mod tests {
-    use serde_json;
-
     use super::*;
     use crate::parsed_request::tests::vmm_action_from_request;
 

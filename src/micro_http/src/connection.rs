@@ -4,12 +4,12 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 
-use common::ascii::{CR, CRLF_LEN, LF};
-use common::Body;
-pub use common::{ConnectionError, RequestError};
-use headers::Headers;
-use request::{find, Request, RequestLine};
-use response::{Response, StatusCode};
+use crate::common::ascii::{CR, CRLF_LEN, LF};
+use crate::common::Body;
+pub use crate::common::{ConnectionError, RequestError};
+use crate::headers::Headers;
+use crate::request::{find, Request, RequestLine};
+use crate::response::{Response, StatusCode};
 
 const BUFFER_SIZE: usize = 1024;
 
@@ -481,10 +481,11 @@ impl<T: Read + Write> HttpConnection<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use common::{Method, Version};
     use std::net::Shutdown;
     use std::os::unix::net::UnixStream;
+
+    use super::*;
+    use crate::common::{Method, Version};
 
     #[test]
     fn test_try_read_expect() {

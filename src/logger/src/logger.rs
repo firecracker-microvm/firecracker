@@ -96,13 +96,14 @@ use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
 
+use crate::metrics::{Metric, METRICS};
+use lazy_static::lazy_static;
 use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
-use metrics::{Metric, METRICS};
 use utils::time::LocalTime;
 
 use super::extract_guard;
-use init;
-use init::Init;
+use crate::init;
+use crate::init::Init;
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
@@ -453,9 +454,11 @@ impl Log for Logger {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Read;
     use std::sync::Arc;
+
+    use super::*;
+    use log::info;
 
     const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
     const TEST_APP_HEADER: &str = "App header";

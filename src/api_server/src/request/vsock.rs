@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::super::VmmAction;
-use parsed_request::{Error, ParsedRequest};
-use request::Body;
+use crate::parsed_request::{Error, ParsedRequest};
+use crate::request::Body;
 use vmm::vmm_config::vsock::VsockDeviceConfig;
 
 pub fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {

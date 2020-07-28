@@ -9,8 +9,8 @@
 
 use std::net::Ipv4Addr;
 
-use pdu::bytes::NetworkBytes;
-use pdu::ipv4::{PROTOCOL_TCP, PROTOCOL_UDP};
+use crate::pdu::bytes::NetworkBytes;
+use crate::pdu::ipv4::{PROTOCOL_TCP, PROTOCOL_UDP};
 
 pub mod arp;
 pub mod bytes;

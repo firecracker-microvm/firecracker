@@ -16,7 +16,9 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fmt::Debug;
 
+pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
+use crate::DeviceType;
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 /// Errors thrown while configuring aarch64 system.
@@ -30,9 +32,6 @@ pub enum Error {
 
 /// The start of the memory area reserved for MMIO devices.
 pub const MMIO_MEM_START: u64 = layout::MAPPED_IO_START;
-
-pub use self::fdt::DeviceInfoForFDT;
-use DeviceType;
 
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.

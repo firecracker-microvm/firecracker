@@ -301,10 +301,10 @@ impl MmdsNetworkStack {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
     use std::str::FromStr;
+
+    use super::*;
+    use dumbo::pdu::tcp::{Flags as TcpFlags, TcpSegment};
 
     // We use LOCALHOST here because const new() is not stable yet, so just reuse this const, since
     // all we're interested in is having some address different from the MMDS one.

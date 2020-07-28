@@ -7,8 +7,8 @@ pub mod connection;
 mod endpoint;
 pub mod handler;
 
-use pdu::bytes::NetworkBytes;
-use pdu::tcp::{Flags as TcpFlags, TcpSegment};
+use crate::pdu::bytes::NetworkBytes;
+use crate::pdu::tcp::{Flags as TcpFlags, TcpSegment};
 
 use std::num::Wrapping;
 

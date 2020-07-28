@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use bit_helper::BitHelper;
-use common::get_cpuid;
+use crate::bit_helper::BitHelper;
+use crate::common::get_cpuid;
 
+use crate::transformer::Error::FamError;
 use kvm_bindings::{kvm_cpuid_entry2, CpuId};
-use transformer::Error::FamError;
 
 // constants for setting the fields of kvm_cpuid2 structures
 // CPUID bits in ebx, ecx, and edx.
@@ -31,7 +31,7 @@ pub fn update_feature_info_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use cpu_leaf::leaf_0x1::*;
+    use crate::cpu_leaf::leaf_0x1::*;
 
     let max_cpus_per_package = u32::from(common::get_max_cpus_per_package(vm_spec.cpu_count)?);
 
@@ -74,7 +74,7 @@ pub fn update_cache_parameters_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use cpu_leaf::leaf_cache_parameters::*;
+    use crate::cpu_leaf::leaf_cache_parameters::*;
 
     match entry.eax.read_bits_in_range(&eax::CACHE_LEVEL_BITRANGE) {
         // L1 & L2 Cache
@@ -137,8 +137,9 @@ pub fn use_host_cpuid_function(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::tests::get_topoext_fn;
-    use transformer::VmSpec;
+    use crate::common::tests::get_topoext_fn;
+    use crate::transformer::VmSpec;
+    use kvm_bindings::kvm_cpuid_entry2;
 
     #[test]
     fn test_get_max_cpus_per_package() {
@@ -151,7 +152,7 @@ mod tests {
     }
 
     fn check_update_feature_info_entry(cpu_count: u8, expected_htt: bool) {
-        use cpu_leaf::leaf_0x1::*;
+        use crate::cpu_leaf::leaf_0x1::*;
 
         let vm_spec = VmSpec::new(0, cpu_count, false).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
@@ -177,7 +178,7 @@ mod tests {
         cache_level: u32,
         expected_max_cpus_per_core: u32,
     ) {
-        use cpu_leaf::leaf_cache_parameters::*;
+        use crate::cpu_leaf::leaf_cache_parameters::*;
 
         let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
@@ -275,7 +276,7 @@ mod tests {
     #[test]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_use_host_cpuid_function_without_count() {
-        use cpu_leaf::leaf_0x1::*;
+        use crate::cpu_leaf::leaf_0x1::*;
         // try to emulate the extended cache topology leaves
         let feature_info_fn = LEAF_NUM;
 

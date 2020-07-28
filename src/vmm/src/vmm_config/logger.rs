@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use self::logger_crate::{LevelFilter, LOGGER};
 use super::{open_file_nonblock, FcLineWriter};
-use vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::instance_info::InstanceInfo;
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -158,7 +158,6 @@ mod tests {
     use std::io::{BufRead, BufReader};
 
     use super::*;
-
     use devices::pseudo::BootTimer;
     use devices::BusDevice;
     use utils::tempfile::TempFile;
