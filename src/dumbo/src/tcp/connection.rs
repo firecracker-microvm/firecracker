@@ -17,6 +17,8 @@ use crate::tcp::{
 use crate::ByteBuffer;
 use utils::rand::xor_psuedo_rng_u32;
 
+use bitflags::bitflags;
+
 bitflags! {
     // We use a set of flags, instead of a state machine, to represent the connection status. Some
     // parts of the status information are reflected in other fields of the Connection struct, such

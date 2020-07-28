@@ -8,6 +8,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 use libc::O_NONBLOCK;
+use serde::Deserialize;
 
 use rate_limiter::RateLimiter;
 

@@ -21,48 +21,36 @@
 //! ## Example for logging to stdout/stderr
 //!
 //! ```
-//! #[macro_use]
-//! extern crate logger;
-//! use logger::LOGGER;
+//! use logger::{warn, error, LOGGER};
 //! use std::ops::Deref;
 //!
-//! fn main() {
-//!     // Optionally do an initial configuration for the logger.
-//!     if let Err(e) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
-//!         println!("Could not configure the log subsystem: {}", e);
-//!         return;
-//!     }
-//!     warn!("this is a warning");
-//!     error!("this is an error");
+//! // Optionally do an initial configuration for the logger.
+//! if let Err(e) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
+//!     println!("Could not configure the log subsystem: {}", e);
+//!     return;
 //! }
+//! warn!("this is a warning");
+//! error!("this is an error");
 //! ```
 //! ## Example for logging to a `File`:
 //!
 //! ```
-//! extern crate libc;
-//! extern crate utils;
-//!
 //! use libc::c_char;
 //! use std::io::Cursor;
+//! use logger::{warn, error, LOGGER};
 //!
-//! #[macro_use]
-//! extern crate logger;
-//! use logger::LOGGER;
+//! let mut logs = Cursor::new(vec![0; 15]);
 //!
-//! fn main() {
-//!     let mut logs = Cursor::new(vec![0; 15]);
-//!
-//!     // Initialize the logger to log to a FIFO that was created beforehand.
-//!     assert!(LOGGER
-//!         .init(
-//!              "Running Firecracker v.x".to_string(),
-//!             Box::new(logs),
-//!         )
-//!         .is_ok());
-//!     // The following messages should appear in the in-memory buffer `logs`.
-//!     warn!("this is a warning");
-//!     error!("this is an error");
-//! }
+//! // Initialize the logger to log to a FIFO that was created beforehand.
+//! assert!(LOGGER
+//!     .init(
+//!         "Running Firecracker v.x".to_string(),
+//!         Box::new(logs),
+//!     )
+//!     .is_ok());
+//! // The following messages should appear in the in-memory buffer `logs`.
+//! warn!("this is a warning");
+//! error!("this is an error");
 //! ```
 
 //! # Plain log format
@@ -168,18 +156,13 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate log;
-    /// extern crate logger;
-    /// use logger::LOGGER;
+    /// use logger::{warn, LOGGER};
     /// use std::ops::Deref;
     ///
-    /// fn main() {
-    ///     let l = LOGGER.deref();
-    ///     l.set_include_level(true);
-    ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
-    ///     warn!("A warning log message with level included");
-    /// }
+    /// let l = LOGGER.deref();
+    /// l.set_include_level(true);
+    /// assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
+    /// warn!("A warning log message with level included");
     /// ```
     /// The code above will more or less print:
     /// ```bash
@@ -203,18 +186,14 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate logger;
-    /// use logger::LOGGER;
+    /// use logger::{warn, LOGGER};
     /// use std::ops::Deref;
     ///
-    /// fn main() {
-    ///     let l = LOGGER.deref();
-    ///     l.set_include_origin(false, false);
-    ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
+    /// let l = LOGGER.deref();
+    /// l.set_include_origin(false, false);
+    /// assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
     ///
-    ///     warn!("A warning log message with log origin disabled");
-    /// }
+    /// warn!("A warning log message with log origin disabled");
     /// ```
     /// The code above will more or less print:
     /// ```bash
@@ -246,19 +225,14 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate logger;
-    /// extern crate log;
-    /// use logger::LOGGER;
+    /// use logger::{info, warn, LOGGER};
     /// use std::ops::Deref;
     ///
-    /// fn main() {
-    ///     let l = LOGGER.deref();
-    ///     l.set_max_level(log::LevelFilter::Warn);
-    ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
-    ///     info!("An informational log message");
-    ///     warn!("A test warning message");
-    /// }
+    /// let l = LOGGER.deref();
+    /// l.set_max_level(log::LevelFilter::Warn);
+    /// assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
+    /// info!("An informational log message");
+    /// warn!("A test warning message");
     /// ```
     /// The code above will more or less print:
     /// ```bash
@@ -319,16 +293,13 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// extern crate logger;
     /// use logger::LOGGER;
     /// use std::ops::Deref;
     ///
-    /// fn main() {
-    ///     LOGGER
-    ///         .deref()
-    ///         .configure(Some("MY-INSTANCE".to_string()))
-    ///         .unwrap();
-    /// }
+    /// LOGGER
+    ///    .deref()
+    ///    .configure(Some("MY-INSTANCE".to_string()))
+    ///    .unwrap();
     /// ```
     pub fn configure(&self, instance_id: Option<String>) -> Result<()> {
         self.init
@@ -356,19 +327,16 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// extern crate logger;
     /// use logger::LOGGER;
     ///
     /// use std::io::Cursor;
     ///
-    /// fn main() {
-    ///     let mut logs = Cursor::new(vec![0; 15]);
+    /// let mut logs = Cursor::new(vec![0; 15]);
     ///
-    ///     LOGGER.init(
-    ///         "Running Firecracker v.x".to_string(),
-    ///         Box::new(logs),
-    ///     );
-    /// }
+    /// LOGGER.init(
+    ///     "Running Firecracker v.x".to_string(),
+    ///     Box::new(logs),
+    /// );
     /// ```
     pub fn init(&self, header: String, log_dest: Box<dyn Write + Send>) -> Result<()> {
         self.init
@@ -529,13 +497,16 @@ mod tests {
             assert!(self
                 .init(TEST_APP_HEADER.to_string(), Box::new(writer))
                 .is_ok());
-            validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
+            validate_log(
+                &mut Box::new(&mut reader),
+                &format!("{}\n", TEST_APP_HEADER),
+            );
 
             reader
         }
     }
 
-    fn validate_log(mut log_reader: Box<&mut dyn Read>, expected: &str) {
+    fn validate_log(log_reader: &mut dyn Read, expected: &str) {
         let mut log = Vec::new();
         log_reader.read_to_end(&mut log).unwrap();
 
@@ -567,11 +538,14 @@ mod tests {
         assert!(logger
             .init(TEST_APP_HEADER.to_string(), Box::new(writer))
             .is_ok());
-        validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("{}\n", TEST_APP_HEADER),
+        );
         // Check that the logs are written to the configured writer.
         logger.mock_log(Level::Info, "info");
         validate_log(
-            Box::new(&mut reader),
+            &mut Box::new(&mut reader),
             "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
         );
     }
@@ -586,11 +560,14 @@ mod tests {
         assert!(logger
             .init(TEST_APP_HEADER.to_string(), Box::new(writer))
             .is_ok());
-        validate_log(Box::new(&mut reader), &format!("{}\n", TEST_APP_HEADER));
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("{}\n", TEST_APP_HEADER),
+        );
         // Check that the logs are written to the configured writer.
         logger.mock_log(Level::Info, "info");
         validate_log(
-            Box::new(&mut reader),
+            &mut Box::new(&mut reader),
             "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
         );
 
@@ -602,10 +579,10 @@ mod tests {
         // Check that the logs are written only to the first writer.
         logger.mock_log(Level::Info, "info");
         validate_log(
-            Box::new(&mut reader),
+            &mut Box::new(&mut reader),
             "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
         );
-        validate_log(Box::new(&mut reader_2), "");
+        validate_log(&mut Box::new(&mut reader_2), "");
     }
 
     #[test]
@@ -621,35 +598,35 @@ mod tests {
             .set_include_level(false)
             .set_include_origin(false, true);
         logger.mock_log(Level::Info, "msg");
-        validate_log(Box::new(&mut reader), "[] msg\n");
+        validate_log(&mut Box::new(&mut reader), "[] msg\n");
 
         // Check that the prefix is correctly shown when all flags are true.
         logger
             .set_include_level(true)
             .set_include_origin(true, true);
         logger.mock_log(Level::Info, "msg");
-        validate_log(Box::new(&mut reader), "[INFO:logger.rs:0] msg\n");
+        validate_log(&mut Box::new(&mut reader), "[INFO:logger.rs:0] msg\n");
 
         // Check show_line_numbers=false.
         logger
             .set_include_level(true)
             .set_include_origin(true, false);
         logger.mock_log(Level::Debug, "msg");
-        validate_log(Box::new(&mut reader), "[DEBUG:logger.rs] msg\n");
+        validate_log(&mut Box::new(&mut reader), "[DEBUG:logger.rs] msg\n");
 
         // Check show_file_path=false.
         logger
             .set_include_level(true)
             .set_include_origin(false, true);
         logger.mock_log(Level::Error, "msg");
-        validate_log(Box::new(&mut reader), "[ERROR] msg\n");
+        validate_log(&mut Box::new(&mut reader), "[ERROR] msg\n");
 
         // Check show_level=false.
         logger
             .set_include_level(false)
             .set_include_origin(true, true);
         logger.mock_log(Level::Info, "msg");
-        validate_log(Box::new(&mut reader), "[logger.rs:0] msg\n");
+        validate_log(&mut Box::new(&mut reader), "[logger.rs:0] msg\n");
 
         // Test with a mock instance id.
         logger.set_instance_id(TEST_INSTANCE_ID.to_string());
@@ -659,7 +636,7 @@ mod tests {
             .set_include_level(false)
             .set_include_origin(false, false);
         logger.mock_log(Level::Info, "msg");
-        validate_log(Box::new(&mut reader), "[TEST-INSTANCE-ID] msg\n");
+        validate_log(&mut Box::new(&mut reader), "[TEST-INSTANCE-ID] msg\n");
 
         // Check that the prefix is correctly shown when all flags are true.
         logger
@@ -667,7 +644,7 @@ mod tests {
             .set_include_origin(true, true);
         logger.mock_log(Level::Warn, "msg");
         validate_log(
-            Box::new(&mut reader),
+            &mut Box::new(&mut reader),
             "[TEST-INSTANCE-ID:WARN:logger.rs:0] msg\n",
         );
     }
@@ -680,7 +657,7 @@ mod tests {
         let mut reader = LOGGER.mock_init();
 
         info!("info");
-        validate_log(Box::new(&mut reader), "info\n");
+        validate_log(&mut Box::new(&mut reader), "info\n");
     }
 
     #[test]

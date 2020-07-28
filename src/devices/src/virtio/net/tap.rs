@@ -11,6 +11,7 @@ use std::io::{Error as IoError, Read, Result as IoResult, Write};
 use std::os::raw::*;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
+use utils::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33

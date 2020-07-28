@@ -7,6 +7,3 @@
 
 pub mod cmdline;
 pub mod loader;
-
-extern crate utils;
-extern crate vm_memory;

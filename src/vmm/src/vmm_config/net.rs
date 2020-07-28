@@ -12,6 +12,8 @@ use devices::virtio::Net;
 use dumbo::MacAddr;
 use rate_limiter::{BucketUpdate, TokenBucket};
 
+use serde::Deserialize;
+
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
 #[derive(Debug, Deserialize, PartialEq)]

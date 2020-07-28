@@ -662,7 +662,7 @@ mod tests {
             some_file_name.to_os_string()
         );
 
-        let dest_path = env.chroot_dir.to_path_buf().join(some_file_name);
+        let dest_path = env.chroot_dir.join(some_file_name);
         // Check that `fs::copy()` copied src content and permission bits to destination.
         let metadata_src = fs::metadata(&env.exec_file_path).unwrap();
         let metadata_dest = fs::metadata(&dest_path).unwrap();

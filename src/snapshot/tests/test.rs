@@ -1,10 +1,5 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate snapshot;
-extern crate versionize;
-extern crate versionize_derive;
-
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;

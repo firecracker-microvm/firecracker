@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::{de, Deserialize};
+use serde::{de, Deserialize, Serialize};
 use std::fmt;
 
 /// Firecracker aims to support small scale workloads only, so limit the maximum

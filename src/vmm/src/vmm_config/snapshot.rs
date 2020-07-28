@@ -5,6 +5,8 @@
 
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 /// The snapshot type options that are available when
 /// creating a new snapshot.
 #[derive(Debug, Deserialize, PartialEq, Serialize)]

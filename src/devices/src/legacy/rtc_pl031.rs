@@ -7,15 +7,12 @@
 //! This is achieved by generating an interrupt signal after counting for a programmed number of cycles of
 //! a real-time clock input.
 //!
-
-extern crate utils;
-
 use std::fmt;
 use std::time::Instant;
 use std::{io, result};
 
 use crate::BusDevice;
-use logger::{Metric, METRICS};
+use logger::{warn, Metric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 //use bus::Error;

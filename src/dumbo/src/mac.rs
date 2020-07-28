@@ -46,8 +46,6 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// extern crate dumbo;
-    ///
     /// use self::dumbo::MacAddr;
     /// MacAddr::parse_str("12:34:56:78:9a:BC").unwrap();
     /// ```
@@ -80,8 +78,6 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// extern crate dumbo;
-    ///
     /// use self::dumbo::MacAddr;
     /// let mac = MacAddr::from_bytes_unchecked(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
     /// println!("{}", mac.to_string());
@@ -104,8 +100,6 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// extern crate dumbo;
-    ///
     /// use self::dumbo::MacAddr;
     /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
     /// println!("{}", mac.to_string());
@@ -122,8 +116,6 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// extern crate dumbo;
-    ///
     /// use self::dumbo::MacAddr;
     /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
     /// assert_eq!([0x01, 0x02, 0x03, 0x04, 0x05, 0x06], mac.get_bytes());
@@ -155,8 +147,6 @@ impl<'de> Deserialize<'de> for MacAddr {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
-
     use super::*;
 
     #[test]

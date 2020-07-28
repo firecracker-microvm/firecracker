@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the metrics system.
-
-extern crate logger as logger_crate;
-
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use self::logger_crate::METRICS;
 use super::{open_file_nonblock, FcLineWriter};
+use logger::METRICS;
+
+use serde::{Deserialize, Serialize};
 
 /// Strongly typed structure used to describe the metrics system.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

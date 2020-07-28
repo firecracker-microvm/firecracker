@@ -1,17 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate api_server;
-extern crate libc;
-#[macro_use]
-extern crate logger;
-extern crate mmds;
-extern crate polly;
-extern crate seccomp;
-extern crate timerfd;
-extern crate utils;
-extern crate vmm;
-
 mod api_server_adapter;
 mod metrics;
 
@@ -22,7 +10,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::{Arc, Mutex};
 
-use logger::{Metric, LOGGER, METRICS};
+use logger::{error, info, Metric, LOGGER, METRICS};
 use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
 use utils::arg_parser::{ArgParser, Argument};

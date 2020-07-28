@@ -10,34 +10,6 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 
-extern crate kvm_bindings;
-extern crate kvm_ioctls;
-extern crate lazy_static;
-extern crate libc;
-extern crate polly;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate sysconf;
-
-extern crate arch;
-#[cfg(target_arch = "x86_64")]
-extern crate cpuid;
-extern crate devices;
-extern crate kernel;
-#[macro_use]
-extern crate logger;
-extern crate dumbo;
-extern crate mmds;
-extern crate rate_limiter;
-extern crate seccomp;
-extern crate snapshot;
-extern crate utils;
-extern crate versionize;
-extern crate versionize_derive;
-extern crate vm_memory;
-
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
 /// Syscalls allowed through the seccomp filter.
@@ -79,7 +51,7 @@ use crate::vstate::VcpuState;
 use crate::vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 use arch::DeviceType;
 use devices::BusDevice;
-use logger::{LoggerError, MetricsError, METRICS};
+use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use polly::event_manager::{self, EventManager, Subscriber};
 use seccomp::BpfProgramRef;
 #[cfg(target_arch = "x86_64")]

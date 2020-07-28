@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use logger::error;
 use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
@@ -351,8 +352,6 @@ impl Queue {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    extern crate vm_memory;
-
     use std::marker::PhantomData;
     use std::mem;
 

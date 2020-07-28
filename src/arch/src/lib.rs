@@ -4,14 +4,6 @@
 #![deny(missing_docs)]
 //! Implements platform specific functionality.
 //! Supported platforms: x86_64 and aarch64.
-extern crate kvm_bindings;
-extern crate kvm_ioctls;
-extern crate libc;
-
-extern crate arch_gen;
-extern crate utils;
-extern crate vm_memory;
-
 use std::fmt;
 use std::result;
 

@@ -1,22 +1,29 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::os::unix::io::AsRawFd;
-use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
+use std::{
+    os::unix::io::AsRawFd,
+    path::PathBuf,
+    sync::mpsc::{channel, Receiver, Sender, TryRecvError},
+    sync::{Arc, Mutex, RwLock},
+    thread,
+};
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
+use logger::{error, warn};
 use mmds::MMDS;
 use polly::event_manager::{EventManager, Subscriber};
 use seccomp::BpfProgram;
-use utils::epoll::{EpollEvent, EventSet};
-use utils::eventfd::EventFd;
-use vmm::rpc_interface::{PrebootApiController, RuntimeApiController};
-use vmm::vmm_config::instance_info::InstanceInfo;
-use vmm::vmm_config::machine_config::VmConfig;
-use vmm::Vmm;
+use utils::{
+    epoll::{EpollEvent, EventSet},
+    eventfd::EventFd,
+};
+use vmm::{
+    rpc_interface::{PrebootApiController, RuntimeApiController},
+    vmm_config::instance_info::InstanceInfo,
+    vmm_config::machine_config::VmConfig,
+    Vmm,
+};
 
 struct ApiServerAdapter {
     api_event_fd: EventFd,

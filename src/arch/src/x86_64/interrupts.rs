@@ -65,8 +65,6 @@ pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    extern crate utils;
-
     use super::*;
     use kvm_ioctls::Kvm;
 

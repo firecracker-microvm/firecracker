@@ -1,18 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#[macro_use]
-extern crate lazy_static;
-extern crate serde_json;
-
-extern crate dumbo;
-extern crate logger;
-extern crate micro_http;
-extern crate snapshot;
-extern crate utils;
-extern crate versionize;
-extern crate versionize_derive;
-
 pub mod data_store;
 pub mod ns;
 pub mod persist;
@@ -21,6 +9,7 @@ use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
 use crate::data_store::{Error as MmdsError, Mmds, OutputFormat};
+use lazy_static::lazy_static;
 use micro_http::{Body, MediaType, Method, Request, Response, StatusCode, Version};
 
 lazy_static! {
@@ -145,8 +134,6 @@ fn convert_to_response(request: Request) -> Response {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
-
     use super::*;
 
     #[test]

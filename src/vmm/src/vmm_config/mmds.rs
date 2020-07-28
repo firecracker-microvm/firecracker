@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::export::Formatter;
+use serde::{export::Formatter, Deserialize};
 use std::fmt::{Display, Result};
 use std::net::Ipv4Addr;
 

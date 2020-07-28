@@ -23,7 +23,7 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use logger::{Metric, METRICS};
+use logger::{debug, error, warn, Metric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;

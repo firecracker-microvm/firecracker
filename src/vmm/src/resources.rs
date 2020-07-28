@@ -20,6 +20,8 @@ use crate::vstate::VcpuConfig;
 use mmds::ns::MmdsNetworkStack;
 use utils::net::ipv4addr::is_link_local_valid;
 
+use serde::Deserialize;
+
 type Result<E> = std::result::Result<(), E>;
 
 /// Errors encountered when configuring microVM resources.

@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex};
 use super::RateLimiterConfig;
 use devices::virtio::Block;
 
+use serde::Deserialize;
+
 type Result<T> = result::Result<T, DriveError>;
 
 /// Errors associated with the operations allowed on a drive.

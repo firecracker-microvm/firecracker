@@ -34,7 +34,7 @@ use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, Snap
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use arch::DeviceType;
 use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
-use logger::{update_metric_with_elapsed_time, METRICS};
+use logger::{info, update_metric_with_elapsed_time, METRICS};
 use polly::event_manager::EventManager;
 use seccomp::BpfProgram;
 

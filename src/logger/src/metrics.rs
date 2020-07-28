@@ -688,7 +688,6 @@ pub struct FirecrackerMetrics {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
     use super::*;
 
     use std::io::ErrorKind;

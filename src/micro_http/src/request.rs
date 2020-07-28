@@ -179,7 +179,6 @@ impl Request {
     /// # Examples
     ///
     /// ```
-    /// extern crate micro_http;
     /// use micro_http::Request;
     ///
     /// let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n\r\n").unwrap();
