@@ -86,6 +86,17 @@ fn gcd(x: u64, y: u64) -> u64 {
     x
 }
 
+/// Enum describing the outcomes of a `reduce()` call on a `TokenBucket`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BucketReduction {
+    /// There are not enough tokens to complete the operation.
+    Failure,
+    /// A part of the available tokens have been consumed.
+    Success,
+    /// A number of tokens `inner` times larger than the bucket size have been consumed.
+    OverConsumption(f64),
+}
+
 /// TokenBucket provides a lower level interface to rate limiting with a
 /// configurable capacity, refill-rate and initial burst.
 #[derive(Clone, Debug, PartialEq)]
@@ -148,7 +159,7 @@ impl TokenBucket {
     /// Attempts to consume `tokens` from the bucket and returns whether the action succeeded.
     // TODO (Issue #259): handle cases where a single request is larger than the full capacity
     // for such cases we need to support partial fulfilment of requests
-    pub fn reduce(&mut self, mut tokens: u64) -> bool {
+    pub fn reduce(&mut self, mut tokens: u64) -> BucketReduction {
         // First things first: consume the one-time-burst budget.
         if self.one_time_burst > 0 {
             // We still have burst budget for *all* tokens requests.
@@ -156,7 +167,7 @@ impl TokenBucket {
                 self.one_time_burst -= tokens;
                 self.last_update = Instant::now();
                 // No need to continue to the refill process, we still have burst budget to consume from.
-                return true;
+                return BucketReduction::Success;
             } else {
                 // We still have burst budget for *some* of the tokens requests.
                 // The tokens left unfulfilled will be consumed from current `self.budget`.
@@ -180,24 +191,24 @@ impl TokenBucket {
         }
 
         if tokens > self.budget {
-            // TODO (Issue #259) remove this block when issue is resolved
+            // This operation requests a bandwidth higher than the bucket size
             if tokens > self.size {
                 error!(
-                    "Trying to consume more tokens {} than the total capacity {}",
+                    "Consumed {} tokens from bucket of size {}",
                     tokens, self.size
                 );
-                // best effort rate-limiting, this is a dirty workaround for Issue #259
-                if self.budget == self.size {
-                    self.budget = 0;
-                    return true;
-                }
+                // Empty the bucket and report an overconsumption of
+                // (remaining tokens / size) times larger than the bucket size
+                tokens -= self.budget;
+                self.budget = 0;
+                return BucketReduction::OverConsumption(tokens as f64 / self.size as f64);
             }
             // If not enough tokens consume() fails, return false.
-            return false;
+            return BucketReduction::Failure;
         }
 
         self.budget -= tokens;
-        true
+        BucketReduction::Success
     }
 
     /// "Manually" adds tokens to bucket.
@@ -347,33 +358,62 @@ impl RateLimiter {
         })
     }
 
+    // Arm the timer of the rate limiter with the provided `TimerState`.
+    fn activate_timer(&mut self, timer_state: TimerState) {
+        // Register the timer; don't care about its previous state
+        self.timer_fd.set_state(timer_state, SetTimeFlags::Default);
+        self.timer_active = true;
+    }
+
     /// Attempts to consume tokens and returns whether that is possible.
     ///
     /// If rate limiting is disabled on provided `token_type`, this function will always succeed.
     pub fn consume(&mut self, tokens: u64, token_type: TokenType) -> bool {
+        // If the timer is active, we can't consume tokens from any bucket and the function fails.
+        if self.timer_active {
+            return false;
+        }
+
         // Identify the required token bucket.
         let token_bucket = match token_type {
             TokenType::Bytes => self.bandwidth.as_mut(),
             TokenType::Ops => self.ops.as_mut(),
         };
         // Try to consume from the token bucket.
-        let success = match token_bucket {
-            Some(bucket) => bucket.reduce(tokens),
+        if let Some(bucket) = token_bucket {
+            let refill_time = bucket.refill_time_ms();
+            match bucket.reduce(tokens) {
+                // When we report budget is over, there will be no further calls here,
+                // register a timer to replenish the bucket and resume processing;
+                // make sure there is only one running timer for this limiter.
+                BucketReduction::Failure => {
+                    if !self.timer_active {
+                        self.activate_timer(TIMER_REFILL_STATE);
+                    }
+                    false
+                }
+                // The operation succeeded and further calls can be made.
+                BucketReduction::Success => true,
+                // The operation succeeded as the tokens have been consumed
+                // but the timer still needs to be armed.
+                BucketReduction::OverConsumption(ratio) => {
+                    // The operation "borrowed" a number of tokens `ratio` times
+                    // greater than the size of the bucket, and since it takes
+                    // `refill_time` milliseconds to fill an empty bucket, in
+                    // order to enforce the bandwidth limit we need to prevent
+                    // further calls to the rate limiter for
+                    // `ratio * refill_time` milliseconds.
+                    self.activate_timer(TimerState::Oneshot(Duration::from_millis(
+                        (ratio * refill_time as f64) as u64,
+                    )));
+                    true
+                }
+            }
+        } else {
             // If bucket is not present rate limiting is disabled on token type,
             // consume() will always succeed.
-            None => true,
-        };
-        // When we report budget is over, there will be no further calls here,
-        // register a timer to replenish the bucket and resume processing;
-        // make sure there is only one running timer for this limiter.
-        if !success && !self.timer_active {
-            // Register the timer; don't care about its previous state
-            // safe to unwrap: timer is definitely Some() since we have a bucket.
-            self.timer_fd
-                .set_state(TIMER_REFILL_STATE, SetTimeFlags::Default);
-            self.timer_active = true;
+            true
         }
-        success
     }
 
     /// Adds tokens of `token_type` to their respective bucket.
@@ -549,26 +589,28 @@ pub(crate) mod tests {
         let refill_ms = 1000;
         let mut tb = TokenBucket::new(capacity, 0, refill_ms as u64).unwrap();
 
-        assert!(tb.reduce(123));
+        assert_eq!(tb.reduce(123), BucketReduction::Success);
         assert_eq!(tb.budget(), capacity - 123);
 
         thread::sleep(Duration::from_millis(123));
-        assert!(tb.reduce(1));
+        assert_eq!(tb.reduce(1), BucketReduction::Success);
         assert_eq!(tb.budget(), capacity - 1);
-        assert!(tb.reduce(100));
-        assert!(!tb.reduce(capacity));
+        assert_eq!(tb.reduce(100), BucketReduction::Success);
+        assert_eq!(tb.reduce(capacity), BucketReduction::Failure);
 
         // token bucket with capacity 1000 and refill time of 1000 milliseconds
         let mut tb = TokenBucket::new(1000, 1100, 1000).unwrap();
         // safely assuming the thread can run these 3 commands in less than 500ms
-        assert!(tb.reduce(1000));
+        assert_eq!(tb.reduce(1000), BucketReduction::Success);
         assert_eq!(tb.one_time_burst(), 100);
-        assert!(tb.reduce(500));
+        assert_eq!(tb.reduce(500), BucketReduction::Success);
         assert_eq!(tb.one_time_burst(), 0);
-        assert!(tb.reduce(500));
-        assert!(!tb.reduce(500));
+        assert_eq!(tb.reduce(500), BucketReduction::Success);
+        assert_eq!(tb.reduce(500), BucketReduction::Failure);
         thread::sleep(Duration::from_millis(500));
-        assert!(tb.reduce(500));
+        assert_eq!(tb.reduce(500), BucketReduction::Success);
+        thread::sleep(Duration::from_millis(1000));
+        assert_eq!(tb.reduce(2500), BucketReduction::OverConsumption(1.5));
 
         let before = Instant::now();
         tb.reset();
@@ -735,10 +777,63 @@ pub(crate) mod tests {
         assert!(l.consume(100, TokenType::Ops));
         // try and succeed on another 100 bytes this time
         assert!(l.consume(100, TokenType::Bytes));
+    }
 
-        // TODO (Issue #259) enable this check when issue is resolved
-        // fail with warning on consume() > size
-        //assert!(!l.consume(u64::max_value(), TokenType::Bytes));
+    #[test]
+    fn test_rate_limiter_overconsumption() {
+        // initialize the rate limiter
+        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000).unwrap();
+        // try to consume 2.5x the bucket size
+        // we are "borrowing" 1.5x the bucket size in tokens since
+        // the bucket is full
+        assert!(l.consume(2500, TokenType::Bytes));
+
+        // check that even after a whole second passes, the rate limiter
+        // is still blocked
+        thread::sleep(Duration::from_millis(1000));
+        assert!(l.event_handler().is_err());
+        assert!(l.is_blocked());
+
+        // after 1.5x the replenish time has passed, the rate limiter
+        // is available again
+        thread::sleep(Duration::from_millis(500));
+        assert!(l.event_handler().is_ok());
+        assert!(!l.is_blocked());
+
+        // reset the rate limiter
+        let mut l = RateLimiter::new(1000, 0, 1000, 1000, 0, 1000).unwrap();
+        // try to consume 1.5x the bucket size
+        // we are "borrowing" 1.5x the bucket size in tokens since
+        // the bucket is full, should arm the timer to 0.5x replenish
+        // time, which is 500 ms
+        assert!(l.consume(1500, TokenType::Bytes));
+
+        // check that after more than the minimum refill time,
+        // the rate limiter is still blocked
+        thread::sleep(Duration::from_millis(200));
+        assert!(l.event_handler().is_err());
+        assert!(l.is_blocked());
+
+        // try to consume some tokens, which should fail as the timer
+        // is still active
+        assert!(!l.consume(100, TokenType::Bytes));
+        assert!(l.event_handler().is_err());
+        assert!(l.is_blocked());
+
+        // check that after the minimum refill time, the timer was not
+        // overwritten and the rate limiter is still blocked from the
+        // borrowing we performed earlier
+        thread::sleep(Duration::from_millis(100));
+        assert!(l.event_handler().is_err());
+        assert!(l.is_blocked());
+        assert!(!l.consume(100, TokenType::Bytes));
+
+        // after waiting out the full duration, rate limiter should be
+        // availale again
+        thread::sleep(Duration::from_millis(200));
+        assert!(l.event_handler().is_ok());
+        assert!(!l.is_blocked());
+        assert!(l.consume(100, TokenType::Bytes));
     }
 
     #[test]
