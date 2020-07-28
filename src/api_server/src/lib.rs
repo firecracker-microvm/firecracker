@@ -104,7 +104,10 @@ impl ApiServer {
         start_time_cpu_us: Option<u64>,
         seccomp_filter: BpfProgram,
     ) -> Result<()> {
-        let mut server = HttpServer::new(path).expect("Error creating the HTTP server");
+        let mut server = HttpServer::new(path).unwrap_or_else(|e| {
+            error!("Error creating the HTTP server: {}", e);
+            std::process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+        });
 
         if let Some(start_time) = start_time_us {
             let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
