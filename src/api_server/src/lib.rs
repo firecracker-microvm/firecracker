@@ -1,18 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-
-#[macro_use]
-extern crate logger;
-extern crate micro_http;
-extern crate mmds;
-extern crate seccomp;
-extern crate utils;
-extern crate vmm;
-
 mod parsed_request;
 mod request;
 
@@ -22,7 +9,7 @@ use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::{fmt, io};
 
 use crate::parsed_request::ParsedRequest;
-use logger::{update_metric_with_elapsed_time, Metric, METRICS};
+use logger::{debug, error, info, update_metric_with_elapsed_time, Metric, METRICS};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
@@ -306,8 +293,6 @@ impl ApiServer {
 
 #[cfg(test)]
 mod tests {
-    extern crate libc;
-
     use std::convert::TryInto;
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;

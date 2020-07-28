@@ -6,10 +6,10 @@
 use super::device::*;
 use super::queue::*;
 use crate::virtio::MmioTransport;
-use crate::vm_memory::Address;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+use vm_memory::Address;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use std::num::Wrapping;

@@ -25,12 +25,6 @@
 //! implementation does not have any logic dependent on it.
 //!  - **the data version** which refers to the state.
 //!
-extern crate bincode;
-extern crate serde;
-extern crate serde_derive;
-extern crate versionize;
-extern crate versionize_derive;
-
 mod persist;
 pub use crate::persist::Persist;
 

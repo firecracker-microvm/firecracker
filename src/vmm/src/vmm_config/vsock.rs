@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use devices::virtio::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 
+use serde::{Deserialize, Serialize};
+
 type MutexVsockUnix = Arc<Mutex<Vsock<VsockUnixBackend>>>;
 
 /// Errors associated with `NetworkInterfaceConfig`.

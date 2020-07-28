@@ -9,12 +9,12 @@ use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::num::NonZeroUsize;
 
-use crate::micro_http::{Request, Response};
 use crate::pdu::bytes::NetworkBytes;
 use crate::pdu::ipv4::{Error as IPv4PacketError, IPv4Packet, PROTOCOL_TCP};
 use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
 use crate::tcp::endpoint::Endpoint;
 use crate::tcp::{NextSegmentStatus, RstConfig};
+use micro_http::{Request, Response};
 
 // TODO: This is currently IPv4 specific. Maybe change it to a more generic implementation.
 

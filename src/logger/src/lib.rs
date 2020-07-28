@@ -1,14 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-// Workaround to `macro_reexport`.
-extern crate lazy_static;
-extern crate libc;
-extern crate log;
-extern crate serde;
-extern crate serde_json;
-extern crate utils;
-
 mod init;
 mod logger;
 mod metrics;

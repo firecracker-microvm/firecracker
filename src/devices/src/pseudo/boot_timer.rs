@@ -1,9 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use utils::time::TimestampUs;
-
 use crate::bus::BusDevice;
+use logger::info;
+use utils::time::TimestampUs;
 
 const MAGIC_VALUE_SIGNAL_GUEST_BOOT_COMPLETE: u8 = 123;
 

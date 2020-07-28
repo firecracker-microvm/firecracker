@@ -11,7 +11,6 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
 use super::ns::MmdsNetworkStack;
-use super::*;
 
 /// State of a MmdsNetworkStack.
 #[derive(Versionize)]

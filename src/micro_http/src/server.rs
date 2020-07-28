@@ -388,8 +388,6 @@ impl HttpServer {
     ///
     /// ## Non-blocking server
     /// ```
-    /// extern crate utils;
-    ///
     /// use std::os::unix::io::AsRawFd;
     ///
     /// use micro_http::{HttpServer, Response, StatusCode};

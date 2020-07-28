@@ -22,6 +22,7 @@ use crate::request::vsock::parse_put_vsock;
 use crate::ApiServer;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 
+use logger::{error, info};
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 pub enum ParsedRequest {

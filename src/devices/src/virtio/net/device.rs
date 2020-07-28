@@ -16,7 +16,7 @@ use crate::{report_net_event_fail, Error as DeviceError};
 use dumbo::pdu::ethernet::EthernetFrame;
 use dumbo::{MacAddr, MAC_ADDR_LEN};
 use libc::EAGAIN;
-use logger::{Metric, METRICS};
+use logger::{error, warn, Metric, METRICS};
 use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 #[cfg(not(test))]

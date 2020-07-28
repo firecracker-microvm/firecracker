@@ -1,15 +1,5 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate devices;
-extern crate libc;
-extern crate polly;
-extern crate seccomp;
-extern crate snapshot;
-extern crate utils;
-extern crate vm_memory;
-extern crate vmm;
-
 mod mock_devices;
 mod mock_resources;
 mod mock_seccomp;

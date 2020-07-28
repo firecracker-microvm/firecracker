@@ -17,6 +17,8 @@ use super::Incomplete;
 use crate::pdu::ChecksumProto;
 use crate::ByteBuffer;
 
+use bitflags::bitflags;
+
 const SOURCE_PORT_OFFSET: usize = 0;
 const DESTINATION_PORT_OFFSET: usize = 2;
 const SEQ_NUMBER_OFFSET: usize = 4;

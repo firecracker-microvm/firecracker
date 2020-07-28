@@ -8,6 +8,8 @@ use crate::request::Body;
 use crate::request::StatusCode;
 use logger::{Metric, METRICS};
 
+use serde::{Deserialize, Serialize};
+
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed
 // struct from the Serde deserialization process.

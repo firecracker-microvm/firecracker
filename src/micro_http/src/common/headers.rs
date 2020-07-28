@@ -117,7 +117,6 @@ impl Headers {
     /// # Examples
     ///
     /// ```
-    /// extern crate micro_http;
     /// use micro_http::Headers;
     ///
     /// let mut request_header = Headers::default();
@@ -217,7 +216,6 @@ impl Headers {
     /// # Examples
     ///
     /// ```
-    /// extern crate micro_http;
     /// use micro_http::Headers;
     ///
     /// let request_headers = Headers::try_from(b"Content-Length: 55\r\n\r\n");
@@ -275,7 +273,6 @@ impl MediaType {
     /// # Examples
     ///
     /// ```
-    /// extern crate micro_http;
     /// use micro_http::MediaType;
     ///
     /// assert!(MediaType::try_from(b"application/json").is_ok());
@@ -299,7 +296,6 @@ impl MediaType {
     /// # Examples
     ///
     /// ```
-    /// extern crate micro_http;
     /// use micro_http::MediaType;
     ///
     /// let media_type = MediaType::ApplicationJson;

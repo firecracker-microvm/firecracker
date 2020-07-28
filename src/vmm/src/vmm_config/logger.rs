@@ -2,16 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the logger.
-
-extern crate logger as logger_crate;
-
-use serde::{de, Deserialize, Deserializer};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use self::logger_crate::{LevelFilter, LOGGER};
 use super::{open_file_nonblock, FcLineWriter};
 use crate::vmm_config::instance_info::InstanceInfo;
+use logger::{LevelFilter, LOGGER};
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -160,6 +157,7 @@ mod tests {
     use super::*;
     use devices::pseudo::BootTimer;
     use devices::BusDevice;
+    use logger::warn;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
 

@@ -32,7 +32,7 @@ use kvm_bindings::{
 };
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::*;
-use logger::{Metric, METRICS};
+use logger::{error, info, Metric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use utils::signal::{register_signal_handler, sigrtmin, Killable};
@@ -1393,7 +1393,6 @@ pub(crate) mod tests {
     #[cfg(target_arch = "x86_64")]
     use std::time::Duration;
 
-    use super::super::devices;
     use super::*;
 
     use utils::signal::validate_signal_num;

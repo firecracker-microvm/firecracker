@@ -45,7 +45,6 @@
 //!
 //! ## Example for parsing an HTTP Request from a slice
 //! ```
-//! extern crate micro_http;
 //! use micro_http::{Request, Version};
 //!
 //! let http_request = Request::try_from(b"GET http://localhost/home HTTP/1.0\r\n\r\n").unwrap();
@@ -55,7 +54,6 @@
 //!
 //! ## Example for creating an HTTP Response
 //! ```
-//! extern crate micro_http;
 //! use micro_http::{Body, MediaType, Response, StatusCode, Version};
 //!
 //! let mut response = Response::new(Version::Http10, StatusCode::OK);
@@ -82,7 +80,6 @@
 //! ## Example for using the server
 //!
 //! ```
-//! extern crate micro_http;
 //! use micro_http::{HttpServer, Response, StatusCode};
 //!
 //! let path_to_socket = "/tmp/example.sock";
@@ -108,9 +105,6 @@
 //!     break;
 //! }
 //! ```
-
-extern crate libc;
-extern crate utils;
 
 mod common;
 mod connection;

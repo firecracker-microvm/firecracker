@@ -1,5 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+use serde::Serialize;
 
 /// The strongly typed that contains general information about the microVM.
 #[derive(Clone, Debug, Serialize)]

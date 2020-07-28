@@ -9,6 +9,7 @@ use std::sync::{atomic::AtomicUsize, Arc};
 
 use super::{ActivateResult, Queue};
 use crate::virtio::AsAny;
+use logger::warn;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;
 

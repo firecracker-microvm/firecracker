@@ -13,13 +13,13 @@
 
 use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 
-use crate::micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use crate::pdu::{bytes::NetworkBytes, tcp::TcpSegment, Incomplete};
 use crate::tcp::{
     connection::{Connection, PassiveOpenError, RecvStatusFlags},
     seq_after, NextSegmentStatus, MAX_WINDOW_SIZE,
 };
 use logger::{Metric, METRICS};
+use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use utils::time::timestamp_cycles;
 
 // TODO: These are currently expressed in cycles. Normally, they would be the equivalent of a

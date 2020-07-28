@@ -35,7 +35,7 @@ use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use logger::{Metric, METRICS};
+use logger::{debug, error, info, warn, Metric, METRICS};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 
 use super::super::csm::ConnState;
@@ -944,7 +944,7 @@ mod tests {
     }
     impl LocalListener {
         fn new<P: AsRef<Path> + Clone>(path: P) -> Self {
-            let path_buf = path.clone().as_ref().to_path_buf();
+            let path_buf = path.as_ref().to_path_buf();
             let sock = UnixListener::bind(path).unwrap();
             sock.set_nonblocking(true).unwrap();
             Self {
