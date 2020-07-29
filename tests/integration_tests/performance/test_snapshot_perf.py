@@ -145,7 +145,7 @@ kernel {}, disk {} """.format(snapshot_type,
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(basevm)
 
-    snapshot = snapshot_builder.create([rw_disk],
+    snapshot = snapshot_builder.create([rw_disk.local_path()],
                                        ssh_key,
                                        snapshot_type)
 

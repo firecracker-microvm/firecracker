@@ -521,6 +521,16 @@ class Microvm:
             )
             assert self._api_session.is_status_no_content(response.status_code)
 
+    def add_drive(self, drive_id, file, root_device=False, is_read_only=False):
+        """Add a block device."""
+        response = self.drive.put(
+            drive_id=drive_id,
+            path_on_host=self.create_jailed_resource(file.path),
+            is_root_device=root_device,
+            is_read_only=is_read_only
+        )
+        assert self.api_session.is_status_no_content(response.status_code)
+
     def ssh_network_config(
             self,
             network_config,
