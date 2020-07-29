@@ -71,6 +71,15 @@ class Avg(StatisticFunction):
 
 
 # pylint: disable=R0903
+class Sum(StatisticFunction):
+    """A function which computes the sum for a list of observations."""
+
+    def __call__(self) -> Any:
+        """Get the sum."""
+        return sum(self.results)
+
+
+# pylint: disable=R0903
 class Stddev(StatisticFunction):
     """A function which computes the standard deviation of a list of...
 
