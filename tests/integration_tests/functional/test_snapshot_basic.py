@@ -76,12 +76,13 @@ def _test_seq_snapshots(context):
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
         # Start a new instance of fio on each iteration.
-        fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k
-        --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based
+        fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
+        --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
         --group_reporting --name=iops-test-job --eta-newline=1 --readonly"""
         ssh_cmd = "screen -L -Logfile /tmp/fio{} -dmS test{} {}"
         ssh_cmd = ssh_cmd.format(i, i, fio)
         exit_code, _, _ = ssh_connection.execute_command(ssh_cmd)
+        assert exit_code == 0
 
         logger.info("Create snapshot #{}.".format(i + 1))
 
