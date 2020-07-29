@@ -89,7 +89,9 @@ class MicrovmBuilder:
         jailed_mem = vm.create_jailed_resource(snapshot.mem)
         jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
         assert len(snapshot.disks) > 0, "Snapshot requiures at least one disk."
-        _jailed_disk = vm.create_jailed_resource(snapshot.disks[0])
+        _jailed_disks = []
+        for disk in snapshot.disks:
+            _jailed_disks.append(vm.create_jailed_resource(disk))
         vm.ssh_config['ssh_key_path'] = snapshot.ssh_key
 
         if host_ip is not None:
@@ -121,7 +123,7 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
         self._microvm = microvm
 
     def create(self,
-               disks: [DiskArtifact],
+               disks,
                ssh_key: Artifact,
                snapshot_type: SnapshotType = SnapshotType.FULL):
         """Create a Snapshot object from a microvm and artifacts."""
@@ -150,5 +152,5 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
                         # simple and flexible way to store snapshot artifacts
                         # in S3. This should be done in a PR where we add tests
                         # that resume from S3 snapshot artifacts.
-                        disks=[disks[0].local_path()],
+                        disks=disks,
                         ssh_key=ssh_key_copy.local_path())

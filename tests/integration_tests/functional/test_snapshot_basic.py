@@ -4,12 +4,14 @@
 
 import logging
 import platform
+import tempfile
 import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 import host_tools.network as net_tools  # pylint: disable=import-error
+import host_tools.drive as drive_tools
 
 
 def _test_seq_snapshots(context):
@@ -26,12 +28,12 @@ def _test_seq_snapshots(context):
                         context.disk.name()))
 
     # Create a rw copy artifact.
-    rw_disk = context.disk.copy()
+    root_disk = context.disk.copy()
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
     basevm = vm_builder.build(kernel=context.kernel,
-                              disks=[rw_disk],
+                              disks=[root_disk],
                               ssh_key=ssh_key,
                               config=context.microvm,
                               enable_diff_snapshots=enable_diff_snapshots)
@@ -41,6 +43,10 @@ def _test_seq_snapshots(context):
                                                      '1',
                                                      tapname="tap0")
     logger.debug("Host IP: {}, Guest IP: {}".format(host_ip, guest_ip))
+
+    # Add a scratch RW non-root block device.
+    scratchdisk1 = drive_tools.FilesystemFile(tempfile.mktemp())
+    basevm.add_drive('scratch', scratchdisk1)
 
     # We will need netmask_len in build_from_snapshot() call later.
     netmask_len = network_config.get_netmask_len()
@@ -55,8 +61,9 @@ def _test_seq_snapshots(context):
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(basevm)
 
+    disks = [root_disk.local_path(), scratchdisk1.path]
     # Create base snapshot.
-    snapshot = snapshot_builder.create([rw_disk],
+    snapshot = snapshot_builder.create(disks,
                                        ssh_key,
                                        snapshot_type)
 
@@ -89,7 +96,8 @@ def _test_seq_snapshots(context):
         # Create a snapshot builder from the currently running microvm.
         snapshot_builder = SnapshotBuilder(microvm)
 
-        snapshot = snapshot_builder.create([rw_disk],
+        disks = [root_disk.local_path(), scratchdisk1.path]
+        snapshot = snapshot_builder.create(disks,
                                            ssh_key,
                                            snapshot_type)
 
