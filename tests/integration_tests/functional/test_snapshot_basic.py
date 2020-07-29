@@ -14,6 +14,26 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.drive as drive_tools
 
 
+def _guest_run_fio_iteration(ssh_connection, iteration):
+    fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
+        --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
+        --group_reporting --name=iops-test-job --eta-newline=1 --readonly"""
+    ssh_cmd = "screen -L -Logfile /tmp/fio{} -dmS test{} {}"
+    ssh_cmd = ssh_cmd.format(iteration, iteration, fio)
+    exit_code, _, _ = ssh_connection.execute_command(ssh_cmd)
+    assert exit_code == 0
+
+
+def _get_guest_drive_size(ssh_connection, guest_dev_name='/dev/vdb'):
+    # `lsblk` command outputs 2 lines to STDOUT:
+    # "SIZE" and the size of the device, in bytes.
+    blksize_cmd = "lsblk -b {} --output SIZE".format(guest_dev_name)
+    _, stdout, stderr = ssh_connection.execute_command(blksize_cmd)
+    assert stderr.read() == ''
+    stdout.readline()  # skip "SIZE"
+    return stdout.readline().strip()
+
+
 def _test_seq_snapshots(context):
     logger = context.custom['logger']
     seq_len = context.custom['seq_len']
@@ -44,8 +64,8 @@ def _test_seq_snapshots(context):
                                                      tapname="tap0")
     logger.debug("Host IP: {}, Guest IP: {}".format(host_ip, guest_ip))
 
-    # Add a scratch RW non-root block device.
-    scratchdisk1 = drive_tools.FilesystemFile(tempfile.mktemp())
+    # Add a scratch 128MB RW non-root block device.
+    scratchdisk1 = drive_tools.FilesystemFile(tempfile.mktemp(), size=128)
     basevm.add_drive('scratch', scratchdisk1)
 
     # We will need netmask_len in build_from_snapshot() call later.
@@ -56,6 +76,13 @@ def _test_seq_snapshots(context):
     # Verify if guest can run commands.
     exit_code, _, _ = ssh_connection.execute_command("sync")
     assert exit_code == 0
+
+    if 'check_patch_drive' in context.custom:
+        # Update drive to have another backing file, double in size.
+        new_file_size_mb = 2 * int(scratchdisk1.size()/(1024*1024))
+        scratchdisk1 = drive_tools.FilesystemFile(tempfile.mktemp(),
+                                                  new_file_size_mb)
+        basevm.patch_drive('scratch', scratchdisk1)
 
     logger.info("Create {} #0.".format(snapshot_type))
     # Create a snapshot builder from a microvm.
@@ -83,13 +110,11 @@ def _test_seq_snapshots(context):
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
         # Start a new instance of fio on each iteration.
-        fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
-        --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
-        --group_reporting --name=iops-test-job --eta-newline=1 --readonly"""
-        ssh_cmd = "screen -L -Logfile /tmp/fio{} -dmS test{} {}"
-        ssh_cmd = ssh_cmd.format(i, i, fio)
-        exit_code, _, _ = ssh_connection.execute_command(ssh_cmd)
-        assert exit_code == 0
+        _guest_run_fio_iteration(ssh_connection, i)
+
+        if 'check_patch_drive' in context.custom:
+            guest_drive_size = _get_guest_drive_size(ssh_connection)
+            assert guest_drive_size == str(scratchdisk1.size())
 
         logger.info("Create snapshot #{}.".format(i + 1))
 
@@ -111,6 +136,47 @@ def _test_seq_snapshots(context):
             base_snapshot = snapshot
 
         microvm.kill()
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="Not supported yet."
+)
+def test_patch_drive_snapshot(network_config,
+                              bin_cloner_path):
+    """Test scenario: 5 full sequential snapshots."""
+    logger = logging.getLogger("snapshot_sequence")
+
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    # Testing matrix:
+    # - Guest kernel: Linux 4.9/4.14
+    # - Rootfs: Ubuntu 18.04
+    # - Microvm: 2vCPU with 512 MB RAM
+    # TODO: Multiple microvm sizes must be tested in the async pipeline.
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="4.14"))
+    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+
+    # Create a test context and add builder, logger, network.
+    test_context = TestContext()
+    test_context.custom = {
+        'builder': MicrovmBuilder(bin_cloner_path),
+        'network_config': network_config,
+        'logger': logger,
+        'snapshot_type': SnapshotType.FULL,
+        'seq_len': 1,
+        'check_patch_drive': True
+    }
+
+    # Create the test matrix.
+    test_matrix = TestMatrix(context=test_context,
+                             artifact_sets=[
+                                 microvm_artifacts,
+                                 kernel_artifacts,
+                                 disk_artifacts
+                             ])
+
+    test_matrix.run_test(_test_seq_snapshots)
 
 
 @pytest.mark.skipif(

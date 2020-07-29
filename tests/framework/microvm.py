@@ -531,6 +531,14 @@ class Microvm:
         )
         assert self.api_session.is_status_no_content(response.status_code)
 
+    def patch_drive(self, drive_id, file):
+        """Modify/patch an existing block device."""
+        response = self.drive.patch(
+            drive_id=drive_id,
+            path_on_host=self.create_jailed_resource(file.path),
+        )
+        assert self.api_session.is_status_no_content(response.status_code)
+
     def ssh_network_config(
             self,
             network_config,
