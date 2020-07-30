@@ -11,6 +11,8 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use logger::{error, Metric, METRICS};
 use ::utils::eventfd::EventFd;
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 use virtio_gen::virtio_blk::*;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -28,7 +30,7 @@ const SIZE_OF_U32: usize = 4;
 const SIZE_OF_STAT: usize = 10;
 
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Versionize)]
 pub(crate) struct ConfigSpace {
     num_pages: u32,
     actual_pages: u32,
@@ -50,7 +52,7 @@ struct BalloonStat {
 unsafe impl ByteValued for BalloonStat {}
 
 // BalloonStats holds statistics returned from the stats_queue.
-#[derive(Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Versionize)]
 pub struct BalloonStats {
     pub swap_in: Option<u64>,
     pub swap_out: Option<u64>,
