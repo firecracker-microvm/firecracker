@@ -8,7 +8,7 @@ use polly::event_manager::{EventManager, Subscriber};
 use utils::epoll::{EpollEvent, EventSet};
 
 use crate::virtio::balloon::device::Balloon;
-use crate::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX};
+use crate::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 
 impl Balloon {
     fn process_activate_event(&self, event_manager: &mut EventManager) {
@@ -62,12 +62,16 @@ impl Subscriber for Balloon {
         if self.is_activated() {
             let virtq_inflate_ev_fd = self.queue_evts[INFLATE_INDEX].as_raw_fd();
             let virtq_deflate_ev_fd = self.queue_evts[DEFLATE_INDEX].as_raw_fd();
+            let virtq_stats_ev_fd = self.queue_evts[STATS_INDEX].as_raw_fd();
+            let stats_timer_fd = self.stats_timer.as_raw_fd();
             let activate_fd = self.activate_evt.as_raw_fd();
 
             // Looks better than C style if/else if/else.
             match source {
                 _ if source == virtq_inflate_ev_fd => self.process_inflate_queue_event(),
                 _ if source == virtq_deflate_ev_fd => self.process_deflate_queue_event(),
+                _ if source == virtq_stats_ev_fd => self.process_stats_queue_event(),
+                _ if source == stats_timer_fd => self.process_stats_timer_event(),
                 _ if activate_fd == source => self.process_activate_event(evmgr),
                 _ => {
                     warn!("Balloon: Spurious event received: {:?}", source);
@@ -87,7 +91,7 @@ impl Subscriber for Balloon {
         //  - on device activation (is-activated already true at this point),
         //  - on device restore from snapshot.
         if self.is_activated() {
-            vec![
+            let mut events = vec![
                 EpollEvent::new(
                     EventSet::IN,
                     self.queue_evts[INFLATE_INDEX].as_raw_fd() as u64,
@@ -96,7 +100,17 @@ impl Subscriber for Balloon {
                     EventSet::IN,
                     self.queue_evts[DEFLATE_INDEX].as_raw_fd() as u64,
                 ),
-            ]
+            ];
+            if self.stats_enabled() {
+                events.extend(vec![
+                    EpollEvent::new(
+                        EventSet::IN,
+                        self.queue_evts[STATS_INDEX].as_raw_fd() as u64,
+                    ),
+                    EpollEvent::new(EventSet::IN, self.stats_timer.as_raw_fd() as u64),
+                ]);
+            }
+            events
         } else {
             vec![EpollEvent::new(
                 EventSet::IN,
@@ -118,7 +132,7 @@ pub mod tests {
     #[test]
     fn test_event_handler() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut balloon = Balloon::new(0, true, true).unwrap();
+        let mut balloon = Balloon::new(0, true, true, 0).unwrap();
         let mem = default_mem();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, infq.create_queue());
