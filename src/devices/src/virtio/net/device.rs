@@ -1901,8 +1901,8 @@ pub mod tests {
         {
             // create ops rate limiter that allows 10 ops/s with bucket size 1 ops
             let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
-            // use up the budget
-            assert!(rl.consume(0x800, TokenType::Ops));
+            // use up the initial budget
+            assert!(rl.consume(1, TokenType::Ops));
 
             // set this rx rate limiter to be used
             th.net().rx_rate_limiter = rl;

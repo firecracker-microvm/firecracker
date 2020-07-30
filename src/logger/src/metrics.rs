@@ -372,7 +372,7 @@ pub struct I8042DeviceMetrics {
     pub error_count: SharedMetric,
     /// Number of superfluous read intents on this i8042 device.
     pub missed_read_count: SharedMetric,
-    /// Number of superfluous read intents on this i8042 device.
+    /// Number of superfluous write intents on this i8042 device.
     pub missed_write_count: SharedMetric,
     /// Bytes read by this device.
     pub read_count: SharedMetric,
@@ -519,14 +519,14 @@ pub struct PerformanceMetrics {
     pub vmm_resume_vm: SharedMetric,
 }
 
-/// Metrics specific to the i8042 device.
+/// Metrics specific to the RTC device.
 #[derive(Default, Serialize)]
 pub struct RTCDeviceMetrics {
-    /// Errors triggered while using the i8042 device.
+    /// Errors triggered while using the RTC device.
     pub error_count: SharedMetric,
-    /// Number of superfluous read intents on this i8042 device.
+    /// Number of superfluous read intents on this RTC device.
     pub missed_read_count: SharedMetric,
-    /// Number of superfluous read intents on this i8042 device.
+    /// Number of superfluous write intents on this RTC device.
     pub missed_write_count: SharedMetric,
 }
 
