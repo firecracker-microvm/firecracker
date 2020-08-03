@@ -71,15 +71,16 @@ impl Persist<'_> for RateLimiter {
 
     fn restore(_: Self::ConstructorArgs, state: &Self::State) -> Result<Self, Self::Error> {
         let rate_limiter = RateLimiter {
-            // Safe to unwrap because TokenBucket::restore doesn't return errors.
-            ops: state
-                .ops
-                .as_ref()
-                .map(|ops| TokenBucket::restore((), ops).unwrap()),
-            bandwidth: state
-                .bandwidth
-                .as_ref()
-                .map(|bw| TokenBucket::restore((), bw).unwrap()),
+            ops: if let Some(ops) = state.ops.as_ref() {
+                Some(TokenBucket::restore((), ops)?)
+            } else {
+                None
+            },
+            bandwidth: if let Some(bw) = state.bandwidth.as_ref() {
+                Some(TokenBucket::restore((), bw)?)
+            } else {
+                None
+            },
             timer_fd: TimerFd::new_custom(ClockId::Monotonic, true, true)?,
             timer_active: false,
         };
