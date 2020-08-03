@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.2]
+
+### Fixed
+
+- Fixed #1754 - net: traffic blocks when running ingress UDP performance tests
+  with very large buffers.
+
 ## [0.21.1]
 
 ### Fixed
