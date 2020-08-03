@@ -625,7 +625,12 @@ impl Net {
             DeviceState::Inactive => unreachable!(),
         };
         METRICS.net.rx_tap_event_count.inc();
-        if self.queues[RX_INDEX].is_empty(mem) {
+
+        // While there are no available RX queue buffers and there's a deferred_frame
+        // don't process any more incoming. Otherwise start processing a frame. In the
+        // process the deferred_frame flag will be set in order to avoid freezing the
+        // RX queue.
+        if self.queues[RX_INDEX].is_empty(mem) && self.rx_deferred_frame {
             METRICS.net.no_rx_avail_buffer.inc();
             return;
         }
@@ -1699,7 +1704,8 @@ pub mod tests {
         th.activate_net();
         th.net().mocks.set_read_tap(ReadTapMock::Failure);
 
-        // The RX queue is empty.
+        // The RX queue is empty and rx_deffered_frame is set.
+        th.net().rx_deferred_frame = true;
         check_metric_after_block!(
             &METRICS.net.no_rx_avail_buffer,
             1,
