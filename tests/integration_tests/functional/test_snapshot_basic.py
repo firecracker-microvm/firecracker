@@ -64,7 +64,7 @@ def _test_patch_drive_snapshot(context):
 
     # Add a scratch 128MB RW non-root block device.
     scratchdisk1 = drive_tools.FilesystemFile(tempfile.mktemp(), size=128)
-    basevm.add_drive('scratch', scratchdisk1)
+    basevm.add_drive('scratch', scratchdisk1.path)
 
     # We will need netmask_len in build_from_snapshot() call later.
     netmask_len = network_config.get_netmask_len()
