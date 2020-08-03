@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "firecracker"
-version = "0.20.0"
+version = "0.20.1"
 dependencies = [
  "api_server",
  "backtrace",
@@ -182,7 +182,7 @@ checksum = "501266b7edd0174f8530248f87f99c88fbe60ca4ef3dd486835b8d8d53136f7f"
 
 [[package]]
 name = "jailer"
-version = "0.20.0"
+version = "0.20.1"
 dependencies = [
  "clap",
  "libc",
