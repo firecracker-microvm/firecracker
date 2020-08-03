@@ -16,7 +16,7 @@ use crate::env::Env;
 use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
 use utils::validators;
 
-const JAILER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const JAILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 #[derive(Debug)]
 pub enum Error {
     ArgumentParsing(ParsingError),

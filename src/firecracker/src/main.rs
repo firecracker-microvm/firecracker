@@ -27,7 +27,7 @@ use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 // see https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html for more information.
 const DEFAULT_API_SOCK_PATH: &str = "/run/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
-const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const FIRECRACKER_VERSION: &str = env!("FIRECRACKER_VERSION");
 
 fn main() {
     LOGGER
