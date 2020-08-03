@@ -543,13 +543,21 @@ class Microvm:
             )
             assert self._api_session.is_status_no_content(response.status_code)
 
-    def add_drive(self, drive_id, file, root_device=False, is_read_only=False):
+    def add_drive(
+            self,
+            drive_id,
+            file_path,
+            root_device=False,
+            is_read_only=False,
+            partuuid=None,
+    ):
         """Add a block device."""
         response = self.drive.put(
             drive_id=drive_id,
-            path_on_host=self.create_jailed_resource(file.path),
+            path_on_host=self.create_jailed_resource(file_path),
             is_root_device=root_device,
-            is_read_only=is_read_only
+            is_read_only=is_read_only,
+            partuuid=partuuid
         )
         assert self.api_session.is_status_no_content(response.status_code)
 
