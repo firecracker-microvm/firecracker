@@ -14,6 +14,9 @@ import botocore.client
 from host_tools.snapshot_helper import merge_memory_bitmaps
 
 
+ARTIFACTS_LOCAL_ROOT = "/tmp/ci-artifacts"
+
+
 class ArtifactType(Enum):
     """Supported artifact types."""
 
@@ -24,6 +27,9 @@ class ArtifactType(Enum):
     MEM = "mem"
     VMSTATE = "vmstate"
     MISC = "misc"
+    SNAPSHOT = "snapshot"
+    FC = "firecracker"
+    JAILER = "jailer"
 
 
 class Artifact:
@@ -61,6 +67,10 @@ class Artifact:
         """Return the artifact name."""
         return Path(self.key).name
 
+    def base_name(self):
+        """Return the base name (without extension)."""
+        return Path(self.key).stem
+
     def local_dir(self):
         """Return the directory containing the downloaded artifact."""
         assert self._local_folder is not None
@@ -70,7 +80,7 @@ class Artifact:
             platform.machine(),
         )
 
-    def download(self, target_folder, force=False):
+    def download(self, target_folder=ARTIFACTS_LOCAL_ROOT, force=False):
         """Save the artifact in the folder specified target_path."""
         assert self.bucket is not None
         self._local_folder = target_folder
@@ -88,7 +98,7 @@ class Artifact:
             self.name()
         )
 
-    def copy(self):
+    def copy(self, file_name=None):
         """Create a writeable copy of the artifact."""
         assert os.path.exists(self.local_path()), """File {} not found.
         call download() first.""".format(self.local_path())
@@ -99,10 +109,16 @@ class Artifact:
             self.type.value,
             platform.machine()
         )
-        # The temp file suffix is the artifact type.
-        suffix = "-{}".format(self.type.value)
-        # The key for the new artifact is the full path to the file.
-        new_key = tempfile.mktemp(dir=new_dir, suffix=suffix)
+
+        if file_name is None:
+            # The temp file suffix is the artifact type.
+            suffix = "-{}".format(self.type.value)
+            # The key for the new artifact is the full path to the file.
+            new_key = tempfile.mktemp(dir=new_dir, suffix=suffix)
+        else:
+            # Caller specified new name.
+            new_key = os.path.join(new_dir, file_name)
+
         # Create directories if needed.
         Path(new_dir).mkdir(parents=True, exist_ok=True)
         # Copy to local artifact.
@@ -118,8 +134,117 @@ class Artifact:
                         local_folder=local_folder)
 
 
+class SnapshotArtifact:
+    """Manages snapshot S3 artifact objects."""
+
+    def __init__(self,
+                 bucket,
+                 key,
+                 artifact_type=ArtifactType.SNAPSHOT):
+        """Initialize bucket, key and type."""
+        self._bucket = bucket
+        self._type = artifact_type
+        self._key = key
+
+        self._mem = Artifact(self._bucket, "{}vm.mem".format(key),
+                             artifact_type=ArtifactType.MISC)
+        self._vmstate = Artifact(self._bucket, "{}vm.vmstate".format(key),
+                                 artifact_type=ArtifactType.MISC)
+        self._ssh_key = Artifact(self._bucket, "{}ssh_key".format(key),
+                                 artifact_type=ArtifactType.SSH_KEY)
+        self._disks = []
+
+        disk_prefix = "{}disk".format(key)
+        snaphot_disks = self._bucket.objects.filter(Prefix=disk_prefix)
+
+        for disk in snaphot_disks:
+            artifact = Artifact(self._bucket, disk.key,
+                                artifact_type=ArtifactType.DISK)
+            # artifact.download()
+            self._disks.append(artifact)
+
+        # Get the name of the snapshot folder.
+        snapshot_name = self.name
+        self._local_folder = os.path.join(ARTIFACTS_LOCAL_ROOT,
+                                          self.type.strip('/'),
+                                          snapshot_name)
+
+    @property
+    def type(self):
+        """Return the artifact type."""
+        return self._type
+
+    @property
+    def key(self):
+        """Return the artifact key."""
+        return self._key
+
+    @property
+    def mem(self):
+        """Return the memory artifact."""
+        return self._mem
+
+    @property
+    def vmstate(self):
+        """Return the vmstate artifact."""
+        return self._vmstate
+
+    @property
+    def ssh_key(self):
+        """Return the vmstate artifact."""
+        return self._ssh_key
+
+    @property
+    def disks(self):
+        """Return the disk artifacts."""
+        return self._disks
+
+    @property
+    def name(self):
+        """Return the name of the artifact."""
+        return self._key.strip('/').split('/')[-1]
+
+    def download(self):
+        """Download artifacts and return a Snapshot object."""
+        self.mem.download(self._local_folder)
+        self.vmstate.download(self._local_folder)
+        # SSH key is not needed by microvm, it is needed only by
+        # test functions.
+        self.ssh_key.download(self._local_folder)
+
+        for disk in self.disks:
+            disk.download(self._local_folder)
+            os.chmod(disk.local_path(), 0o700)
+
+    def copy(self, vm_root_folder):
+        """Copy artifacts and return a Snapshot object."""
+        assert self._local_folder is not None
+
+        dst_mem_path = os.path.join(vm_root_folder, self.mem.name())
+        dst_state_file = os.path.join(vm_root_folder, self.vmstate.name())
+        dst_ssh_key = os.path.join(vm_root_folder, self.ssh_key.name())
+
+        # Copy mem, state & ssh_key.
+        copyfile(self.mem.local_path(), dst_mem_path)
+        copyfile(self.vmstate.local_path(), dst_state_file)
+        copyfile(self.ssh_key.local_path(), dst_ssh_key)
+        # Set proper permissions for ssh key.
+        os.chmod(dst_ssh_key, 0o400)
+
+        disk_paths = []
+        for disk in self.disks:
+            dst_disk_path = os.path.join(vm_root_folder, disk.name())
+            copyfile(disk.local_path(), dst_disk_path)
+            disk_paths.append(dst_disk_path)
+
+        return Snapshot(dst_mem_path,
+                        dst_state_file,
+                        disk_paths,
+                        dst_ssh_key)
+
+
 class DiskArtifact(Artifact):
-    """Specializes the generic artifact."""
+    """Provides access to associated ssh key artifact."""
 
     def ssh_key(self):
         """Return a ssh key artifact."""
@@ -130,6 +255,21 @@ class DiskArtifact(Artifact):
                         artifact_type=ArtifactType.SSH_KEY)
 
 
+class FirecrackerArtifact(Artifact):
+    """Provides access to associated jailer artifact."""
+
+    def jailer(self):
+        """Return a jailer binary artifact."""
+        # Jailer and FC binaries have different extensions and share
+        # file name when stored in S3:
+        # Firecracker binary: v0.22.firecrcker
+        # Jailer binary: v0.23.0.jailer
+        jailer_path = str(Path(self.key).with_suffix('.jailer'))
+        return Artifact(self.bucket,
+                        jailer_path,
+                        artifact_type=ArtifactType.JAILER)
+
+
 class ArtifactCollection:
     """Provides easy access to different artifact types."""
 
@@ -138,14 +278,18 @@ class ArtifactCollection:
     MICROVM_DISK_EXTENSION = ".ext4"
     MICROVM_VMSTATE_EXTENSION = ".vmstate"
     MICROVM_MEM_EXTENSION = ".mem"
+    FC_EXTENSION = ".firecracker"
+    JAILER_EXTENSION = ".jailer"
+
     PLATFORM = platform.machine()
 
     # S3 bucket structure.
     ARTIFACTS_ROOT = 'ci-artifacts'
-    ARTIFACTS_DISKS = '/disks/' + PLATFORM
-    ARTIFACTS_KERNELS = '/kernels/' + PLATFORM
-    ARTIFACTS_MICROVMS = '/microvms'
-    ARTIFACTS_SNAPSHOTS = '/snapshots/' + PLATFORM
+    ARTIFACTS_DISKS = '/disks/' + PLATFORM + "/"
+    ARTIFACTS_KERNELS = '/kernels/' + PLATFORM + "/"
+    ARTIFACTS_MICROVMS = '/microvms/'
+    ARTIFACTS_SNAPSHOTS = '/snapshots/' + PLATFORM + "/"
+    ARTIFACTS_BINARIES = '/binaries/' + PLATFORM + "/"
 
     def __init__(
         self,
@@ -178,6 +322,40 @@ class ArtifactCollection:
                                                 artifact_type=artifact_type))
         return artifacts
 
+    def snapshots(self, keyword=None):
+        """Return snapshot artifacts for the current arch."""
+        # Snapshot artifacts are special since they need to contain
+        # a variable number of files: mem, state, disks, ssh key.
+        # To simplify the way we retrieve and store snapshot artifacts
+        # we are going to group all snapshot file in a folder and the
+        # "keyword" parameter will filter this folder name.
+        #
+        # Naming convention for files within the snapshot below.
+        # Snapshot folder /ci-artifacts/snapshots/x86_64/fc_snapshot_v0.22:
+        # - vm.mem
+        # - vm.vmstate
+        # - disk0 <---- this is the root disk
+        # - disk1
+        # - diskN
+        # - ssh_key
+
+        artifacts = []
+        prefix = ArtifactCollection.ARTIFACTS_ROOT
+        prefix += ArtifactCollection.ARTIFACTS_SNAPSHOTS
+        snaphot_dirs = self.bucket.objects.filter(Prefix=prefix)
+        for snapshot_dir in snaphot_dirs:
+            key = snapshot_dir.key
+            # Filter out the snapshot artifacts root folder.
+            # Select only files with specified keyword.
+            if (key[-1] == "/" and key != prefix and
+               (keyword is None or keyword in snapshot_dir.key)):
+                artifact_type = ArtifactCollection.ARTIFACTS_SNAPSHOTS
+                artifacts.append(SnapshotArtifact(self.bucket,
+                                                  key,
+                                                  artifact_type=artifact_type))
+
+        return artifacts
+
     def microvms(self, keyword=None):
         """Return microvms artifacts for the current arch."""
         return self._fetch_artifacts(
@@ -185,6 +363,16 @@ class ArtifactCollection:
             ArtifactCollection.MICROVM_CONFIG_EXTENSION,
             ArtifactType.MICROVM,
             Artifact,
+            keyword=keyword
+        )
+
+    def firecrackers(self, keyword=None):
+        """Return fc/jailer artifacts for the current arch."""
+        return self._fetch_artifacts(
+            ArtifactCollection.ARTIFACTS_BINARIES,
+            ArtifactCollection.FC_EXTENSION,
+            ArtifactType.FC,
+            FirecrackerArtifact,
             keyword=keyword
         )
 

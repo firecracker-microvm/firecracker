@@ -128,20 +128,26 @@ def _test_images_s3_bucket():
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
 
 
-def init_microvm(root_path, bin_cloner_path):
+def init_microvm(root_path, bin_cloner_path,
+                 fc_binary=None, jailer_binary=None):
     """Auxiliary function for instantiating a microvm and setting it up."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
     microvm_id = str(uuid.uuid4())
-    fc_binary, jailer_binary = build_tools.get_firecracker_binaries()
+
+    if fc_binary is None:
+        fc_binary, jailer_binary = build_tools.get_firecracker_binaries()
+
+    # Make sure we always have both binaries.
+    assert fc_binary
+    assert jailer_binary
 
     vm = Microvm(
-        resource_path=root_path,
-        fc_binary_path=fc_binary,
-        jailer_binary_path=jailer_binary,
-        microvm_id=microvm_id,
-        bin_cloner_path=bin_cloner_path
-    )
+         resource_path=root_path,
+         fc_binary_path=fc_binary,
+         jailer_binary_path=jailer_binary,
+         microvm_id=microvm_id,
+         bin_cloner_path=bin_cloner_path)
     vm.setup()
     return vm
 
