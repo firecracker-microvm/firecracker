@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.22.0]
 
 ### Added
 
@@ -29,6 +29,12 @@
 - Fixed folder permissions in the jail (#1802).
 - Any number of whitespace characters are accepted after ":" when parsing HTTP
   headers.
+- Potential panic condition caused by the net device expecting to find a VNET
+  header in every frame.
+- Potential crash scenario caused by "Content-Length" HTTP header field
+  accepting negative values.
+- Fixed #1754 - net: traffic blocks when running ingress UDP performance tests
+  with very large buffers.
 
 ### Changed
 - Updated CVE-2019-3016 mitigation information in
