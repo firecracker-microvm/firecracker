@@ -38,6 +38,9 @@ CREATE_LATENCY_BASELINES = {
 LOAD_LATENCY_BASELINES = {
     '2vcpu_256mb.json': 8,
     '2vcpu_512mb.json': 8,
+    # We are also tracking restore from older version latency.
+    # Snapshot properties: 2vCPU, 512MB RAM, 1 disk, 1 network iface.
+    'fc_release_v0.22': 8,
 }
 
 
@@ -179,7 +182,7 @@ kernel {}, disk {} """.format(snapshot_type,
 
         baseline = LOAD_LATENCY_BASELINES[context.microvm.name()]
         logger.info("Latency {}/{}: {} ms".format(i + 1, SAMPLE_COUNT, value))
-        value = value / USEC_IN_MSEC
+        value = value
         assert baseline > value, "LoadSnapshot latency degraded."
 
         microvm.kill()
@@ -263,3 +266,53 @@ def test_snapshot_resume_latency(network_config,
                              ])
 
     test_matrix.run_test(_test_snapshot_resume_latency)
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="Not supported yet."
+)
+def test_older_snapshot_resume_latency(network_config,
+                                       bin_cloner_path):
+    """Test scenario: Older snapshot load performance measurement."""
+    logger = logging.getLogger("old_snapshot_load")
+
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    snapshot_artifacts = artifacts.snapshots(keyword="fc_release")
+
+    for artifact in snapshot_artifacts:
+        builder = MicrovmBuilder(bin_cloner_path)
+        artifact.download()
+        for i in range(SAMPLE_COUNT):
+            snapshot = artifact.copy(builder.root_path)
+
+            logger.info("Resuming from {}".format(artifact.key))
+
+            # TODO: Define network config artifact that can be used to build
+            # new vms or can be used as part of the snapshot
+            # For now we are good with theses hardcoded values
+            microvm, metrics_fifo = builder.build_from_snapshot(snapshot,
+                                                                "192.168.0.1",
+                                                                "192.168.0.2",
+                                                                30,
+                                                                True,
+                                                                False)
+            # Attempt to connect to resumed microvm.
+            ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+            # Check if guest still runs commands.
+            exit_code, _, _ = ssh_connection.execute_command("dmesg")
+            assert exit_code == 0
+
+            value = 0
+            # Parse all metric data points in search of load_snapshot time.
+            metrics = microvm.get_all_metrics(metrics_fifo)
+            for data_point in metrics:
+                metrics = json.loads(data_point)
+                cur_value = metrics['latencies_us']['load_snapshot'] / USEC_IN_MSEC
+                if cur_value > 0:
+                    value = cur_value
+                    break
+
+            baseline = LOAD_LATENCY_BASELINES[artifact.name]
+            logger.info("Latency {}/{}: {} ms".format(i + 1, SAMPLE_COUNT, value))
+            assert baseline > value, "LoadSnapshot latency degraded."
