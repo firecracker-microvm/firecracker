@@ -17,14 +17,30 @@ class MicrovmBuilder:
 
     ROOT_PREFIX = "fctest-"
 
-    def __init__(self, bin_cloner_path):
+    def __init__(self, bin_cloner_path,
+                 fc_binary=None,
+                 jailer_binary=None):
         """Initialize microvm root and cloning binary."""
         self.bin_cloner_path = bin_cloner_path
         self.init_root_path()
 
+        # Update permissions to owner RWX.
+        if fc_binary is not None:
+            os.chmod(fc_binary, 0o555)
+        if jailer_binary is not None:
+            os.chmod(jailer_binary, 0o555)
+
+        self._fc_binary = fc_binary
+        self._jailer_binary = jailer_binary
+
+    @property
+    def root_path(self):
+        """Return the root path of the microvm."""
+        return self._root_path
+
     def init_root_path(self):
         """Initialize microvm root path."""
-        self.root_path = tempfile.mkdtemp(MicrovmBuilder.ROOT_PREFIX)
+        self._root_path = tempfile.mkdtemp(MicrovmBuilder.ROOT_PREFIX)
 
     def build(self,
               kernel: Artifact,
@@ -33,9 +49,8 @@ class MicrovmBuilder:
               config: Artifact,
               enable_diff_snapshots=False):
         """Build a fresh microvm."""
-        self.init_root_path()
-
-        vm = init_microvm(self.root_path, self.bin_cloner_path)
+        vm = init_microvm(self.root_path, self.bin_cloner_path,
+                          self._fc_binary, self._jailer_binary)
 
         # Link the microvm to kernel, rootfs, ssh_key artifacts.
         vm.kernel_file = kernel.local_path()
@@ -58,6 +73,8 @@ class MicrovmBuilder:
                         ht_enabled=bool(microvm_config['ht_enabled']),
                         track_dirty_pages=enable_diff_snapshots,
                         boot_args='console=ttyS0 reboot=k panic=1')
+        # Reset root path so next microvm is built some place else.
+        self.init_root_path()
         return vm
 
     # This function currently returns the vm and a metrics_fifo which
@@ -73,9 +90,8 @@ class MicrovmBuilder:
                             # Enable incremental snapshot capability.
                             enable_diff_snapshots=False):
         """Build a microvm from a snapshot artifact."""
-        self.init_root_path()
-        vm = init_microvm(self.root_path, self.bin_cloner_path)
-
+        vm = init_microvm(self.root_path, self.bin_cloner_path,
+                          self._fc_binary, self._jailer_binary)
         vm.spawn(log_level='Info')
 
         metrics_file_path = os.path.join(vm.path, 'metrics.log')
@@ -111,6 +127,9 @@ class MicrovmBuilder:
             response = vm.vm.patch(state='Resumed')
             assert vm.api_session.is_status_no_content(response.status_code)
 
+        # Reset root path so next microvm is built some place else.
+        self.init_root_path()
+
         # Return a resumed microvm.
         return vm, metrics_fifo
 
@@ -125,7 +144,8 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
     def create(self,
                disks,
                ssh_key: Artifact,
-               snapshot_type: SnapshotType = SnapshotType.FULL):
+               snapshot_type: SnapshotType = SnapshotType.FULL,
+               target_version: str = None):
         """Create a Snapshot object from a microvm and artifacts."""
         # Disable API timeout as the APIs for snapshot related procedures
         # take longer.
@@ -140,7 +160,8 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
         self._microvm.pause_to_snapshot(
             mem_file_path="/snapshot/vm.mem",
             snapshot_path="/snapshot/vm.vmstate",
-            diff=snapshot_type == SnapshotType.DIFF)
+            diff=snapshot_type == SnapshotType.DIFF,
+            version=target_version)
 
         # Create a copy of the ssh_key artifact.
         ssh_key_copy = ssh_key.copy()
