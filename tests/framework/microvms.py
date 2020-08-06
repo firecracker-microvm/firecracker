@@ -108,7 +108,7 @@ class C3nano(VMBase):
                                   "2vcpu_256mb",
                                   "vmlinux-4.14",
                                   "ubuntu-18.04",
-                                  "C3"
+                                  "C3",
                                   start)
 
 
@@ -122,5 +122,5 @@ class C3micro(VMBase):
                                   "2vcpu_512mb",
                                   "vmlinux-4.14",
                                   "ubuntu-18.04",
-                                  "C3"
+                                  "C3",
                                   start)
