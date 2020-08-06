@@ -182,7 +182,6 @@ kernel {}, disk {} """.format(snapshot_type,
 
         baseline = LOAD_LATENCY_BASELINES[context.microvm.name()]
         logger.info("Latency {}/{}: {} ms".format(i + 1, SAMPLE_COUNT, value))
-        value = value
         assert baseline > value, "LoadSnapshot latency degraded."
 
         microvm.kill()
@@ -272,8 +271,7 @@ def test_snapshot_resume_latency(network_config,
     platform.machine() != "x86_64",
     reason="Not supported yet."
 )
-def test_older_snapshot_resume_latency(network_config,
-                                       bin_cloner_path):
+def test_older_snapshot_resume_latency(bin_cloner_path):
     """Test scenario: Older snapshot load performance measurement."""
     logger = logging.getLogger("old_snapshot_load")
 
@@ -286,7 +284,7 @@ def test_older_snapshot_resume_latency(network_config,
         for i in range(SAMPLE_COUNT):
             snapshot = artifact.copy(builder.root_path)
 
-            logger.info("Resuming from {}".format(artifact.key))
+            logger.info("Resuming from %s", artifact.key)
 
             # TODO: Define network config artifact that can be used to build
             # new vms or can be used as part of the snapshot
@@ -308,11 +306,11 @@ def test_older_snapshot_resume_latency(network_config,
             metrics = microvm.get_all_metrics(metrics_fifo)
             for data_point in metrics:
                 metrics = json.loads(data_point)
-                cur_value = metrics['latencies_us']['load_snapshot'] / USEC_IN_MSEC
+                cur_value = metrics['latencies_us']['load_snapshot']
                 if cur_value > 0:
-                    value = cur_value
+                    value = cur_value / USEC_IN_MSEC
                     break
 
             baseline = LOAD_LATENCY_BASELINES[artifact.name]
-            logger.info("Latency {}/{}: {} ms".format(i + 1, SAMPLE_COUNT, value))
+            logger.info("Latency %s/%s: %s ms", i + 1, SAMPLE_COUNT, value)
             assert baseline > value, "LoadSnapshot latency degraded."
