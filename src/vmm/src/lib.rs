@@ -47,8 +47,11 @@ use crate::memory_snapshot::SnapshotMemory;
 #[cfg(target_arch = "x86_64")]
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 #[cfg(target_arch = "x86_64")]
-use crate::vstate::VcpuState;
-use crate::vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
+use crate::vstate::vcpu::VcpuState;
+use crate::vstate::{
+    vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse},
+    vm::Vm,
+};
 use arch::DeviceType;
 use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
@@ -98,7 +101,7 @@ pub enum Error {
     KernelFile(io::Error),
     /// Cannot open /dev/kvm. Either the host does not have KVM or Firecracker does not have
     /// permission to open the file descriptor.
-    KvmContext(vstate::Error),
+    KvmContext(vstate::system::Error),
     #[cfg(target_arch = "x86_64")]
     /// Cannot add devices to the Legacy I/O Bus.
     LegacyIOBus(device_manager::legacy::Error),
@@ -115,11 +118,11 @@ pub enum Error {
     /// Cannot create Timer file descriptor.
     TimerFd(io::Error),
     /// Vcpu error.
-    Vcpu(vstate::Error),
+    Vcpu(vstate::vcpu::Error),
     /// Cannot send event to vCPU.
-    VcpuEvent(vstate::Error),
+    VcpuEvent(vstate::vcpu::Error),
     /// Cannot create a vCPU handle.
-    VcpuHandle(vstate::Error),
+    VcpuHandle(vstate::vcpu::Error),
     /// vCPU pause failed.
     VcpuPause,
     /// vCPU resume failed.
@@ -127,7 +130,7 @@ pub enum Error {
     /// Cannot spawn a new Vcpu thread.
     VcpuSpawn(io::Error),
     /// Vm error.
-    Vm(vstate::Error),
+    Vm(vstate::vm::Error),
     /// Error thrown by observer object on Vmm initialization.
     VmmObserverInit(utils::errno::Error),
     /// Error thrown by observer object on Vmm teardown.
