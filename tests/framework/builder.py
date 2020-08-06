@@ -47,7 +47,8 @@ class MicrovmBuilder:
               disks: [DiskArtifact],
               ssh_key: Artifact,
               config: Artifact,
-              enable_diff_snapshots=False):
+              enable_diff_snapshots=False,
+              cpu_template=None):
         """Build a fresh microvm."""
         vm = init_microvm(self.root_path, self.bin_cloner_path,
                           self._fc_binary, self._jailer_binary)
@@ -67,12 +68,17 @@ class MicrovmBuilder:
         with open(config.local_path()) as microvm_config_file:
             microvm_config = json.load(microvm_config_file)
 
-        # Apply the microvm artifact configuration
-        vm.basic_config(vcpu_count=int(microvm_config['vcpu_count']),
-                        mem_size_mib=int(microvm_config['mem_size_mib']),
-                        ht_enabled=bool(microvm_config['ht_enabled']),
-                        track_dirty_pages=enable_diff_snapshots,
-                        boot_args='console=ttyS0 reboot=k panic=1')
+        # Apply the microvm artifact configuration and template.
+        response = test_microvm.machine_cfg.put(
+            vcpu_count=int(microvm_config['vcpu_count']),
+            mem_size_mib=int(microvm_config['mem_size_mib']),
+            ht_enabled=bool(microvm_config['ht_enabled']),
+            track_dirty_pages=enable_diff_snapshots,
+            boot_args='console=ttyS0 reboot=k panic=1',
+            cpu_template=cpu_template,
+        )
+        assert vm.api_session.is_status_no_content(response.status_code)
+
         # Reset root path so next microvm is built some place else.
         self.init_root_path()
         return vm
