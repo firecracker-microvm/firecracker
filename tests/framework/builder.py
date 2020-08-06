@@ -24,7 +24,6 @@ class MicrovmBuilder:
         self.bin_cloner_path = bin_cloner_path
         self.init_root_path()
 
-        # Update permissions to owner RWX.
         if fc_binary is not None:
             os.chmod(fc_binary, 0o555)
         if jailer_binary is not None:
@@ -68,13 +67,14 @@ class MicrovmBuilder:
         with open(config.local_path()) as microvm_config_file:
             microvm_config = json.load(microvm_config_file)
 
+        response = vm.basic_config(boot_args='console=ttyS0 reboot=k panic=1')
+
         # Apply the microvm artifact configuration and template.
-        response = test_microvm.machine_cfg.put(
+        response = vm.machine_cfg.put(
             vcpu_count=int(microvm_config['vcpu_count']),
             mem_size_mib=int(microvm_config['mem_size_mib']),
             ht_enabled=bool(microvm_config['ht_enabled']),
             track_dirty_pages=enable_diff_snapshots,
-            boot_args='console=ttyS0 reboot=k panic=1',
             cpu_template=cpu_template,
         )
         assert vm.api_session.is_status_no_content(response.status_code)

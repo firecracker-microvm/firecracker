@@ -13,6 +13,7 @@ from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils_vsock import make_blob, \
     check_host_connections, check_guest_connections
+from framework.microvms import C3nano
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.drive as drive_tools
 
@@ -38,85 +39,6 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name='/dev/vdb'):
     assert stderr.read() == ''
     stdout.readline()  # skip "SIZE"
     return stdout.readline().strip()
-
-
-def _test_patch_drive_snapshot(context):
-    logger = context.custom['logger']
-    vm_builder = context.custom['builder']
-    snapshot_type = SnapshotType.FULL
-    enable_diff_snapshots = False
-
-    logger.info("Testing patch drive snapshot on \"{}\", kernel {}, disk {} "
-                .format(context.microvm.name(),
-                        context.kernel.name(),
-                        context.disk.name()))
-
-    # Create a rw copy artifact.
-    root_disk = context.disk.copy()
-    # Get ssh key from read-only artifact.
-    ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from aftifacts.
-    basevm = vm_builder.build(kernel=context.kernel,
-                              disks=[root_disk],
-                              ssh_key=ssh_key,
-                              config=context.microvm,
-                              enable_diff_snapshots=enable_diff_snapshots)
-
-    network_config = net_tools.UniqueIPv4Generator.instance()
-    _, host_ip, guest_ip = basevm.ssh_network_config(network_config,
-                                                     '1',
-                                                     tapname="tap0")
-    logger.debug("Host IP: {}, Guest IP: {}".format(host_ip, guest_ip))
-
-    # Add a scratch 128MB RW non-root block device.
-    scratchdisk1 = drive_tools.FilesystemFile(tempfile.mktemp(), size=128)
-    basevm.add_drive('scratch', scratchdisk1.path)
-
-    # We will need netmask_len in build_from_snapshot() call later.
-    netmask_len = network_config.get_netmask_len()
-    basevm.start()
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
-
-    # Verify if guest can run commands.
-    exit_code, _, _ = ssh_connection.execute_command("sync")
-    assert exit_code == 0
-
-    # Update drive to have another backing file, double in size.
-    new_file_size_mb = 2 * int(scratchdisk1.size()/(1024*1024))
-    logger.info("Patch drive, new file: size {}MB.".format(new_file_size_mb))
-    scratchdisk1 = drive_tools.FilesystemFile(tempfile.mktemp(),
-                                              new_file_size_mb)
-    basevm.patch_drive('scratch', scratchdisk1)
-
-    logger.info("Create {} #0.".format(snapshot_type))
-    # Create a snapshot builder from a microvm.
-    snapshot_builder = SnapshotBuilder(basevm)
-
-    disks = [root_disk.local_path(), scratchdisk1.path]
-    # Create base snapshot.
-    snapshot = snapshot_builder.create(disks,
-                                       ssh_key,
-                                       snapshot_type)
-
-    basevm.kill()
-
-    # Load snapshot in a new Firecracker microVM.
-    logger.info("Load snapshot, mem {}".format(snapshot.mem))
-    microvm, _ = vm_builder.build_from_snapshot(snapshot,
-                                                host_ip,
-                                                guest_ip,
-                                                netmask_len,
-                                                True,
-                                                enable_diff_snapshots)
-
-    # Attempt to connect to resumed microvm.
-    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
-
-    # Verify the new microVM has the right scratch drive.
-    guest_drive_size = _get_guest_drive_size(ssh_connection)
-    assert guest_drive_size == str(scratchdisk1.size())
-
-    microvm.kill()
 
 
 def _test_seq_snapshots(context):
@@ -241,38 +163,67 @@ def _test_seq_snapshots(context):
     platform.machine() != "x86_64",
     reason="Not supported yet."
 )
-def test_patch_drive_snapshot(network_config,
-                              bin_cloner_path):
+def test_patch_drive_snapshot(bin_cloner_path):
     """Test scenario: 5 full sequential snapshots."""
     logger = logging.getLogger("snapshot_sequence")
 
-    artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Testing matrix:
-    # - Guest kernel: Linux 4.9/4.14
-    # - Rootfs: Ubuntu 18.04
-    # - Microvm: 2vCPU with 512 MB RAM
-    # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="4.14"))
-    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+    vm_builder = MicrovmBuilder(bin_cloner_path)
+    snapshot_type = SnapshotType.FULL
+    enable_diff_snapshots = False
 
-    # Create a test context and add builder, logger, network.
-    test_context = TestContext()
-    test_context.custom = {
-        'builder': MicrovmBuilder(bin_cloner_path),
-        'network_config': network_config,
-        'logger': logger
-    }
+    # Use a predefined vm instance.
+    vm_instance = C3nano.spawn(bin_cloner_path)
+    basevm = vm_instance.vm
+    root_disk = vm_instance.disks[0]
+    ssh_key = vm_instance.ssh_key
 
-    # Create the test matrix.
-    test_matrix = TestMatrix(context=test_context,
-                             artifact_sets=[
-                                 microvm_artifacts,
-                                 kernel_artifacts,
-                                 disk_artifacts
-                             ])
+    # Add a scratch 128MB RW non-root block device.
+    scratchdisk1 = drive_tools.FilesystemFile(tempfile.mktemp(), size=128)
+    basevm.add_drive('scratch', scratchdisk1.path)
 
-    test_matrix.run_test(_test_patch_drive_snapshot)
+    basevm.start()
+    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
+
+    # Verify if guest can run commands.
+    exit_code, _, _ = ssh_connection.execute_command("sync")
+    assert exit_code == 0
+
+    # Update drive to have another backing file, double in size.
+    new_file_size_mb = 2 * int(scratchdisk1.size()/(1024*1024))
+    logger.info("Patch drive, new file: size %sMB.", new_file_size_mb)
+    scratchdisk1 = drive_tools.FilesystemFile(tempfile.mktemp(),
+                                              new_file_size_mb)
+    basevm.patch_drive('scratch', scratchdisk1)
+
+    logger.info("Create %s #0.", snapshot_type)
+    # Create a snapshot builder from a microvm.
+    snapshot_builder = SnapshotBuilder(basevm)
+
+    disks = [root_disk.local_path(), scratchdisk1.path]
+    # Create base snapshot.
+    snapshot = snapshot_builder.create(disks,
+                                       ssh_key,
+                                       snapshot_type)
+
+    basevm.kill()
+
+    # Load snapshot in a new Firecracker microVM.
+    logger.info("Load snapshot, mem %s", snapshot.mem)
+    microvm, _ = vm_builder.build_from_snapshot(snapshot,
+                                                "192.168.0.1",
+                                                "192.168.0.2",
+                                                30,
+                                                True,
+                                                enable_diff_snapshots)
+
+    # Attempt to connect to resumed microvm.
+    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+
+    # Verify the new microVM has the right scratch drive.
+    guest_drive_size = _get_guest_drive_size(ssh_connection)
+    assert guest_drive_size == str(scratchdisk1.size())
+
+    microvm.kill()
 
 
 @pytest.mark.skipif(
