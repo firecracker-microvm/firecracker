@@ -30,6 +30,7 @@ def test_flush_metrics(test_microvm_with_api):
     exp_keys = [
         'utc_timestamp_ms',
         'api_server',
+        'balloon',
         'block',
         'get_api_requests',
         'i8042',
