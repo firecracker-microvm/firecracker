@@ -11,6 +11,8 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use logger::{error, Metric, METRICS};
 use ::utils::eventfd::EventFd;
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 use virtio_gen::virtio_blk::*;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -24,11 +26,11 @@ use super::{
 
 use crate::{report_balloon_event_fail, Error as DeviceError};
 
-const SIZE_OF_U32: usize = 4;
-const SIZE_OF_STAT: usize = 10;
+const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
+const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
 
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Versionize)]
 pub(crate) struct ConfigSpace {
     num_pages: u32,
     actual_pages: u32,
@@ -50,7 +52,7 @@ struct BalloonStat {
 unsafe impl ByteValued for BalloonStat {}
 
 // BalloonStats holds statistics returned from the stats_queue.
-#[derive(Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Versionize)]
 pub struct BalloonStats {
     pub swap_in: Option<u64>,
     pub swap_out: Option<u64>,
@@ -99,6 +101,7 @@ pub struct Balloon {
     pub(crate) device_state: DeviceState,
 
     // Implementation specific fields.
+    pub(crate) restored: bool,
     pub(crate) stats_polling_interval_s: u16,
     pub(crate) stats_timer: TimerFd,
     // The index of the previous stats descriptor is saved because
@@ -113,7 +116,8 @@ impl Balloon {
         must_tell_host: bool,
         deflate_on_oom: bool,
         stats_polling_interval_s: u16,
-    ) -> io::Result<Balloon> {
+        restored: bool,
+    ) -> Result<Balloon, Error> {
         let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
 
         if must_tell_host {
@@ -150,7 +154,8 @@ impl Balloon {
             queue_evts,
             queues,
             device_state: DeviceState::Inactive,
-            activate_evt: EventFd::new(libc::EFD_NONBLOCK)?,
+            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
+            restored,
             stats_polling_interval_s,
             stats_timer,
             stats_desc_index: None,
@@ -252,6 +257,7 @@ impl Balloon {
             match remove_range(
                 &mem,
                 (guest_addr, u64::from(range_len) << VIRTIO_BALLOON_PFN_SHIFT),
+                self.restored,
             ) {
                 Ok(_) => continue,
                 Err(e) => {
@@ -423,12 +429,13 @@ impl VirtioDevice for Balloon {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+        self.device_state = DeviceState::Activated(mem);
         if self.activate_evt.write(1).is_err() {
             error!("Balloon: Cannot write to activate_evt");
             METRICS.balloon.activate_fails.inc();
+            self.device_state = DeviceState::Inactive;
             return Err(super::super::ActivateError::BadActivate);
         }
-        self.device_state = DeviceState::Activated(mem);
 
         if self.stats_enabled() {
             let timer_state = TimerState::Periodic {

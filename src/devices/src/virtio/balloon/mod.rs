@@ -3,6 +3,7 @@
 
 pub mod device;
 pub mod event_handler;
+pub mod persist;
 mod utils;
 
 use vm_memory::GuestMemoryError;
