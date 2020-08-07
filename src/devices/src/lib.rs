@@ -24,6 +24,10 @@ pub(crate) fn report_net_event_fail(err: Error) {
     METRICS.net.event_fails.inc();
 }
 
+pub(crate) fn report_balloon_event_fail(err: Error) {
+    error!("{:?}", err);
+}
+
 #[derive(Debug)]
 pub enum Error {
     /// Failed to read from the TAP device.
@@ -34,6 +38,8 @@ pub enum Error {
     IoError(io::Error),
     /// Device received malformed payload.
     MalformedPayload,
+    /// Device received malformed descriptor.
+    MalformedDescriptor,
     /// Error during queue processing.
     QueueError(QueueError),
 }
