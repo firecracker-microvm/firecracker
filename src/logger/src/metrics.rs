@@ -328,6 +328,19 @@ pub struct PatchRequestsMetrics {
     pub machine_cfg_fails: SharedMetric,
 }
 
+/// Balloon Device associated metrics.
+#[derive(Default, Serialize)]
+pub struct BalloonDeviceMetrics {
+    /// Number of times when activate failed on a balloon device.
+    pub activate_fails: SharedMetric,
+    /// Number of balloon device inflations.
+    pub inflate_count: SharedMetric,
+    /// Number of balloon device deflations.
+    pub deflate_count: SharedMetric,
+    /// Number of times when handling events on a balloon device failed.
+    pub event_fails: SharedMetric,
+}
+
 /// Block Device associated metrics.
 #[derive(Default, Serialize)]
 pub struct BlockDeviceMetrics {
@@ -652,6 +665,8 @@ pub struct FirecrackerMetrics {
     utc_timestamp_ms: SerializeToUtcTimestampMs,
     /// API Server related metrics.
     pub api_server: ApiServerMetrics,
+    /// A balloon device's related metrics.
+    pub balloon: BalloonDeviceMetrics,
     /// A block device's related metrics.
     pub block: BlockDeviceMetrics,
     /// Metrics related to API GET requests.

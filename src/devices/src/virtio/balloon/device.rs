@@ -7,7 +7,7 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use logger::{error};
+use logger::{error, Metric, METRICS};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
 use vm_memory::{
@@ -91,6 +91,7 @@ impl Balloon {
     pub(crate) fn process_inflate_queue_event(&mut self) {
         if let Err(e) = self.queue_evts[INFLATE_INDEX].read() {
             error!("Failed to get queue event: {:?}", e);
+            METRICS.balloon.event_fails.inc();
         } else {
             self.process_inflate()
                 .unwrap_or_else(report_balloon_event_fail);
@@ -100,6 +101,7 @@ impl Balloon {
     pub(crate) fn process_deflate_queue_event(&mut self) {
         if let Err(e) = self.queue_evts[DEFLATE_INDEX].read() {
             error!("Failed to get queue event: {:?}", e);
+            METRICS.balloon.event_fails.inc();
         } else if self.process_deflate_queue() {
             let _ = self.signal_used_queue();
         }
@@ -111,6 +113,7 @@ impl Balloon {
             // This should never happen, it's been already validated in the event handler.
             DeviceState::Inactive => unreachable!(),
         };
+        METRICS.balloon.inflate_count.inc();
 
         let queue = &mut self.queues[INFLATE_INDEX];
         let mut pages = Vec::with_capacity(MAX_PAGES_IN_DESC);
@@ -170,6 +173,8 @@ impl Balloon {
             // This should never happen, it's been already validated in the event handler.
             DeviceState::Inactive => unreachable!(),
         };
+        METRICS.balloon.deflate_count.inc();
+
         let queue = &mut self.queues[DEFLATE_INDEX];
         let mut needs_interrupt = false;
 
@@ -276,6 +281,7 @@ impl VirtioDevice for Balloon {
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
         if self.activate_evt.write(1).is_err() {
             error!("Balloon: Cannot write to activate_evt");
+            METRICS.balloon.activate_fails.inc();
             return Err(super::super::ActivateError::BadActivate);
         }
         self.device_state = DeviceState::Activated(mem);
@@ -294,6 +300,15 @@ pub(crate) mod tests {
     use polly::event_manager::{EventManager, Subscriber};
     use utils::epoll::{EpollEvent, EventSet};
     use vm_memory::GuestAddress;
+
+    /// Will read $metric, run the code in $block, then assert metric has increased by $delta.
+    macro_rules! check_metric_after_block {
+        ($metric:expr, $delta:expr, $block:expr) => {{
+            let before = $metric.count();
+            let _ = $block;
+            assert_eq!($metric.count(), before + $delta, "unexpected metric value");
+        }};
+    }
 
     impl Balloon {
         pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {
@@ -501,7 +516,11 @@ pub(crate) mod tests {
             mem.write_obj::<u32>(0x1, GuestAddress(page_addr)).unwrap();
             set_request(&infq, 0, page_addr, SIZE_OF_U32 as u32, VIRTQ_DESC_F_NEXT);
 
-            balloon.process(&queue_evt, &mut event_manager);
+            check_metric_after_block!(
+                METRICS.balloon.event_fails,
+                1,
+                balloon.process(&queue_evt, &mut event_manager)
+            );
             // Verify that nothing got processed.
             assert_eq!(infq.used.idx.get(), 0);
 
@@ -516,7 +535,11 @@ pub(crate) mod tests {
             mem.write_obj::<u32>(0x1, GuestAddress(page_addr)).unwrap();
             set_request(&infq, 0, page_addr, SIZE_OF_U32 as u32, VIRTQ_DESC_F_NEXT);
 
-            invoke_handler_for_queue_event(&mut balloon, INFLATE_INDEX);
+            check_metric_after_block!(
+                METRICS.balloon.inflate_count,
+                1,
+                invoke_handler_for_queue_event(&mut balloon, INFLATE_INDEX)
+            );
             check_request_completion(&infq, 0);
 
             // Check that the page was zeroed.
@@ -545,7 +568,11 @@ pub(crate) mod tests {
         // Error case: forgot to trigger deflate event queue.
         {
             set_request(&defq, 0, page_addr, SIZE_OF_U32 as u32, VIRTQ_DESC_F_NEXT);
-            balloon.process(&queue_evt, &mut event_manager);
+            check_metric_after_block!(
+                METRICS.balloon.event_fails,
+                1,
+                balloon.process(&queue_evt, &mut event_manager)
+            );
             // Verify that nothing got processed.
             assert_eq!(defq.used.idx.get(), 0);
         }
@@ -553,7 +580,11 @@ pub(crate) mod tests {
         // Happy case.
         {
             set_request(&defq, 1, page_addr, SIZE_OF_U32 as u32, VIRTQ_DESC_F_NEXT);
-            invoke_handler_for_queue_event(&mut balloon, DEFLATE_INDEX);
+            check_metric_after_block!(
+                METRICS.balloon.deflate_count,
+                1,
+                invoke_handler_for_queue_event(&mut balloon, DEFLATE_INDEX)
+            );
             check_request_completion(&defq, 1);
         }
     }
