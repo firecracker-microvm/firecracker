@@ -12,8 +12,8 @@ pub use self::event_handler::*;
 
 pub const CONFIG_SPACE_SIZE: usize = 8;
 pub const QUEUE_SIZE: u16 = 256;
-pub const NUM_QUEUES: usize = 2;
-pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE, QUEUE_SIZE];
+pub const NUM_QUEUES: usize = 3;
+pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE, QUEUE_SIZE, QUEUE_SIZE];
 // The maximum number of pages that can be received in a single descriptor.
 pub const MAX_PAGES_IN_DESC: usize = 256;
 // The addresses given by the driver are divided by 4096.
@@ -22,10 +22,25 @@ pub const VIRTIO_BALLOON_PFN_SHIFT: u32 = 12;
 pub const INFLATE_INDEX: usize = 0;
 // The index of the deflate queue from Balloon device queues/queues_evts vector.
 pub const DEFLATE_INDEX: usize = 1;
+// The index of the deflate queue from Balloon device queues/queues_evts vector.
+pub const STATS_INDEX: usize = 2;
 
 // The feature bitmap for virtio balloon.
 const VIRTIO_BALLOON_F_MUST_TELL_HOST: u32 = 0; // Tell before reclaiming pages.
+const VIRTIO_BALLOON_F_STATS_VQ: u32 = 1; // Enable statistics.
 const VIRTIO_BALLOON_F_DEFLATE_ON_OOM: u32 = 2; // Deflate balloon on OOM.
+
+// The statistics tags.
+const VIRTIO_BALLOON_S_SWAP_IN: u16 = 0;
+const VIRTIO_BALLOON_S_SWAP_OUT: u16 = 1;
+const VIRTIO_BALLOON_S_MAJFLT: u16 = 2;
+const VIRTIO_BALLOON_S_MINFLT: u16 = 3;
+const VIRTIO_BALLOON_S_MEMFREE: u16 = 4;
+const VIRTIO_BALLOON_S_MEMTOT: u16 = 5;
+const VIRTIO_BALLOON_S_AVAIL: u16 = 6;
+const VIRTIO_BALLOON_S_CACHES: u16 = 7;
+const VIRTIO_BALLOON_S_HTLB_PGALLOC: u16 = 8;
+const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 
 #[derive(Debug)]
 pub enum Error {
