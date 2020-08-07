@@ -17,7 +17,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
 
     # We don't need to monitor the memory for this test because we are
     # just rebooting and the process dies before pmap gets the RSS.
-    test_microvm.memory_events_queue = None
+    test_microvm.memory_monitor = None
 
     # Set up the microVM with 4 vCPUs, 256 MiB of RAM, 0 network ifaces, and
     # a root file system with the rw permission. The network interfaces is
