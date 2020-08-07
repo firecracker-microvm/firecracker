@@ -3,8 +3,8 @@
 
 use std::io;
 
+use super::{RemoveRegionError, MAX_PAGES_IN_DESC};
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
-use super::{MAX_PAGES_IN_DESC, RemoveRegionError};
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector
@@ -75,7 +75,7 @@ pub(crate) fn remove_range(
                 0,
             )
         };
-        if ret < 0 as *mut _ || ret != phys_address as *mut _ {
+        if ret == libc::MAP_FAILED {
             return Err(RemoveRegionError::MmapFail(io::Error::last_os_error()));
         }
 
