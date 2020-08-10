@@ -188,11 +188,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         let vm = constructor_args.vm;
         let event_manager = constructor_args.event_manager;
 
-        let boot_timer = BootTimer::new(TimestampUs::default());
-        dev_manager
-            .register_new_mmio_boot_timer(boot_timer)
-            .map_err(Error::DeviceManager)?;
-
         for block_state in &state.block_devices {
             let device = Arc::new(Mutex::new(
                 Block::restore(
@@ -408,10 +403,6 @@ mod tests {
             let mut event_manager = EventManager::new().expect("Unable to create EventManager");
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
-
-            // Add a boot timer device.
-            let request_ts = TimestampUs::default();
-            attach_boot_timer_device(&mut vmm, request_ts);
 
             // Add a block device.
             let drive_id = String::from("root");
