@@ -1,6 +1,3 @@
-extern crate libc;
-extern crate vmm_sys_util;
-
 use libc::c_int;
 pub use vmm_sys_util::signal::*;
 

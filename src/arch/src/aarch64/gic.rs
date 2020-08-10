@@ -46,7 +46,7 @@ pub trait GICDevice {
         Self: Sized;
 
     /// Setup the device-specific attributes
-    fn init_device_attributes(gic_device: &Box<dyn GICDevice>) -> Result<()>
+    fn init_device_attributes(gic_device: &dyn GICDevice) -> Result<()>
     where
         Self: Sized;
 
@@ -76,10 +76,10 @@ pub trait GICDevice {
         Self: Sized,
     {
         let attr = kvm_bindings::kvm_device_attr {
-            group: group,
-            attr: attr,
-            addr: addr,
-            flags: flags,
+            group,
+            attr,
+            addr,
+            flags,
         };
         fd.set_device_attr(&attr)
             .map_err(Error::SetDeviceAttribute)?;
@@ -88,14 +88,17 @@ pub trait GICDevice {
     }
 
     /// Finalize the setup of a GIC device
-    fn finalize_device(gic_device: &Box<dyn GICDevice>) -> Result<()>
+    fn finalize_device(gic_device: &dyn GICDevice) -> Result<()>
     where
         Self: Sized,
     {
-        /* We need to tell the kernel how many irqs to support with this vgic.
-         * See the `layout` module for details.
+        /* On arm there are 3 types of interrupts: SGI (0-15), PPI (16-31), SPI (32-1020).
+         * SPIs are used to signal interrupts from various peripherals accessible across
+         * the whole system so these are the ones that we increment when adding a new virtio device.
+         * KVM_DEV_ARM_VGIC_GRP_NR_IRQS sets the highest SPI number. Consequently, we will have a total
+         * of `super::layout::IRQ_MAX - 32` usable SPIs in our microVM.
          */
-        let nr_irqs: u32 = super::layout::IRQ_MAX - super::layout::IRQ_BASE + 1;
+        let nr_irqs: u32 = super::layout::IRQ_MAX;
         let nr_irqs_ptr = &nr_irqs as *const u32;
         Self::set_device_attribute(
             gic_device.device_fd(),
@@ -128,9 +131,9 @@ pub trait GICDevice {
 
         let device = Self::create_device(vgic_fd, vcpu_count);
 
-        Self::init_device_attributes(&device)?;
+        Self::init_device_attributes(device.as_ref())?;
 
-        Self::finalize_device(&device)?;
+        Self::finalize_device(device.as_ref())?;
 
         Ok(device)
     }

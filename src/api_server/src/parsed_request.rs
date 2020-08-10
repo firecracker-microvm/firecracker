@@ -4,24 +4,25 @@
 use serde_json::Value;
 
 use super::VmmData;
-use micro_http::{Body, Method, Request, Response, StatusCode, Version};
-use request::actions::parse_put_actions;
-use request::boot_source::parse_put_boot_source;
-use request::drive::{parse_patch_drive, parse_put_drive};
-use request::instance_info::parse_get_instance_info;
-use request::logger::parse_put_logger;
-use request::machine_configuration::{
+use crate::request::actions::parse_put_actions;
+use crate::request::boot_source::parse_put_boot_source;
+use crate::request::drive::{parse_patch_drive, parse_put_drive};
+use crate::request::instance_info::parse_get_instance_info;
+use crate::request::logger::parse_put_logger;
+use crate::request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
-use request::metrics::parse_put_metrics;
-use request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
-use request::net::{parse_patch_net, parse_put_net};
-use request::snapshot::parse_patch_vm_state;
+use crate::request::metrics::parse_put_metrics;
+use crate::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
+use crate::request::net::{parse_patch_net, parse_put_net};
+use crate::request::snapshot::parse_patch_vm_state;
 #[cfg(target_arch = "x86_64")]
-use request::snapshot::parse_put_snapshot;
-use request::vsock::parse_put_vsock;
-use ApiServer;
+use crate::request::snapshot::parse_put_snapshot;
+use crate::request::vsock::parse_put_vsock;
+use crate::ApiServer;
+use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 
+use logger::{error, info};
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 pub enum ParsedRequest {
@@ -81,7 +82,7 @@ impl ParsedRequest {
     }
 
     pub fn convert_to_response(
-        request_outcome: std::result::Result<VmmData, VmmActionError>,
+        request_outcome: &std::result::Result<VmmData, VmmActionError>,
     ) -> Response {
         match request_outcome {
             Ok(vmm_data) => match vmm_data {
@@ -469,7 +470,7 @@ pub(crate) mod tests {
     fn test_convert_to_response() {
         // Empty Vmm data.
         let mut buf = Cursor::new(vec![0]);
-        let response = ParsedRequest::convert_to_response(Ok(VmmData::Empty));
+        let response = ParsedRequest::convert_to_response(&Ok(VmmData::Empty));
         assert!(response.write_all(&mut buf).is_ok());
         let expected_response = "HTTP/1.1 204 \r\n\
                                  Server: Firecracker API\r\n\
@@ -479,7 +480,7 @@ pub(crate) mod tests {
 
         // With Vmm data.
         let mut buf = Cursor::new(vec![0]);
-        let response = ParsedRequest::convert_to_response(Ok(VmmData::MachineConfiguration(
+        let response = ParsedRequest::convert_to_response(&Ok(VmmData::MachineConfiguration(
             VmConfig::default(),
         )));
         assert!(response.write_all(&mut buf).is_ok());
@@ -497,7 +498,7 @@ pub(crate) mod tests {
         let error = VmmActionError::StartMicrovm(StartMicrovmError::MissingKernelConfig);
         let mut buf = Cursor::new(vec![0]);
         let json = ApiServer::json_fault_message(error.to_string());
-        let response = ParsedRequest::convert_to_response(Err(error));
+        let response = ParsedRequest::convert_to_response(&Err(error));
         response.write_all(&mut buf).unwrap();
 
         let expected_response = format!(

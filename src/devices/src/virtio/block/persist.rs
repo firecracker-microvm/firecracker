@@ -43,7 +43,7 @@ impl Persist<'_> for Block {
             id: self.id.clone(),
             partuuid: self.partuuid.clone(),
             root_device: self.root_device,
-            disk_path: self.disk_image_path.clone(),
+            disk_path: self.disk.file_path().clone(),
             virtio_state: VirtioDeviceState::from_device(self),
             rate_limiter_state: self.rate_limiter.save(),
         }
@@ -139,6 +139,6 @@ mod tests {
         assert_eq!(restored_block.is_activated(), block.is_activated());
 
         // Test that block specific fields are the same.
-        assert_eq!(&restored_block.disk_image_path, &block.disk_image_path);
+        assert_eq!(restored_block.disk.file_path(), block.disk.file_path());
     }
 }

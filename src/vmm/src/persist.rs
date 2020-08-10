@@ -17,13 +17,13 @@ use crate::device_manager::persist::Error as DevicePersistError;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vstate::{self, VcpuState, VmState};
 
-use device_manager::persist::DeviceStates;
-use memory_snapshot;
-use memory_snapshot::{GuestMemoryState, SnapshotMemory};
+use crate::device_manager::persist::DeviceStates;
+use crate::memory_snapshot;
+use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
+use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
 use polly::event_manager::EventManager;
 use seccomp::BpfProgramRef;
 use snapshot::Snapshot;
-use version_map::FC_VERSION_TO_SNAP_VERSION;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
@@ -160,19 +160,19 @@ impl Display for LoadSnapshotError {
 /// Creates a Microvm snapshot.
 pub fn create_snapshot(
     vmm: &mut Vmm,
-    params: CreateSnapshotParams,
+    params: &CreateSnapshotParams,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
     let microvm_state = vmm
         .save_state()
         .map_err(CreateSnapshotError::MicrovmState)?;
 
-    snapshot_memory_to_file(vmm, &params.mem_file_path, params.snapshot_type)?;
+    snapshot_memory_to_file(vmm, &params.mem_file_path, &params.snapshot_type)?;
 
     snapshot_state_to_file(
         &microvm_state,
         &params.snapshot_path,
-        params.version,
+        &params.version,
         version_map,
     )?;
 
@@ -182,7 +182,7 @@ pub fn create_snapshot(
 fn snapshot_state_to_file(
     microvm_state: &MicrovmState,
     snapshot_path: &PathBuf,
-    version: Option<String>,
+    version: &Option<String>,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
@@ -194,7 +194,7 @@ fn snapshot_state_to_file(
 
     // Translate the microVM version to its corresponding snapshot data format.
     let snapshot_data_version = match version {
-        Some(version) => match FC_VERSION_TO_SNAP_VERSION.get(&version) {
+        Some(version) => match FC_VERSION_TO_SNAP_VERSION.get(version) {
             Some(data_version) => Ok(*data_version),
             _ => Err(InvalidVersion),
         },
@@ -212,7 +212,7 @@ fn snapshot_state_to_file(
 fn snapshot_memory_to_file(
     vmm: &Vmm,
     mem_file_path: &PathBuf,
-    snapshot_type: SnapshotType,
+    snapshot_type: &SnapshotType,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
     let mut file = OpenOptions::new()
@@ -246,7 +246,7 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
 pub fn load_snapshot(
     event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
-    params: LoadSnapshotParams,
+    params: &LoadSnapshotParams,
     version_map: VersionMap,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
     use self::LoadSnapshotError::*;
@@ -268,8 +268,9 @@ fn snapshot_state_from_file(
     version_map: VersionMap,
 ) -> std::result::Result<MicrovmState, LoadSnapshotError> {
     use self::LoadSnapshotError::{DeserializeMicrovmState, SnapshotBackingFile};
-    let mut snapshot_file = File::open(snapshot_path).map_err(SnapshotBackingFile)?;
-    Snapshot::load(&mut snapshot_file, version_map).map_err(DeserializeMicrovmState)
+    let mut snapshot_reader =
+        std::io::BufReader::new(File::open(snapshot_path).map_err(SnapshotBackingFile)?);
+    Snapshot::load(&mut snapshot_reader, version_map).map_err(DeserializeMicrovmState)
 }
 
 fn guest_memory_from_file(
@@ -369,7 +370,7 @@ mod tests {
 
     #[test]
     fn test_create_snapshot_error_display() {
-        use persist::CreateSnapshotError::*;
+        use crate::persist::CreateSnapshotError::*;
         use vm_memory::GuestMemoryError;
 
         let err = DirtyBitmap;
@@ -401,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_load_snapshot_error_display() {
-        use persist::LoadSnapshotError::*;
+        use crate::persist::LoadSnapshotError::*;
 
         let err = BuildMicroVm(StartMicrovmError::InitrdLoad);
         let _ = format!("{}{:?}", err, err);
@@ -423,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_microvm_state_error_display() {
-        use persist::MicrovmStateError::*;
+        use crate::persist::MicrovmStateError::*;
 
         let err = InvalidInput;
         let _ = format!("{}{:?}", err, err);

@@ -4,12 +4,14 @@
 
 import os
 import platform
-
+import tempfile
 from enum import Enum
 from pathlib import Path
-
+from stat import S_IREAD, S_IWRITE
+from shutil import copyfile
 import boto3
 import botocore.client
+from host_tools.snapshot_helper import merge_memory_bitmaps
 
 
 class ArtifactType(Enum):
@@ -19,17 +21,25 @@ class ArtifactType(Enum):
     KERNEL = "kernel"
     DISK = "disk"
     SSH_KEY = "ssh_key"
+    MEM = "mem"
+    VMSTATE = "vmstate"
     MISC = "misc"
 
 
 class Artifact:
-    """A generic artifact manipulation class."""
+    """A generic read-only artifact manipulation class."""
 
-    def __init__(self, bucket, key, artifact_type=ArtifactType.MISC):
+    LOCAL_ARTIFACT_DIR = "/tmp/local-artifacts"
+
+    def __init__(self,
+                 bucket,
+                 key,
+                 artifact_type=ArtifactType.MISC,
+                 local_folder=None):
         """Initialize bucket, key and type."""
         self._bucket = bucket
         self._key = key
-        self._local_folder = None
+        self._local_folder = local_folder
         self._type = artifact_type
 
     @property
@@ -62,10 +72,13 @@ class Artifact:
 
     def download(self, target_folder, force=False):
         """Save the artifact in the folder specified target_path."""
+        assert self.bucket is not None
         self._local_folder = target_folder
         Path(self.local_dir()).mkdir(parents=True, exist_ok=True)
         if force or not os.path.exists(self.local_path()):
             self._bucket.download_file(self._key, self.local_path())
+            # Artifacts are read only by design.
+            os.chmod(self.local_path(), S_IREAD)
 
     def local_path(self):
         """Return the local path where the file was downloaded."""
@@ -74,6 +87,35 @@ class Artifact:
             self.local_dir(),
             self.name()
         )
+
+    def copy(self):
+        """Create a writeable copy of the artifact."""
+        assert os.path.exists(self.local_path()), """File {} not found.
+        call download() first.""".format(self.local_path())
+
+        # The file path for this artifact copy.
+        new_dir = "{}/{}/{}".format(
+            Artifact.LOCAL_ARTIFACT_DIR,
+            self.type.value,
+            platform.machine()
+        )
+        # The temp file suffix is the artifact type.
+        suffix = "-{}".format(self.type.value)
+        # The key for the new artifact is the full path to the file.
+        new_key = tempfile.mktemp(dir=new_dir, suffix=suffix)
+        # Create directories if needed.
+        Path(new_dir).mkdir(parents=True, exist_ok=True)
+        # Copy to local artifact.
+        copyfile(self.local_path(), new_key)
+        # Make it writeable.
+        os.chmod(new_key, S_IREAD | S_IWRITE)
+        # Local folder of the new artifact.
+        local_folder = Artifact.LOCAL_ARTIFACT_DIR
+        # Calls to download() on the new Artifact are guarded by a
+        # bucket assert.
+        return Artifact(None, new_key,
+                        artifact_type=self.type,
+                        local_folder=local_folder)
 
 
 class DiskArtifact(Artifact):
@@ -94,6 +136,8 @@ class ArtifactCollection:
     MICROVM_CONFIG_EXTENSION = ".json"
     MICROVM_KERNEL_EXTENSION = ".bin"
     MICROVM_DISK_EXTENSION = ".ext4"
+    MICROVM_VMSTATE_EXTENSION = ".vmstate"
+    MICROVM_MEM_EXTENSION = ".mem"
     PLATFORM = platform.machine()
 
     # S3 bucket structure.
@@ -190,3 +234,50 @@ class ArtifactSet:
     def __len__(self):
         """Return the artifacts array len."""
         return len(self._artifacts)
+
+
+class SnapshotType(Enum):
+    """Supported snapshot types."""
+
+    FULL = 0
+    DIFF = 1
+
+
+class Snapshot:
+    """Manages Firecracker snapshots."""
+
+    def __init__(self, mem, vmstate, disks, ssh_key):
+        """Initialize mem, vmstate, disks, key."""
+        assert mem is not None
+        assert vmstate is not None
+        assert disks is not None
+        assert ssh_key is not None
+        self._mem = mem
+        self._vmstate = vmstate
+        self._disks = disks
+        self._ssh_key = ssh_key
+
+    def rebase_snapshot(self, base):
+        """Rebases current incremental snapshot onto a specified base layer."""
+        merge_memory_bitmaps(base.mem, self.mem)
+        self._mem = base.mem
+
+    @property
+    def mem(self):
+        """Return the mem file path."""
+        return self._mem
+
+    @property
+    def vmstate(self):
+        """Return the vmstate file path."""
+        return self._vmstate
+
+    @property
+    def disks(self):
+        """Return the disk file paths."""
+        return self._disks
+
+    @property
+    def ssh_key(self):
+        """Return the ssh key file path."""
+        return self._ssh_key

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{io, result};
-use utils::net::TapError;
 
 pub const MAX_BUFFER_SIZE: usize = 65562;
 pub const QUEUE_SIZE: u16 = 256;
@@ -13,12 +12,15 @@ pub const RX_INDEX: usize = 0;
 // The index of the tx queue from Net device queues/queues_evts vector.
 pub const TX_INDEX: usize = 1;
 
+#[macro_use]
 pub mod device;
 pub mod event_handler;
 pub mod persist;
+mod tap;
 
 pub use self::device::Net;
 pub use self::event_handler::*;
+pub use tap::Error as TapError;
 
 #[derive(Debug)]
 pub enum Error {
@@ -30,8 +32,12 @@ pub enum Error {
     TapSetVnetHdrSize(TapError),
     /// Enabling tap interface failed.
     TapEnable(TapError),
-    /// EventFd
+    /// EventFd error.
     EventFd(io::Error),
+    /// IO error.
+    IO(io::Error),
+    /// The VNET header is missing from the frame.
+    VnetHeaderMissing,
 }
 
 pub type Result<T> = result::Result<T, Error>;

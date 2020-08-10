@@ -22,34 +22,37 @@ INITRD_BOOT_TIME_US = 160000 if platform.machine() == "x86_64" else 500000
 TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
 
 
-def test_boottime_no_network(test_microvm_with_boottime):
+def test_boottime_no_network(test_microvm_with_boottime_timer):
     """Check guest boottime of microvm without network."""
-    _ = _configure_vm(test_microvm_with_boottime)
+    _ = _configure_vm(test_microvm_with_boottime_timer)
     time.sleep(0.4)
-    boottime_us = _test_microvm_boottime(test_microvm_with_boottime.log_data)
+    boottime_us = _test_microvm_boottime(
+            test_microvm_with_boottime_timer.log_data)
     print("Boot time with no network is: " + str(boottime_us) + " us")
 
 
 def test_boottime_with_network(
-        test_microvm_with_boottime,
+        test_microvm_with_boottime_timer,
         network_config
 ):
     """Check guest boottime of microvm with network."""
-    _tap = _configure_vm(test_microvm_with_boottime, {
+    _tap = _configure_vm(test_microvm_with_boottime_timer, {
         "config": network_config, "iface_id": "1"
     })
     time.sleep(0.4)
-    boottime_us = _test_microvm_boottime(test_microvm_with_boottime.log_data)
+    boottime_us = _test_microvm_boottime(
+            test_microvm_with_boottime_timer.log_data)
     print("Boot time with network configured is: " + str(boottime_us) + " us")
 
 
 def test_initrd_boottime(
-        test_microvm_with_initrd):
+        test_microvm_with_initrd_timer):
     """Check guest boottime of microvm with initrd."""
-    _tap = _configure_vm(test_microvm_with_initrd, initrd=True)
+    _tap = _configure_vm(test_microvm_with_initrd_timer, initrd=True)
     time.sleep(0.8)
     boottime_us = _test_microvm_boottime(
-        test_microvm_with_initrd.log_data, max_time_us=INITRD_BOOT_TIME_US)
+        test_microvm_with_initrd_timer.log_data,
+        max_time_us=INITRD_BOOT_TIME_US)
     print("Boot time with initrd is: " + str(boottime_us) + " us")
 
 

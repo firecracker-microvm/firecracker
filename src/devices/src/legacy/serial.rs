@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::io;
 use std::os::unix::io::AsRawFd;
 
-use logger::{Metric, METRICS};
+use logger::{error, warn, Metric, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;

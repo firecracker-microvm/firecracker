@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added metric for throttled block device events.
 - Added a new API call, `PUT /metrics`, for configuring the metrics system.
 - Added `app_name` field in InstanceInfo struct for storing the application
   name.
@@ -25,6 +26,26 @@
   snapshot.
 - Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 - Added metrics for the vsock device.
+- Added `devtool strip` command which removes debug symbols from the release
+  binaries.
+- Added the `tx_malformed_frames` metric for the virtio net device, emitted
+  when a TX frame missing the VNET header is encountered.
+- Added metrics for counting rate limiter throttling events.
+- Added metric for counting MAC address updates.
+- Added metrics for counting TAP read and write errors.
+- Added metrics for counting RX and TX partial writes.
+- Added metrics that measure the duration of pausing and resuming the microVM,
+  from the VMM perspective.
+- Added metric for measuring the duration of the last full/diff snapshot created,
+  from the VMM perspective.
+- Added metric for measuring the duration of loading a snapshot, from the VMM
+  perspective.
+- Added metrics that measure the duration of pausing and resuming the microVM,
+  from the API (user) perspective.
+- Added metric for measuring the duration of the last full/diff snapshot created,
+  from the API (user) perspective.
+- Added metric for measuring the duration of loading a snapshot, from the API
+  (user) perspective.
 
 ### Fixed
 
@@ -33,6 +54,8 @@
   requests originating from guest.
 - Fixed folder permissions in the jail (#1802).
 - Boot time on AMD achieves the desired performance (i.e under 150ms).
+- Any number of whitespace characters are accepted after ":" when parsing HTTP
+  headers.
 
 ### Changed
 
@@ -58,6 +81,7 @@
   `403 BadRequest`.
 - Segregated MMDS documentation in MMDS design documentation and MMDS user
   guide documentation.
+- The logger `level` field is now case-insensitive.
 
 ## [0.21.0]
 

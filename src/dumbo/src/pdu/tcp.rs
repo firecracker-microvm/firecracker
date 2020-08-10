@@ -14,8 +14,10 @@ use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::Incomplete;
-use pdu::ChecksumProto;
-use ByteBuffer;
+use crate::pdu::ChecksumProto;
+use crate::ByteBuffer;
+
+use bitflags::bitflags;
 
 const SOURCE_PORT_OFFSET: usize = 0;
 const DESTINATION_PORT_OFFSET: usize = 2;

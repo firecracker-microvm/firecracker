@@ -1,11 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate libc;
-extern crate regex;
-
-extern crate utils;
-
 mod cgroup;
 mod chroot;
 mod env;
@@ -18,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::result;
 
-use env::Env;
+use crate::env::Env;
 use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
 use utils::validators;
 
@@ -342,8 +336,8 @@ fn main() {
 
     Env::new(
         arg_parser.arguments(),
-        utils::time::get_time(utils::time::ClockType::Monotonic) / 1000,
-        utils::time::get_time(utils::time::ClockType::ProcessCpu) / 1000,
+        utils::time::get_time_us(utils::time::ClockType::Monotonic),
+        utils::time::get_time_us(utils::time::ClockType::ProcessCpu),
     )
     .and_then(|env| {
         fs::create_dir_all(env.chroot_dir())

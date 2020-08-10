@@ -7,11 +7,11 @@ use std::os::unix::io::RawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 
-use common::{Body, Version};
-pub use common::{ConnectionError, RequestError, ServerError};
-use connection::HttpConnection;
-use request::Request;
-use response::{Response, StatusCode};
+use crate::common::{Body, Version};
+pub use crate::common::{ConnectionError, RequestError, ServerError};
+use crate::connection::HttpConnection;
+use crate::request::Request;
+use crate::response::{Response, StatusCode};
 use std::collections::HashMap;
 
 use utils::epoll;
@@ -146,7 +146,10 @@ impl<T: Read + Write> ClientConnection<T> {
                 }
             }
         }
-        self.in_flight_response_count += parsed_requests.len() as u32;
+        self.in_flight_response_count = self
+            .in_flight_response_count
+            .checked_add(parsed_requests.len() as u32)
+            .ok_or(ServerError::Overflow)?;
         // If the state of the connection has changed, we need to update
         // the event set in the `epoll` structure.
         if self.connection.pending_write() {
@@ -178,11 +181,15 @@ impl<T: Read + Write> ClientConnection<T> {
         Ok(())
     }
 
-    fn enqueue_response(&mut self, response: Response) {
+    fn enqueue_response(&mut self, response: Response) -> Result<()> {
         if self.state != ClientConnectionState::Closed {
             self.connection.enqueue_response(response);
         }
-        self.in_flight_response_count -= 1;
+        self.in_flight_response_count = self
+            .in_flight_response_count
+            .checked_sub(1)
+            .ok_or(ServerError::Underflow)?;
+        Ok(())
     }
 
     // Returns `true` if the connection is closed and safe to drop.
@@ -381,8 +388,6 @@ impl HttpServer {
     ///
     /// ## Non-blocking server
     /// ```
-    /// extern crate utils;
-    ///
     /// use std::os::unix::io::AsRawFd;
     ///
     /// use micro_http::{HttpServer, Response, StatusCode};
@@ -402,7 +407,7 @@ impl HttpServer {
     /// epoll.ctl(
     ///     epoll::ControlOperation::Add,
     ///     server.epoll().as_raw_fd(),
-    ///     &epoll::EpollEvent::new(epoll::EventSet::IN, 1234u64),
+    ///     epoll::EpollEvent::new(epoll::EventSet::IN, 1234u64),
     /// )
     /// .unwrap();
     ///
@@ -450,6 +455,7 @@ impl HttpServer {
     ///
     /// # Errors
     /// `IOError` is returned when an `epoll::ctl` operation fails.
+    /// `Underflow` is returned when `enqueue_response` fails.
     pub fn respond(&mut self, response: ServerResponse) -> Result<()> {
         if let Some(client_connection) = self.connections.get_mut(&(response.id as i32)) {
             // If the connection was incoming before we enqueue the response, we change its
@@ -458,7 +464,7 @@ impl HttpServer {
                 client_connection.state = ClientConnectionState::AwaitingOutgoing;
                 Self::epoll_mod(&self.epoll, response.id as RawFd, epoll::EventSet::OUT)?;
             }
-            client_connection.enqueue_response(response.response);
+            client_connection.enqueue_response(response.response)?;
         }
         Ok(())
     }
@@ -505,7 +511,7 @@ impl HttpServer {
     fn epoll_mod(epoll: &epoll::Epoll, stream_fd: RawFd, evset: epoll::EventSet) -> Result<()> {
         let event = epoll::EpollEvent::new(evset, stream_fd as u64);
         epoll
-            .ctl(epoll::ControlOperation::Modify, stream_fd, &event)
+            .ctl(epoll::ControlOperation::Modify, stream_fd, event)
             .map_err(ServerError::IOError)
     }
 
@@ -518,7 +524,7 @@ impl HttpServer {
             .ctl(
                 epoll::ControlOperation::Add,
                 stream_fd,
-                &epoll::EpollEvent::new(epoll::EventSet::IN, stream_fd as u64),
+                epoll::EpollEvent::new(epoll::EventSet::IN, stream_fd as u64),
             )
             .map_err(ServerError::IOError)
     }
@@ -530,7 +536,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
 
-    use common::Body;
+    use crate::common::Body;
     use utils::tempfile::TempFile;
 
     fn get_temp_socket_file() -> TempFile {

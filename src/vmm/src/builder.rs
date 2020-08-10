@@ -23,6 +23,7 @@ use arch::InitrdConfig;
 use devices::legacy::Serial;
 use devices::virtio::{Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
 use kernel::cmdline::Cmdline as KernelCmdline;
+use logger::warn;
 use polly::event_manager::{Error as EventManagerError, EventManager, Subscriber};
 use seccomp::{BpfProgramRef, SeccompFilter};
 #[cfg(target_arch = "x86_64")]
@@ -204,8 +205,6 @@ fn create_vmm_and_vcpus(
     vcpu_count: u8,
 ) -> std::result::Result<(Vmm, Vec<Vcpu>), StartMicrovmError> {
     use self::StartMicrovmError::*;
-    // Timestamp for measuring microVM boot duration.
-    let request_ts = TimestampUs::default();
 
     // Set up Kvm Vm and register memory regions.
     let mut vm = setup_kvm_vm(&guest_memory, track_dirty_pages)?;
@@ -218,11 +217,8 @@ fn create_vmm_and_vcpus(
     // Instantiate the MMIO device manager.
     // 'mmio_base' address has to be an address which is protected by the kernel
     // and is architectural specific.
-    #[allow(unused_mut)]
-    let mut mmio_device_manager = MMIODeviceManager::new(
-        &mut (arch::MMIO_MEM_START as u64),
-        (arch::IRQ_BASE, arch::IRQ_MAX),
-    );
+    let mmio_device_manager =
+        MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX));
 
     let vcpus;
     // For x86_64 we need to create the interrupt controller before calling `KVM_CREATE_VCPUS`
@@ -230,7 +226,7 @@ fn create_vmm_and_vcpus(
     #[cfg(target_arch = "x86_64")]
     let pio_device_manager = {
         setup_interrupt_controller(&mut vm)?;
-        vcpus = create_vcpus(&vm, vcpu_count, request_ts, &exit_evt).map_err(Internal)?;
+        vcpus = create_vcpus(&vm, vcpu_count, &exit_evt).map_err(Internal)?;
 
         // Serial device setup.
         let serial_device = setup_serial_device(
@@ -254,7 +250,7 @@ fn create_vmm_and_vcpus(
     // Search for `kvm_arch_vcpu_create` in arch/arm/kvm/arm.c.
     #[cfg(target_arch = "aarch64")]
     {
-        vcpus = create_vcpus(&vm, vcpu_count, request_ts, &exit_evt).map_err(Internal)?;
+        vcpus = create_vcpus(&vm, vcpu_count, &exit_evt).map_err(Internal)?;
         setup_interrupt_controller(&mut vm, vcpu_count)?;
     }
 
@@ -301,12 +297,17 @@ pub fn build_microvm_for_boot(
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
 
+    // Timestamp for measuring microVM boot duration.
+    let request_ts = TimestampUs::default();
+
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         event_manager,
         guest_memory,
         track_dirty_pages,
         vcpu_config.vcpu_count,
     )?;
+
+    attach_boot_timer_device(&mut vmm, request_ts)?;
 
     attach_block_devices(
         &mut vmm,
@@ -601,29 +602,17 @@ fn attach_legacy_devices_aarch64(
         .map_err(Error::RegisterMMIODevice)
 }
 
-fn create_vcpus(
-    vm: &Vm,
-    vcpu_count: u8,
-    request_ts: TimestampUs,
-    exit_evt: &EventFd,
-) -> super::Result<Vec<Vcpu>> {
+fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> super::Result<Vec<Vcpu>> {
     let mut vcpus = Vec::with_capacity(vcpu_count as usize);
     for cpu_idx in 0..vcpu_count {
         let exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
 
         #[cfg(target_arch = "x86_64")]
-        let vcpu = Vcpu::new_x86_64(
-            cpu_idx,
-            vm.fd(),
-            vm.supported_msrs().clone(),
-            exit_evt,
-            request_ts.clone(),
-        )
-        .map_err(Error::Vcpu)?;
+        let vcpu = Vcpu::new_x86_64(cpu_idx, vm.fd(), vm.supported_msrs().clone(), exit_evt)
+            .map_err(Error::Vcpu)?;
 
         #[cfg(target_arch = "aarch64")]
-        let vcpu = Vcpu::new_aarch64(cpu_idx, vm.fd(), exit_evt, request_ts.clone())
-            .map_err(Error::Vcpu)?;
+        let vcpu = Vcpu::new_aarch64(cpu_idx, vm.fd(), exit_evt).map_err(Error::Vcpu)?;
 
         vcpus.push(vcpu);
     }
@@ -679,7 +668,7 @@ pub fn configure_system_for_boot(
                 .map_err(Internal)?;
         }
 
-        let vcpu_mpidr = vcpus.into_iter().map(|cpu| cpu.get_mpidr()).collect();
+        let vcpu_mpidr = vcpus.iter_mut().map(|cpu| cpu.get_mpidr()).collect();
         arch::aarch64::configure_system(
             &vmm.guest_memory,
             &boot_cmdline.as_cstring().map_err(LoadCommandline)?,
@@ -713,6 +702,21 @@ fn attach_virtio_device<T: 'static + VirtioDevice + Subscriber>(
         .register_new_virtio_mmio_device(vmm.vm.fd(), id, device, cmdline)
         .map_err(RegisterMmioDevice)
         .map(|_| ())
+}
+
+pub(crate) fn attach_boot_timer_device(
+    vmm: &mut Vmm,
+    request_ts: TimestampUs,
+) -> std::result::Result<(), StartMicrovmError> {
+    use self::StartMicrovmError::*;
+
+    let boot_timer = devices::pseudo::BootTimer::new(request_ts);
+
+    vmm.mmio_device_manager
+        .register_new_mmio_boot_timer(boot_timer)
+        .map_err(RegisterMmioDevice)?;
+
+    Ok(())
 }
 
 fn attach_block_devices<'a>(
@@ -773,16 +777,16 @@ pub mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
+    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
+    use crate::vmm_config::vsock::tests::default_config;
+    use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use arch::DeviceType;
     use devices::virtio::{TYPE_BLOCK, TYPE_VSOCK};
     use kernel::cmdline::Cmdline;
     use polly::event_manager::EventManager;
     use utils::tempfile::TempFile;
-    use vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
-    use vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
-    use vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
-    use vmm_config::vsock::tests::default_config;
-    use vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
 
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
@@ -808,10 +812,7 @@ pub mod tests {
     }
 
     fn default_mmio_device_manager() -> MMIODeviceManager {
-        MMIODeviceManager::new(
-            &mut (arch::MMIO_MEM_START as u64),
-            (arch::IRQ_BASE, arch::IRQ_MAX),
-        )
+        MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX))
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -1004,7 +1005,7 @@ pub mod tests {
         #[cfg(target_arch = "x86_64")]
         setup_interrupt_controller(&mut vm).unwrap();
 
-        let vcpu_vec = create_vcpus(&vm, vcpu_count, TimestampUs::default(), &evfd).unwrap();
+        let vcpu_vec = create_vcpus(&vm, vcpu_count, &evfd).unwrap();
         assert_eq!(vcpu_vec.len(), vcpu_count as usize);
     }
 
@@ -1164,6 +1165,19 @@ pub mod tests {
     }
 
     #[test]
+    fn test_attach_boot_timer_device() {
+        let mut vmm = default_vmm();
+        let request_ts = TimestampUs::default();
+
+        let res = attach_boot_timer_device(&mut vmm, request_ts);
+        assert!(res.is_ok());
+        assert!(vmm
+            .mmio_device_manager
+            .get_device(DeviceType::BootTimer, &DeviceType::BootTimer.to_string())
+            .is_some());
+    }
+
+    #[test]
     fn test_attach_vsock_device() {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let mut vmm = default_vmm();
@@ -1183,7 +1197,7 @@ pub mod tests {
 
     #[test]
     fn test_error_messages() {
-        use builder::StartMicrovmError::*;
+        use crate::builder::StartMicrovmError::*;
         let err = AttachBlockDevice(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 

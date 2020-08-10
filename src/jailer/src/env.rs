@@ -9,14 +9,12 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use libc;
-
-use cgroup::Cgroup;
-use chroot::chroot;
+use crate::cgroup::Cgroup;
+use crate::chroot::chroot;
+use crate::{Error, Result};
 use utils::arg_parser::Error::MissingValue;
 use utils::syscall::SyscallReturnCode;
 use utils::{arg_parser, validators};
-use {Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
@@ -340,7 +338,7 @@ impl Env {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use build_arg_parser;
+    use crate::build_arg_parser;
 
     use std::os::linux::fs::MetadataExt;
     use std::os::unix::ffi::OsStrExt;
@@ -664,7 +662,7 @@ mod tests {
             some_file_name.to_os_string()
         );
 
-        let dest_path = env.chroot_dir.to_path_buf().join(some_file_name);
+        let dest_path = env.chroot_dir.join(some_file_name);
         // Check that `fs::copy()` copied src content and permission bits to destination.
         let metadata_src = fs::metadata(&env.exec_file_path).unwrap();
         let metadata_dest = fs::metadata(&dest_path).unwrap();

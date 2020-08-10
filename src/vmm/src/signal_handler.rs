@@ -3,7 +3,7 @@
 
 use libc::{_exit, c_int, c_void, siginfo_t, SIGBUS, SIGSEGV, SIGSYS};
 
-use logger::{Metric, METRICS};
+use logger::{error, Metric, METRICS};
 use utils::signal::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure

@@ -16,6 +16,10 @@ pub mod ascii {
 /// Errors associated with parsing the HTTP Request from a u8 slice.
 #[derive(Debug, PartialEq)]
 pub enum RequestError {
+    /// No request was pending while the request body was being parsed.
+    BodyWithoutPendingRequest,
+    /// No request was pending while the request headers were being parsed.
+    HeadersWithoutPendingRequest,
     /// The HTTP Method is not supported or it is invalid.
     InvalidHttpMethod(&'static str),
     /// Request URI is invalid.
@@ -28,17 +32,31 @@ pub enum RequestError {
     InvalidHeader,
     /// The Request is invalid and cannot be served.
     InvalidRequest,
+    /// Overflow occurred when parsing a request.
+    Overflow,
+    /// Underflow occurred when parsing a request.
+    Underflow,
 }
 
 impl Display for RequestError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
+            Self::BodyWithoutPendingRequest => write!(
+                f,
+                "No request was pending while the request body was being parsed."
+            ),
+            Self::HeadersWithoutPendingRequest => write!(
+                f,
+                "No request was pending while the request headers were being parsed."
+            ),
             Self::InvalidHttpMethod(inner) => write!(f, "Invalid HTTP Method: {}", inner),
             Self::InvalidUri(inner) => write!(f, "Invalid URI: {}", inner),
             Self::InvalidHttpVersion(inner) => write!(f, "Invalid HTTP Version: {}", inner),
             Self::UnsupportedHeader => write!(f, "Unsupported header."),
             Self::InvalidHeader => write!(f, "Invalid header."),
             Self::InvalidRequest => write!(f, "Invalid request."),
+            Self::Overflow => write!(f, "Overflow occurred when parsing a request."),
+            Self::Underflow => write!(f, "Underflow occurred when parsing a request."),
         }
     }
 }
@@ -76,6 +94,10 @@ pub enum ServerError {
     ConnectionError(ConnectionError),
     /// Server maximum capacity has been reached.
     ServerFull,
+    /// Overflow occured while processing messages.
+    Overflow,
+    /// Underflow occured while processing mesagges.
+    Underflow,
 }
 
 impl Display for ServerError {
@@ -84,6 +106,8 @@ impl Display for ServerError {
             Self::IOError(inner) => write!(f, "IO error: {}", inner),
             Self::ConnectionError(inner) => write!(f, "Connection error: {}", inner),
             Self::ServerFull => write!(f, "Server is full."),
+            Self::Overflow => write!(f, "Overflow occured while processing messages."),
+            Self::Underflow => write!(f, "Underflow occured while processing messages."),
         }
     }
 }
@@ -92,7 +116,6 @@ impl Display for ServerError {
 ///
 /// ## Examples
 /// ```
-/// extern crate micro_http;
 /// use micro_http::Body;
 /// let body = Body::new("This is a test body.".to_string());
 /// assert_eq!(body.raw(), b"This is a test body.");
@@ -168,7 +191,6 @@ impl Method {
 ///
 /// # Examples
 /// ```
-/// extern crate micro_http;
 /// use micro_http::Version;
 /// let version = Version::try_from(b"HTTP/1.1");
 /// assert!(version.is_ok());
@@ -226,9 +248,11 @@ mod tests {
         fn eq(&self, other: &Self) -> bool {
             use self::ConnectionError::*;
             match (self, other) {
-                (ParseError(_), ParseError(_)) => true,
+                (ParseError(ref e), ParseError(ref other_e)) => e.eq(other_e),
                 (ConnectionClosed, ConnectionClosed) => true,
-                (StreamError(_), StreamError(_)) => true,
+                (StreamError(ref e), StreamError(ref other_e)) => {
+                    format!("{}", e).eq(&format!("{}", other_e))
+                }
                 (InvalidWrite, InvalidWrite) => true,
                 _ => false,
             }
@@ -285,28 +309,44 @@ mod tests {
     #[test]
     fn test_display_request_error() {
         assert_eq!(
-            format!("{}", RequestError::InvalidHttpMethod("test")),
-            "Invalid HTTP Method: test"
+            format!("{}", RequestError::BodyWithoutPendingRequest),
+            "No request was pending while the request body was being parsed."
         );
         assert_eq!(
-            format!("{}", RequestError::InvalidUri("test")),
-            "Invalid URI: test"
-        );
-        assert_eq!(
-            format!("{}", RequestError::InvalidHttpVersion("test")),
-            "Invalid HTTP Version: test"
+            format!("{}", RequestError::HeadersWithoutPendingRequest),
+            "No request was pending while the request headers were being parsed."
         );
         assert_eq!(
             format!("{}", RequestError::InvalidHeader),
             "Invalid header."
         );
         assert_eq!(
-            format!("{}", RequestError::UnsupportedHeader),
-            "Unsupported header."
+            format!("{}", RequestError::InvalidHttpMethod("test")),
+            "Invalid HTTP Method: test"
+        );
+        assert_eq!(
+            format!("{}", RequestError::InvalidHttpVersion("test")),
+            "Invalid HTTP Version: test"
         );
         assert_eq!(
             format!("{}", RequestError::InvalidRequest),
             "Invalid request."
+        );
+        assert_eq!(
+            format!("{}", RequestError::InvalidUri("test")),
+            "Invalid URI: test"
+        );
+        assert_eq!(
+            format!("{}", RequestError::Overflow),
+            "Overflow occurred when parsing a request."
+        );
+        assert_eq!(
+            format!("{}", RequestError::Underflow),
+            "Underflow occurred when parsing a request."
+        );
+        assert_eq!(
+            format!("{}", RequestError::UnsupportedHeader),
+            "Unsupported header."
         );
     }
 
@@ -352,6 +392,14 @@ mod tests {
                 ServerError::IOError(std::io::Error::from_raw_os_error(11))
             ),
             "IO error: Resource temporarily unavailable (os error 11)"
+        );
+        assert_eq!(
+            format!("{}", ServerError::Overflow),
+            "Overflow occured while processing messages."
+        );
+        assert_eq!(
+            format!("{}", ServerError::Underflow),
+            "Underflow occured while processing messages."
         );
     }
 }

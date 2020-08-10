@@ -1,8 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate libc;
-
 fn main() {
     unsafe {
         // In this example, the malicious component is outputing to standard input.

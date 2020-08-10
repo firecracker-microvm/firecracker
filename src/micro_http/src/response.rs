@@ -3,10 +3,10 @@
 
 use std::io::{Error as WriteError, Write};
 
-use ascii::{COLON, CR, LF, SP};
-use common::{Body, Version};
-use headers::{Header, MediaType};
-use Method;
+use crate::ascii::{COLON, CR, LF, SP};
+use crate::common::{Body, Version};
+use crate::headers::{Header, MediaType};
+use crate::Method;
 
 /// Wrapper over a response status code.
 ///
@@ -49,6 +49,7 @@ impl StatusCode {
     }
 }
 
+#[derive(Debug, PartialEq)]
 struct StatusLine {
     http_version: Version,
     status_code: StatusCode,
@@ -75,6 +76,7 @@ impl StatusLine {
 /// Wrapper over the list of headers associated with a HTTP Response.
 /// When creating a ResponseHeaders object, the content type is initialized to `text/plain`.
 /// The content type can be updated with a call to `set_content_type`.
+#[derive(Debug, PartialEq)]
 pub struct ResponseHeaders {
     content_length: i32,
     content_type: MediaType,
@@ -105,6 +107,7 @@ impl ResponseHeaders {
         let delimitator = b", ";
         for (idx, method) in self.allow.iter().enumerate() {
             buf.write_all(method.raw())?;
+            // We check above that `self.allow` is not empty.
             if idx < self.allow.len() - 1 {
                 buf.write_all(delimitator)?;
             }
@@ -163,6 +166,7 @@ impl ResponseHeaders {
 /// the body is initialized to `None` and the header is initialized with the `default` value. The body
 /// can be updated with a call to `set_body`. The header can be updated with `set_content_type` and
 /// `set_server`.
+#[derive(Debug, PartialEq)]
 pub struct Response {
     status_line: StatusLine,
     headers: ResponseHeaders,

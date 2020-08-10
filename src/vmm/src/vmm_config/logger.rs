@@ -2,15 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Auxiliary module for configuring the logger.
-
-extern crate logger as logger_crate;
-
+use serde::{de, Deserialize, Deserializer, Serialize};
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use self::logger_crate::{LevelFilter, LOGGER};
 use super::{open_file_nonblock, FcLineWriter};
-use vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::instance_info::InstanceInfo;
+use logger::{LevelFilter, LOGGER};
 
 /// Enum used for setting the log level.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -32,14 +30,12 @@ impl LoggerLevel {
     /// Converts from a logger level value of type String to the corresponding LoggerLevel variant
     /// or returns an error if the parsing failed.
     pub fn from_string(level: String) -> std::result::Result<Self, LoggerConfigError> {
-        match level.as_str() {
-            "Error" => Ok(LoggerLevel::Error),
-            "Warning" => Ok(LoggerLevel::Warning),
-            "Info" => Ok(LoggerLevel::Info),
-            "Debug" => Ok(LoggerLevel::Debug),
-            invalid_value => Err(LoggerConfigError::InitializationFailure(
-                invalid_value.to_string(),
-            )),
+        match level.to_ascii_lowercase().as_str() {
+            "error" => Ok(LoggerLevel::Error),
+            "warning" => Ok(LoggerLevel::Warning),
+            "info" => Ok(LoggerLevel::Info),
+            "debug" => Ok(LoggerLevel::Debug),
+            _ => Err(LoggerConfigError::InitializationFailure(level)),
         }
     }
 }
@@ -61,6 +57,21 @@ impl Into<LevelFilter> for LoggerLevel {
     }
 }
 
+// This allows `level` field, which is an enum, to be case-insensitive.
+fn case_insensitive<'de, D>(deserializer: D) -> Result<LoggerLevel, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let level = String::deserialize(deserializer).map_err(de::Error::custom)?;
+    LoggerLevel::from_string(level).or_else(|err| {
+        Err(format!(
+            "unknown variant `{}`, expected one of `Error`, `Warning`, `Info`, `Debug`",
+            err
+        ))
+        .map_err(de::Error::custom)
+    })
+}
+
 /// Strongly typed structure used to describe the logger.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -68,7 +79,10 @@ pub struct LoggerConfig {
     /// Named pipe or file used as output for logs.
     pub log_path: PathBuf,
     /// The level of the Logger.
-    #[serde(default = "LoggerLevel::default")]
+    #[serde(
+        default = "LoggerLevel::default",
+        deserialize_with = "case_insensitive"
+    )]
     pub level: LoggerLevel,
     /// When enabled, the logger will append to the output the severity of the log entry.
     #[serde(default)]
@@ -141,10 +155,11 @@ mod tests {
     use std::io::{BufRead, BufReader};
 
     use super::*;
+    use devices::pseudo::BootTimer;
+    use devices::BusDevice;
+    use logger::warn;
     use utils::tempfile::TempFile;
     use utils::time::TimestampUs;
-
-    use Vmm;
 
     #[test]
     fn test_init_logger() {
@@ -193,7 +208,9 @@ mod tests {
         }
 
         // Validate logging the boot time works.
-        Vmm::log_boot_time(&TimestampUs::default());
+        let mut boot_timer = BootTimer::new(TimestampUs::default());
+        boot_timer.write(0, &[123]);
+
         let mut line = String::new();
         loop {
             if line.contains("Guest-boot-time =") {
@@ -253,6 +270,18 @@ mod tests {
         );
         assert_eq!(
             LoggerLevel::from_string("Debug".to_string()).unwrap(),
+            LoggerLevel::Debug
+        );
+        assert_eq!(
+            LoggerLevel::from_string("error".to_string()).unwrap(),
+            LoggerLevel::Error
+        );
+        assert_eq!(
+            LoggerLevel::from_string("WaRnIng".to_string()).unwrap(),
+            LoggerLevel::Warning
+        );
+        assert_eq!(
+            LoggerLevel::from_string("DEBUG".to_string()).unwrap(),
             LoggerLevel::Debug
         );
     }

@@ -4,6 +4,8 @@
 use std::fmt::{Display, Formatter, Result};
 use std::io;
 
+use serde::{Deserialize, Serialize};
+
 /// Default guest kernel command line:
 /// - `reboot=k` shut down the guest on reboot, instead of well... rebooting;
 /// - `panic=1` on panic, reboot after 1 second;

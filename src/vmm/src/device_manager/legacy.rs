@@ -9,7 +9,6 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use devices;
 use kvm_ioctls::VmFd;
 use utils::eventfd::EventFd;
 

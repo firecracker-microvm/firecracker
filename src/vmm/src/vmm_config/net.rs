@@ -7,10 +7,12 @@ use std::result;
 use std::sync::{Arc, Mutex};
 
 use super::RateLimiterConfig;
+use devices::virtio::net::TapError;
 use devices::virtio::Net;
 use dumbo::MacAddr;
 use rate_limiter::{BucketUpdate, TokenBucket};
-use utils::net::TapError;
+
+use serde::Deserialize;
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
@@ -335,7 +337,7 @@ mod tests {
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
             NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-                TapError::CreateTap(std::io::Error::from_raw_os_error(16))
+                TapError::IoctlError(std::io::Error::from_raw_os_error(16))
             ))
             .to_string()
         );
@@ -362,7 +364,7 @@ mod tests {
         assert_eq!(
             net_builder.build(netif_2).err().unwrap().to_string(),
             NetworkInterfaceError::CreateNetworkDevice(devices::virtio::net::Error::TapOpen(
-                TapError::CreateTap(std::io::Error::from_raw_os_error(16))
+                TapError::IoctlError(std::io::Error::from_raw_os_error(16))
             ))
             .to_string()
         );

@@ -320,20 +320,12 @@ class Tap:
         """Return the network namespace of this tap."""
         return self._netns
 
-    def __del__(self):
-        """Destructor doing tap interface clean up."""
-        # pylint: disable=subprocess-run-check
-        _ = utils.run_cmd(
-            'ip netns exec {} ip link set {} down'.format(
+    def set_tx_queue_len(self, tx_queue_len):
+        """Set the length of the tap's TX queue."""
+        utils.run_cmd(
+            'ip netns exec {} ip link set {} txqueuelen {}'.format(
                 self.netns,
-                self.name
-            )
-        )
-        _ = utils.run_cmd(
-            'ip netns exec {} ip link delete {}'.format(self.netns, self.name))
-        _ = utils.run_cmd(
-            'ip netns exec {} ip tuntap del mode tap name {}'.format(
-                self.netns,
-                self.name
+                self.name,
+                tx_queue_len
             )
         )

@@ -13,7 +13,6 @@ destroy microvms.
 import json
 import logging
 import os
-from queue import Queue
 import re
 import select
 import time
@@ -22,6 +21,7 @@ from retry import retry
 from retry.api import retry_call
 
 import host_tools.logging as log_tools
+import host_tools.cpu_load as cpu_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 
@@ -30,7 +30,7 @@ from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import Actions, BootSource, Drive, Logger, MMDS, \
-    MachineConfigure, Metrics, Network, Vm, Vsock
+    MachineConfigure, Metrics, Network, Vm, Vsock, SnapshotCreate, SnapshotLoad
 
 LOG = logging.getLogger("microvm")
 
@@ -105,6 +105,8 @@ class Microvm:
         self.machine_cfg = None
         self.vm = None
         self.vsock = None
+        self.snapshot_create = None
+        self.snapshot_load = None
 
         # Initialize the logging subsystem.
         self.logging_thread = None
@@ -121,9 +123,13 @@ class Microvm:
 
         # Deal with memory monitoring.
         if monitor_memory:
-            self._memory_events_queue = Queue()
+            self._memory_monitor = mem_tools.MemoryMonitor()
         else:
-            self._memory_events_queue = None
+            self._memory_monitor = None
+
+        # Cpu load monitoring has to be explicitly enabled using
+        # the `enable_cpu_load_monitor` method.
+        self._cpu_load_monitor = None
 
         # External clone/exec tool, because Python can't into clone
         self.bin_cloner_path = bin_cloner_path
@@ -143,9 +149,15 @@ class Microvm:
             utils.run_cmd(
                 'screen -XS {} kill'.format(self._session_name))
 
-        if self._memory_events_queue and not self._memory_events_queue.empty():
-            raise mem_tools.MemoryUsageExceededException(
-                self._memory_events_queue.get())
+        if self._memory_monitor and self._memory_monitor.is_alive():
+            self._memory_monitor.signal_stop()
+            self._memory_monitor.join(timeout=1)
+            self._memory_monitor.check_samples()
+
+        if self._cpu_load_monitor:
+            self._cpu_load_monitor.signal_stop()
+            self._cpu_load_monitor.join()
+            self._cpu_load_monitor.check_samples()
 
     @property
     def api_session(self):
@@ -230,14 +242,14 @@ class Microvm:
         self._ssh_config.__setattr__(key, value)
 
     @property
-    def memory_events_queue(self):
-        """Get the memory usage events queue."""
-        return self._memory_events_queue
+    def memory_monitor(self):
+        """Get the memory monitor."""
+        return self._memory_monitor
 
-    @memory_events_queue.setter
-    def memory_events_queue(self, queue):
-        """Set the memory usage events queue."""
-        self._memory_events_queue = queue
+    @memory_monitor.setter
+    def memory_monitor(self, monitor):
+        """Set the memory monitor."""
+        self._memory_monitor = monitor
 
     def flush_metrics(self, metrics_fifo):
         """Flush the microvm metrics.
@@ -255,9 +267,34 @@ class Microvm:
 
         return json.loads(lines[0])
 
+    def get_all_metrics(self, metrics_fifo):
+        """Return all metric data points written by FC.
+
+        Requires specifying the configured metrics file.
+        """
+        # Empty the metrics pipe.
+        response = self.actions.put(action_type='FlushMetrics')
+        assert self.api_session.is_status_no_content(response.status_code)
+
+        return metrics_fifo.sequential_reader(1000)
+
     def append_to_log_data(self, data):
         """Append a message to the log data."""
         self._log_data += data
+
+    def enable_cpu_load_monitor(self, threshold):
+        """Enable the cpu load monitor."""
+        process_pid = self.jailer_clone_pid
+        # We want to monitor the emulation thread, which is currently
+        # the first one created.
+        # A possible improvement is to find it by name.
+        thread_pid = self.jailer_clone_pid
+        self._cpu_load_monitor = cpu_tools.CpuLoadMonitor(
+            process_pid,
+            thread_pid,
+            threshold
+        )
+        self._cpu_load_monitor.start()
 
     def create_jailed_resource(self, path, create_jail=False):
         """Create a hard link to some resource inside this microvm."""
@@ -297,7 +334,18 @@ class Microvm:
         os.makedirs(self._kernel_path, exist_ok=True)
         os.makedirs(self._fsfiles_path, exist_ok=True)
 
-    def spawn(self, create_logger=True):
+    def init_snapshot_api(self):
+        """Initialize snapshot helpers."""
+        self.snapshot_create = SnapshotCreate(
+            self._api_socket,
+            self._api_session
+        )
+        self.snapshot_load = SnapshotLoad(
+            self._api_socket,
+            self._api_session
+        )
+
+    def spawn(self, create_logger=True, log_file='log_fifo', log_level='Info'):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
         self._jailer.setup()
@@ -318,15 +366,17 @@ class Microvm:
         self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
 
+        self.init_snapshot_api()
+
         if create_logger:
-            log_fifo_path = os.path.join(self.path, 'log_fifo')
+            log_fifo_path = os.path.join(self.path, log_file)
             log_fifo = log_tools.Fifo(log_fifo_path)
             self.create_jailed_resource(log_fifo.path, create_jail=True)
             # The default value for `level`, when configuring the
             # logger via cmd line, is `Warning`. We set the level
             # to `Info` to also have the boot time printed in fifo.
-            self.jailer.extra_args.update({'log-path': 'log_fifo',
-                                           'level': 'Info'})
+            self.jailer.extra_args.update({'log-path': log_file,
+                                           'level': log_level})
             self.start_console_logger(log_fifo)
 
         jailer_param_list = self._jailer.construct_param_list()
@@ -377,13 +427,11 @@ class Microvm:
             # Log screen output to SCREEN_LOGFILE
             # This file will collect any output from 'screen'ed Firecracker.
             start_cmd = 'screen -L -Logfile {logfile} '\
-                        '-dmS {session} {binary} {params}'
-            start_cmd = start_cmd.format(
-                logfile=self.SCREEN_LOGFILE,
-                session=self._session_name,
-                binary=self._jailer_binary_path,
-                params=' '.join(jailer_param_list)
-            )
+                        '-dmS {session} {binary} {params}'.format(
+                            logfile=self.SCREEN_LOGFILE,
+                            session=self._session_name,
+                            binary=self._jailer_binary_path,
+                            params=' '.join(jailer_param_list))
 
             utils.run_cmd(start_cmd)
 
@@ -446,7 +494,8 @@ class Microvm:
         mem_size_mib: int = 256,
         add_root_device: bool = True,
         boot_args: str = None,
-        use_initrd: bool = False
+        use_initrd: bool = False,
+        track_dirty_pages: bool = False
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -462,16 +511,15 @@ class Microvm:
         response = self.machine_cfg.put(
             vcpu_count=vcpu_count,
             ht_enabled=ht_enabled,
-            mem_size_mib=mem_size_mib
+            mem_size_mib=mem_size_mib,
+            track_dirty_pages=track_dirty_pages
         )
         assert self._api_session.is_status_no_content(response.status_code)
 
-        if self.memory_events_queue:
-            mem_tools.threaded_memory_monitor(
-                mem_size_mib,
-                self.jailer_clone_pid,
-                self._memory_events_queue
-            )
+        if self.memory_monitor:
+            self.memory_monitor.guest_mem_mib = mem_size_mib
+            self.memory_monitor.pid = self.jailer_clone_pid
+            self.memory_monitor.start()
 
         boot_source_args = {
             'kernel_image_path': self.create_jailed_resource(self.kernel_file),
@@ -495,13 +543,40 @@ class Microvm:
             )
             assert self._api_session.is_status_no_content(response.status_code)
 
+    def add_drive(
+            self,
+            drive_id,
+            file_path,
+            root_device=False,
+            is_read_only=False,
+            partuuid=None,
+    ):
+        """Add a block device."""
+        response = self.drive.put(
+            drive_id=drive_id,
+            path_on_host=self.create_jailed_resource(file_path),
+            is_root_device=root_device,
+            is_read_only=is_read_only,
+            partuuid=partuuid
+        )
+        assert self.api_session.is_status_no_content(response.status_code)
+
+    def patch_drive(self, drive_id, file):
+        """Modify/patch an existing block device."""
+        response = self.drive.patch(
+            drive_id=drive_id,
+            path_on_host=self.create_jailed_resource(file.path),
+        )
+        assert self.api_session.is_status_no_content(response.status_code)
+
     def ssh_network_config(
             self,
             network_config,
             iface_id,
             allow_mmds_requests=False,
             tx_rate_limiter=None,
-            rx_rate_limiter=None
+            rx_rate_limiter=None,
+            tapname=None
     ):
         """Create a host tap device and a guest network interface.
 
@@ -519,16 +594,12 @@ class Microvm:
         cleanup is desired, the configured guest and host ips, respectively.
         """
         # Create tap before configuring interface.
-        tapname = self.id[:8] + 'tap' + iface_id
+        tapname = tapname or (self.id[:8] + 'tap' + iface_id)
         (host_ip, guest_ip) = network_config.get_next_available_ips(2)
-        tap = net_tools.Tap(
-            tapname,
-            self._jailer.netns,
-            ip="{}/{}".format(
-                host_ip,
-                network_config.get_netmask_len()
-            )
-        )
+        tap = self.create_tap_and_ssh_config(host_ip,
+                                             guest_ip,
+                                             network_config.get_netmask_len(),
+                                             tapname)
         guest_mac = net_tools.mac_from_ip(guest_ip)
 
         response = self.network.put(
@@ -541,8 +612,31 @@ class Microvm:
         )
         assert self._api_session.is_status_no_content(response.status_code)
 
-        self.ssh_config['hostname'] = guest_ip
         return tap, host_ip, guest_ip
+
+    def create_tap_and_ssh_config(
+            self,
+            host_ip,
+            guest_ip,
+            netmask_len,
+            tapname=None
+    ):
+        """Create tap device and configure ssh."""
+        assert tapname is not None
+        tap = net_tools.Tap(
+            tapname,
+            self._jailer.netns,
+            ip="{}/{}".format(
+                host_ip,
+                netmask_len
+            )
+        )
+        self.config_ssh(guest_ip)
+        return tap
+
+    def config_ssh(self, guest_ip):
+        """Configure ssh."""
+        self.ssh_config['hostname'] = guest_ip
 
     def start(self):
         """Start the microvm.
@@ -551,6 +645,48 @@ class Microvm:
         """
         response = self.actions.put(action_type='InstanceStart')
         assert self._api_session.is_status_no_content(response.status_code)
+
+    def pause_to_snapshot(self,
+                          mem_file_path=None,
+                          snapshot_path=None,
+                          diff=False):
+        """Pauses the microVM, and creates snapshot.
+
+        This function validates that the microVM pauses successfully and
+        creates a snapshot.
+        """
+        assert mem_file_path is not None, "Please specify mem_file_path."
+        assert snapshot_path is not None, "Please specify snapshot_path."
+
+        response = self.vm.patch(state='Paused')
+        assert self.api_session.is_status_no_content(response.status_code)
+
+        response = self.snapshot_create.put(mem_file_path=mem_file_path,
+                                            snapshot_path=snapshot_path,
+                                            diff=diff)
+        assert self.api_session.is_status_no_content(response.status_code)
+
+    def resume_from_snapshot(self, mem_file_path, snapshot_path):
+        """Resume snapshotted microVM in a new Firecracker process.
+
+        Starts a new Firecracker process, loads a microVM from snapshot
+        and resumes it.
+
+        This function validates that resuming works.
+        """
+        assert mem_file_path is not None, "Please specify mem_file_path."
+        assert snapshot_path is not None, "Please specify snapshot_path."
+
+        self.jailer.cleanup(reuse_jail=True)
+        self.spawn(create_logger=False)
+
+        response = self.snapshot_load.put(mem_file_path=mem_file_path,
+                                          snapshot_path=snapshot_path)
+
+        assert self.api_session.is_status_no_content(response.status_code)
+
+        response = self.vm.patch(state='Resumed')
+        assert self.api_session.is_status_no_content(response.status_code)
 
     def start_console_logger(self, log_fifo):
         """

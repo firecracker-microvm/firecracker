@@ -10,33 +10,6 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 
-extern crate kvm_bindings;
-extern crate kvm_ioctls;
-extern crate lazy_static;
-extern crate libc;
-extern crate polly;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate sysconf;
-
-extern crate arch;
-#[cfg(target_arch = "x86_64")]
-extern crate cpuid;
-extern crate devices;
-extern crate kernel;
-#[macro_use]
-extern crate logger;
-extern crate dumbo;
-extern crate rate_limiter;
-extern crate seccomp;
-extern crate snapshot;
-extern crate utils;
-extern crate versionize;
-extern crate versionize_derive;
-extern crate vm_memory;
-
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
 /// Syscalls allowed through the seccomp filter.
@@ -66,27 +39,26 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Mutex;
 use std::time::Duration;
 
+#[cfg(target_arch = "x86_64")]
+use crate::device_manager::legacy::PortIODeviceManager;
+use crate::device_manager::mmio::MMIODeviceManager;
+#[cfg(target_arch = "x86_64")]
+use crate::memory_snapshot::SnapshotMemory;
+#[cfg(target_arch = "x86_64")]
+use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
+#[cfg(target_arch = "x86_64")]
+use crate::vstate::VcpuState;
+use crate::vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 use arch::DeviceType;
-#[cfg(target_arch = "x86_64")]
-use device_manager::legacy::PortIODeviceManager;
-use device_manager::mmio::MMIODeviceManager;
 use devices::BusDevice;
-use logger::{LoggerError, MetricsError, METRICS};
-#[cfg(target_arch = "x86_64")]
-use memory_snapshot::SnapshotMemory;
-#[cfg(target_arch = "x86_64")]
-use persist::{MicrovmState, MicrovmStateError, VmInfo};
+use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use polly::event_manager::{self, EventManager, Subscriber};
 use seccomp::BpfProgramRef;
 #[cfg(target_arch = "x86_64")]
 use snapshot::Persist;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
-use utils::time::TimestampUs;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap};
-#[cfg(target_arch = "x86_64")]
-use vstate::VcpuState;
-use vstate::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
 /// Success exit code.
 pub const FC_EXIT_CODE_OK: u8 = 0;
@@ -352,20 +324,6 @@ impl Vmm {
         unsafe {
             libc::_exit(exit_code);
         }
-    }
-
-    fn log_boot_time(t0_ts: &TimestampUs) {
-        let now_tm_us = TimestampUs::default();
-
-        let boot_time_us = now_tm_us.time_us - t0_ts.time_us;
-        let boot_time_cpu_us = now_tm_us.cputime_us - t0_ts.cputime_us;
-        info!(
-            "Guest-boot-time = {:>6} us {} ms, {:>6} CPU us {} CPU ms",
-            boot_time_us,
-            boot_time_us / 1000,
-            boot_time_cpu_us,
-            boot_time_cpu_us / 1000
-        );
     }
 
     /// Returns a reference to the inner KVM Vm object.

@@ -55,13 +55,13 @@
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
-use std;
 use std::fmt;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+use lazy_static::lazy_static;
 use serde::{Serialize, Serializer};
 
 use super::extract_guard;
@@ -194,6 +194,8 @@ pub trait Metric {
     }
     /// Returns current value of the counter.
     fn count(&self) -> usize;
+    /// Stores `value` to the current counter.
+    fn store(&self, value: usize);
 }
 
 /// Representation of a metric that is expected to be incremented from more than one thread, so more
@@ -220,6 +222,13 @@ impl Metric for SharedMetric {
 
     fn count(&self) -> usize {
         self.0.load(Ordering::Relaxed)
+    }
+
+    // It is necessary to also reset the old value in order to flush later the correct one,
+    // which is `value` (see the `Serialize` implementation for SharedMetric a few lines below).
+    fn store(&self, value: usize) {
+        self.0.store(value, Ordering::Relaxed);
+        self.1.store(0, Ordering::Relaxed)
     }
 }
 
@@ -350,8 +359,10 @@ pub struct BlockDeviceMetrics {
     pub write_bytes: SharedMetric,
     /// Number of successful read operations.
     pub read_count: SharedMetric,
-    /// Number of sucessful write operations.
+    /// Number of successful write operations.
     pub write_count: SharedMetric,
+    /// Number of rate limiter throttling events.
+    pub rate_limiter_throttled_events: SharedMetric,
 }
 
 /// Metrics specific to the i8042 device.
@@ -361,7 +372,7 @@ pub struct I8042DeviceMetrics {
     pub error_count: SharedMetric,
     /// Number of superfluous read intents on this i8042 device.
     pub missed_read_count: SharedMetric,
-    /// Number of superfluous read intents on this i8042 device.
+    /// Number of superfluous write intents on this i8042 device.
     pub missed_write_count: SharedMetric,
     /// Bytes read by this device.
     pub read_count: SharedMetric,
@@ -418,6 +429,8 @@ pub struct NetDeviceMetrics {
     pub activate_fails: SharedMetric,
     /// Number of times when interacting with the space config of a network device failed.
     pub cfg_fails: SharedMetric,
+    //// Number of times the mac address was updated through the config space.
+    pub mac_address_updates: SharedMetric,
     /// No available buffer for the net device rx queue.
     pub no_rx_avail_buffer: SharedMetric,
     /// No available buffer for the net device tx queue.
@@ -428,6 +441,10 @@ pub struct NetDeviceMetrics {
     pub rx_queue_event_count: SharedMetric,
     /// Number of events associated with the rate limiter installed on the receiving path.
     pub rx_event_rate_limiter_count: SharedMetric,
+    /// Number of RX partial writes to guest.
+    pub rx_partial_writes: SharedMetric,
+    /// Number of RX rate limiter throttling events.
+    pub rx_rate_limiter_throttled: SharedMetric,
     /// Number of events received on the associated tap.
     pub rx_tap_event_count: SharedMetric,
     /// Number of bytes received.
@@ -438,30 +455,78 @@ pub struct NetDeviceMetrics {
     pub rx_fails: SharedMetric,
     /// Number of successful read operations while receiving data.
     pub rx_count: SharedMetric,
+    /// Number of times reading from TAP failed.
+    pub tap_read_fails: SharedMetric,
+    /// Number of times writing to TAP failed.
+    pub tap_write_fails: SharedMetric,
     /// Number of transmitted bytes.
     pub tx_bytes_count: SharedMetric,
+    /// Number of malformed TX frames.
+    pub tx_malformed_frames: SharedMetric,
     /// Number of errors while transmitting data.
     pub tx_fails: SharedMetric,
     /// Number of successful write operations while transmitting data.
     pub tx_count: SharedMetric,
     /// Number of transmitted packets.
     pub tx_packets_count: SharedMetric,
+    /// Number of TX partial reads from guest.
+    pub tx_partial_reads: SharedMetric,
     /// Number of events associated with the transmitting queue.
     pub tx_queue_event_count: SharedMetric,
     /// Number of events associated with the rate limiter installed on the transmitting path.
     pub tx_rate_limiter_event_count: SharedMetric,
+    /// Number of RX rate limiter throttling events.
+    pub tx_rate_limiter_throttled: SharedMetric,
     /// Number of packets with a spoofed mac, sent by the guest.
     pub tx_spoofed_mac_count: SharedMetric,
 }
 
-/// Metrics specific to the i8042 device.
+/// Performance metrics related for the moment only to snapshots.
+// These store the duration of creating/loading a snapshot and of
+// pausing/resuming the microVM.
+// If there are more than one `/snapshot/create` request in a minute
+// (until the metrics are flushed), only the duration of the last
+// snapshot creation is stored in the metric. If the user is interested
+// in all the durations, a `FlushMetrics` request should be sent after
+// each `create` request.
+#[derive(Default, Serialize)]
+pub struct PerformanceMetrics {
+    #[cfg(target_arch = "x86_64")]
+    /// Measures the snapshot full create time, at the API (user) level, in microseconds.
+    pub full_create_snapshot: SharedMetric,
+    #[cfg(target_arch = "x86_64")]
+    /// Measures the snapshot diff create time, at the API (user) level, in microseconds.
+    pub diff_create_snapshot: SharedMetric,
+    #[cfg(target_arch = "x86_64")]
+    /// Measures the snapshot load time, at the API (user) level, in microseconds.
+    pub load_snapshot: SharedMetric,
+    /// Measures the microVM pausing duration, at the API (user) level, in microseconds.
+    pub pause_vm: SharedMetric,
+    /// Measures the microVM resuming duration, at the API (user) level, in microseconds.
+    pub resume_vm: SharedMetric,
+    #[cfg(target_arch = "x86_64")]
+    /// Measures the snapshot full create time, at the VMM level, in microseconds.
+    pub vmm_full_create_snapshot: SharedMetric,
+    #[cfg(target_arch = "x86_64")]
+    /// Measures the snapshot diff create time, at the VMM level, in microseconds.
+    pub vmm_diff_create_snapshot: SharedMetric,
+    #[cfg(target_arch = "x86_64")]
+    /// Measures the snapshot load time, at the VMM level, in microseconds.
+    pub vmm_load_snapshot: SharedMetric,
+    /// Measures the microVM pausing duration, at the VMM level, in microseconds.
+    pub vmm_pause_vm: SharedMetric,
+    /// Measures the microVM resuming duration, at the VMM level, in microseconds.
+    pub vmm_resume_vm: SharedMetric,
+}
+
+/// Metrics specific to the RTC device.
 #[derive(Default, Serialize)]
 pub struct RTCDeviceMetrics {
-    /// Errors triggered while using the i8042 device.
+    /// Errors triggered while using the RTC device.
     pub error_count: SharedMetric,
-    /// Number of superfluous read intents on this i8042 device.
+    /// Number of superfluous read intents on this RTC device.
     pub missed_read_count: SharedMetric,
-    /// Number of superfluous read intents on this i8042 device.
+    /// Number of superfluous write intents on this RTC device.
     pub missed_write_count: SharedMetric,
 }
 
@@ -489,6 +554,15 @@ pub struct SerialDeviceMetrics {
     pub write_count: SharedMetric,
 }
 
+/// Metrics related to signals.
+#[derive(Default, Serialize)]
+pub struct SignalMetrics {
+    /// Number of times that SIGBUS was handled.
+    pub sigbus: SharedMetric,
+    /// Number of times that SIGSEGV was handled.
+    pub sigsegv: SharedMetric,
+}
+
 /// Metrics specific to VCPUs' mode of functioning.
 #[derive(Default, Serialize)]
 pub struct VcpuMetrics {
@@ -513,15 +587,6 @@ pub struct VmmMetrics {
     pub device_events: SharedMetric,
     /// Metric for signaling a panic has occurred.
     pub panic_count: SharedMetric,
-}
-
-/// Metrics related to signals.
-#[derive(Default, Serialize)]
-pub struct SignalMetrics {
-    /// Number of times that SIGBUS was handled.
-    pub sigbus: SharedMetric,
-    /// Number of times that SIGSEGV was handled.
-    pub sigsegv: SharedMetric,
 }
 
 /// Vsock-related metrics.
@@ -576,7 +641,7 @@ struct SerializeToUtcTimestampMs;
 impl Serialize for SerializeToUtcTimestampMs {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_i64(
-            utils::time::get_time(utils::time::ClockType::Monotonic) as i64 / 1_000_000,
+            utils::time::get_time_ns(utils::time::ClockType::Monotonic) as i64 / 1_000_000,
         )
     }
 }
@@ -593,6 +658,8 @@ pub struct FirecrackerMetrics {
     pub get_api_requests: GetRequestsMetrics,
     /// Metrics related to the i8042 device.
     pub i8042: I8042DeviceMetrics,
+    /// Metrics related to performance measurements.
+    pub latencies_us: PerformanceMetrics,
     /// Logging related metrics.
     pub logger: LoggerSystemMetrics,
     /// Metrics specific to MMDS functionality.
@@ -621,7 +688,6 @@ pub struct FirecrackerMetrics {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
     use super::*;
 
     use std::io::ErrorKind;
@@ -655,7 +721,7 @@ mod tests {
 
         // We're going to create a number of threads that will attempt to increase this metric
         // in parallel. If everything goes fine we still can't be sure the synchronization works,
-        // but it something fails, then we definitely have a problem :-s
+        // but if something fails, then we definitely have a problem :-s
 
         const NUM_THREADS_TO_SPAWN: usize = 4;
         const NUM_INCREMENTS_PER_THREAD: usize = 10_0000;
@@ -682,6 +748,13 @@ mod tests {
             m2.count(),
             M2_INITIAL_COUNT + NUM_THREADS_TO_SPAWN * NUM_INCREMENTS_PER_THREAD
         );
+
+        // Trying to store multiple values in the metric will result in keeping only the last
+        // value there.
+        m2.store(1);
+        m2.store(2);
+        assert_eq!(m2.0.load(Ordering::Relaxed), 2);
+        assert_eq!(m2.1.load(Ordering::Relaxed), 0);
     }
 
     #[test]

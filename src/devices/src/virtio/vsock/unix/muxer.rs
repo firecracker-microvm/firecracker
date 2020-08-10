@@ -35,7 +35,7 @@ use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use logger::{Metric, METRICS};
+use logger::{debug, error, info, warn, Metric, METRICS};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 
 use super::super::csm::ConnState;
@@ -539,11 +539,7 @@ impl VsockMuxer {
         };
 
         self.epoll
-            .ctl(
-                ControlOperation::Add,
-                fd,
-                &EpollEvent::new(evset, fd as u64),
-            )
+            .ctl(ControlOperation::Add, fd, EpollEvent::new(evset, fd as u64))
             .and_then(|_| {
                 self.listener_map.insert(fd, listener);
                 Ok(())
@@ -559,7 +555,7 @@ impl VsockMuxer {
 
         if maybe_listener.is_some() {
             self.epoll
-                .ctl(ControlOperation::Delete, fd, &EpollEvent::default())
+                .ctl(ControlOperation::Delete, fd, EpollEvent::default())
                 .unwrap_or_else(|err| {
                     warn!(
                         "vosck muxer: error removing epoll listener for fd {:?}: {:?}",
@@ -694,7 +690,7 @@ impl VsockMuxer {
                         .ctl(
                             ControlOperation::Modify,
                             fd,
-                            &EpollEvent::new(new_evset, fd as u64),
+                            EpollEvent::new(new_evset, fd as u64),
                         )
                         .unwrap_or_else(|err| {
                             // This really shouldn't happen, like, ever. However, "famous last
@@ -948,7 +944,7 @@ mod tests {
     }
     impl LocalListener {
         fn new<P: AsRef<Path> + Clone>(path: P) -> Self {
-            let path_buf = path.clone().as_ref().to_path_buf();
+            let path_buf = path.as_ref().to_path_buf();
             let sock = UnixListener::bind(path).unwrap();
             sock.set_nonblocking(true).unwrap();
             Self {

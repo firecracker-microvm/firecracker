@@ -1,17 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate api_server;
-extern crate libc;
-#[macro_use]
-extern crate logger;
-extern crate mmds;
-extern crate polly;
-extern crate seccomp;
-extern crate timerfd;
-extern crate utils;
-extern crate vmm;
-
 mod api_server_adapter;
 mod metrics;
 
@@ -22,7 +10,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::{Arc, Mutex};
 
-use logger::{Metric, LOGGER, METRICS};
+use logger::{error, info, Metric, LOGGER, METRICS};
 use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
 use utils::arg_parser::{ArgParser, Argument};
@@ -191,7 +179,8 @@ fn main() {
         // It's safe to unwrap here because the field's been provided with a default value.
         let level = arguments.value_as_string("level").unwrap();
         let logger_level = LoggerLevel::from_string(level).unwrap_or_else(|err| {
-            panic!("Invalid value for logger level: {}. Possible values: [Error, Warning, Info, Debug]", err);
+            error!("Invalid value for logger level: {}. Possible values: [Error, Warning, Info, Debug]", err);
+            process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
         });
         let show_level = arguments.value_as_bool("show-level").unwrap_or(false);
         let show_log_origin = arguments.value_as_bool("show-log-origin").unwrap_or(false);
@@ -202,7 +191,10 @@ fn main() {
             show_level,
             show_log_origin,
         );
-        init_logger(logger_config, &instance_info).expect("Could not initialize logger.");
+        init_logger(logger_config, &instance_info).unwrap_or_else(|err| {
+            error!("Could not initialize logger: {}", err);
+            process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+        });
     }
 
     // It's safe to unwrap here because the field's been provided with a default value.

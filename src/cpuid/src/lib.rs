@@ -9,28 +9,23 @@
 //! Utility for configuring the CPUID (CPU identification) for the guest microVM.
 
 #![cfg(target_arch = "x86_64")]
-
-extern crate kvm_bindings;
-extern crate kvm_ioctls;
-extern crate vmm_sys_util;
-
 use kvm_bindings::CpuId;
 
 mod common;
-use common::*;
+use crate::common::*;
 
 /// Contains helper methods for bit operations.
 pub mod bit_helper;
 
 mod template;
-pub use template::c3;
-pub use template::t2;
+pub use crate::template::c3;
+pub use crate::template::t2;
 
 mod cpu_leaf;
 
 mod transformer;
-use transformer::*;
-pub use transformer::{Error, VmSpec};
+use crate::transformer::*;
+pub use crate::transformer::{Error, VmSpec};
 
 mod brand_string;
 
@@ -43,10 +38,6 @@ mod brand_string;
 ///
 /// # Example
 /// ```
-/// extern crate cpuid;
-/// extern crate kvm_bindings;
-/// extern crate kvm_ioctls;
-///
 /// use cpuid::{filter_cpuid, VmSpec};
 /// use kvm_bindings::{CpuId, KVM_MAX_CPUID_ENTRIES};
 /// use kvm_ioctls::Kvm;

@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use logger::error;
 use std::cmp::min;
 use std::num::Wrapping;
 use std::sync::atomic::{fence, Ordering};
@@ -351,13 +352,11 @@ impl Queue {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    extern crate vm_memory;
-
     use std::marker::PhantomData;
     use std::mem;
 
     pub use super::*;
-    use vm_memory::{GuestAddress, GuestMemoryMmap};
+    use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     // Represents a location in GuestMemoryMmap which holds a given type.
     pub struct SomeplaceInMemory<'a, T> {
@@ -421,8 +420,10 @@ pub(crate) mod tests {
     }
 
     impl<'a> VirtqDesc<'a> {
+        pub const ALIGNMENT: u64 = 16;
+
         fn new(start: GuestAddress, mem: &'a GuestMemoryMmap) -> Self {
-            assert_eq!(start.0 & 0xf, 0);
+            assert_eq!(start.0 & (Self::ALIGNMENT - 1), 0);
 
             let addr = SomeplaceInMemory::new(start, mem);
             let len = addr.next_place();
@@ -450,6 +451,16 @@ pub(crate) mod tests {
             self.len.set(len);
             self.flags.set(flags);
             self.next.set(next);
+        }
+
+        pub fn check_data(&self, expected_data: &[u8]) {
+            assert!(self.len.get() as usize >= expected_data.len());
+            let mem = self.addr.mem;
+            let mut buf = vec![0; expected_data.len() as usize];
+            assert!(mem
+                .read_slice(&mut buf, GuestAddress::new(self.addr.get()))
+                .is_ok());
+            assert_eq!(buf.as_slice(), expected_data);
         }
     }
 
@@ -592,6 +603,12 @@ pub(crate) mod tests {
 
         pub fn end(&self) -> GuestAddress {
             self.used.end()
+        }
+
+        pub fn check_used_elem(&self, used_index: u16, expected_id: u16, expected_len: u32) {
+            let used_elem = self.used.ring[used_index as usize].get();
+            assert_eq!(used_elem.id, expected_id as u32);
+            assert_eq!(used_elem.len, expected_len);
         }
     }
 

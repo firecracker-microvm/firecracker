@@ -16,7 +16,9 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fmt::Debug;
 
+pub use self::fdt::DeviceInfoForFDT;
 use self::gic::GICDevice;
+use crate::DeviceType;
 use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 /// Errors thrown while configuring aarch64 system.
@@ -30,9 +32,6 @@ pub enum Error {
 
 /// The start of the memory area reserved for MMIO devices.
 pub const MMIO_MEM_START: u64 = layout::MAPPED_IO_START;
-
-pub use self::fdt::DeviceInfoForFDT;
-use DeviceType;
 
 /// Returns a Vec of the valid memory addresses for aarch64.
 /// See [`layout`](layout) module for a drawing of the specific memory model for this platform.
@@ -52,12 +51,12 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 /// * `device_info` - A hashmap containing the attached devices for building FDT device nodes.
 /// * `gic_device` - The GIC device.
 /// * `initrd` - Information about an optional initrd.
-pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
+pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     guest_mem: &GuestMemoryMmap,
     cmdline_cstring: &CStr,
     vcpu_mpidr: Vec<u64>,
-    device_info: &HashMap<(DeviceType, String), T>,
-    gic_device: &Box<dyn GICDevice>,
+    device_info: &HashMap<(DeviceType, String), T, S>,
+    gic_device: &dyn GICDevice,
     initrd: &Option<super::InitrdConfig>,
 ) -> super::Result<()> {
     fdt::create_fdt(
@@ -84,12 +83,12 @@ pub fn initrd_load_addr(guest_mem: &GuestMemoryMmap, initrd_size: usize) -> supe
     {
         Some(offset) => {
             if guest_mem.address_in_range(offset) {
-                return Ok(offset.raw_value());
+                Ok(offset.raw_value())
             } else {
-                return Err(Error::InitrdAddress);
+                Err(Error::InitrdAddress)
             }
         }
-        None => return Err(Error::InitrdAddress),
+        None => Err(Error::InitrdAddress),
     }
 }
 

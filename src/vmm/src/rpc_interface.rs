@@ -2,41 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter};
-use std::fs::OpenOptions;
-use std::io::{Seek, SeekFrom};
-use std::path::Path;
 use std::result;
 use std::sync::{Arc, Mutex};
 
 use super::Vmm;
 
 use super::Error as VmmError;
-use arch::DeviceType;
-use builder::{self, StartMicrovmError};
-use device_manager::mmio::MMIO_CFG_SPACE_OFF;
-use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
-use logger::METRICS;
+use crate::builder::{self, StartMicrovmError};
 #[cfg(target_arch = "x86_64")]
-use persist::{self, CreateSnapshotError, LoadSnapshotError};
-use polly::event_manager::EventManager;
-use resources::VmResources;
-use seccomp::BpfProgram;
+use crate::persist::{self, CreateSnapshotError, LoadSnapshotError};
+use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
-use version_map::VERSION_MAP;
-use vmm_config;
-use vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
-use vmm_config::drive::{BlockDeviceConfig, DriveError};
-use vmm_config::instance_info::InstanceInfo;
-use vmm_config::logger::{LoggerConfig, LoggerConfigError};
-use vmm_config::machine_config::{VmConfig, VmConfigError};
-use vmm_config::metrics::{MetricsConfig, MetricsConfigError};
-use vmm_config::mmds::{MmdsConfig, MmdsConfigError};
-use vmm_config::net::{
+use crate::version_map::VERSION_MAP;
+use crate::vmm_config;
+use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
+use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
+use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
+use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
+use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
+use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
+use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
 #[cfg(target_arch = "x86_64")]
-use vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
-use vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
+use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
+use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
+use arch::DeviceType;
+use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
+use logger::{info, update_metric_with_elapsed_time, METRICS};
+use polly::event_manager::EventManager;
+use seccomp::BpfProgram;
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -279,17 +275,9 @@ impl<'a> PrebootApiController<'a> {
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::NetworkConfig),
             #[cfg(target_arch = "x86_64")]
-            LoadSnapshot(snapshot_load_cfg) => persist::load_snapshot(
-                &mut self.event_manager,
-                &self.seccomp_filter,
-                snapshot_load_cfg,
-                VERSION_MAP.clone(),
-            )
-            .map(|vmm| {
-                self.built_vmm = Some(vmm);
-                VmmData::Empty
-            })
-            .map_err(VmmActionError::LoadSnapshot),
+            LoadSnapshot(snapshot_load_cfg) => self
+                .load_snapshot(&snapshot_load_cfg)
+                .map(|_| VmmData::Empty),
             SetVsockDevice(vsock_cfg) => self
                 .vm_resources
                 .set_vsock_device(vsock_cfg)
@@ -325,6 +313,26 @@ impl<'a> PrebootApiController<'a> {
             CreateSnapshot(_) | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
+
+    #[cfg(target_arch = "x86_64")]
+    fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
+        let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
+        let loaded_vmm = persist::load_snapshot(
+            &mut self.event_manager,
+            &self.seccomp_filter,
+            load_params,
+            VERSION_MAP.clone(),
+        );
+
+        let elapsed_time_us =
+            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);
+        info!("'load snapshot' VMM action took {} us.", elapsed_time_us);
+
+        loaded_vmm
+            .map(|vmm| self.built_vmm = Some(vmm))
+            .map_err(VmmActionError::LoadSnapshot)
+    }
 }
 
 /// Shorthand result type for external VMM commands.
@@ -347,7 +355,7 @@ impl RuntimeApiController {
             // Supported operations allowed post-boot.
             #[cfg(target_arch = "x86_64")]
             CreateSnapshot(snapshot_create_cfg) => self
-                .create_snapshot(snapshot_create_cfg)
+                .create_snapshot(&snapshot_create_cfg)
                 .map(|_| VmmData::Empty),
             FlushMetrics => self.flush_metrics().map(|_| VmmData::Empty),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
@@ -387,20 +395,36 @@ impl RuntimeApiController {
 
     /// Pauses the microVM by pausing the vCPUs.
     pub fn pause(&mut self) -> ActionResult {
+        let pause_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
         self.vmm
             .lock()
             .expect("Poisoned lock")
             .pause_vcpus()
-            .map_err(VmmActionError::InternalVmm)
+            .map_err(VmmActionError::InternalVmm)?;
+
+        let elapsed_time_us =
+            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_pause_vm, pause_start_us);
+        info!("'pause vm' VMM action took {} us.", elapsed_time_us);
+
+        Ok(())
     }
 
     /// Resumes the microVM by resuming the vCPUs.
     pub fn resume(&mut self) -> ActionResult {
+        let resume_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
         self.vmm
             .lock()
             .expect("Poisoned lock")
             .resume_vcpus()
-            .map_err(VmmActionError::InternalVmm)
+            .map_err(VmmActionError::InternalVmm)?;
+
+        let elapsed_time_us =
+            update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_resume_vm, resume_start_us);
+        info!("'resume vm' VMM action took {} us.", elapsed_time_us);
+
+        Ok(())
     }
 
     /// Write the metrics on user demand (flush). We use the word `flush` here to highlight the fact
@@ -427,18 +451,44 @@ impl RuntimeApiController {
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn create_snapshot(&mut self, params: CreateSnapshotParams) -> ActionResult {
+    fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
         let mut locked_vmm = self.vmm.lock().unwrap();
-        persist::create_snapshot(&mut locked_vmm, params, VERSION_MAP.clone())
-            .map_err(VmmActionError::CreateSnapshot)
+        let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
+        persist::create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())
+            .map_err(VmmActionError::CreateSnapshot)?;
+
+        match create_params.snapshot_type {
+            SnapshotType::Full => {
+                let elapsed_time_us = update_metric_with_elapsed_time(
+                    &METRICS.latencies_us.vmm_full_create_snapshot,
+                    create_start_us,
+                );
+                info!(
+                    "'create full snapshot' VMM action took {} us.",
+                    elapsed_time_us
+                );
+            }
+            SnapshotType::Diff => {
+                let elapsed_time_us = update_metric_with_elapsed_time(
+                    &METRICS.latencies_us.vmm_diff_create_snapshot,
+                    create_start_us,
+                );
+                info!(
+                    "'create diff snapshot' VMM action took {} us.",
+                    elapsed_time_us
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
-    fn update_block_device_path<P: AsRef<Path>>(
+    fn update_block_device_path(
         &mut self,
         drive_id: &str,
-        path_on_host: P,
+        path_on_host: String,
     ) -> result::Result<(), DriveError> {
         if let Some(busdev) = self
             .vmm
@@ -446,7 +496,6 @@ impl RuntimeApiController {
             .expect("Poisoned lock")
             .get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id)
         {
-            let new_size;
             // Call the update_disk_image() handler on Block. Release the lock when done.
             {
                 let virtio_dev = busdev
@@ -468,35 +517,17 @@ impl RuntimeApiController {
                     .downcast_mut::<Block>()
                     .expect("Unexpected VirtioDevice type");
 
-                // Try to open the file specified by path_on_host using the permissions of the block_device.
-                let mut disk_image = OpenOptions::new()
-                    .read(true)
-                    .write(!block.is_read_only())
-                    .open(path_on_host)
-                    .map_err(DriveError::OpenBlockDevice)?;
-
-                // Use seek() instead of stat() (std::fs::Metadata) to support block devices.
-                new_size = disk_image
-                    .seek(SeekFrom::End(0))
-                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-                // Return cursor to the start of the file.
-                disk_image
-                    .seek(SeekFrom::Start(0))
-                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
-
                 // Now we have a Block, so call its update handler.
                 block
-                    .update_disk_image(disk_image)
-                    .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                    .update_disk_image(path_on_host)
+                    .map_err(DriveError::BlockDeviceUpdateFailed)?;
             }
 
-            // Update the virtio config space and kick the driver to pick up the changes.
-            let new_cfg = devices::virtio::block::device::build_config_space(new_size);
-            let mut locked_dev = busdev.lock().expect("Poisoned lock");
-            locked_dev.write(MMIO_CFG_SPACE_OFF, &new_cfg[..]);
+            // Kick the driver to pick up the changes.
+            let locked_dev = busdev.lock().expect("Poisoned lock");
             locked_dev
                 .interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG)
-                .map_err(|_| DriveError::BlockDeviceUpdateFailed)?;
+                .map_err(DriveError::BlockDeviceUpdateFailed)?;
 
             Ok(())
         } else {

@@ -6,8 +6,6 @@ use std::ffi::CStr;
 use std::path::Path;
 use std::ptr::null;
 
-use libc;
-
 use super::{to_cstring, Error, Result};
 use utils::syscall::SyscallReturnCode;
 

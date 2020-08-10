@@ -6,10 +6,10 @@
 use super::device::*;
 use super::queue::*;
 use crate::virtio::MmioTransport;
-use crate::vm_memory::Address;
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+use vm_memory::Address;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 use std::num::Wrapping;
@@ -243,9 +243,8 @@ mod tests {
     }
 
     fn default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
-        use crate::virtio::net::device::tests::TestMutators;
         let mem = default_mem();
-        let net = Arc::new(Mutex::new(Net::default_net(TestMutators::default())));
+        let net = Arc::new(Mutex::new(Net::default_net()));
         let mmio_transport = MmioTransport::new(mem.clone(), net.clone());
 
         (mmio_transport, mem, net)

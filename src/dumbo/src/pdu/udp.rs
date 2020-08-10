@@ -11,8 +11,8 @@
 
 use std::net::Ipv4Addr;
 
-use pdu::bytes::NetworkBytesMut;
-use pdu::{ChecksumProto, Incomplete};
+use crate::pdu::bytes::NetworkBytesMut;
+use crate::pdu::{ChecksumProto, Incomplete};
 
 use super::bytes::{InnerBytes, NetworkBytes};
 
@@ -209,7 +209,7 @@ impl<'a, T: NetworkBytesMut> Incomplete<UdpDatagram<'a, T>> {
 mod tests {
     use std::fmt;
 
-    use pdu::udp::UdpDatagram;
+    use crate::pdu::udp::UdpDatagram;
 
     use super::*;
 
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_checksum() {
-        let mut bytes = [0u8; (2 + UDP_HEADER_SIZE)]; // 2-byte payload
+        let mut bytes = [0u8; 2 + UDP_HEADER_SIZE]; // 2-byte payload
         let correct_checksum: u16 = 0x14de;
         let payload_bytes = b"bb";
         let src_ip = Ipv4Addr::new(152, 1, 51, 27);

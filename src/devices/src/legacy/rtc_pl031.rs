@@ -7,15 +7,12 @@
 //! This is achieved by generating an interrupt signal after counting for a programmed number of cycles of
 //! a real-time clock input.
 //!
-
-extern crate utils;
-
 use std::fmt;
 use std::time::Instant;
 use std::{io, result};
 
 use crate::BusDevice;
-use logger::{Metric, METRICS};
+use logger::{warn, Metric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 //use bus::Error;
@@ -76,7 +73,7 @@ impl RTC {
         RTC {
             // This is used only for duration measuring purposes.
             previous_now: Instant::now(),
-            tick_offset: utils::time::get_time(utils::time::ClockType::Real) as i64,
+            tick_offset: utils::time::get_time_ns(utils::time::ClockType::Real) as i64,
             match_value: 0,
             load: 0,
             imsc: 0,
@@ -201,16 +198,16 @@ mod tests {
 
         // Read and write to the MR register.
         byte_order::write_le_u32(&mut data, 123);
-        rtc.write(RTCMR, &mut data);
+        rtc.write(RTCMR, &data);
         rtc.read(RTCMR, &mut data);
         let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(v, 123);
 
         // Read and write to the LR register.
-        let v = utils::time::get_time(utils::time::ClockType::Real);
+        let v = utils::time::get_time_ns(utils::time::ClockType::Real);
         byte_order::write_le_u32(&mut data, (v / utils::time::NANOS_PER_SECOND) as u32);
         let previous_now_before = rtc.previous_now;
-        rtc.write(RTCLR, &mut data);
+        rtc.write(RTCLR, &data);
 
         assert!(rtc.previous_now > previous_now_before);
 
@@ -222,7 +219,7 @@ mod tests {
         // Test with non zero value.
         let non_zero = 1;
         byte_order::write_le_u32(&mut data, non_zero);
-        rtc.write(RTCIMSC, &mut data);
+        rtc.write(RTCIMSC, &data);
         // The interrupt line should be on.
         assert!(rtc.interrupt_evt.read().unwrap() == 1);
         rtc.read(RTCIMSC, &mut data);
@@ -231,14 +228,14 @@ mod tests {
 
         // Now test with 0.
         byte_order::write_le_u32(&mut data, 0);
-        rtc.write(RTCIMSC, &mut data);
+        rtc.write(RTCIMSC, &data);
         rtc.read(RTCIMSC, &mut data);
         let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(0, v);
 
         // Read and write to the ICR register.
         byte_order::write_le_u32(&mut data, 1);
-        rtc.write(RTCICR, &mut data);
+        rtc.write(RTCICR, &data);
         // The interrupt line should be on.
         assert!(rtc.interrupt_evt.read().unwrap() > 1);
         let v_before = byte_order::read_le_u32(&data[..]);
@@ -253,7 +250,7 @@ mod tests {
 
         // Attempts to turn off the RTC should not go through.
         byte_order::write_le_u32(&mut data, 0);
-        rtc.write(RTCCR, &mut data);
+        rtc.write(RTCCR, &data);
         rtc.read(RTCCR, &mut data);
         let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(v, 1);
@@ -262,7 +259,7 @@ mod tests {
         // the CID and PID from.
         byte_order::write_le_u32(&mut data, 0);
         let no_errors_before = METRICS.rtc.error_count.count();
-        rtc.write(AMBA_ID_LOW, &mut data);
+        rtc.write(AMBA_ID_LOW, &data);
         let no_errors_after = METRICS.rtc.error_count.count();
         assert_eq!(no_errors_after - no_errors_before, 1);
         // However, reading from the AMBA_ID_LOW should succeed upon read.

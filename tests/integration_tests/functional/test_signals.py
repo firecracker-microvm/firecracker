@@ -21,7 +21,7 @@ def test_sigbus_sigsegv(test_microvm_with_api, signum):
     test_microvm.spawn()
 
     # We don't need to monitor the memory for this test.
-    test_microvm.memory_events_queue = None
+    test_microvm.memory_monitor = None
 
     test_microvm.basic_config()
 
@@ -42,7 +42,7 @@ def test_handled_signals(test_microvm_with_ssh, network_config):
     microvm.spawn()
 
     # We don't need to monitor the memory for this test.
-    microvm.memory_events_queue = None
+    microvm.memory_monitor = None
 
     microvm.basic_config(vcpu_count=2)
 
