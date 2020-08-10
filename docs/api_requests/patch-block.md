@@ -4,8 +4,8 @@ Attached block devices require a PATCH /drives API call when the backing
 file's path or size changes, otherwise Firecracker and the running guest will
 not be notified of the changes.
 
-Is is important to note that the block device should not be mounted by the
-guest at the time of the API call, else the call will silently fail -
+It is important to note that the block device should not be mounted by the
+guest at the time of the API call, otherwise the call will silently fail -
 no error is returned from either the guest or the host, but the guest might end
 up in an inconsistent state.
 
