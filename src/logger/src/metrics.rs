@@ -578,6 +578,16 @@ pub struct SignalMetrics {
     pub sigbus: SharedMetric,
     /// Number of times that SIGSEGV was handled.
     pub sigsegv: SharedMetric,
+    /// Number of times that SIGXFSZ was handled.
+    pub sigxfsz: SharedMetric,
+    /// Number of times that SIGXCPU was handled.
+    pub sigxcpu: SharedMetric,
+    /// Number of times that SIGPIPE was handled.
+    pub sigpipe: SharedMetric,
+    /// Number of times that SIGHUP was handled.
+    pub sighup: SharedMetric,
+    /// Number of times that SIGILL was handled.
+    pub sigill: SharedMetric,
 }
 
 /// Metrics specific to VCPUs' mode of functioning.
