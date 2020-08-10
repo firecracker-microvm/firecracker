@@ -292,12 +292,11 @@ mod tests {
     use crate::memory_snapshot::SnapshotMemory;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
-    use crate::vstate::vcpu::tests::default_vcpu_state;
     use crate::Vmm;
 
     use polly::event_manager::EventManager;
     use snapshot::Persist;
-    use utils::tempfile::TempFile;
+    use utils::{errno, tempfile::TempFile};
 
     fn default_vmm_with_devices(event_manager: &mut EventManager) -> Vmm {
         let mut vmm = default_vmm();
@@ -346,7 +345,7 @@ mod tests {
         let microvm_state = MicrovmState {
             device_states: states,
             memory_state,
-            vcpu_states: vec![default_vcpu_state()],
+            vcpu_states: vec![VcpuState::default()],
             vm_info: VmInfo { mem_size_mib: 1u64 },
             vm_state: vmm.vm.save_state().unwrap(),
         };
@@ -432,19 +431,19 @@ mod tests {
         let err = RestoreDevices(DevicePersistError::MmioTransport);
         let _ = format!("{}{:?}", err, err);
 
-        let err = RestoreVcpuState(vstate::vcpu::Error::HTNotInitialized);
+        let err = RestoreVcpuState(vstate::vcpu::Error::VcpuTlsInit);
         let _ = format!("{}{:?}", err, err);
 
         let err = RestoreVmState(vstate::vm::Error::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SaveVcpuState(vstate::vcpu::Error::HTNotInitialized);
+        let err = SaveVcpuState(vstate::vcpu::Error::VcpuTlsNotPresent);
         let _ = format!("{}{:?}", err, err);
 
         let err = SaveVmState(vstate::vm::Error::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SignalVcpu(vstate::vcpu::Error::VcpuCountNotInitialized);
+        let err = SignalVcpu(vstate::vcpu::Error::SignalVcpu(errno::Error::new(0)));
         let _ = format!("{}{:?}", err, err);
 
         let err = UnexpectedVcpuResponse;

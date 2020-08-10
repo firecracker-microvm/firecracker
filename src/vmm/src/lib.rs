@@ -115,8 +115,10 @@ pub enum Error {
     Serial(io::Error),
     /// Cannot create Timer file descriptor.
     TimerFd(io::Error),
-    /// Vcpu error.
-    Vcpu(vstate::vcpu::Error),
+    /// Vcpu configuration error.
+    VcpuConfigure(vstate::vcpu::VcpuError),
+    /// Vcpu create error.
+    VcpuCreate(vstate::vcpu::Error),
     /// Cannot send event to vCPU.
     VcpuEvent(vstate::vcpu::Error),
     /// Cannot create a vCPU handle.
@@ -159,7 +161,8 @@ impl Display for Error {
             SeccompFilters(e) => write!(f, "Cannot build seccomp filters: {}", e),
             Serial(e) => write!(f, "Error writing to the serial console: {}", e),
             TimerFd(e) => write!(f, "Error creating timer fd: {}", e),
-            Vcpu(e) => write!(f, "Vcpu error: {}", e),
+            VcpuConfigure(e) => write!(f, "Error configuring the vcpu for boot: {}", e),
+            VcpuCreate(e) => write!(f, "Error creating the vcpu: {}", e),
             VcpuEvent(e) => write!(f, "Cannot send event to vCPU. {}", e),
             VcpuHandle(e) => write!(f, "Cannot create a vCPU handle. {}", e),
             VcpuPause => write!(f, "Failed to pause the vCPUs."),
@@ -244,7 +247,8 @@ impl Vmm {
         for mut vcpu in vcpus.drain(..) {
             vcpu.set_mmio_bus(self.mmio_device_manager.bus.clone());
             #[cfg(target_arch = "x86_64")]
-            vcpu.set_pio_bus(self.pio_device_manager.io_bus.clone());
+            vcpu.kvm_vcpu
+                .set_pio_bus(self.pio_device_manager.io_bus.clone());
 
             self.vcpus_handles.push(
                 vcpu.start_threaded(vcpu_seccomp_filter.to_vec())
