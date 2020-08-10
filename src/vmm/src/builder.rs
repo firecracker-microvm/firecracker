@@ -613,12 +613,7 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> super::Result<Ve
     for cpu_idx in 0..vcpu_count {
         let exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
 
-        #[cfg(target_arch = "x86_64")]
-        let vcpu = Vcpu::new_x86_64(cpu_idx, vm.fd(), vm.supported_msrs().clone(), exit_evt)
-            .map_err(Error::Vcpu)?;
-
-        #[cfg(target_arch = "aarch64")]
-        let vcpu = Vcpu::new_aarch64(cpu_idx, vm.fd(), exit_evt).map_err(Error::Vcpu)?;
+        let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(Error::VcpuCreate)?;
 
         vcpus.push(vcpu);
     }
@@ -639,14 +634,15 @@ pub fn configure_system_for_boot(
     #[cfg(target_arch = "x86_64")]
     {
         for vcpu in vcpus.iter_mut() {
-            vcpu.configure_x86_64_for_boot(
-                vmm.guest_memory(),
-                entry_addr,
-                &vcpu_config,
-                vmm.vm.supported_cpuid().clone(),
-            )
-            .map_err(Error::Vcpu)
-            .map_err(Internal)?;
+            vcpu.kvm_vcpu
+                .configure(
+                    vmm.guest_memory(),
+                    entry_addr,
+                    &vcpu_config,
+                    vmm.vm.supported_cpuid().clone(),
+                )
+                .map_err(Error::VcpuConfigure)
+                .map_err(Internal)?;
         }
 
         // Write the kernel command line to guest memory. This is x86_64 specific, since on
@@ -669,12 +665,16 @@ pub fn configure_system_for_boot(
     #[cfg(target_arch = "aarch64")]
     {
         for vcpu in vcpus.iter_mut() {
-            vcpu.configure_aarch64_for_boot(vmm.vm.fd(), vmm.guest_memory(), entry_addr)
-                .map_err(Error::Vcpu)
+            vcpu.kvm_vcpu
+                .configure(vmm.vm.fd(), vmm.guest_memory(), entry_addr)
+                .map_err(Error::VcpuConfigure)
                 .map_err(Internal)?;
         }
 
-        let vcpu_mpidr = vcpus.iter_mut().map(|cpu| cpu.get_mpidr()).collect();
+        let vcpu_mpidr = vcpus
+            .iter_mut()
+            .map(|cpu| cpu.kvm_vcpu.get_mpidr())
+            .collect();
         arch::aarch64::configure_system(
             &vmm.guest_memory,
             &boot_cmdline.as_cstring().map_err(LoadCommandline)?,
