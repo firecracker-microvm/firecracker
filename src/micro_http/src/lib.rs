@@ -120,4 +120,4 @@ pub use crate::response::{Response, StatusCode};
 pub use crate::server::{HttpServer, ServerError, ServerRequest, ServerResponse};
 
 pub use crate::common::headers::{Headers, MediaType};
-pub use crate::common::{Body, Method, Version};
+pub use crate::common::{Body, HttpHeaderError, Method, Version};

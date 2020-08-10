@@ -346,10 +346,10 @@ fn parse_request_bytes(byte_stream: &[u8], callback: fn(Request) -> Response) ->
                 StatusCode::BadRequest,
                 Body::new("Invalid request.".to_string()),
             ),
-            RequestError::InvalidHeader => build_response(
+            RequestError::HeaderError(err) => build_response(
                 Version::default(),
                 StatusCode::BadRequest,
-                Body::new("Invalid headers.".to_string()),
+                Body::new(err.to_string()),
             ),
             RequestError::Overflow => build_response(
                 Version::default(),
@@ -361,10 +361,6 @@ fn parse_request_bytes(byte_stream: &[u8], callback: fn(Request) -> Response) ->
                 StatusCode::BadRequest,
                 Body::new(e.to_string()),
             ),
-            // `micro-http` supports a predefined list of HTTP headers.
-            // It shouldn't reach this point, because it ignores the
-            // HTTP unsupported headers.
-            RequestError::UnsupportedHeader => unreachable!(),
         },
     }
 }
@@ -641,8 +637,18 @@ mod tests {
                                  Expect: 100-continue\r\n\
                                  Transfer-Encoding: identity; q=0\r\n\
                                  Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody";
+        assert!(parse_request_bytes(request_bytes, mock_callback)
+            .body()
+            .is_none());
+
+        let request_bytes = b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Transfer-Encoding: identity; q=0\r\n\
+                                 Content-Length: alpha\r\n\r\nthis is not\n\r\na json \nbody";
         let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
-        expected_response.set_body(Body::new("Invalid headers.".to_string()));
+        expected_response.set_body(Body::new(
+            "Invalid value. Key:Content-Length; Value: alpha".to_string(),
+        ));
         let actual_response = parse_request_bytes(request_bytes, mock_callback);
         assert_eq!(actual_response, expected_response);
     }

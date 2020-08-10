@@ -3,6 +3,7 @@
 
 use std::result::Result;
 
+use crate::HttpHeaderError;
 use crate::RequestError;
 
 /// Wrapper over an HTTP Header type.
@@ -51,7 +52,9 @@ impl Header {
                 "transfer-encoding" => Ok(Self::TransferEncoding),
                 "server" => Ok(Self::Server),
                 "accept" => Ok(Self::Accept),
-                _ => Err(RequestError::InvalidHeader),
+                invalid_key => Err(RequestError::HeaderError(HttpHeaderError::UnsupportedName(
+                    invalid_key.to_string(),
+                ))),
             }
         } else {
             Err(RequestError::InvalidRequest)
@@ -129,7 +132,9 @@ impl Headers {
             Ok(headers_str) => {
                 let entry = headers_str.splitn(2, ':').collect::<Vec<&str>>();
                 if entry.len() != 2 {
-                    return Err(RequestError::InvalidHeader);
+                    return Err(RequestError::HeaderError(HttpHeaderError::InvalidFormat(
+                        entry[0].to_string(),
+                    )));
                 }
                 if let Ok(head) = Header::try_from(entry[0].as_bytes()) {
                     match head {
@@ -138,12 +143,22 @@ impl Headers {
                                 self.content_length = content_length;
                                 Ok(())
                             }
-                            Err(_) => Err(RequestError::InvalidHeader),
+                            Err(_) => {
+                                Err(RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                                    entry[0].to_string(),
+                                    entry[1].to_string(),
+                                )))
+                            }
                         },
                         Header::ContentType => {
                             match MediaType::try_from(entry[1].trim().as_bytes()) {
                                 Ok(_) => Ok(()),
-                                Err(_) => Err(RequestError::UnsupportedHeader),
+                                Err(_) => Err(RequestError::HeaderError(
+                                    HttpHeaderError::UnsupportedValue(
+                                        entry[0].to_string(),
+                                        entry[1].to_string(),
+                                    ),
+                                )),
                             }
                         }
                         Header::Accept => match MediaType::try_from(entry[1].trim().as_bytes()) {
@@ -151,30 +166,52 @@ impl Headers {
                                 self.accept = accept_type;
                                 Ok(())
                             }
-                            Err(_) => Err(RequestError::UnsupportedHeader),
+                            Err(_) => Err(RequestError::HeaderError(
+                                HttpHeaderError::UnsupportedValue(
+                                    entry[0].to_string(),
+                                    entry[1].to_string(),
+                                ),
+                            )),
                         },
                         Header::TransferEncoding => match entry[1].trim() {
                             "chunked" => {
                                 self.chunked = true;
                                 Ok(())
                             }
-                            "identity; q=0" => Err(RequestError::InvalidHeader),
-                            _ => Err(RequestError::UnsupportedHeader),
+                            "identity" => Ok(()),
+                            _ => Err(RequestError::HeaderError(
+                                HttpHeaderError::UnsupportedValue(
+                                    entry[0].to_string(),
+                                    entry[1].to_string(),
+                                ),
+                            )),
                         },
                         Header::Expect => match entry[1].trim() {
                             "100-continue" => {
                                 self.expect = true;
                                 Ok(())
                             }
-                            _ => Err(RequestError::InvalidHeader),
+                            _ => Err(RequestError::HeaderError(
+                                HttpHeaderError::UnsupportedValue(
+                                    entry[0].to_string(),
+                                    entry[1].to_string(),
+                                ),
+                            )),
                         },
                         Header::Server => Ok(()),
                     }
                 } else {
-                    Err(RequestError::UnsupportedHeader)
+                    Err(RequestError::HeaderError(
+                        HttpHeaderError::UnsupportedValue(
+                            entry[0].to_string(),
+                            entry[1].to_string(),
+                        ),
+                    ))
                 }
             }
-            _ => Err(RequestError::InvalidHeader),
+            Err(utf8_err) => Err(RequestError::HeaderError(
+                HttpHeaderError::InvalidUtf8String(utf8_err),
+            )),
         }
     }
 
@@ -231,7 +268,10 @@ impl Headers {
                     break;
                 }
                 match headers.parse_header_line(header_line.as_bytes()) {
-                    Ok(_) | Err(RequestError::UnsupportedHeader) => continue,
+                    Ok(_)
+                    | Err(RequestError::HeaderError(HttpHeaderError::UnsupportedValue(_, _))) => {
+                        continue
+                    }
                     Err(e) => return Err(e),
                 };
             }
@@ -402,19 +442,29 @@ mod tests {
         // Invalid header syntax.
         assert_eq!(
             header.parse_header_line(b"Expect"),
-            Err(RequestError::InvalidHeader)
+            Err(RequestError::HeaderError(HttpHeaderError::InvalidFormat(
+                "Expect".to_string()
+            )))
         );
 
         // Invalid content length.
         assert_eq!(
             header.parse_header_line(b"Content-Length: five"),
-            Err(RequestError::InvalidHeader)
+            Err(RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                "Content-Length".to_string(),
+                " five".to_string()
+            )))
         );
 
         // Invalid transfer encoding.
         assert_eq!(
             header.parse_header_line(b"Transfer-Encoding: gzip"),
-            Err(RequestError::UnsupportedHeader)
+            Err(RequestError::HeaderError(
+                HttpHeaderError::UnsupportedValue(
+                    "Transfer-Encoding".to_string(),
+                    " gzip".to_string()
+                )
+            ))
         );
 
         // Invalid expect.
@@ -422,7 +472,10 @@ mod tests {
             header
                 .parse_header_line(b"Expect: 102-processing")
                 .unwrap_err(),
-            RequestError::InvalidHeader
+            RequestError::HeaderError(HttpHeaderError::UnsupportedValue(
+                "Expect".to_string(),
+                " 102-processing".to_string()
+            ))
         );
 
         // Unsupported media type.
@@ -430,14 +483,19 @@ mod tests {
             header
                 .parse_header_line(b"Content-Type: application/json-patch")
                 .unwrap_err(),
-            RequestError::UnsupportedHeader
+            RequestError::HeaderError(HttpHeaderError::UnsupportedValue(
+                "Content-Type".to_string(),
+                " application/json-patch".to_string()
+            ))
         );
 
         // Invalid input format.
         let input: [u8; 10] = [130, 140, 150, 130, 140, 150, 130, 140, 150, 160];
         assert_eq!(
             header.parse_header_line(&input[..]).unwrap_err(),
-            RequestError::InvalidHeader
+            RequestError::HeaderError(HttpHeaderError::InvalidUtf8String(
+                String::from_utf8(input.to_vec()).unwrap_err().utf8_error()
+            ))
         );
 
         // Test valid transfer encoding.
@@ -471,7 +529,10 @@ mod tests {
         // Invalid content length.
         assert_eq!(
             header.parse_header_line(b"Content-Length: -1"),
-            Err(RequestError::InvalidHeader)
+            Err(RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                "Content-Length".to_string(),
+                " -1".to_string()
+            )))
         );
     }
 
@@ -521,7 +582,7 @@ mod tests {
         // Bad header.
         assert_eq!(
             Header::try_from(b"Encoding").unwrap_err(),
-            RequestError::InvalidHeader
+            RequestError::HeaderError(HttpHeaderError::UnsupportedName("encoding".to_string()))
         );
 
         // Invalid encoding.
