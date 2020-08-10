@@ -337,6 +337,8 @@ pub struct BalloonDeviceMetrics {
     pub inflate_count: SharedMetric,
     // Number of balloon statistics updates from the driver.
     pub stats_updates_count: SharedMetric,
+    // Number of balloon statistics update failures.
+    pub stats_update_fails: SharedMetric,
     /// Number of balloon device deflations.
     pub deflate_count: SharedMetric,
     /// Number of times when handling events on a balloon device failed.
