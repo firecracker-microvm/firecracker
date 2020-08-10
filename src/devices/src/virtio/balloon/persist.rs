@@ -3,7 +3,6 @@
 
 //! Defines the structures needed for saving/restoring balloon devices.
 
-use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,7 +36,7 @@ pub struct BalloonConstructorArgs {
 impl Persist<'_> for Balloon {
     type State = BalloonState;
     type ConstructorArgs = BalloonConstructorArgs;
-    type Error = io::Error;
+    type Error = super::Error;
 
     fn save(&self) -> Self::State {
         BalloonState {
@@ -55,7 +54,7 @@ impl Persist<'_> for Balloon {
     ) -> std::result::Result<Self, Self::Error> {
         // We can safely create the balloon with arbitrary flags and
         // num_pages because we will overwrite them after.
-        let mut balloon = Balloon::new(0, false, false, state.stats_polling_interval_s)?;
+        let mut balloon = Balloon::new(0, false, false, state.stats_polling_interval_s, true)?;
 
         balloon.queues = state
             .virtio_state
@@ -103,7 +102,7 @@ mod tests {
         let version_map = VersionMap::new();
 
         // Create and save the balloon device.
-        let mut balloon = Balloon::new(0x42, true, false, 2).unwrap();
+        let mut balloon = Balloon::new(0x42, true, false, 2, false).unwrap();
         balloon.activate(guest_mem.clone()).unwrap();
 
         <Balloon as Persist>::save(&balloon)
@@ -118,6 +117,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(restored_balloon.device_type(), TYPE_BALLOON);
+        assert!(restored_balloon.restored);
 
         assert_eq!(restored_balloon.acked_features, balloon.acked_features);
         assert_eq!(restored_balloon.avail_features, balloon.avail_features);

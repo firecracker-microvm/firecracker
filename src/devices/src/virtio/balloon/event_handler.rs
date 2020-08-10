@@ -7,8 +7,10 @@ use logger::{debug, error, warn};
 use polly::event_manager::{EventManager, Subscriber};
 use utils::epoll::{EpollEvent, EventSet};
 
-use crate::virtio::balloon::device::Balloon;
-use crate::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
+use crate::report_balloon_event_fail;
+use crate::virtio::{
+    balloon::device::Balloon, VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX,
+};
 
 impl Balloon {
     fn process_activate_event(&self, event_manager: &mut EventManager) {
@@ -47,10 +49,8 @@ impl Subscriber for Balloon {
     fn process(&mut self, event: &EpollEvent, evmgr: &mut EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
-
-        // TODO: also check for errors. Pending high level discussions on how we want
-        // to handle errors in devices.
         let supported_events = EventSet::IN;
+
         if !supported_events.contains(event_set) {
             warn!(
                 "Received unknown event: {:?} from source: {:?}",
@@ -68,15 +68,23 @@ impl Subscriber for Balloon {
 
             // Looks better than C style if/else if/else.
             match source {
-                _ if source == virtq_inflate_ev_fd => self.process_inflate_queue_event(),
-                _ if source == virtq_deflate_ev_fd => self.process_deflate_queue_event(),
-                _ if source == virtq_stats_ev_fd => self.process_stats_queue_event(),
-                _ if source == stats_timer_fd => self.process_stats_timer_event(),
+                _ if source == virtq_inflate_ev_fd => self
+                    .process_inflate_queue_event()
+                    .unwrap_or_else(report_balloon_event_fail),
+                _ if source == virtq_deflate_ev_fd => self
+                    .process_deflate_queue_event()
+                    .unwrap_or_else(report_balloon_event_fail),
+                _ if source == virtq_stats_ev_fd => self
+                    .process_stats_queue_event()
+                    .unwrap_or_else(report_balloon_event_fail),
+                _ if source == stats_timer_fd => self
+                    .process_stats_timer_event()
+                    .unwrap_or_else(report_balloon_event_fail),
                 _ if activate_fd == source => self.process_activate_event(evmgr),
                 _ => {
                     warn!("Balloon: Spurious event received: {:?}", source);
                 }
-            }
+            };
         } else {
             warn!(
                 "Balloon: The device is not yet activated. Spurious event received: {:?}",
@@ -132,7 +140,7 @@ pub mod tests {
     #[test]
     fn test_event_handler() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut balloon = Balloon::new(0, true, true, 0).unwrap();
+        let mut balloon = Balloon::new(0, true, true, 10, false).unwrap();
         let mem = default_mem();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, infq.create_queue());

@@ -45,20 +45,24 @@ const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 
 #[derive(Debug)]
 pub enum Error {
-    /// Guest gave us too few descriptors in a descriptor chain.
-    DescriptorChainTooShort,
-    /// Guest gave us a descriptor that was too short to use.
-    DescriptorLengthTooSmall,
+    /// Activation error.
+    Activate(super::ActivateError),
+    /// EventFd error.
+    EventFd(std::io::Error),
+    /// Failed to signal the virtio used queue.
+    FailedSignalingUsedQueue(std::io::Error),
     /// Guest gave us bad memory addresses.
     GuestMemory(GuestMemoryError),
     /// Guest gave us a malformed descriptor.
     MalformedDescriptor,
+    /// Guest gave us a malformed payload.
+    MalformedPayload,
+    /// Error while processing the virt queues.
+    Queue(super::QueueError),
     /// Error removing a memory region at inflate time.
     RemoveMemoryRegion(RemoveRegionError),
-    /// Guest gave us a read only descriptor that protocol says to write to.
-    UnexpectedReadOnlyDescriptor,
-    /// Guest gave us a write only descriptor that protocol says to read from.
-    UnexpectedWriteOnlyDescriptor,
+    /// Error creating the statistics timer.
+    Timer(std::io::Error),
 }
 
 #[derive(Debug)]
