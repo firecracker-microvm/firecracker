@@ -55,7 +55,7 @@ use crate::vstate::{
 use arch::DeviceType;
 use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
-use polly::event_manager::{self, EventManager, Subscriber};
+use polly::event_manager::{EventManager, Subscriber};
 use seccomp::BpfProgramRef;
 #[cfg(target_arch = "x86_64")]
 use snapshot::Persist;
@@ -93,8 +93,6 @@ pub enum Error {
     DirtyBitmap(kvm_ioctls::Error),
     /// Cannot read from an Event file descriptor.
     EventFd(io::Error),
-    /// Polly error wrapper.
-    EventManager(event_manager::Error),
     /// I8042 Error.
     I8042Error(devices::legacy::I8042DeviceError),
     /// Cannot access kernel file.
@@ -143,23 +141,22 @@ impl Display for Error {
 
         match self {
             #[cfg(target_arch = "x86_64")]
-            CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {:?}", e),
+            CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {}", e),
             DirtyBitmap(e) => write!(f, "Error getting the KVM dirty bitmap. {}", e),
             EventFd(e) => write!(f, "Event fd error: {}", e),
-            EventManager(e) => write!(f, "Event manager error: {:?}", e),
             I8042Error(e) => write!(f, "I8042 error: {}", e),
             KernelFile(e) => write!(f, "Cannot access kernel file: {}", e),
-            KvmContext(e) => write!(f, "Failed to validate KVM support: {:?}", e),
+            KvmContext(e) => write!(f, "Failed to validate KVM support: {}", e),
             #[cfg(target_arch = "x86_64")]
             LegacyIOBus(e) => write!(f, "Cannot add devices to the legacy I/O Bus. {}", e),
             Logger(e) => write!(f, "Logger error: {}", e),
             Metrics(e) => write!(f, "Metrics error: {}", e),
             RegisterMMIODevice(e) => write!(f, "Cannot add a device to the MMIO Bus. {}", e),
             SeccompFilters(e) => write!(f, "Cannot build seccomp filters: {}", e),
-            Serial(e) => write!(f, "Error writing to the serial console: {:?}", e),
+            Serial(e) => write!(f, "Error writing to the serial console: {}", e),
             TimerFd(e) => write!(f, "Error creating timer fd: {}", e),
             Vcpu(e) => write!(f, "Vcpu error: {}", e),
-            VcpuEvent(e) => write!(f, "Cannot send event to vCPU. {:?}", e),
+            VcpuEvent(e) => write!(f, "Cannot send event to vCPU. {}", e),
             VcpuHandle(e) => write!(f, "Cannot create a vCPU handle. {}", e),
             VcpuPause => write!(f, "Failed to pause the vCPUs."),
             VcpuResume => write!(f, "Failed to resume the vCPUs."),
@@ -327,11 +324,6 @@ impl Vmm {
         unsafe {
             libc::_exit(exit_code);
         }
-    }
-
-    /// Returns a reference to the inner KVM Vm object.
-    pub fn kvm_vm(&self) -> &Vm {
-        &self.vm
     }
 
     /// Saves the state of a paused Microvm.
