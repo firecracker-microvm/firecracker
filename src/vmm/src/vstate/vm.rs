@@ -317,6 +317,21 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_new() {
+        use std::os::unix::io::AsRawFd;
+        use utils::tempfile::TempFile;
+        // Testing an error case.
+        let vm = Vm::new(&unsafe {
+            Kvm::new_with_fd_number(TempFile::new().unwrap().as_file().as_raw_fd())
+        });
+        assert!(vm.is_err());
+
+        // Testing with a valid /dev/kvm descriptor.
+        let kvm = KvmContext::new().unwrap();
+        assert!(Vm::new(kvm.fd()).is_ok());
+    }
+
+    #[test]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_get_supported_cpuid() {
         let kvm = KvmContext::new().unwrap();
@@ -330,7 +345,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vm_memory_init() {
-        let mut kvm_context = KvmContext::new().unwrap();
+        let kvm_context = KvmContext::new().unwrap();
         let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
@@ -338,18 +353,6 @@ pub(crate) mod tests {
         assert!(vm
             .memory_init(&gm, kvm_context.max_memslots(), true)
             .is_ok());
-
-        // Set the maximum number of memory slots to 1 in KvmContext to check the error
-        // path of memory_init. Create 2 non-overlapping memory slots.
-        kvm_context.set_max_memslots(1);
-        let gm = GuestMemoryMmap::from_ranges(&[
-            (GuestAddress(0x0), 0x1000),
-            (GuestAddress(0x1001), 0x2000),
-        ])
-        .unwrap();
-        assert!(vm
-            .memory_init(&gm, kvm_context.max_memslots(), true)
-            .is_err());
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -373,5 +376,24 @@ pub(crate) mod tests {
 
         let (vm, _mem) = setup_vm(0x1000);
         assert!(vm.restore_state(&vm_state).is_ok());
+    }
+
+    #[test]
+    fn test_set_kvm_memory_regions() {
+        let kvm_context = KvmContext::new().unwrap();
+        let vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
+
+        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let res = vm.set_kvm_memory_regions(&gm, false);
+        assert!(res.is_ok());
+
+        // Trying to set a memory region with a size that is not a multiple of PAGE_SIZE
+        // will result in error.
+        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10)]).unwrap();
+        let res = vm.set_kvm_memory_regions(&gm, false);
+        assert_eq!(
+            res.unwrap_err().to_string(),
+            "Cannot set the memory regions: Invalid argument (os error 22)"
+        );
     }
 }
