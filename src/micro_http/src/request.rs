@@ -4,6 +4,7 @@
 use std::str::from_utf8;
 
 use crate::common::ascii::{CR, CRLF_LEN, LF, SP};
+pub use crate::common::HttpHeaderError;
 pub use crate::common::RequestError;
 use crate::common::{Body, Method, Version};
 use crate::headers::Headers;
@@ -481,14 +482,13 @@ mod tests {
         Request::try_from(b"PATCH http://localhost/home HTTP/1.1\r\n").unwrap_err();
 
         // Test for an invalid encoding.
-        let request = Request::try_from(
+        assert!(Request::try_from(
             b"PATCH http://localhost/home HTTP/1.1\r\n\
                                      Expect: 100-continue\r\n\
                                      Transfer-Encoding: identity; q=0\r\n\
                                      Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody",
         )
-        .unwrap_err();
-        assert_eq!(request, RequestError::InvalidHeader);
+        .is_ok());
 
         // Test for an invalid content length.
         let request = Request::try_from(

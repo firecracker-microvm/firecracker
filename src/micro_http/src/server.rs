@@ -744,14 +744,14 @@ mod tests {
 
         assert!(server.requests().unwrap().is_empty());
         assert!(server.requests().unwrap().is_empty());
-        let mut buf: [u8; 198] = [0; 198];
+        let mut buf: [u8; 255] = [0; 255];
         assert!(socket.read(&mut buf[..]).unwrap() > 0);
         let error_message = b"HTTP/1.1 400 \r\n\
                               Server: Firecracker API\r\n\
                               Connection: keep-alive\r\n\
                               Content-Type: application/json\r\n\
-                              Content-Length: 80\r\n\r\n{ \"error\": \"Invalid header.\n\
-                              All previous unanswered requests will be dropped.\" }";
+                              Content-Length: 136\r\n\r\n{ \"error\": \"Invalid header. \
+                              Reason: Invalid value. Key:Content-Length; Value: alpha\nAll previous unanswered requests will be dropped.\" }";
         assert_eq!(&buf[..], &error_message[..]);
     }
 
