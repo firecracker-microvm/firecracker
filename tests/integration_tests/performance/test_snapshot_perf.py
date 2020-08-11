@@ -40,7 +40,7 @@ LOAD_LATENCY_BASELINES = {
     '2vcpu_512mb.json': 8,
     # We are also tracking restore from older version latency.
     # Snapshot properties: 2vCPU, 512MB RAM, 1 disk, 1 network iface.
-    'fc_release_v0.22': 8,
+    'fc_release_v0.23': 8,
 }
 
 
@@ -126,17 +126,6 @@ kernel {}, disk {} """.format(snapshot_type,
                               config=context.microvm,
                               enable_diff_snapshots=enable_diff_snapshots)
 
-    host_ip = None
-    guest_ip = None
-    netmask_len = None
-    network_config = net_tools.UniqueIPv4Generator.instance()
-    _, host_ip, guest_ip = basevm.ssh_network_config(network_config,
-                                                     iface_id='1',
-                                                     tapname="tap0")
-    logger.debug("Host IP: {}, Guest IP: {}".format(host_ip, guest_ip))
-
-    # # We will need netmask_len in build_from_snapshot() call later.
-    netmask_len = network_config.get_netmask_len()
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
@@ -157,9 +146,6 @@ kernel {}, disk {} """.format(snapshot_type,
     for i in range(SAMPLE_COUNT):
         microvm, metrics_fifo = vm_builder.build_from_snapshot(
                                                 snapshot,
-                                                host_ip,
-                                                guest_ip,
-                                                netmask_len,
                                                 True,
                                                 enable_diff_snapshots)
 
@@ -290,9 +276,6 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
             # new vms or can be used as part of the snapshot
             # For now we are good with theses hardcoded values
             microvm, metrics_fifo = builder.build_from_snapshot(snapshot,
-                                                                "192.168.0.1",
-                                                                "192.168.0.2",
-                                                                30,
                                                                 True,
                                                                 False)
             # Attempt to connect to resumed microvm.

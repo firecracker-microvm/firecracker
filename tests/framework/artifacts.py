@@ -166,7 +166,7 @@ class SnapshotArtifact:
         # Get the name of the snapshot folder.
         snapshot_name = self.name
         self._local_folder = os.path.join(ARTIFACTS_LOCAL_ROOT,
-                                          self.type.strip('/'),
+                                          self.type.value,
                                           snapshot_name)
 
     @property
@@ -349,7 +349,7 @@ class ArtifactCollection:
             # Select only files with specified keyword.
             if (key[-1] == "/" and key != prefix and
                (keyword is None or keyword in snapshot_dir.key)):
-                artifact_type = ArtifactCollection.ARTIFACTS_SNAPSHOTS
+                artifact_type = ArtifactType.SNAPSHOT
                 artifacts.append(SnapshotArtifact(self.bucket,
                                                   key,
                                                   artifact_type=artifact_type))

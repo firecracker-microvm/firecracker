@@ -21,44 +21,49 @@ def test_restore_from_past_versions(bin_cloner_path):
     logger = logging.getLogger("snapshot_version")
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Fetch all snapshots artifacts.
-    # "fc_release" is the key that should be used for per release snapshot
-    # artifacts. Such snapshots are created at release time and target the
-    # current version. We are going to restore all these snapshots with current
-    # testing build.
-    snapshot_artifacts = artifacts.snapshots(keyword="fc_release")
-    builder = MicrovmBuilder(bin_cloner_path)
+    # Fetch all firecracker binaries.
+    # With each binary create a snapshot and try to restore in current
+    # version.
+    firecracker_artifacts = artifacts.firecrackers()
+    for firecracker in firecracker_artifacts:
+        firecracker.download()
+        jailer = firecracker.jailer()
+        jailer.download()
 
-    for snapshot_artifact in snapshot_artifacts:
-        snapshot_artifact.download()
-        snapshot = snapshot_artifact.copy(builder.root_path)
-
-        logger.info("Resuming from %s", snapshot_artifact.key)
-
-        # TODO: Define network config artifact that can be used to build
-        # new vms or can be used as part of the snapshot
-        # For now we are good with theses hardcoded values
+        logger.info("Source Firecracker: %s", firecracker.local_path())
+        logger.info("Source Jailer: %s", jailer.local_path())
+        # Create a fresh snapshot using the binary artifacts.
+        builder = MicrovmBuilder(bin_cloner_path,
+                                 firecracker.local_path(),
+                                 jailer.local_path())
+        snapshot = create_512mb_full_snapshot(bin_cloner_path, None,
+                                              firecracker.local_path(),
+                                              jailer.local_path())
         microvm, _ = builder.build_from_snapshot(snapshot,
-                                                 "192.168.0.1",
-                                                 "192.168.0.2",
-                                                 30,
                                                  True,
                                                  False)
-        # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+        exit_code, _, _ = ssh_connection.execute_command("sleep 1 && sync")
 
-        # Run a fio workload and validate succesfull execution.
-        fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
-        --ioengine=libaio --iodepth=16 --runtime=2 --numjobs=4 --time_based \
-        --group_reporting --name=iops-test-job --eta-newline=1 --readonly"""
-
-        exit_code, _, _ = ssh_connection.execute_command(fio)
         assert exit_code == 0
 
 
-def create_512mb_full_snapshot(bin_cloner_path, target_version: str = None):
+def create_512mb_full_snapshot(bin_cloner_path, target_version: str = None,
+                               fc_binary=None, jailer_binary=None):
     """Create a snapshoft from a 2vcpu 512MB microvm."""
-    vm_instance = C3micro.spawn(bin_cloner_path, True)
+    vm_instance = C3micro.spawn(bin_cloner_path, True,
+                                fc_binary, jailer_binary)
+    # Attempt to connect to the fresh microvm.
+    ssh_connection = net_tools.SSHConnection(vm_instance.vm.ssh_config)
+
+    # Run a fio workload and validate succesfull execution.
+    fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
+    --ioengine=libaio --iodepth=16 --runtime=2 --numjobs=4 --time_based \
+    --group_reporting --name=iops-test-job --eta-newline=1 --readonly"""
+
+    exit_code, _, _ = ssh_connection.execute_command(fio)
+    assert exit_code == 0
+
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(vm_instance.vm)
 
@@ -107,9 +112,6 @@ def test_restore_in_past_versions(bin_cloner_path):
                                  firecracker.local_path(),
                                  jailer.local_path())
         microvm, _ = builder.build_from_snapshot(snapshot,
-                                                 "192.168.0.1",
-                                                 "192.168.0.2",
-                                                 30,
                                                  True,
                                                  False)
 
@@ -119,10 +121,5 @@ def test_restore_in_past_versions(bin_cloner_path):
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
-        # Run a fio workload and validate succesfull execution.
-        fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
-        --ioengine=libaio --iodepth=16 --runtime=2 --numjobs=4 --time_based \
-        --group_reporting --name=iops-test-job --eta-newline=1 --readonly"""
-
-        exit_code, _, _ = ssh_connection.execute_command(fio)
+        exit_code, _, _ = ssh_connection.execute_command("sleep 1 && sync")
         assert exit_code == 0
