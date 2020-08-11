@@ -67,12 +67,6 @@ def _test_seq_snapshots(context):
                               config=context.microvm,
                               enable_diff_snapshots=enable_diff_snapshots)
 
-    network_config = net_tools.UniqueIPv4Generator.instance()
-    _, host_ip, guest_ip = basevm.ssh_network_config(network_config,
-                                                     '1',
-                                                     tapname="tap0")
-    logger.debug("Host IP: {}, Guest IP: {}".format(host_ip, guest_ip))
-
     # Configure vsock device.
     basevm.vsock.put(
         vsock_id="vsock0",
@@ -82,8 +76,6 @@ def _test_seq_snapshots(context):
     # Generate a random data file for vsock.
     blob_path, blob_hash = make_blob(test_session_root_path)
 
-    # We will need netmask_len in build_from_snapshot() call later.
-    netmask_len = network_config.get_netmask_len()
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
@@ -116,9 +108,6 @@ def _test_seq_snapshots(context):
     for i in range(seq_len):
         logger.info("Load snapshot #{}, mem {}".format(i, snapshot.mem))
         microvm, _ = vm_builder.build_from_snapshot(snapshot,
-                                                    host_ip,
-                                                    guest_ip,
-                                                    netmask_len,
                                                     True,
                                                     enable_diff_snapshots)
 
@@ -210,12 +199,8 @@ def test_patch_drive_snapshot(bin_cloner_path):
     # Load snapshot in a new Firecracker microVM.
     logger.info("Load snapshot, mem %s", snapshot.mem)
     microvm, _ = vm_builder.build_from_snapshot(snapshot,
-                                                "192.168.0.1",
-                                                "192.168.0.2",
-                                                30,
                                                 True,
                                                 enable_diff_snapshots)
-
     # Attempt to connect to resumed microvm.
     ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
@@ -244,7 +229,7 @@ def test_5_full_snapshots(network_config,
     # - Microvm: 2vCPU with 512 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
+    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
     # Create a test context and add builder, logger, network.
@@ -286,7 +271,7 @@ def test_5_inc_snapshots(network_config,
     # - Microvm: 2vCPU with 512 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_4096mb"))
-    kernel_artifacts = ArtifactSet(artifacts.kernels())
+    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
     # Create a test context and add builder, logger, network.
