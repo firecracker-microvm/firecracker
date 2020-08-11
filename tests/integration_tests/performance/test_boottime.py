@@ -22,9 +22,21 @@ INITRD_BOOT_TIME_US = 160000 if platform.machine() == "x86_64" else 500000
 TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
 
 
+def test_no_boottime(test_microvm_with_api):
+    """Check boottimer not present by default."""
+    _ = _configure_and_run_vm(test_microvm_with_api)
+    time.sleep(0.4)
+    timestamps = re.findall(TIMESTAMP_LOG_REGEX,
+                            test_microvm_with_api.log_data)
+    assert not timestamps
+
+
 def test_boottime_no_network(test_microvm_with_boottime_timer):
     """Check guest boottime of microvm without network."""
-    _ = _configure_vm(test_microvm_with_boottime_timer)
+    test_microvm_with_boottime_timer.jailer.extra_args.update(
+        {'boot-timer': None}
+    )
+    _ = _configure_and_run_vm(test_microvm_with_boottime_timer)
     time.sleep(0.4)
     boottime_us = _test_microvm_boottime(
             test_microvm_with_boottime_timer.log_data)
@@ -36,7 +48,10 @@ def test_boottime_with_network(
         network_config
 ):
     """Check guest boottime of microvm with network."""
-    _tap = _configure_vm(test_microvm_with_boottime_timer, {
+    test_microvm_with_boottime_timer.jailer.extra_args.update(
+        {'boot-timer': None}
+    )
+    _tap = _configure_and_run_vm(test_microvm_with_boottime_timer, {
         "config": network_config, "iface_id": "1"
     })
     time.sleep(0.4)
@@ -48,7 +63,10 @@ def test_boottime_with_network(
 def test_initrd_boottime(
         test_microvm_with_initrd_timer):
     """Check guest boottime of microvm with initrd."""
-    _tap = _configure_vm(test_microvm_with_initrd_timer, initrd=True)
+    test_microvm_with_initrd_timer.jailer.extra_args.update(
+        {'boot-timer': None}
+    )
+    _tap = _configure_and_run_vm(test_microvm_with_initrd_timer, initrd=True)
     time.sleep(0.8)
     boottime_us = _test_microvm_boottime(
         test_microvm_with_initrd_timer.log_data,
@@ -71,7 +89,7 @@ def _test_microvm_boottime(log_fifo_data, max_time_us=MAX_BOOT_TIME_US):
     return boot_time_us
 
 
-def _configure_vm(microvm, network_info=None, initrd=False):
+def _configure_and_run_vm(microvm, network_info=None, initrd=False):
     """Auxiliary function for preparing microvm before measuring boottime."""
     microvm.spawn()
 

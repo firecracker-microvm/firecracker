@@ -311,7 +311,9 @@ pub fn build_microvm_for_boot(
         vcpu_config.vcpu_count,
     )?;
 
-    attach_boot_timer_device(&mut vmm, request_ts)?;
+    if vm_resources.boot_timer {
+        attach_boot_timer_device(&mut vmm, request_ts)?;
+    }
 
     attach_block_devices(
         &mut vmm,

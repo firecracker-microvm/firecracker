@@ -82,6 +82,10 @@
 - Segregated MMDS documentation in MMDS design documentation and MMDS user
   guide documentation.
 - The logger `level` field is now case-insensitive.
+- Disabled boot timer device after restoring a snapshot.
+- Enabled boot timer device only when specifically requested, by using the
+  `--boot-timer` dedicated cmdline parameter.
+  
 
 ## [0.21.0]
 
