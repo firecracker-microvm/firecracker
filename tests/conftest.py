@@ -135,7 +135,7 @@ def init_microvm(root_path, bin_cloner_path,
     # The fixture pattern causes a pylint false positive for that rule.
     microvm_id = str(uuid.uuid4())
 
-    if fc_binary is None:
+    if fc_binary is None or jailer_binary is None:
         fc_binary, jailer_binary = build_tools.get_firecracker_binaries()
 
     # Make sure we always have both binaries.
