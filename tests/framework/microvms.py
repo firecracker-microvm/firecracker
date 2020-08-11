@@ -54,9 +54,11 @@ class VMBase:
 
     @classmethod
     def from_artifacts(cls, bin_cloner_path, config,
-                       kernel, disks, cpu_template, start=False):
+                       kernel, disks, cpu_template, start=False,
+                       fc_binary=None, jailer_binary=None):
         """Spawns a new Firecracker and applies specified config."""
         artifacts = ArtifactCollection(_test_images_s3_bucket())
+        # Pick the first artifact in the set.
         config = artifacts.microvms(keyword=config)[0]
         kernel = artifacts.kernels(keyword=kernel)[0]
         disks = artifacts.disks(keyword=disks)
@@ -67,7 +69,9 @@ class VMBase:
             disk.download()
             attached_disks.append(disk.copy())
 
-        vm_builder = MicrovmBuilder(bin_cloner_path)
+        vm_builder = MicrovmBuilder(bin_cloner_path,
+                                    fc_binary,
+                                    jailer_binary)
 
         # SSH key is attached to root disk artifact.
         # Builder will download ssh key in the VM root.
@@ -80,13 +84,6 @@ class VMBase:
                                   config=config,
                                   cpu_template=cpu_template)
 
-        network_config = net_tools.UniqueIPv4Generator.instance()
-        # Host ip: 192.168.0.1
-        # Guest ip: 192.168.0.2
-        # TODO: we need to refactor the network config using artifacts.
-        basevm.ssh_network_config(network_config,
-                                  '1',
-                                  tapname="tap0")
         if start:
             basevm.start()
             ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -102,25 +99,31 @@ class C3nano(VMBase):
     """Create VMs with 2vCPUs and 256 MB RAM."""
 
     @classmethod
-    def spawn(cls, bin_cloner_path, start=False):
+    def spawn(cls, bin_cloner_path, start=False,
+              fc_binary=None, jailer_binary=None):
         """Spawns and optionally starts the vm."""
-        return cls.from_artifacts(bin_cloner_path,
-                                  "2vcpu_256mb",
-                                  "vmlinux-4.14",
-                                  "ubuntu-18.04",
-                                  "C3",
-                                  start)
+        return VMBase.from_artifacts(bin_cloner_path,
+                                     "2vcpu_256mb",
+                                     "vmlinux-4.14",
+                                     "ubuntu-18.04",
+                                     "C3",
+                                     start,
+                                     fc_binary,
+                                     jailer_binary)
 
 
 class C3micro(VMBase):
     """Create VMs with 2vCPUs and 512 MB RAM."""
 
     @classmethod
-    def spawn(cls, bin_cloner_path, start=False):
+    def spawn(cls, bin_cloner_path, start=False,
+              fc_binary=None, jailer_binary=None):
         """Spawns and optionally starts the vm."""
-        return cls.from_artifacts(bin_cloner_path,
-                                  "2vcpu_512mb",
-                                  "vmlinux-4.14",
-                                  "ubuntu-18.04",
-                                  "C3",
-                                  start)
+        return VMBase.from_artifacts(bin_cloner_path,
+                                     "2vcpu_512mb",
+                                     "vmlinux-4.14",
+                                     "ubuntu-18.04",
+                                     "C3",
+                                     start,
+                                     fc_binary,
+                                     jailer_binary)

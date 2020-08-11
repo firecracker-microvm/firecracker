@@ -10,6 +10,14 @@ from conftest import init_microvm
 from framework.artifacts import Artifact, DiskArtifact, Snapshot, SnapshotType
 import framework.utils as utils
 import host_tools.logging as log_tools
+import host_tools.network as net_tools
+
+
+DEFAULT_HOST_IP = "192.168.0.1"
+DEFAULT_GUEST_IP = "192.168.0.2"
+DEFAULT_TAP_NAME = "tap0"
+DEFAULT_DEV_NAME = "eth0"
+DEFAULT_NETMASK = 30
 
 
 class MicrovmBuilder:
@@ -24,6 +32,7 @@ class MicrovmBuilder:
         self.bin_cloner_path = bin_cloner_path
         self.init_root_path()
 
+        # Update permissions for custom binaries.
         if fc_binary is not None:
             os.chmod(fc_binary, 0o555)
         if jailer_binary is not None:
@@ -56,13 +65,28 @@ class MicrovmBuilder:
         vm.kernel_file = kernel.local_path()
         vm.rootfs_file = disks[0].local_path()
 
+        # Start firecracker.
+        vm.spawn()
+
         # Download ssh key into the microvm root.
         ssh_key.download(self.root_path)
         vm.ssh_config['ssh_key_path'] = ssh_key.local_path()
         os.chmod(vm.ssh_config['ssh_key_path'], 0o400)
+        vm.create_tap_and_ssh_config(host_ip=DEFAULT_HOST_IP,
+                                     guest_ip=DEFAULT_GUEST_IP,
+                                     netmask_len=DEFAULT_NETMASK,
+                                     tapname=DEFAULT_TAP_NAME)
 
-        # Start firecracker.
-        vm.spawn()
+        # TODO: propper network configuraiton with artifacts.
+        guest_mac = net_tools.mac_from_ip(DEFAULT_GUEST_IP)
+        response = vm.network.put(
+            iface_id=DEFAULT_DEV_NAME,
+            host_dev_name=DEFAULT_TAP_NAME,
+            guest_mac=guest_mac,
+            allow_mmds_requests=True,
+        )
+
+        assert vm.api_session.is_status_no_content(response.status_code)
 
         with open(config.local_path()) as microvm_config_file:
             microvm_config = json.load(microvm_config_file)
@@ -89,9 +113,6 @@ class MicrovmBuilder:
     # so we do not need to move it around polluting the code.
     def build_from_snapshot(self,
                             snapshot: Snapshot,
-                            host_ip=None,
-                            guest_ip=None,
-                            netmask_len=None,
                             resume=False,
                             # Enable incremental snapshot capability.
                             enable_diff_snapshots=False):
@@ -116,11 +137,10 @@ class MicrovmBuilder:
             _jailed_disks.append(vm.create_jailed_resource(disk))
         vm.ssh_config['ssh_key_path'] = snapshot.ssh_key
 
-        if host_ip is not None:
-            vm.create_tap_and_ssh_config(host_ip=host_ip,
-                                         guest_ip=guest_ip,
-                                         netmask_len=netmask_len,
-                                         tapname="tap0")
+        vm.create_tap_and_ssh_config(host_ip=DEFAULT_HOST_IP,
+                                     guest_ip=DEFAULT_GUEST_IP,
+                                     netmask_len=DEFAULT_NETMASK,
+                                     tapname=DEFAULT_TAP_NAME)
 
         response = vm.snapshot_load.put(mem_file_path=jailed_mem,
                                         snapshot_path=jailed_vmstate,
