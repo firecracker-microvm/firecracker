@@ -84,6 +84,8 @@ pub struct VmResources {
     pub net_builder: NetBuilder,
     /// The configuration for `MmdsNetworkStack`.
     pub mmds_config: Option<MmdsConfig>,
+    /// Whether or not to load boot timer device.
+    pub boot_timer: bool,
 }
 
 impl VmResources {
@@ -377,6 +379,7 @@ mod tests {
             vsock: Default::default(),
             net_builder: default_net_builder(),
             mmds_config: None,
+            boot_timer: false,
         }
     }
 

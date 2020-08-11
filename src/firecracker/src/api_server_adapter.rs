@@ -103,6 +103,7 @@ pub fn run_with_api(
     instance_info: InstanceInfo,
     start_time_us: Option<u64>,
     start_time_cpu_us: Option<u64>,
+    boot_timer_enabled: bool,
 ) {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
@@ -167,9 +168,13 @@ pub fn run_with_api(
 
     // Configure, build and start the microVM.
     let (vm_resources, vmm) = match config_json {
-        Some(json) => {
-            super::build_microvm_from_json(seccomp_filter, &mut event_manager, json, &instance_info)
-        }
+        Some(json) => super::build_microvm_from_json(
+            seccomp_filter,
+            &mut event_manager,
+            json,
+            &instance_info,
+            boot_timer_enabled,
+        ),
         None => PrebootApiController::build_microvm_from_requests(
             seccomp_filter,
             &mut event_manager,
@@ -190,6 +195,7 @@ pub fn run_with_api(
                     .send(Box::new(response))
                     .expect("one-shot channel closed")
             },
+            boot_timer_enabled,
         ),
     };
 

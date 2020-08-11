@@ -131,6 +131,11 @@ fn main() {
                 .takes_value(false)
                 .requires("log-path")
                 .help("Whether or not to include the file path and line number of the log's origin.")
+        )
+        .arg(
+            Argument::new("boot-timer")
+                .takes_value(false)
+                .help("Whether or not to load boot timer device for logging elapsed time since InstanceStart command.")
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {
@@ -213,6 +218,7 @@ fn main() {
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
+    let boot_timer_enabled = arguments.value_as_bool("boot-timer").unwrap_or(false);
     let api_enabled = !arguments.value_as_bool("no-api").unwrap_or(false);
 
     if api_enabled {
@@ -237,9 +243,15 @@ fn main() {
             instance_info,
             start_time_us,
             start_time_cpu_us,
+            boot_timer_enabled,
         );
     } else {
-        run_without_api(seccomp_filter, vmm_config_json, &instance_info);
+        run_without_api(
+            seccomp_filter,
+            vmm_config_json,
+            &instance_info,
+            boot_timer_enabled,
+        );
     }
 }
 
@@ -249,14 +261,17 @@ fn build_microvm_from_json(
     event_manager: &mut EventManager,
     config_json: String,
     instance_info: &InstanceInfo,
+    boot_timer_enabled: bool,
 ) -> (VmResources, Arc<Mutex<vmm::Vmm>>) {
-    let vm_resources = VmResources::from_json(&config_json, instance_info).unwrap_or_else(|err| {
-        error!(
-            "Configuration for VMM from one single json failed: {:?}",
-            err
-        );
-        process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
-    });
+    let mut vm_resources =
+        VmResources::from_json(&config_json, instance_info).unwrap_or_else(|err| {
+            error!(
+                "Configuration for VMM from one single json failed: {:?}",
+                err
+            );
+            process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
+        });
+    vm_resources.boot_timer = boot_timer_enabled;
     let vmm = vmm::builder::build_microvm_for_boot(&vm_resources, event_manager, &seccomp_filter)
         .unwrap_or_else(|err| {
             error!(
@@ -274,6 +289,7 @@ fn run_without_api(
     seccomp_filter: BpfProgram,
     config_json: Option<String>,
     instance_info: &InstanceInfo,
+    bool_timer_enabled: bool,
 ) {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
@@ -292,6 +308,7 @@ fn run_without_api(
         // Safe to unwrap since '--no-api' requires this to be set.
         config_json.unwrap(),
         instance_info,
+        bool_timer_enabled,
     );
 
     // Start the metrics.
