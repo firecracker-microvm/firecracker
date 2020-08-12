@@ -20,7 +20,7 @@ devices = { path = "../devices" }
 dumbo = { path = "../dumbo" }
 kernel = { path = "../kernel" }
 logger = { path = "../logger" }
-vm-memory = { version = ">=0.2.0", features = ["backend-mmap"] }
+vm-memory = { version = ">=0.2.2", features = ["backend-mmap"] }
 mmds = { path = "../mmds" }
 utils = { path = "../utils"}
 rate_limiter = { path = "../rate_limiter" }
