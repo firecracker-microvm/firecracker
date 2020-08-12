@@ -100,7 +100,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     1,
                     ArgLen::DWORD,
                     Eq,
-                    (sigrtmin() + super::super::vstate::VCPU_RTSIG_OFFSET) as u64
+                    (sigrtmin() + super::super::vstate::vcpu::VCPU_RTSIG_OFFSET) as u64
                 )?]],
             ),
             #[cfg(target_env = "gnu")]

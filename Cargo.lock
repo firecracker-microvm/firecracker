@@ -34,7 +34,7 @@ dependencies = [
  "kvm-ioctls 0.5.0 (git+https://github.com/firecracker-microvm/kvm-ioctls?tag=v0.5.0-2)",
  "libc 0.2.68 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
- "vm-memory 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vm-memory 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -245,7 +245,7 @@ dependencies = [
  "versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.0 (git+https://github.com/firecracker-microvm/versionize_derive?tag=v0.1.0)",
  "virtio_gen 0.1.0",
- "vm-memory 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vm-memory 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -347,7 +347,7 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "utils 0.1.0",
- "vm-memory 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vm-memory 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -742,7 +742,7 @@ dependencies = [
  "serde_derive 1.0.105 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 1.0.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "vm-memory 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vm-memory 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm-sys-util 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -772,7 +772,7 @@ version = "0.1.0"
 
 [[package]]
 name = "vm-memory"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "libc 0.2.68 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -804,7 +804,7 @@ dependencies = [
  "utils 0.1.0",
  "versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.0 (git+https://github.com/firecracker-microvm/versionize_derive?tag=v0.1.0)",
- "vm-memory 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vm-memory 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -991,7 +991,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0c7be505e45004e3c3963dbea155aa333784724b91ae580f08e702eeaccfca93"
 "checksum versionize_derive 0.1.0 (git+https://github.com/firecracker-microvm/versionize_derive?tag=v0.1.0)" = "<none>"
 "checksum versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d7817377bbb6759686d790fb8fbbb22a0371521d509a21fdb125cf7c9c9d815a"
-"checksum vm-memory 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "41fb10d355a0de221e0524cb18491d3dc6e2a0981747f75fd0a3a12109f1712f"
+"checksum vm-memory 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "aae367b8bd176f4936b5d35c4403606d4a8458a8151dff47c974f1d9d1a4c974"
 "checksum vmm-sys-util 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "183d25b56a61a6f518ef464ac578e790f04added34dfaab59a453d8a03cb7bd0"
 "checksum walkdir 2.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "777182bc735b6424e1a57516d35ed72cb8019d85c8c9bf536dccb3445c1a2f7d"
 "checksum wasm-bindgen 0.2.60 (registry+https://github.com/rust-lang/crates.io-index)" = "2cc57ce05287f8376e998cbddfb4c8cb43b84a7ec55cf4551d7c00eef317a47f"

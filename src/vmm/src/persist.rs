@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use crate::builder::{self, StartMicrovmError};
 use crate::device_manager::persist::Error as DevicePersistError;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
-use crate::vstate::{self, VcpuState, VmState};
+use crate::vstate::{self, vcpu::VcpuState, vm::VmState};
 
 use crate::device_manager::persist::DeviceStates;
 use crate::memory_snapshot;
@@ -60,15 +60,15 @@ pub enum MicrovmStateError {
     /// Failed to restore devices.
     RestoreDevices(DevicePersistError),
     /// Failed to restore Vcpu state.
-    RestoreVcpuState(vstate::Error),
+    RestoreVcpuState(vstate::vcpu::Error),
     /// Failed to restore VM state.
-    RestoreVmState(vstate::Error),
+    RestoreVmState(vstate::vm::Error),
     /// Failed to save Vcpu state.
-    SaveVcpuState(vstate::Error),
+    SaveVcpuState(vstate::vcpu::Error),
     /// Failed to save VM state.
-    SaveVmState(vstate::Error),
+    SaveVmState(vstate::vm::Error),
     /// Failed to send event.
-    SignalVcpu(vstate::Error),
+    SignalVcpu(vstate::vcpu::Error),
     /// Vcpu is in unexpected state.
     UnexpectedVcpuResponse,
 }
@@ -97,7 +97,7 @@ pub enum CreateSnapshotError {
     /// Failed to translate microVM version to snapshot data version.
     InvalidVersion,
     /// Failed to save VM state.
-    InvalidVmState(vstate::Error),
+    InvalidVmState(vstate::vm::Error),
     /// Failed to write memory to snapshot.
     Memory(memory_snapshot::Error),
     /// Failed to open memory backing file.
@@ -292,7 +292,7 @@ mod tests {
     use crate::memory_snapshot::SnapshotMemory;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
-    use crate::vstate::tests::default_vcpu_state;
+    use crate::vstate::vcpu::tests::default_vcpu_state;
     use crate::Vmm;
 
     use polly::event_manager::EventManager;
@@ -379,7 +379,7 @@ mod tests {
         let err = InvalidVersion;
         let _ = format!("{}{:?}", err, err);
 
-        let err = InvalidVmState(vstate::Error::NotEnoughMemorySlots);
+        let err = InvalidVmState(vstate::vm::Error::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
         let err = Memory(memory_snapshot::Error::WriteMemory(
@@ -432,19 +432,19 @@ mod tests {
         let err = RestoreDevices(DevicePersistError::MmioTransport);
         let _ = format!("{}{:?}", err, err);
 
-        let err = RestoreVcpuState(vstate::Error::HTNotInitialized);
+        let err = RestoreVcpuState(vstate::vcpu::Error::HTNotInitialized);
         let _ = format!("{}{:?}", err, err);
 
-        let err = RestoreVmState(vstate::Error::NotEnoughMemorySlots);
+        let err = RestoreVmState(vstate::vm::Error::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SaveVcpuState(vstate::Error::HTNotInitialized);
+        let err = SaveVcpuState(vstate::vcpu::Error::HTNotInitialized);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SaveVmState(vstate::Error::NotEnoughMemorySlots);
+        let err = SaveVmState(vstate::vm::Error::NotEnoughMemorySlots);
         let _ = format!("{}{:?}", err, err);
 
-        let err = SignalVcpu(vstate::Error::VcpuCountNotInitialized);
+        let err = SignalVcpu(vstate::vcpu::Error::VcpuCountNotInitialized);
         let _ = format!("{}{:?}", err, err);
 
         let err = UnexpectedVcpuResponse;
