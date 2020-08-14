@@ -272,7 +272,13 @@ impl Block {
                     len = 0;
                 }
             }
-            queue.add_used(mem, head.index, len);
+
+            queue.add_used(mem, head.index, len).unwrap_or_else(|e| {
+                error!(
+                    "Failed to add available descriptor head {}: {}",
+                    head.index, e
+                )
+            });
             used_any = true;
         }
 
