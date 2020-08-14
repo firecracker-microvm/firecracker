@@ -164,7 +164,11 @@ where
             };
 
             have_used = true;
-            self.queues[RXQ_INDEX].add_used(mem, head.index, used_len);
+            self.queues[RXQ_INDEX]
+                .add_used(mem, head.index, used_len)
+                .unwrap_or_else(|e| {
+                    error!("Failed to add available descriptor {}: {}", head.index, e)
+                });
         }
 
         have_used
@@ -189,7 +193,11 @@ where
                 Err(e) => {
                     error!("vsock: error reading TX packet: {:?}", e);
                     have_used = true;
-                    self.queues[TXQ_INDEX].add_used(mem, head.index, 0);
+                    self.queues[TXQ_INDEX]
+                        .add_used(mem, head.index, 0)
+                        .unwrap_or_else(|e| {
+                            error!("Failed to add available descriptor {}: {}", head.index, e);
+                        });
                     continue;
                 }
             };
@@ -200,7 +208,11 @@ where
             }
 
             have_used = true;
-            self.queues[TXQ_INDEX].add_used(mem, head.index, 0);
+            self.queues[TXQ_INDEX]
+                .add_used(mem, head.index, 0)
+                .unwrap_or_else(|e| {
+                    error!("Failed to add available descriptor {}: {}", head.index, e);
+                });
         }
 
         have_used

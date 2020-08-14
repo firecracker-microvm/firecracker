@@ -14,6 +14,7 @@ pub mod pseudo;
 pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice, Error as BusError};
+use crate::virtio::QueueError;
 use logger::{error, Metric, METRICS};
 
 // Function used for reporting error in terms of logging
@@ -33,4 +34,6 @@ pub enum Error {
     IoError(io::Error),
     /// Device received malformed payload.
     MalformedPayload,
+    /// Error during queue processing.
+    QueueError(QueueError),
 }

@@ -319,7 +319,11 @@ impl Net {
             }
         }
 
-        rx_queue.add_used(mem, head_index, write_count as u32);
+        rx_queue
+            .add_used(mem, head_index, write_count as u32)
+            .unwrap_or_else(|e| {
+                error!("Failed to add available descriptor {}: {}", head_index, e);
+            });
 
         // Mark that we have at least one pending packet and we need to interrupt the guest.
         self.rx_deferred_irqs = true;
@@ -566,7 +570,9 @@ impl Net {
                 process_rx_for_mmds = true;
             }
 
-            tx_queue.add_used(mem, head_index, 0);
+            tx_queue
+                .add_used(mem, head_index, 0)
+                .map_err(DeviceError::QueueError)?;
             raise_irq = true;
         }
 
