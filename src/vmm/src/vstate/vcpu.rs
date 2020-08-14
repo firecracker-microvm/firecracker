@@ -855,6 +855,7 @@ impl Vcpu {
                     .send(VcpuResponse::NotAllowed)
                     .expect("failed to send save not allowed status");
             }
+            Ok(VcpuEvent::Exit) => return self.exit(FC_EXIT_CODE_GENERIC_ERROR),
             // Unhandled exit of the other end.
             Err(TryRecvError::Disconnected) => {
                 // Move to 'exited' state.
@@ -901,17 +902,22 @@ impl Vcpu {
             }
             #[cfg(target_arch = "x86_64")]
             Ok(VcpuEvent::RestoreState(vcpu_state)) => {
-                self.restore_state(&vcpu_state)
+                let _ = self
+                    .restore_state(&vcpu_state)
                     .map(|()| {
                         self.response_sender
                             .send(VcpuResponse::RestoredState)
                             .expect("vcpu channel unexpectedly closed");
                     })
-                    .map_err(|e| self.response_sender.send(VcpuResponse::Error(e)))
-                    .expect("vcpu channel unexpectedly closed");
+                    .map_err(|e| {
+                        self.response_sender
+                            .send(VcpuResponse::Error(e))
+                            .expect("vcpu channel unexpectedly closed")
+                    });
 
                 StateMachine::next(Self::paused)
             }
+            Ok(VcpuEvent::Exit) => self.exit(FC_EXIT_CODE_GENERIC_ERROR),
             // Unhandled exit of the other end.
             Err(_) => {
                 // Move to 'exited' state.
@@ -965,7 +971,7 @@ impl Drop for Vcpu {
 }
 
 #[cfg(target_arch = "x86_64")]
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 /// Structure holding VCPU kvm state.
 pub struct VcpuState {
     cpuid: CpuId,
@@ -980,6 +986,7 @@ pub struct VcpuState {
     xsave: kvm_xsave,
 }
 
+#[derive(Clone)]
 /// List of events that the Vcpu can receive.
 pub enum VcpuEvent {
     /// Pause the Vcpu.
@@ -992,6 +999,8 @@ pub enum VcpuEvent {
     /// Event to save the state of a paused Vcpu.
     #[cfg(target_arch = "x86_64")]
     SaveState,
+    /// The vCPU will go to exited state when receiving this message.
+    Exit,
 }
 
 /// List of responses that the Vcpu reports.
