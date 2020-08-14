@@ -902,14 +902,13 @@ impl Vcpu {
             }
             #[cfg(target_arch = "x86_64")]
             Ok(VcpuEvent::RestoreState(vcpu_state)) => {
-                let _ = self
-                    .restore_state(&vcpu_state)
+                self.restore_state(&vcpu_state)
                     .map(|()| {
                         self.response_sender
                             .send(VcpuResponse::RestoredState)
                             .expect("vcpu channel unexpectedly closed");
                     })
-                    .map_err(|e| {
+                    .unwrap_or_else(|e| {
                         self.response_sender
                             .send(VcpuResponse::Error(e))
                             .expect("vcpu channel unexpectedly closed")

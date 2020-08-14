@@ -268,26 +268,23 @@ impl Vmm {
 
     /// Sends a resume command to the vCPUs.
     pub fn resume_vcpus(&mut self) -> Result<()> {
-        for handle in self.vcpus_handles.iter() {
-            handle
-                .send_event(VcpuEvent::Resume)
-                .map_err(Error::VcpuEvent)?;
-        }
-        self.check_vcpus_response(VcpuResponse::Resumed)
+        self.broadcast_vcpu_event(VcpuEvent::Resume, VcpuResponse::Resumed)
             .map_err(|_| Error::VcpuResume)
     }
 
     /// Sends a pause command to the vCPUs.
     pub fn pause_vcpus(&mut self) -> Result<()> {
-        for handle in self.vcpus_handles.iter() {
-            handle
-                .send_event(VcpuEvent::Pause)
-                .map_err(Error::VcpuEvent)?;
-        }
-        self.check_vcpus_response(VcpuResponse::Paused)
+        self.broadcast_vcpu_event(VcpuEvent::Pause, VcpuResponse::Paused)
             .map_err(|_| Error::VcpuPause)
     }
 
+    /// Sends an exit command to the vCPUs.
+    pub fn exit_vcpus(&mut self) -> std::result::Result<(), MicrovmStateError> {
+        self.broadcast_vcpu_event(
+            VcpuEvent::Exit,
+            VcpuResponse::Exited(FC_EXIT_CODE_GENERIC_ERROR),
+        )
+    }
     /// Returns a reference to the inner `GuestMemoryMmap` object if present, or `None` otherwise.
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.guest_memory
@@ -381,6 +378,21 @@ impl Vmm {
         Ok(vcpu_states)
     }
 
+    // Sends an event to all vCPUs and waits for a response.
+    fn broadcast_vcpu_event(
+        &mut self,
+        event: VcpuEvent,
+        expected_response: VcpuResponse,
+    ) -> std::result::Result<(), MicrovmStateError> {
+        use self::MicrovmStateError::*;
+        for handle in self.vcpus_handles.iter() {
+            handle.send_event(event.clone()).map_err(SignalVcpu)?;
+        }
+
+        self.check_vcpus_response(expected_response)
+            .map_err(|_| MicrovmStateError::UnexpectedVcpuResponse)
+    }
+
     #[cfg(target_arch = "x86_64")]
     /// Restores vcpus kvm states.
     pub fn restore_vcpu_states(
@@ -413,7 +425,13 @@ impl Vmm {
         for response in vcpu_responses.into_iter() {
             match response {
                 VcpuResponse::RestoredState => (),
-                VcpuResponse::Error(e) => return Err(RestoreVcpuState(e)),
+                VcpuResponse::Error(e) => {
+                    error!("Fatal error: {}", e);
+                    // Stop all vCPUs and exit.
+                    let _ = self.exit_vcpus();
+                    self.stop(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
+                    unreachable!()
+                }
                 _ => return Err(MicrovmStateError::UnexpectedVcpuResponse),
             }
         }
