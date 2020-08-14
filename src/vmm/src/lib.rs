@@ -123,8 +123,12 @@ pub enum Error {
     VcpuHandle(vstate::vcpu::Error),
     /// vCPU pause failed.
     VcpuPause,
+    /// vCPU exit failed.
+    VcpuExit,
     /// vCPU resume failed.
     VcpuResume,
+    /// Vcpu send message failed.
+    VcpuMessage,
     /// Cannot spawn a new Vcpu thread.
     VcpuSpawn(io::Error),
     /// Vm error.
@@ -159,7 +163,9 @@ impl Display for Error {
             VcpuEvent(e) => write!(f, "Cannot send event to vCPU. {}", e),
             VcpuHandle(e) => write!(f, "Cannot create a vCPU handle. {}", e),
             VcpuPause => write!(f, "Failed to pause the vCPUs."),
+            VcpuExit => write!(f, "Failed to exit the vCPUs."),
             VcpuResume => write!(f, "Failed to resume the vCPUs."),
+            VcpuMessage => write!(f, "Failed to message the vCPUs."),
             VcpuSpawn(e) => write!(f, "Cannot spawn Vcpu thread: {}", e),
             Vm(e) => write!(f, "Vm error: {}", e),
             VmmObserverInit(e) => write!(
@@ -279,11 +285,12 @@ impl Vmm {
     }
 
     /// Sends an exit command to the vCPUs.
-    pub fn exit_vcpus(&mut self) -> std::result::Result<(), MicrovmStateError> {
+    pub fn exit_vcpus(&mut self) -> Result<()> {
         self.broadcast_vcpu_event(
             VcpuEvent::Exit,
             VcpuResponse::Exited(FC_EXIT_CODE_GENERIC_ERROR),
         )
+        .map_err(|_| Error::VcpuExit)
     }
     /// Returns a reference to the inner `GuestMemoryMmap` object if present, or `None` otherwise.
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
@@ -383,14 +390,15 @@ impl Vmm {
         &mut self,
         event: VcpuEvent,
         expected_response: VcpuResponse,
-    ) -> std::result::Result<(), MicrovmStateError> {
-        use self::MicrovmStateError::*;
+    ) -> Result<()> {
         for handle in self.vcpus_handles.iter() {
-            handle.send_event(event.clone()).map_err(SignalVcpu)?;
+            handle
+                .send_event(event.clone())
+                .map_err(|_| Error::VcpuMessage)?;
         }
 
         self.check_vcpus_response(expected_response)
-            .map_err(|_| MicrovmStateError::UnexpectedVcpuResponse)
+            .map_err(|_| Error::VcpuMessage)
     }
 
     #[cfg(target_arch = "x86_64")]
