@@ -726,6 +726,8 @@ version = "0.1.0"
 dependencies = [
  "libc 0.2.68 (registry+https://github.com/rust-lang/crates.io-index)",
  "net_gen 0.1.0",
+ "serde 1.0.105 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.48 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm-sys-util 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -786,7 +788,6 @@ dependencies = [
  "arch 0.1.0",
  "cpuid 0.1.0",
  "devices 0.1.0",
- "dumbo 0.1.0",
  "kernel 0.1.0",
  "kvm-bindings 0.2.0 (git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.2.0-2)",
  "kvm-ioctls 0.5.0 (git+https://github.com/firecracker-microvm/kvm-ioctls?tag=v0.5.0-2)",

@@ -14,7 +14,6 @@ use crate::virtio::{
 };
 use crate::{report_net_event_fail, Error as DeviceError};
 use dumbo::pdu::ethernet::EthernetFrame;
-use dumbo::{MacAddr, MAC_ADDR_LEN};
 use libc::EAGAIN;
 use logger::{error, warn, Metric, METRICS};
 use mmds::ns::MmdsNetworkStack;
@@ -27,6 +26,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::{cmp, mem, result};
 use utils::eventfd::EventFd;
+use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use virtio_gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
     VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,

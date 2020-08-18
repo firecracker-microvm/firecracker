@@ -17,16 +17,15 @@ versionize_derive = { git = "https://github.com/firecracker-microvm/versionize_d
 
 arch = { path = "../arch" }
 devices = { path = "../devices" }
-dumbo = { path = "../dumbo" }
 kernel = { path = "../kernel" }
 logger = { path = "../logger" }
 vm-memory = { version = ">=0.2.2", features = ["backend-mmap"] }
 mmds = { path = "../mmds" }
-utils = { path = "../utils"}
 rate_limiter = { path = "../rate_limiter" }
 seccomp = { path = "../seccomp" }
 polly = { path = "../polly" }
 snapshot = { path = "../snapshot"}
+utils = { path = "../utils" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }
