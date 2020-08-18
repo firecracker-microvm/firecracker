@@ -53,6 +53,10 @@ pub enum Error {
     Crc64(u64),
     /// Magic value does not match arch.
     InvalidMagic(u64),
+    /// Invalid format version.
+    InvalidFormatVersion(u16),
+    /// Invalid data version.
+    InvalidDataVersion(u16),
 }
 
 #[derive(Default, Debug, Versionize)]
@@ -108,9 +112,16 @@ impl Snapshot {
                 .map_err(Error::Versionize)?;
 
         let format_version = get_format_version(magic_id)?;
+        if format_version > format_version_map.latest_version() || format_version == 0 {
+            return Err(Error::InvalidFormatVersion(format_version));
+        }
+
         let hdr: SnapshotHdr =
             SnapshotHdr::deserialize(&mut reader, &format_version_map, format_version)
                 .map_err(Error::Versionize)?;
+        if hdr.data_version > version_map.latest_version() || hdr.data_version == 0 {
+            return Err(Error::InvalidDataVersion(hdr.data_version));
+        }
 
         Ok(O::deserialize(&mut reader, &version_map, hdr.data_version)
             .map_err(Error::Versionize)?)
