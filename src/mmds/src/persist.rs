@@ -5,8 +5,8 @@
 
 use std::net::Ipv4Addr;
 
-use dumbo::{MacAddr, MAC_ADDR_LEN};
 use snapshot::Persist;
+use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 

@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use super::RateLimiterConfig;
 use devices::virtio::net::TapError;
 use devices::virtio::Net;
-use dumbo::MacAddr;
 use rate_limiter::{BucketUpdate, TokenBucket};
+use utils::net::mac::MacAddr;
 
 use serde::Deserialize;
 
