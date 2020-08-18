@@ -464,4 +464,65 @@ mod tests {
             | kvm_bindings::KVM_REG_ARM64_SYSREG as u64;
         assert!(is_system_register(regid));
     }
+
+    #[test]
+    fn test_save_restore_regs() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
+        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
+        vm.get_preferred_target(&mut kvi).unwrap();
+
+        // Must fail when vcpu is not initialized yet.
+        let mut state = Vec::new();
+        let res = save_core_registers(&vcpu, &mut state);
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Failed to get X0 register: Exec format error (os error 8)"
+        );
+
+        vcpu.vcpu_init(&kvi).unwrap();
+        assert!(save_core_registers(&vcpu, &mut state).is_ok());
+        assert!(save_system_registers(&vcpu, &mut state).is_ok());
+
+        assert!(restore_registers(&vcpu, &state).is_ok());
+        let off = offset__of!(user_pt_regs, pstate);
+        let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
+        let pstate = vcpu
+            .get_one_reg(id)
+            .expect("Failed to call kvm get one reg");
+        assert!(state.contains(&kvm_bindings::kvm_one_reg { id, addr: pstate }));
+    }
+
+    #[test]
+    fn test_mpstate() {
+        use std::os::unix::io::AsRawFd;
+
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu = vm.create_vcpu(0).unwrap();
+        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
+        vm.get_preferred_target(&mut kvi).unwrap();
+
+        let res = get_mpstate(&vcpu);
+        assert!(res.is_ok());
+        assert!(set_mpstate(&vcpu, res.unwrap()).is_ok());
+
+        unsafe { libc::close(vcpu.as_raw_fd()) };
+
+        let res = get_mpstate(&vcpu);
+        assert!(res.is_err());
+        &&assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Failed to get multiprocessor state: Bad file descriptor (os error 9)"
+        );
+
+        let res = set_mpstate(&vcpu, kvm_mp_state::default());
+        assert!(res.is_err());
+        &&assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Failed to set multiprocessor state: Bad file descriptor (os error 9)"
+        );
+    }
 }
