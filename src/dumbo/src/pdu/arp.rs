@@ -7,14 +7,14 @@
 //! A more detailed view of an ARP frame can be found [here].
 //!
 //! [here]: https://en.wikipedia.org/wiki/Address_Resolution_Protocol
-
 use std::convert::From;
 use std::net::Ipv4Addr;
 use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::ethernet::{self, ETHERTYPE_IPV4};
-use crate::mac::{MacAddr, MAC_ADDR_LEN};
+
+use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 
 /// ARP Request operation
 pub const OPER_REQUEST: u16 = 0x0001;

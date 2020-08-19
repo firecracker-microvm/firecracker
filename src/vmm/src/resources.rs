@@ -310,8 +310,8 @@ mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
     use crate::vstate::vcpu::VcpuConfig;
-    use dumbo::MacAddr;
     use logger::{LevelFilter, LOGGER};
+    use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
 
     fn default_net_cfg() -> NetworkInterfaceConfig {
