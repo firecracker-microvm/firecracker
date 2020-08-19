@@ -13,4 +13,9 @@ def proc_type():
     for line in lines:
         if "model name" in line:
             return re.sub(".*model name.*:", "", line, 1)
+
+    cmd = "uname -m"
+    result = utils.run_cmd(cmd).stdout.strip()
+    if "aarch64" in result:
+        return "ARM"
     return ""
