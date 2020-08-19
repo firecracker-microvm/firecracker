@@ -23,7 +23,7 @@ import host_tools.proc as proc
 # this contains the frequency while on AMD it does not.
 # Checkout the cpuid crate. In the future other
 # differences may appear.
-COVERAGE_DICT = {"Intel": 85.20, "AMD": 84.36}
+COVERAGE_DICT = {"Intel": 85.20, "AMD": 84.36, "ARM": 82.70}
 PROC_MODEL = proc.proc_type()
 
 COVERAGE_MAX_DELTA = 0.05
@@ -78,10 +78,6 @@ def test_ensure_mod_tests():
 
 
 @pytest.mark.timeout(400)
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="kcov hangs on aarch64"
-)
 def test_coverage(test_session_root_path, test_session_tmp_path):
     """Test line coverage with kcov.
 
@@ -106,14 +102,17 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
         '_gen'
     )
     exclude_region = '\'mod tests {\''
+    target = "{}-unknown-linux-musl".format(platform.machine())
 
     cmd = (
-        'CARGO_TARGET_DIR={} cargo kcov --all '
-        '--output {} -- '
+        'RUSTFLAGS="{}" CARGO_TARGET_DIR={} cargo kcov --all '
+        '--target {} --output {} -- '
         '--exclude-pattern={} '
         '--exclude-region={} --verify'
     ).format(
+        host.get_rustflags(),
         os.path.join(test_session_root_path, CARGO_KCOV_REL_PATH),
+        target,
         test_session_tmp_path,
         exclude_pattern,
         exclude_region
