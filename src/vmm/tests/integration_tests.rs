@@ -284,6 +284,36 @@ fn test_dirty_bitmap_success() {
     }
 }
 
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn test_disallow_snapshots_without_pausing() {
+    let pid = unsafe { libc::fork() };
+    match pid {
+        0 => {
+            set_panic_hook();
+            let (vmm, _) = default_vmm(Some(NOISY_KERNEL_IMAGE));
+
+            // Verify saving state while running is not allowed.
+            // Can't do unwrap_err() because MicrovmState doesn't impl Debug.
+            match vmm.lock().unwrap().save_state() {
+                Err(e) => assert!(format!("{:?}", e).contains("NotAllowed")),
+                Ok(_) => panic!("Should not be allowed."),
+            };
+
+            // Pause microVM.
+            vmm.lock().unwrap().pause_vcpus().unwrap();
+            // It is now allowed.
+            vmm.lock().unwrap().save_state().unwrap();
+            // Stop.
+            vmm.lock().unwrap().stop(0);
+        }
+        vmm_pid => {
+            // Parent process: wait for the vmm to exit.
+            wait_vmm_child_process(vmm_pid);
+        }
+    }
+}
+
 #[cfg(target_arch = "x86_64")]
 fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     let snapshot_file = TempFile::new().unwrap();
