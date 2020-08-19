@@ -382,6 +382,7 @@ impl Vmm {
             .map(|response| match response {
                 VcpuResponse::SavedState(state) => Ok(*state),
                 VcpuResponse::Error(e) => Err(SaveVcpuState(e)),
+                VcpuResponse::NotAllowed(reason) => Err(MicrovmStateError::NotAllowed(reason)),
                 _ => Err(UnexpectedVcpuResponse),
             })
             .collect::<std::result::Result<Vec<VcpuState>, MicrovmStateError>>()?;
@@ -443,6 +444,9 @@ impl Vmm {
                     let _ = self.exit_vcpus();
                     self.stop(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
                     unreachable!()
+                }
+                VcpuResponse::NotAllowed(reason) => {
+                    return Err(MicrovmStateError::NotAllowed(reason))
                 }
                 _ => return Err(MicrovmStateError::UnexpectedVcpuResponse),
             }
