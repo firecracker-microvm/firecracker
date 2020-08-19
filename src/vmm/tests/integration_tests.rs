@@ -164,6 +164,25 @@ fn test_vmm_seccomp() {
 }
 
 #[test]
+fn test_exit_vcpus() {
+    // Tests that exiting vCPUs works.
+    let pid = unsafe { libc::fork() };
+    match pid {
+        0 => {
+            set_panic_hook();
+
+            let (vmm, _) = default_vmm(None);
+
+            assert!(vmm.lock().unwrap().exit_vcpus().is_ok());
+        }
+        vmm_pid => {
+            // Parent process: wait for the vmm to exit.
+            wait_vmm_child_process(vmm_pid);
+        }
+    }
+}
+
+#[test]
 fn test_pause_resume_microvm() {
     // Tests that pausing and resuming a microVM work as expected.
     let pid = unsafe { libc::fork() };
