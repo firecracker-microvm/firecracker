@@ -129,7 +129,7 @@ testing.
 
 The security of Firecracker is our top priority. If you suspect you have
 uncovered a vulnerability, contact us privately, as outlined in our
-[security policy document](SECURITY-POLICY.md); we will immediately prioritize
+[security policy document](SECURITY.md); we will immediately prioritize
 your disclosure.
 
 ## FAQ & Contact
@@ -137,7 +137,7 @@ your disclosure.
 Frequently asked questions are collected in our [FAQ doc](FAQ.md).
 
 You can get in touch with the Firecracker community in the following ways:
-- Security-related issues, see our [security policy document](SECURITY-POLICY.md).
+- Security-related issues, see our [security policy document](SECURITY.md).
 - Chat with us on our
   [Slack workspace](https://join.slack.com/t/firecracker-microvm/shared_invite/enQtNDY2NTUwMzQ3MDE1LWIwMzA0OWFkMTZhMTlmMDZiMmFkYjMyODMxMGQ1ZjliMzJjNjJiNWRhNWNkOGEyNmUxNmRkMjZhYTc3MmVjZjM).
   _Note: most of the maintainers are on a European time zone._
