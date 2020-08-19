@@ -31,6 +31,7 @@ RUN apt-get update \
         iperf3 \
         iproute2 \
         jq \
+        libbfd-dev \
         libcurl4-openssl-dev \
         libdw-dev \
         libfdt-dev \
@@ -71,13 +72,19 @@ RUN apt-get update \
 
 # Install the Rust toolchain
 #
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
+RUN mkdir "$TMP_BUILD_DIR" \
+    && curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain "$RUST_TOOLCHAIN" \
         && rustup target add aarch64-unknown-linux-musl \
+        && cd "$TMP_BUILD_DIR" \
+                    && cargo install cargo-kcov \
+                    && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
         && rm -rf "$CARGO_HOME/git" \
-        && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git"
-#
+        && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git" \
+    && cd / \
+    && rm -rf "$TMP_BUILD_DIR"
+
 # Add the tini init binary.
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION_TAG}/tini-static-arm64 /sbin/tini
 RUN chmod +x /sbin/tini
