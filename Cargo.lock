@@ -241,6 +241,7 @@ dependencies = [
  "polly 0.0.1",
  "rate_limiter 0.1.0",
  "snapshot 0.1.0",
+ "timerfd 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
  "versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.0 (git+https://github.com/firecracker-microvm/versionize_derive?tag=v0.1.0)",
