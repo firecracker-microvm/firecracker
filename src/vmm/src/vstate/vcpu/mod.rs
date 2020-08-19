@@ -313,7 +313,9 @@ impl Vcpu {
             // SaveState or RestoreState cannot be performed on a running Vcpu.
             Ok(VcpuEvent::SaveState) | Ok(VcpuEvent::RestoreState(_)) => {
                 self.response_sender
-                    .send(VcpuResponse::NotAllowed)
+                    .send(VcpuResponse::NotAllowed(String::from(
+                        "save/restore unavailable while running",
+                    )))
                     .expect("failed to send save not allowed status");
             }
             Ok(VcpuEvent::Exit) => return self.exit(FC_EXIT_CODE_GENERIC_ERROR),
@@ -525,7 +527,7 @@ pub enum VcpuResponse {
     /// Vcpu is stopped.
     Exited(u8),
     /// Requested action not allowed.
-    NotAllowed,
+    NotAllowed(String),
     /// Vcpu is paused.
     Paused,
     /// Vcpu is resumed.
@@ -604,12 +606,12 @@ mod tests {
             // Guard match with no wildcard to make sure we catch new enum variants.
             match self {
                 Paused | Resumed | Exited(_) => (),
-                Error(_) | NotAllowed | RestoredState | SavedState(_) => (),
+                Error(_) | NotAllowed(_) | RestoredState | SavedState(_) => (),
             };
             match (self, other) {
                 (Paused, Paused) | (Resumed, Resumed) => true,
                 (Exited(code), Exited(other_code)) => code == other_code,
-                (NotAllowed, NotAllowed)
+                (NotAllowed(_), NotAllowed(_))
                 | (RestoredState, RestoredState)
                 | (SavedState(_), SavedState(_)) => true,
                 (Error(ref err), Error(ref other_err)) => {
@@ -630,7 +632,7 @@ mod tests {
                 RestoredState => write!(f, "VcpuResponse::RestoredState"),
                 SavedState(_) => write!(f, "VcpuResponse::SavedState"),
                 Error(ref err) => write!(f, "VcpuResponse::Error({:?})", err),
-                NotAllowed => write!(f, "VcpuResponse::NotAllowed"),
+                NotAllowed(ref reason) => write!(f, "VcpuResponse::NotAllowed({})", reason),
             }
         }
     }
@@ -870,7 +872,11 @@ mod tests {
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
 
         // Queue a SaveState event, expect a response.
-        queue_event_expect_response(&vcpu_handle, VcpuEvent::SaveState, VcpuResponse::NotAllowed);
+        queue_event_expect_response(
+            &vcpu_handle,
+            VcpuEvent::SaveState,
+            VcpuResponse::NotAllowed(String::new()),
+        );
 
         // Queue another Pause event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Pause, VcpuResponse::Paused);

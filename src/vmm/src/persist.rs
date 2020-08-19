@@ -57,6 +57,8 @@ pub struct MicrovmState {
 pub enum MicrovmStateError {
     /// Provided MicroVM state is invalid.
     InvalidInput,
+    /// Operation not allowed.
+    NotAllowed(String),
     /// Failed to restore devices.
     RestoreDevices(DevicePersistError),
     /// Failed to restore Vcpu state.
@@ -78,6 +80,7 @@ impl Display for MicrovmStateError {
         use self::MicrovmStateError::*;
         match self {
             InvalidInput => write!(f, "Provided MicroVM state is invalid."),
+            NotAllowed(msg) => write!(f, "Operation not allowed: {}", msg),
             RestoreDevices(err) => write!(f, "Cannot restore devices. Error: {:?}", err),
             RestoreVcpuState(err) => write!(f, "Cannot restore Vcpu state. Error: {:?}", err),
             RestoreVmState(err) => write!(f, "Cannot restore Vm state. Error: {:?}", err),
@@ -426,6 +429,9 @@ mod tests {
         use crate::persist::MicrovmStateError::*;
 
         let err = InvalidInput;
+        let _ = format!("{}{:?}", err, err);
+
+        let err = NotAllowed(String::from(""));
         let _ = format!("{}{:?}", err, err);
 
         let err = RestoreDevices(DevicePersistError::MmioTransport);
