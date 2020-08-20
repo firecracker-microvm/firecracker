@@ -30,6 +30,8 @@ pub enum Error {
     Cmdline(kernel_cmdline::Error),
     /// Failure in creating or cloning an event fd.
     EventFd(io::Error),
+    /// Invalid configuration attempted.
+    InvalidInput,
     /// No more IRQs are available.
     IrqsExhausted,
     /// Registering an IO Event failed.
@@ -50,6 +52,7 @@ impl fmt::Display for Error {
                 write!(f, "unable to add device to kernel command line: {}", e)
             }
             Error::EventFd(ref e) => write!(f, "failed to create or clone event descriptor: {}", e),
+            Error::InvalidInput => write!(f, "invalid configuration"),
             Error::IrqsExhausted => write!(f, "no more IRQs are available"),
             Error::RegisterIoEvent(ref e) => write!(f, "failed to register IO event: {}", e),
             Error::RegisterIrqFd(ref e) => write!(f, "failed to register irqfd: {}", e),
@@ -78,12 +81,55 @@ pub struct MMIODeviceInfo {
     pub irqs: Vec<u32>,
 }
 
+struct IrqManager {
+    #[cfg(target_arch = "x86_64")]
+    first: u32,
+    last: u32,
+    next_avail: u32,
+}
+
+impl IrqManager {
+    pub fn new(first: u32, last: u32) -> Self {
+        Self {
+            #[cfg(target_arch = "x86_64")]
+            first,
+            last,
+            next_avail: first,
+        }
+    }
+
+    pub fn get(&mut self, count: u32) -> Result<Vec<u32>> {
+        if self.next_avail + count > self.last + 1 {
+            return Err(Error::IrqsExhausted);
+        }
+        let mut irqs = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            irqs.push(self.next_avail);
+            self.next_avail += 1;
+        }
+        Ok(irqs)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    pub fn check(&self, irqs: &[u32]) -> Result<()> {
+        for irq in irqs {
+            // Check for out of range.
+            if self.first > *irq || *irq > self.last {
+                return Err(Error::InvalidInput);
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub(crate) bus: devices::Bus,
+    // Right now only used on x86_64, but aarch64 will also use these shortly.
+    #[cfg(target_arch = "x86_64")]
     mmio_base: u64,
-    irq: u32,
-    last_irq: u32,
+    next_avail_mmio: u64,
+    irqs: IrqManager,
     pub(crate) id_to_dev_info: HashMap<(DeviceType, String), MMIODeviceInfo>,
 }
 
@@ -91,9 +137,10 @@ impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
     pub fn new(mmio_base: u64, irq_interval: (u32, u32)) -> MMIODeviceManager {
         MMIODeviceManager {
+            #[cfg(target_arch = "x86_64")]
             mmio_base,
-            irq: irq_interval.0,
-            last_irq: irq_interval.1,
+            next_avail_mmio: mmio_base,
+            irqs: IrqManager::new(irq_interval.0, irq_interval.1),
             bus: devices::Bus::new(),
             id_to_dev_info: HashMap::new(),
         }
@@ -101,21 +148,23 @@ impl MMIODeviceManager {
 
     /// Allocates resources for a new device to be added.
     fn allocate_new_slot(&mut self, irq_count: u32) -> Result<MMIODeviceInfo> {
-        if self.irq + irq_count > self.last_irq + 1 {
-            return Err(Error::IrqsExhausted);
-        }
-        let mut irqs = Vec::with_capacity(irq_count as usize);
-        for _ in 0..irq_count {
-            irqs.push(self.irq);
-            self.irq += 1;
-        }
+        let irqs = self.irqs.get(irq_count)?;
         let slot = MMIODeviceInfo {
-            addr: self.mmio_base,
+            addr: self.next_avail_mmio,
             len: MMIO_LEN,
             irqs,
         };
-        self.mmio_base += MMIO_LEN;
+        self.next_avail_mmio += MMIO_LEN;
         Ok(slot)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    /// Does a slot sanity check against expected values.
+    pub fn slot_sanity_check(&self, slot: &MMIODeviceInfo) -> Result<()> {
+        if slot.addr < self.mmio_base || slot.len != MMIO_LEN {
+            return Err(Error::InvalidInput);
+        }
+        self.irqs.check(&slot.irqs)
     }
 
     fn register_mmio_device(
@@ -139,6 +188,11 @@ impl MMIODeviceManager {
         mmio_device: MmioTransport,
         slot: &MMIODeviceInfo,
     ) -> Result<()> {
+        // Our virtio devices are currently hardcoded to use a single IRQ.
+        // Validate that requirement.
+        if slot.irqs.len() != 1 {
+            return Err(Error::InvalidInput);
+        }
         let identifier;
         {
             let locked_device = mmio_device.locked_device();
@@ -471,8 +525,8 @@ mod tests {
                     &format!(
                         "{}K@0x{:08x}:{}",
                         MMIO_LEN / 1024,
-                        device_manager.mmio_base,
-                        device_manager.irq
+                        device_manager.next_avail_mmio,
+                        device_manager.next_avail_irq
                     ),
                 )
                 .unwrap_err(),
@@ -495,6 +549,8 @@ mod tests {
                 devices::BusError::Overlap
             )
         );
+        let err = Error::InvalidInput;
+        format!("{}{:?}", err, err);
         assert_eq!(
             format!("{}", Error::IrqsExhausted),
             "no more IRQs are available"
@@ -555,9 +611,9 @@ mod tests {
         let mut device_manager =
             MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
         let _addr = device_manager.allocate_new_slot(0);
-        assert_eq!(device_manager.irq, arch::IRQ_BASE);
+        assert_eq!(device_manager.irqs.next_avail, arch::IRQ_BASE);
         let _addr = device_manager.allocate_new_slot(1);
-        assert_eq!(device_manager.irq, arch::IRQ_BASE + 1);
+        assert_eq!(device_manager.irqs.next_avail, arch::IRQ_BASE + 1);
         assert_eq!(
             format!(
                 "{}",
@@ -569,14 +625,57 @@ mod tests {
         );
 
         let _addr = device_manager.allocate_new_slot(arch::IRQ_MAX - arch::IRQ_BASE - 1);
-        assert_eq!(device_manager.irq, arch::IRQ_MAX);
+        assert_eq!(device_manager.irqs.next_avail, arch::IRQ_MAX);
         assert_eq!(
             format!("{}", device_manager.allocate_new_slot(2).unwrap_err()),
             "no more IRQs are available".to_string()
         );
 
         let _addr = device_manager.allocate_new_slot(1);
-        assert_eq!(device_manager.irq, arch::IRQ_MAX + 1);
+        assert_eq!(device_manager.irqs.next_avail, arch::IRQ_MAX + 1);
         assert!(device_manager.allocate_new_slot(0).is_ok());
+    }
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn test_slot_sanity_checks() {
+        let mmio_base = 0xd000_0000;
+        let device_manager = MMIODeviceManager::new(mmio_base, (arch::IRQ_BASE, arch::IRQ_MAX));
+
+        // Valid slot.
+        let slot = MMIODeviceInfo {
+            addr: mmio_base,
+            len: MMIO_LEN,
+            irqs: vec![arch::IRQ_BASE, arch::IRQ_BASE + 1],
+        };
+        device_manager.slot_sanity_check(&slot).unwrap();
+        // 'addr' below base.
+        let slot = MMIODeviceInfo {
+            addr: mmio_base - 1,
+            len: MMIO_LEN,
+            irqs: vec![arch::IRQ_BASE, arch::IRQ_BASE + 1],
+        };
+        device_manager.slot_sanity_check(&slot).unwrap_err();
+        // Invalid 'len'.
+        let slot = MMIODeviceInfo {
+            addr: mmio_base,
+            len: MMIO_LEN - 1,
+            irqs: vec![arch::IRQ_BASE, arch::IRQ_BASE + 1],
+        };
+        device_manager.slot_sanity_check(&slot).unwrap_err();
+        // 'irq' below range.
+        let slot = MMIODeviceInfo {
+            addr: mmio_base,
+            len: MMIO_LEN,
+            irqs: vec![arch::IRQ_BASE - 1, arch::IRQ_BASE + 1],
+        };
+        device_manager.slot_sanity_check(&slot).unwrap_err();
+        // 'irq' above range.
+        let slot = MMIODeviceInfo {
+            addr: mmio_base,
+            len: MMIO_LEN,
+            irqs: vec![arch::IRQ_BASE, arch::IRQ_MAX + 1],
+        };
+        device_manager.slot_sanity_check(&slot).unwrap_err();
     }
 }
