@@ -17,7 +17,7 @@ use vm_memory::GuestMemoryMmap;
 use super::*;
 
 use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, Queue};
+use crate::virtio::{DeviceState, Queue, TYPE_BLOCK};
 
 #[derive(Versionize)]
 pub struct BlockState {
@@ -53,6 +53,11 @@ impl Persist<'_> for Block {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
+        state
+            .virtio_state
+            .sanity_check(TYPE_BLOCK, NUM_QUEUES, QUEUE_SIZE)
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+
         let is_disk_read_only = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0;
         let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)?;
 
@@ -88,7 +93,6 @@ mod tests {
     use super::*;
     use crate::virtio::block::device::tests::default_mem;
     use crate::virtio::device::VirtioDevice;
-    use crate::virtio::TYPE_BLOCK;
     use utils::tempfile::TempFile;
 
     use std::sync::atomic::Ordering;
