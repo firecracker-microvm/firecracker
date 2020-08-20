@@ -28,6 +28,8 @@ pub enum Error {
     BusError(devices::BusError),
     /// Appending to kernel command line failed.
     Cmdline(kernel_cmdline::Error),
+    /// The device couldn't be found
+    DeviceNotFound,
     /// Failure in creating or cloning an event fd.
     EventFd(io::Error),
     /// Invalid configuration attempted.
@@ -38,8 +40,6 @@ pub enum Error {
     RegisterIoEvent(kvm_ioctls::Error),
     /// Registering an IRQ FD failed.
     RegisterIrqFd(kvm_ioctls::Error),
-    /// The device couldn't be found
-    DeviceNotFound,
     /// Failed to update the mmio device.
     UpdateFailed,
 }
@@ -515,54 +515,32 @@ mod tests {
     }
 
     #[test]
-    fn test_error_messages() {
-        let device_manager = MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
-        let mut cmdline = kernel_cmdline::Cmdline::new(4096);
-        let e = Error::Cmdline(
-            cmdline
-                .insert(
-                    "virtio_mmio=device",
-                    &format!(
-                        "{}K@0x{:08x}:{}",
-                        MMIO_LEN / 1024,
-                        device_manager.next_avail_mmio,
-                        device_manager.next_avail_irq
-                    ),
-                )
-                .unwrap_err(),
-        );
-        assert_eq!(
-            format!("{}", e),
-            format!(
-                "unable to add device to kernel command line: {}",
-                kernel_cmdline::Error::HasEquals
-            ),
-        );
-        assert_eq!(
-            format!("{}", Error::UpdateFailed),
-            "failed to update the mmio device"
-        );
-        assert_eq!(
-            format!("{}", Error::BusError(devices::BusError::Overlap)),
-            format!(
-                "failed to perform bus operation: {}",
-                devices::BusError::Overlap
-            )
-        );
-        let err = Error::InvalidInput;
-        format!("{}{:?}", err, err);
-        assert_eq!(
-            format!("{}", Error::IrqsExhausted),
-            "no more IRQs are available"
-        );
-        assert_eq!(
-            format!("{}", Error::RegisterIoEvent(errno::Error::new(0))),
-            format!("failed to register IO event: {}", errno::Error::new(0))
-        );
-        assert_eq!(
-            format!("{}", Error::RegisterIrqFd(errno::Error::new(0))),
-            format!("failed to register irqfd: {}", errno::Error::new(0))
-        );
+    fn test_error_debug_display() {
+        let check_fmt_err = |e: Error| {
+            // Use an exhaustive 'match' to make sure we cover all error variants.
+            // When adding a new variant here, don't forget to also call this function with it.
+            let msg = match e {
+                Error::BusError(_) => format!("{}{:?}", e, e),
+                Error::Cmdline(_) => format!("{}{:?}", e, e),
+                Error::DeviceNotFound => format!("{}{:?}", e, e),
+                Error::EventFd(_) => format!("{}{:?}", e, e),
+                Error::InvalidInput => format!("{}{:?}", e, e),
+                Error::IrqsExhausted => format!("{}{:?}", e, e),
+                Error::RegisterIoEvent(_) => format!("{}{:?}", e, e),
+                Error::RegisterIrqFd(_) => format!("{}{:?}", e, e),
+                Error::UpdateFailed => format!("{}{:?}", e, e),
+            };
+            assert!(!msg.is_empty());
+        };
+        check_fmt_err(Error::BusError(devices::BusError::Overlap));
+        check_fmt_err(Error::Cmdline(kernel_cmdline::Error::CommandLineCopy));
+        check_fmt_err(Error::DeviceNotFound);
+        check_fmt_err(Error::EventFd(io::Error::from_raw_os_error(0)));
+        check_fmt_err(Error::InvalidInput);
+        check_fmt_err(Error::IrqsExhausted);
+        check_fmt_err(Error::RegisterIoEvent(errno::Error::new(0)));
+        check_fmt_err(Error::RegisterIrqFd(errno::Error::new(0)));
+        check_fmt_err(Error::UpdateFailed);
     }
 
     #[test]
