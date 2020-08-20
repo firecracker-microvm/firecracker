@@ -407,7 +407,7 @@
   - [contribution guildelines](CONTRIBUTE.md)
   - [design](docs/design.md)
   - [getting started guide](docs/getting-started.md)
-  - [security policy](SECURITY-POLICY.md)
+  - [security policy](SECURITY.md)
   - [specifications](SPECIFICATION.md)
 - **Experimental** vhost-based vsock implementation.
 
