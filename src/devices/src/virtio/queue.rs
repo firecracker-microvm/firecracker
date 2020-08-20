@@ -259,13 +259,13 @@ impl Queue {
             );
             false
         } else if desc_table.raw_value() & 0xf != 0 {
-            error!("virtio queue descriptor table breaks alignment contraints");
+            error!("virtio queue descriptor table breaks alignment constraints");
             false
         } else if avail_ring.raw_value() & 0x1 != 0 {
-            error!("virtio queue available ring breaks alignment contraints");
+            error!("virtio queue available ring breaks alignment constraints");
             false
         } else if used_ring.raw_value() & 0x3 != 0 {
-            error!("virtio queue used ring breaks alignment contraints");
+            error!("virtio queue used ring breaks alignment constraints");
             false
         } else {
             true

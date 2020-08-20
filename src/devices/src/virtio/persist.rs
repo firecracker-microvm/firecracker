@@ -16,6 +16,11 @@ use std::num::Wrapping;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
+#[derive(Debug)]
+pub enum Error {
+    InvalidInput,
+}
+
 #[derive(Clone, Debug, PartialEq, Versionize)]
 pub struct QueueState {
     /// The maximal size in elements offered by the device
@@ -38,6 +43,25 @@ pub struct QueueState {
 
     next_avail: Wrapping<u16>,
     next_used: Wrapping<u16>,
+}
+
+impl QueueState {
+    /// Does a sanity check against expected values.
+    pub fn sanity_check(&self, queue_max_size: u16) -> std::result::Result<(), Error> {
+        // Cannot use `q.is_valid()` because snapshot can happen at any time,
+        // including during device configuration/activation when fields are only
+        // partially configured.
+        // We can't even check if GuestAddresses are valid guest phys addresses because
+        // their configuration happens in two steps for the two u32 halves of the
+        // u64 address. This means a snapshot can capture them only partially configured.
+        //
+        // The best we can do is sanity check queue size and max size.
+        if self.max_size != queue_max_size || self.size > queue_max_size {
+            Err(Error::InvalidInput)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl Persist<'_> for Queue {
@@ -97,6 +121,30 @@ impl VirtioDeviceState {
             activated: device.is_activated(),
         }
     }
+
+    /// Does a sanity check against expected values.
+    pub fn sanity_check(
+        &self,
+        device_type: u32,
+        num_queues: usize,
+        queue_max_size: u16,
+    ) -> std::result::Result<(), Error> {
+        // Check:
+        // - right device type,
+        // - acked features is a subset of available ones,
+        // - right number of queues,
+        if self.device_type != device_type
+            || (self.acked_features & !self.avail_features) != 0
+            || self.queues.len() != num_queues
+        {
+            return Err(Error::InvalidInput);
+        }
+        // Queues are the expected size.
+        for q in self.queues.iter() {
+            q.sanity_check(queue_max_size)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, PartialEq, Versionize)]
@@ -152,6 +200,68 @@ mod tests {
     use crate::virtio::{Block, Net, Vsock, VsockUnixBackend};
 
     use utils::tempfile::TempFile;
+
+    const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
+    impl Default for QueueState {
+        fn default() -> QueueState {
+            QueueState {
+                max_size: DEFAULT_QUEUE_MAX_SIZE,
+                size: DEFAULT_QUEUE_MAX_SIZE,
+                ready: false,
+                desc_table: 0,
+                avail_ring: 0,
+                used_ring: 0,
+                next_avail: Wrapping(0),
+                next_used: Wrapping(0),
+            }
+        }
+    }
+
+    impl Default for VirtioDeviceState {
+        fn default() -> VirtioDeviceState {
+            VirtioDeviceState {
+                device_type: 0,
+                avail_features: 0,
+                acked_features: 0,
+                queues: vec![],
+                interrupt_status: 0,
+                activated: false,
+            }
+        }
+    }
+
+    #[test]
+    fn test_queue_sanity_checks() {
+        let max_size = DEFAULT_QUEUE_MAX_SIZE;
+        let good_q = QueueState::default();
+        // Valid.
+        good_q.sanity_check(max_size).unwrap();
+
+        // Invalid max queue size.
+        let mut bad_q = QueueState::default();
+        bad_q.max_size = max_size + 1;
+        bad_q.sanity_check(max_size).unwrap_err();
+
+        // Invalid: size > max.
+        let mut bad_q = QueueState::default();
+        bad_q.size = max_size + 1;
+        bad_q.sanity_check(max_size).unwrap_err();
+    }
+
+    #[test]
+    fn test_virtiodev_sanity_checks() {
+        let max_size = DEFAULT_QUEUE_MAX_SIZE;
+        let mut state = VirtioDeviceState::default();
+        // Valid checks.
+        state.sanity_check(0, 0, max_size).unwrap();
+        // Invalid dev-type.
+        state.sanity_check(1, 0, max_size).unwrap_err();
+        // Invalid num-queues.
+        state.sanity_check(0, 1, max_size).unwrap_err();
+        // Unavailable features acked.
+        state.acked_features = 1;
+        state.sanity_check(0, 0, max_size).unwrap_err();
+    }
 
     #[test]
     fn test_queue_persistence() {

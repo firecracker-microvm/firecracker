@@ -16,9 +16,10 @@ use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
 use super::device::{ConfigSpace, Net};
+use super::{NUM_QUEUES, QUEUE_SIZE};
 
-use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, Queue};
+use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
+use crate::virtio::{DeviceState, Queue, TYPE_NET};
 
 #[derive(Versionize)]
 pub struct NetConfigSpaceState {
@@ -44,6 +45,7 @@ pub struct NetConstructorArgs {
 pub enum Error {
     CreateNet(super::Error),
     CreateRateLimiter(io::Error),
+    VirtioState(VirtioStateError),
 }
 
 impl Persist<'_> for Net {
@@ -69,6 +71,11 @@ impl Persist<'_> for Net {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
+        state
+            .virtio_state
+            .sanity_check(TYPE_NET, NUM_QUEUES, QUEUE_SIZE)
+            .map_err(Error::VirtioState)?;
+
         // RateLimiter::restore() can fail at creating a timerfd.
         let rx_rate_limiter = RateLimiter::restore((), &state.rx_rate_limiter_state)
             .map_err(Error::CreateRateLimiter)?;
@@ -120,7 +127,6 @@ impl Persist<'_> for Net {
 mod tests {
     use super::*;
     use crate::virtio::device::VirtioDevice;
-    use crate::virtio::TYPE_NET;
 
     use std::sync::atomic::Ordering;
 
