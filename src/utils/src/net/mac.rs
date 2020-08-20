@@ -46,7 +46,7 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// use self::dumbo::MacAddr;
+    /// use self::utils::net::mac::MacAddr;
     /// MacAddr::parse_str("12:34:56:78:9a:BC").unwrap();
     /// ```
     pub fn parse_str<S>(s: &S) -> Result<MacAddr, &str>
@@ -78,7 +78,7 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// use self::dumbo::MacAddr;
+    /// use self::utils::net::mac::MacAddr;
     /// let mac = MacAddr::from_bytes_unchecked(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
     /// println!("{}", mac.to_string());
     /// ```
@@ -100,7 +100,7 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// use self::dumbo::MacAddr;
+    /// use self::utils::net::mac::MacAddr;
     /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
     /// println!("{}", mac.to_string());
     /// ```
@@ -116,7 +116,7 @@ impl MacAddr {
     /// # Example
     ///
     /// ```
-    /// use self::dumbo::MacAddr;
+    /// use self::utils::net::mac::MacAddr;
     /// let mac = MacAddr::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06]).unwrap();
     /// assert_eq!([0x01, 0x02, 0x03, 0x04, 0x05, 0x06], mac.get_bytes());
     /// ```

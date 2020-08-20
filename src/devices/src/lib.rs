@@ -14,6 +14,7 @@ pub mod pseudo;
 pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice, Error as BusError};
+use crate::virtio::QueueError;
 use logger::{error, Metric, METRICS};
 
 // Function used for reporting error in terms of logging
@@ -21,6 +22,11 @@ use logger::{error, Metric, METRICS};
 pub(crate) fn report_net_event_fail(err: Error) {
     error!("{:?}", err);
     METRICS.net.event_fails.inc();
+}
+
+pub(crate) fn report_balloon_event_fail(err: virtio::balloon::Error) {
+    error!("{:?}", err);
+    METRICS.balloon.event_fails.inc();
 }
 
 #[derive(Debug)]
@@ -33,4 +39,8 @@ pub enum Error {
     IoError(io::Error),
     /// Device received malformed payload.
     MalformedPayload,
+    /// Device received malformed descriptor.
+    MalformedDescriptor,
+    /// Error during queue processing.
+    QueueError(QueueError),
 }

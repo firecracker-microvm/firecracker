@@ -22,8 +22,8 @@ use dumbo::pdu::tcp::Error as TcpSegmentError;
 use dumbo::pdu::Incomplete;
 use dumbo::tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
 use dumbo::tcp::NextSegmentStatus;
-use dumbo::MacAddr;
 use logger::{Metric, METRICS};
+use utils::net::mac::MacAddr;
 use utils::time::timestamp_cycles;
 
 const DEFAULT_MAC_ADDR: &str = "06:01:23:45:67:01";

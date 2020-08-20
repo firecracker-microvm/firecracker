@@ -14,7 +14,6 @@ use crate::virtio::{
 };
 use crate::{report_net_event_fail, Error as DeviceError};
 use dumbo::pdu::ethernet::EthernetFrame;
-use dumbo::{MacAddr, MAC_ADDR_LEN};
 use libc::EAGAIN;
 use logger::{error, warn, Metric, METRICS};
 use mmds::ns::MmdsNetworkStack;
@@ -27,6 +26,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::{cmp, mem, result};
 use utils::eventfd::EventFd;
+use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use virtio_gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
     VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
@@ -319,7 +319,11 @@ impl Net {
             }
         }
 
-        rx_queue.add_used(mem, head_index, write_count as u32);
+        rx_queue
+            .add_used(mem, head_index, write_count as u32)
+            .unwrap_or_else(|e| {
+                error!("Failed to add available descriptor {}: {}", head_index, e);
+            });
 
         // Mark that we have at least one pending packet and we need to interrupt the guest.
         self.rx_deferred_irqs = true;
@@ -566,7 +570,9 @@ impl Net {
                 process_rx_for_mmds = true;
             }
 
-            tx_queue.add_used(mem, head_index, 0);
+            tx_queue
+                .add_used(mem, head_index, 0)
+                .map_err(DeviceError::QueueError)?;
             raise_irq = true;
         }
 
