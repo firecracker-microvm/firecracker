@@ -40,6 +40,15 @@ type __u32 = ::std::os::raw::c_uint;
 type __s64 = ::std::os::raw::c_longlong;
 type __u64 = ::std::os::raw::c_ulonglong;
 
+type __s8 = ::std::os::raw::c_schar;
+type __u8 = ::std::os::raw::c_uchar;
+type __s16 = ::std::os::raw::c_short;
+type __u16 = ::std::os::raw::c_ushort;
+type __s32 = ::std::os::raw::c_int;
+type __u32 = ::std::os::raw::c_uint;
+type __s64 = ::std::os::raw::c_longlong;
+type __u64 = ::std::os::raw::c_ulonglong;
+
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
 pub struct elf64_hdr {
