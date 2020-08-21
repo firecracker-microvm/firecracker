@@ -681,6 +681,7 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         {
             vcpu = Vcpu::new(1, &vm, exit_evt).unwrap();
+            vcpu.kvm_vcpu.init(vm.fd()).unwrap();
             vm.setup_irqchip(1).unwrap();
         }
         #[cfg(target_arch = "x86_64")]
@@ -715,7 +716,7 @@ mod tests {
         Vcpu::register_kick_signal_handler();
         // Need enough mem to boot linux.
         let mem_size = 64 << 20;
-        let (vm, mut vcpu, vm_mem) = setup_vcpu(mem_size);
+        let (_vm, mut vcpu, vm_mem) = setup_vcpu(mem_size);
 
         let vcpu_exit_evt = vcpu.exit_evt.try_clone().unwrap();
 
@@ -724,7 +725,7 @@ mod tests {
 
         #[cfg(target_arch = "aarch64")]
         vcpu.kvm_vcpu
-            .configure(&vm.fd(), &vm_mem, entry_addr)
+            .configure(&vm_mem, entry_addr)
             .expect("failed to configure vcpu");
         #[cfg(target_arch = "x86_64")]
         {
@@ -738,7 +739,7 @@ mod tests {
                     &vm_mem,
                     entry_addr,
                     &vcpu_config,
-                    vm.supported_cpuid().clone(),
+                    _vm.supported_cpuid().clone(),
                 )
                 .expect("failed to configure vcpu");
         }
