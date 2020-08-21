@@ -133,6 +133,9 @@ pub enum Error {
     VcpuEvent(vstate::vcpu::Error),
     /// Cannot create a vCPU handle.
     VcpuHandle(vstate::vcpu::Error),
+    #[cfg(target_arch = "aarch64")]
+    /// Vcpu init error.
+    VcpuInit(vstate::vcpu::VcpuError),
     /// vCPU pause failed.
     VcpuPause,
     /// vCPU exit failed.
@@ -175,6 +178,8 @@ impl Display for Error {
             VcpuCreate(e) => write!(f, "Error creating the vcpu: {}", e),
             VcpuEvent(e) => write!(f, "Cannot send event to vCPU. {}", e),
             VcpuHandle(e) => write!(f, "Cannot create a vCPU handle. {}", e),
+            #[cfg(target_arch = "aarch64")]
+            VcpuInit(e) => write!(f, "Error initializing the vcpu: {}", e),
             VcpuPause => write!(f, "Failed to pause the vCPUs."),
             VcpuExit => write!(f, "Failed to exit the vCPUs."),
             VcpuResume => write!(f, "Failed to resume the vCPUs."),
