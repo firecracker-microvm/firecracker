@@ -100,24 +100,9 @@ impl KvmVcpu {
     /// * `kernel_load_addr` - Offset from `guest_mem` at which the kernel is loaded.
     pub fn configure(
         &mut self,
-        vm_fd: &VmFd,
         guest_mem: &GuestMemoryMmap,
         kernel_load_addr: GuestAddress,
     ) -> Result<()> {
-        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
-
-        // This reads back the kernel's preferred target type.
-        vm_fd
-            .get_preferred_target(&mut kvi)
-            .map_err(Error::GetPreferredTarget)?;
-        // We already checked that the capability is supported.
-        kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
-        // Non-boot cpus are powered off initially.
-        if self.index > 0 {
-            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
-        }
-
-        self.fd.vcpu_init(&kvi).map_err(Error::Init)?;
         arch::aarch64::regs::setup_boot_regs(
             &self.fd,
             self.index,
@@ -130,6 +115,27 @@ impl KvmVcpu {
             arch::aarch64::regs::read_mpidr(&self.fd).map_err(Error::ConfigureRegisters)?;
 
         Ok(())
+    }
+
+    /// Initializes an aarch64 specific vcpu for booting Linux.
+    ///
+    /// # Arguments
+    ///
+    /// * `vm_fd` - The kvm `VmFd` for this microvm.
+    pub fn init(&self, vm_fd: &VmFd) -> Result<()> {
+        let mut kvi: kvm_bindings::kvm_vcpu_init = kvm_bindings::kvm_vcpu_init::default();
+
+        // This reads back the kernel's preferred target type.
+        vm_fd
+            .get_preferred_target(&mut kvi)
+            .map_err(Error::GetPreferredTarget)?;
+        // We already checked that the capability is supported.
+        kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_PSCI_0_2;
+        // Non-boot cpus are powered off initially.
+        if self.index > 0 {
+            kvi.features[0] |= 1 << kvm_bindings::KVM_ARM_VCPU_POWER_OFF;
+        }
+        self.fd.vcpu_init(&kvi).map_err(Error::Init)
     }
 
     /// Save the KVM internal state.
@@ -191,6 +197,7 @@ mod tests {
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
         let (mut vm, vm_mem) = setup_vm(mem_size);
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
+        vcpu.init(vm.fd()).unwrap();
         vm.setup_irqchip(1).unwrap();
 
         (vm, vcpu, vm_mem)
@@ -219,35 +226,38 @@ mod tests {
 
     #[test]
     fn test_configure_vcpu() {
-        let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
 
         assert!(vcpu
-            .configure(&vm.fd(), &vm_mem, GuestAddress(arch::get_kernel_start()),)
+            .configure(&vm_mem, GuestAddress(arch::get_kernel_start()),)
             .is_ok());
 
-        unsafe { libc::close(vm.fd().as_raw_fd()) };
+        unsafe { libc::close(vcpu.fd.as_raw_fd()) };
 
-        let err = vcpu.configure(&vm.fd(), &vm_mem, GuestAddress(arch::get_kernel_start()));
+        let err = vcpu.configure(&vm_mem, GuestAddress(arch::get_kernel_start()));
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
-            "Error retrieving the vcpu preferred target: Bad file descriptor (os error 9)"
+            "Error configuring the general purpose registers: SetCoreRegister(Error(9), \"processor state\")"
                 .to_string()
         );
 
-        let (vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
+        let (_vm, mut vcpu, vm_mem) = setup_vcpu(0x10000);
         unsafe { libc::close(vcpu.fd.as_raw_fd()) };
-        let err = vcpu.configure(&vm.fd(), &vm_mem, GuestAddress(arch::get_kernel_start()));
+        let err = vcpu.configure(&vm_mem, GuestAddress(arch::get_kernel_start()));
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
-            "Error initializing the vcpu: Bad file descriptor (os error 9)".to_string()
+            "Error configuring the general purpose registers: SetCoreRegister(Error(9), \"processor state\")"
+                .to_string()
         );
     }
 
     #[test]
     fn test_vcpu_save_restore_state() {
-        let (vm, vcpu, _mem) = setup_vcpu(0x1000);
+        let (mut vm, _vm_mem) = setup_vm(0x1000);
+        let vcpu = KvmVcpu::new(0, &vm).unwrap();
+        vm.setup_irqchip(1).unwrap();
 
         // Calling KVM_GET_REGLIST before KVM_VCPU_INIT will result in error.
         let res = vcpu.save_state();
