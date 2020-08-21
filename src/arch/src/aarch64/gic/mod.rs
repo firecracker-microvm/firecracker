@@ -4,6 +4,7 @@
 mod dist_regs;
 mod gicv2;
 mod gicv3;
+mod icc_regs;
 mod redist_regs;
 
 use std::{boxed::Box, result};
@@ -11,6 +12,7 @@ use std::{boxed::Box, result};
 use kvm_ioctls::{DeviceFd, VmFd};
 
 pub use self::dist_regs::{get_dist_regs, set_dist_regs};
+pub use self::icc_regs::{get_icc_regs, set_icc_regs};
 pub use self::redist_regs::{get_redist_regs, set_redist_regs};
 use {super::layout, gicv2::GICv2, gicv3::GICv3};
 
