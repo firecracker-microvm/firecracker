@@ -639,6 +639,8 @@ fn create_vcpus(vm: &Vm, vcpu_count: u8, exit_evt: &EventFd) -> super::Result<Ve
         let exit_evt = exit_evt.try_clone().map_err(Error::EventFd)?;
 
         let vcpu = Vcpu::new(cpu_idx, vm, exit_evt).map_err(Error::VcpuCreate)?;
+        #[cfg(target_arch = "aarch64")]
+        vcpu.kvm_vcpu.init(vm.fd()).map_err(Error::VcpuInit)?;
 
         vcpus.push(vcpu);
     }
@@ -691,7 +693,7 @@ pub fn configure_system_for_boot(
     {
         for vcpu in vcpus.iter_mut() {
             vcpu.kvm_vcpu
-                .configure(vmm.vm.fd(), vmm.guest_memory(), entry_addr)
+                .configure(vmm.guest_memory(), entry_addr)
                 .map_err(Error::VcpuConfigure)
                 .map_err(Internal)?;
         }
