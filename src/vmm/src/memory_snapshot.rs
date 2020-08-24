@@ -3,9 +3,6 @@
 
 //! Defines functionality for creating guest memory snapshots.
 
-// Currently only used on x86_64.
-#![cfg(target_arch = "x86_64")]
-
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::SeekFrom;

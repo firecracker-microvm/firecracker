@@ -6,7 +6,6 @@ mod mock_seccomp;
 mod test_utils;
 
 use std::io;
-#[cfg(target_arch = "x86_64")]
 use std::io::{Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -14,27 +13,20 @@ use std::time::Duration;
 
 use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
-#[cfg(target_arch = "x86_64")]
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
-#[cfg(target_arch = "x86_64")]
 use vmm::builder::build_microvm_from_snapshot;
 use vmm::builder::{build_microvm_for_boot, setup_serial_device};
 use vmm::default_syscalls::get_seccomp_filter;
-#[cfg(target_arch = "x86_64")]
 use vmm::persist;
-#[cfg(target_arch = "x86_64")]
 use vmm::persist::MicrovmState;
 use vmm::resources::VmResources;
-#[cfg(target_arch = "x86_64")]
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::boot_source::BootSourceConfig;
-#[cfg(target_arch = "x86_64")]
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 use vmm::Vmm;
 
 use crate::mock_devices::MockSerialInput;
-#[cfg(target_arch = "x86_64")]
 use crate::mock_resources::NOISY_KERNEL_IMAGE;
 use crate::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::mock_seccomp::MockSeccomp;
@@ -298,7 +290,6 @@ fn test_dirty_bitmap_success() {
 }
 
 #[test]
-#[cfg(target_arch = "x86_64")]
 fn test_disallow_snapshots_without_pausing() {
     let pid = unsafe { libc::fork() };
     match pid {
@@ -327,7 +318,6 @@ fn test_disallow_snapshots_without_pausing() {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
 fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     let snapshot_file = TempFile::new().unwrap();
     let memory_file = TempFile::new().unwrap();
@@ -398,7 +388,6 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
     (snapshot_file, memory_file)
 }
 
-#[cfg(target_arch = "x86_64")]
 fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     use vm_memory::GuestMemoryMmap;
     use vmm::memory_snapshot::SnapshotMemory;
@@ -443,7 +432,6 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
 #[test]
 fn test_create_and_load_snapshot() {
     // Create diff snapshot.

@@ -4,13 +4,10 @@
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
-#[cfg(target_arch = "x86_64")]
 use crate::request::{Method, StatusCode};
-#[cfg(target_arch = "x86_64")]
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
 use vmm::vmm_config::snapshot::{Vm, VmState};
 
-#[cfg(target_arch = "x86_64")]
 pub fn parse_put_snapshot(
     body: &Body,
     request_type_from_path: Option<&&str>,
@@ -49,11 +46,9 @@ pub fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(target_arch = "x86_64")]
     use crate::parsed_request::tests::vmm_action_from_request;
 
     #[test]
-    #[cfg(target_arch = "x86_64")]
     fn test_parse_put_snapshot() {
         use std::path::PathBuf;
         use vmm::vmm_config::snapshot::SnapshotType;
