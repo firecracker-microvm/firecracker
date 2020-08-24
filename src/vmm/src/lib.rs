@@ -34,7 +34,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::os::unix::io::AsRawFd;
-#[cfg(target_arch = "x86_64")]
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -42,11 +41,8 @@ use std::time::Duration;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
-#[cfg(target_arch = "x86_64")]
 use crate::memory_snapshot::SnapshotMemory;
-#[cfg(target_arch = "x86_64")]
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
-#[cfg(target_arch = "x86_64")]
 use crate::vstate::vcpu::VcpuState;
 use crate::vstate::{
     vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse},
@@ -63,7 +59,6 @@ use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
 use rate_limiter::BucketUpdate;
 use seccomp::BpfProgramRef;
-#[cfg(target_arch = "x86_64")]
 use snapshot::Persist;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
@@ -359,13 +354,21 @@ impl Vmm {
     }
 
     /// Saves the state of a paused Microvm.
-    #[cfg(target_arch = "x86_64")]
     pub fn save_state(&mut self) -> std::result::Result<MicrovmState, MicrovmStateError> {
         use self::MicrovmStateError::SaveVmState;
         let vcpu_states = self.save_vcpu_states()?;
+        let vm_state = {
+            #[cfg(target_arch = "x86_64")]
+            {
+                self.vm.save_state().map_err(SaveVmState)?
+            }
+            #[cfg(target_arch = "aarch64")]
+            {
+                let mpidrs = construct_gicr_typer(&vcpu_states);
 
-        let vm_state = self.vm.save_state().map_err(SaveVmState)?;
-
+                self.vm.save_state(&mpidrs).map_err(SaveVmState)?
+            }
+        };
         let device_states = self.mmio_device_manager.save();
 
         let mem_size_mib = persist::mem_size_mib(self.guest_memory());
@@ -380,7 +383,6 @@ impl Vmm {
         })
     }
 
-    #[cfg(target_arch = "x86_64")]
     fn save_vcpu_states(&mut self) -> std::result::Result<Vec<VcpuState>, MicrovmStateError> {
         use self::MicrovmStateError::*;
         for handle in self.vcpus_handles.iter() {
@@ -430,7 +432,6 @@ impl Vmm {
             .map_err(|_| Error::VcpuMessage)
     }
 
-    #[cfg(target_arch = "x86_64")]
     /// Restores vcpus kvm states.
     pub fn restore_vcpu_states(
         &mut self,
@@ -658,6 +659,37 @@ impl Vmm {
             Err(BalloonError::DeviceNotFound)
         }
     }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn construct_gicr_typer(vcpu_states: &[VcpuState]) -> Vec<u64> {
+    /* Pre-construct the GICR_TYPER:
+     * For our implementation:
+     *  Top 32 bits are the affinity value of the associated CPU
+     *  CommonLPIAff == 01 (redistributors with same Aff3 share LPI table)
+     *  Processor_Number == CPU index starting from 0
+     *  DPGS == 0 (GICR_CTLR.DPG* not supported)
+     *  Last == 1 if this is the last redistributor in a series of
+     *            contiguous redistributor pages
+     *  DirectLPI == 0 (direct injection of LPIs not supported)
+     *  VLPIS == 0 (virtual LPIs not supported)
+     *  PLPIS == 0 (physical LPIs not supported)
+     */
+    let mut mpidrs: Vec<u64> = Vec::new();
+    for (index, state) in vcpu_states.iter().enumerate() {
+        let last = {
+            if index == vcpu_states.len() - 1 {
+                1
+            } else {
+                0
+            }
+        };
+        //calculate affinity
+        let mut cpu_affid = state.mpidr & 1_0952_3343_7695;
+        cpu_affid = ((cpu_affid & 0xFF_0000_0000) >> 8) | (cpu_affid & 0xFF_FFFF);
+        mpidrs.push((cpu_affid << 32) | (1 << 24) | (index as u64) << 8 | (last << 4));
+    }
+    mpidrs
 }
 
 impl Subscriber for Vmm {

@@ -3,9 +3,6 @@
 
 //! Defines state structures for saving/restoring a Firecracker microVM.
 
-// Currently only supports x86_64.
-#![cfg(target_arch = "x86_64")]
-
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -361,6 +358,9 @@ mod tests {
             memory_state,
             vcpu_states: vec![VcpuState::default()],
             vm_info: VmInfo { mem_size_mib: 1u64 },
+            #[cfg(target_arch = "aarch64")]
+            vm_state: vmm.vm.save_state(&[1]).unwrap(),
+            #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
         };
 

@@ -697,7 +697,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_arch = "x86_64")]
     fn test_slot_sanity_checks() {
         let mmio_base = 0xd000_0000;
         let device_manager = MMIODeviceManager::new(mmio_base, (arch::IRQ_BASE, arch::IRQ_MAX));
