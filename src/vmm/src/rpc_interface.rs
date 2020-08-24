@@ -6,20 +6,20 @@ use std::result;
 use std::sync::{Arc, Mutex};
 
 #[cfg(not(test))]
-use super::{builder::build_microvm_for_boot, resources::VmResources, Vmm};
-#[cfg(all(not(test), target_arch = "x86_64"))]
-use super::{persist::create_snapshot, persist::load_snapshot};
+use super::{
+    builder::build_microvm_for_boot, persist::create_snapshot, persist::load_snapshot,
+    resources::VmResources, Vmm,
+};
 
 #[cfg(test)]
-use tests::{build_microvm_for_boot, MockVmRes as VmResources, MockVmm as Vmm};
-#[cfg(all(test, target_arch = "x86_64"))]
-use tests::{create_snapshot, load_snapshot};
+use tests::{
+    build_microvm_for_boot, create_snapshot, load_snapshot, MockVmRes as VmResources,
+    MockVmm as Vmm,
+};
 
 use super::Error as VmmError;
 use crate::builder::StartMicrovmError;
-#[cfg(target_arch = "x86_64")]
 use crate::persist::{CreateSnapshotError, LoadSnapshotError};
-#[cfg(target_arch = "x86_64")]
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config;
 use crate::vmm_config::balloon::{
@@ -36,7 +36,6 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
-#[cfg(target_arch = "x86_64")]
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
@@ -58,7 +57,6 @@ pub enum VmmAction {
     ConfigureMetrics(MetricsConfig),
     /// Create a snapshot using as input the `CreateSnapshotParams`. This action can only be called
     /// after the microVM has booted and only when the microVM is in `Paused` state.
-    #[cfg(target_arch = "x86_64")]
     CreateSnapshot(CreateSnapshotParams),
     /// Get the balloon device configuration.
     GetBalloonConfig,
@@ -78,7 +76,6 @@ pub enum VmmAction {
     /// Load the microVM state using as input the `LoadSnapshotParams`. This action can only be
     /// called before the microVM has booted. If this action is successful, the loaded microVM will
     /// be in `Paused` state. Should change this state to `Resumed` for the microVM to run.
-    #[cfg(target_arch = "x86_64")]
     LoadSnapshot(LoadSnapshotParams),
     /// Pause the guest, by pausing the microVM VCPUs.
     Pause,
@@ -123,7 +120,6 @@ pub enum VmmActionError {
     /// The action `ConfigureBootSource` failed because of bad user input.
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
-    #[cfg(target_arch = "x86_64")]
     CreateSnapshot(CreateSnapshotError),
     /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
     /// failed because of bad user input.
@@ -131,10 +127,8 @@ pub enum VmmActionError {
     /// Internal Vmm error.
     InternalVmm(VmmError),
     /// Loading a microVM snapshot failed.
-    #[cfg(target_arch = "x86_64")]
     LoadSnapshot(LoadSnapshotError),
     /// Loading a microVM snapshot not allowed after configuring boot-specific resources.
-    #[cfg(target_arch = "x86_64")]
     LoadSnapshotNotAllowed,
     /// The action `ConfigureLogger` failed because of bad user input.
     Logger(LoggerConfigError),
@@ -166,13 +160,10 @@ impl Display for VmmActionError {
             match self {
                 BalloonConfig(err) => err.to_string(),
                 BootSource(err) => err.to_string(),
-                #[cfg(target_arch = "x86_64")]
                 CreateSnapshot(err) => err.to_string(),
                 DriveConfig(err) => err.to_string(),
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
-                #[cfg(target_arch = "x86_64")]
                 LoadSnapshot(err) => format!("Load microVM snapshot error: {}", err),
-                #[cfg(target_arch = "x86_64")]
                 LoadSnapshotNotAllowed => {
                     "Loading a microVM snapshot not allowed after configuring boot-specific resources."
                         .to_string()
@@ -305,7 +296,6 @@ impl<'a> PrebootApiController<'a> {
             )),
             InsertBlockDevice(config) => self.insert_block_device(config),
             InsertNetworkDevice(config) => self.insert_net_device(config),
-            #[cfg(target_arch = "x86_64")]
             LoadSnapshot(config) => self.load_snapshot(&config),
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
@@ -313,7 +303,8 @@ impl<'a> PrebootApiController<'a> {
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
             StartMicroVm => self.start_microvm(),
             // Operations not allowed pre-boot.
-            FlushMetrics
+            CreateSnapshot(_)
+            | FlushMetrics
             | Pause
             | Resume
             | GetBalloonStats
@@ -322,7 +313,7 @@ impl<'a> PrebootApiController<'a> {
             | UpdateBlockDevicePath(_, _)
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
-            CreateSnapshot(_) | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
+            SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
 
@@ -405,7 +396,6 @@ impl<'a> PrebootApiController<'a> {
         .map_err(VmmActionError::StartMicrovm)
     }
 
-    #[cfg(target_arch = "x86_64")]
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
     fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
@@ -449,7 +439,6 @@ impl RuntimeApiController {
         use self::VmmAction::*;
         match request {
             // Supported operations allowed post-boot.
-            #[cfg(target_arch = "x86_64")]
             CreateSnapshot(snapshot_create_cfg) => self.create_snapshot(&snapshot_create_cfg),
             FlushMetrics => self.flush_metrics(),
             GetBalloonConfig => self
@@ -496,13 +485,12 @@ impl RuntimeApiController {
             | ConfigureMetrics(_)
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
+            | LoadSnapshot(_)
             | SetBalloonDevice(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | SetVmConfiguration(_)
             | StartMicroVm => Err(VmmActionError::OperationNotSupportedPostBoot),
-            #[cfg(target_arch = "x86_64")]
-            LoadSnapshot(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
         }
     }
 
@@ -569,7 +557,6 @@ impl RuntimeApiController {
             .map_err(VmmActionError::InternalVmm)
     }
 
-    #[cfg(target_arch = "x86_64")]
     fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
         let mut locked_vmm = self.vmm.lock().unwrap();
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
@@ -639,13 +626,10 @@ mod tests {
             match (self, other) {
                 (BalloonConfig(_), BalloonConfig(_)) => true,
                 (BootSource(_), BootSource(_)) => true,
-                #[cfg(target_arch = "x86_64")]
                 (CreateSnapshot(_), CreateSnapshot(_)) => true,
                 (DriveConfig(_), DriveConfig(_)) => true,
                 (InternalVmm(_), InternalVmm(_)) => true,
-                #[cfg(target_arch = "x86_64")]
                 (LoadSnapshot(_), LoadSnapshot(_)) => true,
-                #[cfg(target_arch = "x86_64")]
                 (LoadSnapshotNotAllowed, LoadSnapshotNotAllowed) => true,
                 (Logger(_), Logger(_)) => true,
                 (MachineConfig(_), MachineConfig(_)) => true,
@@ -876,7 +860,6 @@ mod tests {
         Ok(Arc::new(Mutex::new(MockVmm::default())))
     }
 
-    #[cfg(target_arch = "x86_64")]
     // Need to redefine this since the non-test one uses real Vmm
     // instead of our mocks.
     pub fn create_snapshot(
@@ -887,7 +870,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(target_arch = "x86_64")]
     // Need to redefine this since the non-test one uses real Vmm
     // instead of our mocks.
     pub fn load_snapshot(
@@ -1152,7 +1134,6 @@ mod tests {
             }),
             VmmActionError::OperationNotSupportedPreBoot,
         );
-        #[cfg(target_arch = "x86_64")]
         check_preboot_request_err(
             VmmAction::CreateSnapshot(CreateSnapshotParams {
                 snapshot_type: SnapshotType::Full,
@@ -1468,7 +1449,6 @@ mod tests {
             VmmAction::SetVmConfiguration(VmConfig::default()),
             VmmActionError::OperationNotSupportedPostBoot,
         );
-        #[cfg(target_arch = "x86_64")]
         check_runtime_request_err(
             VmmAction::LoadSnapshot(LoadSnapshotParams {
                 snapshot_path: PathBuf::new(),
@@ -1479,7 +1459,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_arch = "x86_64")]
     fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &str) {
         let mut vm_resources = MockVmRes::default();
         let mut evmgr = EventManager::new().unwrap();
@@ -1502,7 +1481,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_preboot_load_snap_disallowed_after_boot_resources() {
         // Verify LoadSnapshot not allowed after configuring various boot-specific resources.
