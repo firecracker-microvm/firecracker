@@ -16,7 +16,6 @@ use crate::request::metrics::parse_put_metrics;
 use crate::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use crate::request::net::{parse_patch_net, parse_put_net};
 use crate::request::snapshot::parse_patch_vm_state;
-#[cfg(target_arch = "x86_64")]
 use crate::request::snapshot::parse_put_snapshot;
 use crate::request::vsock::parse_put_vsock;
 use crate::ApiServer;
@@ -70,7 +69,6 @@ impl ParsedRequest {
             (Method::Put, "network-interfaces", Some(body)) => {
                 parse_put_net(body, path_tokens.get(1))
             }
-            #[cfg(target_arch = "x86_64")]
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.get(1)),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
             (Method::Put, _, None) => method_to_error(Method::Put),
@@ -771,7 +769,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    #[cfg(target_arch = "x86_64")]
     fn test_try_from_put_snapshot() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);

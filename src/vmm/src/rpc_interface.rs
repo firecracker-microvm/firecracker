@@ -9,10 +9,8 @@ use super::Vmm;
 
 use super::Error as VmmError;
 use crate::builder::{self, StartMicrovmError};
-#[cfg(target_arch = "x86_64")]
 use crate::persist::{self, CreateSnapshotError, LoadSnapshotError};
 use crate::resources::VmResources;
-#[cfg(target_arch = "x86_64")]
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config;
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
@@ -25,7 +23,6 @@ use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
 };
-#[cfg(target_arch = "x86_64")]
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use arch::DeviceType;
@@ -49,7 +46,6 @@ pub enum VmmAction {
     ConfigureMetrics(MetricsConfig),
     /// Create a snapshot using as input the `CreateSnapshotParams`. This action can only be called
     /// after the microVM has booted and only when the microVM is in `Paused` state.
-    #[cfg(target_arch = "x86_64")]
     CreateSnapshot(CreateSnapshotParams),
     /// Get the configuration of the microVM.
     GetVmConfiguration,
@@ -65,7 +61,6 @@ pub enum VmmAction {
     /// Load the microVM state using as input the `LoadSnapshotParams`. This action can only be
     /// called before the microVM has booted. If this action is successful, the loaded microVM will
     /// be in `Paused` state. Should change this state to `Resumed` for the microVM to run.
-    #[cfg(target_arch = "x86_64")]
     LoadSnapshot(LoadSnapshotParams),
     /// Pause the guest, by pausing the microVM VCPUs.
     Pause,
@@ -100,7 +95,6 @@ pub enum VmmActionError {
     /// The action `ConfigureBootSource` failed because of bad user input.
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
-    #[cfg(target_arch = "x86_64")]
     CreateSnapshot(CreateSnapshotError),
     /// One of the actions `InsertBlockDevice` or `UpdateBlockDevicePath`
     /// failed because of bad user input.
@@ -108,7 +102,6 @@ pub enum VmmActionError {
     /// Internal Vmm error.
     InternalVmm(VmmError),
     /// Loading a microVM snapshot failed.
-    #[cfg(target_arch = "x86_64")]
     LoadSnapshot(LoadSnapshotError),
     /// The action `ConfigureLogger` failed because of bad user input.
     Logger(LoggerConfigError),
@@ -139,11 +132,9 @@ impl Display for VmmActionError {
             "{}",
             match self {
                 BootSource(err) => err.to_string(),
-                #[cfg(target_arch = "x86_64")]
                 CreateSnapshot(err) => err.to_string(),
                 DriveConfig(err) => err.to_string(),
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
-                #[cfg(target_arch = "x86_64")]
                 LoadSnapshot(err) => format!("Load microVM snapshot error: {}", err),
                 Logger(err) => err.to_string(),
                 MachineConfig(err) => err.to_string(),
@@ -276,7 +267,6 @@ impl<'a> PrebootApiController<'a> {
                 .build_net_device(netif_body)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::NetworkConfig),
-            #[cfg(target_arch = "x86_64")]
             LoadSnapshot(snapshot_load_cfg) => self
                 .load_snapshot(&snapshot_load_cfg)
                 .map(|_| VmmData::Empty),
@@ -311,12 +301,12 @@ impl<'a> PrebootApiController<'a> {
             | Resume
             | UpdateBlockDevicePath(_, _)
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
+            CreateSnapshot(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
-            CreateSnapshot(_) | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
+            SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
     fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
@@ -355,7 +345,6 @@ impl RuntimeApiController {
         use self::VmmAction::*;
         match request {
             // Supported operations allowed post-boot.
-            #[cfg(target_arch = "x86_64")]
             CreateSnapshot(snapshot_create_cfg) => self
                 .create_snapshot(&snapshot_create_cfg)
                 .map(|_| VmmData::Empty),
@@ -382,7 +371,6 @@ impl RuntimeApiController {
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | SetVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
-            #[cfg(target_arch = "x86_64")]
             LoadSnapshot(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
             StartMicroVm => Err(VmmActionError::StartMicrovm(
                 StartMicrovmError::MicroVMAlreadyRunning,
@@ -452,7 +440,6 @@ impl RuntimeApiController {
             .map_err(VmmActionError::InternalVmm)
     }
 
-    #[cfg(target_arch = "x86_64")]
     fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
         let mut locked_vmm = self.vmm.lock().unwrap();
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);

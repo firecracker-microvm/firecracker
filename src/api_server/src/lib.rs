@@ -20,7 +20,6 @@ use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::instance_info::InstanceInfo;
-#[cfg(target_arch = "x86_64")]
 use vmm::vmm_config::snapshot::SnapshotType;
 
 /// Shorthand type for a request containing a boxed VmmAction.
@@ -178,14 +177,12 @@ impl ApiServer {
         request_processing_start_us: u64,
     ) -> Response {
         let metric_with_action = match *vmm_action {
-            #[cfg(target_arch = "x86_64")]
             VmmAction::CreateSnapshot(ref params) => match params.snapshot_type {
                 SnapshotType::Full => Some((
                     &METRICS.latencies_us.full_create_snapshot,
                     "create full snapshot",
                 )),
             },
-            #[cfg(target_arch = "x86_64")]
             VmmAction::LoadSnapshot(_) => {
                 Some((&METRICS.latencies_us.load_snapshot, "load snapshot"))
             }
@@ -304,7 +301,6 @@ mod tests {
     use vmm::builder::StartMicrovmError;
     use vmm::rpc_interface::VmmActionError;
     use vmm::vmm_config::instance_info::InstanceInfo;
-    #[cfg(target_arch = "x86_64")]
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
     #[test]
@@ -374,40 +370,37 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NoContent);
         assert_ne!(METRICS.latencies_us.pause_vm.count(), 0);
 
-        #[cfg(target_arch = "x86_64")]
-        {
-            assert_eq!(METRICS.latencies_us.full_create_snapshot.count(), 0);
-            to_api
-                .send(Box::new(Err(VmmActionError::OperationNotSupportedPreBoot)))
-                .unwrap();
-            let response = api_server.serve_vmm_action_request(
-                Box::new(VmmAction::CreateSnapshot(CreateSnapshotParams {
-                    snapshot_type: SnapshotType::Full,
-                    snapshot_path: PathBuf::new(),
-                    mem_file_path: PathBuf::new(),
-                    version: None,
-                })),
-                start_time_us,
-            );
-            assert_eq!(response.status(), StatusCode::BadRequest);
-            // The metric should not be updated if the request wasn't successful.
-            assert_eq!(METRICS.latencies_us.diff_create_snapshot.count(), 0);
-            assert_eq!(METRICS.latencies_us.full_create_snapshot.count(), 0);
+        assert_eq!(METRICS.latencies_us.full_create_snapshot.count(), 0);
+        to_api
+            .send(Box::new(Err(VmmActionError::OperationNotSupportedPreBoot)))
+            .unwrap();
+        let response = api_server.serve_vmm_action_request(
+            Box::new(VmmAction::CreateSnapshot(CreateSnapshotParams {
+                snapshot_type: SnapshotType::Full,
+                snapshot_path: PathBuf::new(),
+                mem_file_path: PathBuf::new(),
+                version: None,
+            })),
+            start_time_us,
+        );
+        assert_eq!(response.status(), StatusCode::BadRequest);
+        // The metric should not be updated if the request wasn't successful.
+        assert_eq!(METRICS.latencies_us.diff_create_snapshot.count(), 0);
+        assert_eq!(METRICS.latencies_us.full_create_snapshot.count(), 0);
 
-            to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
-            let response = api_server.serve_vmm_action_request(
-                Box::new(VmmAction::CreateSnapshot(CreateSnapshotParams {
-                    snapshot_type: SnapshotType::Full,
-                    snapshot_path: PathBuf::new(),
-                    mem_file_path: PathBuf::new(),
-                    version: None,
-                })),
-                start_time_us,
-            );
-            assert_eq!(response.status(), StatusCode::NoContent);
-            assert_eq!(METRICS.latencies_us.diff_create_snapshot.count(), 0);
-            assert_ne!(METRICS.latencies_us.full_create_snapshot.count(), 0);
-        }
+        to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
+        let response = api_server.serve_vmm_action_request(
+            Box::new(VmmAction::CreateSnapshot(CreateSnapshotParams {
+                snapshot_type: SnapshotType::Full,
+                snapshot_path: PathBuf::new(),
+                mem_file_path: PathBuf::new(),
+                version: None,
+            })),
+            start_time_us,
+        );
+        assert_eq!(response.status(), StatusCode::NoContent);
+        assert_eq!(METRICS.latencies_us.diff_create_snapshot.count(), 0);
+        assert_ne!(METRICS.latencies_us.full_create_snapshot.count(), 0);
     }
 
     #[test]
