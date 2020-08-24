@@ -13,6 +13,8 @@ use std::{
 use crate::vstate::{vcpu::VcpuEmulation, vm::Vm};
 use kvm_ioctls::*;
 use logger::{error, IncMetric, METRICS};
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
 /// Errors associated with the wrappers over KVM ioctls.
@@ -176,7 +178,7 @@ impl KvmVcpu {
 }
 
 /// Structure holding VCPU kvm state.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Versionize)]
 pub struct VcpuState {
     pub mp_state: kvm_bindings::kvm_mp_state,
     pub regs: Vec<kvm_bindings::kvm_one_reg>,

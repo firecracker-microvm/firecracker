@@ -3,9 +3,6 @@
 
 //! Defines state structures for saving/restoring a Firecracker microVM.
 
-// Currently only supports x86_64.
-#![cfg(target_arch = "x86_64")]
-
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -26,7 +23,9 @@ use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
 use crate::{Error as VmmError, Vmm};
 use arch::IRQ_BASE;
+#[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
+#[cfg(target_arch = "x86_64")]
 use logger::{error, info};
 use polly::event_manager::EventManager;
 use seccomp::BpfProgramRef;
@@ -36,7 +35,10 @@ use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
 const FC_V0_23_SNAP_VERSION: u16 = 1;
+#[cfg(target_arch = "x86_64")]
 const FC_V0_23_IRQ_NUMBER: u32 = 16;
+#[cfg(target_arch = "aarch64")]
+const FC_V0_23_IRQ_NUMBER: u32 = 128;
 const FC_V0_23_MAX_DEVICES: u32 = FC_V0_23_IRQ_NUMBER - IRQ_BASE;
 
 /// Holds information related to the VM that is not part of VmState.
@@ -470,6 +472,9 @@ mod tests {
             memory_state,
             vcpu_states: vec![VcpuState::default()],
             vm_info: VmInfo { mem_size_mib: 1u64 },
+            #[cfg(target_arch = "aarch64")]
+            vm_state: vmm.vm.save_state(&[1]).unwrap(),
+            #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
         };
 

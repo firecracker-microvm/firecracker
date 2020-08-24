@@ -316,7 +316,6 @@ impl MMIODeviceManager {
         &self.id_to_dev_info
     }
 
-    #[cfg(target_arch = "x86_64")]
     /// Gets the number of interrupts used by the devices registered.
     pub fn used_irqs_count(&self) -> usize {
         let mut irq_number = 0;
@@ -771,7 +770,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_arch = "x86_64")]
     fn test_slot_sanity_checks() {
         let mmio_base = 0xd000_0000;
         let device_manager = MMIODeviceManager::new(mmio_base, (arch::IRQ_BASE, arch::IRQ_MAX));

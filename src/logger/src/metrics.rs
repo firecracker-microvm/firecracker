@@ -529,26 +529,20 @@ pub struct NetDeviceMetrics {
 // each `create` request.
 #[derive(Default, Serialize)]
 pub struct PerformanceMetrics {
-    #[cfg(target_arch = "x86_64")]
     /// Measures the snapshot full create time, at the API (user) level, in microseconds.
     pub full_create_snapshot: SharedStoreMetric,
-    #[cfg(target_arch = "x86_64")]
     /// Measures the snapshot diff create time, at the API (user) level, in microseconds.
     pub diff_create_snapshot: SharedStoreMetric,
-    #[cfg(target_arch = "x86_64")]
     /// Measures the snapshot load time, at the API (user) level, in microseconds.
     pub load_snapshot: SharedStoreMetric,
     /// Measures the microVM pausing duration, at the API (user) level, in microseconds.
     pub pause_vm: SharedStoreMetric,
     /// Measures the microVM resuming duration, at the API (user) level, in microseconds.
     pub resume_vm: SharedStoreMetric,
-    #[cfg(target_arch = "x86_64")]
     /// Measures the snapshot full create time, at the VMM level, in microseconds.
     pub vmm_full_create_snapshot: SharedStoreMetric,
-    #[cfg(target_arch = "x86_64")]
     /// Measures the snapshot diff create time, at the VMM level, in microseconds.
     pub vmm_diff_create_snapshot: SharedStoreMetric,
-    #[cfg(target_arch = "x86_64")]
     /// Measures the snapshot load time, at the VMM level, in microseconds.
     pub vmm_load_snapshot: SharedStoreMetric,
     /// Measures the microVM pausing duration, at the VMM level, in microseconds.
