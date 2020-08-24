@@ -73,8 +73,18 @@ mod arch_specific_constants {
     pub const KVM_SET_XCRS: u64 = 0x4188_aea7;
 }
 
+// Use this mod to define ioctl params that are architecture specific.
+// To add other architectures, add another module declaration with the right cfg attribute.
+#[cfg(target_arch = "aarch64")]
+mod arch_specific_constants {
+    pub const KVM_GET_ONE_REG: u64 = 0x4010_aeab;
+    pub const KVM_SET_ONE_REG: u64 = 0x4010_aeac;
+    pub const KVM_GET_REG_LIST: u64 = 0xc008_aeb0;
+    pub const KVM_SET_DEVICE_ATTR: u64 = 0x4018_aee1;
+    pub const KVM_GET_DEVICE_ATTR: u64 = 0x4018_aee2;
+}
+
 fn create_arch_specific_ioctl_conditions() -> Result<Vec<SeccompRule>, Error> {
-    #[cfg(target_arch = "x86_64")]
     use arch_specific_constants::*;
 
     #[cfg(target_arch = "x86_64")]
@@ -101,7 +111,13 @@ fn create_arch_specific_ioctl_conditions() -> Result<Vec<SeccompRule>, Error> {
     ]);
 
     #[cfg(target_arch = "aarch64")]
-    return Ok(or![]);
+    return Ok(or![
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_ONE_REG)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_ONE_REG)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_REG_LIST)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_DEVICE_ATTR)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_DEVICE_ATTR)?],
+    ]);
 }
 
 fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
