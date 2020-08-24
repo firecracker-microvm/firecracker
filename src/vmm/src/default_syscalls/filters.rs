@@ -9,6 +9,11 @@ use seccomp::{
 };
 use utils::signal::sigrtmin;
 
+#[cfg(target_arch = "aarch64")]
+pub const SYS_FTRUNCATE: libc::c_long = 46;
+#[cfg(target_arch = "x86_64")]
+pub const SYS_FTRUNCATE: libc::c_long = 77;
+
 /// The default filter containing the white listed syscall rules required by `Firecracker` to
 /// function.
 /// Any non-trivial modification to this allow list needs a proper comment to specify its source
@@ -58,8 +63,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             // Used for drive patching & rescanning, for reading the local timezone
             allow_syscall(libc::SYS_fstat),
             // Used for snapshotting
-            #[cfg(target_arch = "x86_64")]
-            allow_syscall(libc::SYS_ftruncate),
+            allow_syscall(SYS_FTRUNCATE),
             // Used for synchronization
             allow_syscall_if(
                 libc::SYS_futex,
