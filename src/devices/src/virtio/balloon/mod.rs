@@ -10,12 +10,18 @@ mod utils;
 use vm_memory::GuestMemoryError;
 
 pub use self::device::Balloon;
+pub use self::device::BalloonStats;
 pub use self::event_handler::*;
 
+/// Device ID used in MMIO device identification.
+/// Because Balloon is unique per-vm, this ID can be hardcoded.
+pub const BALLOON_DEV_ID: &str = "balloon";
 pub const CONFIG_SPACE_SIZE: usize = 8;
 pub const QUEUE_SIZE: u16 = 256;
 pub const NUM_QUEUES: usize = 3;
 pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE, QUEUE_SIZE, QUEUE_SIZE];
+// Number of 4K pages in a MB.
+pub const MB_TO_4K_PAGES: u32 = 256;
 // The maximum number of pages that can be received in a single descriptor.
 pub const MAX_PAGES_IN_DESC: usize = 256;
 // The addresses given by the driver are divided by 4096.
@@ -48,16 +54,28 @@ const VIRTIO_BALLOON_S_HTLB_PGFAIL: u16 = 9;
 pub enum Error {
     /// Activation error.
     Activate(super::ActivateError),
+    /// No balloon device found.
+    DeviceNotFound,
+    /// Device not activated yet.
+    DeviceNotActive,
     /// EventFd error.
     EventFd(std::io::Error),
     /// Failed to signal the virtio used queue.
     FailedSignalingUsedQueue(std::io::Error),
     /// Guest gave us bad memory addresses.
     GuestMemory(GuestMemoryError),
+    /// Received error while sending an interrupt.
+    InterruptError(std::io::Error),
     /// Guest gave us a malformed descriptor.
     MalformedDescriptor,
     /// Guest gave us a malformed payload.
     MalformedPayload,
+    /// Received stats querry when stats are disabled.
+    StatisticsDisabled,
+    /// Statistics cannot be enabled/disabled after activation.
+    StatisticsStateChange,
+    /// Amount of pages requested cannot fit in `u32`.
+    TooManyPagesRequested,
     /// Error while processing the virt queues.
     Queue(super::QueueError),
     /// Error removing a memory region at inflate time.
