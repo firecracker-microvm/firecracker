@@ -11,6 +11,9 @@ use vm_memory::GuestMemoryError;
 pub use self::device::Balloon;
 pub use self::event_handler::*;
 
+/// Device ID used in MMIO device identification.
+/// Because Balloon is unique per-vm, this ID can be hardcoded.
+pub const BALLOON_DEV_ID: &str = "balloon";
 pub const CONFIG_SPACE_SIZE: usize = 8;
 pub const QUEUE_SIZE: u16 = 256;
 pub const NUM_QUEUES: usize = 3;

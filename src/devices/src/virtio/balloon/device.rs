@@ -1,6 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use serde::Serialize;
 use std::cmp;
 use std::io::Write;
 use std::result::Result;
@@ -23,6 +24,7 @@ use super::{
         ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON, VIRTIO_MMIO_INT_VRING,
     },
     utils::{compact_page_frame_numbers, remove_range},
+    BALLOON_DEV_ID,
 };
 
 use crate::report_balloon_event_fail;
@@ -64,17 +66,28 @@ struct BalloonStat {
 unsafe impl ByteValued for BalloonStat {}
 
 // BalloonStats holds statistics returned from the stats_queue.
-#[derive(Clone, Default, Debug, PartialEq, Versionize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Versionize)]
+#[serde(deny_unknown_fields)]
 pub struct BalloonStats {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub swap_in: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub swap_out: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub major_faults: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub minor_faults: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub free_memory: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub total_memory: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub available_memory: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub disk_caches: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hugetlb_allocations: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hugetlb_failures: Option<u64>,
 }
 
@@ -346,6 +359,10 @@ impl Balloon {
         Ok(())
     }
 
+    pub fn id(&self) -> &str {
+        BALLOON_DEV_ID
+    }
+
     pub fn update_num_pages(&mut self, num_pages: u32) {
         self.config_space.num_pages = num_pages;
     }
@@ -354,8 +371,12 @@ impl Balloon {
         self.config_space.num_pages
     }
 
-    pub fn latest_stats(&self) -> &BalloonStats {
-        &self.latest_stats
+    pub fn latest_stats(&self) -> Option<&BalloonStats> {
+        if self.stats_enabled() {
+            Some(&self.latest_stats)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn stats_enabled(&self) -> bool {
@@ -883,7 +904,7 @@ pub(crate) mod tests {
                 // Don't check for completion yet.
             });
 
-            let stats = balloon.latest_stats();
+            let stats = balloon.latest_stats().unwrap();
             let expected_stats = BalloonStats {
                 swap_out: Some(0x1),
                 free_memory: Some(0x5678),
