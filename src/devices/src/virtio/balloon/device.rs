@@ -167,7 +167,11 @@ impl Balloon {
             EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
         ];
 
-        let queues = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
+        let mut queues: Vec<Queue> = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
+
+        if stats_polling_interval_s == 0 {
+            let _ = queues.pop();
+        }
 
         let stats_timer =
             TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(BalloonError::Timer)?;
