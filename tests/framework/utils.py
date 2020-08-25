@@ -223,6 +223,27 @@ def get_files_from(find_path: str, pattern: str, exclude_names: list = None,
     return found
 
 
+def get_free_mem_ssh(ssh_connection):
+    """
+    Get how much free memory in kB a guest sees, over ssh.
+
+    :param ssh_connection: connection to the guest
+    :return: available mem column output of 'free'
+    """
+    _, stdout, stderr = ssh_connection.execute_command(
+        'cat /proc/meminfo | grep MemAvailable'
+    )
+    assert stderr.read() == ''
+
+    # Split "MemAvailable:   123456 kB" and validate it
+    meminfo_data = stdout.read().split()
+    if len(meminfo_data) == 3:
+        # Return the middle element in the array
+        return int(meminfo_data[1])
+
+    raise Exception('Available memory not found in `/proc/meminfo')
+
+
 async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
     """
     Create a coroutine that executes a given command.
