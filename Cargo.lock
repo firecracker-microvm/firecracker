@@ -251,6 +251,7 @@ dependencies = [
  "net_gen 0.1.0",
  "polly 0.0.1",
  "rate_limiter 0.1.0",
+ "serde 1.0.105 (registry+https://github.com/rust-lang/crates.io-index)",
  "snapshot 0.1.0",
  "timerfd 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
