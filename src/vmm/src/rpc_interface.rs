@@ -15,6 +15,10 @@ use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config;
+use crate::vmm_config::balloon::{
+    BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
+    BalloonUpdateStatsConfig,
+};
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::instance_info::InstanceInfo;
@@ -51,6 +55,8 @@ pub enum VmmAction {
     /// after the microVM has booted and only when the microVM is in `Paused` state.
     #[cfg(target_arch = "x86_64")]
     CreateSnapshot(CreateSnapshotParams),
+    /// Get the ballon device latest statistics.
+    GetBalloonStats,
     /// Get the configuration of the microVM.
     GetVmConfiguration,
     /// Flush the metrics. This action can only be called after the logger has been configured.
@@ -71,6 +77,10 @@ pub enum VmmAction {
     Pause,
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
+    /// Set the balloon device or update the one that already exists using the
+    /// `BalloonDeviceConfig` as input. This action can only be called before the microVM
+    /// has booted.
+    SetBalloonDevice(BalloonDeviceConfig),
     /// Set the MMDS configuration.
     SetMmdsConfiguration(MmdsConfig),
     /// Set the vsock device or update the one that already exists using the
@@ -86,6 +96,10 @@ pub enum VmmAction {
     /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
     #[cfg(target_arch = "x86_64")]
     SendCtrlAltDel,
+    /// Update the balloon size, after microVM start.
+    UpdateBalloon(BalloonUpdateConfig),
+    /// Update the balloon statistics polling interval, after microVM start.
+    UpdateBalloonStatistics(BalloonUpdateStatsConfig),
     /// Update the path of an existing block device. The data associated with this variant
     /// represents the `drive_id` and the `path_on_host`.
     UpdateBlockDevicePath(String, String),
@@ -97,6 +111,8 @@ pub enum VmmAction {
 /// Wrapper for all errors associated with VMM actions.
 #[derive(Debug)]
 pub enum VmmActionError {
+    /// The action `SetBalloonDevice` failed because of bad user input.
+    BalloonConfig(BalloonConfigError),
     /// The action `ConfigureBootSource` failed because of bad user input.
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
@@ -138,6 +154,7 @@ impl Display for VmmActionError {
             f,
             "{}",
             match self {
+                BalloonConfig(err) => err.to_string(),
                 BootSource(err) => err.to_string(),
                 #[cfg(target_arch = "x86_64")]
                 CreateSnapshot(err) => err.to_string(),
@@ -170,6 +187,8 @@ impl Display for VmmActionError {
 /// empty, when no data needs to be sent, or an internal VMM structure.
 #[derive(Debug)]
 pub enum VmmData {
+    /// The latest balloon device statistics.
+    BalloonStats(BalloonStats),
     /// No data is sent on the channel.
     Empty,
     /// The microVM configuration represented by `VmConfig`.
@@ -280,6 +299,12 @@ impl<'a> PrebootApiController<'a> {
             LoadSnapshot(snapshot_load_cfg) => self
                 .load_snapshot(&snapshot_load_cfg)
                 .map(|_| VmmData::Empty),
+            SetBalloonDevice(balloon_cfg) => self
+                .vm_resources
+                .balloon
+                .set(balloon_cfg)
+                .map(|_| VmmData::Empty)
+                .map_err(VmmActionError::BalloonConfig),
             SetVsockDevice(vsock_cfg) => self
                 .vm_resources
                 .set_vsock_device(vsock_cfg)
@@ -309,6 +334,9 @@ impl<'a> PrebootApiController<'a> {
             FlushMetrics
             | Pause
             | Resume
+            | GetBalloonStats
+            | UpdateBalloon(_)
+            | UpdateBalloonStatistics(_)
             | UpdateBlockDevicePath(_, _)
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
@@ -360,11 +388,32 @@ impl RuntimeApiController {
                 .create_snapshot(&snapshot_create_cfg)
                 .map(|_| VmmData::Empty),
             FlushMetrics => self.flush_metrics().map(|_| VmmData::Empty),
+            GetBalloonStats => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .latest_balloon_stats()
+                .map(VmmData::BalloonStats)
+                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
             Pause => self.pause().map(|_| VmmData::Empty),
             Resume => self.resume().map(|_| VmmData::Empty),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del().map(|_| VmmData::Empty),
+            UpdateBalloon(balloon_update) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .update_balloon_config(balloon_update.amount_mb)
+                .map(|_| VmmData::Empty)
+                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
+            UpdateBalloonStatistics(balloon_stats_update) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .update_balloon_stats_config(balloon_stats_update.stats_polling_interval_s)
+                .map(|_| VmmData::Empty)
+                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
             UpdateBlockDevicePath(drive_id, path_on_host) => self
                 .update_block_device_path(&drive_id, path_on_host)
                 .map(|_| VmmData::Empty)
@@ -379,6 +428,7 @@ impl RuntimeApiController {
             | ConfigureMetrics(_)
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
+            | SetBalloonDevice(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | SetVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
