@@ -5,6 +5,7 @@
 
 use std::fs::File;
 
+use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{
     BootConfig, BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE,
 };
@@ -27,45 +28,49 @@ type Result<E> = std::result::Result<(), E>;
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug)]
 pub enum Error {
-    /// JSON is invalid.
-    InvalidJson,
+    /// Balloon device configuration error.
+    BalloonDevice(BalloonConfigError),
     /// Block device configuration error.
     BlockDevice(DriveError),
-    /// Net device configuration error.
-    NetDevice(NetworkInterfaceError),
     /// Boot source configuration error.
     BootSource(BootSourceConfigError),
+    /// JSON is invalid.
+    InvalidJson,
     /// Logger configuration error.
     Logger(LoggerConfigError),
     /// Metrics system configuration error.
     Metrics(MetricsConfigError),
+    /// MMDS configuration error.
+    MmdsConfig(MmdsConfigError),
+    /// Net device configuration error.
+    NetDevice(NetworkInterfaceError),
     /// microVM vCpus or memory configuration error.
     VmConfig(VmConfigError),
     /// Vsock device configuration error.
     VsockDevice(VsockConfigError),
-    /// MMDS configuration error.
-    MmdsConfig(MmdsConfigError),
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
 #[derive(Deserialize)]
 pub struct VmmConfig {
-    #[serde(rename = "boot-source")]
-    boot_source: BootSourceConfig,
+    #[serde(rename = "balloon")]
+    balloon_device: Option<BalloonDeviceConfig>,
     #[serde(rename = "drives")]
     block_devices: Vec<BlockDeviceConfig>,
-    #[serde(rename = "network-interfaces", default)]
-    net_devices: Vec<NetworkInterfaceConfig>,
+    #[serde(rename = "boot-source")]
+    boot_source: BootSourceConfig,
     #[serde(rename = "logger")]
     logger: Option<LoggerConfig>,
     #[serde(rename = "machine-config")]
     machine_config: Option<VmConfig>,
     #[serde(rename = "metrics")]
     metrics: Option<MetricsConfig>,
-    #[serde(rename = "vsock")]
-    vsock_device: Option<VsockDeviceConfig>,
     #[serde(rename = "mmds-config")]
     mmds_config: Option<MmdsConfig>,
+    #[serde(rename = "network-interfaces", default)]
+    net_devices: Vec<NetworkInterfaceConfig>,
+    #[serde(rename = "vsock")]
+    vsock_device: Option<VsockDeviceConfig>,
 }
 
 /// A data structure that encapsulates the device configurations
@@ -80,6 +85,8 @@ pub struct VmResources {
     pub block: BlockBuilder,
     /// The vsock device.
     pub vsock: VsockBuilder,
+    /// The balloon device.
+    pub balloon: BalloonBuilder,
     /// The network devices builder.
     pub net_builder: NetBuilder,
     /// The configuration for `MmdsNetworkStack`.
@@ -132,6 +139,13 @@ impl VmResources {
             resources
                 .set_vsock_device(vsock_config)
                 .map_err(Error::VsockDevice)?;
+        }
+
+        if let Some(balloon_config) = vmm_config.balloon_device {
+            resources
+                .balloon
+                .set(balloon_config)
+                .map_err(Error::BalloonDevice)?;
         }
 
         if let Some(mmds_config) = vmm_config.mmds_config {
@@ -377,6 +391,7 @@ mod tests {
             boot_config: Some(default_boot_cfg()),
             block: default_blocks(),
             vsock: Default::default(),
+            balloon: Default::default(),
             net_builder: default_net_builder(),
             mmds_config: None,
             boot_timer: false,
@@ -670,6 +685,12 @@ mod tests {
         let kernel_file = TempFile::new().unwrap();
         json = format!(
             r#"{{
+                    "balloon": {{
+                        "amount_mb": 0,
+                        "must_tell_host": false,
+                        "deflate_on_oom": false,
+                        "stats_polling_interval_s": 0
+                    }},
                     "boot-source": {{
                         "kernel_image_path": "{}",
                         "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
