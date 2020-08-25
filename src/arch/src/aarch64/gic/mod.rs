@@ -1,6 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+mod dist_regs;
 mod gicv2;
 mod gicv3;
 
@@ -8,6 +9,7 @@ use std::{boxed::Box, result};
 
 use kvm_ioctls::{DeviceFd, VmFd};
 
+pub use self::dist_regs::{get_dist_regs, set_dist_regs};
 use {super::layout, gicv2::GICv2, gicv3::GICv3};
 
 /// Errors thrown while setting up the GIC.
@@ -15,8 +17,8 @@ use {super::layout, gicv2::GICv2, gicv3::GICv3};
 pub enum Error {
     /// Error while calling KVM ioctl for setting up the global interrupt controller.
     CreateGIC(kvm_ioctls::Error),
-    /// Error while setting device attributes for the GIC.
-    SetDeviceAttribute(kvm_ioctls::Error),
+    /// Error while setting or getting device attributes for the GIC.
+    DeviceAttribute(kvm_ioctls::Error, bool, u32),
 }
 type Result<T> = result::Result<T, Error>;
 
@@ -84,7 +86,7 @@ pub trait GICDevice {
             flags,
         };
         fd.set_device_attr(&attr)
-            .map_err(Error::SetDeviceAttribute)?;
+            .map_err(|e| Error::DeviceAttribute(e, true, group))?;
 
         Ok(())
     }
