@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use super::VmmData;
 use crate::request::actions::parse_put_actions;
+use crate::request::balloon::{parse_get_balloon_stats, parse_patch_balloon, parse_put_balloon};
 use crate::request::boot_source::parse_put_boot_source;
 use crate::request::drive::{parse_patch_drive, parse_put_drive};
 use crate::request::instance_info::parse_get_instance_info;
@@ -57,10 +58,12 @@ impl ParsedRequest {
 
         match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
+            (Method::Get, "balloon", None) => parse_get_balloon_stats(),
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
             (Method::Get, _, Some(_)) => method_to_error(Method::Get),
             (Method::Put, "actions", Some(body)) => parse_put_actions(body),
+            (Method::Put, "balloon", Some(body)) => parse_put_balloon(body),
             (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
             (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.get(1)),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
@@ -74,6 +77,7 @@ impl ParsedRequest {
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.get(1)),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
             (Method::Put, _, None) => method_to_error(Method::Put),
+            (Method::Patch, "balloon", Some(body)) => parse_patch_balloon(body, path_tokens.get(1)),
             (Method::Patch, "drives", Some(body)) => parse_patch_drive(body, path_tokens.get(1)),
             (Method::Patch, "machine-config", Some(body)) => parse_patch_machine_config(body),
             (Method::Patch, "mmds", Some(body)) => parse_patch_mmds(body),
@@ -101,6 +105,12 @@ impl ParsedRequest {
                     info!("The request was executed successfully. Status code: 200 OK.");
                     let mut response = Response::new(Version::Http11, StatusCode::OK);
                     response.set_body(Body::new(vm_config.to_string()));
+                    response
+                }
+                VmmData::BalloonStats(stats) => {
+                    info!("The request was executed successfully. Status code: 200 OK.");
+                    let mut response = Response::new(Version::Http11, StatusCode::OK);
+                    response.set_body(Body::new(serde_json::to_string(stats).unwrap()));
                     response
                 }
             },
@@ -249,6 +259,7 @@ pub(crate) mod tests {
     use micro_http::HttpConnection;
     use vmm::builder::StartMicrovmError;
     use vmm::rpc_interface::VmmActionError;
+    use vmm::vmm_config::balloon::BalloonStats;
     use vmm::vmm_config::machine_config::VmConfig;
 
     impl PartialEq for ParsedRequest {
@@ -502,7 +513,7 @@ pub(crate) mod tests {
             .to_string();
         assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
-        // With Vmm data.
+        // With Machine Config Vmm data.
         let mut buf = Cursor::new(vec![0]);
         let response = ParsedRequest::convert_to_response(&Ok(VmmData::MachineConfiguration(
             VmConfig::default(),
@@ -515,6 +526,24 @@ pub(crate) mod tests {
              Content-Type: application/json\r\n\
              Content-Length: 122\r\n\r\n{}",
             VmConfig::default().to_string()
+        );
+        assert_eq!(buf.into_inner(), expected_response.as_bytes());
+
+        // With Balloon Stats Vmm data.
+        let mut stats = BalloonStats::default();
+        stats.swap_in = Some(1);
+        stats.swap_out = Some(1);
+        let mut buf = Cursor::new(vec![0]);
+        let response =
+            ParsedRequest::convert_to_response(&Ok(VmmData::BalloonStats(stats.clone())));
+        assert!(response.write_all(&mut buf).is_ok());
+        let expected_response = format!(
+            "HTTP/1.1 200 \r\n\
+             Server: Firecracker API\r\n\
+             Connection: keep-alive\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: 88\r\n\r\n{}",
+            serde_json::to_string(&stats).unwrap(),
         );
         assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
@@ -542,6 +571,16 @@ pub(crate) mod tests {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
         sender.write_all(b"GET / HTTP/1.1\r\n\r\n").unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_get_balloon_stats() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender.write_all(b"GET /balloon HTTP/1.1\r\n\r\n").unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
@@ -579,6 +618,27 @@ pub(crate) mod tests {
                 Content-Type: application/json\r\n\
                 Content-Length: 33\r\n\r\n{ \
                 \"action_type\": \"FlushMetrics\" \
+                }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_balloon() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PUT /balloon HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 99\r\n\r\n{ \
+                \"amount_mb\": 0, \
+                \"must_tell_host\": false, \
+                \"deflate_on_oom\": false, \
+                \"stats_polling_interval_s\": 0 \
                 }",
             )
             .unwrap();
@@ -839,6 +899,35 @@ pub(crate) mod tests {
                 \"vsock_id\": \"string\", \
                 \"guest_cid\": 0, \
                 \"uds_path\": \"string\" \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_patch_balloon() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"PATCH /balloon HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 18\r\n\r\n{ \"amount_mb\": 1 }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+
+        sender
+            .write_all(
+                b"PATCH /balloon/statistics HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
+                Content-Length: 33\r\n\r\n{ \
+                \"stats_polling_interval_s\": 1 \
             }",
             )
             .unwrap();
