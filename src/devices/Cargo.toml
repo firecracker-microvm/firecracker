@@ -17,6 +17,7 @@ mmds = { path = "../mmds" }
 net_gen = { path = "../net_gen" }
 polly = { path = "../polly" }
 rate_limiter = { path = "../rate_limiter" }
+serde = { version = ">=1.0.27", features = ["derive"] }
 snapshot = { path = "../snapshot" }
 utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
