@@ -46,6 +46,8 @@ use crate::device_manager::mmio::MMIODeviceManager;
 use crate::memory_snapshot::SnapshotMemory;
 #[cfg(target_arch = "x86_64")]
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
+use crate::rpc_interface::{ActionResult, VmmActionError, VmmData};
+use crate::vmm_config::balloon::{BalloonConfigError, BalloonUpdateConfig, BALLOON_DEV_ID};
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::vcpu::VcpuState;
 use crate::vstate::{
@@ -53,6 +55,7 @@ use crate::vstate::{
     vm::Vm,
 };
 use arch::DeviceType;
+use devices::virtio::{Balloon, MmioTransport, TYPE_BALLOON};
 use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
@@ -492,6 +495,76 @@ impl Vmm {
         self.vm
             .set_kvm_memory_regions(&self.guest_memory, enable)
             .map_err(Error::Vm)
+    }
+
+    /// Updates configuration for the balloon device as described in `balloon_update`.
+    fn latest_balloon_stats(&self) -> std::result::Result<VmmData, VmmActionError> {
+        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        {
+            let virtio_device = busdev
+                .lock()
+                .expect("Poisoned lock")
+                .as_any()
+                .downcast_ref::<MmioTransport>()
+                // Only MmioTransport implements BusDevice at this point.
+                .expect("Unexpected BusDevice type")
+                .device();
+
+            let latest_stats = virtio_device
+                .lock()
+                .expect("Poisoned lock")
+                .as_mut_any()
+                .downcast_mut::<Balloon>()
+                .unwrap()
+                .latest_stats()
+                .map(|stats| VmmData::BalloonStats(stats.clone()));
+
+            latest_stats.ok_or(VmmActionError::BalloonConfig(
+                BalloonConfigError::StatsNotFound,
+            ))
+        } else {
+            Err(VmmActionError::BalloonConfig(
+                BalloonConfigError::DeviceNotFound,
+            ))
+        }
+    }
+
+    /// Updates configuration for the balloon device as described in `balloon_update`.
+    fn update_balloon_config(&mut self, balloon_update: BalloonUpdateConfig) -> ActionResult {
+        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        {
+            {
+                let virtio_device = busdev
+                    .lock()
+                    .expect("Poisoned lock")
+                    .as_any()
+                    .downcast_ref::<MmioTransport>()
+                    // Only MmioTransport implements BusDevice at this point.
+                    .expect("Unexpected BusDevice type")
+                    .device();
+
+                virtio_device
+                    .lock()
+                    .expect("Poisoned lock")
+                    .as_mut_any()
+                    .downcast_mut::<Balloon>()
+                    .unwrap()
+                    .update_num_pages(balloon_update.num_pages);
+            }
+
+            let locked_dev = busdev.lock().expect("Poisoned lock");
+            locked_dev
+                .interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG)
+                .map_err(|err| {
+                    VmmActionError::BalloonConfig(BalloonConfigError::UpdateFailure(err))
+                })?;
+        } else {
+            return Err(VmmActionError::BalloonConfig(
+                BalloonConfigError::DeviceNotFound,
+            ));
+        }
+
+        Ok(())
     }
 }
 
