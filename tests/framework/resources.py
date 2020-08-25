@@ -42,6 +42,74 @@ class Actions():
         return datax
 
 
+class Balloon():
+    """Facility for specifying balloon device configurations."""
+
+    BALLOON_CFG_RESOURCE = 'balloon'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+
+        self._balloon_cfg_url = api_url + self.BALLOON_CFG_RESOURCE
+        self._api_session = api_session
+
+    def put(self, **args):
+        """Specify the balloon device configuration."""
+        datax = self.create_json(**args)
+        return self._api_session.put(
+            "{}".format(self._balloon_cfg_url),
+            json=datax
+        )
+
+    def patch(self, **args):
+        """Update a previously attached balloon device."""
+        datax = self.create_json(**args)
+        return self._api_session.patch(
+            "{}".format(self._balloon_cfg_url),
+            json=datax
+        )
+
+    def patch_stats(self, **args):
+        """Update the balloon statistics interval."""
+        datax = self.create_json(**args)
+        return self._api_session.patch(
+            "{}".format(self._balloon_cfg_url + "/statistics"),
+            json=datax
+        )
+
+    def get(self):
+        """Get the response of specifying the balloon statistics."""
+        return self._api_session.get(
+            self._balloon_cfg_url
+        )
+
+    @staticmethod
+    def create_json(
+            amount_mb=None,
+            deflate_on_oom=None,
+            must_tell_host=None,
+            stats_polling_interval_s=None
+    ):
+        """Compose the json associated to this type of API request."""
+        datax = {}
+
+        if amount_mb is not None:
+            datax['amount_mb'] = amount_mb
+
+        if deflate_on_oom is not None:
+            datax['deflate_on_oom'] = deflate_on_oom
+
+        if must_tell_host is not None:
+            datax['must_tell_host'] = must_tell_host
+
+        if stats_polling_interval_s is not None:
+            datax['stats_polling_interval_s'] = stats_polling_interval_s
+
+        return datax
+
+
 class BootSource():
     """Facility for specifying the source of the boot process."""
 
