@@ -744,3 +744,60 @@ def test_api_vsock(test_microvm_with_api):
         uds_path='vsock.sock'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+
+def test_api_balloon(test_microvm_with_ssh_and_balloon):
+    """Test balloon related API commands."""
+    test_microvm = test_microvm_with_ssh_and_balloon
+    test_microvm.spawn()
+    test_microvm.basic_config()
+
+    # Updating an inexistent balloon device should give an error.
+    response = test_microvm.balloon.patch(num_pages=0)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Adding a memory balloon should be OK.
+    response = test_microvm.balloon.put(
+        num_pages=0,
+        deflate_on_oom=True,
+        must_tell_host=False,
+        stats_polling_interval_s=0
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # As is overwriting one.
+    response = test_microvm.balloon.put(
+        num_pages=1,
+        deflate_on_oom=False,
+        must_tell_host=True,
+        stats_polling_interval_s=5
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Updating an existing balloon device is forbidden before boot.
+    response = test_microvm.balloon.patch(
+        num_pages=2,
+        stats_polling_interval_s=0
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Start the microvm.
+    test_microvm.start()
+
+    # Overwriting the existing device should give an error now.
+    response = test_microvm.balloon.put(
+        num_pages=3,
+        deflate_on_oom=False,
+        must_tell_host=True,
+        stats_polling_interval_s=3
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    time.sleep(1)
+
+    # But updating should be OK.
+    response = test_microvm.balloon.patch(
+        num_pages=4,
+        stats_polling_interval_s=0
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
