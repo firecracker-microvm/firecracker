@@ -89,6 +89,22 @@ def get_files_from(find_path: str, pattern: str, exclude_names: list = None,
     return found
 
 
+def get_free_mem_ssh(ssh_connection):
+    """
+    Get how much free memory a guest sees, over an ssh connection.
+
+    :param ssh_connection: connection to the guest
+    :return: available mem column output of 'free'
+    """
+    _, stdout, stderr = ssh_connection.execute_command('free')
+    assert stderr.read() == ''
+    for line in stdout.read().split('\n'):
+        if line.startswith('Mem:'):
+            # 'available' is the last column.
+            return int(line.split()[-1])
+    raise Exception('Available memory not found in `free` output')
+
+
 async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
     """
     Create a coroutine that executes a given command.
