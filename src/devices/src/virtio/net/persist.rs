@@ -21,12 +21,12 @@ use super::{NUM_QUEUES, QUEUE_SIZE};
 use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
 use crate::virtio::{DeviceState, TYPE_NET};
 
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub struct NetConfigSpaceState {
     guest_mac: [u8; MAC_ADDR_LEN],
 }
 
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub struct NetState {
     id: String,
     tap_if_name: String,

@@ -20,12 +20,68 @@ use crate::virtio::balloon::device::{BalloonStats, ConfigSpace};
 use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, Queue};
 
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
+pub struct BalloonConfigSpaceState {
+    num_pages: u32,
+    actual_pages: u32,
+}
+
+#[derive(Clone, Versionize)]
+pub struct BalloonStatsState {
+    swap_in: Option<u64>,
+    swap_out: Option<u64>,
+    major_faults: Option<u64>,
+    minor_faults: Option<u64>,
+    free_memory: Option<u64>,
+    total_memory: Option<u64>,
+    available_memory: Option<u64>,
+    disk_caches: Option<u64>,
+    hugetlb_allocations: Option<u64>,
+    hugetlb_failures: Option<u64>,
+}
+
+impl BalloonStatsState {
+    fn from_stats(stats: &BalloonStats) -> Self {
+        Self {
+            swap_in: stats.swap_in,
+            swap_out: stats.swap_out,
+            major_faults: stats.major_faults,
+            minor_faults: stats.minor_faults,
+            free_memory: stats.free_memory,
+            total_memory: stats.total_memory,
+            available_memory: stats.available_memory,
+            disk_caches: stats.disk_caches,
+            hugetlb_allocations: stats.hugetlb_allocations,
+            hugetlb_failures: stats.hugetlb_failures,
+        }
+    }
+
+    fn create_stats(&self) -> BalloonStats {
+        BalloonStats {
+            target_pages: 0,
+            actual_pages: 0,
+            target_mb: 0,
+            actual_mb: 0,
+            swap_in: self.swap_in,
+            swap_out: self.swap_out,
+            major_faults: self.major_faults,
+            minor_faults: self.minor_faults,
+            free_memory: self.free_memory,
+            total_memory: self.total_memory,
+            available_memory: self.available_memory,
+            disk_caches: self.disk_caches,
+            hugetlb_allocations: self.hugetlb_allocations,
+            hugetlb_failures: self.hugetlb_failures,
+        }
+    }
+}
+
+#[derive(Clone, Versionize)]
 pub struct BalloonState {
     stats_polling_interval_s: u16,
     stats_desc_index: Option<u16>,
-    latest_stats: BalloonStats,
-    config_space: ConfigSpace,
+    latest_stats: BalloonStatsState,
+    config_space: BalloonConfigSpaceState,
     virtio_state: VirtioDeviceState,
 }
 
@@ -42,8 +98,11 @@ impl Persist<'_> for Balloon {
         BalloonState {
             stats_polling_interval_s: self.stats_polling_interval_s,
             stats_desc_index: self.stats_desc_index,
-            latest_stats: self.latest_stats.clone(),
-            config_space: self.config_space,
+            latest_stats: BalloonStatsState::from_stats(&self.latest_stats),
+            config_space: BalloonConfigSpaceState {
+                num_pages: self.config_space.num_pages,
+                actual_pages: self.config_space.actual_pages,
+            },
             virtio_state: VirtioDeviceState::from_device(self),
         }
     }
@@ -65,7 +124,11 @@ impl Persist<'_> for Balloon {
         balloon.interrupt_status = Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         balloon.avail_features = state.virtio_state.avail_features;
         balloon.acked_features = state.virtio_state.acked_features;
-        balloon.config_space = state.config_space;
+        balloon.latest_stats = state.latest_stats.create_stats();
+        balloon.config_space = ConfigSpace {
+            num_pages: state.config_space.num_pages,
+            actual_pages: state.config_space.actual_pages,
+        };
 
         if state.virtio_state.activated {
             balloon.device_state = DeviceState::Activated(constructor_args.mem);
