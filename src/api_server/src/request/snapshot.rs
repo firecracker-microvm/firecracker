@@ -59,14 +59,14 @@ mod tests {
         use vmm::vmm_config::snapshot::SnapshotType;
 
         let mut body = r#"{
-                "snapshot_type": "Diff",
+                "snapshot_type": "Full",
                 "snapshot_path": "foo",
                 "mem_file_path": "bar",
                 "version": "0.23.0"
               }"#;
 
         let mut expected_cfg = CreateSnapshotParams {
-            snapshot_type: SnapshotType::Diff,
+            snapshot_type: SnapshotType::Full,
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             version: Some(String::from("0.23.0")),
