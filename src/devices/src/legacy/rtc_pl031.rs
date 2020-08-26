@@ -128,6 +128,10 @@ impl RTC {
         }
         Ok(())
     }
+    /// Provides a reference to the interrupt event fd.
+    pub fn interrupt_evt(&self) -> &EventFd {
+        &self.interrupt_evt
+    }
 }
 
 impl BusDevice for RTC {
