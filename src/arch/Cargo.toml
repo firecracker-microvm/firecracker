@@ -9,6 +9,8 @@ kvm-bindings = { git = "https://github.com/firecracker-microvm/kvm-bindings", ta
 kvm-ioctls = { git = "https://github.com/firecracker-microvm/kvm-ioctls", tag = "v0.6.0-2" }
 libc = ">=0.2.39"
 vm-memory = { version = ">=0.2.2", features = ["backend-mmap"] }
+versionize = ">=0.1.2"
+versionize_derive = ">=0.1.1"
 
 arch_gen = { path = "../arch_gen" }
 utils = { path = "../utils" }
