@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use super::mmio::*;
 
+use devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
+use devices::virtio::balloon::{Balloon, Error as BalloonError};
 use devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use devices::virtio::block::Block;
 use devices::virtio::net::persist::{Error as NetError, NetConstructorArgs, NetState};
@@ -19,17 +21,20 @@ use devices::virtio::net::Net;
 use devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};
 use devices::virtio::vsock::persist::{VsockConstructorArgs, VsockState, VsockUdsConstructorArgs};
 use devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
-use devices::virtio::{MmioTransport, VirtioDevice, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK};
+use devices::virtio::{
+    MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK,
+};
 use kvm_ioctls::VmFd;
 use polly::event_manager::{Error as EventMgrError, EventManager, Subscriber};
 use snapshot::Persist;
-use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
 /// Errors for (de)serialization of the MMIO device manager.
 #[derive(Debug)]
 pub enum Error {
+    Balloon(BalloonError),
     Block(io::Error),
     EventManager(EventMgrError),
     DeviceManager(super::mmio::Error),
@@ -39,7 +44,20 @@ pub enum Error {
     VsockUnixBackend(VsockUnixBackendError),
 }
 
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
+/// Holds the state of a balloon device connected to the MMIO space.
+pub struct ConnectedBalloonState {
+    /// Device identifier.
+    pub device_id: String,
+    /// Device state.
+    pub device_state: BalloonState,
+    /// Mmio transport state.
+    pub transport_state: MmioTransportState,
+    /// VmmResources.
+    pub mmio_slot: MMIODeviceInfo,
+}
+
+#[derive(Clone, Versionize)]
 /// Holds the state of a block device connected to the MMIO space.
 pub struct ConnectedBlockState {
     /// Device identifier.
@@ -52,7 +70,7 @@ pub struct ConnectedBlockState {
     pub mmio_slot: MMIODeviceInfo,
 }
 
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 /// Holds the state of a net device connected to the MMIO space.
 pub struct ConnectedNetState {
     /// Device identifier.
@@ -65,7 +83,7 @@ pub struct ConnectedNetState {
     pub mmio_slot: MMIODeviceInfo,
 }
 
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 /// Holds the state of a vsock device connected to the MMIO space.
 pub struct ConnectedVsockState {
     /// Device identifier.
@@ -78,7 +96,7 @@ pub struct ConnectedVsockState {
     pub mmio_slot: MMIODeviceInfo,
 }
 
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 /// Holds the device states.
 pub struct DeviceStates {
     /// Block device states.
@@ -87,6 +105,21 @@ pub struct DeviceStates {
     pub net_devices: Vec<ConnectedNetState>,
     /// Vsock device state.
     pub vsock_device: Option<ConnectedVsockState>,
+    /// Balloon device state.
+    #[version(start = 2, ser_fn = "balloon_serialize")]
+    pub balloon_device: Option<ConnectedBalloonState>,
+}
+
+impl DeviceStates {
+    fn balloon_serialize(&mut self, target_version: u16) -> VersionizeResult<()> {
+        if target_version < 2 && self.balloon_device.is_some() {
+            return Err(VersionizeError::Semantic(
+                "Target version does not implement the virtio-balloon device.".to_owned(),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 pub struct MMIODevManagerConstructorArgs<'a> {
@@ -102,6 +135,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
     fn save(&self) -> Self::State {
         let mut states = DeviceStates {
+            balloon_device: None,
             block_devices: Vec::new(),
             net_devices: Vec::new(),
             vsock_device: None,
@@ -123,6 +157,19 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             let locked_device = mmio_transport.locked_device();
             match locked_device.device_type() {
+                TYPE_BALLOON => {
+                    let balloon_state = locked_device
+                        .as_any()
+                        .downcast_ref::<Balloon>()
+                        .unwrap()
+                        .save();
+                    states.balloon_device = Some(ConnectedBalloonState {
+                        device_id: devid.clone(),
+                        device_state: balloon_state,
+                        transport_state,
+                        mmio_slot: devinfo.clone(),
+                    });
+                }
                 TYPE_BLOCK => {
                     let block_state = locked_device
                         .as_any()
@@ -204,6 +251,33 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .add_subscriber(as_subscriber)
                 .map_err(Error::EventManager)
         };
+
+        if let Some(balloon_state) = &state.balloon_device {
+            let device = Arc::new(Mutex::new(
+                Balloon::restore(
+                    BalloonConstructorArgs { mem: mem.clone() },
+                    &balloon_state.device_state,
+                )
+                .map_err(Error::Balloon)?,
+            ));
+
+            restore_helper(
+                device.clone(),
+                device.clone(),
+                &balloon_state.device_id,
+                &balloon_state.transport_state,
+                &balloon_state.mmio_slot,
+                constructor_args.event_manager,
+            )?;
+
+            // If device is activated, kick the balloon queue(s) to make up for any
+            // pending or in-flight epoll events we may have not captured in snapshot.
+            // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
+            let mut dev = device.lock().expect("Poisoned lock");
+            if dev.is_activated() {
+                dev.process_virtio_queues();
+            }
+        }
 
         for block_state in &state.block_devices {
             let device = Arc::new(Mutex::new(
@@ -298,10 +372,28 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 mod tests {
     use super::*;
     use crate::builder::tests::*;
+    use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
     use polly::event_manager::EventManager;
     use utils::tempfile::TempFile;
+
+    impl PartialEq for ConnectedBalloonState {
+        fn eq(&self, other: &ConnectedBalloonState) -> bool {
+            // Actual device state equality is checked by the device's tests.
+            self.transport_state == other.transport_state && self.mmio_slot == other.mmio_slot
+        }
+    }
+
+    impl std::fmt::Debug for ConnectedBalloonState {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(
+                f,
+                "ConnectedBalloonDevice {{ transport_state: {:?}, mmio_slot: {:?} }}",
+                self.transport_state, self.mmio_slot
+            )
+        }
+    }
 
     impl PartialEq for ConnectedBlockState {
         fn eq(&self, other: &ConnectedBlockState) -> bool {
@@ -356,7 +448,8 @@ mod tests {
 
     impl PartialEq for DeviceStates {
         fn eq(&self, other: &DeviceStates) -> bool {
-            self.block_devices == other.block_devices
+            self.balloon_device == other.balloon_device
+                && self.block_devices == other.block_devices
                 && self.net_devices == other.net_devices
                 && self.vsock_device == other.vsock_device
         }
@@ -408,7 +501,7 @@ mod tests {
     #[test]
     fn test_device_manager_persistence() {
         let mut buf = vec![0; 16384];
-        let version_map = VersionMap::new();
+        let mut version_map = VersionMap::new();
         // These need to survive so the restored blocks find them.
         let _block_files;
         let mut tmp_sock_file = TempFile::new().unwrap();
@@ -419,6 +512,14 @@ mod tests {
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
 
+            // Add a balloon device.
+            let balloon_cfg = BalloonDeviceConfig {
+                amount_mb: 123,
+                must_tell_host: true,
+                deflate_on_oom: false,
+                stats_polling_interval_s: 1,
+            };
+            insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_cfg);
             // Add a block device.
             let drive_id = String::from("root");
             let block_configs = vec![CustomBlockConfig::new(drive_id, true, None, true)];
@@ -448,9 +549,21 @@ mod tests {
             };
             insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
 
+            assert_eq!(
+                vmm.mmio_device_manager
+                    .save()
+                    .serialize(&mut buf.as_mut_slice(), &version_map, 1),
+                Err(VersionizeError::Semantic(
+                    "Target version does not implement the virtio-balloon device.".to_string()
+                ))
+            );
+
+            version_map
+                .new_version()
+                .set_type_version(DeviceStates::type_id(), 2);
             vmm.mmio_device_manager
                 .save()
-                .serialize(&mut buf.as_mut_slice(), &version_map, 1)
+                .serialize(&mut buf.as_mut_slice(), &version_map, 2)
                 .unwrap();
 
             // We only want to keep the device map from the original MmioDeviceManager.
@@ -461,7 +574,7 @@ mod tests {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
         let device_states: DeviceStates =
-            DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 1).unwrap();
+            DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 2).unwrap();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.guest_memory().clone(),
             vm: vmm.vm.fd(),

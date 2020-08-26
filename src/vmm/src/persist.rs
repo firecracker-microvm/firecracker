@@ -289,10 +289,11 @@ fn guest_memory_from_file(
 mod tests {
     use super::*;
     use crate::builder::tests::{
-        default_kernel_cmdline, default_vmm, insert_block_devices, insert_net_device,
-        insert_vsock_device, CustomBlockConfig,
+        default_kernel_cmdline, default_vmm, insert_balloon_device, insert_block_devices,
+        insert_net_device, insert_vsock_device, CustomBlockConfig,
     };
     use crate::memory_snapshot::SnapshotMemory;
+    use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
     use crate::Vmm;
@@ -304,6 +305,15 @@ mod tests {
     fn default_vmm_with_devices(event_manager: &mut EventManager) -> Vmm {
         let mut vmm = default_vmm();
         let mut cmdline = default_kernel_cmdline();
+
+        // Add a balloon device.
+        let balloon_config = BalloonDeviceConfig {
+            amount_mb: 0,
+            must_tell_host: false,
+            deflate_on_oom: false,
+            stats_polling_interval_s: 0,
+        };
+        insert_balloon_device(&mut vmm, &mut cmdline, event_manager, balloon_config);
 
         // Add a block device.
         let drive_id = String::from("root");
@@ -342,6 +352,7 @@ mod tests {
         assert_eq!(states.block_devices.len(), 1);
         assert_eq!(states.net_devices.len(), 1);
         assert!(states.vsock_device.is_some());
+        assert!(states.balloon_device.is_some());
 
         let memory_state = vmm.guest_memory().describe();
 
@@ -354,14 +365,21 @@ mod tests {
         };
 
         let mut buf = vec![0; 10000];
-        let version_map = VersionMap::new();
+        let mut version_map = VersionMap::new();
 
-        microvm_state
+        assert!(microvm_state
             .serialize(&mut buf.as_mut_slice(), &version_map, 1)
+            .is_err());
+
+        version_map
+            .new_version()
+            .set_type_version(DeviceStates::type_id(), 2);
+        microvm_state
+            .serialize(&mut buf.as_mut_slice(), &version_map, 2)
             .unwrap();
 
         let restored_microvm_state =
-            MicrovmState::deserialize(&mut buf.as_slice(), &version_map, 1).unwrap();
+            MicrovmState::deserialize(&mut buf.as_slice(), &version_map, 2).unwrap();
 
         assert_eq!(restored_microvm_state.vm_info, microvm_state.vm_info);
         assert_eq!(
