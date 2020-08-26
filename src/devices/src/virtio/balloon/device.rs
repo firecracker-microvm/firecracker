@@ -13,8 +13,6 @@ use ::timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use ::logger::{error, IncMetric, METRICS};
 use ::utils::eventfd::EventFd;
-use ::versionize::{VersionMap, Versionize, VersionizeResult};
-use ::versionize_derive::Versionize;
 use ::virtio_gen::virtio_blk::*;
 use ::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -54,10 +52,10 @@ fn pages_to_mb(amount_pages: u32) -> u32 {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Versionize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct ConfigSpace {
-    num_pages: u32,
-    actual_pages: u32,
+    pub num_pages: u32,
+    pub actual_pages: u32,
 }
 
 // Safe because ConfigSpace only contains plain data.
@@ -76,7 +74,7 @@ struct BalloonStat {
 unsafe impl ByteValued for BalloonStat {}
 
 // BalloonStats holds statistics returned from the stats_queue.
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Versionize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonStats {
     pub target_pages: u32,
@@ -377,6 +375,12 @@ impl Balloon {
             BalloonError::FailedSignalingUsedQueue(e)
         })?;
         Ok(())
+    }
+
+    /// Process device virtio queue(s).
+    pub fn process_virtio_queues(&mut self) {
+        let _ = self.process_inflate();
+        let _ = self.process_deflate_queue();
     }
 
     pub fn id(&self) -> &str {
