@@ -604,7 +604,7 @@ fn attach_legacy_devices_aarch64(
             Box::new(io::stdout()),
         )?;
         vmm.mmio_device_manager
-            .register_mmio_serial(vmm.vm.fd(), serial)
+            .register_mmio_serial(vmm.vm.fd(), serial, None)
             .map_err(Error::RegisterMMIODevice)?;
         vmm.mmio_device_manager
             .add_mmio_serial_to_cmdline(cmdline)
@@ -613,7 +613,7 @@ fn attach_legacy_devices_aarch64(
 
     let rtc = setup_rtc_device()?;
     vmm.mmio_device_manager
-        .register_mmio_rtc(vmm.vm.fd(), rtc)
+        .register_mmio_rtc(vmm.vm.fd(), rtc, None)
         .map_err(Error::RegisterMMIODevice)
 }
 
