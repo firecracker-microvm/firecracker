@@ -13,7 +13,7 @@ use versionize_derive::Versionize;
 use super::ns::MmdsNetworkStack;
 
 /// State of a MmdsNetworkStack.
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub struct MmdsNetworkStackState {
     mac_addr: [u8; MAC_ADDR_LEN],
     ipv4_addr: u32,
