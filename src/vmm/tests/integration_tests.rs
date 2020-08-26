@@ -335,8 +335,8 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
 
             // Create snapshot.
             let snapshot_type = match is_diff {
-                true => SnapshotType::Diff,
-                _ => SnapshotType::Full,
+                false => SnapshotType::Full,
+                true => unimplemented!(),
             };
             let snapshot_params = CreateSnapshotParams {
                 snapshot_type,
@@ -420,14 +420,6 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
 #[cfg(target_arch = "x86_64")]
 #[test]
 fn test_create_and_load_snapshot() {
-    // Create diff snapshot.
-    let (snapshot_file, memory_file) = verify_create_snapshot(true);
-    // Create a new microVm from snapshot. This only tests code-level logic; it verifies
-    // that a microVM can be built with no errors from given snapshot.
-    // It does _not_ verify that the guest is actually restored properly. We're using
-    // python integration tests for that.
-    verify_load_snapshot(snapshot_file, memory_file);
-
     // Create full snapshot.
     let (snapshot_file, memory_file) = verify_create_snapshot(false);
     // Create a new microVm from snapshot. This only tests code-level logic; it verifies
