@@ -85,7 +85,6 @@ pub struct MMIODeviceInfo {
 }
 
 struct IrqManager {
-    #[cfg(target_arch = "x86_64")]
     first: u32,
     last: u32,
     next_avail: u32,
@@ -94,7 +93,6 @@ struct IrqManager {
 impl IrqManager {
     pub fn new(first: u32, last: u32) -> Self {
         Self {
-            #[cfg(target_arch = "x86_64")]
             first,
             last,
             next_avail: first,
@@ -113,7 +111,6 @@ impl IrqManager {
         Ok(irqs)
     }
 
-    #[cfg(target_arch = "x86_64")]
     pub fn check(&self, irqs: &[u32]) -> Result<()> {
         for irq in irqs {
             // Check for out of range.
@@ -128,8 +125,6 @@ impl IrqManager {
 /// Manages the complexities of registering a MMIO device.
 pub struct MMIODeviceManager {
     pub(crate) bus: devices::Bus,
-    // Right now only used on x86_64, but aarch64 will also use these shortly.
-    #[cfg(target_arch = "x86_64")]
     mmio_base: u64,
     next_avail_mmio: u64,
     irqs: IrqManager,
@@ -140,7 +135,6 @@ impl MMIODeviceManager {
     /// Create a new DeviceManager handling mmio devices (virtio net, block).
     pub fn new(mmio_base: u64, irq_interval: (u32, u32)) -> MMIODeviceManager {
         MMIODeviceManager {
-            #[cfg(target_arch = "x86_64")]
             mmio_base,
             next_avail_mmio: mmio_base,
             irqs: IrqManager::new(irq_interval.0, irq_interval.1),
@@ -161,7 +155,6 @@ impl MMIODeviceManager {
         Ok(slot)
     }
 
-    #[cfg(target_arch = "x86_64")]
     /// Does a slot sanity check against expected values.
     pub fn slot_sanity_check(&self, slot: &MMIODeviceInfo) -> Result<()> {
         if slot.addr < self.mmio_base || slot.len != MMIO_LEN {
@@ -334,7 +327,6 @@ impl MMIODeviceManager {
         None
     }
 
-    #[cfg(target_arch = "x86_64")]
     /// Run fn for each registered device.
     pub fn for_each_device<F, E>(&self, mut f: F) -> std::result::Result<(), E>
     where

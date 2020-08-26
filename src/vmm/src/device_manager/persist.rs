@@ -3,15 +3,14 @@
 
 //! Provides functionality for saving/restoring the MMIO device manager and its devices.
 
-// Currently only supports x86_64.
-#![cfg(target_arch = "x86_64")]
-
 use std::io;
 use std::result::Result;
 use std::sync::{Arc, Mutex};
 
 use super::mmio::*;
 
+#[cfg(target_arch = "aarch64")]
+use arch::DeviceType;
 use devices::virtio::balloon::persist::{BalloonConstructorArgs, BalloonState};
 use devices::virtio::balloon::{Balloon, Error as BalloonError};
 use devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
@@ -39,6 +38,8 @@ pub enum Error {
     EventManager(EventMgrError),
     DeviceManager(super::mmio::Error),
     MmioTransport,
+    #[cfg(target_arch = "aarch64")]
+    Legacy(crate::Error),
     Net(NetError),
     Vsock(VsockError),
     VsockUnixBackend(VsockUnixBackendError),
@@ -96,9 +97,22 @@ pub struct ConnectedVsockState {
     pub mmio_slot: MMIODeviceInfo,
 }
 
+#[cfg(target_arch = "aarch64")]
+#[derive(Clone, Versionize)]
+/// Holds the state of a legacy device connected to the MMIO space.
+pub struct ConnectedLegacyState {
+    /// Device identifier.
+    pub type_: DeviceType,
+    /// VmmResources.
+    pub mmio_slot: MMIODeviceInfo,
+}
+
 #[derive(Clone, Versionize)]
 /// Holds the device states.
 pub struct DeviceStates {
+    #[cfg(target_arch = "aarch64")]
+    // State of legacy devices in MMIO space.
+    pub legacy_devices: Vec<ConnectedLegacyState>,
     /// Block device states.
     pub block_devices: Vec<ConnectedBlockState>,
     /// Net device states.
@@ -139,11 +153,24 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             block_devices: Vec::new(),
             net_devices: Vec::new(),
             vsock_device: None,
+            #[cfg(target_arch = "aarch64")]
+            legacy_devices: Vec::new(),
         };
         let _: Result<(), ()> = self.for_each_device(|devtype, devid, devinfo, bus_dev| {
             if *devtype == arch::DeviceType::BootTimer {
                 // No need to save BootTimer state.
                 return Ok(());
+            }
+
+            #[cfg(target_arch = "aarch64")]
+            {
+                if *devtype == DeviceType::Serial || *devtype == DeviceType::RTC {
+                    states.legacy_devices.push(ConnectedLegacyState {
+                        type_: *devtype,
+                        mmio_slot: devinfo.clone(),
+                    });
+                    return Ok(());
+                }
             }
 
             let locked_bus_dev = bus_dev.lock().expect("Poisoned lock");
@@ -225,6 +252,30 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            for state in &state.legacy_devices {
+                if state.type_ == DeviceType::Serial {
+                    let serial = crate::builder::setup_serial_device(
+                        constructor_args.event_manager,
+                        Box::new(crate::builder::SerialStdin::get()),
+                        Box::new(io::stdout()),
+                    )
+                    .map_err(Error::Legacy)?;
+
+                    dev_manager
+                        .register_mmio_serial(vm, serial, Some(state.mmio_slot.clone()))
+                        .map_err(Error::DeviceManager)?;
+                }
+                if state.type_ == DeviceType::RTC {
+                    let rtc = crate::builder::setup_rtc_device().map_err(Error::Legacy)?;
+                    dev_manager
+                        .register_mmio_rtc(vm, rtc, Some(state.mmio_slot.clone()))
+                        .map_err(Error::DeviceManager)?;
+                }
+            }
+        }
 
         let mut restore_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
                                   as_subscriber: Arc<Mutex<dyn Subscriber>>,
