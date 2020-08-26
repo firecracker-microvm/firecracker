@@ -255,13 +255,15 @@ impl MMIODeviceManager {
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Register an early console at some MMIO address.
+    /// Register an early console at the specified MMIO address if given as parameter,
+    /// otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
         serial: Arc<Mutex<devices::legacy::Serial>>,
+        dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
-        let slot = self.allocate_new_slot(1)?;
+        let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(1)?);
 
         vm.register_irqfd(
             &serial.lock().expect("Poisoned lock").interrupt_evt(),
@@ -286,14 +288,17 @@ impl MMIODeviceManager {
     }
 
     #[cfg(target_arch = "aarch64")]
-    /// Create and register a new MMIO RTC device.
+    /// Create and register a MMIO RTC device at the specified MMIO address if given as parameter,
+    /// otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_rtc(
         &mut self,
         vm: &VmFd,
         rtc: Arc<Mutex<devices::legacy::RTC>>,
+        dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         // Create and attach a new RTC device.
-        let slot = self.allocate_new_slot(1)?;
+        let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(1)?);
+
         vm.register_irqfd(
             &rtc.lock().expect("Poisoned lock").interrupt_evt(),
             slot.irqs[0],
