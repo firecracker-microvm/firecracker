@@ -15,27 +15,27 @@ use vm_memory::GuestMemoryMmap;
 use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, TYPE_VSOCK};
 
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub struct VsockState {
     pub backend: VsockBackendState,
     pub frontend: VsockFrontendState,
 }
 
 /// The Vsock serializable state.
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub struct VsockFrontendState {
     pub cid: u64,
     virtio_state: VirtioDeviceState,
 }
 
 /// An enum for the serializable backend state types.
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub enum VsockBackendState {
     Uds(VsockUdsState),
 }
 
 /// The Vsock Unix Backend serializable state.
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub struct VsockUdsState {
     /// The path for the UDS socket.
     pub(crate) path: String,
