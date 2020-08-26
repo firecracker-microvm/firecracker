@@ -16,8 +16,6 @@ use devices::pseudo::BootTimer;
 use devices::{virtio::MmioTransport, BusDevice};
 use kernel::cmdline as kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
-#[cfg(target_arch = "aarch64")]
-use utils::eventfd::EventFd;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -253,6 +251,7 @@ impl MMIODeviceManager {
         serial: Arc<Mutex<devices::legacy::Serial>>,
     ) -> Result<()> {
         let slot = self.allocate_new_slot(1)?;
+
         vm.register_irqfd(
             &serial.lock().expect("Poisoned lock").interrupt_evt(),
             slot.irqs[0],
@@ -277,16 +276,21 @@ impl MMIODeviceManager {
 
     #[cfg(target_arch = "aarch64")]
     /// Create and register a new MMIO RTC device.
-    pub fn register_new_mmio_rtc(&mut self, vm: &VmFd) -> Result<()> {
+    pub fn register_mmio_rtc(
+        &mut self,
+        vm: &VmFd,
+        rtc: Arc<Mutex<devices::legacy::RTC>>,
+    ) -> Result<()> {
         // Create and attach a new RTC device.
         let slot = self.allocate_new_slot(1)?;
-        let rtc_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-        let device = devices::legacy::RTC::new(rtc_evt.try_clone().map_err(Error::EventFd)?);
-        vm.register_irqfd(&rtc_evt, slot.irqs[0])
-            .map_err(Error::RegisterIrqFd)?;
+        vm.register_irqfd(
+            &rtc.lock().expect("Poisoned lock").interrupt_evt(),
+            slot.irqs[0],
+        )
+        .map_err(Error::RegisterIrqFd)?;
 
         let identifier = (DeviceType::RTC, DeviceType::RTC.to_string());
-        self.register_mmio_device(identifier, slot, Arc::new(Mutex::new(device)))
+        self.register_mmio_device(identifier, slot, rtc)
     }
 
     /// Create and register a boot timer device.
