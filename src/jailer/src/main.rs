@@ -23,7 +23,9 @@ pub enum Error {
     Canonicalize(PathBuf, io::Error),
     CgroupInheritFromParent(PathBuf, String),
     CgroupLineNotFound(String, String),
-    CgroupLineNotUnique(String, String),
+    CgroupInvalidFile(String),
+    CgroupWrite(String, String, String),
+    CgroupFormat(String),
     ChangeFileOwner(PathBuf, io::Error),
     ChdirNewRoot(io::Error),
     Chmod(PathBuf, io::Error),
@@ -94,11 +96,13 @@ impl fmt::Display for Error {
                 "{} configurations not found in {}",
                 controller, proc_mounts
             ),
-            CgroupLineNotUnique(ref proc_mounts, ref controller) => write!(
+            CgroupInvalidFile(ref file) => write!(f, "Cgroup invalid file: {}", file,),
+            CgroupWrite(ref evalue, ref rvalue, ref file) => write!(
                 f,
-                "Found more than one cgroups configuration line in {} for {}",
-                proc_mounts, controller
+                "Expected value {} for {}. Current value: {}",
+                evalue, file, rvalue
             ),
+            CgroupFormat(ref arg) => write!(f, "Invalid format for cgroups: {}", arg,),
             ChangeFileOwner(ref path, ref err) => {
                 write!(f, "Failed to change owner for {:?}: {}", path, err)
             }
@@ -230,7 +234,7 @@ pub fn build_arg_parser() -> ArgParser<'static> {
         )
         .arg(
             Argument::new("node")
-                .required(true)
+                .required(false)
                 .takes_value(true)
                 .help("NUMA node to assign this microVM to."),
         )
@@ -266,6 +270,11 @@ pub fn build_arg_parser() -> ArgParser<'static> {
                 .takes_value(true)
                 .help("Arguments that will be passed verbatim to the exec file."),
         )
+        .arg(Argument::new("cgroup").allow_multiple(true).help(
+            "Cgroup and value to be set by the jailer. It must follow this format: \
+             <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used
+             multiple times to add multiple cgroups.",
+        ))
 }
 
 fn sanitize_process() {
@@ -393,6 +402,7 @@ mod tests {
         let err_args_parse = arg_parser::Error::UnexpectedArgument("foo".to_string());
         let err_regex = regex::Error::Syntax(id.to_string());
         let err2_str = "No such file or directory (os error 2)";
+        let cgroup_file = "cpuset.mems";
 
         assert_eq!(
             format!("{}", Error::ArgumentParsing(err_args_parse)),
@@ -427,11 +437,19 @@ mod tests {
             "sysfs configurations not found in /proc/mounts",
         );
         assert_eq!(
+            format!("{}", Error::CgroupInvalidFile(cgroup_file.to_string())),
+            "Cgroup invalid file: cpuset.mems",
+        );
+        assert_eq!(
             format!(
                 "{}",
-                Error::CgroupLineNotUnique(proc_mounts.to_string(), controller.to_string())
+                Error::CgroupWrite("1".to_string(), "2".to_string(), cgroup_file.to_string())
             ),
-            "Found more than one cgroups configuration line in /proc/mounts for sysfs",
+            "Expected value 1 for cpuset.mems. Current value: 2",
+        );
+        assert_eq!(
+            format!("{}", Error::CgroupFormat(cgroup_file.to_string())),
+            "Invalid format for cgroups: cpuset.mems",
         );
 
         assert_eq!(

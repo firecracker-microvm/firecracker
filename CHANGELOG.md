@@ -45,6 +45,8 @@
   from the API (user) perspective.
 - Added metric for measuring the duration of loading a snapshot, from the API
   (user) perspective.
+- Added new jailer command line argument `--cgroup` which allow the user to
+  specify the cgroups that are going to be set by the Jailer.
 
 ### Fixed
 
@@ -86,7 +88,8 @@
   `--boot-timer` dedicated cmdline parameter.
 - `firecracker/jailer --version` now gets updated on each devtool
   build to the output of `git describe --dirty`, if the git repo is available.
-
+- MicroVM process is only attached to the cgroups defined by using `--cgroups`
+  or the ones defined indirectly by using `--node`.
 
 ## [0.21.0]
 

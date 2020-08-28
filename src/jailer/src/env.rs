@@ -9,6 +9,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::cgroup;
 use crate::cgroup::Cgroup;
 use crate::chroot::chroot;
 use crate::{Error, Result};
@@ -53,7 +54,6 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
 
 pub struct Env {
     id: String,
-    numa_node: u32,
     chroot_dir: PathBuf,
     exec_file_path: PathBuf,
     uid: u32,
@@ -63,6 +63,7 @@ pub struct Env {
     start_time_us: u64,
     start_time_cpu_us: u64,
     extra_args: Vec<String>,
+    cgroups: Vec<Cgroup>,
 }
 
 impl Env {
@@ -71,20 +72,12 @@ impl Env {
         start_time_us: u64,
         start_time_cpu_us: u64,
     ) -> Result<Self> {
-        // All arguments are either mandatory, or have default values, so the unwraps
-        // should not fail.
+        // Unwraps should not fail because the arguments are mandatory arguments or with default values.
         let id = arguments
             .value_as_string("id")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("id".to_string())))?;
 
         validators::validate_instance_id(&id.as_str()).map_err(Error::InvalidInstanceId)?;
-
-        let numa_node_str = arguments
-            .value_as_string("node")
-            .ok_or_else(|| Error::ArgumentParsing(MissingValue("node".to_string())))?;
-        let numa_node = numa_node_str
-            .parse::<u32>()
-            .map_err(|_| Error::NumaNode(numa_node_str))?;
 
         let exec_file = arguments
             .value_as_string("exec-file")
@@ -96,6 +89,10 @@ impl Env {
             return Err(Error::NotAFile(exec_file_path));
         }
 
+        let exec_file_name = exec_file_path
+            .file_name()
+            .ok_or_else(|| Error::FileName(exec_file_path.clone()))?;
+
         let chroot_base = arguments
             .value_as_string("chroot-base-dir")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("chroot-base-dir".to_string())))?;
@@ -106,11 +103,7 @@ impl Env {
             return Err(Error::NotADirectory(chroot_dir));
         }
 
-        chroot_dir.push(
-            exec_file_path
-                .file_name()
-                .ok_or_else(|| Error::FileName(exec_file_path.clone()))?,
-        );
+        chroot_dir.push(&exec_file_name);
         chroot_dir.push(&id);
         chroot_dir.push("root");
 
@@ -128,9 +121,43 @@ impl Env {
 
         let daemonize = arguments.value_as_bool("daemonize").unwrap_or(false);
 
+        // Optional arguments.
+        let mut cgroups = Vec::new();
+
+        // If `--node` is used, the corresponding cgroups will be created.
+        if let Some(numa_node_str) = arguments.value_as_string("node") {
+            let numa_node = numa_node_str
+                .parse::<u32>()
+                .map_err(|_| Error::NumaNode(numa_node_str))?;
+
+            if let Ok(mut numa_cgroups) =
+                cgroup::cgroups_from_numa_node(numa_node, &id, &exec_file_name)
+            {
+                cgroups.append(&mut numa_cgroups);
+            }
+        }
+
+        // cgroup format: <cgroup_controller>.<cgroup_property>=<value>,...
+        if let Some(cgroups_args) = arguments.value_as_vector("cgroup") {
+            for cg in cgroups_args {
+                let aux: Vec<&str> = cg.split('=').collect();
+                if aux.len() != 2 || aux[1].is_empty() {
+                    return Err(Error::CgroupFormat(cg.to_string()));
+                }
+
+                let cgroup = Cgroup::new(
+                    aux[0].to_string(), // cgroup file
+                    aux[1].to_string(), // cgroup value
+                    &id,
+                    &exec_file_name,
+                )?;
+
+                cgroups.push(cgroup);
+            }
+        }
+
         Ok(Env {
             id,
-            numa_node,
             chroot_dir,
             exec_file_path,
             uid,
@@ -140,6 +167,7 @@ impl Env {
             start_time_us,
             start_time_cpu_us,
             extra_args: arguments.extra_args(),
+            cgroups,
         })
     }
 
@@ -260,8 +288,17 @@ impl Env {
         }
 
         // We have to setup cgroups at this point, because we can't do it anymore after chrooting.
-        let cgroup = Cgroup::new(self.id.as_str(), self.numa_node, &exec_file_name)?;
-        cgroup.attach_pid()?;
+        // cgroups are iterated two times as some cgroups may require others (e.g cpuset requires
+        // cpuset.mems and cpuset.cpus) to be set before attaching any pid.
+        for cgroup in &self.cgroups {
+            // it will panic if any cgroup fails to write
+            cgroup.write_value().unwrap();
+        }
+
+        for cgroup in &self.cgroups {
+            // it will panic if any cgroup fails to attach
+            cgroup.attach_pid().unwrap();
+        }
 
         // If daemonization was requested, open /dev/null before chrooting.
         let dev_null = if self.daemonize {
@@ -355,6 +392,7 @@ mod tests {
         pub chroot_base: &'a str,
         pub netns: Option<&'a str>,
         pub daemonize: bool,
+        pub cgroups: Vec<&'a str>,
     }
 
     impl ArgVals<'_> {
@@ -368,6 +406,7 @@ mod tests {
                 chroot_base: "/",
                 netns: Some("zzzns"),
                 daemonize: true,
+                cgroups: vec!["cpu.shares=2", "cpuset.mems=0"],
             }
         }
     }
@@ -391,6 +430,12 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect::<Vec<String>>();
+
+        // Append cgroups arguments
+        for cg in &arg_vals.cgroups {
+            arg_vec.push("--cgroup".to_string());
+            arg_vec.push((*cg).to_string());
+        }
 
         if let Some(s) = arg_vals.netns {
             arg_vec.push("--netns".to_string());
@@ -452,6 +497,16 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_node_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["zzz"],
+            ..base_invalid_arg_vals.clone()
+        };
+
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
         let invalid_id_arg_vals = ArgVals {
@@ -649,6 +704,7 @@ mod tests {
             chroot_base: some_dir_path,
             netns: Some("zzzns"),
             daemonize: false,
+            cgroups: Vec::new(),
         };
         fs::write(some_file_path, "some_content").unwrap();
         args.parse(&make_args(&some_arg_vals)).unwrap();
@@ -696,5 +752,78 @@ mod tests {
 
         // Testing `join_netns()` with a valid network namespace is not that easy
         // as Rust std library doesn't offer support for creating such namespaces.
+    }
+
+    #[test]
+    fn test_cgroups_parsing() {
+        let arg_parser = build_arg_parser();
+        let good_arg_vals = ArgVals::new();
+
+        // Cases that should fail
+
+        // Check string without "." (no controller)
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpusetcpus=2"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        // Check string with multiple "."
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpu.set.cpus=2"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        // Check empty string
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec![""],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        // Check valid file empty value
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpuset.cpus="],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        // Check valid file no value
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpuset.cpus"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        // Cases that should success
+
+        // Check value with special characters (',', '.', '-')
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpuset.cpus=2-4,5.3"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_ok());
+
+        // Check valid case
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpuset.cpus=2"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_ok());
     }
 }

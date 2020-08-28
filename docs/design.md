@@ -162,7 +162,7 @@ process, immediately before the execution of the untrusted guest code starts.
 
 #### Cgroups and Quotas
 
-Each Firecracker microVM is further encapsulated into a cgroup. By setting the
+Each Firecracker microVM can be further encapsulated into a cgroup. By setting the
 affinity of the Firecracker microVM to a node via the cpuset subsystem, one
 can prevent the migration of said microVM from one node to another, something
 that would impair performance and cause unnecessary contention on shared

@@ -15,6 +15,7 @@ jailer --id <id> \
        --exec-file <exec_file> \
        --uid <uid> \
        --gid <gid>
+       [--cgroup <cgroup>]
        [--chroot-base-dir <chroot_base>]
        [--netns <netns>]
        [--daemonize]
@@ -30,6 +31,14 @@ jailer --id <id> \
   the jailer is mostly Firecracker specific.
 - `uid` and `gid` are the uid and gid the jailer switches to as it execs the
   target binary.
+- `cgroup` cgroups can be passed to the jailer to let it set the values
+  when the microVM process is spawned. The `--cgroup` argument must follow this format:
+  `<cgroup_file>=<value>` (e.g cpuset.cpus=0). This argument can be used multiple
+  times to set multiple cgroups. This is useful to avoid providing privileged permissions
+  to another process for setting the cgroups before or after the jailer is executed.
+  The `--cgroup` flag can help as well to set Firecracker process cgroups before the
+  VM starts running, with no need to create the entire cgroup hierarchy manually (which
+  requires privileged permissions).
 - `chroot_base` represents the base folder where chroot jails are built. The
   default is `/srv/jailer`.
 - `netns` represents the path to a network namespace handle. If present, the
@@ -66,16 +75,16 @@ After starting, the Jailer goes through the following operations:
   exists (it should not, since `id` is supposed to be unique).
 - Copy `exec_file` to
   `<chroot_base>/<exec_file_name>/<id>/root/<exec_file_name>`.
-- Create the `cgroup` sub-folders. At the moment, the jailer uses three
-  `cgroup v1` controllers: `cpu`, `cpuset`, and `pids`. On most systems, these
-  (along with others) are mounted by default somewhere in `/sys/fs/cgroup`
-  (they should be mounted by the user otherwise). The jailer will parse
-  `/proc/mounts` to detect where each of the three controllers can be found
-  (multiple controllers may share the same path). For each identified location
-  (referred to as `<cgroup_base>`), the jailer creates the
+- Create the `cgroup` sub-folders. At the moment, the jailer uses `cgroup v1`.
+  On most systems, this is mounted by default in `/sys/fs/cgroup`
+  (should be mounted by the user otherwise). The jailer will parse
+  `/proc/mounts` to detect where each of the controllers required in `--cgroup`
+  can be found (multiple controllers may share the same path). For each identified
+  location (referred to as `<cgroup_base>`), the jailer creates the
   `<cgroup_base>/<exec_file_name>/<id>` subfolder, and writes the current pid
-  to `<cgroup_base>/<exec_file_name>/<id>/tasks`. Also, the value of
-  `numa_node` is written to the appropriate `cpuset.mems` file.
+  to `<cgroup_base>/<exec_file_name>/<id>/tasks`. Also, the value passed for each
+  `<cgroup_file>` is written to the file. If `--node` is used the corresponding
+  values are written to the appropriate `cpuset.mems` and `cpuset.cpus` files.
 - Call `unshare()` into a new mount namespace, use `pivot_root()` to switch
   the old system root mount point with a new one base in `chroot_dir`, switch
   the current working directory to the new root, unmount the old root mount
@@ -103,13 +112,16 @@ After starting, the Jailer goes through the following operations:
 Let’s assume Firecracker is available as `/usr/bin/firecracker`, and the jailer
 can be found at `/usr/bin/jailer`. We pick the **unique id
 551e7604-e35c-42b3-b825-416853441234**, and we choose to run on **NUMA node
-0**, using **uid 123**, and **gid 100**. For this example, we are content with
-the default `/srv/jailer` chroot base dir.
+0** (in order to isolate the process in the 0th NUMA node we need to set `cpuset.mems=0`
+and `cpuset.cpus` equals to the CPUs of that NUMA node), using **uid 123**,
+and **gid 100**. For this example, we are content with the default `/srv/jailer`
+chroot base dir.
 
 We start by running:
 
 ``` bash
-/usr/bin/jailer --id 551e7604-e35c-42b3-b825-416853441234 --node 0 \
+/usr/bin/jailer --id 551e7604-e35c-42b3-b825-416853441234
+--cgroup cpuset.mems=0 --cgroup cpuset.cpus=$(cat /sys/devices/system/node/node0/cpulist)
 --exec-file /usr/bin/firecracker --uid 123 --gid 100 \
 --netns /var/run/netns/my_netns --daemonize
 ```
@@ -125,14 +137,11 @@ We are going to refer to
 `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root`
 as `<chroot_dir>`.
 
-Let’s also assume the **cpu**, **cpuset**, and **pids** cgroups are mounted at
-`/sys/fs/cgroup/cpu`, `/sys/fs/cgroup/cpuset`, and `/sys/fs/cgroup/pids`,
-respectively. The jailer will create the following subfolders (which will
-inherit settings from the parent cgroup):
+Let’s also assume the, **cpuset** cgroups are mounted at
+`/sys/fs/cgroup/cpuset`. The jailer will create the following subfolder
+(which will inherit settings from the parent cgroup):
 
-- `/sys/fs/cgroup/cpu/firecracker/551e7604-e35c-42b3-b825-416853441234`
 - `/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234`
-- `/sys/fs/cgroup/pids/firecracker/551e7604-e35c-42b3-b825-416853441234`
 
 It’s worth noting that, whenever a folder already exists, nothing will be done,
 and we move on to the next directory that needs to be created. This should only
@@ -141,12 +150,11 @@ path before, we do not issue an error if folders directly associated with the
 supposedly unique `id` already exist).
 
 The jailer then writes the current pid to
-`/sys/fs/cgroup/cpu/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`,
 `/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`,
-and
-`/sys/fs/cgroup/pids/firecracker/551e7604-e35c-42b3-b825-416853441234/tasks`.
 It also writes `0` to
-`/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234/cpuset.mems`.
+`/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234/cpuset.mems`,
+And the corresponding CPUs to
+`/sys/fs/cgroup/cpuset/firecracker/551e7604-e35c-42b3-b825-416853441234/cpuset.cpus`.
 
 Since the `--netns` parameter is specified in our example, the jailer opens
 `/var/run/netns/my_netns` to get a file descriptor `fd`, uses
@@ -208,10 +216,10 @@ Note: default value for <api-sock> is `/run/firecracker.socket`
   these resources; for example the user which Firecracker runs as must have
   both **read and write permissions** to the backing file for a RW block
   device.
-- It’s up to the user to load balance VM placement among multiple NUMA nodes
-  (if present), using the ```--node``` command line argument.
-- The user must also manage any further fine tuning of resource partitioning
-  via cgroups (most likely the ones created by the jailer), or any other means.
+- By default the VMs are not asigned to any NUMA node or pinned to any CPU.
+  The user must manage any fine tuning of resource partitioning via
+  cgroups, by using the `--cgroup` command line argument or by using the
+  `--node` argument.
 - It’s up to the user to handle cleanup after running the jailer. One way to do
   this involves registering handlers with the cgroup `notify_on_release`
   mechanism, while being wary about potential race conditions (the instance
