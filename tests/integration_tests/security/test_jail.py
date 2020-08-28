@@ -4,6 +4,8 @@
 import os
 import stat
 
+from framework.defs import FC_BINARY_NAME
+
 # These are the permissions that all files/dirs inside the jailer have.
 REG_PERMS = stat.S_IRUSR | stat.S_IWUSR | \
             stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | \
@@ -92,3 +94,97 @@ def test_arbitrary_usocket_location(test_microvm_with_initrd):
     check_stats(os.path.join(test_microvm.jailer.chroot_path(),
                              "api.socket"), SOCK_STATS,
                 test_microvm.jailer.uid, test_microvm.jailer.gid)
+
+
+def check_cgroups(cgroups, cgroup_location, jailer_id):
+    """Assert that every cgroup in cgroups is correctly set."""
+    for cgroup in cgroups:
+        controller = cgroup.split('.')[0]
+        file_name, value = cgroup.split('=')
+        location = cgroup_location + '/{}/{}/{}/'.format(
+            controller,
+            FC_BINARY_NAME,
+            jailer_id
+        )
+        tasks_file = location + 'tasks'
+        file = location + file_name
+
+        assert open(file, 'r').readline().strip() == value
+        assert open(tasks_file, 'r').readline().strip().isdigit()
+
+
+def get_cpus(node):
+    """Retrieve CPUs from NUMA node."""
+    sys_node = '/sys/devices/system/node/node' + str(node)
+    assert os.path.isdir(sys_node)
+    node_cpus_path = sys_node + '/cpulist'
+
+    return open(node_cpus_path, 'r').readline().strip()
+
+
+def test_cgroups(test_microvm_with_initrd):
+    """Test the cgroups are correctly set by the jailer."""
+    test_microvm = test_microvm_with_initrd
+    test_microvm.jailer.cgroups = ['cpu.shares=2', 'cpu.cfs_period_us=200000']
+    test_microvm.jailer.numa_node = 0
+
+    test_microvm.spawn()
+
+    # Retrieve CPUs from NUMA node 0.
+    node_cpus = get_cpus(test_microvm.jailer.numa_node)
+
+    # Apending the cgroups that should be creating by --node option
+    # This must be changed once --node options is removed
+    cgroups = test_microvm.jailer.cgroups + [
+        'cpuset.mems=0',
+        'cpuset.cpus={}'.format(node_cpus)
+    ]
+
+    # We assume sysfs cgroups are mounted here.
+    sys_cgroup = '/sys/fs/cgroup'
+    assert os.path.isdir(sys_cgroup)
+
+    check_cgroups(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+
+
+def test_node_cgroups(test_microvm_with_initrd):
+    """Test the cgroups are correctly set by the jailer."""
+    test_microvm = test_microvm_with_initrd
+    test_microvm.jailer.cgroups = None
+    test_microvm.jailer.numa_node = 0
+
+    test_microvm.spawn()
+
+    # Retrieve CPUs from NUMA node 0.
+    node_cpus = get_cpus(test_microvm.jailer.numa_node)
+
+    # Apending the cgroups that should be creating by --node option
+    # This must be changed once --node options is removed
+    cgroups = [
+        'cpuset.mems=0',
+        'cpuset.cpus={}'.format(node_cpus)
+    ]
+
+    # We assume sysfs cgroups are mounted here.
+    sys_cgroup = '/sys/fs/cgroup'
+    assert os.path.isdir(sys_cgroup)
+
+    check_cgroups(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+
+
+def test_args_cgroups(test_microvm_with_initrd):
+    """Test the cgroups are correctly set by the jailer."""
+    test_microvm = test_microvm_with_initrd
+    test_microvm.jailer.cgroups = ['cpu.shares=2', 'cpu.cfs_period_us=200000']
+
+    test_microvm.spawn()
+
+    # We assume sysfs cgroups are mounted here.
+    sys_cgroup = '/sys/fs/cgroup'
+    assert os.path.isdir(sys_cgroup)
+
+    check_cgroups(
+        test_microvm.jailer.cgroups,
+        sys_cgroup,
+        test_microvm.jailer.jailer_id
+    )
