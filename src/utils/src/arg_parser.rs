@@ -134,6 +134,7 @@ pub struct Argument<'a> {
     required: bool,
     requires: Option<&'a str>,
     takes_value: bool,
+    allow_multiple: bool,
     default_value: Option<Value>,
     help: Option<&'a str>,
     user_value: Option<Value>,
@@ -147,6 +148,7 @@ impl<'a> Argument<'a> {
             required: false,
             requires: None,
             takes_value: false,
+            allow_multiple: false,
             default_value: None,
             help: None,
             user_value: None,
@@ -169,6 +171,17 @@ impl<'a> Argument<'a> {
     /// argument, otherwise that argument is a flag.
     pub fn takes_value(mut self, takes_value: bool) -> Self {
         self.takes_value = takes_value;
+        self
+    }
+
+    /// If `allow_multiple` is true, then the user can provide multiple values for the
+    /// argument (e.g --arg val1 --arg val2). It sets the `takes_value` option to true,
+    /// so the user must provides at least one value.
+    pub fn allow_multiple(mut self, allow_multiple: bool) -> Self {
+        if allow_multiple {
+            self.takes_value = true;
+        }
+        self.allow_multiple = allow_multiple;
         self
     }
 
@@ -224,6 +237,7 @@ impl<'a> Argument<'a> {
 pub enum Value {
     Bool(bool),
     String(String),
+    Vector(Vec<String>),
 }
 
 impl Value {
@@ -240,6 +254,13 @@ impl Value {
             _ => None,
         }
     }
+
+    fn as_vector(&self) -> Option<Vec<String>> {
+        match self {
+            Value::Vector(v) => Some(v.to_vec()),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Value {
@@ -247,6 +268,7 @@ impl fmt::Display for Value {
         match self {
             Value::Bool(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "\"{}\"", s),
+            Value::Vector(v) => write!(f, "{:?}", v),
         }
     }
 }
@@ -288,6 +310,13 @@ impl<'a> Arguments<'a> {
     pub fn value_as_bool(&self, arg_name: &'static str) -> Option<bool> {
         self.value_of(arg_name)
             .and_then(|arg_value| arg_value.as_bool())
+    }
+
+    /// Return the value of an argument if the argument exists and has the type
+    /// vector. Otherwise return None.
+    pub fn value_as_vector(&self, arg_name: &'static str) -> Option<Vec<String>> {
+        self.value_of(arg_name)
+            .and_then(|arg_value| arg_value.as_vector())
     }
 
     /// Get the extra arguments (all arguments after `--`).
@@ -371,14 +400,13 @@ impl<'a> Arguments<'a> {
         let arg_name = &arg[ARG_PREFIX.len()..];
 
         // Check if the argument is an expected one and, if yes, check that it was not
-        // provided more than once.
-        if self
+        // provided more than once (unless allow_multiple is set).
+        let argument = self
             .args
             .get(arg_name)
-            .ok_or_else(|| Error::UnexpectedArgument(arg_name.to_string()))?
-            .user_value
-            .is_some()
-        {
+            .ok_or_else(|| Error::UnexpectedArgument(arg_name.to_string()))?;
+
+        if !argument.allow_multiple && argument.user_value.is_some() {
             return Err(Error::DuplicateArgument(arg_name.to_string()));
         }
         Ok(())
@@ -405,7 +433,19 @@ impl<'a> Arguments<'a> {
                     .filter(|v| !v.starts_with(ARG_PREFIX))
                     .ok_or_else(|| Error::MissingValue(argument.name.to_string()))?
                     .clone();
-                Value::String(val)
+
+                if argument.allow_multiple {
+                    match argument.user_value.clone() {
+                        Some(Value::Vector(mut v)) => {
+                            v.push(val);
+                            Value::Vector(v)
+                        }
+                        None => Value::Vector(vec![val]),
+                        _ => return Err(Error::UnexpectedArgument(argument.name.to_string())),
+                    }
+                } else {
+                    Value::String(val)
+                }
             } else {
                 Value::Bool(true)
             };
@@ -850,5 +890,65 @@ mod tests {
     fn test_value_display() {
         assert_eq!(format!("{}", Value::Bool(true)), "true");
         assert_eq!(format!("{}", Value::String("foo".to_string())), "\"foo\"");
+    }
+
+    #[test]
+    fn test_allow_multiple() {
+        let arg_parser = ArgParser::new()
+            .arg(
+                Argument::new("no-multiple")
+                    .takes_value(true)
+                    .help("argument that takes just one value."),
+            )
+            .arg(
+                Argument::new("multiple")
+                    .allow_multiple(true)
+                    .help("argument that allows duplication."),
+            );
+
+        let mut arguments = arg_parser.arguments().clone();
+
+        // Check single value arguments fails when multiple values are provided.
+        let args = vec!["binary-name", "--no-multiple", "1", "--no-multiple", "2"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert_eq!(
+            arguments.parse(&args),
+            Err(Error::DuplicateArgument("no-multiple".to_string()))
+        );
+
+        arguments = arg_parser.arguments().clone();
+
+        // Check single value arguments works as expected when just one value
+        // is provided for both arguments.
+        let args = vec!["binary-name", "--no-multiple", "1", "--multiple", "2"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert!(arguments.parse(&args).is_ok());
+
+        arguments = arg_parser.arguments().clone();
+
+        // Check multiple arg allow multiple values
+        let args = vec!["binary-name", "--multiple", "1", "--multiple", "2"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert!(arguments.parse(&args).is_ok());
+
+        // Check dulicates require a value
+        let args = vec!["binary-name", "--multiple", "--multiple", "2"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert_eq!(
+            arguments.parse(&args),
+            Err(Error::MissingValue("multiple".to_string()))
+        );
     }
 }
