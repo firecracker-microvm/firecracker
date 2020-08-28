@@ -2,13 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests scenarios for Firecracker signal handling."""
 
+import json
 import os
 from signal import SIGBUS, SIGRTMIN, SIGSEGV
 from time import sleep
-
 import pytest
 
 import host_tools.network as net_tools
+import framework.utils as utils
+
+signum_str = {
+    SIGBUS: "sigbus",
+    SIGSEGV: "sigsegv",
+}
 
 
 @pytest.mark.parametrize(
@@ -17,23 +23,39 @@ import host_tools.network as net_tools
 )
 def test_sigbus_sigsegv(test_microvm_with_api, signum):
     """Test signal handling for `SIGBUS` and `SIGSEGV`."""
-    test_microvm = test_microvm_with_api
-    test_microvm.spawn()
+    microvm = test_microvm_with_api
+    microvm.spawn()
 
     # We don't need to monitor the memory for this test.
-    test_microvm.memory_monitor = None
+    microvm.memory_monitor = None
 
-    test_microvm.basic_config()
+    microvm.basic_config()
 
-    test_microvm.start()
-    firecracker_pid = int(test_microvm.jailer_clone_pid)
+    # Configure metrics based on a file.
+    metrics_path = os.path.join(microvm.path, 'metrics_fifo')
+    utils.run_cmd("touch {}".format(metrics_path))
+    response = microvm.metrics.put(
+        metrics_path=microvm.create_jailed_resource(metrics_path)
+    )
+    assert microvm.api_session.is_status_no_content(response.status_code)
 
+    microvm.start()
+    firecracker_pid = int(microvm.jailer_clone_pid)
     sleep(0.5)
-    os.kill(firecracker_pid, signum)
 
+    metrics_jail_path = os.path.join(microvm.chroot(), metrics_path)
+    metrics_fd = open(metrics_jail_path)
+
+    line_metrics = metrics_fd.readlines()
+    assert len(line_metrics) == 1
+
+    os.kill(firecracker_pid, signum)
     msg = 'Shutting down VM after intercepting signal {}'.format(signum)
 
-    test_microvm.check_log_message(msg)
+    microvm.check_log_message(msg)
+
+    metric_line = json.loads(metrics_fd.readlines()[0])
+    assert metric_line["signals"][signum_str[signum]] == 1
 
 
 def test_handled_signals(test_microvm_with_ssh, network_config):
