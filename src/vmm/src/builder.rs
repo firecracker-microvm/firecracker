@@ -343,6 +343,8 @@ pub fn build_microvm_for_boot(
         boot_cmdline,
     )?;
 
+    gdb_server::run_gdb_server();
+
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(vcpus, seccomp_filter).map_err(Internal)?;
 
