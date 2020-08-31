@@ -5,8 +5,6 @@
 
 // Currently only supports x86_64.
 #![cfg(target_arch = "x86_64")]
-// TODO: remove once serialization is used.
-#![allow(unused)]
 
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -25,7 +23,6 @@ use devices::virtio::{MmioTransport, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK};
 use kvm_ioctls::VmFd;
 use polly::event_manager::{Error as EventMgrError, EventManager};
 use snapshot::Persist;
-use utils::time::TimestampUs;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
@@ -117,7 +114,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .lock()
                 .expect("Poisoned lock");
 
-            if let Some(boot_timer) = bus_device.as_any().downcast_ref::<BootTimer>() {
+            if bus_device.as_any().downcast_ref::<BootTimer>().is_some() {
                 // No need to save BootTimer state.
                 continue;
             }
@@ -181,9 +178,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
-        // Only used during initial registration.
-        let dummy_irq_range = (0, 0);
-        let mut dev_manager = MMIODeviceManager::new(arch::MMIO_MEM_START, dummy_irq_range);
+        let mut dev_manager =
+            MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
         let event_manager = constructor_args.event_manager;
@@ -200,6 +196,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let device_id = block_state.device_id.clone();
             let transport_state = &block_state.transport_state;
             let mmio_slot = &block_state.mmio_slot;
+            dev_manager
+                .slot_sanity_check(mmio_slot)
+                .map_err(Error::DeviceManager)?;
 
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
@@ -209,11 +208,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .map_err(|()| Error::MmioTransport)?;
             dev_manager
                 .register_virtio_mmio_device(vm, device_id, mmio_transport, &mmio_slot)
-                .map_err(Error::DeviceManager);
+                .map_err(Error::DeviceManager)?;
 
             event_manager
                 .add_subscriber(device)
-                .map_err(Error::EventManager);
+                .map_err(Error::EventManager)?;
         }
         for net_state in &state.net_devices {
             let device = Arc::new(Mutex::new(
@@ -227,6 +226,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let device_id = net_state.device_id.clone();
             let transport_state = &net_state.transport_state;
             let mmio_slot = &net_state.mmio_slot;
+            dev_manager
+                .slot_sanity_check(mmio_slot)
+                .map_err(Error::DeviceManager)?;
 
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
@@ -236,11 +238,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .map_err(|()| Error::MmioTransport)?;
             dev_manager
                 .register_virtio_mmio_device(vm, device_id, mmio_transport, &mmio_slot)
-                .map_err(Error::DeviceManager);
+                .map_err(Error::DeviceManager)?;
 
             event_manager
                 .add_subscriber(device)
-                .map_err(Error::EventManager);
+                .map_err(Error::EventManager)?;
         }
         if let Some(vsock_state) = &state.vsock_device {
             let ctor_args = VsockUdsConstructorArgs {
@@ -262,6 +264,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let device_id = vsock_state.device_id.clone();
             let transport_state = &vsock_state.transport_state;
             let mmio_slot = &vsock_state.mmio_slot;
+            dev_manager
+                .slot_sanity_check(mmio_slot)
+                .map_err(Error::DeviceManager)?;
 
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
@@ -271,7 +276,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .map_err(|()| Error::MmioTransport)?;
             dev_manager
                 .register_virtio_mmio_device(vm, device_id, mmio_transport, &mmio_slot)
-                .map_err(Error::DeviceManager);
+                .map_err(Error::DeviceManager)?;
         }
 
         Ok(dev_manager)
@@ -281,7 +286,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builder::attach_boot_timer_device;
     use crate::builder::tests::*;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;

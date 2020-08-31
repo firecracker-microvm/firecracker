@@ -393,3 +393,64 @@ def test_mmds_dummy(test_microvm_with_ssh):
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == dummy_json
+
+
+def test_guest_mmds_hang(test_microvm_with_ssh, network_config):
+    """Test the MMDS json response."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
+    data_store = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'ami-12345678'
+            }
+        }
+    }
+    response = test_microvm.mmds.put(json=data_store)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == data_store
+
+    test_microvm.basic_config(vcpu_count=1)
+    _tap = test_microvm.ssh_network_config(
+         network_config,
+         '1',
+         allow_mmds_requests=True
+    )
+
+    test_microvm.start()
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    cmd = 'ip route add 169.254.169.254 dev eth0'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, '')
+
+    # Test for a GET request with a content length longer than
+    # the actual length of the body.
+    cmd = 'curl -m 2 -s'
+    cmd += ' -X GET'
+    cmd += ' -H  "Content-Length: 100"'
+    cmd += ' -H "Accept: application/json"'
+    cmd += ' -d "some body"'
+    cmd += ' http://169.254.169.254/'
+
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+    assert 'Invalid request' in stdout.read()
+
+    # Do the same for a PUT request.
+    cmd = 'curl -m 2 -s'
+    cmd += ' -X PUT'
+    cmd += ' -H  "Content-Length: 100"'
+    cmd += ' -H "Accept: application/json"'
+    cmd += ' -d "some body"'
+    cmd += ' http://169.254.169.254/'
+
+    _, stdout, _ = ssh_connection.execute_command(cmd)
+    assert 'Invalid request' in stdout.read()

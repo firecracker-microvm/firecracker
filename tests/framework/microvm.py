@@ -302,8 +302,12 @@ class Microvm:
                                        create_jail=create_jail)
 
     def get_jailed_resource(self, path):
-        """Get the jailed path to a resource."""
+        """Get the relative jailed path to a resource."""
         return self.jailer.jailed_path(path, create=False)
+
+    def chroot(self):
+        """Get the chroot of this microVM."""
+        return self.jailer.chroot_path()
 
     def setup(self):
         """Create a microvm associated folder on the host.

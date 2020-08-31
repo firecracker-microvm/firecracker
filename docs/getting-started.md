@@ -280,8 +280,9 @@ git checkout tags/v0.10.1
 
 Within the Firecracker repository root directory:
 
-1. with the default musl target: ```tools/devtool build```
-1. using the gnu target: ```tools/devtool build -l gnu```
+1. with the __default__ musl target: ```tools/devtool build```
+1. (__Experimental only__) using the gnu target: 
+```tools/devtool build -l gnu```
 
 This will build and place the two Firecracker binaries at:
 
@@ -320,8 +321,9 @@ arch=`uname -m`
 cargo build --target ${arch}-unknown-linux-gnu
 ```
 
-That being said, Firecracker binaries built without `devtool` are always
-considered experimental and should not be used in production.
+That being said, Firecracker binaries linked with glibc or built without
+`devtool` are always considered experimental and should not be used in
+production.
 
 ## Running the Integration Test Suite
 

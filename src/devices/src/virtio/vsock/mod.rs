@@ -14,6 +14,8 @@ mod unix;
 
 use std::os::unix::io::AsRawFd;
 
+use crate::virtio::persist::Error as VirtioStateError;
+
 pub use self::defs::uapi::VIRTIO_ID_VSOCK as TYPE_VSOCK;
 pub use self::device::Vsock;
 pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
@@ -30,9 +32,11 @@ mod defs {
 
     /// Number of virtio queues.
     pub const NUM_QUEUES: usize = 3;
+    /// Max size of virtio queues.
+    pub const QUEUE_SIZE: u16 = 256;
     /// Virtio queue sizes, in number of descriptor chain heads.
     /// There are 3 queues for a virtio device (in this order): RX, TX, Event
-    pub const QUEUE_SIZES: &[u16] = &[256; NUM_QUEUES];
+    pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE; NUM_QUEUES];
 
     /// Max vsock packet data/buffer size.
     pub const MAX_PKT_BUF_SIZE: usize = 64 * 1024;
@@ -94,6 +98,8 @@ pub enum VsockError {
     BufDescTooSmall,
     /// The vsock data/buffer virtio descriptor is expected, but missing.
     BufDescMissing,
+    /// EventFd error
+    EventFd(std::io::Error),
     /// Chained GuestMemoryMmap error.
     GuestMemoryMmap(GuestMemoryError),
     /// Bounds check failed on guest memory pointer.
@@ -110,8 +116,8 @@ pub enum VsockError {
     UnreadableDescriptor,
     /// Encountered an unexpected read-only virtio descriptor.
     UnwritableDescriptor,
-    /// EventFd error
-    EventFd(std::io::Error),
+    /// Invalid virtio configuration.
+    VirtioState(VirtioStateError),
     VsockUdsBackend(VsockUnixBackendError),
 }
 
