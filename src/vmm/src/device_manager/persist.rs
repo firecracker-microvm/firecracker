@@ -270,13 +270,16 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
-                device,
+                device: device.clone(),
             };
             let mmio_transport = MmioTransport::restore(restore_args, transport_state)
                 .map_err(|()| Error::MmioTransport)?;
             dev_manager
                 .register_virtio_mmio_device(vm, device_id, mmio_transport, &mmio_slot)
                 .map_err(Error::DeviceManager)?;
+            event_manager
+                .add_subscriber(device)
+                .map_err(Error::EventManager)?;
         }
 
         Ok(dev_manager)
