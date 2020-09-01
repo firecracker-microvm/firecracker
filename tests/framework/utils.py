@@ -321,3 +321,9 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
         run_cmd_async(cmd=cmd,
                       ignore_return_code=ignore_return_code,
                       no_shell=no_shell))
+
+
+def eager_map(func, iterable):
+    """Map version for Python 3.x which is eager and returns nothing."""
+    for _ in map(func, iterable):
+        continue
