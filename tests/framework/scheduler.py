@@ -29,6 +29,8 @@ from random import random
 from select import select
 from time import sleep
 import pytest
+# Needed to force deselect nonci tests.
+from _pytest.mark import Expression, MarkMatcher
 from _pytest.main import ExitCode
 
 from . import mpsing  # pylint: disable=relative-beyond-top-level
@@ -88,6 +90,21 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         This will execute in the worker / child context.
         """
         self._add_report(report)
+
+    @staticmethod
+    def filter_batch(config, batch, marker_name):
+        """Deselect marked tests which are not explicitly selected."""
+        deselected = []
+        expr = Expression.compile(config.option.markexpr)
+        for item in batch['items'][:]:
+            for key in item.keywords:
+                if key is marker_name and \
+                        not expr.evaluate(MarkMatcher.from_item(item)):
+                    deselected.append(item)
+                    batch['items'].remove(item)
+                    break
+
+        config.hook.pytest_deselected(items=deselected)
 
     def pytest_runtestloop(self, session):
         """Pytest hook. The main test scheduling and running loop.
@@ -155,17 +172,27 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         for item in session.items:
             # A test can match any of the patterns defined by the batch,
             # in order to get assigned to it.
-            next(
+            for batch in schedule:
                 # Found a matching batch. No need to look any further.
-                batch['items'].append(item) for batch in schedule
                 if re.search(
                     "|".join(["({})".format(x) for x in batch['patterns']]),
                     "/".join(item.listnames()),
-                ) is not None
-            )
+                ) is not None:
+                    batch['items'].append(item)
+                    break
 
         # Filter out empty batches.
         schedule = [batch for batch in schedule if batch['items']]
+
+        # Evaluate marker expression only for the marked batch items.
+        # If pytest runs with a marker expression which does not include
+        # `nonci` marked tests (e.g `-m "not nonci" or non-existent marker
+        # expression), the tests marked with `nonci` marker will be skipped.
+        for batch in schedule:
+            PytestScheduler.filter_batch(session.config,
+                                         batch,
+                                         marker_name="nonci")
+            break
 
         for batch in schedule:
             self._raw_stdout(
