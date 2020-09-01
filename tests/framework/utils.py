@@ -144,7 +144,7 @@ class StoppableThread(threading.Thread):
 
     def __init__(self, *args, **kwargs):
         """Set up a Stoppable thread."""
-        super(StoppableThread, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self._should_stop = False
 
     def stop(self):
