@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Error, Formatter};
+use std::str::Utf8Error;
 
 pub mod headers;
 
@@ -11,6 +12,55 @@ pub mod ascii {
     pub const LF: u8 = b'\n';
     pub const SP: u8 = b' ';
     pub const CRLF_LEN: usize = 2;
+}
+
+///Errors associated with a header that is invalid.
+#[derive(Debug, PartialEq)]
+pub enum HttpHeaderError {
+    /// The content length specified is longer than the limit imposed by Micro Http.
+    SizeLimitExceeded(String),
+    /// The header specified is not supported.
+    UnsupportedName(String),
+    /// The value for the specified header is not supported.
+    UnsupportedValue(String, String),
+    /// The specified header contains illegal characters.
+    InvalidUtf8String(Utf8Error),
+    /// The requested feature is not currently supported.
+    UnsupportedFeature(String, String),
+    /// The header is misformatted.
+    InvalidFormat(String),
+    ///The value specified is not valid.
+    InvalidValue(String, String),
+}
+
+impl Display for HttpHeaderError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            Self::SizeLimitExceeded(inner) => {
+                write!(f, "Invalid content length. Header: {}", inner)
+            }
+            Self::UnsupportedName(inner) => write!(f, "Unsupported header name. Key: {}", inner),
+            Self::UnsupportedValue(header_key, header_value) => write!(
+                f,
+                "Unsupported value. Key:{}; Value:{}",
+                header_key, header_value
+            ),
+            Self::InvalidUtf8String(header_key) => {
+                write!(f, "Header contains invalid characters. Key: {}", header_key)
+            }
+            Self::UnsupportedFeature(header_key, header_value) => write!(
+                f,
+                "Unsupported feature. Key: {}; Value: {}",
+                header_key, header_value
+            ),
+            Self::InvalidFormat(header_key) => {
+                write!(f, "Header is incorrectly formatted. Key: {}", header_key)
+            }
+            Self::InvalidValue(header_name, value) => {
+                write!(f, "Invalid value. Key:{}; Value:{}", header_name, value)
+            }
+        }
+    }
 }
 
 /// Errors associated with parsing the HTTP Request from a u8 slice.
@@ -26,10 +76,8 @@ pub enum RequestError {
     InvalidUri(&'static str),
     /// The HTTP Version in the Request is not supported or it is invalid.
     InvalidHttpVersion(&'static str),
-    /// The header specified may be valid, but is not supported by this HTTP implementation.
-    UnsupportedHeader,
-    /// Header specified is invalid.
-    InvalidHeader,
+    /// Header specified is either invalid or not supported by this HTTP implementation.
+    HeaderError(HttpHeaderError),
     /// The Request is invalid and cannot be served.
     InvalidRequest,
     /// Overflow occurred when parsing a request.
@@ -52,8 +100,7 @@ impl Display for RequestError {
             Self::InvalidHttpMethod(inner) => write!(f, "Invalid HTTP Method: {}", inner),
             Self::InvalidUri(inner) => write!(f, "Invalid URI: {}", inner),
             Self::InvalidHttpVersion(inner) => write!(f, "Invalid HTTP Version: {}", inner),
-            Self::UnsupportedHeader => write!(f, "Unsupported header."),
-            Self::InvalidHeader => write!(f, "Invalid header."),
+            Self::HeaderError(inner) => write!(f, "Invalid header. Reason: {}", inner),
             Self::InvalidRequest => write!(f, "Invalid request."),
             Self::Overflow => write!(f, "Overflow occurred when parsing a request."),
             Self::Underflow => write!(f, "Underflow occurred when parsing a request."),
@@ -317,10 +364,6 @@ mod tests {
             "No request was pending while the request headers were being parsed."
         );
         assert_eq!(
-            format!("{}", RequestError::InvalidHeader),
-            "Invalid header."
-        );
-        assert_eq!(
             format!("{}", RequestError::InvalidHttpMethod("test")),
             "Invalid HTTP Method: test"
         );
@@ -344,9 +387,60 @@ mod tests {
             format!("{}", RequestError::Underflow),
             "Underflow occurred when parsing a request."
         );
+    }
+
+    #[test]
+    fn test_display_header_error() {
         assert_eq!(
-            format!("{}", RequestError::UnsupportedHeader),
-            "Unsupported header."
+            format!(
+                "{}",
+                RequestError::HeaderError(HttpHeaderError::SizeLimitExceeded("test".to_string()))
+            ),
+            "Invalid header. Reason: Invalid content length. Header: test"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                RequestError::HeaderError(HttpHeaderError::UnsupportedName("test".to_string()))
+            ),
+            "Invalid header. Reason: Unsupported header name. Key: test"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                RequestError::HeaderError(HttpHeaderError::UnsupportedValue(
+                    "test".to_string(),
+                    "test".to_string()
+                ))
+            ),
+            "Invalid header. Reason: Unsupported value. Key:test; Value:test"
+        );
+        let value = String::from_utf8(vec![0, 159]);
+        assert_eq!(
+            format!(
+                "{}",
+                RequestError::HeaderError(HttpHeaderError::InvalidUtf8String(
+                    value.unwrap_err().utf8_error()
+                ))
+            ),
+            "Invalid header. Reason: Header contains invalid characters. Key: invalid utf-8 sequence of 1 bytes from index 1"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                RequestError::HeaderError(HttpHeaderError::UnsupportedFeature(
+                    "test".to_string(),
+                    "test".to_string()
+                ))
+            ),
+            "Invalid header. Reason: Unsupported feature. Key: test; Value: test"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                RequestError::HeaderError(HttpHeaderError::InvalidFormat("test".to_string()))
+            ),
+            "Invalid header. Reason: Header is incorrectly formatted. Key: test"
         );
     }
 

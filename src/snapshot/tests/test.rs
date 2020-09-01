@@ -1,6 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use snapshot::Snapshot;
+use snapshot::{Error, Snapshot};
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 
@@ -47,7 +47,7 @@ fn test_hardcoded_snapshot_deserialization() {
 
     #[rustfmt::skip]
     let v1_hardcoded_snapshot: &[u8] = &[
-        // This blob is consisted of the following: magic_id (8 bytes),
+        // This blob consists of the following: magic_id (8 bytes),
         0x01, 0x00,
         #[cfg(target_arch = "aarch64")]
         0xAA,
@@ -115,4 +115,114 @@ fn test_hardcoded_snapshot_deserialization() {
     };
 
     assert_eq!(restored_struct, expected_struct);
+}
+
+#[test]
+fn test_invalid_format_version() {
+    #[rustfmt::skip]
+    let invalid_format_snap: &[u8] = &[
+        // This blob consists of the following: magic_id (8 bytes),
+        0xAA, 0xAA,
+        #[cfg(target_arch = "aarch64")]
+        0xAA,
+        #[cfg(target_arch = "aarch64")]
+        0xAA,
+        #[cfg(target_arch = "x86_64")]
+        0x64,
+        #[cfg(target_arch = "x86_64")]
+        0x86,
+        0x84, 0x19, 0x10, 0x07,
+        // target version (2 bytes) +
+        0x01, 0x00,
+        // `a` field +
+        0x10, 0x00, 0x00, 0x00,
+        // `b` field: Option variant type (1 byte) + inner enum variant type (4 bytes)
+        // + inner enum value (4 bytes).
+        0x01, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+    ];
+
+    let mut result: Result<A, Error> =
+        Snapshot::load(&mut invalid_format_snap.as_ref(), VersionMap::new());
+    let mut expected_err = Error::InvalidFormatVersion(0xAAAA);
+    assert_eq!(result.unwrap_err(), expected_err);
+
+    #[rustfmt::skip]
+    let null_format_snap: &[u8] = &[
+        // This blob consists of the following: magic_id (8 bytes),
+        0x00, 0x00,
+        #[cfg(target_arch = "aarch64")]
+        0xAA,
+        #[cfg(target_arch = "aarch64")]
+        0xAA,
+        #[cfg(target_arch = "x86_64")]
+        0x64,
+        #[cfg(target_arch = "x86_64")]
+        0x86,
+        0x84, 0x19, 0x10, 0x07,
+        // target version (2 bytes) +
+        0x01, 0x00,
+        // `a` field +
+        0x10, 0x00, 0x00, 0x00,
+        // `b` field: Option variant type (1 byte) + inner enum variant type (4 bytes)
+        // + inner enum value (4 bytes).
+        0x01, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+    ];
+
+    result = Snapshot::load(&mut null_format_snap.as_ref(), VersionMap::new());
+    expected_err = Error::InvalidFormatVersion(0);
+    assert_eq!(result.unwrap_err(), expected_err);
+}
+
+#[test]
+fn test_invalid_data_version() {
+    #[rustfmt::skip]
+    let invalid_data_version_snap: &[u8] = &[
+        // This blob consists of the following: magic_id (8 bytes),
+        0x01, 0x00,
+        #[cfg(target_arch = "aarch64")]
+        0xAA,
+        #[cfg(target_arch = "aarch64")]
+        0xAA,
+        #[cfg(target_arch = "x86_64")]
+        0x64,
+        #[cfg(target_arch = "x86_64")]
+        0x86,
+        0x84, 0x19, 0x10, 0x07,
+        // target version (2 bytes) +
+        0xAA, 0xAA,
+        // `a` field +
+        0x10, 0x00, 0x00, 0x00,
+        // `b` field: Option variant type (1 byte) + inner enum variant type (4 bytes)
+        // + inner enum value (4 bytes).
+        0x01, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+    ];
+    let mut result: Result<A, Error> =
+        Snapshot::load(&mut invalid_data_version_snap.as_ref(), VersionMap::new());
+    let mut expected_err = Error::InvalidDataVersion(0xAAAA);
+    assert_eq!(result.unwrap_err(), expected_err);
+
+    #[rustfmt::skip]
+    let null_data_version_snap: &[u8] = &[
+        // This blob consists of the following: magic_id (8 bytes),
+        0x01, 0x00,
+        #[cfg(target_arch = "aarch64")]
+        0xAA,
+        #[cfg(target_arch = "aarch64")]
+        0xAA,
+        #[cfg(target_arch = "x86_64")]
+        0x64,
+        #[cfg(target_arch = "x86_64")]
+        0x86,
+        0x84, 0x19, 0x10, 0x07,
+        // target version (2 bytes) +
+        0x00, 0x00,
+        // `a` field +
+        0x10, 0x00, 0x00, 0x00,
+        // `b` field: Option variant type (1 byte) + inner enum variant type (4 bytes)
+        // + inner enum value (4 bytes).
+        0x01, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+    ];
+    result = Snapshot::load(&mut null_data_version_snap.as_ref(), VersionMap::new());
+    expected_err = Error::InvalidDataVersion(0);
+    assert_eq!(result.unwrap_err(), expected_err);
 }

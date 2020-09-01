@@ -73,7 +73,7 @@
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
 # (Yet another step on our way to reproducible builds.)
-DEVCTR_IMAGE="fcuvm/dev:v16"
+DEVCTR_IMAGE="fcuvm/dev:v17"
 
 # Naming things is hard
 MY_NAME="Firecracker $(basename "$0")"
@@ -498,6 +498,10 @@ cmd_build() {
     fi
 
     [ $profile = "release" ] && cargo_args+=("--release")
+
+    # artificially trigger a re-run of the build script,
+    # to make sure that `firecracker --version` reports the latest changes.
+    touch "$FC_ROOT_DIR/build.rs"
 
     # Run the cargo build process inside the container.
     # We don't need any special privileges for the build phase, so we run the

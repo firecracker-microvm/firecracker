@@ -1,5 +1,10 @@
 # The Firecracker Jailer
 
+## Disclaimer
+
+The jailer is designed to work only with statically linked binaries (with
+the default musl toolchain) and will not work with experimental gnu builds.
+
 ## Jailer Usage
 
 The jailer is invoked in this manner:

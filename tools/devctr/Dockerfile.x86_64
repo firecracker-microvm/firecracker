@@ -27,6 +27,7 @@ RUN apt-get update \
         g++ \
         gcc \
         gcc-aarch64-linux-gnu \
+        git \
         iperf3 \
         iproute2 \
         jq \

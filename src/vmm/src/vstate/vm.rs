@@ -304,14 +304,13 @@ pub(crate) mod tests {
     use crate::vstate::system::KvmContext;
     use vm_memory::GuestAddress;
 
-    #[cfg(target_arch = "x86_64")]
     // Auxiliary function being used throughout the tests.
-    fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
+    pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
         let kvm = KvmContext::new().unwrap();
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), mem_size)]).unwrap();
+
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(&gm, kvm.max_memslots(), false).is_ok());
-        vm.setup_irqchip().unwrap();
 
         (vm, gm)
     }
@@ -364,6 +363,8 @@ pub(crate) mod tests {
         assert!(vm.save_state().is_err());
 
         let (vm, _mem) = setup_vm(0x1000);
+        vm.setup_irqchip().unwrap();
+
         let vm_state = vm.save_state().unwrap();
         assert_eq!(
             vm_state.pitstate.flags | KVM_PIT_SPEAKER_DUMMY,
@@ -375,6 +376,8 @@ pub(crate) mod tests {
         assert_eq!(vm_state.ioapic.chip_id, KVM_IRQCHIP_IOAPIC);
 
         let (vm, _mem) = setup_vm(0x1000);
+        vm.setup_irqchip().unwrap();
+
         assert!(vm.restore_state(&vm_state).is_ok());
     }
 

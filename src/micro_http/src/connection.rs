@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 
 use crate::common::ascii::{CR, CRLF_LEN, LF};
 use crate::common::Body;
-pub use crate::common::{ConnectionError, RequestError};
+pub use crate::common::{ConnectionError, HttpHeaderError, RequestError};
 use crate::headers::Headers;
 use crate::request::{find, Request, RequestLine};
 use crate::response::{Response, StatusCode};
@@ -270,7 +270,8 @@ impl<T: Read + Write> HttpConnection<T> {
                 let line = &self.buffer[*line_start_index..line_end_index];
                 match request.headers.parse_header_line(line) {
                     // If a header is unsupported we ignore it.
-                    Ok(_) | Err(RequestError::UnsupportedHeader) => {}
+                    Ok(_)
+                    | Err(RequestError::HeaderError(HttpHeaderError::UnsupportedValue(_, _))) => {}
                     // If parsing the header invalidates the request, we propagate
                     // the error.
                     Err(e) => return Err(ConnectionError::ParseError(e)),
@@ -288,7 +289,10 @@ impl<T: Read + Write> HttpConnection<T> {
                 // line end sequence.
                 if *line_start_index == 0 && end_cursor == BUFFER_SIZE {
                     // Header line is longer than BUFFER_SIZE bytes, so it is invalid.
-                    return Err(ConnectionError::ParseError(RequestError::InvalidHeader));
+                    let utf8_string = String::from_utf8_lossy(&self.buffer);
+                    return Err(ConnectionError::ParseError(RequestError::HeaderError(
+                        HttpHeaderError::SizeLimitExceeded(utf8_string.to_string()),
+                    )));
                 }
                 // Move the incomplete header line from the end of the buffer to
                 // the beginning, so that we can append the rest of the line and
@@ -610,7 +614,10 @@ mod tests {
         let request_error = conn.try_read().unwrap_err();
         assert_eq!(
             request_error,
-            ConnectionError::ParseError(RequestError::InvalidHeader)
+            ConnectionError::ParseError(RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                "Content-Length".to_string(),
+                " alpha".to_string()
+            )))
         );
     }
 
@@ -642,6 +649,7 @@ mod tests {
             headers: Headers::new(1400, true, true),
             body: Some(Body::new(request_body)),
         };
+
         assert_eq!(request, expected_request);
     }
 
@@ -681,9 +689,13 @@ mod tests {
         request_body.write_all(b"\r\n\r\n").unwrap();
         sender.write_all(request_body.as_slice()).unwrap();
         assert!(conn.try_read().is_ok());
+
+        let expected_msg = &format!("head: {}", String::from_utf8(request_body).unwrap())[..1024];
         assert_eq!(
             conn.try_read().unwrap_err(),
-            ConnectionError::ParseError(RequestError::InvalidHeader)
+            ConnectionError::ParseError(RequestError::HeaderError(
+                HttpHeaderError::SizeLimitExceeded(expected_msg.to_string())
+            ))
         );
     }
 
@@ -890,7 +902,10 @@ mod tests {
             .unwrap();
         assert_eq!(
             conn.try_read().unwrap_err(),
-            ConnectionError::ParseError(RequestError::InvalidHeader)
+            ConnectionError::ParseError(RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                "Content-Length".to_string(),
+                " -1".to_string()
+            )))
         );
     }
 
@@ -1022,7 +1037,9 @@ mod tests {
         });
         assert_eq!(
             conn.parse_headers(&mut 0, BUFFER_SIZE).unwrap_err(),
-            ConnectionError::ParseError(RequestError::InvalidHeader)
+            ConnectionError::ParseError(RequestError::HeaderError(HttpHeaderError::InvalidFormat(
+                "\0".to_string()
+            )))
         );
 
         // OK case: incomplete header line.
