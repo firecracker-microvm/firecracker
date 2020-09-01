@@ -87,6 +87,7 @@ import pytest
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
 
+from framework.artifacts import ArtifactCollection
 import framework.utils as utils
 from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
@@ -125,6 +126,7 @@ def _test_images_s3_bucket():
     )
 
 
+ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
 
 
