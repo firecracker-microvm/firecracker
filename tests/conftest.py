@@ -157,6 +157,7 @@ def pytest_configure(config):
 
     Initialize the test scheduler and IPC services.
     """
+    config.addinivalue_line("markers", "nonci: mark test as nonci.")
     PytestScheduler.instance().register_mp_singleton(
         net_tools.UniqueIPv4Generator.instance()
     )
