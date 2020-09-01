@@ -14,7 +14,7 @@ def timed_request(method):
 
         def __init__(self, duration, method, resource, payload):
             """Compose the error message from the API call components."""
-            super(ApiTimeoutException, self).__init__(
+            super().__init__(
                 'API call exceeded maximum duration: {:.2f} ms.\n'
                 'Call: {} {} {}'.format(duration, method, resource, payload)
             )
