@@ -3,6 +3,7 @@
 """Basic tests scenarios for snapshot save/restore."""
 
 import logging
+import os
 import platform
 import tempfile
 import pytest
@@ -10,8 +11,13 @@ from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.utils_vsock import make_blob, \
+    check_host_connections, check_guest_connections
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.drive as drive_tools
+
+VSOCK_UDS_PATH = "v.sock"
+ECHO_SERVER_PORT = 5252
 
 
 def _guest_run_fio_iteration(ssh_connection, iteration):
@@ -118,6 +124,8 @@ def _test_seq_snapshots(context):
     seq_len = context.custom['seq_len']
     vm_builder = context.custom['builder']
     snapshot_type = context.custom['snapshot_type']
+    bin_vsock_path = context.custom['bin_vsock_path']
+    test_session_root_path = context.custom['test_session_root_path']
     enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
@@ -143,6 +151,15 @@ def _test_seq_snapshots(context):
                                                      tapname="tap0")
     logger.debug("Host IP: {}, Guest IP: {}".format(host_ip, guest_ip))
 
+    # Configure vsock device.
+    basevm.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path="/{}".format(VSOCK_UDS_PATH)
+    )
+    # Generate a random data file for vsock.
+    blob_path, blob_hash = make_blob(test_session_root_path)
+
     # We will need netmask_len in build_from_snapshot() call later.
     netmask_len = network_config.get_netmask_len()
     basevm.start()
@@ -151,6 +168,16 @@ def _test_seq_snapshots(context):
     # Verify if guest can run commands.
     exit_code, _, _ = ssh_connection.execute_command("sync")
     assert exit_code == 0
+
+    # Copy the data file and a vsock helper to the guest.
+    cmd = "mkdir -p /tmp/vsock && mount -t tmpfs tmpfs /tmp/vsock"
+    ecode, _, _ = ssh_connection.execute_command(cmd)
+    assert ecode == 0, "Failed to set up tmpfs drive on the guest."
+
+    vsock_helper = bin_vsock_path
+    ssh_connection.scp_file(vsock_helper, '/bin/vsock_helper')
+    vm_blob_path = "/tmp/vsock/test.blob"
+    ssh_connection.scp_file(blob_path, vm_blob_path)
 
     logger.info("Create {} #0.".format(snapshot_type))
     # Create a snapshot builder from a microvm.
@@ -175,6 +202,16 @@ def _test_seq_snapshots(context):
 
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+
+        # Test vsock guest-initiated connections.
+        path = os.path.join(
+            microvm.path,
+            "{}_{}".format(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
+        )
+        check_guest_connections(microvm, path, vm_blob_path, blob_hash)
+        # Test vsock host-initiated connections.
+        path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
+        check_host_connections(microvm, path, blob_path, blob_hash)
 
         # Start a new instance of fio on each iteration.
         _guest_run_fio_iteration(ssh_connection, i)
@@ -243,7 +280,9 @@ def test_patch_drive_snapshot(network_config,
     reason="Not supported yet."
 )
 def test_5_full_snapshots(network_config,
-                          bin_cloner_path):
+                          bin_cloner_path,
+                          bin_vsock_path,
+                          test_session_root_path):
     """Test scenario: 5 full sequential snapshots."""
     logger = logging.getLogger("snapshot_sequence")
 
@@ -264,7 +303,9 @@ def test_5_full_snapshots(network_config,
         'network_config': network_config,
         'logger': logger,
         'snapshot_type': SnapshotType.FULL,
-        'seq_len': 5
+        'seq_len': 5,
+        'bin_vsock_path': bin_vsock_path,
+        'test_session_root_path': test_session_root_path
     }
 
     # Create the test matrix.
