@@ -364,6 +364,7 @@ dependencies = [
 name = "snapshot"
 version = "0.1.0"
 dependencies = [
+ "libc 0.2.68 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

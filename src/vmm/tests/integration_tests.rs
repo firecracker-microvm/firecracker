@@ -358,8 +358,15 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
             wait_vmm_child_process(vmm_pid);
 
             // Check that we can deserialize the microVM state from `snapshot_file`.
-            let restored_microvm_state: MicrovmState =
-                Snapshot::load(&mut snapshot_file.as_file(), VERSION_MAP.clone()).unwrap();
+            let snapshot_path = snapshot_file.as_path().to_path_buf();
+            let snapshot_file_metadata = std::fs::metadata(snapshot_path).unwrap();
+            let snapshot_len = snapshot_file_metadata.len() as usize;
+            let restored_microvm_state: MicrovmState = Snapshot::load_with_crc64(
+                &mut snapshot_file.as_file(),
+                snapshot_len,
+                VERSION_MAP.clone(),
+            )
+            .unwrap();
 
             // Check memory file size.
             let memory_file_size_mib = memory_file.as_file().metadata().unwrap().len() >> 20;
@@ -392,9 +399,15 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
             let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
 
             // Deserialize microVM state.
+            let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
+            let snapshot_len = snapshot_file_metadata.len() as usize;
             snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-            let microvm_state: MicrovmState =
-                Snapshot::load(&mut snapshot_file.as_file(), VERSION_MAP.clone()).unwrap();
+            let microvm_state: MicrovmState = Snapshot::load_with_crc64(
+                &mut snapshot_file.as_file(),
+                snapshot_len,
+                VERSION_MAP.clone(),
+            )
+            .unwrap();
             let mem = GuestMemoryMmap::restore(memory_file.as_file(), &microvm_state.memory_state)
                 .unwrap();
 
