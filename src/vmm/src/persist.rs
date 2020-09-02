@@ -145,6 +145,8 @@ pub enum LoadSnapshotError {
     MemoryBackingFile(io::Error),
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(io::Error),
+    /// Failed to retrieve the metadata of the snapshot backing file.
+    SnapshotBackingFileMetadata(io::Error),
 }
 
 impl Display for LoadSnapshotError {
@@ -156,6 +158,7 @@ impl Display for LoadSnapshotError {
             DeserializeMicrovmState(err) => write!(f, "Cannot deserialize MicrovmState: {:?}", err),
             MemoryBackingFile(err) => write!(f, "Cannot open memory file: {}", err),
             SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {}", err),
+            SnapshotBackingFileMetadata(err) => write!(f, "Cannot retrieve file metadata: {}", err),
         }
     }
 }
@@ -206,7 +209,7 @@ fn snapshot_state_to_file(
 
     let mut snapshot = Snapshot::new(version_map, snapshot_data_version);
     snapshot
-        .save(&mut snapshot_file, microvm_state)
+        .save_with_crc64(&mut snapshot_file, microvm_state)
         .map_err(SerializeMicrovmState)?;
 
     Ok(())
@@ -264,10 +267,14 @@ fn snapshot_state_from_file(
     snapshot_path: &PathBuf,
     version_map: VersionMap,
 ) -> std::result::Result<MicrovmState, LoadSnapshotError> {
-    use self::LoadSnapshotError::{DeserializeMicrovmState, SnapshotBackingFile};
-    let mut snapshot_reader =
-        std::io::BufReader::new(File::open(snapshot_path).map_err(SnapshotBackingFile)?);
-    Snapshot::load(&mut snapshot_reader, version_map).map_err(DeserializeMicrovmState)
+    use self::LoadSnapshotError::{
+        DeserializeMicrovmState, SnapshotBackingFile, SnapshotBackingFileMetadata,
+    };
+    let mut snapshot_reader = File::open(snapshot_path).map_err(SnapshotBackingFile)?;
+    let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotBackingFileMetadata)?;
+    let snapshot_len = metadata.len() as usize;
+    Snapshot::load_with_crc64(&mut snapshot_reader, snapshot_len, version_map)
+        .map_err(DeserializeMicrovmState)
 }
 
 fn guest_memory_from_file(
@@ -415,6 +422,9 @@ mod tests {
         let _ = format!("{}{:?}", err, err);
 
         let err = SnapshotBackingFile(io::Error::from_raw_os_error(0));
+        let _ = format!("{}{:?}", err, err);
+
+        let err = SnapshotBackingFileMetadata(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
     }
 

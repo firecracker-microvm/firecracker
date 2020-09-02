@@ -45,18 +45,18 @@ const BASE_MAGIC_ID: u64 = 0x0710_1984_AAAA_0000u64;
 /// Error definitions for the Snapshot API.
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    /// An IO error occurred.
-    Io(i32),
-    /// A versioned serialization/deserialization error occured.
-    Versionize(versionize::VersionizeError),
     /// CRC64 validation failed.
     Crc64(u64),
-    /// Magic value does not match arch.
-    InvalidMagic(u64),
-    /// Invalid format version.
-    InvalidFormatVersion(u16),
     /// Invalid data version.
     InvalidDataVersion(u16),
+    /// Invalid format version.
+    InvalidFormatVersion(u16),
+    /// Magic value does not match arch.
+    InvalidMagic(u64),
+    /// An IO error occurred.
+    Io(i32),
+    /// A versioned serialization/deserialization error occurred.
+    Versionize(versionize::VersionizeError),
 }
 
 #[derive(Default, Debug, Versionize)]
@@ -128,24 +128,36 @@ impl Snapshot {
     }
 
     /// Attempts to load an existing snapshot and validate CRC.
-    pub fn load_with_crc64<T, O>(reader: &mut T, version_map: VersionMap) -> Result<O, Error>
+    pub fn load_with_crc64<T, O>(
+        reader: &mut T,
+        snapshot_len: usize,
+        version_map: VersionMap,
+    ) -> Result<O, Error>
     where
         T: Read,
         O: Versionize,
     {
         let mut crc_reader = CRC64Reader::new(reader);
-        let format_vm = Self::format_version_map();
-        let object: O = Snapshot::load(&mut crc_reader, version_map)?;
+
+        // Extract snapshot data without stored checksum, which is 8 bytes in size
+        let raw_snapshot_len = snapshot_len - std::mem::size_of::<u64>();
+        let mut snapshot = vec![0u8; raw_snapshot_len];
+        crc_reader
+            .read_exact(&mut snapshot)
+            .map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(libc::EINVAL)))?;
 
         // Since the reader updates the checksum as bytes ar being read from it, the order of these 2 statements is
         // important, we first get the checksum computed on the read bytes then read the stored checksum.
         let computed_checksum = crc_reader.checksum();
+        let format_vm = Self::format_version_map();
         let stored_checksum: u64 =
             Versionize::deserialize(&mut crc_reader, &format_vm, 0).map_err(Error::Versionize)?;
-
         if computed_checksum != stored_checksum {
             return Err(Error::Crc64(computed_checksum));
         }
+
+        let mut snapshot_slice: &[u8] = &mut snapshot.as_mut_slice();
+        let object: O = Snapshot::load(&mut snapshot_slice, version_map)?;
 
         Ok(object)
     }
@@ -199,7 +211,7 @@ impl Snapshot {
             .map_err(Error::Versionize)?;
         writer
             .flush()
-            .map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(0)))
+            .map_err(|ref err| Error::Io(err.raw_os_error().unwrap_or(libc::EINVAL)))
     }
 
     // Returns the current snapshot format version.
@@ -489,7 +501,7 @@ mod tests {
             .save_with_crc64(&mut snapshot_mem.as_mut_slice(), &state_1)
             .unwrap();
 
-        let _: Test1 = Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm).unwrap();
+        let _: Test1 = Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), 38, vm).unwrap();
     }
 
     #[test]
@@ -516,7 +528,7 @@ mod tests {
         let expected_err = Error::Crc64(0x103F_8F52_8F51_20B1);
 
         let load_result: Result<Test1, Error> =
-            Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), vm);
+            Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), 38, vm);
         assert_eq!(load_result.unwrap_err(), expected_err);
     }
 
