@@ -65,7 +65,7 @@ pub fn json_patch(target: &mut Value, patch: &Value) {
 
 // Make the URI a correct JSON pointer value.
 fn sanitize_uri(mut uri: String) -> String {
-    let mut len = u32::MAX as usize;
+    let mut len = std::u32::MAX as usize;
     // Loop while the deduping decreases the sanitized len.
     // Each iteration will attempt to dedup "//".
     while uri.len() < len {
