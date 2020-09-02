@@ -87,9 +87,9 @@ impl Test {
 }
 
 #[inline]
-pub fn bench_restore_v1(mut snapshot_mem: &[u8], vm: VersionMap, crc: bool) {
+pub fn bench_restore_v1(mut snapshot_mem: &[u8], snapshot_len: usize, vm: VersionMap, crc: bool) {
     if crc {
-        Snapshot::load_with_crc64::<&[u8], Test>(&mut snapshot_mem, vm).unwrap();
+        Snapshot::load_with_crc64::<&[u8], Test>(&mut snapshot_mem, snapshot_len, vm).unwrap();
     } else {
         Snapshot::load::<&[u8], Test>(&mut snapshot_mem, vm).unwrap();
     }
@@ -151,6 +151,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             bench_restore_v1(
                 black_box(&mut snapshot_mem.as_slice()),
+                black_box(snapshot_len),
                 black_box(vm.clone()),
                 black_box(false),
             )
@@ -175,6 +176,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             bench_restore_v1(
                 black_box(&mut snapshot_mem.as_slice()),
+                black_box(snapshot_len),
                 black_box(vm.clone()),
                 black_box(true),
             )
