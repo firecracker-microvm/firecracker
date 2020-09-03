@@ -8,11 +8,10 @@ edition = "2018"
 kvm-bindings = { git = "https://github.com/firecracker-microvm/kvm-bindings", tag = "v0.2.0-2", features = ["fam-wrappers"] }
 kvm-ioctls = { git = "https://github.com/firecracker-microvm/kvm-ioctls", tag = "v0.5.0-2" }
 libc = ">=0.2.39"
-utils = { path = "../utils" }
-
-arch_gen = { path = "../arch_gen" }
 vm-memory = { version = ">=0.2.2", features = ["backend-mmap"] }
 
-[dev-dependencies]
+arch_gen = { path = "../arch_gen" }
 utils = { path = "../utils" }
+
+[dev-dependencies]
 device_tree = ">=1.1.0"
