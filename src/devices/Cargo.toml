@@ -6,16 +6,18 @@ edition = "2018"
 
 [dependencies]
 libc = ">=0.2.39"
+timerfd = ">=1.0"
+versionize = ">=0.1.2"
+versionize_derive = ">=0.1.1"
+vm-memory = { version = ">=0.2.2", features = ["backend-mmap"] }
+
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }
-vm-memory = { version = ">=0.2.2", features = ["backend-mmap"] }
-utils = { path = "../utils" }
+mmds = { path = "../mmds" }
 net_gen = { path = "../net_gen" }
 polly = { path = "../polly" }
 rate_limiter = { path = "../rate_limiter" }
 snapshot = { path = "../snapshot" }
-timerfd = ">=1.0"
-versionize = { version = "0.1.1" }
-versionize_derive = { git = "https://github.com/firecracker-microvm/versionize_derive", tag = "v0.1.0" }
+utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
-mmds = { path = "../mmds" }
+

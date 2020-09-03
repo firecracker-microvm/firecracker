@@ -13,5 +13,3 @@ serde_json = ">=1.0.9"
 
 utils = { path = "../utils" }
 
-[dev-dependencies]
-libc = ">=0.2.39"
