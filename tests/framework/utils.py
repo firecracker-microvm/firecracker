@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generic utility functions that are used in the framework."""
 import asyncio
+import functools
 import glob
 import logging
 import os
@@ -10,10 +11,128 @@ import subprocess
 import threading
 import typing
 from enum import Enum, auto
-from collections import namedtuple
+from collections import namedtuple, defaultdict
+import psutil
+
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
+
+
+class ProcessCpuAffinity:
+    """Manage process cpu affinity."""
+
+    def __init__(self, pid):
+        """Initialize CpuAffinity class."""
+        self._pid = pid
+
+    def get_threads(self) -> dict:
+        """Return dict consisting of child threads."""
+        threads_map = defaultdict(list)
+        proc = psutil.Process(self._pid)
+        for thread in proc.threads():
+            threads_map[psutil.Process(thread.id).name()].append(thread.id)
+        return threads_map
+
+    def get_cpu_affinity(self) -> list:
+        """Get CPU affinity for a thread."""
+        return psutil.Process(self._pid).cpu_affinity()
+
+    def set_cpu_affinity(self, cpulist: list) -> list:
+        """Set CPU affinity for a thread."""
+        real_cpulist = list(map(CpuMap, cpulist))
+        return psutil.Process(self._pid).cpu_affinity(real_cpulist)
+
+
+# pylint: disable=R0903
+class CpuMap:
+    """Cpu map from real cpu cores to containers visible cores.
+
+    When a docker container is restricted in terms of assigned cpu cores,
+    the information from `/proc/cpuinfo` will present all the cpu cores
+    of the machine instead of showing only the container assigned cores.
+    This class maps the real assigned host cpu cores to virtual cpu cores,
+    starting from 0.
+    """
+
+    arr = []
+
+    def __new__(cls, x):
+        """Instantiate the class field."""
+        if not CpuMap.arr:
+            CpuMap.arr = CpuMap._cpus()
+        return CpuMap.arr[x]
+
+    @classmethod
+    def _cpuset_mountpoint(cls):
+        """Obtain the cpuset mountpoint."""
+        cmd = "cat /proc/mounts | grep cgroup | grep cpuset | cut -d' ' -f2"
+        _, stdout, _ = run_cmd(cmd)
+        return stdout.strip()
+
+    @classmethod
+    def _cpus(cls):
+        """Obtain the real processor map.
+
+        See this issue for details:
+        https://github.com/moby/moby/issues/20770.
+        """
+        cmd = "cat {}/cpuset.cpus".format(CpuMap._cpuset_mountpoint())
+        _, cpulist, _ = run_cmd(cmd)
+        return ListFormatParser(cpulist).parse()
+
+
+class ListFormatParser:
+    """Parser class for LIST FORMAT strings."""
+
+    def __init__(self, content):
+        """Initialize the parser with the content."""
+        self._content = content.strip()
+
+    @classmethod
+    def _is_range(cls, rng):
+        """Return true if the parser content is a range.
+
+        E.g ranges: 0-10.
+        """
+        match = re.search("([0-9][1-9]*)-([0-9][1-9]*)", rng)
+        # Group is a singular value.
+        return match is not None
+
+    @classmethod
+    def _range_to_list(cls, rng):
+        """Return a range of integers based on the content.
+
+        The content respects the LIST FORMAT defined in the
+        cpuset documentation.
+        See: https://man7.org/linux/man-pages/man7/cpuset.7.html.
+        """
+        ends = rng.split("-")
+        if len(ends) != 2:
+            return []
+
+        return list(range(int(ends[0]), int(ends[1]) + 1))
+
+    def parse(self):
+        """Parse list formats for cpuset and mems.
+
+        See LIST FORMAT here:
+        https://man7.org/linux/man-pages/man7/cpuset.7.html.
+        """
+        if len(self._content) == 0:
+            return []
+
+        groups = self._content.split(",")
+        arr = set()
+
+        def func(acc, cpu):
+            if ListFormatParser._is_range(cpu):
+                acc.update(ListFormatParser._range_to_list(cpu))
+            else:
+                acc.add(int(cpu))
+            return acc
+
+        return list(functools.reduce(func, groups, arr))
 
 
 class StoppableThread(threading.Thread):
@@ -35,6 +154,21 @@ class StoppableThread(threading.Thread):
     def stopped(self):
         """Check if the thread was stopped."""
         return self._should_stop
+
+
+class CpuVendor(Enum):
+    """CPU vendors enum."""
+
+    AMD = auto()
+    INTEL = auto()
+
+
+def get_cpu_vendor():
+    """Return the CPU vendor."""
+    brand_str = subprocess.check_output("lscpu", shell=True).strip().decode()
+    if 'AuthenticAMD' in brand_str:
+        return CpuVendor.AMD
+    return CpuVendor.INTEL
 
 
 def search_output_from_cmd(cmd: str,
@@ -98,8 +232,6 @@ async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
     :param noshell: don't run the command in a sub-shell
     :return: return code, stdout, stderr
     """
-    proc = None
-
     if isinstance(cmd, list) or no_shell:
         # Create the async process
         proc = await asyncio.create_subprocess_exec(
@@ -149,7 +281,6 @@ def run_cmd_list_async(cmd_list):
     :param cmd_list: list of commands to execute
     :return: None
     """
-    loop = None
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
@@ -179,7 +310,6 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
     :param noshell: don't run the command in a sub-shell
     :returns: tuple of (return code, stdout, stderr)
     """
-    loop = None
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
@@ -191,18 +321,3 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
         run_cmd_async(cmd=cmd,
                       ignore_return_code=ignore_return_code,
                       no_shell=no_shell))
-
-
-class CpuVendor(Enum):
-    """CPU vendors enum."""
-
-    AMD = auto()
-    INTEL = auto()
-
-
-def get_cpu_vendor():
-    """Return the CPU vendor."""
-    brand_str = subprocess.check_output("lscpu", shell=True).strip().decode()
-    if 'AuthenticAMD' in brand_str:
-        return CpuVendor.AMD
-    return CpuVendor.INTEL
