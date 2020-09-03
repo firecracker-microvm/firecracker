@@ -6,7 +6,6 @@ edition = "2018"
 
 [dependencies]
 bitflags = ">=1.0.4"
-serde = ">=1.0.27"
 
 utils = { path = "../utils" }
 logger = { path = "../logger" }
