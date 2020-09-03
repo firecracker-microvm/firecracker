@@ -82,6 +82,7 @@ pub struct ResponseHeaders {
     content_type: MediaType,
     server: String,
     allow: Vec<Method>,
+    accept_encoding: bool,
 }
 
 impl Default for ResponseHeaders {
@@ -91,6 +92,7 @@ impl Default for ResponseHeaders {
             content_type: Default::default(),
             server: String::from("Firecracker API"),
             allow: Vec::new(),
+            accept_encoding: false,
         }
     }
 }
@@ -138,6 +140,13 @@ impl ResponseHeaders {
             buf.write_all(&[COLON, SP])?;
             buf.write_all(self.content_length.to_string().as_bytes())?;
             buf.write_all(&[CR, LF])?;
+
+            if self.accept_encoding {
+                buf.write_all(Header::AcceptEncoding.raw())?;
+                buf.write_all(&[COLON, SP])?;
+                buf.write_all(b"identity")?;
+                buf.write_all(&[CR, LF])?;
+            }
         }
 
         buf.write_all(&[CR, LF])
@@ -157,6 +166,12 @@ impl ResponseHeaders {
     #[allow(unused)]
     pub fn set_content_type(&mut self, content_type: MediaType) {
         self.content_type = content_type;
+    }
+
+    /// Sets the encoding type to be written in the HTTP response.
+    #[allow(unused)]
+    pub fn set_encoding(&mut self) {
+        self.accept_encoding = true;
     }
 }
 
@@ -195,6 +210,11 @@ impl Response {
     /// Updates the content type of the `Response`.
     pub fn set_content_type(&mut self, content_type: MediaType) {
         self.headers.set_content_type(content_type);
+    }
+
+    /// Updates the encoding type of `Response`.
+    pub fn set_encoding(&mut self) {
+        self.headers.set_encoding();
     }
 
     /// Sets the HTTP response server.
@@ -273,8 +293,9 @@ mod tests {
         let body = "This is a test";
         response.set_body(Body::new(body));
         response.set_content_type(MediaType::PlainText);
+        response.set_encoding();
 
-        assert!(response.status() == StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.body().unwrap(), Body::new(body));
         assert_eq!(response.http_version(), Version::Http10);
         assert_eq!(response.content_length(), 14);
@@ -284,12 +305,13 @@ mod tests {
             Server: Firecracker API\r\n\
             Connection: keep-alive\r\n\
             Content-Type: text/plain\r\n\
-            Content-Length: 14\r\n\r\n\
+            Content-Length: 14\r\n\
+            Accept-Encoding: identity\r\n\r\n\
             This is a test";
 
-        let mut response_buf: [u8; 126] = [0; 126];
+        let mut response_buf: [u8; 153] = [0; 153];
         assert!(response.write_all(&mut response_buf.as_mut()).is_ok());
-        assert!(response_buf.as_ref() == expected_response);
+        assert_eq!(response_buf.as_ref(), expected_response);
 
         // Test response `Allow` header.
         let mut response = Response::new(Version::Http10, StatusCode::OK);
@@ -319,7 +341,7 @@ mod tests {
         response.set_content_type(MediaType::PlainText);
         response.set_server(server);
 
-        assert!(response.status() == StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.body().unwrap(), Body::new(body));
         assert_eq!(response.http_version(), Version::Http10);
         assert_eq!(response.content_length(), 14);
