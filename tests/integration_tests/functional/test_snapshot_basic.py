@@ -6,6 +6,7 @@ import logging
 import os
 import platform
 import tempfile
+import time
 import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
@@ -18,6 +19,14 @@ import host_tools.drive as drive_tools
 
 VSOCK_UDS_PATH = "v.sock"
 ECHO_SERVER_PORT = 5252
+
+
+def _setup_vsock(ssh_connection, context, blob_path):
+    bin_vsock_path = context.custom['bin_vsock_path']
+    ssh_connection.scp_file(bin_vsock_path, '/bin/vsock_helper')
+    vm_blob_path = "/tmp/vsock/test.blob"
+    ssh_connection.scp_file(blob_path, vm_blob_path)
+    return vm_blob_path
 
 
 def _guest_run_fio_iteration(ssh_connection, iteration):
@@ -124,7 +133,6 @@ def _test_seq_snapshots(context):
     seq_len = context.custom['seq_len']
     vm_builder = context.custom['builder']
     snapshot_type = context.custom['snapshot_type']
-    bin_vsock_path = context.custom['bin_vsock_path']
     test_session_root_path = context.custom['test_session_root_path']
     enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
 
@@ -144,7 +152,9 @@ def _test_seq_snapshots(context):
                               ssh_key=ssh_key,
                               config=context.microvm,
                               enable_diff_snapshots=enable_diff_snapshots)
+    time.sleep(0.5)
 
+    # Attach network.
     network_config = net_tools.UniqueIPv4Generator.instance()
     _, host_ip, guest_ip = basevm.ssh_network_config(network_config,
                                                      '1',
@@ -160,12 +170,11 @@ def _test_seq_snapshots(context):
     # Generate a random data file for vsock.
     blob_path, blob_hash = make_blob(test_session_root_path)
 
-    # We will need netmask_len in build_from_snapshot() call later.
-    netmask_len = network_config.get_netmask_len()
+    # Start microvm.
     basevm.start()
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
     # Verify if guest can run commands.
+    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
     exit_code, _, _ = ssh_connection.execute_command("sync")
     assert exit_code == 0
 
@@ -174,10 +183,7 @@ def _test_seq_snapshots(context):
     ecode, _, _ = ssh_connection.execute_command(cmd)
     assert ecode == 0, "Failed to set up tmpfs drive on the guest."
 
-    vsock_helper = bin_vsock_path
-    ssh_connection.scp_file(vsock_helper, '/bin/vsock_helper')
-    vm_blob_path = "/tmp/vsock/test.blob"
-    ssh_connection.scp_file(blob_path, vm_blob_path)
+    vm_blob_path = _setup_vsock(ssh_connection, context, blob_path)
 
     logger.info("Create {} #0.".format(snapshot_type))
     # Create a snapshot builder from a microvm.
@@ -189,6 +195,8 @@ def _test_seq_snapshots(context):
                                        snapshot_type)
 
     base_snapshot = snapshot
+    netmask_len = network_config.get_netmask_len()
+
     basevm.kill()
 
     for i in range(seq_len):
@@ -199,7 +207,7 @@ def _test_seq_snapshots(context):
                                                     netmask_len,
                                                     True,
                                                     enable_diff_snapshots)
-
+        time.sleep(0.5)
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
