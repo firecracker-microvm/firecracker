@@ -651,5 +651,17 @@ mod tests {
         ));
         let actual_response = parse_request_bytes(request_bytes, mock_callback);
         assert_eq!(actual_response, expected_response);
+
+        let request_bytes = b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Transfer-Encoding: identity; q=0\r\n\
+                                 Content-Length: 67\r\n\
+                                 Accept-Encoding: deflate, compress, *;q=0\r\n\r\nthis is not\n\r\na json \nbody";
+        let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
+        expected_response.set_body(Body::new(
+            "Invalid value. Key:Accept-Encoding; Value: *;q=0".to_string(),
+        ));
+        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        assert_eq!(actual_response, expected_response);
     }
 }

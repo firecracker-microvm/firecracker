@@ -511,5 +511,15 @@ mod tests {
         assert_eq!(request.headers.expect(), false);
         assert_eq!(request.headers.content_length(), 0);
         assert!(request.body.is_none());
+
+        let request = Request::try_from(b"GET http://localhost/ HTTP/1.0\r\n\
+                                                                              Accept-Encoding: identity;q=0\r\n\r\n");
+        assert_eq!(
+            request.unwrap_err(),
+            RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                "Accept-Encoding".to_string(),
+                "identity;q=0".to_string()
+            ))
+        );
     }
 }

@@ -21,6 +21,8 @@ pub enum Header {
     Server,
     /// Header `Accept`
     Accept,
+    /// Header `Accept-Encoding`
+    AcceptEncoding,
 }
 
 impl Header {
@@ -33,6 +35,7 @@ impl Header {
             Self::TransferEncoding => b"Transfer-Encoding",
             Self::Server => b"Server",
             Self::Accept => b"Accept",
+            Self::AcceptEncoding => b"Accept-Encoding",
         }
     }
 
@@ -52,6 +55,7 @@ impl Header {
                 "transfer-encoding" => Ok(Self::TransferEncoding),
                 "server" => Ok(Self::Server),
                 "accept" => Ok(Self::Accept),
+                "accept-encoding" => Ok(Self::AcceptEncoding),
                 invalid_key => Err(RequestError::HeaderError(HttpHeaderError::UnsupportedName(
                     invalid_key.to_string(),
                 ))),
@@ -199,6 +203,7 @@ impl Headers {
                             )),
                         },
                         Header::Server => Ok(()),
+                        Header::AcceptEncoding => Encoding::try_from(entry[1].trim().as_bytes()),
                     }
                 } else {
                     Err(RequestError::HeaderError(
@@ -283,6 +288,63 @@ impl Headers {
     /// Accept header setter.
     pub fn set_accept(&mut self, media_type: MediaType) {
         self.accept = media_type;
+    }
+}
+
+/// Wrapper over supported AcceptEncoding.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Encoding {}
+
+impl Encoding {
+    /// Parses a byte slice and checks if identity encoding is invalidated. Encoding
+    /// must be ASCII, so also UTF-8 valid.
+    ///
+    /// # Errors
+    /// `InvalidRequest` is returned when the byte stream is empty.
+    ///
+    /// `InvalidValue` is returned when the identity encoding is invalidated.
+    ///
+    /// `InvalidUtf8String` is returned when the byte stream contains invalid characters.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use micro_http::Encoding;
+    ///
+    /// assert!(Encoding::try_from(b"deflate").is_ok());
+    /// assert!(Encoding::try_from(b"identity;q=0").is_err());
+    /// ```
+    pub fn try_from(bytes: &[u8]) -> Result<(), RequestError> {
+        if bytes.is_empty() {
+            return Err(RequestError::InvalidRequest);
+        }
+        match std::str::from_utf8(bytes) {
+            Ok(headers_str) => {
+                let entry = headers_str.split(',').collect::<Vec<&str>>();
+
+                for encoding in entry {
+                    match encoding.trim() {
+                        "identity;q=0" => {
+                            Err(RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                                "Accept-Encoding".to_string(),
+                                encoding.to_string(),
+                            )))
+                        }
+                        "*;q=0" if !headers_str.contains("identity") => {
+                            Err(RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                                "Accept-Encoding".to_string(),
+                                encoding.to_string(),
+                            )))
+                        }
+                        _ => Ok(()),
+                    }?;
+                }
+                Ok(())
+            }
+            Err(utf8_err) => Err(RequestError::HeaderError(
+                HttpHeaderError::InvalidUtf8String(utf8_err),
+            )),
+        }
     }
 }
 
@@ -405,6 +467,42 @@ mod tests {
     }
 
     #[test]
+    fn test_try_from_encoding() {
+        assert_eq!(
+            Encoding::try_from(b"").unwrap_err(),
+            RequestError::InvalidRequest
+        );
+
+        assert_eq!(
+            Encoding::try_from(b"identity;q=0").unwrap_err(),
+            RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                "Accept-Encoding".to_string(),
+                "identity;q=0".to_string()
+            ))
+        );
+
+        assert!(Encoding::try_from(b"identity;q").is_ok());
+
+        assert_eq!(
+            Encoding::try_from(b"*;q=0").unwrap_err(),
+            RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                "Accept-Encoding".to_string(),
+                "*;q=0".to_string()
+            ))
+        );
+
+        let bytes: [u8; 10] = [130, 140, 150, 130, 140, 150, 130, 140, 150, 160];
+        assert!(Encoding::try_from(&bytes[..]).is_err());
+
+        assert!(Encoding::try_from(b"identity;q=1").is_ok());
+        assert!(Encoding::try_from(b"identity;q=0.1").is_ok());
+        assert!(Encoding::try_from(b"deflate, identity, *;q=0").is_ok());
+        assert!(Encoding::try_from(b"br").is_ok());
+        assert!(Encoding::try_from(b"compress").is_ok());
+        assert!(Encoding::try_from(b"gzip").is_ok());
+    }
+
+    #[test]
     fn test_try_from_headers() {
         // Valid headers.
         let headers =  Headers::try_from(
@@ -517,9 +615,9 @@ mod tests {
         assert!(header
             .parse_header_line(b"Accept: application/json")
             .is_ok());
-        assert!(header.accept == MediaType::ApplicationJson);
+        assert_eq!(header.accept, MediaType::ApplicationJson);
         assert!(header.parse_header_line(b"Accept: text/plain").is_ok());
-        assert!(header.accept == MediaType::PlainText);
+        assert_eq!(header.accept, MediaType::PlainText);
 
         // Test invalid accept media type.
         assert!(header
@@ -532,6 +630,17 @@ mod tests {
             Err(RequestError::HeaderError(HttpHeaderError::InvalidValue(
                 "Content-Length".to_string(),
                 " -1".to_string()
+            )))
+        );
+
+        assert!(header
+            .parse_header_line(b"Accept-Encoding: deflate")
+            .is_ok());
+        assert_eq!(
+            header.parse_header_line(b"Accept-Encoding: compress, identity;q=0"),
+            Err(RequestError::HeaderError(HttpHeaderError::InvalidValue(
+                "Accept-Encoding".to_string(),
+                " identity;q=0".to_string()
             )))
         );
     }
