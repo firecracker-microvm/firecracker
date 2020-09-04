@@ -13,7 +13,7 @@ use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
 use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, Queue, TYPE_VSOCK};
+use crate::virtio::{DeviceState, TYPE_VSOCK};
 
 #[derive(Versionize)]
 pub struct VsockState {
@@ -96,23 +96,17 @@ where
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
-        state
-            .virtio_state
-            .sanity_check(TYPE_VSOCK, defs::NUM_QUEUES, defs::QUEUE_SIZE)
-            .map_err(VsockError::VirtioState)?;
-
         // Restore queues.
-        let mut vsock = Self::with_queues(
-            state.cid,
-            constructor_args.backend,
-            state
-                .virtio_state
-                .queues
-                .iter()
-                // Restore POD from QueueState which is safe to unwrap.
-                .map(|qstate| Queue::restore((), qstate).unwrap())
-                .collect(),
-        )?;
+        let queues = state
+            .virtio_state
+            .build_queues_checked(
+                &constructor_args.mem,
+                TYPE_VSOCK,
+                defs::NUM_QUEUES,
+                defs::QUEUE_SIZE,
+            )
+            .map_err(VsockError::VirtioState)?;
+        let mut vsock = Self::with_queues(state.cid, constructor_args.backend, queues)?;
 
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;

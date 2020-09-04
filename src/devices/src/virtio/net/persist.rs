@@ -19,7 +19,7 @@ use super::device::{ConfigSpace, Net};
 use super::{NUM_QUEUES, QUEUE_SIZE};
 
 use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
-use crate::virtio::{DeviceState, Queue, TYPE_NET};
+use crate::virtio::{DeviceState, TYPE_NET};
 
 #[derive(Versionize)]
 pub struct NetConfigSpaceState {
@@ -71,11 +71,6 @@ impl Persist<'_> for Net {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> std::result::Result<Self, Self::Error> {
-        state
-            .virtio_state
-            .sanity_check(TYPE_NET, NUM_QUEUES, QUEUE_SIZE)
-            .map_err(Error::VirtioState)?;
-
         // RateLimiter::restore() can fail at creating a timerfd.
         let rx_rate_limiter = RateLimiter::restore((), &state.rx_rate_limiter_state)
             .map_err(Error::CreateRateLimiter)?;
@@ -97,13 +92,10 @@ impl Persist<'_> for Net {
             .as_ref()
             .map(|mmds_state| MmdsNetworkStack::restore((), &mmds_state).unwrap());
 
-        // Safe to unwrap because Queue::restore() cannot fail.
         net.queues = state
             .virtio_state
-            .queues
-            .iter()
-            .map(|queue_state| Queue::restore((), &queue_state).unwrap())
-            .collect();
+            .build_queues_checked(&constructor_args.mem, TYPE_NET, NUM_QUEUES, QUEUE_SIZE)
+            .map_err(Error::VirtioState)?;
         net.interrupt_status = Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
@@ -143,8 +135,7 @@ mod tests {
 
         // Create and save the net device.
         {
-            let mut net = Net::default_net();
-            net.activate(guest_mem.clone()).unwrap();
+            let net = Net::default_net();
 
             <Net as Persist>::save(&net)
                 .serialize(&mut mem.as_mut_slice(), &version_map, 1)
