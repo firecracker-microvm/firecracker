@@ -17,7 +17,7 @@ use vm_memory::GuestMemoryMmap;
 use super::*;
 
 use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, Queue, TYPE_BLOCK};
+use crate::virtio::{DeviceState, TYPE_BLOCK};
 
 #[derive(Versionize)]
 pub struct BlockState {
@@ -53,11 +53,6 @@ impl Persist<'_> for Block {
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
-        state
-            .virtio_state
-            .sanity_check(TYPE_BLOCK, NUM_QUEUES, QUEUE_SIZE)
-            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
-
         let is_disk_read_only = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0;
         let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)?;
 
@@ -72,10 +67,8 @@ impl Persist<'_> for Block {
 
         block.queues = state
             .virtio_state
-            .queues
-            .iter()
-            .map(|queue_state| Queue::restore((), &queue_state).unwrap())
-            .collect();
+            .build_queues_checked(&constructor_args.mem, TYPE_BLOCK, NUM_QUEUES, QUEUE_SIZE)
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
         block.interrupt_status = Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         block.avail_features = state.virtio_state.avail_features;
         block.acked_features = state.virtio_state.acked_features;
@@ -104,7 +97,7 @@ mod tests {
         f.as_file().set_len(0x1000).unwrap();
 
         let id = "test".to_string();
-        let mut block = Block::new(
+        let block = Block::new(
             id,
             None,
             f.as_path().to_str().unwrap().to_string(),
@@ -114,7 +107,6 @@ mod tests {
         )
         .unwrap();
         let guest_mem = default_mem();
-        block.activate(guest_mem.clone()).unwrap();
 
         // Save the block device.
         let mut mem = vec![0; 4096];
