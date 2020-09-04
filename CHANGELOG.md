@@ -5,30 +5,6 @@
 ### Added
 
 - Added metric for throttled block device events.
-- Added a new API call, `PUT /metrics`, for configuring the metrics system.
-- Added `app_name` field in InstanceInfo struct for storing the application
-  name.
-- New command-line parameters for `firecracker`, named `--log-path`,
-  `--level`, `--show-level` and `--show-log-origin` that can be used
-  for configuring the Logger when starting the process. When using
-  this method for configuration, only `--log-path` is mandatory.
-- Added a [guide](docs/devctr-image.md) for updating the dev container image.
-- Added a new API call, `PUT /mmds/config`, for configuring the
-  `MMDS` with a custom valid link-local IPv4 address.
-- Added experimental JSON response format support for MMDS guest applications
-  requests.
-- Added `track_dirty_pages` field to `machine-config`. If enabled, Firecracker
-  can create incremental guest memory snapshots by saving the dirty guest pages
-  in a sparse file.
-- Added a new API call, `PATCH /vm`, for changing the microVM state (to
-  `Paused` or `Resumed`).
-- Added a new API call, `PUT /snapshot/create`, for creating a full snapshot.
-- Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
-- Added metrics for the vsock device.
-- Added `devtool strip` command which removes debug symbols from the release
-  binaries.
-- Added the `tx_malformed_frames` metric for the virtio net device, emitted
-  when a TX frame missing the VNET header is encountered.
 - Added metrics for counting rate limiter throttling events.
 - Added metric for counting MAC address updates.
 - Added metrics for counting TAP read and write errors.
@@ -45,8 +21,52 @@
   from the API (user) perspective.
 - Added metric for measuring the duration of loading a snapshot, from the API
   (user) perspective.
+- Added `track_dirty_pages` field to `machine-config`. If enabled, Firecracker
+  can create incremental guest memory snapshots by saving the dirty guest pages
+  in a sparse file.
+- Added a new API call, `PATCH /vm`, for changing the microVM state (to
+  `Paused` or `Resumed`).
+- Added a new API call, `PUT /snapshot/create`, for creating a full snapshot.
+- Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 - Added new jailer command line argument `--cgroup` which allow the user to
   specify the cgroups that are going to be set by the Jailer.
+
+### Fixed
+
+- Boot time on AMD achieves the desired performance (i.e under 150ms).
+
+### Changed
+
+- The logger `level` field is now case-insensitive.
+- Disabled boot timer device after restoring a snapshot.
+- Enabled boot timer device only when specifically requested, by using the
+  `--boot-timer` dedicated cmdline parameter.
+- firecracker and jailer `--version` now gets updated on each devtool
+  build to the output of `git describe --dirty`, if the git repo is available.
+- MicroVM process is only attached to the cgroups defined by using `--cgroups`
+  or the ones defined indirectly by using `--node`.
+
+## [0.22.0]
+
+### Added
+
+- Added a new API call, `PUT /metrics`, for configuring the metrics system.
+- Added `app_name` field in InstanceInfo struct for storing the application
+  name.
+- New command-line parameters for `firecracker`, named `--log-path`,
+  `--level`, `--show-level` and `--show-log-origin` that can be used
+  for configuring the Logger when starting the process. When using
+  this method for configuration, only `--log-path` is mandatory.
+- Added a [guide](docs/devctr-image.md) for updating the dev container image.
+- Added a new API call, `PUT /mmds/config`, for configuring the
+  `MMDS` with a custom valid link-local IPv4 address.
+- Added experimental JSON response format support for MMDS guest applications
+  requests.
+- Added metrics for the vsock device.
+- Added `devtool strip` command which removes debug symbols from the release
+  binaries.
+- Added the `tx_malformed_frames` metric for the virtio net device, emitted
+  when a TX frame missing the VNET header is encountered.
 
 ### Fixed
 
@@ -54,9 +74,14 @@
 - Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS
   requests originating from guest.
 - Fixed folder permissions in the jail (#1802).
-- Boot time on AMD achieves the desired performance (i.e under 150ms).
 - Any number of whitespace characters are accepted after ":" when parsing HTTP
   headers.
+- Potential panic condition caused by the net device expecting to find a VNET
+  header in every frame.
+- Potential crash scenario caused by "Content-Length" HTTP header field
+  accepting negative values.
+- Fixed #1754 - net: traffic blocks when running ingress UDP performance tests
+  with very large buffers.
 
 ### Changed
 
@@ -82,14 +107,6 @@
   `403 BadRequest`.
 - Segregated MMDS documentation in MMDS design documentation and MMDS user
   guide documentation.
-- The logger `level` field is now case-insensitive.
-- Disabled boot timer device after restoring a snapshot.
-- Enabled boot timer device only when specifically requested, by using the
-  `--boot-timer` dedicated cmdline parameter.
-- `firecracker/jailer --version` now gets updated on each devtool
-  build to the output of `git describe --dirty`, if the git repo is available.
-- MicroVM process is only attached to the cgroups defined by using `--cgroups`
-  or the ones defined indirectly by using `--node`.
 
 ## [0.21.0]
 
