@@ -11,6 +11,7 @@ from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.utils import is_amd
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
 
@@ -213,7 +214,7 @@ def test_snapshot_create_latency(network_config,
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    platform.machine() != "x86_64" or is_amd(),
     reason="Not supported yet."
 )
 def test_snapshot_resume_latency(network_config,
@@ -254,7 +255,7 @@ def test_snapshot_resume_latency(network_config,
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    platform.machine() != "x86_64" or is_amd(),
     reason="Not supported yet."
 )
 def test_older_snapshot_resume_latency(bin_cloner_path):
