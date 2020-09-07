@@ -56,23 +56,38 @@ def get_firecracker_binaries():
     building them in case they do not exist at the specified root_path.
     """
     target = DEFAULT_BUILD_TARGET
-    cd_cmd = "cd {}".format(FC_WORKSPACE_DIR)
-    flags = 'RUSTFLAGS="{}"'.format(get_rustflags())
-    cargo_cmd = "cargo build --release --target {}".format(target)
-    cmd = "{} && {} {}".format(cd_cmd, flags, cargo_cmd)
-
-    utils.run_cmd(cmd)
-
     out_dir = "{target_dir}/{target}/release".format(
         target_dir=FC_WORKSPACE_TARGET_DIR, target=target
     )
     fc_bin_path = "{}/{}".format(out_dir, FC_BINARY_NAME)
     jailer_bin_path = "{}/{}".format(out_dir, JAILER_BINARY_NAME)
 
+    if getattr(get_firecracker_binaries, 'binaries_built', False):
+        return fc_bin_path, jailer_bin_path
+
+    cd_cmd = "cd {}".format(FC_WORKSPACE_DIR)
+    flags = 'RUSTFLAGS="{}"'.format(get_rustflags())
+    cargo_default_cmd = "cargo build --release --target {}".format(
+        target
+    )
+    cargo_jailer_cmd = "cargo build -p jailer --release --target {}".format(
+        target
+    )
+    cmd = "{0} && {1} {2} && {1} {3}".format(
+        cd_cmd,
+        flags,
+        cargo_default_cmd,
+        cargo_jailer_cmd
+    )
+
+    utils.run_cmd(cmd)
+
     utils.run_cmd(
         "strip --strip-debug {} {}"
         .format(fc_bin_path, jailer_bin_path)
     )
+
+    setattr(get_firecracker_binaries, 'binaries_built', True)
 
     return fc_bin_path, jailer_bin_path
 
