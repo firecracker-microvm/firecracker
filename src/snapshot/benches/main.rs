@@ -89,9 +89,9 @@ impl Test {
 #[inline]
 pub fn bench_restore_v1(mut snapshot_mem: &[u8], snapshot_len: usize, vm: VersionMap, crc: bool) {
     if crc {
-        Snapshot::load_with_crc64::<&[u8], Test>(&mut snapshot_mem, snapshot_len, vm).unwrap();
+        Snapshot::load::<&[u8], Test>(&mut snapshot_mem, snapshot_len, vm).unwrap();
     } else {
-        Snapshot::load::<&[u8], Test>(&mut snapshot_mem, vm).unwrap();
+        Snapshot::unchecked_load::<&[u8], Test>(&mut snapshot_mem, vm).unwrap();
     }
 }
 
@@ -115,9 +115,11 @@ pub fn bench_snapshot_v1<W: std::io::Write>(mut snapshot_mem: &mut W, vm: Versio
 
     let mut snapshot = Snapshot::new(vm.clone(), 4);
     if crc {
-        snapshot.save_with_crc64(&mut snapshot_mem, &state).unwrap();
-    } else {
         snapshot.save(&mut snapshot_mem, &state).unwrap();
+    } else {
+        snapshot
+            .save_without_crc(&mut snapshot_mem, &state)
+            .unwrap();
     }
 }
 
