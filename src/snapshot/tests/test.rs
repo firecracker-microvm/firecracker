@@ -94,7 +94,7 @@ fn test_hardcoded_snapshot_deserialization() {
 
     let mut snapshot_blob = v1_hardcoded_snapshot;
 
-    let mut restored_struct: A = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
+    let mut restored_struct: A = Snapshot::unchecked_load(&mut snapshot_blob, vm.clone()).unwrap();
 
     let mut expected_struct = A {
         a: 16u32,
@@ -106,7 +106,7 @@ fn test_hardcoded_snapshot_deserialization() {
 
     snapshot_blob = v2_hardcoded_snapshot;
 
-    restored_struct = Snapshot::load(&mut snapshot_blob, vm.clone()).unwrap();
+    restored_struct = Snapshot::unchecked_load(&mut snapshot_blob, vm.clone()).unwrap();
 
     expected_struct = A {
         a: 16u32,
@@ -142,7 +142,7 @@ fn test_invalid_format_version() {
     ];
 
     let mut result: Result<A, Error> =
-        Snapshot::load(&mut invalid_format_snap.as_ref(), VersionMap::new());
+        Snapshot::unchecked_load(&mut invalid_format_snap.as_ref(), VersionMap::new());
     let mut expected_err = Error::InvalidFormatVersion(0xAAAA);
     assert_eq!(result.unwrap_err(), expected_err);
 
@@ -168,7 +168,7 @@ fn test_invalid_format_version() {
         0x01, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
     ];
 
-    result = Snapshot::load(&mut null_format_snap.as_ref(), VersionMap::new());
+    result = Snapshot::unchecked_load(&mut null_format_snap.as_ref(), VersionMap::new());
     expected_err = Error::InvalidFormatVersion(0);
     assert_eq!(result.unwrap_err(), expected_err);
 }
@@ -197,7 +197,7 @@ fn test_invalid_data_version() {
         0x01, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
     ];
     let mut result: Result<A, Error> =
-        Snapshot::load(&mut invalid_data_version_snap.as_ref(), VersionMap::new());
+        Snapshot::unchecked_load(&mut invalid_data_version_snap.as_ref(), VersionMap::new());
     let mut expected_err = Error::InvalidDataVersion(0xAAAA);
     assert_eq!(result.unwrap_err(), expected_err);
 
@@ -222,7 +222,7 @@ fn test_invalid_data_version() {
         // + inner enum value (4 bytes).
         0x01, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
     ];
-    result = Snapshot::load(&mut null_data_version_snap.as_ref(), VersionMap::new());
+    result = Snapshot::unchecked_load(&mut null_data_version_snap.as_ref(), VersionMap::new());
     expected_err = Error::InvalidDataVersion(0);
     assert_eq!(result.unwrap_err(), expected_err);
 }

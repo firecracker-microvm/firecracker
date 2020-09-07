@@ -361,7 +361,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
             let snapshot_path = snapshot_file.as_path().to_path_buf();
             let snapshot_file_metadata = std::fs::metadata(snapshot_path).unwrap();
             let snapshot_len = snapshot_file_metadata.len() as usize;
-            let restored_microvm_state: MicrovmState = Snapshot::load_with_crc64(
+            let restored_microvm_state: MicrovmState = Snapshot::load(
                 &mut snapshot_file.as_file(),
                 snapshot_len,
                 VERSION_MAP.clone(),
@@ -402,7 +402,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
             let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
             let snapshot_len = snapshot_file_metadata.len() as usize;
             snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-            let microvm_state: MicrovmState = Snapshot::load_with_crc64(
+            let microvm_state: MicrovmState = Snapshot::load(
                 &mut snapshot_file.as_file(),
                 snapshot_len,
                 VERSION_MAP.clone(),

@@ -100,8 +100,8 @@ impl Snapshot {
         }
     }
 
-    /// Attempts to load an existing snapshot.
-    pub fn load<T, O>(mut reader: &mut T, version_map: VersionMap) -> Result<O, Error>
+    /// Attempts to load an existing snapshot without CRC validation.
+    pub fn unchecked_load<T, O>(mut reader: &mut T, version_map: VersionMap) -> Result<O, Error>
     where
         T: Read,
         O: Versionize,
@@ -128,7 +128,7 @@ impl Snapshot {
     }
 
     /// Attempts to load an existing snapshot and validate CRC.
-    pub fn load_with_crc64<T, O>(
+    pub fn load<T, O>(
         reader: &mut T,
         snapshot_len: usize,
         version_map: VersionMap,
@@ -157,19 +157,19 @@ impl Snapshot {
         }
 
         let mut snapshot_slice: &[u8] = &mut snapshot.as_mut_slice();
-        let object: O = Snapshot::load(&mut snapshot_slice, version_map)?;
+        let object: O = Snapshot::unchecked_load(&mut snapshot_slice, version_map)?;
 
         Ok(object)
     }
 
     /// Saves a snapshot and include a CRC64 checksum.
-    pub fn save_with_crc64<T, O>(&mut self, writer: &mut T, object: &O) -> Result<(), Error>
+    pub fn save<T, O>(&mut self, writer: &mut T, object: &O) -> Result<(), Error>
     where
         T: Write,
         O: Versionize,
     {
         let mut crc_writer = CRC64Writer::new(writer);
-        self.save(&mut crc_writer, object)?;
+        self.save_without_crc(&mut crc_writer, object)?;
 
         let checksum = crc_writer.checksum();
         checksum
@@ -178,8 +178,8 @@ impl Snapshot {
         Ok(())
     }
 
-    /// Save a snapshot.
-    pub fn save<T, O>(&mut self, mut writer: &mut T, object: &O) -> Result<(), Error>
+    /// Save a snapshot with no CRC64 checksum included.
+    pub fn save_without_crc<T, O>(&mut self, mut writer: &mut T, object: &O) -> Result<(), Error>
     where
         T: Write,
         O: Versionize,
@@ -351,11 +351,11 @@ mod tests {
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
         snapshot
-            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .save_without_crc(&mut snapshot_mem.as_mut_slice(), &state)
             .unwrap();
 
         let mut restored_state: Test =
-            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+            Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
 
         // The semantic serializer fn for field4 will set field0 to field4.iter().sum() == 10.
         assert_eq!(restored_state.field0, state.field4.iter().sum::<u64>());
@@ -371,10 +371,11 @@ mod tests {
         // Serialize as v3.
         let mut snapshot = Snapshot::new(vm.clone(), 3);
         snapshot
-            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .save_without_crc(&mut snapshot_mem.as_mut_slice(), &state)
             .unwrap();
 
-        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        restored_state =
+            Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
 
         // We expect only the semantic serializer and deserializer for field4 to be called at version 3.
         // The semantic serializer will set field0 to field4.iter().sum() == 10.
@@ -387,10 +388,11 @@ mod tests {
         // Serialize as v4.
         snapshot = Snapshot::new(vm.clone(), 4);
         snapshot
-            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .save_without_crc(&mut snapshot_mem.as_mut_slice(), &state)
             .unwrap();
 
-        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        restored_state =
+            Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
 
         // The 4 semantic fns must not be called at version 4.
         assert_eq!(restored_state.field0, 0);
@@ -401,7 +403,7 @@ mod tests {
         // serialization.
         snapshot_mem.truncate(10);
         let restored_state_result: Result<Test, Error> =
-            Snapshot::load(&mut snapshot_mem.as_slice(), vm);
+            Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm);
 
         assert_eq!(
             restored_state_result.unwrap_err(),
@@ -441,11 +443,11 @@ mod tests {
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
         snapshot
-            .save(&mut snapshot_mem.as_mut_slice(), &state_1)
+            .save_without_crc(&mut snapshot_mem.as_mut_slice(), &state_1)
             .unwrap();
 
         let mut restored_state: Test =
-            Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+            Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
         assert_eq!(restored_state.field1, state_1.field1);
         assert_eq!(restored_state.field2, 20);
         assert_eq!(restored_state.field3, "default");
@@ -453,10 +455,11 @@ mod tests {
         // Serialize as v2.
         snapshot = Snapshot::new(vm.clone(), 2);
         snapshot
-            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .save_without_crc(&mut snapshot_mem.as_mut_slice(), &state)
             .unwrap();
 
-        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        restored_state =
+            Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
         assert_eq!(restored_state.field1, state.field1);
         assert_eq!(restored_state.field2, 2);
         assert_eq!(restored_state.field3, "default");
@@ -464,10 +467,11 @@ mod tests {
         // Serialize as v3.
         snapshot = Snapshot::new(vm.clone(), 3);
         snapshot
-            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .save_without_crc(&mut snapshot_mem.as_mut_slice(), &state)
             .unwrap();
 
-        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
+        restored_state =
+            Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm.clone()).unwrap();
         assert_eq!(restored_state.field1, state.field1);
         assert_eq!(restored_state.field2, 2);
         assert_eq!(restored_state.field3, "test");
@@ -475,10 +479,10 @@ mod tests {
         // Serialize as v4.
         snapshot = Snapshot::new(vm.clone(), 4);
         snapshot
-            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .save_without_crc(&mut snapshot_mem.as_mut_slice(), &state)
             .unwrap();
 
-        restored_state = Snapshot::load(&mut snapshot_mem.as_slice(), vm).unwrap();
+        restored_state = Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm).unwrap();
         assert_eq!(restored_state.field1, state.field1);
         assert_eq!(restored_state.field2, 2);
         assert_eq!(restored_state.field3, "test");
@@ -498,10 +502,10 @@ mod tests {
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
         snapshot
-            .save_with_crc64(&mut snapshot_mem.as_mut_slice(), &state_1)
+            .save(&mut snapshot_mem.as_mut_slice(), &state_1)
             .unwrap();
 
-        let _: Test1 = Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), 38, vm).unwrap();
+        let _: Test1 = Snapshot::load(&mut snapshot_mem.as_slice(), 38, vm).unwrap();
     }
 
     #[test]
@@ -518,7 +522,7 @@ mod tests {
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
         snapshot
-            .save_with_crc64(&mut snapshot_mem.as_mut_slice(), &state_1)
+            .save(&mut snapshot_mem.as_mut_slice(), &state_1)
             .unwrap();
         snapshot_mem[20] = 123;
 
@@ -528,7 +532,7 @@ mod tests {
         let expected_err = Error::Crc64(0x103F_8F52_8F51_20B1);
 
         let load_result: Result<Test1, Error> =
-            Snapshot::load_with_crc64(&mut snapshot_mem.as_slice(), 38, vm);
+            Snapshot::load(&mut snapshot_mem.as_slice(), 38, vm);
         assert_eq!(load_result.unwrap_err(), expected_err);
     }
 
@@ -554,11 +558,11 @@ mod tests {
         // Serialize as v1.
         let mut snapshot = Snapshot::new(vm.clone(), 1);
         snapshot
-            .save(&mut snapshot_mem.as_mut_slice(), &state)
+            .save_without_crc(&mut snapshot_mem.as_mut_slice(), &state)
             .unwrap();
 
         let restored_state: kvm_pit_config =
-            Snapshot::load(&mut snapshot_mem.as_slice(), vm).unwrap();
+            Snapshot::unchecked_load(&mut snapshot_mem.as_slice(), vm).unwrap();
         assert_eq!(restored_state, state);
     }
 }
