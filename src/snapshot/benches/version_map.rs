@@ -27,7 +27,7 @@ struct Dummy {
 
 #[inline]
 fn restore(mut snapshot_mem: &[u8], vm: VersionMap) {
-    Snapshot::load::<&[u8], Test>(&mut snapshot_mem, vm).unwrap();
+    Snapshot::unchecked_load::<&[u8], Test>(&mut snapshot_mem, vm).unwrap();
 }
 
 #[inline]
@@ -47,7 +47,9 @@ fn save<W: std::io::Write>(mut snapshot_mem: &mut W, vm: VersionMap) {
     };
 
     let mut snapshot = Snapshot::new(vm.clone(), vm.latest_version());
-    snapshot.save(&mut snapshot_mem, &state).unwrap();
+    snapshot
+        .save_without_crc(&mut snapshot_mem, &state)
+        .unwrap();
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {

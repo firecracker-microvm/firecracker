@@ -209,7 +209,7 @@ fn snapshot_state_to_file(
 
     let mut snapshot = Snapshot::new(version_map, snapshot_data_version);
     snapshot
-        .save_with_crc64(&mut snapshot_file, microvm_state)
+        .save(&mut snapshot_file, microvm_state)
         .map_err(SerializeMicrovmState)?;
 
     Ok(())
@@ -273,8 +273,7 @@ fn snapshot_state_from_file(
     let mut snapshot_reader = File::open(snapshot_path).map_err(SnapshotBackingFile)?;
     let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotBackingFileMetadata)?;
     let snapshot_len = metadata.len() as usize;
-    Snapshot::load_with_crc64(&mut snapshot_reader, snapshot_len, version_map)
-        .map_err(DeserializeMicrovmState)
+    Snapshot::load(&mut snapshot_reader, snapshot_len, version_map).map_err(DeserializeMicrovmState)
 }
 
 fn guest_memory_from_file(
