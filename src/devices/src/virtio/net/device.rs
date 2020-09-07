@@ -34,6 +34,14 @@ use virtio_gen::virtio_net::{
 };
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
+enum FrontendError {
+    AddUsed,
+    DescriptorChainTooSmall,
+    EmptyQueue,
+    GuestMemory(GuestMemoryError),
+    ReadOnlyDescriptor,
+}
+
 fn vnet_hdr_len() -> usize {
     mem::size_of::<virtio_net_hdr_v1>()
 }
@@ -255,7 +263,7 @@ impl Net {
         }
 
         // Attempt frame delivery.
-        let success = self.rx_single_frame();
+        let success = self.write_frame_to_guest();
 
         // Undo the tokens consumption if guest delivery failed.
         if !success {
@@ -268,84 +276,94 @@ impl Net {
         success
     }
 
-    // Copies a single frame from `self.rx_frame_buf` into the guest. Returns true
-    // if a buffer was used, and false if the frame must be deferred until a buffer
-    // is made available by the driver.
-    fn rx_single_frame(&mut self) -> bool {
+    // Copies a single frame from `self.rx_frame_buf` into the guest.
+    fn do_write_frame_to_guest(&mut self) -> std::result::Result<(), FrontendError> {
+        let mut result: std::result::Result<(), FrontendError> = Ok(());
         let mem = match self.device_state {
             DeviceState::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
             DeviceState::Inactive => unreachable!(),
         };
-        let rx_queue = &mut self.queues[RX_INDEX];
-        let mut next_desc = rx_queue.pop(mem);
-        if next_desc.is_none() {
+
+        let queue = &mut self.queues[RX_INDEX];
+        let head_descriptor = queue.pop(mem).ok_or_else(|| {
             METRICS.net.no_rx_avail_buffer.inc();
-            return false;
+            FrontendError::EmptyQueue
+        })?;
+        let head_index = head_descriptor.index;
+
+        let mut frame_slice = &self.rx_frame_buf[..self.rx_bytes_read];
+        let frame_len = frame_slice.len();
+        let mut maybe_next_descriptor = Some(head_descriptor);
+        while let Some(descriptor) = &maybe_next_descriptor {
+            if frame_slice.is_empty() {
+                break;
+            }
+
+            if !descriptor.is_write_only() {
+                result = Err(FrontendError::ReadOnlyDescriptor);
+                break;
+            }
+
+            let len = std::cmp::min(frame_slice.len(), descriptor.len as usize);
+            match mem.write_slice(&frame_slice[..len], descriptor.addr) {
+                Ok(()) => {
+                    METRICS.net.rx_count.inc();
+                    frame_slice = &frame_slice[len..];
+                }
+                Err(e) => {
+                    error!("Failed to write slice: {:?}", e);
+                    match e {
+                        GuestMemoryError::PartialBuffer { .. } => &METRICS.net.rx_partial_writes,
+                        _ => &METRICS.net.rx_fails,
+                    }
+                    .inc();
+                    result = Err(FrontendError::GuestMemory(e));
+                    break;
+                }
+            };
+
+            maybe_next_descriptor = descriptor.next_descriptor();
+        }
+        if result.is_ok() && !frame_slice.is_empty() {
+            warn!("Receiving buffer is too small to hold frame of current size");
+            METRICS.net.rx_fails.inc();
+            result = Err(FrontendError::DescriptorChainTooSmall);
         }
 
-        // We just checked that the head descriptor exists.
-        let head_index = next_desc.as_ref().unwrap().index;
-        let mut write_count = 0;
+        // Mark the descriptor chain as used. If an error occurred, skip the descriptor chain.
+        let used_len = if result.is_err() { 0 } else { frame_len as u32 };
+        queue.add_used(mem, head_index, used_len).map_err(|e| {
+            error!("Failed to add available descriptor {}: {}", head_index, e);
+            FrontendError::AddUsed
+        })?;
+        self.rx_deferred_irqs = true;
 
-        // Copy from frame into buffer, which may span multiple descriptors.
-        loop {
-            match next_desc {
-                Some(desc) => {
-                    if !desc.is_write_only() {
-                        break;
-                    }
+        if result.is_ok() {
+            METRICS.net.rx_bytes_count.add(frame_len);
+            METRICS.net.rx_packets_count.inc();
+        }
+        result
+    }
 
-                    let limit = cmp::min(write_count + desc.len as usize, self.rx_bytes_read);
-                    let source_slice = &self.rx_frame_buf[write_count..limit];
-                    let write_result = mem.write_slice(source_slice, desc.addr);
-
-                    match write_result {
-                        Ok(()) => {
-                            METRICS.net.rx_count.inc();
-                            write_count += source_slice.len();
-                        }
-                        Err(e) => {
-                            error!("Failed to write slice: {:?}", e);
-                            if let GuestMemoryError::PartialBuffer { completed, .. } = e {
-                                write_count += completed;
-                                METRICS.net.rx_partial_writes.inc();
-                            } else {
-                                METRICS.net.rx_fails.inc();
-                            }
-                            break;
-                        }
-                    };
-
-                    if write_count >= self.rx_bytes_read {
-                        break;
-                    }
-                    next_desc = desc.next_descriptor();
+    // Copies a single frame from `self.rx_frame_buf` into the guest. In case of an error retries
+    // the operation if possible. Returns true if the operation was successfull.
+    fn write_frame_to_guest(&mut self) -> bool {
+        let max_iterations = self.queues[RX_INDEX].actual_size();
+        for _ in 0..max_iterations {
+            match self.do_write_frame_to_guest() {
+                Ok(()) => return true,
+                Err(FrontendError::EmptyQueue) | Err(FrontendError::AddUsed) => {
+                    return false;
                 }
-                None => {
-                    warn!("Receiving buffer is too small to hold frame of current size");
-                    METRICS.net.rx_fails.inc();
-                    break;
+                Err(_) => {
+                    // retry
+                    continue;
                 }
             }
         }
 
-        rx_queue
-            .add_used(mem, head_index, write_count as u32)
-            .unwrap_or_else(|e| {
-                error!("Failed to add available descriptor {}: {}", head_index, e);
-            });
-
-        // Mark that we have at least one pending packet and we need to interrupt the guest.
-        self.rx_deferred_irqs = true;
-
-        if write_count >= self.rx_bytes_read {
-            METRICS.net.rx_bytes_count.add(write_count);
-            METRICS.net.rx_packets_count.inc();
-            true
-        } else {
-            false
-        }
+        false
     }
 
     // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
@@ -1296,7 +1314,7 @@ pub mod tests {
             ],
         );
         let frame = th.check_rx_deferred_frame(1000);
-        th.rxq.check_used_elem(0, 0, 100);
+        th.rxq.check_used_elem(0, 0, 0);
 
         th.check_rx_queue_resume(&frame);
     }
@@ -1308,7 +1326,7 @@ pub mod tests {
 
         th.add_desc_chain(NetQueue::Rx, 0, &[(0, 100, VIRTQ_DESC_F_WRITE)]);
         let frame = th.check_rx_deferred_frame(1000);
-        th.rxq.check_used_elem(0, 0, 100);
+        th.rxq.check_used_elem(0, 0, 0);
 
         th.check_rx_queue_resume(&frame);
     }
@@ -1330,11 +1348,60 @@ pub mod tests {
                 (2, 4096, VIRTQ_DESC_F_WRITE),
             ],
         );
-        let expected_len = 150 + th.mem.last_addr().raw_value() + 1 - th.rxq.dtable[2].addr.get();
         let frame = th.check_rx_deferred_frame(1000);
-        th.rxq.check_used_elem(0, 0, expected_len as u32);
+        th.rxq.check_used_elem(0, 0, 0);
 
         th.check_rx_queue_resume(&frame);
+    }
+
+    #[test]
+    fn test_rx_retry() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
+
+        // Add invalid descriptor chain - read only descriptor.
+        th.add_desc_chain(
+            NetQueue::Rx,
+            0,
+            &[
+                (0, 100, VIRTQ_DESC_F_WRITE),
+                (1, 100, 0),
+                (2, 1000, VIRTQ_DESC_F_WRITE),
+            ],
+        );
+        // Add invalid descriptor chain - too short.
+        th.add_desc_chain(NetQueue::Rx, 1200, &[(3, 100, VIRTQ_DESC_F_WRITE)]);
+        // Add invalid descriptor chain - invalid memory offset.
+        th.add_desc_chain(
+            NetQueue::Rx,
+            th.mem.last_addr().raw_value(),
+            &[(4, 1000, VIRTQ_DESC_F_WRITE)],
+        );
+
+        // Add valid descriptor chain.
+        th.add_desc_chain(NetQueue::Rx, 1300, &[(5, 1000, VIRTQ_DESC_F_WRITE)]);
+
+        // Inject frame to tap and run epoll.
+        let frame = th.net().inject_tap_tx_frame(1000);
+        check_metric_after_block!(
+            METRICS.net.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+
+        // Check that the used queue has advanced.
+        assert_eq!(th.rxq.used.idx.get(), 4);
+        th.net().check_used_queue_signal(1);
+        // Check that the invalid descriptor chains have been discarded
+        th.rxq.check_used_elem(0, 0, 0);
+        th.rxq.check_used_elem(1, 3, 0);
+        th.rxq.check_used_elem(2, 4, 0);
+        // Check that the frame wasn't deferred.
+        assert!(!th.net().rx_deferred_frame);
+        // Check that the frame has been written successfully to the valid Rx descriptor chain.
+        th.rxq.check_used_elem(3, 5, frame.len() as u32);
+        th.rxq.dtable[5].check_data(&frame);
     }
 
     #[test]
