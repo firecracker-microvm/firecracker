@@ -6,6 +6,7 @@ import glob
 import logging
 import os
 import re
+import subprocess
 import threading
 import typing
 
@@ -190,3 +191,9 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
         run_cmd_async(cmd=cmd,
                       ignore_return_code=ignore_return_code,
                       no_shell=no_shell))
+
+
+def is_amd():
+    """Return true if running on AMD cpus."""
+    brand_str = subprocess.check_output("lscpu", shell=True).strip().decode()
+    return 'AuthenticAMD' in brand_str
