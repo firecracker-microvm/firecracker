@@ -10,6 +10,9 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
+use vm_memory::guest_memory::GuestMemory;
+use vm_memory::guest_memory::GuestMemoryRegion;
+
 use crate::device_manager::mmio::MMIODeviceManager;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::{legacy::PortIODeviceManager, persist::MMIODevManagerConstructorArgs};
@@ -293,6 +296,7 @@ pub fn build_microvm_for_boot(
             .mem_size_mib
             .ok_or(MissingMemSizeConfig)?,
     )?;
+    guest_memory.with_regions(|idx, region|{ println!("MRMEESEEKS"); unsafe {println!("{} {}", (*region).as_slice().unwrap()[0], (*region).start_addr().0); } Err("")});
     let vcpu_config = vm_resources.vcpu_config();
     let track_dirty_pages = vm_resources.track_dirty_pages();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
@@ -343,7 +347,11 @@ pub fn build_microvm_for_boot(
         boot_cmdline,
     )?;
 
-    gdb_server::run_gdb_server();
+    vmm_run_gdb_server(&vmm, &vcpus);
+    println!("Going further with execution...");
+    let new_addr : u64 = 0x10001d0;
+    let int3 : u8 = 0xCC;
+    //vmm.guest_memory().write_obj(int3, GuestAddress(new_addr));
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(vcpus, seccomp_filter).map_err(Internal)?;
@@ -778,6 +786,11 @@ fn attach_unixsock_vsock_device(
     let id = String::from(unix_vsock.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
+}
+
+fn vmm_run_gdb_server<'a>(vmm: &'a Vmm, vcpus : &'a Vec<Vcpu>) {
+    // For now we assume there's one vcpu only
+    gdb_server::run_gdb_server(vmm.guest_memory(), &vcpus[0].kvm_vcpu.fd);
 }
 
 #[cfg(test)]

@@ -3,10 +3,16 @@ use std::net::{TcpListener, TcpStream};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 
+extern crate vm_memory;
+pub use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, ByteValued};
+
+pub use kvm_ioctls::VcpuFd;
+pub use kvm_bindings::{kvm_translation, kvm_sregs};
+
 use gdbstub::{Connection, DisconnectReason, GdbStub};
 
 mod target;
-use target::FirecrackerGDBServer;
+use target::*;
 
 pub type DynResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -39,8 +45,8 @@ fn wait_for_uds(path: &str) -> DynResult<UnixStream> {
     Ok(stream)
 }
 
-pub fn run_gdb_server() -> DynResult<()> {
-    let mut target = FirecrackerGDBServer::new()?;
+pub fn run_gdb_server<'a>(vmm_gm: &'a GuestMemoryMmap, vcpu: &'a VcpuFd) -> DynResult<()> {
+    let mut target = FirecrackerGDBServer::new(vmm_gm, vcpu)?;
 
     let connection: Box<dyn Connection<Error = std::io::Error>> = {
         if std::env::args().nth(1) == Some("--uds".to_string()) {
