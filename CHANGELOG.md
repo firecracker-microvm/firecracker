@@ -49,6 +49,8 @@
   build to the output of `git describe --dirty`, if the git repo is available.
 - MicroVM process is only attached to the cgroups defined by using `--cgroups`
   or the ones defined indirectly by using `--node`.
+- Changed `devtool build` to build jailer binary for `musl` only targets. Building
+  jailer binary for `non-musl` targets have been removed.
 
 ## [0.22.0]
 
