@@ -160,7 +160,6 @@ class SnapshotArtifact:
         for disk in snaphot_disks:
             artifact = Artifact(self._bucket, disk.key,
                                 artifact_type=ArtifactType.DISK)
-            # artifact.download()
             self._disks.append(artifact)
 
         # Get the name of the snapshot folder.
