@@ -10,8 +10,9 @@ import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
+from framework.microvms import C3micro
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.utils import is_amd
+from framework.utils import CpuVendor, get_cpu_vendor
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
 
@@ -41,7 +42,7 @@ LOAD_LATENCY_BASELINES = {
     '2vcpu_512mb.json': 8,
     # We are also tracking restore from older version latency.
     # Snapshot properties: 2vCPU, 512MB RAM, 1 disk, 1 network iface.
-    'fc_release_v0.23': 8,
+    '0.23.0': 80,
 }
 
 
@@ -214,7 +215,7 @@ def test_snapshot_create_latency(network_config,
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64" or is_amd(),
+    platform.machine() != "x86_64" or get_cpu_vendor() == CpuVendor.AMD,
     reason="Not supported yet."
 )
 def test_snapshot_resume_latency(network_config,
@@ -255,7 +256,7 @@ def test_snapshot_resume_latency(network_config,
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64" or is_amd(),
+    platform.machine() != "x86_64" or get_cpu_vendor() == CpuVendor.AMD,
     reason="Not supported yet."
 )
 def test_older_snapshot_resume_latency(bin_cloner_path):
@@ -263,19 +264,45 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
     logger = logging.getLogger("old_snapshot_load")
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
-    snapshot_artifacts = artifacts.snapshots(keyword="fc_release")
+    # Fetch all firecracker binaries.
+    # With each binary create a snapshot and try to restore in current
+    # version.
+    firecracker_artifacts = artifacts.firecrackers()
+    for firecracker in firecracker_artifacts:
+        firecracker.download()
+        jailer = firecracker.jailer()
+        jailer.download()
+        fc_version = firecracker.base_name()[1:]
+        logger.info("Firecracker version: %s", fc_version)
+        logger.info("Source Firecracker: %s", firecracker.local_path())
+        logger.info("Source Jailer: %s", jailer.local_path())
 
-    for artifact in snapshot_artifacts:
-        builder = MicrovmBuilder(bin_cloner_path)
-        artifact.download()
         for i in range(SAMPLE_COUNT):
-            snapshot = artifact.copy(builder.root_path)
+            # Create a fresh microvm with the binary artifacts.
+            vm_instance = C3micro.spawn(bin_cloner_path, True,
+                                        firecracker.local_path(),
+                                        jailer.local_path())
+            # Attempt to connect to the fresh microvm.
+            ssh_connection = net_tools.SSHConnection(vm_instance.vm.ssh_config)
 
-            logger.info("Resuming from %s", artifact.key)
+            exit_code, _, _ = ssh_connection.execute_command("sync")
+            assert exit_code == 0
 
-            # TODO: Define network config artifact that can be used to build
-            # new vms or can be used as part of the snapshot
-            # For now we are good with theses hardcoded values
+            # Create a snapshot builder from a microvm.
+            snapshot_builder = SnapshotBuilder(vm_instance.vm)
+
+            # The snapshot builder expects disks as paths, not artifacts.
+            disks = []
+            for disk in vm_instance.disks:
+                disks.append(disk.local_path())
+
+            snapshot_builder = SnapshotBuilder(vm_instance.vm)
+            snapshot = snapshot_builder.create(disks,
+                                               vm_instance.ssh_key,
+                                               SnapshotType.FULL)
+
+            vm_instance.vm.kill()
+            builder = MicrovmBuilder(bin_cloner_path)
             microvm, metrics_fifo = builder.build_from_snapshot(snapshot,
                                                                 True,
                                                                 False)
@@ -295,6 +322,7 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
                     value = cur_value / USEC_IN_MSEC
                     break
 
-            baseline = LOAD_LATENCY_BASELINES[artifact.name]
+            baseline = LOAD_LATENCY_BASELINES[fc_version]
             logger.info("Latency %s/%s: %s ms", i + 1, SAMPLE_COUNT, value)
             assert baseline > value, "LoadSnapshot latency degraded."
+            microvm.kill()
