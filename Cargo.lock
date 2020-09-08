@@ -98,7 +98,7 @@ dependencies = [
  "snapshot 0.1.0",
  "timerfd 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
- "versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "versionize 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "virtio_gen 0.1.0",
  "vm-memory 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -190,7 +190,7 @@ name = "kvm-bindings"
 version = "0.2.0"
 source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.2.0-2#035141b47659a1d3532101c86bd196de3f1454e9"
 dependencies = [
- "versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "versionize 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm-sys-util 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -259,7 +259,7 @@ dependencies = [
  "serde_json 1.0.48 (registry+https://github.com/rust-lang/crates.io-index)",
  "snapshot 0.1.0",
  "utils 0.1.0",
- "versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "versionize 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -300,7 +300,7 @@ dependencies = [
  "snapshot 0.1.0",
  "timerfd 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
- "versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "versionize 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -365,7 +365,7 @@ name = "snapshot"
 version = "0.1.0"
 dependencies = [
  "libc 0.2.68 (registry+https://github.com/rust-lang/crates.io-index)",
- "versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "versionize 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -424,7 +424,7 @@ dependencies = [
 
 [[package]]
 name = "versionize"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bincode 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -484,7 +484,7 @@ dependencies = [
  "snapshot 0.1.0",
  "sysconf 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
- "versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "versionize 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "vm-memory 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -559,7 +559,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum thread_local 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d40c6d1b69745a6ec6fb1ca717914848da4b44ae29d9b3080cbee91d72a69b14"
 "checksum timerfd 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "0123bba5b202eb298259401ae5611d3a34e852f1d9b6963bbf266b344355a93d"
 "checksum unicode-xid 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
-"checksum versionize 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0c7be505e45004e3c3963dbea155aa333784724b91ae580f08e702eeaccfca93"
+"checksum versionize 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "9c9947d2d1888281839f86c26f727c5ef40accf0ef0762b3086e33a476cea858"
 "checksum versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d7817377bbb6759686d790fb8fbbb22a0371521d509a21fdb125cf7c9c9d815a"
 "checksum vm-memory 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "aae367b8bd176f4936b5d35c4403606d4a8458a8151dff47c974f1d9d1a4c974"
 "checksum vmm-sys-util 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "183d25b56a61a6f518ef464ac578e790f04added34dfaab59a453d8a03cb7bd0"
