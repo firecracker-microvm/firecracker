@@ -9,7 +9,7 @@ import re
 import subprocess
 import threading
 import typing
-
+from enum import Enum, auto
 from collections import namedtuple
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
@@ -193,7 +193,16 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
                       no_shell=no_shell))
 
 
-def is_amd():
-    """Return true if running on AMD cpus."""
+class CpuVendor(Enum):
+    """CPU vendors enum."""
+
+    AMD = auto()
+    INTEL = auto()
+
+
+def get_cpu_vendor():
+    """Return the CPU vendor."""
     brand_str = subprocess.check_output("lscpu", shell=True).strip().decode()
-    return 'AuthenticAMD' in brand_str
+    if 'AuthenticAMD' in brand_str:
+        return CpuVendor.AMD
+    return CpuVendor.INTEL
