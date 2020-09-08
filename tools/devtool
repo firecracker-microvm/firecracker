@@ -434,6 +434,8 @@ cmd_help() {
     echo "        Run the Firecracker integration tests."
     echo "        The Firecracker testing system is based on pytest. All arguments after --"
     echo "        will be passed through to pytest."
+    echo "        -c, --cpuset-cpus cpulist    Set a dedicated cpulist to be used by the tests."
+    echo "        -m, --cpuset-mems memlist    Set a dedicated memlist to be used by the tests."
     echo ""
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
@@ -584,6 +586,14 @@ cmd_test() {
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")      { cmd_help; exit 1; } ;;
+            "-c"|"--cpuset-cpus")
+                shift
+                local cpuset_cpus="$1"
+                ;;
+            "-m"|"--cpuset-mems")
+                shift
+                local cpuset_mems="$1"
+                ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -596,7 +606,6 @@ cmd_test() {
     ensure_kvm
     ensure_devctr
     ensure_build_dir
-
 
     # If we got to here, we've got all we need to continue.
     say "$(date -u +'%F %H:%M:%S %Z')"
@@ -612,6 +621,8 @@ cmd_test() {
         --ulimit core=0 \
         --ulimit nofile=4096:4096 \
         --workdir "$CTR_FC_ROOT_DIR/tests" \
+        --cpuset-cpus="$cpuset_cpus" \
+        --cpuset-mems="$cpuset_mems" \
         -- \
         pytest "$@"
 

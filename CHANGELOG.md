@@ -30,6 +30,10 @@
 - Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 - Added new jailer command line argument `--cgroup` which allow the user to
   specify the cgroups that are going to be set by the Jailer.
+- Added devtool test `-c|--cpuset-cpus` flag for cpus confinement when tests
+  run.
+- Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
+  run.
 
 ### Fixed
 
