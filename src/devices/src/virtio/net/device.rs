@@ -211,14 +211,25 @@ impl Net {
         self.mmds_ns.as_mut()
     }
 
-    fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
+    fn signal_used_queue(&mut self) -> result::Result<(), DeviceError> {
         self.interrupt_status
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         self.interrupt_evt.write(1).map_err(|e| {
             error!("Failed to signal used queue: {:?}", e);
             METRICS.net.event_fails.inc();
             DeviceError::FailedSignalingUsedQueue(e)
-        })
+        })?;
+
+        self.rx_deferred_irqs = false;
+        Ok(())
+    }
+
+    fn signal_rx_used_queue(&mut self) -> result::Result<(), DeviceError> {
+        if self.rx_deferred_irqs {
+            return self.signal_used_queue();
+        }
+
+        Ok(())
     }
 
     // Attempts to copy a single frame into the guest if there is enough
@@ -442,12 +453,9 @@ impl Net {
             }
         }
 
-        if self.rx_deferred_irqs {
-            self.rx_deferred_irqs = false;
-            self.signal_used_queue()
-        } else {
-            Ok(())
-        }
+        // At this point we processed as many Rx frames as possible.
+        // We have to wake the guest if at least one descriptor chain has been used.
+        self.signal_rx_used_queue()
     }
 
     // Process the deferred frame first, then continue reading from tap.
@@ -456,13 +464,10 @@ impl Net {
             self.rx_deferred_frame = false;
             // process_rx() was interrupted possibly before consuming all
             // packets in the tap; try continuing now.
-            self.process_rx()
-        } else if self.rx_deferred_irqs {
-            self.rx_deferred_irqs = false;
-            self.signal_used_queue()
-        } else {
-            Ok(())
+            return self.process_rx();
         }
+
+        self.signal_rx_used_queue()
     }
 
     fn resume_rx(&mut self) -> result::Result<(), DeviceError> {
