@@ -39,7 +39,7 @@ class JailerContext:
             self,
             jailer_id,
             exec_file,
-            numa_node=0,
+            numa_node=None,
             uid=1234,
             gid=1234,
             chroot_base=DEFAULT_CHROOT_PATH,
