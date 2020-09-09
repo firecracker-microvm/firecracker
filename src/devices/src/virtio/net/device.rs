@@ -529,6 +529,7 @@ impl Net {
             self.tx_iovec.clear();
             while let Some(desc) = next_desc {
                 if desc.is_write_only() {
+                    self.tx_iovec.clear();
                     break;
                 }
                 self.tx_iovec.push((desc.addr, desc.len as usize));
@@ -569,12 +570,12 @@ impl Net {
                     }
                     Err(e) => {
                         error!("Failed to read slice: {:?}", e);
-                        if let GuestMemoryError::PartialBuffer { completed, .. } = e {
-                            read_count += completed;
-                            METRICS.net.tx_partial_reads.inc();
-                        } else {
-                            METRICS.net.tx_fails.inc();
+                        match e {
+                            GuestMemoryError::PartialBuffer { .. } => &METRICS.net.tx_partial_reads,
+                            _ => &METRICS.net.rx_fails,
                         }
+                        .inc();
+                        read_count = 0;
                         break;
                     }
                 }
@@ -1512,18 +1513,15 @@ pub mod tests {
 
         let desc_list = [(0, 100, 0), (1, 100, VIRTQ_DESC_F_WRITE), (2, 500, 0)];
         th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
-        let frame = th.write_tx_frame(&desc_list, 700);
+        th.write_tx_frame(&desc_list, 700);
         th.event_manager.run_with_timeout(100).unwrap();
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
         th.net().check_used_queue_signal(1);
         th.txq.check_used_elem(0, 0, 0);
-        // Check that the frame was partially sent to the tap.
-        let mut buf = vec![0; 1000];
-        assert!(tap_traffic_simulator.pop_rx_packet(&mut buf[vnet_hdr_len()..]));
-        assert_eq!(&buf[..100], &frame[..100]);
-        assert_eq!(&buf[100..1000], vec![0; 900].as_slice());
+        // Check that the frame was skipped.
+        assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
     }
 
     #[test]
@@ -1544,8 +1542,8 @@ pub mod tests {
         assert_eq!(th.txq.used.idx.get(), 1);
         th.net().check_used_queue_signal(1);
         th.txq.check_used_elem(0, 0, 0);
-        // Check that the frame wasn't sent to the tap.
-        assert!(!tap_traffic_simulator.pop_rx_packet(&mut [0; 1000]));
+        // Check that the frame was skipped.
+        assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
     }
 
     #[test]
@@ -1561,7 +1559,7 @@ pub mod tests {
         th.add_desc_chain(NetQueue::Tx, offset, &desc_list);
         let expected_len =
             (150 + th.mem.last_addr().raw_value() + 1 - th.txq.dtable[2].addr.get()) as usize;
-        let frame = th.write_tx_frame(&desc_list, expected_len);
+        th.write_tx_frame(&desc_list, expected_len);
         check_metric_after_block!(
             METRICS.net.tx_partial_reads,
             1,
@@ -1572,14 +1570,48 @@ pub mod tests {
         assert_eq!(th.txq.used.idx.get(), 1);
         th.net().check_used_queue_signal(1);
         th.txq.check_used_elem(0, 0, 0);
-        // Check that the frame was partially sent to the tap.
+        // Check that the frame was skipped.
+        assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
+    }
+
+    #[test]
+    fn test_tx_retry() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+
+        // Add invalid descriptor chain - writeable descriptor.
+        th.add_desc_chain(
+            NetQueue::Tx,
+            0,
+            &[(0, 100, 0), (1, 100, VIRTQ_DESC_F_WRITE), (2, 500, 0)],
+        );
+        // Add invalid descriptor chain - invalid memory.
+        th.add_desc_chain(NetQueue::Tx, th.mem.last_addr().raw_value(), &[(3, 100, 0)]);
+        // Add invalid descriptor chain - too short.
+        th.add_desc_chain(NetQueue::Tx, 700, &[(0, 1, 0)]);
+
+        // Add valid descriptor chain
+        let desc_list = [(4, 1000, 0)];
+        th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
+        let frame = th.write_tx_frame(&desc_list, 1000);
+
+        check_metric_after_block!(
+            &METRICS.net.tx_malformed_frames,
+            3,
+            th.event_manager.run_with_timeout(100)
+        );
+
+        // Check that the used queue advanced.
+        assert_eq!(th.txq.used.idx.get(), 4);
+        th.net().check_used_queue_signal(1);
+        th.txq.check_used_elem(3, 4, 0);
+        // Check that the valid frame was sent to the tap.
         let mut buf = vec![0; 1000];
         assert!(tap_traffic_simulator.pop_rx_packet(&mut buf[vnet_hdr_len()..]));
-        assert_eq!(&buf[..expected_len], &frame[..expected_len]);
-        assert_eq!(
-            &buf[expected_len..1000],
-            vec![0; 1000 - expected_len].as_slice()
-        );
+        assert_eq!(&buf, &frame);
+        // Check that no other frame was sent to the tap.
+        assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
     }
 
     #[test]
