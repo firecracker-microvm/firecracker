@@ -240,3 +240,12 @@ the guest OS wall-clock continuing from the moment of the snapshot creation. For
 reason, the wall-clock should be updated to the current time, on the guest-side.
 More details on how you could do this can be found at a
 [related FAQ](../../FAQ.md#my-guest-wall-clock-is-drifting-how-can-i-fix-it).
+
+### Important notes
+
+Depending on VM memory size, snapshots can consume a lot of disk space. Firecracker 
+integrators **must** ensure that the provisioned disk space is sufficient for normal
+operation of their service and also during failure scenarios. If the service exposes
+the snapshot triggers to customers, integrators **must** enforce proper disk quotas to 
+avoid any DoS threats that would cause the service to fail or function abnormally.
+
