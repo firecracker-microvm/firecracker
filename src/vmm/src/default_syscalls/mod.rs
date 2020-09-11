@@ -29,6 +29,7 @@ const FUTEX_WAKE_PRIVATE: u64 = FUTEX_WAKE | FUTEX_PRIVATE_FLAG;
 const FUTEX_CMP_REQUEUE_PRIVATE: u64 = FUTEX_CMP_REQUEUE | FUTEX_PRIVATE_FLAG;
 
 // See include/uapi/asm-generic/ioctls.h in the kernel code.
+const TIOCGWINSZ: u64 = 0x5413;
 const FIONBIO: u64 = 0x5421;
 
 // See include/uapi/linux/if_tun.h in the kernel code.
@@ -106,6 +107,9 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_RUN)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_DIRTY_LOG)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, FIONBIO)?],
+        // Triggered on microvm shutdown. If you remove it, tests will likely still pass,
+        // because the sigsys_handler exits the process.
+        and![Cond::new(1, ArgLen::DWORD, Eq, TIOCGWINSZ)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, TUNSETIFF)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, TUNSETOFFLOAD)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, TUNSETVNETHDRSZ)?],
