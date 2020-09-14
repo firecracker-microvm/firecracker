@@ -41,7 +41,14 @@ impl ParsedRequest {
             request_uri.as_str(),
             request.body.as_ref(),
         ));
-        let path_tokens: Vec<&str> = request_uri[1..].split_terminator('/').collect();
+
+        // Split request uri by '/' by doing:
+        // 1. Trim starting '/' characters
+        // 2. Splitting by '/'
+        let path_tokens: Vec<&str> = request_uri
+            .trim_start_matches('/')
+            .split_terminator('/')
+            .collect();
         let path = if path_tokens.is_empty() {
             ""
         } else {
@@ -268,6 +275,23 @@ pub(crate) mod tests {
             ParsedRequest::Sync(vmm_action) => *vmm_action,
             _ => panic!("Invalid request"),
         }
+    }
+
+    #[test]
+    fn test_missing_slash() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(
+                b"GET none HTTP/1.1\r\n\
+                Content-Type: text/plain\r\n\
+                Content-Length: 4\r\n\r\nbody",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_err());
     }
 
     #[test]
