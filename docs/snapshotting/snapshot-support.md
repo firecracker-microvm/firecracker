@@ -248,3 +248,68 @@ integrators **must** ensure that the provisioned disk space is sufficient for no
 operation of their service as well as during failure scenarios. If the service exposes
 the snapshot triggers to customers, integrators **must** enforce proper disk quotas to 
 avoid any DoS threats that would cause the service to fail or function abnormally.
+
+### Snapshot security and uniqueness
+
+When snapshots are used in a such a manner that a given guest's state is resumed
+from more than once, guest information assumed to be unique may in fact not be;
+this information can include identifiers, random numbers and random number
+seeds, the guest OS entropy pool, as well as cryptographic tokens. Without a
+strong mechanism that enables users to guarantee that unique things stay unique
+across snapshot restores, we consider resuming execution from the same state
+more than once insecure.
+
+#### Usage examples
+
+##### Example 1: secure usage (currently in dev preview)
+
+```
+Boot microVM A -> ... -> Create snapshot S -> Terminate
+                                           -> Load S in microVM B -> Resume -> ...
+```
+
+Here, microVM A terminates after creating the snapshot without ever resuming
+work, and a single microVM B resumes execution from snapshot S. In this case,
+unique identifiers, random numbers, and cryptographic tokens that are meant to
+be used once are indeed only used once. In this example, we consider microVM B
+secure.
+
+##### Example 2: potentially insecure usage
+
+```
+Boot microVM A -> ... -> Create snapshot S -> Resume -> ...
+                                           -> Load S in microVM B -> Resume -> ...
+```
+
+Here, both microVM A and B do work staring from the state stored in snapshot S.
+Unique identifiers, random numbers, and cryptographic tokens that are meant to
+be used once may be used twice. It doesn't matter if microVM A is terminated
+before microVM B resumes execution from snapshot S or not. In this example, we
+consider both microVMs insecure as soon as microVM A resumes execution.
+
+##### Example 3: potentially insecure usage
+```
+Boot microVM A -> ... -> Create snapshot S -> ...
+                                           -> Load S in microVM B -> Resume -> ...
+                                           -> Load S in microVM C -> Resume -> ...
+                                           [...]
+```
+
+Here, both microVM B and C do work starting from the state stored in snapshot S.
+Unique identifiers, random numbers, and cryptographic tokens that are meant to
+be used once may be used twice. It doesn't matter at which points in time
+microVMs B and C resume execution, or if microVM A terminates or not after the
+snapshot is created. In this example, we consider microVMs B and C insecure, and
+we also consider microVM A insecure if it resumes execution.
+
+#### Reusing snapshotted states securely
+
+We are currently working to add a functionality that will notify guest operating
+systems of the snapshot event in order to enable secure reuse of snapshotted
+microVM states, guest operating systems, language runtimes, and cryptographic
+libraries. In some cases, user applications will need to handle the snapshot
+create/restore events in such a way that the uniqueness and randomness
+properties are preserved and guaranteed before resuming the workload.
+
+We've started a discussion on how the Linux operating system might securely
+handle being snapshotted [here](https://lkml.org/lkml/2020/10/16/629).
