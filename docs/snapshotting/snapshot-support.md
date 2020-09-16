@@ -241,7 +241,7 @@ reason, the wall-clock should be updated to the current time, on the guest-side.
 More details on how you could do this can be found at a
 [related FAQ](../../FAQ.md#my-guest-wall-clock-is-drifting-how-can-i-fix-it).
 
-### Important notes
+### Provisioning host disk space for snapshots
 
 Depending on VM memory size, snapshots can consume a lot of disk space. Firecracker 
 integrators **must** ensure that the provisioned disk space is sufficient for normal
