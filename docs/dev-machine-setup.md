@@ -237,4 +237,102 @@ In a nutshell, setting up a GCP account involves the following steps:
 
 ### Microsoft Azure
 
-`[TODO]`
+Another options to set up Firecracker for development purposes is to use
+a VM on Microsoft Azure (VirtulMachine), which supports nested virtualization
+and allows to run KVM. If you don't have a Microsoft (Azure) account, you can 
+find brief instructions in [document](https://azure.microsoft.com/en-us/get-started/).
+
+Azure CLI infomation in 
+[documentation](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest)
+
+Here is a brief summary of steps to create such a setup (full instructions to
+set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in Azure
+[documentation](https://azure.microsoft.com/en-us/blog/nested-virtualization-in-azure/)
+
+  1. Sign in for Azure CLI 
+     fllow the commands bellow , Open the LINK and paste the code, get information.
+     ```
+     $ az login 
+     To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code XXXXXXXXXX to authenticate.
+     
+     The following tenants don't contain accessible subscriptions. Use 'az login --allow-no-subscriptions' to have tenant level access.
+     2xxxxx-xxzz-xxxx-xxxxx-xxxxxxxxxx
+     [
+        {
+           "cloudName": "AzureCloud",
+           "homeTenantId": "<Your TenantID>
+           ....
+           ....
+        }
+      ]
+     ```
+  1. SET a Azure/VirtulMachines options , Notice: nested support VM SIZE!
+     ```
+     $ RG="<Your resource-group>"
+     $ VNET="fc_dev"
+     $ SUBNET_1="Operation"
+     $ NSG="<Your Security Group>"
+     $ VMIMAGE="UbuntuLTS"
+     $ VMNAME="firecracker-az"
+     $ ADMINNAME="<Your login name. e.g. azureuser>"
+     $ PUBLICKEYS="<Set your public key>"
+     $ SIZE="Standard_D2s_v3"
+     ```
+     If you don't have ResouceGroup and Network Security Group,
+     ```
+     $ az group create --name myResourceGroup --location eastus
+     
+     $ az network nsg rule create --name ssh \
+       --nsg-name myNsg --resource-group $RG \
+       --access allow \
+       --protocol Tcp \
+       --direction Inbound \
+       --priority 1000 \
+       --source-address-prefix Internet \
+       --source-port-range "*" \
+       --destination-address-prefix "*" \
+       --destination-port-range 22
+     ```
+
+  1. Create network items for VM
+     Create VNET and SUBNET
+     ```
+     $ az network vnet create --resource-group $RG \
+       --name $VNET \
+       --address-prefix 10.0.0.0/16 \
+       --subnet-name $SUBNET_1 \
+       --subnet-prefix 10.0.1.0/24
+     ```
+     GET Public IP
+     ```
+     $ az network public-ip create --name fc_public \
+       --resource-group $RG \
+       --location japaneast \
+       --allocation-method static
+     ```
+     Create NIC
+     ```
+     $ az network nic create --resource-group $RG \
+       --name fc_nic1  \
+       --vnet-name $VNET \
+       --subnet $SUBNET_1 \
+       --network-security-group $NSG \
+       --public-ip-address fc_public
+     ```
+
+  1. Now we create the VM:
+     
+     ```
+     $ az vm create --resource-group $RG \
+       --name $VMNAME \
+       --image $VMIMAGE \
+       --nics fc_nic1 \
+       --size $SIZE \
+       --admin-username $ADMINNAME \
+       --ssh-key-value $PUBLICKEYS
+     ```
+     
+   1. At last, ssh to the VM:
+     
+     ```
+     $ ssh -i <your private key> azureuser@<fc_public>
