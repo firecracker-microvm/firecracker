@@ -183,6 +183,27 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
 
   Now you can continue with the Firecracker [Getting Started](getting-started.md)
   instructions to install and configure Firecracker in the new VM.
+  
+  And also, to secure your VM. SetUp new Firewal rules and attach it as soon as possible.
+  
+  1. Create new firewall rule for ssh (TCP/22)
+
+     ```
+     $ gcloud compute firewall-rules create "ssh-allow-sample" \
+       --allow=tcp:22 --source-ranges="xxx.xxx.xxx.xxx/32,yyy.yyy.yyy.yyy/32" \
+       --description="Allow From XXX, YYY"
+     Creating firewall...|Created [https://www.googleapis.com/compute/v1/projects/AndresIniesta/global/firewalls/ssh-allow-sample]. 
+     Creating firewall...done.
+     $ gcloud compute firewall-rules list
+     ssh-allow-sample                         default     INGRESS    1000      tcp:22
+     $ gcloud compute instances add-tags ${FC_VM} --zone ${FC_ZONE} --tags=ssh-allow-sample,allow-internal
+     
+     ```
+  1. Another ssh connection to verify rules.
+
+     ```
+     $ gcloud compute ssh ${FC_VM}
+     ```
 
 #### Addendum
 
