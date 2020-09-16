@@ -255,6 +255,7 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in Azure
      $ az login 
      To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code XXXXXXXXXX to authenticate.
      
+     
      The following tenants don't contain accessible subscriptions. Use 'az login --allow-no-subscriptions' to have tenant level access.
      2xxxxx-xxzz-xxxx-xxxxx-xxxxxxxxxx
      [
@@ -335,4 +336,5 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in Azure
    1. At last, ssh to the VM:
      
      ```
-     $ ssh -i <your private key> azureuser@<fc_public>
+     $ ssh -i <your private key> azureuser@<fc_publicIP>
+     ```
