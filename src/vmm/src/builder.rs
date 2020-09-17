@@ -199,6 +199,12 @@ impl VmmEventsObserver for SerialStdin {
         self.0.lock().set_raw_mode().map_err(|e| {
             warn!("Cannot set raw mode for the terminal. {:?}", e);
             e
+        })?;
+
+        // Set non blocking stdin.
+        self.0.lock().set_non_block(true).map_err(|e| {
+            warn!("Cannot set non block for the terminal. {:?}", e);
+            e
         })
     }
     fn on_vmm_stop(&mut self) -> std::result::Result<(), utils::errno::Error> {
@@ -505,7 +511,15 @@ pub fn setup_serial_device(
     let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK)
         .map_err(Error::EventFd)
         .map_err(StartMicrovmError::Internal)?;
-    let serial = Arc::new(Mutex::new(Serial::new_in_out(interrupt_evt, input, out)));
+    let kick_stdin_read_evt = EventFd::new(libc::EFD_NONBLOCK)
+        .map_err(Error::EventFd)
+        .map_err(StartMicrovmError::Internal)?;
+    let serial = Arc::new(Mutex::new(Serial::new_in_out(
+        interrupt_evt,
+        input,
+        out,
+        Some(kick_stdin_read_evt),
+    )));
     if let Err(e) = event_manager.add_subscriber(serial.clone()) {
         // TODO: We just log this message, and immediately return Ok, instead of returning the
         // actual error because this operation always fails with EPERM when adding a fd which
