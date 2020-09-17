@@ -7,16 +7,16 @@
 
 use std::collections::VecDeque;
 use std::io;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 
 use logger::{error, warn, Metric, METRICS};
-use polly::event_manager::{EventManager, Subscriber};
+use polly::event_manager::{EventManager, Pollable, Subscriber};
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 
 use crate::bus::BusDevice;
 
-const LOOP_SIZE: usize = 0x40;
+const FIFO_SIZE: usize = 64;
 
 const DATA: u8 = 0;
 const IER: u8 = 1;
@@ -77,6 +77,7 @@ pub struct Serial {
     in_buffer: VecDeque<u8>,
     out: Option<Box<dyn io::Write + Send>>,
     input: Option<Box<dyn ReadableFd + Send>>,
+    buffer_ready_evt: Option<EventFd>,
 }
 
 impl Serial {
@@ -84,6 +85,7 @@ impl Serial {
         interrupt_evt: EventFd,
         out: Option<Box<dyn io::Write + Send>>,
         input: Option<Box<dyn ReadableFd + Send>>,
+        buffer_ready_evt: Option<EventFd>,
     ) -> Serial {
         let interrupt_enable = match out {
             Some(_) => IER_RECV_BIT,
@@ -102,6 +104,7 @@ impl Serial {
             in_buffer: VecDeque::new(),
             out,
             input,
+            buffer_ready_evt,
         }
     }
 
@@ -110,18 +113,19 @@ impl Serial {
         interrupt_evt: EventFd,
         input: Box<dyn ReadableFd + Send>,
         out: Box<dyn io::Write + Send>,
+        buffer_ready_evt: Option<EventFd>,
     ) -> Serial {
-        Self::new(interrupt_evt, Some(out), Some(input))
+        Self::new(interrupt_evt, Some(out), Some(input), buffer_ready_evt)
     }
 
     /// Constructs a Serial port ready for output but with no input.
     pub fn new_out(interrupt_evt: EventFd, out: Box<dyn io::Write + Send>) -> Serial {
-        Self::new(interrupt_evt, Some(out), None)
+        Self::new(interrupt_evt, Some(out), None, None)
     }
 
     /// Constructs a Serial port with no connected input or output.
     pub fn new_sink(interrupt_evt: EventFd) -> Serial {
-        Self::new(interrupt_evt, None, None)
+        Self::new(interrupt_evt, None, None, None)
     }
 
     /// Provides a reference to the interrupt event fd.
@@ -189,7 +193,7 @@ impl Serial {
             }
             DATA => {
                 if self.is_loop() {
-                    if self.in_buffer.len() < LOOP_SIZE {
+                    if self.in_buffer.len() < FIFO_SIZE {
                         self.in_buffer.push_back(value);
                         self.recv_data_interrupt()?;
                     }
@@ -219,11 +223,17 @@ impl Serial {
             DLAB_HIGH if self.is_dlab_set() => (self.baud_divisor >> 8) as u8,
             DATA => {
                 self.del_intr_bit(IIR_RECV_BIT);
-                if self.in_buffer.len() <= 1 {
-                    self.line_status &= !LSR_DATA_BIT;
-                }
                 METRICS.uart.read_count.inc();
-                self.in_buffer.pop_front().unwrap_or_default()
+                let byte = self.in_buffer.pop_front().unwrap_or_default();
+
+                if self.in_buffer.is_empty() {
+                    self.line_status &= !LSR_DATA_BIT;
+                    if self.signal_buffer_ready().is_err() {
+                        error!("Could not signal that serial device buffer is ready.");
+                    }
+                }
+
+                byte
             }
             IER => self.interrupt_enable,
             IIR => {
@@ -240,28 +250,111 @@ impl Serial {
         }
     }
 
+    #[inline]
+    fn avail_buffer_capacity(&self) -> usize {
+        FIFO_SIZE.checked_sub(self.in_buffer.len()).unwrap_or_else(||
+            panic!(
+                "Errored out due to serial device buffer size greater than the maximum expected size: {} > {}.",
+                self.in_buffer.len(),
+                FIFO_SIZE
+            )
+        )
+    }
+
     fn recv_bytes(&mut self) -> io::Result<usize> {
-        if let Some(input) = self.input.as_mut() {
-            let mut out = [0u8; 32];
-            return input.read(&mut out).and_then(|count| {
-                if count > 0 {
-                    self.raw_input(&out[..count])?;
-                    Ok(count)
-                } else {
-                    Ok(0)
-                }
-            });
+        let avail_cap = self.avail_buffer_capacity();
+        if avail_cap == 0 {
+            return Err(io::Error::from_raw_os_error(libc::ENOBUFS));
         }
 
-        Ok(0)
+        if let Some(input) = self.input.as_mut() {
+            let mut out = vec![0u8; avail_cap];
+            let count = input.read(&mut out)?;
+            if count > 0 {
+                self.raw_input(&out[..count])?;
+            }
+
+            return Ok(count);
+        }
+
+        Err(io::Error::from_raw_os_error(libc::ENOTTY))
     }
 
     fn raw_input(&mut self, data: &[u8]) -> io::Result<()> {
+        // Fail fast if the serial is serviced with more data than it can buffer.
+        if data.len() > self.avail_buffer_capacity() {
+            return Err(io::Error::from_raw_os_error(libc::ENOBUFS));
+        }
+
         if !self.is_loop() {
             self.in_buffer.extend(data);
             self.recv_data_interrupt()?;
         }
         Ok(())
+    }
+
+    #[inline]
+    fn serial_input_fd(&self) -> RawFd {
+        self.input.as_ref().map_or(-1, |input| input.as_raw_fd())
+    }
+
+    #[inline]
+    fn buffer_ready_evt_fd(&self) -> RawFd {
+        self.buffer_ready_evt
+            .as_ref()
+            .map_or(-1, |buf_ready| buf_ready.as_raw_fd())
+    }
+
+    #[inline]
+    fn consume_buffer_ready_evt(&self) -> Result<u64, io::Error> {
+        self.buffer_ready_evt
+            .as_ref()
+            .map_or(Ok(0), |buf_ready| Ok(buf_ready.read()?))
+    }
+
+    #[inline]
+    fn signal_buffer_ready(&self) -> Result<(), io::Error> {
+        self.buffer_ready_evt
+            .as_ref()
+            .map_or(Ok(()), |buf_ready| Ok(buf_ready.write(1)?))
+    }
+
+    fn handle_ewouldblock(&self, ev_mgr: &mut EventManager) {
+        let buffer_ready_fd = self.buffer_ready_evt_fd();
+        let input_fd = self.serial_input_fd();
+        if input_fd < 0 || buffer_ready_fd < 0 {
+            error!("Serial does not have a configured input source.");
+            return;
+        }
+
+        if ev_mgr.subscriber(input_fd).is_err() {
+            match ev_mgr.subscriber(buffer_ready_fd) {
+                Ok(serial) => {
+                    match ev_mgr.register(
+                        input_fd,
+                        EpollEvent::new(EventSet::IN, input_fd as u64),
+                        serial.clone(),
+                    ) {
+                        // Bytes might had come on the unregistered stdin. Try to consume any.
+                        Ok(_) => self.signal_buffer_ready().unwrap_or_else(|err| {
+                            error!(
+                                "Could not signal that serial device buffer is ready: {:?}",
+                                err
+                            )
+                        }),
+                        Err(e) => {
+                            error!(
+                                "Could not register the serial input to the event manager: {:?}",
+                                e
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Could not get the serial device subscriber: {:?}", e);
+                }
+            }
+        }
     }
 }
 
@@ -290,22 +383,31 @@ impl BusDevice for Serial {
 impl Subscriber for Serial {
     /// Handle events on the serial input fd.
     fn process(&mut self, event: &EpollEvent, ev_mgr: &mut EventManager) {
-        let source = event.fd();
+        #[inline]
+        fn unregister_source(ev_mgr: &mut EventManager, source: Pollable) {
+            match ev_mgr.unregister(source) {
+                Ok(_) => (),
+                Err(_) => error!("Could not unregister the source: {}", source),
+            }
+        }
 
-        // We expect to be interested only in serial input.
-        let interest_list = self.interest_list();
-        if interest_list.len() != 1 {
-            warn!("Unexpected events/sources interest list.");
+        let input_fd = self.serial_input_fd();
+        let buffer_ready_fd = self.buffer_ready_evt_fd();
+        if input_fd < 0 || buffer_ready_fd < 0 {
+            error!("Serial does not have a configured input source.");
             return;
         }
 
-        // Safe to unwrap. Checked before if interest list has one element.
-        let supported_event = interest_list.first().unwrap();
-
-        // Check if the event source is the serial input.
-        if supported_event.fd() != source {
-            warn!("Unexpected event source: {}", source);
-            return;
+        if buffer_ready_fd == event.fd() {
+            match self.consume_buffer_ready_evt() {
+                Ok(_) => (),
+                Err(err) => {
+                    error!("Detach serial device input source due to error in consuming the buffer ready event: {:?}", err);
+                    unregister_source(ev_mgr, input_fd);
+                    unregister_source(ev_mgr, buffer_ready_fd);
+                    return;
+                }
+            }
         }
 
         // We expect to receive: `EventSet::IN`, `EventSet::HANG_UP` or
@@ -313,22 +415,34 @@ impl Subscriber for Serial {
         // read from the serial input.
         match self.recv_bytes() {
             Ok(count) => {
-                // Check if the serial input have to be unregistered.
-                let event_set = event.event_set();
-                let unregister_condition =
-                    event_set.contains(EventSet::ERROR) | event_set.contains(EventSet::HANG_UP);
-                if count == 0 && unregister_condition {
-                    // Unregister the serial input source.
-                    match ev_mgr.unregister(supported_event.fd()) {
-                        Ok(_) => warn!("Detached the serial input due to peer error/close."),
-                        Err(e) => error!(
-                            "Peer is unreachable. Could not detach the serial input: {:?}",
-                            e
-                        ),
+                // Handle EOF if the event came from the input source.
+                if input_fd == event.fd() && count == 0 {
+                    unregister_source(ev_mgr, input_fd);
+                    unregister_source(ev_mgr, buffer_ready_fd);
+                    warn!("Detached the serial input due to peer close/error.");
+                }
+            }
+            Err(e) => {
+                match e.raw_os_error() {
+                    Some(errno) if errno == libc::ENOBUFS => {
+                        unregister_source(ev_mgr, input_fd);
+                    }
+                    Some(errno) if errno == libc::EWOULDBLOCK => {
+                        self.handle_ewouldblock(ev_mgr);
+                    }
+                    Some(errno) if errno == libc::ENOTTY => {
+                        error!("The serial device does not have the input source attached.");
+                        unregister_source(ev_mgr, input_fd);
+                        unregister_source(ev_mgr, buffer_ready_fd);
+                    }
+                    Some(_) | None => {
+                        // Unknown error, detach the serial input source.
+                        unregister_source(ev_mgr, input_fd);
+                        unregister_source(ev_mgr, buffer_ready_fd);
+                        warn!("Detached the serial input due to peer close/error.");
                     }
                 }
             }
-            Err(e) => error!("error while reading stdin: {:?}", e),
         }
     }
 
@@ -336,7 +450,13 @@ impl Subscriber for Serial {
     /// If serial input is present, register the serial input FD as readable.
     fn interest_list(&self) -> Vec<EpollEvent> {
         match &self.input {
-            Some(input) => vec![EpollEvent::new(EventSet::IN, input.as_raw_fd() as u64)],
+            Some(input) => match self.buffer_ready_evt.as_ref() {
+                Some(buf_ready_evt) => vec![
+                    EpollEvent::new(EventSet::IN, input.as_raw_fd() as u64),
+                    EpollEvent::new(EventSet::IN, buf_ready_evt.as_raw_fd() as u64),
+                ],
+                None => vec![],
+            },
             None => vec![],
         }
     }
@@ -361,6 +481,7 @@ mod tests {
     #[derive(Clone)]
     struct SharedBuffer {
         internal: Arc<Mutex<SharedBufferInternal>>,
+        loopback: bool,
     }
 
     impl SharedBuffer {
@@ -371,15 +492,28 @@ mod tests {
                     write_buf: Vec::new(),
                     evfd: EventFd::new(libc::EFD_NONBLOCK).unwrap(),
                 })),
+                loopback: false,
             }
+        }
+
+        fn set_loopback(&mut self, loopback: bool) {
+            self.loopback = loopback;
         }
     }
     impl io::Write for SharedBuffer {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.internal.lock().unwrap().write_buf.write(buf)
+            if self.loopback {
+                self.internal.lock().unwrap().read_buf.write(buf)
+            } else {
+                self.internal.lock().unwrap().write_buf.write(buf)
+            }
         }
         fn flush(&mut self) -> io::Result<()> {
-            self.internal.lock().unwrap().write_buf.flush()
+            if self.loopback {
+                self.internal.lock().unwrap().read_buf.flush()
+            } else {
+                self.internal.lock().unwrap().write_buf.flush()
+            }
         }
     }
     impl io::Read for SharedBuffer {
@@ -432,9 +566,10 @@ mod tests {
             intr_evt.try_clone().unwrap(),
             Box::new(serial_in_out.clone()),
             Box::new(serial_in_out),
+            Some(EventFd::new(libc::EFD_NONBLOCK).unwrap()),
         );
         // Check that the interest list contains one event set.
-        assert_eq!(serial.interest_list().len(), 1);
+        assert_eq!(serial.interest_list().len(), 2);
 
         // Process an invalid event type does not panic.
         let invalid_event = EpollEvent::new(EventSet::OUT, intr_evt.as_raw_fd() as u64);
@@ -446,6 +581,30 @@ mod tests {
     }
 
     #[test]
+    fn test_event_handling_ewould_block() {
+        let mut event_manager = EventManager::new().unwrap();
+
+        let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let serial_in_out = SharedBuffer::new();
+
+        let mut serial = Serial::new_in_out(
+            intr_evt.try_clone().unwrap(),
+            Box::new(serial_in_out.clone()),
+            Box::new(serial_in_out.clone()),
+            Some(EventFd::new(libc::EFD_NONBLOCK).unwrap()),
+        );
+
+        // Process a spurious event, which will result in EWOULDBLOCK and unregister the serial input.
+        let spurious_ev = EpollEvent::new(EventSet::IN, serial_in_out.as_raw_fd() as u64);
+        serial.process(&spurious_ev, &mut event_manager);
+
+        // Try to modify the input event. Will result in Error since the serial input was unregistered.
+        event_manager
+            .modify(serial_in_out.as_raw_fd(), spurious_ev)
+            .unwrap_err();
+    }
+
+    #[test]
     fn test_event_handling_err_and_hup() {
         let mut event_manager = EventManager::new().unwrap();
         let serial_in_out = SharedBuffer::new();
@@ -453,18 +612,15 @@ mod tests {
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
             Box::new(serial_in_out.clone()),
             Box::new(serial_in_out.clone()),
+            Some(EventFd::new(libc::EFD_NONBLOCK).unwrap()),
         );
 
         // Check that the interest list contains one event set.
-        let expected_medium_bytes = [b'a'; 32];
-        assert_eq!(serial.interest_list().len(), 1);
+        let expected_medium_bytes = [b'a'; FIFO_SIZE];
+        assert_eq!(serial.interest_list().len(), 2);
         {
             let mut guard = serial_in_out.internal.lock().unwrap();
-            // Write 33 bytes to the serial console. `IN` handling consumes 32 bytes from the
-            // inflight bytes. Add one more byte to be able to process it in a following
-            // processing round.
             guard.read_buf.write_all(&expected_medium_bytes).unwrap();
-            guard.read_buf.write_all(&[b'a']).unwrap();
         }
 
         assert!(serial.in_buffer.is_empty());
@@ -472,11 +628,9 @@ mod tests {
             EventSet::ERROR | EventSet::HANG_UP,
             serial_in_out.as_raw_fd() as u64,
         );
-        // Process 32 bytes.
+
         serial.process(&err_hup_ev, &mut event_manager);
-        // Process one more byte left.
-        serial.process(&err_hup_ev, &mut event_manager);
-        assert_eq!(serial.in_buffer.len(), expected_medium_bytes.len() + 1);
+        assert_eq!(serial.in_buffer.len(), expected_medium_bytes.len());
         serial.in_buffer.clear();
 
         // Process one more round of `EventSet::HANG_UP`.
@@ -542,40 +696,6 @@ mod tests {
     }
 
     #[test]
-    fn test_serial_recv_bytes() {
-        // Exercise bytes retrieval without any input.
-        {
-            let mut serial = Serial::new(EventFd::new(libc::EFD_NONBLOCK).unwrap(), None, None);
-
-            let count = serial.recv_bytes().unwrap();
-            assert!(count == 0);
-        }
-
-        // Prepare the input buffer and send bytes on the "medium".
-        {
-            let serial_in_out = SharedBuffer::new();
-            let mut serial = Serial::new_in_out(
-                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-                Box::new(serial_in_out.clone()),
-                Box::new(serial_in_out.clone()),
-            );
-
-            // Serial `recv_bytes` consumes chunks of 32 bytes from the serial input.
-            // Write 33 bytes to assert on the consumption of only 32 bytes later on.
-            let expected_medium_bytes = [b'a'; 32];
-            {
-                let mut guard = serial_in_out.internal.lock().unwrap();
-                guard.read_buf.write_all(&expected_medium_bytes).unwrap();
-                guard.read_buf.write_all(&[b'a']).unwrap();
-            }
-
-            let count = serial.recv_bytes().unwrap();
-            assert!(serial.in_buffer.len() == count);
-            assert!(serial.in_buffer == expected_medium_bytes);
-        }
-    }
-
-    #[test]
     fn test_serial_input() {
         let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let serial_in_out = SharedBuffer::new();
@@ -584,6 +704,7 @@ mod tests {
             intr_evt.try_clone().unwrap(),
             Box::new(serial_in_out.clone()),
             Box::new(serial_in_out.clone()),
+            Some(EventFd::new(libc::EFD_NONBLOCK).unwrap()),
         );
 
         // Write 1 to the interrupt event fd, so that read doesn't block in case the event fd
@@ -707,5 +828,79 @@ mod tests {
         // When we write data that has the length used to initialize the device, the `missed_write_count`
         // metric stays the same.
         assert_eq!(missed_writes_before, missed_writes_after - 1);
+    }
+
+    #[test]
+    fn test_raw_input_err() {
+        let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
+        let input = [0u8; FIFO_SIZE + 1];
+        serial.raw_input(&input).unwrap_err();
+    }
+
+    #[test]
+    fn test_serial_in_buffer_limit() {
+        let mut serial_in_out = SharedBuffer::new();
+        serial_in_out.set_loopback(true);
+
+        let mut serial = Serial::new_in_out(
+            EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            Box::new(serial_in_out.clone()),
+            Box::new(serial_in_out.clone()),
+            Some(EventFd::new(libc::EFD_NONBLOCK).unwrap()),
+        );
+
+        // Send more than buffer capacity bytes.
+        let stdin_bytes = vec![0u8; FIFO_SIZE + 1];
+        serial_in_out.write_all(&stdin_bytes).unwrap();
+        let mut count = serial.recv_bytes().unwrap();
+        // Assert that the buffer is full, without the extra bytes
+        // written to the standard input.
+        assert_eq!(serial.in_buffer.len(), FIFO_SIZE);
+        assert_eq!(count, FIFO_SIZE);
+        serial.in_buffer.clear();
+
+        // Send an amount of bytes which does not fill up the buffer.
+        let chars_count = 10;
+        serial_in_out
+            .write_all(&stdin_bytes[..FIFO_SIZE - chars_count - 1])
+            .unwrap();
+        count = serial.recv_bytes().unwrap();
+        assert_eq!(serial.in_buffer.len(), FIFO_SIZE - chars_count);
+        assert_eq!(count, FIFO_SIZE - chars_count);
+
+        // Send the rest of the bytes which will fill up the buffer.
+        serial_in_out
+            .write_all(&stdin_bytes[FIFO_SIZE - chars_count..])
+            .unwrap();
+        count = serial.recv_bytes().unwrap();
+        assert_eq!(serial.in_buffer.len(), FIFO_SIZE);
+        assert_eq!(count, chars_count);
+
+        // Send and read more than the buffer size.
+        // Assert that the buffer stays at its maximum capacity.
+        serial_in_out.write_all(&stdin_bytes).unwrap();
+        serial.recv_bytes().unwrap_err();
+        assert_eq!(serial.in_buffer.len(), FIFO_SIZE);
+
+        // Process part of the buffer, until its last byte.
+        for i in 0..FIFO_SIZE - 1 {
+            serial.handle_read(DATA);
+            assert_eq!(serial.avail_buffer_capacity(), i + 1);
+        }
+
+        // Process the last byte and assert that the stdin was kicked for more bytes.
+        serial.handle_read(DATA);
+        assert_eq!(serial.buffer_ready_evt.as_ref().unwrap().read().unwrap(), 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_avail_buffer_capacity_panic() {
+        let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
+        let input = vec![0u8; FIFO_SIZE + 1];
+        serial.in_buffer.extend(&input);
+
+        // This should panic since it tries to
+        serial.avail_buffer_capacity();
     }
 }
