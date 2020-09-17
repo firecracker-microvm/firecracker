@@ -18,8 +18,8 @@ use crate::common::*;
 pub mod bit_helper;
 
 mod template;
-pub use crate::template::c3;
-pub use crate::template::t2;
+pub use crate::template::intel::c3;
+pub use crate::template::intel::t2;
 
 mod cpu_leaf;
 

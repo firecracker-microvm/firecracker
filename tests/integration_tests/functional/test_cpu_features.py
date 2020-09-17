@@ -305,7 +305,16 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
-    test_microvm.start()
+
+    response = test_microvm.actions.put(action_type='InstanceStart')
+    if get_cpu_vendor() != CpuVendor.INTEL:
+        # We shouldn't be able to apply Intel templates on AMD hosts
+        assert test_microvm.api_session.is_status_bad_request(
+            response.status_code)
+        return
+
+    assert test_microvm.api_session.is_status_no_content(
+            response.status_code)
 
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     guest_cmd = "cat /proc/cpuinfo | grep 'flags' | head -1"
