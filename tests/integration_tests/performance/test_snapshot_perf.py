@@ -10,7 +10,7 @@ import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
-from framework.microvms import C3micro
+from framework.microvms import VMMicro
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import CpuVendor, get_cpu_vendor
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -279,7 +279,7 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
 
         for i in range(SAMPLE_COUNT):
             # Create a fresh microvm with the binary artifacts.
-            vm_instance = C3micro.spawn(bin_cloner_path, True,
+            vm_instance = VMMicro.spawn(bin_cloner_path, True,
                                         firecracker.local_path(),
                                         jailer.local_path())
             # Attempt to connect to the fresh microvm.

@@ -13,7 +13,7 @@ from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils_vsock import make_blob, \
     check_host_connections, check_guest_connections
-from framework.microvms import C3nano
+from framework.microvms import VMNano
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.drive as drive_tools
 
@@ -161,7 +161,7 @@ def test_patch_drive_snapshot(bin_cloner_path):
     enable_diff_snapshots = False
 
     # Use a predefined vm instance.
-    vm_instance = C3nano.spawn(bin_cloner_path)
+    vm_instance = VMNano.spawn(bin_cloner_path)
     basevm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
