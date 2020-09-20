@@ -84,6 +84,7 @@ const KVM_GET_XSAVE: u64 = 0x9000_aea4;
 const KVM_SET_XSAVE: u64 = 0x5000_aea5;
 const KVM_GET_XCRS: u64 = 0x8188_aea6;
 const KVM_SET_XCRS: u64 = 0x4188_aea7;
+const KVM_SET_GUEST_DEBUG: u64 = 0x4048_ae9b;
 
 // See include/uapi/linux/if_tun.h in the kernel code.
 const TUNSETIFF: u64 = 0x4004_54ca;
@@ -148,6 +149,7 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_XSAVE)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_XCRS)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_XCRS)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_GUEST_DEBUG)?],
     ])
 }
 
