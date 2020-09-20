@@ -29,6 +29,7 @@ use utils::{
     signal::{register_signal_handler, sigrtmin, Killable},
     sm::StateMachine,
 };
+use crate::gdb_server::{DebugEvent, FullVcpuState};
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod aarch64;
@@ -109,6 +110,15 @@ pub struct Vcpu {
     response_receiver: Option<Receiver<VcpuResponse>>,
     // The transmitting end of the responses channel owned by the vcpu side.
     response_sender: Sender<VcpuResponse>,
+    // The receiving end of the response channel which will be given to the handler
+    // and used by gdb server instances
+    pub dbg_event_receiver: Option<Receiver<DebugEvent>>,
+    // The transmitting end of the responses channel owned by the vcpu side and
+    // used to communicate to the gdb server instances
+    dbg_event_sender: Sender<DebugEvent>,
+
+    pub dbg_response_receiver: Receiver<DebugEvent>,
+    pub dbg_response_sender: Option<Sender<DebugEvent>>,
 }
 
 impl Vcpu {
@@ -205,6 +215,8 @@ impl Vcpu {
     pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
+        let (dbg_event_sender, dbg_event_receiver) = channel();
+        let (dbg_response_sender, dbg_response_receiver) = channel();
         let kvm_vcpu = KvmVcpu::new(index, vm).unwrap();
 
         Ok(Vcpu {
@@ -213,6 +225,10 @@ impl Vcpu {
             event_sender: Some(event_sender),
             response_receiver: Some(response_receiver),
             response_sender,
+            dbg_event_receiver: Some(dbg_event_receiver),
+            dbg_event_sender,
+            dbg_response_receiver,
+            dbg_response_sender: Some(dbg_response_sender),
             kvm_vcpu,
         })
     }
@@ -470,6 +486,43 @@ impl Vcpu {
                         "{:?}",
                         VcpuExit::InternalError
                     )))
+                }
+                // Either a breakpoint was reached or we are single-stepping
+                VcpuExit::Debug => {
+                    let regular_regs = self.kvm_vcpu.fd.get_regs().unwrap();
+                    let special_regs = self.kvm_vcpu.fd.get_sregs().unwrap();
+                    // For now we don't differentiate between a kvm exit caused
+                    // by a breakpoint and one caused by single-stepping
+                    self.dbg_event_sender.send(DebugEvent::PRINT_PTs(special_regs.cr3))
+                        .expect("Failed notifying GDB server");
+                    loop {
+                        match self.dbg_response_receiver.recv() {
+                            Ok(DebugEvent::GET_REGS) => {
+                                self.dbg_event_sender.send(DebugEvent::PEEK_REGS(
+                                    FullVcpuState { regular_regs, special_regs, })).unwrap();
+                                continue;
+                            }
+                            Ok(DebugEvent::BREAKPOINT) => {
+                                continue;
+                            }
+                            Ok(DebugEvent::CONTINUE(single_step_en)) => {
+                                if single_step_en {
+                                    gdb_server::Debugger::enable_kvm_debug(&self.kvm_vcpu.fd, false);
+                                }
+                                break;
+                            }
+                            Ok(DebugEvent::STEP_INTO(single_step_en)) => {
+                                if !single_step_en {
+                                    gdb_server::Debugger::enable_kvm_debug(&self.kvm_vcpu.fd, true);
+                                }
+                                break;
+                            }
+                            Ok(_) => println!("No handle available for this type of packet"),
+                            Err(_) => println!("Error while waiting for sth/someone to come"),
+                        }
+                    }
+
+                    Ok(VcpuEmulation::Handled)
                 }
                 arch_specific_reason => {
                     // run specific architecture emulation.
