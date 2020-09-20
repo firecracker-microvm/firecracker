@@ -2,17 +2,20 @@ use std::net::{TcpListener, TcpStream};
 
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
+pub use std::sync::mpsc::{Receiver, Sender};
+pub use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, ByteValued};
+pub use kvm_ioctls::VcpuFd;
+pub use kvm_bindings;
+
+use gdbstub::{Connection, DisconnectReason, GdbStub, ResumeAction};
 
 extern crate vm_memory;
-pub use vm_memory::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, ByteValued};
-
-pub use kvm_ioctls::VcpuFd;
-pub use kvm_bindings::{kvm_translation, kvm_sregs};
-
-use gdbstub::{Connection, DisconnectReason, GdbStub};
 
 mod target;
+mod util;
+
 use target::*;
+pub use util::*;
 
 pub type DynResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -45,8 +48,19 @@ fn wait_for_uds(path: &str) -> DynResult<UnixStream> {
     Ok(stream)
 }
 
-pub fn run_gdb_server<'a>(vmm_gm: &'a GuestMemoryMmap, vcpu: &'a VcpuFd) -> DynResult<()> {
-    let mut target = FirecrackerGDBServer::new(vmm_gm, vcpu)?;
+pub fn run_gdb_server<'a>(vmm_gm: GuestMemoryMmap,
+                     vcpu_event_receiver: Receiver<DebugEvent>, vcpu_event_sender: Sender<DebugEvent>) -> DynResult<()> {
+    let mut target = FirecrackerGDBServer::new(vmm_gm, vcpu_event_receiver, vcpu_event_sender)?;
+
+    let entry_addr: u64 = 0x1000000;
+    target.insert_bp(entry_addr);
+
+    // This signals the main thread it is ok to start the vcpus
+    target.vcpu_event_sender.send(DebugEvent::START).expect("Failed notifying Firecracker");
+    // Guarantees that the vcpus are in a waiting state at the entry point of the kernel
+    target.vcpu_event_receiver.recv().expect("Communication with the Firecracker process failed");
+
+    target.remove_bp(entry_addr);
 
     let connection: Box<dyn Connection<Error = std::io::Error>> = {
         if std::env::args().nth(1) == Some("--uds".to_string()) {

@@ -1,56 +1,143 @@
 use gdbstub::{
-    arch, BreakOp, OptResult, ResumeAction, StopReason, Target, Tid, TidSelector, WatchKind, SINGLE_THREAD_TID,
+    arch, BreakOp, OptResult, StopReason, Target, Tid, WatchKind, SINGLE_THREAD_TID,
 };
 
-use super::{kvm_translation, kvm_sregs};
-use super::{Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, ByteValued};
-use super::VcpuFd;
+use super::{Debugger, DebugEvent, Receiver, Sender, ResumeAction};
+use super::{Bytes, GuestAddress, GuestMemoryMmap};
 use crate::DynResult;
 
-const CR0_PG : u64 = 0x80000000;
-const CR4_PAE : u64 = 0x00000020;
-const CR4_LA57 : u64 = 0x00001000;
-const CR4_PSE : u64 = 0x00000010;
-const EFER_LME : u64 = 0x00000100;
-const EFER_LMA : u64 = 0x00000400;
-const PDPTE_PS : u64 = 0x00000080;
-const PDE_PS : u64 = 0x00000080;
-#[derive(PartialEq, Eq, Debug)]
-enum PAGING_TYPE {
-    NONE,
-    _32BIT,
-    PAE,
-    _4LVL,
-    _5LVL,
+pub struct FirecrackerGDBServer {
+    pub guest_memory: GuestMemoryMmap,
+
+    pub vcpu_event_receiver: Receiver<DebugEvent>,
+    pub vcpu_event_sender: Sender<DebugEvent>,
+
+    pub breakpoints: Vec<(u8, u64)>,
+
+    pub single_step_en: bool,
 }
 
-pub struct FirecrackerGDBServer<'a> {
-    guest_memory : &'a GuestMemoryMmap,
-    vcpu : &'a VcpuFd,
-}
+impl FirecrackerGDBServer {
+    pub fn new(guest_memory: GuestMemoryMmap,
+        vcpu_event_receiver: Receiver<DebugEvent>,
+        vcpu_event_sender: Sender<DebugEvent>) -> DynResult <FirecrackerGDBServer > {
+        Ok(FirecrackerGDBServer{guest_memory, vcpu_event_receiver,
+            vcpu_event_sender, breakpoints: Vec::new(), single_step_en: false})
+    }
 
-impl<'a> FirecrackerGDBServer<'a> {
-    pub fn new<'b>(guest_memory: &'b GuestMemoryMmap, vcpu: &'b VcpuFd) -> DynResult <FirecrackerGDBServer<'b>> {
-        Ok(FirecrackerGDBServer{guest_memory, vcpu})
+    pub fn remove_bp(&mut self, addr : u64) {
+        for (idx, it) in self.breakpoints.iter().enumerate() {
+            if it.1 == addr {
+                self.guest_memory.write_obj(it.0, GuestAddress(addr))
+                        .expect("Failed removing interrupt");
+
+                self.breakpoints.remove(idx);
+                break;
+            }
+        }
+    }
+    pub fn insert_bp(&mut self, phys_addr: u64) {
+        let int3: u8 = 0xCC;
+        let entry_addr: u64 = 0x1000000;
+
+        if phys_addr != entry_addr {
+            self.vcpu_event_sender.send(DebugEvent::BREAKPOINT).unwrap();
+        }
+
+        let opcode: u8 = self.guest_memory.read_obj(GuestAddress(phys_addr)).unwrap();
+        self.breakpoints.push((opcode, phys_addr));
+        self.guest_memory.write_obj(int3, GuestAddress(phys_addr))
+                        .expect("Failed inserting interrupt");
     }
 }
 
-impl<'a> Target for FirecrackerGDBServer<'a> {
+impl Target for FirecrackerGDBServer {
     type Arch = arch::x86::X86_64;
     type Error = &'static str;
     
     fn resume(
         &mut self,
-        actions: gdbstub::target::Actions,
+        actions: gdbstub::Actions,
         check_gdb_interrupt: &mut dyn FnMut() -> bool,
     ) -> Result<(Tid, StopReason<u64>), Self::Error> {
-        Ok((SINGLE_THREAD_TID, StopReason::DoneStep))
+        for item in actions {
+            match item.1 {
+                ResumeAction::Continue => {
+                    self.vcpu_event_sender.send(DebugEvent::CONTINUE(self.single_step_en)).unwrap();
+                    self.single_step_en = false;
+                    while !check_gdb_interrupt() {
+                        match self.vcpu_event_receiver.try_recv() {
+                            Ok(DebugEvent::PRINT_PTs(cr3)) => {
+                                println!("Printing PTs...");
+                                for i in 0..512 {
+                                    let addr: u64 = cr3 & 0x000ffffffffff000u64;
+                                    let data: u64 = self.guest_memory.read_obj(GuestAddress(addr + i * 8)).unwrap();
+                                    println!("{:x?} : {:x?}", addr + i * 8, data);
+                                }
+                                // A better return value would probably be SwBreak, but
+                                // there are some problems regarding the thread id that
+                                // gdbstub chooses to return for that case
+                                return Ok((SINGLE_THREAD_TID, StopReason::GdbInterrupt));
+                            }
+                            Ok(_) => { println!("Wrong message type"); break; }
+                            Err(_) => {}
+                        }
+                    }
+                    // This can be reached either by a 0x03 signal from the client or by a
+                    // connection error occurring. It is not clear for now what the return
+                    // value should be
+                    return Ok((SINGLE_THREAD_TID, StopReason::Halted));
+                }
+                ResumeAction::Step => {
+                    self.vcpu_event_sender.send(DebugEvent::STEP_INTO(self.single_step_en)).unwrap();
+                    // Main thread will take care of what it means enabling/disabling single-stepping
+                    self.single_step_en = true;
+                    loop {
+                        match self.vcpu_event_receiver.try_recv() {
+                            Ok(DebugEvent::PRINT_PTs(cr3)) =>
+                                return Ok((SINGLE_THREAD_TID, StopReason::DoneStep)),
+                            Ok(_) => { println!("Wrong message type"); break;}
+                            Err(_) => {}
+                        }
+                    }
+                    return Ok((SINGLE_THREAD_TID, StopReason::Halted));
+                }
+            }
+        }
+        Err("Continue/Step op failed")
     }
 
     fn read_registers(
         &mut self,
         regs: &mut arch::x86::reg::X86_64CoreRegs,
     ) -> Result<(), Self::Error> {
+        self.vcpu_event_sender.send(DebugEvent::GET_REGS).unwrap();
+        match self.vcpu_event_receiver.recv() {
+            Ok(DebugEvent::PEEK_REGS(state)) => {
+                regs.regs[0] = state.regular_regs.rax;
+                regs.regs[1] = state.regular_regs.rbx;
+                regs.regs[2] = state.regular_regs.rcx;
+                regs.regs[3] = state.regular_regs.rdx;
+                regs.regs[4] = state.regular_regs.rsi;
+                regs.regs[5] = state.regular_regs.rdi;
+                regs.regs[6] = state.regular_regs.rbp;
+                regs.regs[7] = state.regular_regs.rsp;
+
+                regs.regs[8] = state.regular_regs.r8;
+                regs.regs[9] = state.regular_regs.r9;
+                regs.regs[10] = state.regular_regs.r10;
+                regs.regs[11] = state.regular_regs.r11;
+                regs.regs[12] = state.regular_regs.r12;
+                regs.regs[13] = state.regular_regs.r13;
+                regs.regs[14] = state.regular_regs.r14;
+                regs.regs[15] = state.regular_regs.r15;
+
+                regs.rip = state.regular_regs.rip;
+                regs.eflags = state.regular_regs.rflags as u32;
+            }
+            Ok(_) => println!("Error! Expecting PEEK_REGS packet"),
+            Err(_) => println!("Error receiving regs"),
+        }
         Ok(())
     }
 
@@ -66,6 +153,11 @@ impl<'a> Target for FirecrackerGDBServer<'a> {
         addrs: u64,
         val: &mut [u8],
     ) -> Result<bool, Self::Error> {
+        // The address passed to the "m" packet can be of the form 0x1000000
+        // or 0xffffff.... so u have to be prepared
+        for i in 0..val.len() {
+            val[i] = self.guest_memory.read_obj(GuestAddress((addrs & 0xfffffff) + (i as u64))).unwrap();
+        }
         Ok(true)
     }
 
@@ -82,159 +174,14 @@ impl<'a> Target for FirecrackerGDBServer<'a> {
         addr: u64,
         op: BreakOp,
     ) -> Result<bool, Self::Error> {
-        let int3: u8 = 0xCC;
-        let mut linear_addr : u64 = addr;
+        //let phys_addr = Debugger::virt_to_phys(linear_addr, &self).unwrap();
+        let phys_addr = addr & 0xfffffff;
 
-        /*
-        match self.vcpu.translate(new_addr) {
-            Ok(t) => println!("...Linear address {:x?} -> Physical address {:x?}", new_addr, t.physical_address),
-            Err(_) => println!("Translation failed"),
+        match op {
+            BreakOp::Add => self.insert_bp(phys_addr),
+            BreakOp::Remove => self.remove_bp(phys_addr),
         }
-        */
-
-        let context : kvm_sregs;
-        let mut pt_level = PAGING_TYPE::NONE;
-        match self.vcpu.get_sregs() {
-            Ok(sregs) => context = sregs,
-            Err(_) => return Err("Error retrieving registers"),
-        }
-        // Paging enabled
-        if context.cr0 & CR0_PG == 0 {
-
-        // Determine the type of paging
-        } else {
-            // See Table 4.1, Volume 3A in Intel Arch SW Developer's Manual
-            pt_level = 
-            if context.cr4 & CR4_LA57 != 0 {
-                PAGING_TYPE::_5LVL
-            } else {
-                if context.efer & EFER_LME != 0 {
-                    PAGING_TYPE::_4LVL
-                } else {
-                    if context.cr4 & CR4_PAE != 0 {
-                        PAGING_TYPE::PAE
-                    } else {
-                        PAGING_TYPE::_32BIT
-                    }
-                }
-            }
-        }
-        println!("cr4 = {:x?}; cr3 = {:x?} efer={:x?}", context.cr4, context.cr3, context.efer);
-        println!("Paging type: {:?}", pt_level);
-
-        let mut paddr: u64 = 0;
-        let mut mask : u64 = 0;
-        let mut movem = 0;
-        if pt_level == PAGING_TYPE::PAE {
-            linear_addr &= 0x00000000ffffffffu64;
-            mask =  0x0000007fc0000000u64;
-
-            paddr = context.cr3 & 0x00000000ffffffe0u64;
-        } else {
-            if pt_level == PAGING_TYPE::_4LVL {
-                // Translation from 48 bits linear address
-                // to 52 bits physical address
-                linear_addr &= 0x0000ffffffffffffu64;
-                mask =  0x0000ff8000000000u64;
-
-                paddr = context.cr3 & 0x000ffffffffff000u64;
-                movem = 36;
-            } else {
-                // Performs a translation from 32 bits linear address
-                // to a 40 bits physical address
-                if pt_level == PAGING_TYPE::_32BIT {
-                    // The PDE physical address contains
-                    // on 31:12 -> bits 31:12 from cr3
-                    // on 11:2 -> bits 31:22 from the linear address
-                    // on 1:0 -> 0
-                    linear_addr &= 0x00000000ffffffffu64;
-                    mask =  0x00000000ffc00000u64;
-
-                    paddr = context.cr3 & 0x00000000fffff000u64;
-                    movem = 20;
-                }
-            }
-        }
-        println!("Linear address: {:x?}", linear_addr);
-        let mut d : u64; 
-        let mut add : u64 = 0x9000;
-        for i in 1..512 {
-            d = self.guest_memory.read_obj(GuestAddress(add)).unwrap();
-            println!("{:x?} : {:x?}", add, d);
-            add += 8;
-        }
-        paddr += (linear_addr & mask) >> movem;
-        let mut table_entry: u64 = self.guest_memory.read_obj(GuestAddress(paddr)).unwrap();
-        println!("PML4={:x?} and PML4E content={:x?}", paddr, table_entry);
-
-        mask >>= 9;
-        movem -= 9;
-        paddr = table_entry & 0x000ffffffffff000u64;
-        paddr += (linear_addr & mask) >> movem;
-        table_entry = self.guest_memory.read_obj(GuestAddress(paddr)).unwrap();
-        println!("PDPT={:x?} and PDPTE content={:x?}", paddr, table_entry);
-
-        if table_entry & PDPTE_PS != 0 {
-            // translation to 1GB page
-            println!("Translation to 1GB page");
-            paddr = table_entry & 0x000fffffc0000000u64;
-            // Final address
-            paddr += linear_addr & 0x3fffffffu64;
-        } else {
-            // translation to 2MB page
-            println!("Translation to 2MB page");
-            mask >>= 9;
-            movem -= 9;
-            paddr = table_entry & 0x000ffffffffff000u64;
-            paddr += (linear_addr & mask) >> movem;
-
-            table_entry = self.guest_memory.read_obj(GuestAddress(paddr)).unwrap();
-            println!("Page directory addr: {:x?} and PDE: {:x?}", paddr, table_entry);
-            if table_entry & PDE_PS != 0 {
-                // Final address
-                paddr = table_entry & 0x000ffffffff00000u64;
-                paddr += linear_addr & 0xfffff;
-            } else {
-                mask >>= 9;
-                movem -= 9;
-                paddr = table_entry & 0x000ffffffffff000u64;
-                paddr += (linear_addr & mask) >> movem;
-
-                table_entry = self.guest_memory.read_obj(GuestAddress(paddr)).unwrap();
-                println!("2MB page addr: {:x?} and the entry: {:x?}", paddr, table_entry);
-                // Final address
-                paddr = table_entry & 0x000ffffffffff000u64;
-                paddr += linear_addr & 0xfff;
-            }
-        }
-        let data: u64 = self.guest_memory.read_obj(GuestAddress(paddr)).unwrap();
-        println!("Final address: {:x?} and data: {:x?}", paddr, data);
-        //if context.cr4 & CR4_PSE == 0 {
-            
-            // The PTE physical address contains
-            // on 31:12 -> 31:12 from pde
-            // on 11:2 -> 21:12 from the linear address
-            // on 1:0 -> 0
         
-        /*    mask >>= 10;
-            paddr = pde & (!0xfffu64);
-            paddr += (linear_addr & mask) >> 10;
-            let raw_pte: u32 = self.guest_memory.read_obj(GuestAddress(paddr)).unwrap();
-            let pte: u64 = raw_pte.into();
-            println!("PTE address: {:x?} and content: {}", paddr, pte);
-        */    
-            // The final physical address contains
-            // on 31:12 -> 31:12 from pte
-            // on 11:0 -> 11:0 from the linear address
-        /*    mask = 0xfff;
-            paddr = pte & (!0xfffu64);
-            paddr += linear_addr & mask;
-            let data: u32 = self.guest_memory.read_obj(GuestAddress(0x1000000 + paddr)).unwrap();
-            println!("At address {:x?} it's {}", paddr, data);
-        */
-        //}
-
-        //self.guest_memory.write_obj(int3, GuestAddress(new_addr));
         Ok(true)
     }
 
