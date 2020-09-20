@@ -47,6 +47,16 @@ const KVM_GET_MP_STATE: u64 = 0x8004_ae98;
 const KVM_SET_MP_STATE: u64 = 0x4004_ae99;
 const KVM_GET_VCPU_EVENTS: u64 = 0x8040_ae9f;
 const KVM_SET_VCPU_EVENTS: u64 = 0x4040_aea0;
+<<<<<<< HEAD
+=======
+const KVM_GET_DEBUGREGS: u64 = 0x8080_aea1;
+const KVM_SET_DEBUGREGS: u64 = 0x4080_aea2;
+const KVM_GET_XSAVE: u64 = 0x9000_aea4;
+const KVM_SET_XSAVE: u64 = 0x5000_aea5;
+const KVM_GET_XCRS: u64 = 0x8188_aea6;
+const KVM_SET_XCRS: u64 = 0x4188_aea7;
+const KVM_SET_GUEST_DEBUG: u64 = 0x4048_ae9b;
+>>>>>>> 742731fd... GDB server: Add seccomp rule
 
 // Use this mod to define ioctl params that are architecture specific.
 // To add other architectures, add another module declaration with the right cfg attribute.
@@ -98,6 +108,7 @@ fn create_arch_specific_ioctl_conditions() -> Result<Vec<SeccompRule>, Error> {
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_XSAVE)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_XCRS)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_XCRS)?],
+<<<<<<< HEAD
     ]);
 
     #[cfg(target_arch = "aarch64")]
@@ -129,6 +140,10 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
     rule.append(&mut create_arch_specific_ioctl_conditions()?);
 
     Ok(rule)
+=======
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_GUEST_DEBUG)?],
+    ])
+>>>>>>> 742731fd... GDB server: Add seccomp rule
 }
 
 #[cfg(test)]
