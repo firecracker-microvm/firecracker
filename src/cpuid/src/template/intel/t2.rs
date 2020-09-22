@@ -3,6 +3,7 @@
 
 use crate::bit_helper::BitHelper;
 use crate::cpu_leaf::*;
+use crate::template::intel::validate_vendor_id;
 use crate::transformer::*;
 use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
@@ -19,10 +20,10 @@ fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) ->
         .write_bits_in_range(&eax::PROCESSOR_TYPE_BITRANGE, 0)
         // Processor Family = 6
         .write_bits_in_range(&eax::PROCESSOR_FAMILY_BITRANGE, 6)
-        // Processor Model = 14
-        .write_bits_in_range(&eax::PROCESSOR_MODEL_BITRANGE, 14)
-        // Stepping = 4
-        .write_bits_in_range(&eax::STEPPING_BITRANGE, 4);
+        // Processor Model = 15
+        .write_bits_in_range(&eax::PROCESSOR_MODEL_BITRANGE, 15)
+        // Stepping = 2
+        .write_bits_in_range(&eax::STEPPING_BITRANGE, 2);
 
     // Disable Features
     entry
@@ -33,10 +34,8 @@ fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) ->
         .write_bit(ecx::TM2_BITINDEX, false)
         .write_bit(ecx::CNXT_ID_BITINDEX, false)
         .write_bit(ecx::SDBG_BITINDEX, false)
-        .write_bit(ecx::FMA_BITINDEX, false)
         .write_bit(ecx::XTPR_UPDATE_BITINDEX, false)
         .write_bit(ecx::PDCM_BITINDEX, false)
-        .write_bit(ecx::MOVBE_BITINDEX, false)
         .write_bit(ecx::OSXSAVE_BITINDEX, false);
 
     entry
@@ -61,12 +60,8 @@ fn update_structured_extended_entry(
         entry
             .ebx
             .write_bit(ebx::SGX_BITINDEX, false)
-            .write_bit(ebx::BMI1_BITINDEX, false)
             .write_bit(ebx::HLE_BITINDEX, false)
-            .write_bit(ebx::AVX2_BITINDEX, false)
             .write_bit(ebx::FPDP_BITINDEX, false)
-            .write_bit(ebx::BMI2_BITINDEX, false)
-            .write_bit(ebx::INVPCID_BITINDEX, false)
             .write_bit(ebx::RTM_BITINDEX, false)
             .write_bit(ebx::RDT_M_BITINDEX, false)
             .write_bit(ebx::RDT_A_BITINDEX, false)
@@ -141,20 +136,17 @@ fn update_extended_feature_info_entry(
 ) -> Result<(), Error> {
     use crate::cpu_leaf::leaf_0x80000001::*;
 
-    entry
-        .ecx
-        .write_bit(ecx::PREFETCH_BITINDEX, false)
-        .write_bit(ecx::LZCNT_BITINDEX, false);
+    entry.ecx.write_bit(ecx::PREFETCH_BITINDEX, false);
 
     entry.edx.write_bit(edx::PDPE1GB_BITINDEX, false);
 
     Ok(())
 }
 
-/// Sets up the cpuid entries for a given VCPU following a C3 template.
-struct C3CpuidTransformer {}
+/// Sets up the cpuid entries for a given VCPU following a T2 template.
+struct T2CpuidTransformer {}
 
-impl CpuidTransformer for C3CpuidTransformer {
+impl CpuidTransformer for T2CpuidTransformer {
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
         match entry.function {
             leaf_0x1::LEAF_NUM => Some(update_feature_info_entry),
@@ -166,7 +158,8 @@ impl CpuidTransformer for C3CpuidTransformer {
     }
 }
 
-/// Sets up the cpuid entries for a given VCPU following a C3 template.
+/// Sets up the cpuid entries for a given VCPU following a T2 template.
 pub fn set_cpuid_entries(kvm_cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
-    C3CpuidTransformer {}.process_cpuid(kvm_cpuid, vm_spec)
+    validate_vendor_id()?;
+    T2CpuidTransformer {}.process_cpuid(kvm_cpuid, vm_spec)
 }

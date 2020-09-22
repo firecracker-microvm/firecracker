@@ -11,15 +11,16 @@
 #![cfg(target_arch = "x86_64")]
 use kvm_bindings::CpuId;
 
-mod common;
+/// cpuid utility functions.
+pub mod common;
 use crate::common::*;
 
 /// Contains helper methods for bit operations.
 pub mod bit_helper;
 
 mod template;
-pub use crate::template::c3;
-pub use crate::template::t2;
+pub use crate::template::intel::c3;
+pub use crate::template::intel::t2;
 
 mod cpu_leaf;
 

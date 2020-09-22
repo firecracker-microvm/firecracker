@@ -95,7 +95,7 @@ class VMBase:
         return VmInstance(config, kernel, attached_disks, ssh_key, basevm)
 
 
-class C3nano(VMBase):
+class VMNano(VMBase):
     """Create VMs with 2vCPUs and 256 MB RAM."""
 
     @classmethod
@@ -106,13 +106,13 @@ class C3nano(VMBase):
                                      "2vcpu_256mb",
                                      "vmlinux-4.14",
                                      "ubuntu-18.04",
-                                     "C3",
+                                     None,
                                      start,
                                      fc_binary,
                                      jailer_binary)
 
 
-class C3micro(VMBase):
+class VMMicro(VMBase):
     """Create VMs with 2vCPUs and 512 MB RAM."""
 
     @classmethod
@@ -123,7 +123,7 @@ class C3micro(VMBase):
                                      "2vcpu_512mb",
                                      "vmlinux-4.14",
                                      "ubuntu-18.04",
-                                     "C3",
+                                     None,
                                      start,
                                      fc_binary,
                                      jailer_binary)

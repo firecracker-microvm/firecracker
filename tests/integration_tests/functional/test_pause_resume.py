@@ -4,7 +4,7 @@
 
 import platform
 import pytest
-from framework.microvms import C3nano
+from framework.microvms import VMNano
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 
@@ -14,7 +14,7 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 )
 def test_pause_resume(bin_cloner_path):
     """Test scenario: boot/pause/resume."""
-    vm_instance = C3nano.spawn(bin_cloner_path)
+    vm_instance = VMNano.spawn(bin_cloner_path)
     microvm = vm_instance.vm
 
     # Pausing the microVM before being started is not allowed.

@@ -8,7 +8,7 @@ import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.microvms import C3micro
+from framework.microvms import VMMicro
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 
@@ -51,7 +51,7 @@ def test_restore_from_past_versions(bin_cloner_path):
 def create_512mb_full_snapshot(bin_cloner_path, target_version: str = None,
                                fc_binary=None, jailer_binary=None):
     """Create a snapshoft from a 2vcpu 512MB microvm."""
-    vm_instance = C3micro.spawn(bin_cloner_path, True,
+    vm_instance = VMMicro.spawn(bin_cloner_path, True,
                                 fc_binary, jailer_binary)
     # Attempt to connect to the fresh microvm.
     ssh_connection = net_tools.SSHConnection(vm_instance.vm.ssh_config)
