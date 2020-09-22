@@ -517,6 +517,22 @@ cmd_build() {
             "${cargo_args[@]}"
     ret=$?
 
+    [ $ret -ne 0 ] && return $ret
+
+    # Build jailer only in case of musl for compatibility reasons
+    if [ "$libc" == "musl" ];then
+        run_devctr \
+            --user "$(id -u):$(id -g)" \
+            --workdir "$CTR_FC_ROOT_DIR" \
+            -- \
+            cargo build -p jailer \
+                --target-dir "$CTR_CARGO_TARGET_DIR" \
+                "${cargo_args[@]}"
+
+    fi
+
+    ret=$?
+    
     # If `cargo build` was successful, let's copy the binaries to a more
     # accessible location.
     [ $ret -eq 0 ] && {
