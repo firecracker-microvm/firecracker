@@ -173,6 +173,7 @@ impl MMIODeviceManager {
     pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
+        kick_stdin_read_evt: EventFd,
         cmdline: &mut kernel_cmdline::Cmdline,
     ) -> Result<()> {
         if self.irq > self.last_irq {
@@ -182,6 +183,7 @@ impl MMIODeviceManager {
         let com_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let device = devices::legacy::Serial::new_out(
             com_evt.try_clone().map_err(Error::EventFd)?,
+            Some(kick_stdin_read_evt),
             Box::new(io::stdout()),
         );
 

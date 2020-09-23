@@ -42,7 +42,6 @@ pub struct PortIODeviceManager {
     pub io_bus: devices::Bus,
     pub stdio_serial: Arc<Mutex<devices::legacy::Serial>>,
     pub i8042: Arc<Mutex<devices::legacy::I8042Device>>,
-
     pub com_evt_1_3: EventFd,
     pub com_evt_2_4: EventFd,
     pub kbd_evt: EventFd,
@@ -50,13 +49,15 @@ pub struct PortIODeviceManager {
 
 impl PortIODeviceManager {
     /// Create a new DeviceManager handling legacy devices (uart, i8042).
-    pub fn new() -> Result<Self> {
+    pub fn new(kick_stdin_read_evt: EventFd) -> Result<Self> {
         let io_bus = devices::Bus::new();
         let com_evt_1_3 = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let com_evt_2_4 = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
         let kbd_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+
         let stdio_serial = Arc::new(Mutex::new(devices::legacy::Serial::new_out(
             com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+            Some(kick_stdin_read_evt),
             Box::new(stdout()),
         )));
 
@@ -87,6 +88,7 @@ impl PortIODeviceManager {
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
                     self.com_evt_2_4.try_clone().map_err(Error::EventFd)?,
+                    None,
                 ))),
                 0x2f8,
                 0x8,
@@ -96,6 +98,7 @@ impl PortIODeviceManager {
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
                     self.com_evt_1_3.try_clone().map_err(Error::EventFd)?,
+                    None,
                 ))),
                 0x3e8,
                 0x8,
@@ -105,6 +108,7 @@ impl PortIODeviceManager {
             .insert(
                 Arc::new(Mutex::new(devices::legacy::Serial::new_sink(
                     self.com_evt_2_4.try_clone().map_err(Error::EventFd)?,
+                    None,
                 ))),
                 0x2e8,
                 0x8,
@@ -124,7 +128,7 @@ mod tests {
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn test_register_legacy_devices() {
-        let ldm = PortIODeviceManager::new();
+        let ldm = PortIODeviceManager::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
         assert!(ldm.is_ok());
         assert!(&ldm.unwrap().register_devices().is_ok());
     }

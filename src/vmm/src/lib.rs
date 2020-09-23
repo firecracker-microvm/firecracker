@@ -136,6 +136,7 @@ pub enum EventLoopExitReason {
 enum EpollDispatch {
     Exit,
     Stdin,
+    KickStdin,
     DeviceHandler(usize, DeviceEventT),
     VmmActionRequest,
     WriteMetrics,
@@ -161,11 +162,12 @@ impl MaybeHandler {
 struct EpollContext {
     epoll_raw_fd: RawFd,
     stdin_index: u64,
+    kick_stdin_read_index: u64,
+    kick_stdin_read_evt: EventFd,
     // FIXME: find a different design as this does not scale. This Vec can only grow.
     dispatch_table: Vec<Option<EpollDispatch>>,
     device_handlers: Vec<MaybeHandler>,
     device_id_to_handler_id: HashMap<(u32, String), usize>,
-
     // This part of the class relates to incoming epoll events. The incoming events are held in
     // `events[event_index..num_events)`, followed by the events not yet read from `epoll_raw_fd`.
     events: Vec<epoll::Event>,
@@ -178,19 +180,23 @@ impl EpollContext {
         const EPOLL_EVENTS_LEN: usize = 100;
 
         let epoll_raw_fd = epoll::create(true).map_err(Error::EpollFd)?;
-
         // Initial capacity needs to be large enough to hold:
         // * 1 exit event
         // * 1 stdin event
+        // * 1 kick stdin read event
         // * 2 queue events for virtio block
         // * 4 for virtio net
-        // The total is 8 elements; allowing spare capacity to avoid reallocations.
+        // The total is 9 elements; allowing spare capacity to avoid reallocations.
         let mut dispatch_table = Vec::with_capacity(20);
         let stdin_index = dispatch_table.len() as u64;
+        dispatch_table.push(None);
+        let kick_stdin_read_index = dispatch_table.len() as u64;
         dispatch_table.push(None);
         Ok(EpollContext {
             epoll_raw_fd,
             stdin_index,
+            kick_stdin_read_index,
+            kick_stdin_read_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
             dispatch_table,
             device_handlers: Vec::with_capacity(6),
             device_id_to_handler_id: HashMap::new(),
@@ -201,6 +207,10 @@ impl EpollContext {
     }
 
     fn enable_stdin_event(&mut self) {
+        if self.dispatch_table[self.stdin_index as usize].is_some() {
+            return;
+        }
+
         if let Err(e) = epoll::ctl(
             self.epoll_raw_fd,
             epoll::ControlOptions::EPOLL_CTL_ADD,
@@ -219,6 +229,20 @@ impl EpollContext {
         }
     }
 
+    fn enable_kick_stdin_read_event(&mut self) {
+        if let Err(e) = epoll::ctl(
+            self.epoll_raw_fd,
+            epoll::ControlOptions::EPOLL_CTL_ADD,
+            self.kick_stdin_read_evt.as_raw_fd(),
+            epoll::Event::new(epoll::Events::EPOLLIN, self.kick_stdin_read_index),
+        ) {
+            warn!("Could not add stdin kick stdin read event to epoll: {}", e);
+        } else {
+            self.dispatch_table[self.kick_stdin_read_index as usize] =
+                Some(EpollDispatch::KickStdin);
+        }
+    }
+
     fn disable_stdin_event(&mut self) {
         // Ignore failure to remove from epoll. The only reason for failure is
         // that stdin has closed or changed in which case we won't get
@@ -230,6 +254,22 @@ impl EpollContext {
             epoll::Event::new(epoll::Events::EPOLLIN, self.stdin_index),
         );
         self.dispatch_table[self.stdin_index as usize] = None;
+    }
+
+    fn disable_kick_stdin_read_event(&mut self) {
+        if let Err(e) = epoll::ctl(
+            self.epoll_raw_fd,
+            epoll::ControlOptions::EPOLL_CTL_DEL,
+            self.kick_stdin_read_evt.as_raw_fd(),
+            epoll::Event::new(epoll::Events::EPOLLIN, self.kick_stdin_read_index),
+        ) {
+            warn!(
+                "Could not delete stdin kick stdin read event from epoll: {}",
+                e
+            );
+        } else {
+            self.dispatch_table[self.kick_stdin_read_index as usize] = None;
+        }
     }
 
     /// Given a file descriptor `fd`, and an EpollDispatch token `token`,
@@ -278,6 +318,10 @@ impl EpollContext {
         self.device_handlers.push(MaybeHandler::new(receiver));
 
         (dispatch_base, sender)
+    }
+
+    fn kick_stdin_read_evt(&self) -> result::Result<EventFd, io::Error> {
+        self.kick_stdin_read_evt.try_clone()
     }
 
     /// Allocate tokens for a virtio device, as with `allocate_tokens_for_device`,
@@ -439,8 +483,12 @@ impl Vmm {
         let vm = Vm::new(kvm.fd()).map_err(Error::Vm)?;
 
         #[cfg(target_arch = "x86_64")]
-        let pio_device_manager = PortIODeviceManager::new().map_err(Error::CreateLegacyDevice)?;
-
+        let pio_device_manager = PortIODeviceManager::new(
+            epoll_context
+                .kick_stdin_read_evt()
+                .map_err(Error::EventFd)?,
+        )
+        .map_err(Error::CreateLegacyDevice)?;
         #[cfg(target_arch = "x86_64")]
         let exit_evt = pio_device_manager
             .i8042
@@ -758,6 +806,84 @@ impl Vmm {
         Ok(())
     }
 
+    fn handle_stdin_event(&mut self, out: &mut Vec<u8>, kicked: bool) -> io::Result<usize> {
+        let stdin_lock = self.stdin_handle.lock();
+        match stdin_lock.read_raw(out.as_mut_slice()) {
+            // Reading 0 bytes from an non-blocking opened file means that the peer hung up.
+            // Detach the stdin.
+            Ok(0) => {
+                // The stdin has no more input. Disable its monitoring if not kicked.
+                if !kicked {
+                    self.epoll_context.disable_kick_stdin_read_event();
+                    self.epoll_context.disable_stdin_event();
+                    return Err(io::Error::from_raw_os_error(libc::EOF));
+                }
+
+                // Handle the EOF gracefully if we forced read.
+                Ok(0)
+            }
+            Err(e) => {
+                // If reading from stdin would block, simply return 0 bytes read.
+                if e.errno() == libc::EWOULDBLOCK {
+                    return Ok(0);
+                }
+
+                // Unknown error, detach the serial.
+                warn!("error while reading stdin: {:?}", e);
+                self.epoll_context.disable_stdin_event();
+                self.epoll_context.disable_kick_stdin_read_event();
+                Err(io::Error::from_raw_os_error(e.errno()))
+            }
+            Ok(count) => {
+                // Disable stdin monitoring only if the capacity is achieved.
+                if count == out.capacity() {
+                    self.epoll_context.disable_stdin_event();
+                }
+
+                Ok(count)
+            }
+        }
+    }
+
+    fn consume_stdin_bytes(&mut self, kicked: bool) -> Result<()> {
+        // Time of read is not time of use, but this is not an issue since
+        // the available capacity can only go up. If available capacity goes
+        // up until we fulfill the read capacity, we will service the serial device
+        // with less bytes than it currently has space for.
+        let avail_capacity = match self.get_serial_device() {
+            Some(serial) => serial
+                .lock()
+                .expect("Can not get the raw IO handler due to poisoned lock.")
+                .avail_buffer_capacity(),
+            None => unreachable!(),
+        };
+
+        // The serial fifo is full. Stop stdin monitoring.
+        if avail_capacity == 0 {
+            self.epoll_context.disable_stdin_event();
+            return Ok(());
+        }
+
+        let mut out = vec![0u8; avail_capacity];
+        let count = self
+            .handle_stdin_event(&mut out, kicked)
+            .map_err(Error::Serial)?;
+
+        if count == 0 {
+            return Ok(());
+        }
+
+        if let Some(serial) = self.get_serial_device() {
+            serial
+                .lock()
+                .expect("Can not get the raw IO handler due to poisoned lock.")
+                .raw_input(&out[..count])
+                .map_err(Error::Serial)?;
+        }
+
+        Ok(())
+    }
+
     #[cfg(target_arch = "x86_64")]
     fn get_serial_device(&self) -> Option<Arc<Mutex<dyn RawIOHandler>>> {
         Some(self.pio_device_manager.stdio_serial.clone())
@@ -836,9 +962,16 @@ impl Vmm {
         // We rely on check_health function for making sure kernel_config is not None.
         let kernel_config = self.kernel_config.as_mut().ok_or(MissingKernelConfig)?;
 
+        let kick_stdin_read_evt = self.epoll_context.kick_stdin_read_evt().map_err(|err| {
+            StartMicrovmError::RegisterMMIODevice(device_manager::mmio::Error::EventFd(err))
+        })?;
         if kernel_config.cmdline.as_str().contains("console=") {
             device_manager
-                .register_mmio_serial(self.vm.fd(), &mut kernel_config.cmdline)
+                .register_mmio_serial(
+                    self.vm.fd(),
+                    kick_stdin_read_evt,
+                    &mut kernel_config.cmdline,
+                )
                 .map_err(RegisterMMIODevice)?;
         }
 
@@ -1111,9 +1244,8 @@ impl Vmm {
         self.epoll_context
             .add_epollin_event(&self.exit_evt, EpollDispatch::Exit)
             .map_err(|_| StartMicrovmError::RegisterEvent)?;
-
+        self.epoll_context.enable_kick_stdin_read_event();
         self.epoll_context.enable_stdin_event();
-
         Ok(())
     }
 
@@ -1122,6 +1254,11 @@ impl Vmm {
         self.stdin_handle
             .lock()
             .set_raw_mode()
+            .map_err(StartMicrovmError::StdinHandle)?;
+        // Set non-block for stdin.
+        self.stdin_handle
+            .lock()
+            .set_non_block(true)
             .map_err(StartMicrovmError::StdinHandle)
     }
 
@@ -1236,23 +1373,6 @@ impl Vmm {
         self.shared_info.read().expect(error_string).state != InstanceState::Uninitialized
     }
 
-    fn handle_stdin_event(&self, buffer: &[u8]) -> Result<()> {
-        match self.get_serial_device() {
-            Some(serial) => {
-                // Use expect() to panic if another thread panicked
-                // while holding the lock.
-                serial
-                    .lock()
-                    .expect("Failed to process stdin event due to poisoned lock")
-                    .raw_input(buffer)
-                    .map_err(Error::Serial)?;
-            }
-            None => warn!("Unable to handle stdin event: no serial device available"),
-        }
-
-        Ok(())
-    }
-
     /// Wait on VMM events and dispatch them to the appropriate handler. Returns to the caller
     /// when a control action occurs.
     pub fn run_event_loop(&mut self) -> Result<EventLoopExitReason> {
@@ -1287,23 +1407,15 @@ impl Vmm {
 
                     self.stop(i32::from(exit_code));
                 }
-                Some(EpollDispatch::Stdin) => {
-                    let mut out = [0u8; 64];
-                    let stdin_lock = self.stdin_handle.lock();
-                    match stdin_lock.read_raw(&mut out[..]) {
-                        Ok(0) => {
-                            // Zero-length read indicates EOF. Remove from pollables.
-                            self.epoll_context.disable_stdin_event();
-                        }
-                        Err(e) => {
-                            warn!("error while reading stdin: {:?}", e);
-                            self.epoll_context.disable_stdin_event();
-                        }
-                        Ok(count) => {
-                            self.handle_stdin_event(&out[..count])?;
-                        }
-                    }
+                Some(EpollDispatch::KickStdin) => {
+                    self.epoll_context
+                        .kick_stdin_read_evt
+                        .read()
+                        .map_err(Error::EventFd)?;
+                    self.epoll_context.enable_stdin_event();
+                    self.consume_stdin_bytes(true)?;
                 }
+                Some(EpollDispatch::Stdin) => self.consume_stdin_bytes(false)?,
                 Some(EpollDispatch::DeviceHandler(device_idx, device_token)) => {
                     METRICS.vmm.device_events.inc();
                     match self
@@ -1863,7 +1975,7 @@ mod tests {
         let mut ep = EpollContext::new().unwrap();
         let (base, sender) = ep.allocate_tokens_for_device(1);
         assert_eq!(ep.device_handlers.len(), 1);
-        assert_eq!(base, 1);
+        assert_eq!(base, 2);
 
         let handler = DummyEpollHandler { evt: None };
         assert!(sender.send(Box::new(handler)).is_ok());
@@ -2306,6 +2418,13 @@ mod tests {
         // to a terminal. If it does not, we are no longer asserting against
         // `epoll_context.dispatch_table[epoll_context.stdin_index as usize]` holding any value.
         if unsafe { libc::isatty(libc::STDIN_FILENO as i32) } == 1 {
+            epoll_context.enable_stdin_event();
+            assert_eq!(
+                epoll_context.dispatch_table[epoll_context.stdin_index as usize].unwrap(),
+                EpollDispatch::Stdin
+            );
+
+            // Register it again, it should not fail.
             epoll_context.enable_stdin_event();
             assert_eq!(
                 epoll_context.dispatch_table[epoll_context.stdin_index as usize].unwrap(),
@@ -3032,7 +3151,6 @@ mod tests {
         assert!(vmm.pio_device_manager.io_bus.get_device(0x2e8).is_some());
         assert!(vmm.pio_device_manager.io_bus.get_device(0x060).is_some());
         assert!(vmm.configure_stdin().is_ok());
-        assert!(vmm.handle_stdin_event(&[b'a', b'b', b'c']).is_ok());
         vmm.stdin_handle.lock().set_canon_mode().unwrap();
     }
 
@@ -3104,7 +3222,6 @@ mod tests {
 
         assert!(vmm.configure_stdin().is_ok());
         vmm.stdin_handle.lock().set_canon_mode().unwrap();
-        assert!(vmm.handle_stdin_event(&[b'a', b'b', b'c']).is_ok());
     }
 
     #[test]

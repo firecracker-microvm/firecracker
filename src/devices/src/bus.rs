@@ -36,6 +36,10 @@ pub trait RawIOHandler {
     fn raw_input(&mut self, _data: &[u8]) -> io::Result<()> {
         Ok(())
     }
+    /// Query the device buffer, if any.
+    fn avail_buffer_capacity(&mut self) -> usize {
+        0
+    }
     /// Receive raw output from this emulated device.
     fn raw_output(&mut self, _data: &mut [u8]) -> io::Result<()> {
         Ok(())
