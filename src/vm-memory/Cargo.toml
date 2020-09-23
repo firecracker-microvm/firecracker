@@ -1,0 +1,11 @@
+[package]
+name = "vm-memory"
+version = "0.1.0"
+authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
+edition = "2018"
+
+[dependencies]
+vm-memory-upstream = { package = "vm-memory", version = ">=0.2.2", features = ["backend-mmap"] }
+
+[dev-dependencies]
+vmm-sys-util = ">= 0.4.0"
