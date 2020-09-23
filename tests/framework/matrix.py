@@ -7,8 +7,7 @@ of the cartesian product of all artifact sets.
 """
 
 import os
-
-ARTIFACTS_LOCAL_ROOT = "/tmp/ci-artifacts/"
+from framework.artifacts import ARTIFACTS_LOCAL_ROOT
 
 
 class TestContext:

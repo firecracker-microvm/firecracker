@@ -392,10 +392,13 @@ pub struct VcpuState {
 
 #[cfg(test)]
 mod tests {
+    extern crate cpuid;
+
     use std::os::unix::io::AsRawFd;
 
     use super::*;
     use crate::vstate::vm::{tests::setup_vm, Vm};
+    use cpuid::common::{get_vendor_id, VENDOR_ID_INTEL};
 
     impl Default for VcpuState {
         fn default() -> Self {
@@ -442,25 +445,32 @@ mod tests {
 
         // Test configure while using the T2 template.
         vcpu_config.cpu_template = Some(CpuFeaturesTemplate::T2);
-        assert!(vcpu
-            .configure(
-                &vm_mem,
-                GuestAddress(arch::get_kernel_start()),
-                &vcpu_config,
-                vm.supported_cpuid().clone()
-            )
-            .is_ok());
+        let t2_res = vcpu.configure(
+            &vm_mem,
+            GuestAddress(arch::get_kernel_start()),
+            &vcpu_config,
+            vm.supported_cpuid().clone(),
+        );
 
         // Test configure while using the C3 template.
         vcpu_config.cpu_template = Some(CpuFeaturesTemplate::C3);
-        assert!(vcpu
-            .configure(
-                &vm_mem,
-                GuestAddress(0),
-                &vcpu_config,
-                vm.supported_cpuid().clone()
-            )
-            .is_ok());
+        let c3_res = vcpu.configure(
+            &vm_mem,
+            GuestAddress(0),
+            &vcpu_config,
+            vm.supported_cpuid().clone(),
+        );
+
+        match &get_vendor_id().unwrap() {
+            VENDOR_ID_INTEL => {
+                assert!(t2_res.is_ok());
+                assert!(c3_res.is_ok());
+            }
+            _ => {
+                assert!(t2_res.is_err());
+                assert!(c3_res.is_err());
+            }
+        }
     }
 
     #[test]

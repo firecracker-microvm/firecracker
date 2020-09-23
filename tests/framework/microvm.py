@@ -653,7 +653,8 @@ class Microvm:
     def pause_to_snapshot(self,
                           mem_file_path=None,
                           snapshot_path=None,
-                          diff=False):
+                          diff=False,
+                          version=None):
         """Pauses the microVM, and creates snapshot.
 
         This function validates that the microVM pauses successfully and
@@ -667,7 +668,8 @@ class Microvm:
 
         response = self.snapshot_create.put(mem_file_path=mem_file_path,
                                             snapshot_path=snapshot_path,
-                                            diff=diff)
+                                            diff=diff,
+                                            version=version)
         assert self.api_session.is_status_no_content(response.status_code)
 
     def resume_from_snapshot(self, mem_file_path, snapshot_path):

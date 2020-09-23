@@ -4,37 +4,9 @@
 
 import platform
 import re
-
-from enum import Enum, auto
-
 import pytest
-
+from framework.utils import CpuVendor, get_cpu_vendor
 import host_tools.network as net_tools  # pylint: disable=import-error
-
-
-class CpuVendor(Enum):
-    """CPU vendors enum."""
-
-    AMD = auto()
-    INTEL = auto()
-
-
-def _get_cpu_vendor():
-    cif = open('/proc/cpuinfo', 'r')
-    host_vendor_id = None
-    while True:
-        line = cif.readline()
-        if line == '':
-            break
-        mo = re.search("^vendor_id\\s+:\\s+(.+)$", line)
-        if mo:
-            host_vendor_id = mo.group(1)
-    cif.close()
-    assert host_vendor_id is not None
-
-    if host_vendor_id == "AuthenticAMD":
-        return CpuVendor.AMD
-    return CpuVendor.INTEL
 
 
 def _check_guest_cmd_output(test_microvm, guest_cmd, expected_header,
@@ -115,7 +87,7 @@ def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
     expected_lvl_3_str = '{} ({})'.format(hex(num_vcpus_on_lvl_3_cache),
                                           num_vcpus_on_lvl_3_cache)
 
-    cpu_vendor = _get_cpu_vendor()
+    cpu_vendor = get_cpu_vendor()
     if cpu_vendor == CpuVendor.AMD:
         expected_level_1_topology = {
             "level": '0x1 (1)',
@@ -288,7 +260,7 @@ def test_brand_string(test_microvm_with_ssh, network_config):
     guest_brand_string = mo.group(1)
     assert guest_brand_string
 
-    cpu_vendor = _get_cpu_vendor()
+    cpu_vendor = get_cpu_vendor()
     expected_guest_brand_string = ""
     if cpu_vendor == CpuVendor.AMD:
         expected_guest_brand_string += "AMD EPYC"
@@ -333,7 +305,16 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
-    test_microvm.start()
+
+    response = test_microvm.actions.put(action_type='InstanceStart')
+    if get_cpu_vendor() != CpuVendor.INTEL:
+        # We shouldn't be able to apply Intel templates on AMD hosts
+        assert test_microvm.api_session.is_status_bad_request(
+            response.status_code)
+        return
+
+    assert test_microvm.api_session.is_status_no_content(
+            response.status_code)
 
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     guest_cmd = "cat /proc/cpuinfo | grep 'flags' | head -1"

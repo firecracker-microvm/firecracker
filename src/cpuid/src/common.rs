@@ -8,15 +8,21 @@ use std::arch::x86_64::{CpuidResult, __cpuid_count, __get_cpuid_max};
 
 use crate::cpu_leaf::*;
 
+/// Intel brand string.
 pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
+/// AMD brand string.
 pub const VENDOR_ID_AMD: &[u8; 12] = b"AuthenticAMD";
 
+/// cpuid related error.
 #[derive(Clone, Debug)]
 pub enum Error {
+    /// The function was called with invalid parameters.
     InvalidParameters(String),
+    /// Function not supported on the current architecture.
     NotSupported,
 }
 
+/// Extract entry from the cpuid.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
     // TODO: replace with validation based on `has_cpuid()` when it becomes stable:

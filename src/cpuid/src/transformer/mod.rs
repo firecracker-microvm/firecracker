@@ -60,6 +60,8 @@ pub enum Error {
     FamError(utils::fam::Error),
     /// A call to an internal helper method failed
     InternalError(super::common::Error),
+    /// The operation is not permitted for the current vendor
+    InvalidVendor,
     /// The maximum number of addressable logical CPUs cannot be stored in an `u8`.
     VcpuCountOverflow,
 }

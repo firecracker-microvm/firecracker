@@ -48,9 +48,9 @@ MMDS_IPV4_ADDR=169.254.170.2
 curl --unix-socket /tmp/firecracker.socket -i \
     -X PUT "http://localhost/mmds/config"     \
     -H "Content-Type: application/json"       \
-    -d "{
+    -d '{
              "ipv4_address": "${MMDS_IPV4_ADDR}"
-    }"
+    }'
 ```
 
 MMDS is tightly coupled with a network interface which is used to route MMDS
@@ -86,7 +86,7 @@ API can be found in the
 curl --unix-socket /tmp/firecracker.socket -i \
     -X PUT "http://localhost/mmds"            \
     -H "Content-Type: application/json"       \
-    -d "{
+    -d '{
             "latest": {
                   "meta-data": {
                        "ami-id": "ami-12345678",
@@ -106,7 +106,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
                        }
                   }
             }
-    }"
+    }'
 ```
 
 To partially update existing metadata, an HTTP `PATCH` request to the `/mmds`
@@ -121,14 +121,14 @@ found in the [firecracker swagger file](../../src/api_server/swagger/firecracker
 curl --unix-socket /tmp/firecracker.socket -i \
     -X PATCH "http://localhost/mmds"          \
     -H "Content-Type: application/json"       \
-    -d "{
+    -d '{
             "latest": {
                   "meta-data": {
                        "ami-id": "ami-87654321",
                        "reservation-id": "r-79054aef",
                   }
             }
-    }"
+    }'
 ```
 
 # Retrieving metadata

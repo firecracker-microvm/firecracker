@@ -10,7 +10,9 @@ import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
+from framework.microvms import VMMicro
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.utils import CpuVendor, get_cpu_vendor
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
 
@@ -38,6 +40,9 @@ CREATE_LATENCY_BASELINES = {
 LOAD_LATENCY_BASELINES = {
     '2vcpu_256mb.json': 8,
     '2vcpu_512mb.json': 8,
+    # We are also tracking restore from older version latency.
+    # Snapshot properties: 2vCPU, 512MB RAM, 1 disk, 1 network iface.
+    '0.23.0': 80,
 }
 
 
@@ -123,17 +128,6 @@ kernel {}, disk {} """.format(snapshot_type,
                               config=context.microvm,
                               enable_diff_snapshots=enable_diff_snapshots)
 
-    host_ip = None
-    guest_ip = None
-    netmask_len = None
-    network_config = net_tools.UniqueIPv4Generator.instance()
-    _, host_ip, guest_ip = basevm.ssh_network_config(network_config,
-                                                     iface_id='1',
-                                                     tapname="tap0")
-    logger.debug("Host IP: {}, Guest IP: {}".format(host_ip, guest_ip))
-
-    # # We will need netmask_len in build_from_snapshot() call later.
-    netmask_len = network_config.get_netmask_len()
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
@@ -154,9 +148,6 @@ kernel {}, disk {} """.format(snapshot_type,
     for i in range(SAMPLE_COUNT):
         microvm, metrics_fifo = vm_builder.build_from_snapshot(
                                                 snapshot,
-                                                host_ip,
-                                                guest_ip,
-                                                netmask_len,
                                                 True,
                                                 enable_diff_snapshots)
 
@@ -179,7 +170,6 @@ kernel {}, disk {} """.format(snapshot_type,
 
         baseline = LOAD_LATENCY_BASELINES[context.microvm.name()]
         logger.info("Latency {}/{}: {} ms".format(i + 1, SAMPLE_COUNT, value))
-        value = value / USEC_IN_MSEC
         assert baseline > value, "LoadSnapshot latency degraded."
 
         microvm.kill()
@@ -225,7 +215,7 @@ def test_snapshot_create_latency(network_config,
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    platform.machine() != "x86_64" or get_cpu_vendor() == CpuVendor.AMD,
     reason="Not supported yet."
 )
 def test_snapshot_resume_latency(network_config,
@@ -263,3 +253,76 @@ def test_snapshot_resume_latency(network_config,
                              ])
 
     test_matrix.run_test(_test_snapshot_resume_latency)
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64" or get_cpu_vendor() == CpuVendor.AMD,
+    reason="Not supported yet."
+)
+def test_older_snapshot_resume_latency(bin_cloner_path):
+    """Test scenario: Older snapshot load performance measurement."""
+    logger = logging.getLogger("old_snapshot_load")
+
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    # Fetch all firecracker binaries.
+    # With each binary create a snapshot and try to restore in current
+    # version.
+    firecracker_artifacts = artifacts.firecrackers()
+    for firecracker in firecracker_artifacts:
+        firecracker.download()
+        jailer = firecracker.jailer()
+        jailer.download()
+        fc_version = firecracker.base_name()[1:]
+        logger.info("Firecracker version: %s", fc_version)
+        logger.info("Source Firecracker: %s", firecracker.local_path())
+        logger.info("Source Jailer: %s", jailer.local_path())
+
+        for i in range(SAMPLE_COUNT):
+            # Create a fresh microvm with the binary artifacts.
+            vm_instance = VMMicro.spawn(bin_cloner_path, True,
+                                        firecracker.local_path(),
+                                        jailer.local_path())
+            # Attempt to connect to the fresh microvm.
+            ssh_connection = net_tools.SSHConnection(vm_instance.vm.ssh_config)
+
+            exit_code, _, _ = ssh_connection.execute_command("sync")
+            assert exit_code == 0
+
+            # Create a snapshot builder from a microvm.
+            snapshot_builder = SnapshotBuilder(vm_instance.vm)
+
+            # The snapshot builder expects disks as paths, not artifacts.
+            disks = []
+            for disk in vm_instance.disks:
+                disks.append(disk.local_path())
+
+            snapshot_builder = SnapshotBuilder(vm_instance.vm)
+            snapshot = snapshot_builder.create(disks,
+                                               vm_instance.ssh_key,
+                                               SnapshotType.FULL)
+
+            vm_instance.vm.kill()
+            builder = MicrovmBuilder(bin_cloner_path)
+            microvm, metrics_fifo = builder.build_from_snapshot(snapshot,
+                                                                True,
+                                                                False)
+            # Attempt to connect to resumed microvm.
+            ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+            # Check if guest still runs commands.
+            exit_code, _, _ = ssh_connection.execute_command("dmesg")
+            assert exit_code == 0
+
+            value = 0
+            # Parse all metric data points in search of load_snapshot time.
+            metrics = microvm.get_all_metrics(metrics_fifo)
+            for data_point in metrics:
+                metrics = json.loads(data_point)
+                cur_value = metrics['latencies_us']['load_snapshot']
+                if cur_value > 0:
+                    value = cur_value / USEC_IN_MSEC
+                    break
+
+            baseline = LOAD_LATENCY_BASELINES[fc_version]
+            logger.info("Latency %s/%s: %s ms", i + 1, SAMPLE_COUNT, value)
+            assert baseline > value, "LoadSnapshot latency degraded."
+            microvm.kill()

@@ -5,9 +5,8 @@
 import os
 import shutil
 import stat
-
+from pathlib import Path
 from retry.api import retry_call
-
 import framework.utils as utils
 from framework.defs import FC_BINARY_NAME
 
@@ -40,7 +39,7 @@ class JailerContext:
             self,
             jailer_id,
             exec_file,
-            numa_node=0,
+            numa_node=None,
             uid=1234,
             gid=1234,
             chroot_base=DEFAULT_CHROOT_PATH,
@@ -123,7 +122,7 @@ class JailerContext:
         return os.path.join(
             self.chroot_base if self.chroot_base is not None
             else DEFAULT_CHROOT_PATH,
-            FC_BINARY_NAME,
+            Path(self.exec_file).name,
             self.jailer_id
         )
 

@@ -1,5 +1,6 @@
 [workspace]
 members = ["src/firecracker", "src/jailer"]
+default-members = ["src/firecracker"]
 
 [profile.dev]
 panic = "abort"
