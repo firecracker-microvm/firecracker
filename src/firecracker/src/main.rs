@@ -11,6 +11,7 @@ use std::process;
 use std::sync::{Arc, Mutex};
 
 use logger::{error, info, Metric, LOGGER, METRICS};
+use mmds::MMDS;
 use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
 use utils::arg_parser::{ArgParser, Argument};
@@ -136,6 +137,11 @@ fn main() {
             Argument::new("boot-timer")
                 .takes_value(false)
                 .help("Whether or not to load boot timer device for logging elapsed time since InstanceStart command.")
+        )
+        .arg(
+            Argument::new("metadata")
+                .takes_value(true)
+                .help("Path to a file that contains the microVM configuration in JSON format."),
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {
@@ -220,6 +226,20 @@ fn main() {
 
     let boot_timer_enabled = arguments.value_as_bool("boot-timer").unwrap_or(false);
     let api_enabled = !arguments.value_as_bool("no-api").unwrap_or(false);
+
+    let metadata_json = arguments
+        .value_as_string("metadata")
+        .map(fs::read_to_string)
+        .map(|x| x.expect("Unable to open or read from the metadata file"));
+    if let Some(data) = metadata_json {
+        MMDS.lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .put_data(
+                serde_json::from_slice(data.as_bytes())
+                    .expect("MMDS Error: metadata provided is not a valid JSON"),
+            )
+            .expect("Data store initialization from file failed.");
+    }
 
     if api_enabled {
         let bind_path = arguments
