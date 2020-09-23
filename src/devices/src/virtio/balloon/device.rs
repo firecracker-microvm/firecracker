@@ -14,7 +14,9 @@ use ::timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use ::logger::{error, Metric, METRICS};
 use ::utils::eventfd::EventFd;
 use ::virtio_gen::virtio_blk::*;
-use ::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
+use ::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap, GuestMemory};
+
+use std::ops::Deref;
 
 use super::*;
 use super::{
@@ -289,6 +291,13 @@ impl Balloon {
             };
         }
 
+        let _ret = unsafe {
+            let _: std::result::Result<(), ()> = mem.with_regions(|_, region| {
+                libc::madvise(region.deref().as_ptr() as *mut libc::c_void, region.deref().size(), libc::MADV_HUGEPAGE);
+                Ok(())
+            });
+        };
+
         Ok(())
     }
 
@@ -305,6 +314,13 @@ impl Balloon {
                 .map_err(BalloonError::Queue)?;
             needs_interrupt = true;
         }
+
+        let _ret = unsafe {
+            let _: std::result::Result<(), ()> = mem.with_regions(|_, region| {
+                libc::madvise(region.deref().as_ptr() as *mut libc::c_void, region.deref().size(), libc::MADV_HUGEPAGE);
+                Ok(())
+            });
+        };
 
         if needs_interrupt {
             self.signal_used_queue()
