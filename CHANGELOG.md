@@ -34,6 +34,8 @@
   run.
 - Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
   run.
+- Added command line parameter `--metadata` which initializes the data store
+  using the file specified after the parameter.
 
 ### Fixed
 

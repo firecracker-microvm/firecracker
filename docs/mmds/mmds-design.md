@@ -9,9 +9,11 @@ last is a part of the device model.
 ## The MMDS backend
 
 Users can add/update the MMDS contents via the backend, which is accessible
-through the Firecracker API. Setting the initial contents involves a `PUT`
-request to the `/mmds` API resource, with a JSON body that describes the
-desired data store structure and contents. Here's a JSON example:
+through the Firecracker API. Setting the initial contents involves either a
+`PUT` request to the `/mmds` API resource with a JSON body that describes
+the desired data store structure and contents, or puttin the same resource in
+a JSON file and passing it as a command line argument with the `--metadata`
+parameter. Here's a JSON example:
 
 ```json
 {
