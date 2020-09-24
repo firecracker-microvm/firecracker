@@ -3,14 +3,33 @@
 """Tests that verify MMDS related functionality."""
 
 import json
+import os
 import random
 import string
+
+import pytest
+
 import host_tools.network as net_tools
 
 
 def _assert_out(stdout, stderr, expected):
     assert stderr.read() == ''
     assert stdout.read() == expected
+
+
+def _metadata_json(test_microvm, metadata_file):
+    """Configure a microvm with metadata from the command line."""
+    metadata_path = os.path.join(
+        test_microvm.path,
+        os.path.basename(metadata_file)
+    )
+    with open(metadata_file) as f1:
+        with open(metadata_path, "w") as f2:
+            for line in f1:
+                f2.write(line)
+    test_microvm.create_jailed_resource(metadata_path, create_jail=True)
+    test_microvm.jailer.extra_args = {'metadata': os.path.basename(
+        metadata_file)}
 
 
 def test_custom_ipv4(test_microvm_with_ssh, network_config):
@@ -340,6 +359,51 @@ def test_larger_than_mss_payloads(test_microvm_with_ssh, network_config):
     cmd = pre + 'lower_than_mss'
     _, stdout, stderr = ssh_connection.execute_command(cmd)
     _assert_out(stdout, stderr, lower_than_mss)
+
+
+@pytest.mark.parametrize(
+    "metadata_file",
+    ["framework/metadata.json"]
+)
+def test_cmd_line_metadata(test_microvm_with_ssh, metadata_file):
+    """Test the API and guest facing features of the Micro MetaData Service."""
+    test_microvm = test_microvm_with_ssh
+    _metadata_json(test_microvm, metadata_file)
+    test_microvm.spawn()
+
+    # The MMDS stores the metadata file at this point.
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {
+        'command-line': 'json'
+    }
+
+    # Test that patch doesn't return NotInitialized when using a metadata file.
+    dummy_json = {
+        'command-line': 'another-json'
+    }
+    response = test_microvm.mmds.patch(json=dummy_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == dummy_json
+
+    # Test that put requests work as expected.
+    dummy_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'dummy'
+            }
+        }
+    }
+
+    response = test_microvm.mmds.put(json=dummy_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == dummy_json
 
 
 def test_mmds_dummy(test_microvm_with_ssh):
