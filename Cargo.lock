@@ -34,7 +34,7 @@ dependencies = [
  "kvm-ioctls 0.5.0 (git+https://github.com/firecracker-microvm/kvm-ioctls?tag=v0.5.0-2)",
  "libc 0.2.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "utils 0.1.0",
- "vm-memory 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vm-memory 0.1.0",
 ]
 
 [[package]]
@@ -258,7 +258,7 @@ dependencies = [
  "versionize 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "versionize_derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "virtio_gen 0.1.0",
- "vm-memory 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vm-memory 0.1.0",
 ]
 
 [[package]]
@@ -364,7 +364,7 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "utils 0.1.0",
- "vm-memory 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vm-memory 0.1.0",
 ]
 
 [[package]]

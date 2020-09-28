@@ -9,9 +9,14 @@
 //! and re-exports symbols for consumption.
 //! This crate implements a custom vm-memory backend implementation that overrides the
 //! upstream implementation and adds dirty page tracking functionality.
-mod bitmap;
-mod mmap;
+pub mod bitmap;
+pub mod mmap;
 
+// Export local backend implementation.
 pub use mmap::{GuestMemoryMmap, GuestRegionMmap};
-// TODO: re-export things from upstream so we don't need to import both this crate and the real
-// vm-memory locally and consume the wrong `GuestMemoryMmap`.
+
+// Re-export only what is needed in Firecracker.
+pub use vm_memory_upstream::{
+    address, Address, ByteValued, Bytes, Error, FileOffset, GuestAddress, GuestMemory,
+    GuestMemoryError, GuestMemoryRegion, MemoryRegionAddress, MmapRegion,
+};
