@@ -9,6 +9,7 @@
 //! and re-exports symbols for consumption.
 //! This crate implements a custom vm-memory backend implementation that overrides the
 //! upstream implementation and adds dirty page tracking functionality.
+mod bitmap;
 mod mmap;
 
 pub use mmap::{GuestMemoryMmap, GuestRegionMmap};
