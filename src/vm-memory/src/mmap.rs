@@ -26,17 +26,11 @@ use vm_memory_upstream::guest_memory::{
 use vm_memory_upstream::volatile_memory::{VolatileMemory, VolatileSlice};
 use vm_memory_upstream::{AtomicAccess, ByteValued, Bytes};
 
-#[cfg(unix)]
 pub use vm_memory_upstream::mmap::{MmapRegion, MmapRegionError};
 
 // Here are some things that originate in this module, and we can continue to use the upstream
 // definitions/implementations.
 pub use vm_memory_upstream::mmap::{check_file_offset, Error};
-
-#[cfg(windows)]
-pub use crate::mmap_windows::MmapRegion;
-#[cfg(windows)]
-pub use std::io::Error as MmapRegionError;
 
 /// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) implementation that mmaps the guest's
 /// memory region in the current process.
@@ -226,14 +220,27 @@ impl GuestMemoryRegion for GuestRegionMmap {
         self.mapping.file_offset()
     }
 
+    // TODO: This implementation is temporary.
+    // We need to return None here once we refactor vsock.
     unsafe fn as_slice(&self) -> Option<&[u8]> {
-        // We don't use this functionality.
-        None
+        // This is safe because we mapped the area at addr ourselves, so this slice will not
+        // overflow. However, it is possible to alias.
+        Some(std::slice::from_raw_parts(
+            self.mapping.as_ptr(),
+            self.mapping.size(),
+        ))
     }
 
+    // TODO: This implementation is temporary.
+    // We need to return None here once we refactor vsock.
+    #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
-        // We don't use this functionality.
-        None
+        // This is safe because we mapped the area at addr ourselves, so this slice will not
+        // overflow. However, it is possible to alias.
+        Some(std::slice::from_raw_parts_mut(
+            self.mapping.as_ptr(),
+            self.mapping.size(),
+        ))
     }
 
     fn get_host_address(&self, addr: MemoryRegionAddress) -> guest_memory::Result<*mut u8> {
@@ -244,20 +251,19 @@ impl GuestMemoryRegion for GuestRegionMmap {
             .map(|addr| self.as_ptr().wrapping_offset(addr.raw_value() as isize))
     }
 
+    // TODO: This implementation is temporary.
+    // We need to return None here once we refactor vsock.
     fn get_slice(
         &self,
-        _offset: MemoryRegionAddress,
-        _count: usize,
+        offset: MemoryRegionAddress,
+        count: usize,
     ) -> guest_memory::Result<VolatileSlice> {
-        // We are not making use of `VolatileSlice`s outside of the local `Bytes` implementation
-        // for `GuestMemoryMmap` until the `vm-memory` interface stabilizes. This method is part
-        // of the current public `vm-memory` interface, and has to be implemented, so we just
-        // return an error.
-        Err(guest_memory::Error::HostAddressNotAvailable)
+        let slice = self.mapping.get_slice(offset.raw_value() as usize, count)?;
+        Ok(slice)
     }
 
     fn as_volatile_slice(&self) -> guest_memory::Result<VolatileSlice> {
-        // Return an error here for the same reasons as above.
+        // We do not use this.
         Err(guest_memory::Error::HostAddressNotAvailable)
     }
 }
@@ -1194,18 +1200,5 @@ mod tests {
 
         assert_eq!(gm.regions[0].start_addr(), GuestAddress(0x0000));
         assert_eq!(region.start_addr(), GuestAddress(0x10_0000));
-    }
-
-    #[test]
-    fn test_volatile_slice_is_err() {
-        // Verify that we are returning errors when `VolatileSlice`s are requested through the
-        // public interface methods for now.
-
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        assert!(mem.get_slice(GuestAddress(0), 1).is_err());
-
-        let region = mem.find_region(GuestAddress(0)).unwrap();
-        assert!(region.get_slice(MemoryRegionAddress(0), 1).is_err());
-        assert!(region.as_volatile_slice().is_err());
     }
 }
