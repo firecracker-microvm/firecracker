@@ -20,6 +20,8 @@ use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemo
 // Add here any other architecture that uses as kernel image an ELF file.
 mod elf;
 
+pub use elf::{Elf64_Phdr, PT_LOAD};
+
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 unsafe impl ByteValued for elf::Elf64_Ehdr {}
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -424,4 +426,30 @@ mod tests {
         let val: u8 = gm.read_obj(cmdline_address).unwrap();
         assert_eq!(val, b'\0');
     }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn extract_phdrs<F>(kernel_image: &mut F) -> Result<Vec<elf::Elf64_Phdr>>
+    where F: Read + Seek,
+{
+    let mut ehdr: elf::Elf64_Ehdr = Default::default();
+    kernel_image
+        .seek(SeekFrom::Start(0))
+        .map_err(|_| Error::SeekKernelImage)?;
+    unsafe {
+        // read_struct is safe when reading a POD struct.  It can be used and dropped without issue.
+        read_struct(kernel_image, &mut ehdr)
+            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF header"))?;
+    }
+
+    kernel_image
+        .seek(SeekFrom::Start(ehdr.e_phoff))
+        .map_err(|_| Error::SeekProgramHeader)?;
+    let phdrs: Vec<elf::Elf64_Phdr> = unsafe {
+        // Reading the structs is safe for a slice of POD structs.
+        utils::structs::read_struct_slice(kernel_image, ehdr.e_phnum as usize)
+            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF program header"))?
+    };
+
+    Ok(phdrs)
 }
