@@ -62,6 +62,8 @@ pub enum Error {
     VcpuTlsInit,
     /// Vcpu not present in TLS.
     VcpuTlsNotPresent,
+    /// An error occurred on the GDB server side
+    GDBServer(String),
 }
 
 impl Display for Error {
@@ -76,6 +78,7 @@ impl Display for Error {
             VcpuSpawn(e) => write!(f, "Cannot spawn a new vCPU thread: {}", e),
             VcpuTlsInit => write!(f, "Cannot clean init vcpu TLS"),
             VcpuTlsNotPresent => write!(f, "Vcpu not present in TLS"),
+            GDBServer(ref e) => write!(f, "GDB server session terminated due to error: {}", e),
         }
     }
 }
@@ -518,8 +521,9 @@ impl Vcpu {
                     let special_regs = self.kvm_vcpu.fd.get_sregs().unwrap();
                     // For now we don't differentiate between a kvm exit caused
                     // by a breakpoint and one caused by single-stepping
-                    self.dbg_event_sender.send(DebugEvent::PRINT_PTs(special_regs.cr3))
-                        .expect("Failed notifying GDB server");
+                    if self.dbg_event_sender.send(DebugEvent::NOTIFY).is_err() {
+                        return Err(Error::GDBServer(format!("Invalid state")));
+                    }
                     loop {
                         match self.dbg_response_receiver.recv() {
                             Ok(DebugEvent::GET_REGS) => {
@@ -527,23 +531,24 @@ impl Vcpu {
                                     FullVcpuState { regular_regs, special_regs, })).unwrap();
                                 continue;
                             }
-                            Ok(DebugEvent::BREAKPOINT) => {
-                                continue;
-                            }
                             Ok(DebugEvent::CONTINUE(single_step_en)) => {
                                 if single_step_en {
-                                    gdb_server::Debugger::enable_kvm_debug(&self.kvm_vcpu.fd, false);
+                                    if let Err(err) = gdb_server::Debugger::enable_kvm_debug(&self.kvm_vcpu.fd, false) {
+                                        return Err(Error::GDBServer(format!("Ioctl call failed: {}", err)));
+                                    }
                                 }
                                 break;
                             }
                             Ok(DebugEvent::STEP_INTO(single_step_en)) => {
                                 if !single_step_en {
-                                    gdb_server::Debugger::enable_kvm_debug(&self.kvm_vcpu.fd, true);
+                                    if let Err(err) = gdb_server::Debugger::enable_kvm_debug(&self.kvm_vcpu.fd, true) {
+                                        return Err(Error::GDBServer(format!("Ioctl call failed: {}", err)));
+                                    }
                                 }
                                 break;
                             }
-                            Ok(_) => println!("No handle available for this type of packet"),
-                            Err(_) => println!("Error while waiting for sth/someone to come"),
+                            Ok(_) => return Err(Error::GDBServer(format!("Invalid state"))),
+                            Err(_) => return Err(Error::GDBServer(format!("Communication terminated"))),
                         }
                     }
 
