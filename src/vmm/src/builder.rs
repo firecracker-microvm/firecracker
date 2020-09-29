@@ -81,6 +81,8 @@ pub enum StartMicrovmError {
     #[cfg(target_arch = "x86_64")]
     /// Cannot restore microvm state.
     RestoreMicrovmState(MicrovmStateError),
+    /// The GDB server thread terminated abruptly
+    GDBServer,
 }
 
 /// It's convenient to automatically convert `kernel::cmdline::Error`s
@@ -160,6 +162,7 @@ impl Display for StartMicrovmError {
             }
             #[cfg(target_arch = "x86_64")]
             RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
+            GDBServer => write!(f, "GDB session ended due to an error"),
         }
     }
 }
@@ -297,7 +300,7 @@ pub fn build_microvm_for_boot(
     )?;
     let vcpu_config = vm_resources.vcpu_config();
     let track_dirty_pages = vm_resources.track_dirty_pages();
-    let entry_addr = load_kernel(boot_config, &guest_memory)?;
+    let (entry_addr, e_phdrs) = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -347,7 +350,10 @@ pub fn build_microvm_for_boot(
 
     let dbg_event_receiver = vcpus[0].dbg_event_receiver.take().unwrap();
     let dbg_event_sender = vcpus[0].dbg_response_sender.take().unwrap();
-    vmm_run_gdb_server(vmm.guest_memory().clone(), dbg_event_receiver, dbg_event_sender, &vcpus);
+    if let Err(err) = vmm_run_gdb_server(vmm.guest_memory().clone(), dbg_event_receiver, dbg_event_sender,
+         e_phdrs, entry_addr, &vcpus) {
+            return Err(err);
+        }
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(vcpus, seccomp_filter).map_err(Internal)?;
@@ -449,7 +455,7 @@ pub fn create_guest_memory(
 fn load_kernel(
     boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
-) -> std::result::Result<GuestAddress, StartMicrovmError> {
+) -> std::result::Result<(GuestAddress, Vec<kernel::loader::Elf64_Phdr>), StartMicrovmError> {
     let mut kernel_file = boot_config
         .kernel_file
         .try_clone()
@@ -459,7 +465,9 @@ fn load_kernel(
         kernel::loader::load_kernel(guest_memory, &mut kernel_file, arch::get_kernel_start())
             .map_err(StartMicrovmError::KernelLoader)?;
 
-    Ok(entry_addr)
+    let phdrs = kernel::loader::extract_phdrs(&mut kernel_file).unwrap();
+
+    Ok((entry_addr, phdrs))
 }
 
 fn load_initrd_from_config(
@@ -785,16 +793,29 @@ fn attach_unixsock_vsock_device(
 }
 
 fn vmm_run_gdb_server<'a>(vmm_mem: GuestMemoryMmap, receiver: Receiver<gdb_server::DebugEvent>,
-                        sender: Sender<gdb_server::DebugEvent>, vcpus: &Vec<Vcpu>) {
+                        sender: Sender<gdb_server::DebugEvent>, e_phdrs: Vec<kernel::loader::Elf64_Phdr>,
+                        entry_point: GuestAddress, vcpus: &Vec<Vcpu>) -> Result<(), StartMicrovmError>{
     // For now we assume there's one vcpu only
-    gdb_server::Debugger::enable_kvm_debug(&vcpus[0].kvm_vcpu.fd, false);
+    if gdb_server::Debugger::enable_kvm_debug(&vcpus[0].kvm_vcpu.fd, false).is_err() {
+        return Err(StartMicrovmError::GDBServer);
+    }
     let join_handle = thread::Builder::new()
-        .spawn(move || {
-        gdb_server::run_gdb_server(vmm_mem,
-             receiver, sender).unwrap();
+        .spawn(move || -> Result<(), StartMicrovmError>{
+        if gdb_server::run_gdb_server(vmm_mem, entry_point, e_phdrs,
+             receiver, sender).is_err() {
+                return Err(StartMicrovmError::GDBServer);
+            }
+        Ok(())
     });
+    if join_handle.is_err() {
+        return Err(StartMicrovmError::GDBServer);
+    }
     // Block until the GDB server is ready to handle vcpus execution
-    vcpus[0].dbg_response_receiver.recv().expect("Error receiving notification from GDB server");
+    if vcpus[0].dbg_response_receiver.recv().is_err() {
+        return Err(StartMicrovmError::GDBServer);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
