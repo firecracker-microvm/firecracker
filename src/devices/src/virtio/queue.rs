@@ -288,6 +288,9 @@ impl Queue {
             return None;
         }
 
+        // This fence ensures all subsequent reads see the updated driver writes.
+        fence(Ordering::Acquire);
+
         // We'll need to find the first available descriptor, that we haven't yet popped.
         // In a naive notation, that would be:
         // `descriptor_table[avail_ring[next_avail]]`.
