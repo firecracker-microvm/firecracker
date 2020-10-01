@@ -242,9 +242,6 @@ a VM on Microsoft Azure (VirtulMachine), which supports nested virtualization
 and allows to run KVM. If you don't have a Microsoft (Azure) account, you can 
 find brief instructions in [document](https://azure.microsoft.com/en-us/get-started/).
 
-Azure CLI infomation in 
-[documentation](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest)
-
 Here is a brief summary of steps to create such a setup (full instructions to
 set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in Azure
 [documentation](https://azure.microsoft.com/en-us/blog/nested-virtualization-in-azure/)
@@ -253,19 +250,6 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in Azure
      fllow the commands bellow , Open the LINK and paste the code, get information.
      ```
      $ az login 
-     To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code XXXXXXXXXX to authenticate.
-     
-     
-     The following tenants don't contain accessible subscriptions. Use 'az login --allow-no-subscriptions' to have tenant level access.
-     2xxxxx-xxzz-xxxx-xxxxx-xxxxxxxxxx
-     [
-        {
-           "cloudName": "AzureCloud",
-           "homeTenantId": "<Your TenantID>
-           ....
-           ....
-        }
-      ]
      ```
   1. SET a Azure/VirtulMachines options , Notice: nested support VM SIZE!
      ```
