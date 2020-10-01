@@ -26,6 +26,10 @@ use vm_memory_upstream::guest_memory::{
 use vm_memory_upstream::volatile_memory::{VolatileMemory, VolatileSlice};
 use vm_memory_upstream::{AtomicAccess, ByteValued, Bytes};
 
+use vmm_sys_util::errno;
+
+use crate::bitmap::Bitmap;
+
 pub use vm_memory_upstream::mmap::{MmapRegion, MmapRegionError};
 
 // Here are some things that originate in this module, and we can continue to use the upstream
@@ -41,6 +45,8 @@ pub use vm_memory_upstream::mmap::{check_file_offset, Error};
 pub struct GuestRegionMmap {
     mapping: MmapRegion,
     guest_base: GuestAddress,
+    // handles dirty page tracking
+    dirty_bitmap: Option<Bitmap>,
 }
 
 impl GuestRegionMmap {
@@ -52,7 +58,34 @@ impl GuestRegionMmap {
         Ok(GuestRegionMmap {
             mapping,
             guest_base,
+            dirty_bitmap: None,
         })
+    }
+
+    /// Provide the region with a dedicated bitmap to handle dirty page tracking.
+    pub fn enable_dirty_page_tracking(&mut self) {
+        let page_size = match unsafe { libc::sysconf(libc::_SC_PAGESIZE) } {
+            -1 => panic!(
+                "Failed to enable dirty page tracking: {}",
+                errno::Error::last()
+            ),
+            ps => ps as usize,
+        };
+        if self.dirty_bitmap.is_none() {
+            self.dirty_bitmap = Some(Bitmap::new(self.len() as usize, page_size));
+        }
+    }
+
+    /// Get the dirty page bitmap representative for this memory region (if any).
+    pub fn dirty_bitmap(&self) -> Option<&Bitmap> {
+        self.dirty_bitmap.as_ref()
+    }
+
+    /// Mark pages dirty starting from 'start_addr' and continuing for 'len' bytes.
+    pub fn mark_dirty_pages(&self, start_addr: usize, len: usize) {
+        if let Some(bitmap) = self.dirty_bitmap() {
+            bitmap.set_addr_range(start_addr, len);
+        }
     }
 
     // This is exclusively used for the local `Bytes` implementation.
@@ -468,6 +501,26 @@ mod tests {
     fn basic_map() {
         let m = MmapRegion::new(1024).unwrap();
         assert_eq!(1024, m.len());
+    }
+
+    #[test]
+    fn test_guest_region_mmap() {
+        let mut mmap =
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap();
+        assert!(mmap.dirty_bitmap().is_none());
+
+        mmap.enable_dirty_page_tracking();
+        assert!(mmap.dirty_bitmap().is_some());
+
+        mmap.mark_dirty_pages(128, 129);
+        let bitmap = mmap.dirty_bitmap().unwrap();
+        assert!(bitmap.is_addr_set(128));
+        assert!(!bitmap.is_addr_set(4097));
+
+        // check that enabling dirty page tracking multiple times
+        // does not override the bitmap
+        mmap.enable_dirty_page_tracking();
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(128));
     }
 
     fn check_guest_memory_mmap(
