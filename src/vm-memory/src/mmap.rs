@@ -322,14 +322,32 @@ impl GuestMemoryMmap {
     ///
     /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
     pub fn from_ranges(ranges: &[(GuestAddress, usize)]) -> result::Result<Self, Error> {
-        Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)))
+        Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)), false)
+    }
+
+    /// Creates a container, allocates anonymous memory for guest memory regions and enables dirty
+    /// page tracking.
+    ///
+    /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address.
+    pub fn from_ranges_with_tracking(
+        ranges: &[(GuestAddress, usize)],
+    ) -> result::Result<Self, Error> {
+        Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)), true)
     }
 
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
-    /// Valid memory regions are specified as a sequence of (Address, Size, Option<FileOffset>)
-    /// tuples sorted by Address.
-    pub fn from_ranges_with_files<A, T>(ranges: T) -> result::Result<Self, Error>
+    /// # Arguments
+    ///
+    /// * 'ranges' - Iterator over a sequence of (Address, Size, Option<FileOffset>)
+    ///              tuples sorted by Address.
+    /// * 'track_dirty_pages' - Whether or not dirty page tracking is enabled.
+    ///                         If set, it creates a dedicated bitmap for tracing memory writes
+    ///                         specific to every region.
+    pub fn from_ranges_with_files<A, T>(
+        ranges: T,
+        track_dirty_pages: bool,
+    ) -> result::Result<Self, Error>
     where
         A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
         T: IntoIterator<Item = A>,
@@ -347,7 +365,13 @@ impl GuestMemoryMmap {
                         MmapRegion::new(size)
                     }
                     .map_err(Error::MmapRegion)
-                    .and_then(|r| GuestRegionMmap::new(r, guest_base))
+                    .and_then(|r| {
+                        let mut mmap = GuestRegionMmap::new(r, guest_base)?;
+                        if track_dirty_pages {
+                            mmap.enable_dirty_page_tracking();
+                        }
+                        Ok(mmap)
+                    })
                 })
                 .collect::<result::Result<Vec<_>, Error>>()?,
         )
@@ -400,13 +424,20 @@ impl GuestMemoryMmap {
     /// Insert a region into the `GuestMemoryMmap` object and return a new `GuestMemoryMmap`.
     ///
     /// # Arguments
-    /// * `region`: the memory region to insert into the guest memory object.
+    /// * `region` - the memory region to insert into the guest memory object.
     pub fn insert_region(
         &self,
-        region: Arc<GuestRegionMmap>,
+        mut region: GuestRegionMmap,
     ) -> result::Result<GuestMemoryMmap, Error> {
+        let dirty_page_tracking = self.is_dirty_tracking_enabled();
+        if dirty_page_tracking {
+            region.enable_dirty_page_tracking();
+        } else {
+            region.dirty_bitmap = None;
+        }
+
         let mut regions = self.regions.clone();
-        regions.push(region);
+        regions.push(Arc::new(region));
         regions.sort_by_key(|x| x.start_addr());
 
         Self::from_arc_regions(regions)
@@ -416,8 +447,8 @@ impl GuestMemoryMmap {
     /// on success, together with the removed region.
     ///
     /// # Arguments
-    /// * `base`: base address of the region to be removed
-    /// * `size`: size of the region to be removed
+    /// * `base` - base address of the region to be removed
+    /// * `size` - size of the region to be removed
     pub fn remove_region(
         &self,
         base: GuestAddress,
@@ -432,6 +463,11 @@ impl GuestMemoryMmap {
         }
 
         Err(Error::InvalidGuestRegion)
+    }
+
+    /// Return true if dirty page tracking is enabled for `GuestMemoryMmap`, and else otherwise.
+    pub fn is_dirty_tracking_enabled(&self) -> bool {
+        self.regions.iter().all(|r| r.dirty_bitmap().is_some())
     }
 }
 
@@ -599,7 +635,13 @@ mod tests {
             })
             .collect();
 
-        GuestMemoryMmap::from_ranges_with_files(&regions)
+        GuestMemoryMmap::from_ranges_with_files(&regions, false)
+    }
+
+    fn new_guest_memory_mmap_with_tracking(
+        regions_summary: &[(GuestAddress, usize)],
+    ) -> Result<GuestMemoryMmap, Error> {
+        GuestMemoryMmap::from_ranges_with_tracking(regions_summary)
     }
 
     #[test]
@@ -610,6 +652,16 @@ mod tests {
             format!(
                 "{:?}",
                 new_guest_memory_mmap(&regions_summary).err().unwrap()
+            ),
+            format!("{:?}", Error::NoMemoryRegion)
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
+                new_guest_memory_mmap_with_tracking(&regions_summary)
+                    .err()
+                    .unwrap()
             ),
             format!("{:?}", Error::NoMemoryRegion)
         );
@@ -663,6 +715,16 @@ mod tests {
         assert_eq!(
             format!(
                 "{:?}",
+                new_guest_memory_mmap_with_tracking(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::MemoryRegionOverlap)
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
                 new_guest_memory_mmap_with_files(&regions_summary)
                     .err()
                     .unwrap()
@@ -709,6 +771,16 @@ mod tests {
         assert_eq!(
             format!(
                 "{:?}",
+                new_guest_memory_mmap_with_tracking(&regions_summary)
+                    .err()
+                    .unwrap()
+            ),
+            format!("{:?}", Error::UnsortedMemoryRegions)
+        );
+
+        assert_eq!(
+            format!(
+                "{:?}",
                 new_guest_memory_mmap_with_files(&regions_summary)
                     .err()
                     .unwrap()
@@ -748,6 +820,11 @@ mod tests {
         assert_eq!(guest_mem.regions.len(), 0);
 
         check_guest_memory_mmap(new_guest_memory_mmap(&regions_summary), &regions_summary);
+
+        check_guest_memory_mmap(
+            new_guest_memory_mmap_with_tracking(&regions_summary),
+            &regions_summary,
+        );
 
         check_guest_memory_mmap(
             new_guest_memory_mmap_with_files(&regions_summary),
@@ -798,10 +875,13 @@ mod tests {
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
             GuestMemoryMmap::from_ranges(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
-            (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
-            (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
-        ])
+        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
+            &[
+                (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
+                (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
+            ],
+            false,
+        )
         .unwrap();
 
         let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
@@ -824,10 +904,13 @@ mod tests {
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
             GuestMemoryMmap::from_ranges(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
-            (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
-            (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
-        ])
+        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
+            &[
+                (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
+                (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
+            ],
+            false,
+        )
         .unwrap();
 
         let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
@@ -856,10 +939,13 @@ mod tests {
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
             GuestMemoryMmap::from_ranges(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
-            (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
-            (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
-        ])
+        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
+            &[
+                (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
+                (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
+            ],
+            false,
+        )
         .unwrap();
 
         let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
@@ -884,10 +970,13 @@ mod tests {
         let start_addr2 = GuestAddress(0x800);
         let guest_mem =
             GuestMemoryMmap::from_ranges(&[(start_addr1, 0x400), (start_addr2, 0x400)]).unwrap();
-        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
-            (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
-            (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
-        ])
+        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
+            &[
+                (start_addr1, 0x400, Some(FileOffset::new(f1, 0))),
+                (start_addr2, 0x400, Some(FileOffset::new(f2, 0))),
+            ],
+            false,
+        )
         .unwrap();
 
         let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
@@ -910,11 +999,10 @@ mod tests {
 
         let start_addr = GuestAddress(0x0);
         let guest_mem = GuestMemoryMmap::from_ranges(&[(start_addr, 0x400)]).unwrap();
-        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[(
-            start_addr,
-            0x400,
-            Some(FileOffset::new(f, 0)),
-        )])
+        let guest_mem_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
+            &[(start_addr, 0x400, Some(FileOffset::new(f, 0)))],
+            false,
+        )
         .unwrap();
 
         let guest_mem_list = vec![guest_mem, guest_mem_backed_by_file];
@@ -948,10 +1036,13 @@ mod tests {
 
         let gm =
             GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
-            (start_addr1, 0x1000, Some(FileOffset::new(f1, 0))),
-            (start_addr2, 0x1000, Some(FileOffset::new(f2, 0))),
-        ])
+        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
+            &[
+                (start_addr1, 0x1000, Some(FileOffset::new(f1, 0))),
+                (start_addr2, 0x1000, Some(FileOffset::new(f2, 0))),
+            ],
+            false,
+        )
         .unwrap();
 
         let gm_list = vec![gm, gm_backed_by_file];
@@ -987,11 +1078,10 @@ mod tests {
 
         let mut start_addr = GuestAddress(0x1000);
         let gm = GuestMemoryMmap::from_ranges(&[(start_addr, 0x400)]).unwrap();
-        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[(
-            start_addr,
-            0x400,
-            Some(FileOffset::new(f, 0)),
-        )])
+        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
+            &[(start_addr, 0x400, Some(FileOffset::new(f, 0)))],
+            false,
+        )
         .unwrap();
 
         let gm_list = vec![gm, gm_backed_by_file];
@@ -1018,11 +1108,10 @@ mod tests {
         f.set_len(0x400).unwrap();
 
         let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0x1000), 0x400)]).unwrap();
-        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[(
-            GuestAddress(0x1000),
-            0x400,
-            Some(FileOffset::new(f, 0)),
-        )])
+        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
+            &[(GuestAddress(0x1000), 0x400, Some(FileOffset::new(f, 0)))],
+            false,
+        )
         .unwrap();
 
         let gm_list = vec![gm, gm_backed_by_file];
@@ -1085,6 +1174,39 @@ mod tests {
     }
 
     #[test]
+    fn create_vec_with_dirty_tracking() {
+        let region_size = 0x400;
+        let regions = vec![
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x1000), region_size),
+        ];
+
+        // dirty page tracking is disabled
+        let gm = GuestMemoryMmap::from_ranges(&regions).unwrap();
+        let res: guest_memory::Result<()> = gm.with_regions(|_, region| {
+            assert!(region.dirty_bitmap().is_none());
+            Ok(())
+        });
+        assert!(res.is_ok());
+
+        // dirty page tracking is enabled
+        let gm = GuestMemoryMmap::from_ranges_with_tracking(&regions).unwrap();
+        let res: guest_memory::Result<()> = gm.with_regions_mut(|_, region| {
+            // this should not fail
+            let bitmap = region.dirty_bitmap().unwrap();
+            assert_eq!(region.len() as usize, region_size);
+            assert_eq!(bitmap.len(), 1);
+
+            let base_addr = region.guest_base.0 as usize;
+            bitmap.set_addr_range(base_addr, 128);
+            assert!(bitmap.is_addr_set(base_addr));
+
+            Ok(())
+        });
+        assert!(res.is_ok());
+    }
+
+    #[test]
     fn test_memory() {
         let region_size = 0x400;
         let regions = vec![
@@ -1127,10 +1249,13 @@ mod tests {
         let start_addr2 = GuestAddress(0x1000);
         let gm =
             GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
-        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(&[
-            (start_addr1, 0x1000, Some(FileOffset::new(f1, 0))),
-            (start_addr2, 0x1000, Some(FileOffset::new(f2, 0))),
-        ])
+        let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
+            &[
+                (start_addr1, 0x1000, Some(FileOffset::new(f1, 0))),
+                (start_addr2, 0x1000, Some(FileOffset::new(f2, 0))),
+            ],
+            false,
+        )
         .unwrap();
 
         let gm_list = vec![gm, gm_backed_by_file];
@@ -1154,11 +1279,10 @@ mod tests {
         let region = gm.find_region(start_addr).unwrap();
         assert!(region.file_offset().is_none());
 
-        let gm = GuestMemoryMmap::from_ranges_with_files(&[(
-            start_addr,
-            0x400,
-            Some(FileOffset::new(f, 0)),
-        )])
+        let gm = GuestMemoryMmap::from_ranges_with_files(
+            &[(start_addr, 0x400, Some(FileOffset::new(f, 0)))],
+            false,
+        )
         .unwrap();
         assert!(gm.find_region(start_addr).is_some());
         let region = gm.find_region(start_addr).unwrap();
@@ -1183,11 +1307,10 @@ mod tests {
         let region = gm.find_region(start_addr).unwrap();
         assert!(region.file_offset().is_none());
 
-        let gm = GuestMemoryMmap::from_ranges_with_files(&[(
-            start_addr,
-            0x400,
-            Some(FileOffset::new(f, offset)),
-        )])
+        let gm = GuestMemoryMmap::from_ranges_with_files(
+            &[(start_addr, 0x400, Some(FileOffset::new(f, offset)))],
+            false,
+        )
         .unwrap();
         assert!(gm.find_region(start_addr).is_some());
         let region = gm.find_region(start_addr).unwrap();
@@ -1206,21 +1329,17 @@ mod tests {
         let mem_orig = gm.memory();
         assert_eq!(mem_orig.num_regions(), 2);
 
-        let mmap = Arc::new(
-            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x8000)).unwrap(),
-        );
+        let mmap =
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x8000)).unwrap();
         let gm = gm.insert_region(mmap).unwrap();
-        let mmap = Arc::new(
-            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x4000)).unwrap(),
-        );
+        let mmap =
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0x4000)).unwrap();
         let gm = gm.insert_region(mmap).unwrap();
-        let mmap = Arc::new(
-            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap(),
-        );
+        let mmap =
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap();
         let gm = gm.insert_region(mmap).unwrap();
-        let mmap = Arc::new(
-            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap(),
-        );
+        let mmap =
+            GuestRegionMmap::new(MmapRegion::new(0x1000).unwrap(), GuestAddress(0xc000)).unwrap();
         gm.insert_region(mmap).unwrap_err();
 
         assert_eq!(mem_orig.num_regions(), 2);
@@ -1253,5 +1372,30 @@ mod tests {
 
         assert_eq!(gm.regions[0].start_addr(), GuestAddress(0x0000));
         assert_eq!(region.start_addr(), GuestAddress(0x10_0000));
+    }
+
+    #[test]
+    fn test_is_dirty_tracking_enabled() {
+        let region_size = 0x100;
+        let regions = vec![
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x100), region_size),
+            (GuestAddress(0x200), region_size),
+            (GuestAddress(0x300), region_size),
+        ];
+
+        // dirty page tracking is disabled
+        let mut gm = new_guest_memory_mmap(&regions[..2]).unwrap();
+        assert_eq!(gm.regions.len(), 2);
+        assert!(!gm.is_dirty_tracking_enabled());
+
+        // dirty page tracking is enabled
+        let mut dirty_tracking_gm = new_guest_memory_mmap_with_tracking(&regions[2..]).unwrap();
+        assert_eq!(dirty_tracking_gm.regions.len(), 2);
+        assert!(dirty_tracking_gm.is_dirty_tracking_enabled());
+
+        // dirty page tracking not enabled for all
+        gm.regions.append(&mut dirty_tracking_gm.regions);
+        assert!(!gm.is_dirty_tracking_enabled());
     }
 }
