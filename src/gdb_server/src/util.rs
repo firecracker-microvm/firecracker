@@ -14,8 +14,8 @@ const PDE_PS:   u64 = 0x00000080;
 
 const BIT_P:        u64 = 0x1;
 
-// [PML4E, PDPTE, PDE, PTE]
-const TABLE_ENTRY_RSVD_BITS: [u64;4] = [0x80, 0x0, 0x1fe000, 0x0];
+// [PML4E, PDPTE_PS0, PDPTE_PS1, PDE_PS0, PDE_PS1, PTE]
+const TABLE_ENTRY_RSVD_BITS: [u64;6] = [0x80, 0x0, 0x3fffe000, 0x0, 0x1fe000, 0x0];
 
 const TABLE_ENTRY_MASK: u64 = 0x000ffffffffff000u64;
 
@@ -144,7 +144,16 @@ impl Debugger {
             return Debugger::fixup_pointer(addr, srv);
         }
 
+        // There is one loop iteration for each level (PDPT, PDT, PT);
+        // However, the way we check for the validity of the entry
+        // changes for the first two, depending on the PS flag. Therefore,
+        // we have to either keep track of the index in the TABLE_ENTRY_RSVD_BITS
+        // array or create individual const symbols for each possible value or
+        // const symbols for each index
+        let mut rsvd_idx = 0;
         for i in 0..3 {
+            rsvd_idx = 2 * i + 1;
+
             mask >>= 9;
             movem -= 9;
             paddr = table_entry & TABLE_ENTRY_MASK;
@@ -155,10 +164,6 @@ impl Debugger {
                 return Err(DebuggerError::MemoryError);
             }
 
-            if Debugger::check_entry(table_entry, TABLE_ENTRY_RSVD_BITS[i + 1]).is_err() {
-                return Debugger::fixup_pointer(addr, srv);
-            }
-
             match i {
                 // translation to 1GB page
                 0 => {
@@ -166,6 +171,7 @@ impl Debugger {
                         // Final address
                         paddr = table_entry & 0x000fffffc0000000u64;
                         paddr += linear_addr & 0x3fffffffu64;
+                        rsvd_idx = 2 * i + 2;
                         break;
                     }
                 }
@@ -174,6 +180,7 @@ impl Debugger {
                         // Final address
                         paddr = table_entry & 0x000fffffffe00000u64;
                         paddr += linear_addr & 0x1fffff;
+                        rsvd_idx = 2 * i + 2;
                         break;
                     }
                 }
@@ -187,6 +194,12 @@ impl Debugger {
                     return Err(DebuggerError::InvalidState);
                 }
             }
+            if Debugger::check_entry(table_entry, TABLE_ENTRY_RSVD_BITS[rsvd_idx]).is_err() {
+                return Debugger::fixup_pointer(addr, srv);
+            }
+        }
+        if Debugger::check_entry(table_entry, TABLE_ENTRY_RSVD_BITS[rsvd_idx]).is_err() {
+            return Debugger::fixup_pointer(addr, srv);
         }
 
         Ok(paddr)
