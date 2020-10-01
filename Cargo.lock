@@ -457,6 +457,7 @@ version = "0.1.0"
 name = "vm-memory"
 version = "0.1.0"
 dependencies = [
+ "libc 0.2.68 (registry+https://github.com/rust-lang/crates.io-index)",
  "vm-memory 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "vmm-sys-util 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
