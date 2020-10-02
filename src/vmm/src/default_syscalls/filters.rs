@@ -55,7 +55,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     Cond::new(2, ArgLen::DWORD, Eq, super::FCNTL_FD_CLOEXEC)?,
                 ],],
             ),
-            // Used for drive patching & rescanning
+            // Used for drive patching & rescanning, for reading the local timezone
             allow_syscall(libc::SYS_fstat),
             // Used for snapshotting
             #[cfg(target_arch = "x86_64")]
@@ -96,6 +96,16 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall(libc::SYS_mremap),
             // Used for freeing memory
             allow_syscall(libc::SYS_munmap),
+            // Used for reading the timezone in LocalTime::now()
+            allow_syscall_if(
+                libc::SYS_mmap,
+                or![and![Cond::new(
+                    3,
+                    ArgLen::DWORD,
+                    Eq,
+                    libc::MAP_SHARED as u64
+                )?],],
+            ),
             #[cfg(target_arch = "x86_64")]
             allow_syscall(libc::SYS_open),
             #[cfg(target_arch = "aarch64")]
