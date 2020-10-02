@@ -162,6 +162,25 @@ class JailerContext:
             utils.run_cmd(cmd)
         return jailed_p
 
+    def copy_into_root(self, file_path, create_jail=False):
+        """Copy a file in the jail root, owned by uid:gid.
+
+        Copy a file in the jail root, creating the folder path if
+        not existent, then change their owner to uid:gid.
+        """
+        global_path = os.path.join(
+            self.chroot_path(), file_path.strip(os.path.sep))
+        if create_jail:
+            os.makedirs(self.chroot_path(), exist_ok=True)
+
+        os.makedirs(os.path.dirname(global_path), exist_ok=True)
+
+        shutil.copy(file_path, global_path)
+
+        cmd = 'chown {}:{} {}'.format(
+            self.uid, self.gid, global_path)
+        utils.run_cmd(cmd)
+
     def netns_file_path(self):
         """Get the host netns file path for a jailer context.
 

@@ -11,6 +11,7 @@ ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
 ARG CARGO_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_registry"
 ARG CARGO_GIT_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_git_registry"
+ARG DEBIAN_FRONTEND=noninteractive
 
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
@@ -47,6 +48,7 @@ RUN apt-get update \
         python3-venv    \
         zlib1g-dev \
         screen \
+        tzdata \
     && python3 -m pip install \
         setuptools \
         wheel \
