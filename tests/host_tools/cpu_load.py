@@ -18,7 +18,7 @@ class CpuLoadExceededException(Exception):
 
     def __init__(self, cpu_load_samples, threshold):
         """Compose the error message containing the cpu load details."""
-        super(CpuLoadExceededException, self).__init__(
+        super().__init__(
             'Cpu load samples {} exceeded maximum threshold {}.\n'
             .format(cpu_load_samples, threshold)
         )
