@@ -82,6 +82,10 @@ class Microvm:
         )
         self.jailer_clone_pid = None
 
+        # Copy the /etc/localtime file in the jailer root
+        self.jailer.copy_into_root(
+            "/etc/localtime", create_jail=True)
+
         # Now deal with the things specific to the api session used to
         # communicate with this machine.
         self._api_session = None
