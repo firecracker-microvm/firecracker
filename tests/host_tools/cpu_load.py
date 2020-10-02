@@ -18,7 +18,7 @@ class CpuLoadExceededException(Exception):
 
     def __init__(self, cpu_load_samples, threshold):
         """Compose the error message containing the cpu load details."""
-        super(CpuLoadExceededException, self).__init__(
+        super().__init__(
             'Cpu load samples {} exceeded maximum threshold {}.\n'
             .format(cpu_load_samples, threshold)
         )
@@ -77,8 +77,8 @@ class CpuLoadMonitor(Thread):
         clock_ticks_cmd = 'getconf CLK_TCK'
         try:
             stdout = utils.cmd_run(
-                    clock_ticks_cmd,
-                ).stdout.decode('utf-8')
+                clock_ticks_cmd,
+            ).stdout.decode('utf-8')
         except ChildProcessError:
             return
         try:
