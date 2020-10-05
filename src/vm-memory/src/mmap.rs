@@ -1195,32 +1195,20 @@ mod tests {
         let gm_list = vec![gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let addr = GuestAddress(0x1010);
-            let mut file = if cfg!(unix) {
-                File::open(Path::new("/dev/zero")).unwrap()
-            } else {
-                File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
-            };
+            let mut file = File::open(Path::new("/dev/zero")).unwrap();
 
             assert!(!gm.regions[0].dirty_bitmap().unwrap().is_bit_set(0));
             gm.write_obj(!0u32, addr).unwrap();
             gm.read_exact_from(addr, &mut file, mem::size_of::<u32>())
                 .unwrap();
             let value: u32 = gm.read_obj(addr).unwrap();
-            if cfg!(unix) {
-                assert_eq!(value, 0);
-            } else {
-                assert_eq!(value, 0x0090_5a4d);
-            }
+            assert_eq!(value, 0);
             assert!(gm.regions[0].dirty_bitmap().unwrap().is_bit_set(0));
 
             let mut sink = Vec::new();
             gm.write_all_to(addr, &mut sink, mem::size_of::<u32>())
                 .unwrap();
-            if cfg!(unix) {
-                assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
-            } else {
-                assert_eq!(sink, vec![0x4d, 0x5a, 0x90, 0x00]);
-            };
+            assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
         }
     }
 
@@ -1370,12 +1358,7 @@ mod tests {
         assert!(region.file_offset().is_some());
     }
 
-    // Windows needs a dedicated test where it will retrieve the allocation
-    // granularity to determine a proper offset (other than 0) that can be
-    // used for the backing file. Refer to Microsoft docs here:
-    // https://docs.microsoft.com/en-us/windows/desktop/api/memoryapi/nf-memoryapi-mapviewoffile
     #[test]
-    #[cfg(unix)]
     fn test_retrieve_offset_from_fd_backing_memory_region() {
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x1400).unwrap();
