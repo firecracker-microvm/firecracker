@@ -23,7 +23,9 @@ use vm_memory_upstream::address::Address;
 use vm_memory_upstream::guest_memory::{
     self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
-use vm_memory_upstream::volatile_memory::{VolatileMemory, VolatileSlice};
+use vm_memory_upstream::volatile_memory::{
+    Error as VolatileMemoryError, VolatileMemory, VolatileSlice,
+};
 use vm_memory_upstream::{AtomicAccess, ByteValued, Bytes};
 
 use vmm_sys_util::errno;
@@ -108,15 +110,16 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     type E = guest_memory::Error;
 
     fn write(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
-        // TODO: here be write!
         let maddr = addr.raw_value() as usize;
-        self.local_volatile_slice()
+        let bytes = self
+            .local_volatile_slice()
             .write(buf, maddr)
-            .map_err(Into::into)
+            .map_err(Into::<guest_memory::Error>::into)?;
+        self.mark_dirty_pages(maddr, bytes);
+        Ok(bytes)
     }
 
     fn read(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<usize> {
-        // TODO: here be read!
         let maddr = addr.raw_value() as usize;
         self.local_volatile_slice()
             .read(buf, maddr)
@@ -124,15 +127,22 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     }
 
     fn write_slice(&self, buf: &[u8], addr: MemoryRegionAddress) -> guest_memory::Result<()> {
-        // TODO: here be write!
         let maddr = addr.raw_value() as usize;
-        self.local_volatile_slice()
-            .write_slice(buf, maddr)
-            .map_err(Into::into)
+        match self.local_volatile_slice().write_slice(buf, maddr) {
+            Ok(()) => {
+                self.mark_dirty_pages(maddr, buf.len());
+                Ok(())
+            }
+            Err(e) => {
+                if let VolatileMemoryError::PartialBuffer { completed, .. } = e {
+                    self.mark_dirty_pages(maddr, completed);
+                }
+                Err(e.into())
+            }
+        }
     }
 
     fn read_slice(&self, buf: &mut [u8], addr: MemoryRegionAddress) -> guest_memory::Result<()> {
-        // TODO: here be read!
         let maddr = addr.raw_value() as usize;
         self.local_volatile_slice()
             .read_slice(buf, maddr)
@@ -165,11 +175,13 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     where
         F: Read,
     {
-        // TODO: here be write!
         let maddr = addr.raw_value() as usize;
-        self.local_volatile_slice()
+        let bytes = self
+            .local_volatile_slice()
             .read_from::<F>(maddr, src, count)
-            .map_err(Into::into)
+            .map_err(Into::<guest_memory::Error>::into)?;
+        self.mark_dirty_pages(maddr, bytes);
+        Ok(bytes)
     }
 
     fn read_exact_from<F>(
@@ -181,11 +193,12 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     where
         F: Read,
     {
-        // TODO: here be write!
         let maddr = addr.raw_value() as usize;
         self.local_volatile_slice()
             .read_exact_from::<F>(maddr, src, count)
-            .map_err(Into::into)
+            .map_err(Into::<guest_memory::Error>::into)?;
+        self.mark_dirty_pages(maddr, count);
+        Ok(())
     }
 
     fn write_to<F>(
@@ -197,7 +210,6 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     where
         F: Write,
     {
-        // TODO: here be read!
         let maddr = addr.raw_value() as usize;
         self.local_volatile_slice()
             .write_to::<F>(maddr, dst, count)
@@ -213,7 +225,6 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
     where
         F: Write,
     {
-        // TODO: here be read!
         let maddr = addr.raw_value() as usize;
         self.local_volatile_slice()
             .write_all_to::<F>(maddr, dst, count)
@@ -557,6 +568,55 @@ mod tests {
         // does not override the bitmap
         mmap.enable_dirty_page_tracking();
         assert!(mmap.dirty_bitmap().unwrap().is_addr_set(128));
+    }
+
+    #[test]
+    fn test_bitmap_update_on_write() {
+        let page_size = 4096 as usize;
+        let mut mmap =
+            GuestRegionMmap::new(MmapRegion::new(page_size * 5).unwrap(), GuestAddress(0x0))
+                .unwrap();
+        mmap.enable_dirty_page_tracking();
+
+        // check write_obj
+        let sample_val = 0xaa55_aa55_aa55_aa55 as u64;
+        assert!(!mmap.dirty_bitmap().unwrap().is_addr_set(0));
+        assert!(mmap.write_obj(sample_val, MemoryRegionAddress(0)).is_ok());
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(0));
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(page_size - 1));
+
+        // check write; dirty same page twice
+        let sample_buf = [1, 2, 3];
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(100));
+        assert!(mmap.write(&sample_buf, MemoryRegionAddress(100)).is_ok());
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(100));
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(102));
+
+        // check read_from
+        let mut file = File::open(Path::new("/dev/zero")).unwrap();
+        assert!(!mmap.dirty_bitmap().unwrap().is_addr_set(page_size));
+        assert!(mmap
+            .read_from(
+                MemoryRegionAddress(page_size as u64),
+                &mut file,
+                mem::size_of::<u32>()
+            )
+            .is_ok());
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(page_size));
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(page_size * 2 - 1));
+
+        // check read_exact_from; dirty multiple pages
+        assert!(!mmap.dirty_bitmap().unwrap().is_addr_set(page_size * 2));
+        assert!(mmap
+            .read_exact_from(
+                MemoryRegionAddress(page_size as u64 * 2),
+                &mut file,
+                page_size * 2 + 1
+            )
+            .is_ok());
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(page_size * 2));
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(page_size * 3));
+        assert!(mmap.dirty_bitmap().unwrap().is_addr_set(page_size * 4));
     }
 
     fn check_guest_memory_mmap(
@@ -1034,14 +1094,17 @@ mod tests {
         let bad_addr2 = GuestAddress(0x1ffc);
         let max_addr = GuestAddress(0x2000);
 
-        let gm =
-            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let gm = GuestMemoryMmap::from_ranges_with_tracking(&[
+            (start_addr1, 0x1000),
+            (start_addr2, 0x1000),
+        ])
+        .unwrap();
         let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
             &[
                 (start_addr1, 0x1000, Some(FileOffset::new(f1, 0))),
                 (start_addr2, 0x1000, Some(FileOffset::new(f2, 0))),
             ],
-            false,
+            true,
         )
         .unwrap();
 
@@ -1053,6 +1116,10 @@ mod tests {
                 format!("{:?}", gm.write_obj(val1, bad_addr).err().unwrap()),
                 format!("InvalidGuestAddress({:?})", bad_addr,)
             );
+            let _res: guest_memory::Result<()> = gm.with_regions(|_, r| {
+                assert!(!r.dirty_bitmap().unwrap().is_bit_set(0));
+                Ok(())
+            });
             assert_eq!(
                 format!("{:?}", gm.write_obj(val1, bad_addr2).err().unwrap()),
                 format!(
@@ -1061,9 +1128,16 @@ mod tests {
                     max_addr.checked_offset_from(bad_addr2).unwrap()
                 )
             );
+            assert!(!gm.regions[0].dirty_bitmap().unwrap().is_bit_set(0));
+            assert!(gm.regions[1].dirty_bitmap().unwrap().is_bit_set(0));
 
             gm.write_obj(val1, GuestAddress(0x500)).unwrap();
             gm.write_obj(val2, GuestAddress(0x1000 + 32)).unwrap();
+            let _res: guest_memory::Result<()> = gm.with_regions(|_, r| {
+                assert!(r.dirty_bitmap().unwrap().is_bit_set(0));
+                Ok(())
+            });
+
             let num1: u64 = gm.read_obj(GuestAddress(0x500)).unwrap();
             let num2: u64 = gm.read_obj(GuestAddress(0x1000 + 32)).unwrap();
             assert_eq!(val1, num1);
@@ -1077,10 +1151,10 @@ mod tests {
         f.set_len(0x400).unwrap();
 
         let mut start_addr = GuestAddress(0x1000);
-        let gm = GuestMemoryMmap::from_ranges(&[(start_addr, 0x400)]).unwrap();
+        let gm = GuestMemoryMmap::from_ranges_with_tracking(&[(start_addr, 0x400)]).unwrap();
         let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
             &[(start_addr, 0x400, Some(FileOffset::new(f, 0)))],
-            false,
+            true,
         )
         .unwrap();
 
@@ -1088,7 +1162,9 @@ mod tests {
         for gm in gm_list.iter() {
             let sample_buf = &[1, 2, 3, 4, 5];
 
+            assert!(!gm.regions[0].dirty_bitmap().unwrap().is_bit_set(0));
             assert_eq!(gm.write(sample_buf, start_addr).unwrap(), 5);
+            assert!(gm.regions[0].dirty_bitmap().unwrap().is_bit_set(0));
 
             let buf = &mut [0u8; 5];
             assert_eq!(gm.read(buf, start_addr).unwrap(), 5);
@@ -1096,6 +1172,7 @@ mod tests {
 
             start_addr = GuestAddress(0x13ff);
             assert_eq!(gm.write(sample_buf, start_addr).unwrap(), 1);
+            assert!(gm.regions[0].dirty_bitmap().unwrap().is_bit_set(0));
             assert_eq!(gm.read(buf, start_addr).unwrap(), 1);
             assert_eq!(buf[0], sample_buf[0]);
             start_addr = GuestAddress(0x1000);
@@ -1107,10 +1184,11 @@ mod tests {
         let f = TempFile::new().unwrap().into_file();
         f.set_len(0x400).unwrap();
 
-        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0x1000), 0x400)]).unwrap();
+        let gm =
+            GuestMemoryMmap::from_ranges_with_tracking(&[(GuestAddress(0x1000), 0x400)]).unwrap();
         let gm_backed_by_file = GuestMemoryMmap::from_ranges_with_files(
             &[(GuestAddress(0x1000), 0x400, Some(FileOffset::new(f, 0)))],
-            false,
+            true,
         )
         .unwrap();
 
@@ -1122,6 +1200,8 @@ mod tests {
             } else {
                 File::open(Path::new("c:\\Windows\\system32\\ntoskrnl.exe")).unwrap()
             };
+
+            assert!(!gm.regions[0].dirty_bitmap().unwrap().is_bit_set(0));
             gm.write_obj(!0u32, addr).unwrap();
             gm.read_exact_from(addr, &mut file, mem::size_of::<u32>())
                 .unwrap();
@@ -1131,6 +1211,7 @@ mod tests {
             } else {
                 assert_eq!(value, 0x0090_5a4d);
             }
+            assert!(gm.regions[0].dirty_bitmap().unwrap().is_bit_set(0));
 
             let mut sink = Vec::new();
             gm.write_all_to(addr, &mut sink, mem::size_of::<u32>())
