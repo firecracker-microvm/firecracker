@@ -10,6 +10,6 @@ libc = "0.2"
 versionize = "0.1.2"
 versionize_derive = ">=0.1.1"
 
-[[bench]]
-name = "main"
-harness = false
+#[[bench]]
+#name = "main"
+#harness = false

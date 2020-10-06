@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Utility functions for interacting with the processor."""
 import re
-import framework.utils as utils
+from framework import utils
 
 
 def proc_type():

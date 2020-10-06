@@ -753,6 +753,14 @@ mod tests {
                               Content-Length: 136\r\n\r\n{ \"error\": \"Invalid header. \
                               Reason: Invalid value. Key:Content-Length; Value: alpha\nAll previous unanswered requests will be dropped.\" }";
         assert_eq!(&buf[..], &error_message[..]);
+
+        socket
+            .write_all(
+                b"PATCH /machine-config HTTP/1.1\r\n\
+                         Content-Length: alpha\r\n\
+                         Content-Type: application/json\r\n\r\nwhatever body",
+            )
+            .unwrap();
     }
 
     #[test]

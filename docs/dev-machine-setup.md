@@ -62,9 +62,7 @@ Firecracker development environment on AWS can be setup using bare metal instanc
 Follow these steps to create a bare metal instance.
 
 1. If you don't already have an AWS account, create one using the [AWS Portal](https://portal.aws.amazon.com/billing/signup).
-1. Login to [AWS console](https://console.aws.amazon.com/console/home?region=us-east-1). Bare metal instances are
- only supported in `US East (N. Virginia)` region at this time. This
-region is preselected for you in the Console.
+1. Login to [AWS console](https://console.aws.amazon.com/console/home). You must select a region that offers bare metal EC2 instances. To check which regions support bare-metal, visit [Amazon EC2 On-Demand Pricing](https://aws.amazon.com/ec2/pricing/on-demand/) and look for `*.metal` instance types.
 1. Click on `Launch a virtual machine` in `Build Solution` section.
 1. Firecracker requires a relatively new kernel, so you should use a recent
 Linux distribution - such as `Ubuntu Server 18.04 LTS (HVM), SSD Volume Type`.

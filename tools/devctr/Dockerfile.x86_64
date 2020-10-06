@@ -52,7 +52,9 @@ RUN apt-get update \
         wheel \
     && python3 -m pip install \
         boto3 \
+        dataclasses \
         nsenter \
+        psutil \
         pycodestyle \
         pydocstyle \
         pylint \
@@ -62,6 +64,7 @@ RUN apt-get update \
         requests \
         requests-unixsocket \
         retry \
+        typing-extensions \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the Rust toolchain
