@@ -128,6 +128,7 @@ pub(crate) fn run_with_api(
     start_time_us: Option<u64>,
     start_time_cpu_us: Option<u64>,
     boot_timer_enabled: bool,
+    debugger_enabled: bool,
 ) {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
@@ -209,6 +210,7 @@ pub(crate) fn run_with_api(
             json,
             &instance_info,
             boot_timer_enabled,
+            debugger_enabled,
         ),
         None => PrebootApiController::build_microvm_from_requests(
             seccomp_filter,
@@ -231,6 +233,7 @@ pub(crate) fn run_with_api(
                     .expect("one-shot channel closed")
             },
             boot_timer_enabled,
+            debugger_enabled,
         ),
     };
 

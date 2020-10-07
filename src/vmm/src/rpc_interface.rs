@@ -248,6 +248,7 @@ impl<'a> PrebootApiController<'a> {
         recv_req: F,
         respond: G,
         boot_timer_enabled: bool,
+        debugger_enabled: bool,
     ) -> (VmResources, Arc<Mutex<Vmm>>)
     where
         F: Fn() -> VmmAction,
@@ -255,6 +256,7 @@ impl<'a> PrebootApiController<'a> {
     {
         let mut vm_resources = VmResources::default();
         vm_resources.boot_timer = boot_timer_enabled;
+        vm_resources.debugger = debugger_enabled;
         let mut preboot_controller = PrebootApiController::new(
             seccomp_filter,
             instance_info,
