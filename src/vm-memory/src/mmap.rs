@@ -38,6 +38,9 @@ pub use vm_memory_upstream::mmap::{MmapRegion, MmapRegionError};
 // definitions/implementations.
 pub use vm_memory_upstream::mmap::{check_file_offset, Error};
 
+// The maximum number of bytes that can be read/written at a time.
+static MAX_ACCESS_CHUNK: usize = 4096;
+
 /// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) implementation that mmaps the guest's
 /// memory region in the current process.
 ///
@@ -479,6 +482,59 @@ impl GuestMemoryMmap {
     /// Return true if dirty page tracking is enabled for `GuestMemoryMmap`, and else otherwise.
     pub fn is_dirty_tracking_enabled(&self) -> bool {
         self.regions.iter().all(|r| r.dirty_bitmap().is_some())
+    }
+
+    pub fn read_from<F>(
+        &self,
+        addr: GuestAddress,
+        src: &mut F,
+        count: usize,
+    ) -> result::Result<usize, vm_memory_upstream::guest_memory::Error>
+    where
+        F: Read,
+    {
+        self.try_access(
+            count,
+            addr,
+            |_offset,
+             len,
+             caddr,
+             region|
+             -> result::Result<usize, vm_memory_upstream::guest_memory::Error> {
+                let len = std::cmp::min(len, MAX_ACCESS_CHUNK);
+                let mut buf = vec![0u8; len].into_boxed_slice();
+                loop {
+                    match src.read(&mut buf[..]) {
+                        Ok(bytes_read) => {
+                            let bytes_written = region.write(&buf[0..bytes_read], caddr)?;
+                            assert_eq!(bytes_written, bytes_read);
+                            break Ok(bytes_read);
+                        }
+                        Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                        Err(e) => break Err(vm_memory_upstream::guest_memory::Error::IOError(e)),
+                    }
+                }
+            },
+        )
+    }
+
+    pub fn read_exact_from<F>(
+        &self,
+        addr: GuestAddress,
+        src: &mut F,
+        count: usize,
+    ) -> result::Result<(), vm_memory_upstream::guest_memory::Error>
+    where
+        F: Read,
+    {
+        let res = self.read_from(addr, src, count)?;
+        if res != count {
+            return Err(vm_memory_upstream::guest_memory::Error::PartialBuffer {
+                expected: count,
+                completed: res,
+            });
+        }
+        Ok(())
     }
 }
 
@@ -1195,20 +1251,25 @@ mod tests {
         let gm_list = vec![gm, gm_backed_by_file];
         for gm in gm_list.iter() {
             let addr = GuestAddress(0x1010);
-            let mut file = File::open(Path::new("/dev/zero")).unwrap();
+            let zeros = vec![0; mem::size_of::<u32>()];
+            let mut zero_file = File::open(Path::new("/dev/zero")).unwrap();
+            let mut random_file = File::open(Path::new("/dev/urandom")).unwrap();
 
             assert!(!gm.regions[0].dirty_bitmap().unwrap().is_bit_set(0));
-            gm.write_obj(!0u32, addr).unwrap();
-            gm.read_exact_from(addr, &mut file, mem::size_of::<u32>())
+            gm.read_from(addr, &mut random_file, mem::size_of::<u32>())
                 .unwrap();
-            let value: u32 = gm.read_obj(addr).unwrap();
-            assert_eq!(value, 0);
+            let mut random_sink = Vec::new();
+            gm.write_all_to(addr, &mut random_sink, mem::size_of::<u32>())
+                .unwrap();
+            assert_ne!(random_sink, zeros);
             assert!(gm.regions[0].dirty_bitmap().unwrap().is_bit_set(0));
 
-            let mut sink = Vec::new();
-            gm.write_all_to(addr, &mut sink, mem::size_of::<u32>())
+            gm.read_exact_from(addr, &mut zero_file, mem::size_of::<u32>())
                 .unwrap();
-            assert_eq!(sink, vec![0; mem::size_of::<u32>()]);
+            let mut zero_sink = Vec::new();
+            gm.write_all_to(addr, &mut zero_sink, mem::size_of::<u32>())
+                .unwrap();
+            assert_eq!(zero_sink, zeros);
         }
     }
 

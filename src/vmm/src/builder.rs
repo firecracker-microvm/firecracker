@@ -35,7 +35,7 @@ use snapshot::Persist;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -290,14 +290,15 @@ pub fn build_microvm_for_boot(
     use self::StartMicrovmError::*;
     let boot_config = vm_resources.boot_source().ok_or(MissingKernelConfig)?;
 
+    let track_dirty_pages = vm_resources.track_dirty_pages();
     let guest_memory = create_guest_memory(
         vm_resources
             .vm_config()
             .mem_size_mib
             .ok_or(MissingMemSizeConfig)?,
+        track_dirty_pages,
     )?;
     let vcpu_config = vm_resources.vcpu_config();
-    let track_dirty_pages = vm_resources.track_dirty_pages();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
@@ -442,12 +443,20 @@ pub fn build_microvm_from_snapshot(
 /// Creates GuestMemory of `mem_size_mib` MiB in size.
 pub fn create_guest_memory(
     mem_size_mib: usize,
+    track_dirty_pages: bool,
 ) -> std::result::Result<GuestMemoryMmap, StartMicrovmError> {
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
-    Ok(GuestMemoryMmap::from_ranges(&arch_mem_regions)
-        .map_err(StartMicrovmError::GuestMemoryMmap)?)
+    if !track_dirty_pages {
+        Ok(GuestMemoryMmap::from_ranges(&arch_mem_regions)
+            .map_err(StartMicrovmError::GuestMemoryMmap)?)
+    } else {
+        Ok(
+            GuestMemoryMmap::from_ranges_with_tracking(&arch_mem_regions)
+                .map_err(StartMicrovmError::GuestMemoryMmap)?,
+        )
+    }
 }
 
 fn load_kernel(
@@ -867,7 +876,7 @@ pub mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let guest_memory = create_guest_memory(128).unwrap();
+        let guest_memory = create_guest_memory(128, false).unwrap();
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK)
             .map_err(Error::EventFd)
@@ -1046,9 +1055,26 @@ pub mod tests {
     }
 
     #[test]
+    fn test_create_guest_memory() {
+        let mem_size = 4096 * 2;
+
+        // Case 1: create guest memory without dirty page tracking
+        {
+            let guest_memory = create_guest_memory(mem_size, false).unwrap();
+            assert!(!guest_memory.is_dirty_tracking_enabled());
+        }
+
+        // Case 2: create guest memory with dirty page tracking
+        {
+            let guest_memory = create_guest_memory(mem_size, true).unwrap();
+            assert!(guest_memory.is_dirty_tracking_enabled());
+        }
+    }
+
+    #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let guest_memory = create_guest_memory(128).unwrap();
+        let guest_memory = create_guest_memory(128, false).unwrap();
 
         #[allow(unused_mut)]
         let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();
