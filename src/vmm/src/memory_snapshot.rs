@@ -54,7 +54,11 @@ where
     ) -> std::result::Result<(), Error>;
     /// Creates a GuestMemoryMmap given a `file` containing the data
     /// and a `state` containing mapping information.
-    fn restore(file: &File, state: &GuestMemoryState) -> std::result::Result<Self, Error>;
+    fn restore(
+        file: &File,
+        state: &GuestMemoryState,
+        track_dirty_pages: bool,
+    ) -> std::result::Result<Self, Error>;
 }
 
 /// Errors associated with dumping guest memory to file.
@@ -160,7 +164,11 @@ impl SnapshotMemory for GuestMemoryMmap {
 
     /// Creates a GuestMemoryMmap given a `file` containing the data
     /// and a `state` containing mapping information.
-    fn restore(file: &File, state: &GuestMemoryState) -> std::result::Result<Self, Error> {
+    fn restore(
+        file: &File,
+        state: &GuestMemoryState,
+        track_dirty_pages: bool,
+    ) -> std::result::Result<Self, Error> {
         let mut mmap_regions = Vec::new();
         for region in state.regions.iter() {
             let mmap_region = MmapRegion::build(
@@ -172,7 +180,13 @@ impl SnapshotMemory for GuestMemoryMmap {
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_NORESERVE | libc::MAP_PRIVATE,
             )
-            .map(|r| GuestRegionMmap::new(r, GuestAddress(region.base_address)))
+            .map(|r| {
+                let mut region = GuestRegionMmap::new(r, GuestAddress(region.base_address))?;
+                if track_dirty_pages {
+                    region.enable_dirty_page_tracking();
+                }
+                Ok(region)
+            })
             .map_err(Error::CreateRegion)?
             .map_err(Error::CreateMemory)?;
 
@@ -276,7 +290,7 @@ mod tests {
             guest_memory.dump(&mut memory_file.as_file()).unwrap();
 
             let restored_guest_memory =
-                GuestMemoryMmap::restore(&memory_file.as_file(), &memory_state).unwrap();
+                GuestMemoryMmap::restore(&memory_file.as_file(), &memory_state, false).unwrap();
 
             // Check that the region contents are the same.
             let mut actual_region = vec![0u8; page_size * 2];
@@ -308,7 +322,7 @@ mod tests {
                 .unwrap();
 
             let restored_guest_memory =
-                GuestMemoryMmap::restore(&file.as_file(), &memory_state).unwrap();
+                GuestMemoryMmap::restore(&file.as_file(), &memory_state, true).unwrap();
 
             // Check that only the dirty pages have been restored.
             let zeros = vec![0u8; page_size];
