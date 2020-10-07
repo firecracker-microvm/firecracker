@@ -76,6 +76,8 @@ New Firecracker versions are released via the GitHub repository
 typically every one or two months. A history of changes is recorded in our
 [changelog](CHANGELOG.md).
 
+The Firecracker release policy is detailed [here](docs/RELEASE_POLICY.md).
+
 ## Design
 
 Firecracker's overall architecture is described in
