@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use gdbstub::{
-    arch, BreakOp, OptResult, StopReason, Target, Tid, TidSelector, WatchKind, SINGLE_THREAD_TID, Actions,
+    arch, BreakOp, OptResult, StopReason, Target, Tid, WatchKind, SINGLE_THREAD_TID, Actions,
 };
 
 use super::{DebuggerError, Debugger, DebugEvent, Receiver, Sender, ResumeAction, FullVcpuState};
@@ -11,8 +13,15 @@ pub struct FirecrackerGDBServer {
 
     pub vcpu_event_receiver: Receiver<DebugEvent>,
     pub vcpu_event_sender: Sender<DebugEvent>,
-    // Stores (real opcode, linear address)
-    pub breakpoints: Vec<(u8, u64)>,
+    // Stores (real opcode, physical address, set)
+    pub breakpoints_linear: HashMap<u64, (u8, u64, bool)>,
+    // Stores (real opcode, set)
+    pub breakpoints_phys: HashMap<u64, (u8, bool)>,
+    // The guest state is retrieved only when NOTIFY is received (after continue
+    // or single-step), although the client can request it at any time.
+    // However, since the guest is not the only one that alters its state (the GDB client
+    // can do it too), when this happens, we must also ensure that our local
+    // "cache" is also properly updated
     pub guest_state: FullVcpuState,
     pub single_step_en: bool,
 
@@ -25,60 +34,105 @@ impl FirecrackerGDBServer {
         vcpu_event_sender: Sender<DebugEvent>,
         e_phdrs: Vec<Elf64_Phdr>) -> DynResult <FirecrackerGDBServer > {
         Ok(FirecrackerGDBServer{guest_memory, vcpu_event_receiver, vcpu_event_sender,
-            breakpoints: Vec::new(), guest_state: Default::default(), single_step_en: false, e_phdrs})
+            breakpoints_linear: HashMap::new(), breakpoints_phys: HashMap::new(),
+            guest_state: Default::default(), single_step_en: false, e_phdrs})
     }
 
-    pub fn remove_bp(&mut self, phys_addr: u64) -> Result<(), DebuggerError> {
-        for (idx, it) in self.breakpoints.iter().enumerate() {
-            if it.1 == phys_addr {
-                if self.guest_memory.write_obj(it.0, GuestAddress(phys_addr)).is_err() {
+    pub fn remove_bp(&mut self, linear_addr: u64, phys_addr: Option<u64>) -> Result<(), DebuggerError> {
+        if phys_addr.is_some() && self.breakpoints_phys.contains_key(&phys_addr.unwrap()) {
+            let val = self.breakpoints_phys.get_mut(&phys_addr.unwrap()).unwrap();
+            if self.guest_memory.write_obj(val.0, GuestAddress(phys_addr.unwrap())).is_err() {
+                return Err(DebuggerError::MemoryError);
+            }
+            val.1 = false;
+
+            return Ok(());
+        }
+        if phys_addr.is_none() && self.breakpoints_linear.contains_key(&linear_addr) {
+            let val = self.breakpoints_linear.get_mut(&linear_addr).unwrap();
+            if val.2 {
+                if self.guest_memory.write_obj(val.0, GuestAddress(val.1)).is_err() {
                     return Err(DebuggerError::MemoryError);
                 }
-
-                self.breakpoints.remove(idx);
-                break;
+                val.2 = false;
             }
         }
 
         Ok(())
     }
-    pub fn insert_bp(&mut self, phys_addr: u64) -> Result<(), DebuggerError>{
+    pub fn insert_bp(&mut self, linear_addr: u64, translate: bool) -> Result<(), DebuggerError>{
         // Opcode specific to x86 architecture that triggers a trap when
         // encountered during cpu execution
         let int3: u8 = 0xCC;
+        let mut opcode: Option<u8> = None;
+        if self.breakpoints_linear.contains_key(&linear_addr) {
+            let val = self.breakpoints_linear.get_mut(&linear_addr).unwrap();
+            if !val.2 {
+                if self.guest_memory.write_obj(int3, GuestAddress(val.1)).is_err() {
+                    return Err(DebuggerError::MemoryError);
+                }
+                val.2 = true;
+            }
+            return Ok(())
+        }
+        let mut phys_addr = linear_addr;
+        // Breakpoint has never been set until now
+        if translate {
+            match Debugger::virt_to_phys(linear_addr, &self) {
+                Ok(addr) => {
+                    phys_addr = addr;
+                }
+                // We dont want to interrupt the whole debugging process because of an invalid address
+                // This breakpoint simply wont be hit
+                Err(_) => { return Ok(()); }
+            }
+        }
+        // A breakpoint at the same physical address has already been placed
+        // This is something the user is allowed to do, but shouldn't
+        // In this case, however, the second breakpoint would read 0xCC
+        // as the valid opcode found at the specific address. This would lead
+        // to undefined behaviour.
+        if self.breakpoints_phys.contains_key(&phys_addr) {
+            opcode = Some(self.breakpoints_phys.get(&phys_addr).unwrap().0);
+        }
+        if !opcode.is_some() {
+            if let Ok(byte) = self.guest_memory.read_obj(GuestAddress(phys_addr)) {
+                opcode = Some(byte);
+            } else {
+                return Err(DebuggerError::MemoryError);
+            }
 
-        let opcode: u8;
-        if let Ok(byte) = self.guest_memory.read_obj(GuestAddress(phys_addr)) {
-            opcode = byte;
-        } else {
-            return Err(DebuggerError::MemoryError);
+            if self.guest_memory.write_obj(int3, GuestAddress(phys_addr)).is_err() {
+                return Err(DebuggerError::MemoryError);
+            }
         }
 
-        self.breakpoints.push((opcode, phys_addr));
-
-        if self.guest_memory.write_obj(int3, GuestAddress(phys_addr)).is_err() {
-            return Err(DebuggerError::MemoryError);
-        }
+        self.breakpoints_linear.insert(linear_addr, (opcode.unwrap(), phys_addr, true));
+        self.breakpoints_phys.insert(phys_addr, (opcode.unwrap(), true));
 
         Ok(())
     }
 
-    /// Normally, when a continue/single-step packet is received from the client,
-    /// no breakpoint should exist at the current address, as it would cause an
-    /// unwanted trap. The client takes care of this by removing the breakpoint
-    /// each time right after using it and re-inserting it after the current
-    /// instruction was executed.
-    /// A problem occurs when the client is not aware of a breakpoint existing
-    /// (during early boot, the breakpoint may be set at linear address 0xffffffff81000007,
-    /// but the eip would show 0x1000007 - the physical address). In this case,
-    ///  we solve the problem on the server side.
+    /// We expect the user to be aware of the guest's internal state.
+    /// In other words, we expect the user to place a breakpoint
+    /// at a physical address when the guest references that code
+    /// by a physical address and we expect the user to use a linear
+    /// address for a point of execution at which the guest is
+    /// virtual-address-aware (it has properly set the page tables).
+    /// We cannot know at the moment the breakpoint is set whether
+    /// the user does the right thing, but we can figure this out
+    /// at the moment when a breakpoint is hit.
+    /// Therefore, an invalid state is considered to be one in which
+    /// the address contained by the RIP register is not among
+    /// any of the addresses at which the user has set a breakpoint.
+    /// When this is encountered, this breakpoint is ignored. Otherwise,
+    /// it would confuse the client.
     fn invalid_state(&self, rip: u64) -> bool {
-        for it in self.breakpoints.iter() {
-            if it.1 == rip {
-                return true;
-            }
+        if self.breakpoints_linear.contains_key(&rip)
+            && self.breakpoints_linear.get(&rip).unwrap().2 {
+            return  false;
         }
-        return false;
+        return true;
     }
 }
 
@@ -92,103 +146,94 @@ impl Target for FirecrackerGDBServer {
         actions: Actions,
         check_gdb_interrupt: &mut dyn FnMut() -> bool,
     ) -> Result<(Tid, StopReason<u64>), Self::Error> {
-        let mut ret: Option<StopReason<u64>> = None;
 
         for item in actions {
-            let invalid_state = self.invalid_state(self.guest_state.regular_regs.rip);
-            let prev_bp_addr = Debugger::virt_to_phys(self.guest_state.regular_regs.rip, 
-                &self, &self.guest_state).unwrap();
             match item.1 {
                 ResumeAction::Continue => {
-                    // Client has failed in removing the bp before continuing
-                    if invalid_state {
-                        if let Err(e) = self.remove_bp(prev_bp_addr) {
-                            return Err(e);
+                    // This loop can only be exited as a result of a Ctrl-C or of a
+                    // valid breakpoint being hit
+                    let mut valid_bp_not_reached = true;
+                    while valid_bp_not_reached {
+                        if self.vcpu_event_sender.send(DebugEvent::CONTINUE(self.single_step_en)).is_err() {
+                            return Err(Self::Error::ChannelError);
                         }
+                        self.single_step_en = false;
+                        let mut interrupted = false;
+                        while !check_gdb_interrupt() {
+                            if let Ok(DebugEvent::NOTIFY(state)) = self.vcpu_event_receiver.try_recv() {
+                                interrupted = true;
+                                self.guest_state = state;
+                                valid_bp_not_reached = self.invalid_state(self.guest_state.regular_regs.rip);
+                                if valid_bp_not_reached {
+                                    // Normally we shouldn't have to translate an address in order
+                                    // to remove a breakpoint, but in early boot the virtual
+                                    // address that EIP stores may not be the same one with
+                                    // the address the user is thinking of, which would be, indeed,
+                                    // an invalid one
+                                    match Debugger::virt_to_phys(self.guest_state.regular_regs.rip, &self) {
+                                        Ok(phys_addr) => {
+                                            if let Err(e)
+                                                = self.remove_bp(self.guest_state.regular_regs.rip, Some(phys_addr)) {
+                                                return Err(e);
+                                            }
+                                        }
+                                        Err(e) => return Err(e),
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                        if !interrupted {
+                            // This can be reached only as a result of a Ctrl-C signal
+                            return Ok((SINGLE_THREAD_TID, StopReason::Halted));
+                        }
+                    }
+                    // A better return value would probably be SwBreak, but
+                    // there are some problems regarding the thread id that
+                    // gdbstub chooses to return for that case
+                    return Ok((SINGLE_THREAD_TID, StopReason::GdbInterrupt));
+                }
+                ResumeAction::Step => {
+                    let prev_rip = self.guest_state.regular_regs.rip;
+                    loop {
                         if self.vcpu_event_sender.send(DebugEvent::STEP_INTO(self.single_step_en)).is_err() {
                             return Err(Self::Error::ChannelError);
                         }
+                        // Main thread will take care of what it means enabling/disabling single-stepping
                         self.single_step_en = true;
-
-                        if let Ok(DebugEvent::NOTIFY) = self.vcpu_event_receiver.recv() {
-                            if let Err(e) = self.insert_bp(prev_bp_addr) {
-                                return Err(e);
+                        let mut interrupted = false;
+                        while !check_gdb_interrupt() {
+                            if let Ok(DebugEvent::NOTIFY(state)) = self.vcpu_event_receiver.try_recv() {
+                                interrupted = true;
+                                self.guest_state = state;
+                                break;
                             }
+                        }
+                        if !interrupted {
+                            return Ok((SINGLE_THREAD_TID, StopReason::Halted));
                         } else {
-                            return Err(Self::Error::ChannelError);
-                        }
-                    }
-                    if self.vcpu_event_sender.send(DebugEvent::CONTINUE(self.single_step_en)).is_err() {
-                        return Err(Self::Error::ChannelError);
-                    }
-                    self.single_step_en = false;
-                    while !check_gdb_interrupt() {
-                        if let Ok(DebugEvent::NOTIFY) = self.vcpu_event_receiver.try_recv() {
-                            // A better return value would probably be SwBreak, but
-                            // there are some problems regarding the thread id that
-                            // gdbstub chooses to return for that case
-                            ret = Some(StopReason::GdbInterrupt);
-                            break;
-                        }
-                    }
-                    if ret.is_some() {
-                        continue;
-                    }
-                    // This can be reached only as a result of a Ctrl-C signal
-                    return Ok((SINGLE_THREAD_TID, StopReason::Halted));
-                }
-                ResumeAction::Step => {
-                    if invalid_state {
-                        if let Err(e) = self.remove_bp(prev_bp_addr) {
-                            return Err(e);
-                        }
-                    }
-                    if self.vcpu_event_sender.send(DebugEvent::STEP_INTO(self.single_step_en)).is_err() {
-                        return Err(Self::Error::ChannelError);
-                    }
-                    // Main thread will take care of what it means enabling/disabling single-stepping
-                    self.single_step_en = true;
-                    while !check_gdb_interrupt() {
-                        if let Ok(DebugEvent::NOTIFY) = self.vcpu_event_receiver.try_recv() {
-                            if invalid_state {
-                                if let Err(e) = self.insert_bp(prev_bp_addr) {
-                                    return Err(e);
+                            if prev_rip == self.guest_state.regular_regs.rip {
+                                match Debugger::virt_to_phys(prev_rip, &self) {
+                                    Ok(phys_addr) => {
+                                        if let Err(e) = self.remove_bp(prev_rip, Some(phys_addr)) {
+                                            return Err(e);
+                                        }
+                                    }
+                                    Err(e) => return Err(e),
                                 }
+                            } else {
+                                return Ok((SINGLE_THREAD_TID, StopReason::DoneStep));
                             }
-                            ret = Some(StopReason::DoneStep);
-                            break;
                         }
                     }
-                    if ret.is_some() {
-                        continue;
-                    }
-                    return Ok((SINGLE_THREAD_TID, StopReason::Halted));
                 }
-            }
-        }
-        if ret.is_some() {
-            // Guest registers' values are needed throughout the entire execution and
-            // the state can be requested by the client at any point in time.
-            // In order to reduce the number of ioctl calls and channel messages,
-            // we only perform this operation once after each continue/single-step.
-            // Since the guest is not the only one that alters its state (the GDB client
-            // can do it too), when this happens, we must also ensure that our local
-            // "cache" is also properly updated
-            if self.vcpu_event_sender.send(DebugEvent::GET_REGS).is_err() {
-                return Err(Self::Error::ChannelError);
-            }
-            if let Ok(DebugEvent::PEEK_REGS(state)) = self.vcpu_event_receiver.recv() {
-                self.guest_state = state;
-                return Ok((SINGLE_THREAD_TID, ret.unwrap()));
-            } else {
-                return Err(Self::Error::ChannelError);
             }
         }
 
         Err(Self::Error::InvalidState)
     }
 
-    /// Function that is called when the user or the GDB client requests the guest state
+    /// Called when the user or the GDB client requests the guest state
     fn read_registers(
         &mut self,
         regs: &mut arch::x86::reg::X86_64CoreRegs,
@@ -231,17 +276,17 @@ impl Target for FirecrackerGDBServer {
         addrs: u64,
         val: &mut [u8],
     ) -> Result<bool, Self::Error> {
-        return Debugger::virt_to_phys(addrs, &self, &self.guest_state)
-            .and_then(|phys_addr: u64| -> Result<bool, Self::Error> {
-                for i in 0..val.len() {
-                    if let Ok(byte) = self.guest_memory.read_obj(GuestAddress(phys_addr + (i as u64))) {
-                        val[i] = byte;
-                    } else {
-                        return Err(Self::Error::MemoryError);
-                    }
+        if let Ok(phys_addr) = Debugger::virt_to_phys(addrs, &self) {
+            for i in 0..val.len() {
+                if let Ok(byte) = self.guest_memory.read_obj(GuestAddress(phys_addr + (i as u64))) {
+                    val[i] = byte;
+                } else {
+                    return Err(Self::Error::MemoryError);
                 }
-                Ok(true)
-            } );
+            }
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn write_addrs(
@@ -259,13 +304,11 @@ impl Target for FirecrackerGDBServer {
         addr: u64,
         op: BreakOp,
     ) -> Result<bool, Self::Error> {
-        return Debugger::virt_to_phys(addr, &self, &self.guest_state)
-            .and_then(|phys_addr: u64| -> Result<bool, Self::Error>{
-                match op {
-                    BreakOp::Add => self.insert_bp(phys_addr),
-                    BreakOp::Remove => self.remove_bp(phys_addr),
-                }.map(|_| true)
-            });
+        return
+            match op {
+                BreakOp::Add => self.insert_bp(addr, true),
+                BreakOp::Remove => self.remove_bp(addr, None),
+            }.map(|_| true);
     }
 
     fn update_hw_breakpoint(
