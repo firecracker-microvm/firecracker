@@ -288,6 +288,7 @@ pub fn build_microvm_for_boot(
     vm_resources: &super::resources::VmResources,
     event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
+    debugger_enabled: bool,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     use self::StartMicrovmError::*;
     let boot_config = vm_resources.boot_source().ok_or(MissingKernelConfig)?;
@@ -347,13 +348,14 @@ pub fn build_microvm_for_boot(
         &initrd,
         boot_cmdline,
     )?;
-
-    let dbg_event_receiver = vcpus[0].dbg_event_receiver.take().unwrap();
-    let dbg_event_sender = vcpus[0].dbg_response_sender.take().unwrap();
-    if let Err(err) = vmm_run_gdb_server(vmm.guest_memory().clone(), dbg_event_receiver, dbg_event_sender,
-         e_phdrs, entry_addr, &vcpus) {
+    if debugger_enabled {
+        let dbg_event_receiver = vcpus[0].dbg_event_receiver.take().unwrap();
+        let dbg_event_sender = vcpus[0].dbg_response_sender.take().unwrap();
+        if let Err(err) = vmm_run_gdb_server(vmm.guest_memory().clone(),
+            dbg_event_receiver, dbg_event_sender, e_phdrs, entry_addr, &vcpus) {
             return Err(err);
         }
+    }
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(vcpus, seccomp_filter).map_err(Internal)?;

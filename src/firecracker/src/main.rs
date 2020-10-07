@@ -136,6 +136,11 @@ fn main() {
             Argument::new("boot-timer")
                 .takes_value(false)
                 .help("Whether or not to load boot timer device for logging elapsed time since InstanceStart command.")
+        )
+        .arg(
+            Argument::new("debugger")
+                .takes_value(false)
+                .help("Whether or not to launch the guest microvm under GDB")
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {
@@ -220,6 +225,7 @@ fn main() {
 
     let boot_timer_enabled = arguments.value_as_bool("boot-timer").unwrap_or(false);
     let api_enabled = !arguments.value_as_bool("no-api").unwrap_or(false);
+    let debugger_enabled = arguments.value_as_bool("debugger").unwrap_or(false);
 
     if api_enabled {
         let bind_path = arguments
@@ -244,6 +250,7 @@ fn main() {
             start_time_us,
             start_time_cpu_us,
             boot_timer_enabled,
+            debugger_enabled,
         );
     } else {
         run_without_api(
@@ -251,6 +258,7 @@ fn main() {
             vmm_config_json,
             &instance_info,
             boot_timer_enabled,
+            debugger_enabled,
         );
     }
 }
@@ -262,6 +270,7 @@ fn build_microvm_from_json(
     config_json: String,
     instance_info: &InstanceInfo,
     boot_timer_enabled: bool,
+    debugger_enabled: bool,
 ) -> (VmResources, Arc<Mutex<vmm::Vmm>>) {
     let mut vm_resources =
         VmResources::from_json(&config_json, instance_info).unwrap_or_else(|err| {
@@ -272,7 +281,7 @@ fn build_microvm_from_json(
             process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
         });
     vm_resources.boot_timer = boot_timer_enabled;
-    let vmm = vmm::builder::build_microvm_for_boot(&vm_resources, event_manager, &seccomp_filter)
+    let vmm = vmm::builder::build_microvm_for_boot(&vm_resources, event_manager, &seccomp_filter, debugger_enabled)
         .unwrap_or_else(|err| {
             error!(
                 "Building VMM configured from cmdline json failed: {:?}",
@@ -290,6 +299,7 @@ fn run_without_api(
     config_json: Option<String>,
     instance_info: &InstanceInfo,
     bool_timer_enabled: bool,
+    debugger_enabled: bool,
 ) {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
@@ -309,6 +319,7 @@ fn run_without_api(
         config_json.unwrap(),
         instance_info,
         bool_timer_enabled,
+        debugger_enabled,
     );
 
     // Start the metrics.

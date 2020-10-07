@@ -86,6 +86,8 @@ pub struct VmResources {
     pub mmds_config: Option<MmdsConfig>,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
+    /// Whether or not to lauch the vm under GDB
+    pub debugger: bool,
 }
 
 impl VmResources {
