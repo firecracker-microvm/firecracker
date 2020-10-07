@@ -11,7 +11,7 @@ MAX_BOOT_TIME_US = 150000
 # NOTE: for aarch64 most of the boot time is spent by the kernel to unpack the
 # initramfs in RAM. This time is influenced by the size and the compression
 # method of the used initrd image.
-INITRD_BOOT_TIME_US = 160000 if platform.machine() == "x86_64" else 500000
+INITRD_BOOT_TIME_US = 160000 if platform.machine() == "x86_64" else 200000
 # TODO: Keep a `current` boot time in S3 and validate we don't regress
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
