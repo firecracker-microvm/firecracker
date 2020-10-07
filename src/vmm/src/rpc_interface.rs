@@ -256,6 +256,7 @@ impl<'a> PrebootApiController<'a> {
         recv_req: F,
         respond: G,
         boot_timer_enabled: bool,
+        debugger_enabled: bool,
     ) -> (VmResources, Arc<Mutex<Vmm>>)
     where
         F: Fn() -> VmmAction,
@@ -263,6 +264,7 @@ impl<'a> PrebootApiController<'a> {
     {
         let mut vm_resources = VmResources::default();
         vm_resources.boot_timer = boot_timer_enabled;
+        vm_resources.debugger = debugger_enabled;
         let mut preboot_controller = PrebootApiController::new(
             seccomp_filter,
             instance_info,
@@ -305,12 +307,44 @@ impl<'a> PrebootApiController<'a> {
             InsertBlockDevice(config) => self.insert_block_device(config),
             InsertNetworkDevice(config) => self.insert_net_device(config),
             #[cfg(target_arch = "x86_64")]
+<<<<<<< HEAD
             LoadSnapshot(config) => self.load_snapshot(&config),
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
             SetVmConfiguration(config) => self.set_vm_config(config),
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
             StartMicroVm => self.start_microvm(),
+=======
+            LoadSnapshot(snapshot_load_cfg) => self
+                .load_snapshot(&snapshot_load_cfg)
+                .map(|_| VmmData::Empty),
+            SetVsockDevice(vsock_cfg) => self
+                .vm_resources
+                .set_vsock_device(vsock_cfg)
+                .map(|_| VmmData::Empty)
+                .map_err(VmmActionError::VsockConfig),
+            SetVmConfiguration(machine_config_body) => self
+                .vm_resources
+                .set_vm_config(&machine_config_body)
+                .map(|_| VmmData::Empty)
+                .map_err(VmmActionError::MachineConfig),
+            SetMmdsConfiguration(mmds_config) => self
+                .vm_resources
+                .set_mmds_config(mmds_config)
+                .map(|_| VmmData::Empty)
+                .map_err(VmmActionError::MmdsConfig),
+            StartMicroVm => builder::build_microvm_for_boot(
+                &self.vm_resources,
+                &mut self.event_manager,
+                &self.seccomp_filter,
+                self.vm_resources.debugger,
+            )
+            .map(|vmm| {
+                self.built_vmm = Some(vmm);
+                VmmData::Empty
+            })
+            .map_err(VmmActionError::StartMicrovm),
+>>>>>>> 4a969fb7... GDB server: Add command-line option for GDB
             // Operations not allowed pre-boot.
             FlushMetrics
             | Pause
