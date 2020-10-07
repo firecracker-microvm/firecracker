@@ -1,11 +1,6 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Tests that ensure the boot time to init process is within spec.
-
-The boot time tests use the minimal kernel image and root file system found in
-the S3 bucket at https://s3.amazonaws.com/spec.ccfc.min/img/minimal.
-For boot time testing the serial console is not enabled.
-"""
+"""Tests that ensure the boot time to init process is within spec."""
 
 import re
 import time
@@ -23,7 +18,7 @@ TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
 
 
 def test_no_boottime(test_microvm_with_api):
-    """Check boottimer not present by default."""
+    """Check that boot timer device not present by default."""
     _ = _configure_and_run_vm(test_microvm_with_api)
     time.sleep(0.4)
     timestamps = re.findall(TIMESTAMP_LOG_REGEX,
@@ -32,7 +27,7 @@ def test_no_boottime(test_microvm_with_api):
 
 
 def test_boottime_no_network(test_microvm_with_boottime_timer):
-    """Check guest boottime of microvm without network."""
+    """Check boot time of microVM without network."""
     test_microvm_with_boottime_timer.jailer.extra_args.update(
         {'boot-timer': None}
     )
@@ -47,7 +42,7 @@ def test_boottime_with_network(
         test_microvm_with_boottime_timer,
         network_config
 ):
-    """Check guest boottime of microvm with network."""
+    """Check boot time of microVM with network."""
     test_microvm_with_boottime_timer.jailer.extra_args.update(
         {'boot-timer': None}
     )
@@ -62,7 +57,7 @@ def test_boottime_with_network(
 
 def test_initrd_boottime(
         test_microvm_with_initrd_timer):
-    """Check guest boottime of microvm with initrd."""
+    """Check boot time of microVM when using an initrd."""
     test_microvm_with_initrd_timer.jailer.extra_args.update(
         {'boot-timer': None}
     )
@@ -75,10 +70,7 @@ def test_initrd_boottime(
 
 
 def _test_microvm_boottime(log_fifo_data, max_time_us=MAX_BOOT_TIME_US):
-    """Assert that we meet the minimum boot time.
-
-    TODO: Should use a microVM with the `boottime` capability.
-    """
+    """Auxiliary function for asserting the expected boot time."""
     boot_time_us = 0
     timestamps = re.findall(TIMESTAMP_LOG_REGEX, log_fifo_data)
     if timestamps:
