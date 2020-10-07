@@ -30,7 +30,7 @@ enum PagingType {
 
 pub enum DebugEvent {
     START,
-    NOTIFY,
+    NOTIFY(FullVcpuState),
     GET_REGS,
     PEEK_REGS(FullVcpuState),
     CONTINUE(bool),
@@ -90,12 +90,12 @@ impl Debugger {
 
     /// Function that performs guest page-walking, on top of the 4-Level paging mechanism,
     /// obtaining the physical address corresponding to the one received from a GDB client
-    pub fn virt_to_phys(addr: u64, srv: &FirecrackerGDBServer, regs: &FullVcpuState) -> Result<u64, DebuggerError> {
+    pub fn virt_to_phys(addr: u64, srv: &FirecrackerGDBServer) -> Result<u64, DebuggerError> {
         let mut linear_addr = addr;
         let context : kvm_sregs;
         let mut pt_level = PagingType::NONE;
 
-        context = regs.special_regs;
+        context = srv.guest_state.special_regs;
         // Paging enabled
         if context.cr0 & CR0_PG != 0 {
         // Determine the type of paging
