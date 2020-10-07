@@ -34,7 +34,7 @@ pub fn run_gdb_server<'a>(vmm_gm: GuestMemoryMmap, entry_addr: GuestAddress, e_p
     let mut target = FirecrackerGDBServer::new(vmm_gm,
         vcpu_event_receiver, vcpu_event_sender, e_phdrs)?;
 
-    if target.insert_bp(entry_addr.0).is_err() {
+    if target.insert_bp(entry_addr.0, false).is_err() {
         return Err("GDB server error".into());
     }
 
@@ -43,23 +43,14 @@ pub fn run_gdb_server<'a>(vmm_gm: GuestMemoryMmap, entry_addr: GuestAddress, e_p
         return Err("GDB server - main thread communication error".into());
     }
     // Guarantees that the vcpus are in a waiting state at the entry point of the kernel
-    if target.vcpu_event_receiver.recv().is_err() {
-        return Err("GDB server - main thread communication error".into());
-    }
-
-    if target.remove_bp(entry_addr.0).is_err() {
-        return Err("GDB server error".into());
-    }
-
-    // Retrieving the guest state. We will not be doing this again until
-    // after the first continue/single-step
-    if target.vcpu_event_sender.send(DebugEvent::GET_REGS).is_err() {
-        return Err("GDB server - main thread communication error".into());
-    }
-    if let Ok(DebugEvent::PEEK_REGS(state)) = target.vcpu_event_receiver.recv() {
+    if let Ok(DebugEvent::NOTIFY(state)) = target.vcpu_event_receiver.recv() {
         target.guest_state = state;
     } else {
         return Err("GDB server - main thread communication error".into());
+    }
+
+    if target.remove_bp(entry_addr.0, None).is_err() {
+        return Err("GDB server error".into());
     }
 
     let connection: Box<dyn Connection<Error = std::io::Error>> = {
@@ -80,4 +71,5 @@ pub fn run_gdb_server<'a>(vmm_gm: GuestMemoryMmap, entry_addr: GuestAddress, e_p
 
     Ok(())
 }
+
 

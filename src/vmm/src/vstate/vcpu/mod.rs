@@ -536,7 +536,7 @@ impl Vcpu {
                     let special_regs = self.kvm_vcpu.fd.get_sregs().unwrap();
                     // For now we don't differentiate between a kvm exit caused
                     // by a breakpoint and one caused by single-stepping
-                    if self.dbg_event_sender.send(DebugEvent::NOTIFY).is_err() {
+                    if self.dbg_event_sender.send(DebugEvent::NOTIFY(FullVcpuState{regular_regs, special_regs})).is_err() {
                         return Err(Error::GDBServer(format!("Invalid state")));
                     }
                     loop {
