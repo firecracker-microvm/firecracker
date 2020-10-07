@@ -12,7 +12,6 @@ from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.microvms import VMMicro
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.utils import CpuVendor, get_cpu_vendor
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
 
@@ -215,7 +214,7 @@ def test_snapshot_create_latency(network_config,
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64" or get_cpu_vendor() == CpuVendor.AMD,
+    platform.machine() != "x86_64",
     reason="Not supported yet."
 )
 def test_snapshot_resume_latency(network_config,
@@ -256,7 +255,7 @@ def test_snapshot_resume_latency(network_config,
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64" or get_cpu_vendor() == CpuVendor.AMD,
+    platform.machine() != "x86_64",
     reason="Not supported yet."
 )
 def test_older_snapshot_resume_latency(bin_cloner_path):
