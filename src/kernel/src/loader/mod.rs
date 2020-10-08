@@ -426,7 +426,8 @@ mod tests {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub fn extract_phdrs<F>(kernel_image: &mut F) -> Result<Vec<elf::Elf64_Phdr>>
-    where F: Read + Seek,
+where
+    F: Read + Seek,
 {
     let mut ehdr: elf::Elf64_Ehdr = Default::default();
     kernel_image
