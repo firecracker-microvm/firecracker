@@ -306,14 +306,19 @@ fn build_microvm_from_json(
             process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
         });
     vm_resources.boot_timer = boot_timer_enabled;
-    let vmm = vmm::builder::build_microvm_for_boot(&vm_resources, event_manager, &seccomp_filter, debugger_enabled)
-        .unwrap_or_else(|err| {
-            error!(
-                "Building VMM configured from cmdline json failed: {:?}",
-                err
-            );
-            process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
-        });
+    let vmm = vmm::builder::build_microvm_for_boot(
+        &vm_resources,
+        event_manager,
+        &seccomp_filter,
+        debugger_enabled,
+    )
+    .unwrap_or_else(|err| {
+        error!(
+            "Building VMM configured from cmdline json failed: {:?}",
+            err
+        );
+        process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
+    });
     info!("Successfully started microvm that was configured from one single json");
 
     (vm_resources, vmm)
