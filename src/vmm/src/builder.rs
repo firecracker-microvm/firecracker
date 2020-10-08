@@ -7,7 +7,7 @@ use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::{Arc, Mutex, mpsc::Receiver, mpsc::Sender};
+use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
 use std::thread;
 
 
@@ -365,8 +365,14 @@ pub fn build_microvm_for_boot(
     if debugger_enabled {
         let dbg_event_receiver = vcpus[0].dbg_event_receiver.take().unwrap();
         let dbg_event_sender = vcpus[0].dbg_response_sender.take().unwrap();
-        if let Err(err) = vmm_run_gdb_server(vmm.guest_memory().clone(),
-            dbg_event_receiver, dbg_event_sender, e_phdrs, entry_addr, &vcpus) {
+        if let Err(err) = vmm_run_gdb_server(
+            vmm.guest_memory().clone(),
+            dbg_event_receiver,
+            dbg_event_sender,
+            e_phdrs,
+            entry_addr,
+            &vcpus,
+        ) {
             return Err(err);
         }
     }
@@ -850,21 +856,24 @@ fn attach_balloon_device(
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
 }
 
-fn vmm_run_gdb_server<'a>(vmm_mem: GuestMemoryMmap, receiver: Receiver<gdb_server::DebugEvent>,
-                          sender: Sender<gdb_server::DebugEvent>, e_phdrs: Vec<kernel::loader::Elf64_Phdr>,
-                          entry_point: GuestAddress, vcpus: &Vec<Vcpu>) -> Result<(), StartMicrovmError>{
+fn vmm_run_gdb_server<'a>(
+    vmm_mem: GuestMemoryMmap,
+    receiver: Receiver<gdb_server::DebugEvent>,
+    sender: Sender<gdb_server::DebugEvent>,
+    e_phdrs: Vec<kernel::loader::Elf64_Phdr>,
+    entry_point: GuestAddress,
+    vcpus: &Vec<Vcpu>,
+) -> Result<(), StartMicrovmError> {
     // For now we assume there's one vcpu only
     if gdb_server::Debugger::enable_kvm_debug(&vcpus[0].kvm_vcpu.fd, false).is_err() {
         return Err(StartMicrovmError::GDBServer);
     }
-    let join_handle = thread::Builder::new()
-        .spawn(move || -> Result<(), StartMicrovmError>{
-            if gdb_server::run_gdb_server(vmm_mem, entry_point, e_phdrs,
-                                          receiver, sender).is_err() {
-                return Err(StartMicrovmError::GDBServer);
-            }
-            Ok(())
-        });
+    let join_handle = thread::Builder::new().spawn(move || -> Result<(), StartMicrovmError> {
+        if gdb_server::run_gdb_server(vmm_mem, entry_point, e_phdrs, receiver, sender).is_err() {
+            return Err(StartMicrovmError::GDBServer);
+        }
+        Ok(())
+    });
     if join_handle.is_err() {
         return Err(StartMicrovmError::GDBServer);
     }
