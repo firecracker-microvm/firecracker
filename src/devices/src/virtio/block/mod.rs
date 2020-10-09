@@ -5,6 +5,7 @@ pub mod device;
 pub mod event_handler;
 pub mod persist;
 pub mod request;
+pub mod test_utils;
 
 pub use self::device::Block;
 pub use self::event_handler::*;
