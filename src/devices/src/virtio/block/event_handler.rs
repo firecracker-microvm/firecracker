@@ -103,8 +103,9 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::virtio::block::device::tests::*;
+    use crate::virtio::block::test_utils::{default_block, set_queue};
     use crate::virtio::queue::tests::*;
+    use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
     use virtio_gen::virtio_blk::*;
     use vm_memory::{Bytes, GuestAddress};
 
@@ -114,7 +115,7 @@ pub mod tests {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        block.set_queue(0, vq.create_queue());
+        set_queue(&mut block, 0, vq.create_queue());
         initialize_virtqueue(&vq);
 
         let block = Arc::new(Mutex::new(block));

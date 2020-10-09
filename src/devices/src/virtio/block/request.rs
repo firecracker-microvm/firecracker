@@ -251,7 +251,9 @@ impl Request {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::virtio::queue::tests::*;
+    use crate::virtio::test_utils::VirtQueue;
     use vm_memory::{Address, GuestAddress};
 
     #[test]
