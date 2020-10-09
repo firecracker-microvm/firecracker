@@ -89,10 +89,10 @@ impl Persist<'_> for Balloon {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::virtio::balloon::device::tests::default_mem;
     use crate::virtio::device::VirtioDevice;
     use crate::virtio::TYPE_BALLOON;
 
+    use crate::virtio::test_utils::default_mem;
     use std::sync::atomic::Ordering;
 
     #[test]

@@ -133,8 +133,8 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::virtio::balloon::device::tests::*;
-    use crate::virtio::queue::tests::*;
+    use crate::virtio::balloon::test_utils::set_request;
+    use crate::virtio::test_utils::{default_mem, VirtQueue};
     use vm_memory::GuestAddress;
 
     #[test]
