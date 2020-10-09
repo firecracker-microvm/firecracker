@@ -6,12 +6,15 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use crate::virtio::test_utils::VirtQueue as GuestQ;
 use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
 use crate::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
-use crate::virtio::{VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE, QueueError};
+use crate::virtio::{
+    QueueError, VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
+    VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
+};
+use crate::Error as DeviceError;
+use core::result;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
-use core::result;
-use crate::Error as DeviceError;
 
 type Result<T> = std::result::Result<T, VsockError>;
 
@@ -189,5 +192,36 @@ impl<'a> EventHandlerContext<'a> {
         self.device.queue_events[RXQ_INDEX].write(1).unwrap();
         self.device
             .handle_rxq_event(&EpollEvent::new(EventSet::IN, 0));
+    }
+}
+
+impl<B> Vsock<B>
+where
+    B: VsockBackend,
+{
+    pub fn write_element_in_queue(
+        vsock: &Vsock<B>,
+        idx: usize,
+        val: u64,
+    ) -> result::Result<(), DeviceError> {
+        if idx > vsock.queue_events.len() {
+            return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
+                idx as u16,
+            )));
+        }
+        vsock.queue_events[idx].write(val).unwrap();
+        Ok(())
+    }
+
+    pub fn get_element_from_queue(
+        vsock: &Vsock<B>,
+        idx: usize,
+    ) -> result::Result<u64, DeviceError> {
+        if idx > vsock.queue_events.len() {
+            return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
+                idx as u16,
+            )));
+        }
+        Ok(vsock.queue_events[idx].as_raw_fd() as u64)
     }
 }
