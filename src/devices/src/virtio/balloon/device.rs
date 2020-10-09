@@ -112,7 +112,7 @@ pub struct Balloon {
     // Transport related fields.
     pub(crate) queues: Vec<Queue>,
     pub(crate) interrupt_status: Arc<AtomicUsize>,
-    interrupt_evt: EventFd,
+    pub(crate) interrupt_evt: EventFd,
     pub(crate) queue_evts: [EventFd; NUM_QUEUES],
     pub(crate) device_state: DeviceState,
 
@@ -464,19 +464,15 @@ pub(crate) mod tests {
 
     use super::super::CONFIG_SPACE_SIZE;
     use super::*;
-    use crate::virtio::queue::tests::*;
+    use crate::check_metric_after_block;
+    use crate::virtio::balloon::test_utils::{
+        check_request_completion, invoke_handler_for_queue_event, set_request,
+    };
+    use crate::virtio::test_utils::{default_mem, VirtQueue};
+    use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
     use ::utils::epoll::{EpollEvent, EventSet};
     use polly::event_manager::{EventManager, Subscriber};
     use vm_memory::GuestAddress;
-
-    /// Will read $metric, run the code in $block, then assert metric has increased by $delta.
-    macro_rules! check_metric_after_block {
-        ($metric:expr, $delta:expr, $block:expr) => {{
-            let before = $metric.count();
-            let _ = $block;
-            assert_eq!($metric.count(), before + $delta, "unexpected metric value");
-        }};
-    }
 
     impl Balloon {
         pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {
@@ -490,41 +486,6 @@ pub(crate) mod tests {
         pub fn update_actual_pages(&mut self, actual_pages: u32) {
             self.config_space.actual_pages = actual_pages;
         }
-    }
-
-    pub fn default_mem() -> GuestMemoryMmap {
-        GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap()
-    }
-
-    fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
-        assert!(queue_index < NUM_QUEUES);
-        // Trigger the queue event.
-        b.queue_evts[queue_index].write(1).unwrap();
-        // Handle event.
-        b.process(
-            &EpollEvent::new(EventSet::IN, b.queue_evts[queue_index].as_raw_fd() as u64),
-            &mut EventManager::new().unwrap(),
-        );
-        // Validate the queue operation finished successfully.
-        assert_eq!(b.interrupt_evt.read().unwrap(), 1);
-    }
-
-    pub(crate) fn set_request(queue: &VirtQueue, idx: usize, addr: u64, len: u32, flags: u16) {
-        // Set the index of the next request.
-        queue.avail.idx.set((idx + 1) as u16);
-        // Set the current descriptor table entry index.
-        queue.avail.ring[idx].set(idx as u16);
-        // Set the current descriptor table entry.
-        queue.dtable[idx].set(addr, len, flags, 1);
-    }
-
-    pub(crate) fn check_request_completion(queue: &VirtQueue, idx: usize) {
-        // Check that the next used will be idx + 1.
-        assert_eq!(queue.used.idx.get(), (idx + 1) as u16);
-        // Check that the current used is idx.
-        assert_eq!(queue.used.ring[idx].get().id, idx as u32);
-        // The length of the completed request is 0.
-        assert_eq!(queue.used.ring[idx].get().len, 0);
     }
 
     #[test]
