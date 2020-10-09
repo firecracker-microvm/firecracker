@@ -23,7 +23,7 @@ import host_tools.proc as proc
 # this contains the frequency while on AMD it does not.
 # Checkout the cpuid crate. In the future other
 # differences may appear.
-COVERAGE_DICT = {"Intel": 85.15, "AMD": 84.33}
+COVERAGE_DICT = {"Intel": 85.20, "AMD": 84.36}
 PROC_MODEL = proc.proc_type()
 
 COVERAGE_MAX_DELTA = 0.05
@@ -97,6 +97,7 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
         'tests/,'
         'usr/lib/gcc,'
         'lib/x86_64-linux-gnu/,'
+        'test_utils.rs,'
         # The following files/directories are auto-generated
         'bootparam.rs,'
         'elf.rs,'
