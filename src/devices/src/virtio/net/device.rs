@@ -6,6 +6,8 @@
 // found in the THIRD-PARTY file.
 
 use crate::virtio::net::tap::Tap;
+#[cfg(test)]
+use crate::virtio::net::test_utils::Mocks;
 use crate::virtio::net::Error;
 use crate::virtio::net::Result;
 use crate::virtio::net::{MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
@@ -42,7 +44,7 @@ enum FrontendError {
     ReadOnlyDescriptor,
 }
 
-fn vnet_hdr_len() -> usize {
+pub(crate) fn vnet_hdr_len() -> usize {
     mem::size_of::<virtio_net_hdr_v1>()
 }
 
@@ -102,7 +104,7 @@ pub struct Net {
     pub(crate) rx_rate_limiter: RateLimiter,
     pub(crate) tx_rate_limiter: RateLimiter,
 
-    rx_deferred_frame: bool,
+    pub(crate) rx_deferred_frame: bool,
     rx_deferred_irqs: bool,
 
     rx_bytes_read: usize,
@@ -112,7 +114,7 @@ pub struct Net {
     tx_frame_buf: [u8; MAX_BUFFER_SIZE],
 
     pub(crate) interrupt_status: Arc<AtomicUsize>,
-    interrupt_evt: EventFd,
+    pub(crate) interrupt_evt: EventFd,
 
     pub(crate) config_space: ConfigSpace,
     pub(crate) guest_mac: Option<MacAddr>,
@@ -123,7 +125,7 @@ pub struct Net {
     pub(crate) mmds_ns: Option<MmdsNetworkStack>,
 
     #[cfg(test)]
-    mocks: tests::Mocks,
+    pub(crate) mocks: Mocks,
 }
 
 impl Net {
@@ -200,7 +202,7 @@ impl Net {
             guest_mac: guest_mac.copied(),
 
             #[cfg(test)]
-            mocks: tests::Mocks::default(),
+            mocks: Mocks::default(),
         })
     }
 
@@ -821,146 +823,36 @@ impl VirtioDevice for Net {
 #[cfg(test)]
 #[macro_use]
 pub mod tests {
-    use std::net::Ipv4Addr;
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::io::AsRawFd;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
-    use std::{io, mem, thread};
-
     use super::*;
     use crate::virtio::net::device::{
         frame_bytes_from_buf, frame_bytes_from_buf_mut, init_vnet_hdr, vnet_hdr_len,
     };
+    use std::net::Ipv4Addr;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+    use std::{io, mem, thread};
 
-    use crate::virtio::net::tap::tests::TapTrafficSimulator;
+    use crate::check_metric_after_block;
+    use crate::virtio::net::test_utils::test::TestHelper;
+    use crate::virtio::net::test_utils::{
+        check_used_queue_signal, default_net, if_index, inject_tap_tx_frame, set_mac, NetEvent,
+        NetQueue, ReadTapMock, TapTrafficSimulator,
+    };
     use crate::virtio::net::QUEUE_SIZES;
-    use crate::virtio::queue::tests::{VirtQueue, VirtqDesc};
     use crate::virtio::{
-        Net, Queue, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET,
-        VIRTIO_MMIO_INT_VRING, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
+        Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, TYPE_NET, VIRTIO_MMIO_INT_VRING,
+        VIRTQ_DESC_F_WRITE,
     };
     use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use dumbo::pdu::ethernet::ETHERTYPE_ARP;
     use logger::{Metric, METRICS};
-    use net_gen::ETH_HLEN;
-    use polly::event_manager::{EventManager, Subscriber};
     use rate_limiter::{RateLimiter, TokenBucket, TokenType};
-    use std::sync::{Mutex, MutexGuard};
-    use utils::epoll::{EpollEvent, EventSet};
     use virtio_gen::virtio_net::{
         virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
         VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4,
         VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MAC,
     };
     use vm_memory::{Address, GuestMemory};
-
-    static NEXT_INDEX: AtomicUsize = AtomicUsize::new(1);
-
-    macro_rules! check_metric_after_block {
-        ($metric:expr, $delta:expr, $block:expr) => {{
-            let before = $metric.count();
-            let _ = $block;
-            assert_eq!($metric.count(), before + $delta, "unexpected metric value");
-        }};
-    }
-
-    pub enum ReadTapMock {
-        Failure,
-        MockFrame(Vec<u8>),
-        TapFrame,
-    }
-
-    impl ReadTapMock {
-        fn mock_frame(&self) -> Vec<u8> {
-            if let ReadTapMock::MockFrame(frame) = self {
-                return frame.clone();
-            }
-            panic!("Can't get last mock frame");
-        }
-    }
-
-    // Used to simulate tap read fails in tests.
-    pub struct Mocks {
-        read_tap: ReadTapMock,
-    }
-
-    impl Mocks {
-        fn set_read_tap(&mut self, read_tap: ReadTapMock) {
-            self.read_tap = read_tap;
-        }
-    }
-
-    impl Default for Mocks {
-        fn default() -> Mocks {
-            Mocks {
-                read_tap: ReadTapMock::MockFrame(
-                    utils::rand::rand_alphanumerics(1234).as_bytes().to_vec(),
-                ),
-            }
-        }
-    }
-
-    impl Net {
-        pub fn default_net() -> Net {
-            let next_tap = NEXT_INDEX.fetch_add(1, Ordering::SeqCst);
-            let tap_dev_name = format!("net-device{}", next_tap);
-
-            let guest_mac = Net::default_guest_mac();
-
-            let net = Net::new_with_tap(
-                format!("net-device{}", next_tap),
-                tap_dev_name,
-                Some(&guest_mac),
-                RateLimiter::default(),
-                RateLimiter::default(),
-                true,
-            )
-            .unwrap();
-            net.tap.enable();
-
-            net
-        }
-
-        pub fn default_guest_mac() -> MacAddr {
-            MacAddr::parse_str("11:22:33:44:55:66").unwrap()
-        }
-
-        pub fn default_guest_memory() -> GuestMemoryMmap {
-            GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap()
-        }
-
-        pub fn set_mac(&mut self, mac: MacAddr) {
-            self.guest_mac = Some(mac);
-            self.config_space.guest_mac.copy_from_slice(mac.get_bytes());
-        }
-
-        // Assigns "guest virtio driver" activated queues to the net device.
-        pub fn assign_queues(&mut self, rxq: Queue, txq: Queue) {
-            self.queues.clear();
-            self.queues.push(rxq);
-            self.queues.push(txq);
-        }
-
-        // Check that the used queue event has been generated `count` times.
-        pub fn check_used_queue_signal(&self, count: u64) {
-            // Leave at least one event here so that reading it later won't block.
-            self.interrupt_evt.write(1).unwrap();
-            assert_eq!(self.interrupt_evt.read().unwrap(), count + 1);
-        }
-
-        fn inject_tap_tx_frame(&self, len: usize) -> Vec<u8> {
-            assert!(len >= vnet_hdr_len());
-            let tap_traffic_simulator = TapTrafficSimulator::new(self.tap.if_index());
-            let mut frame = utils::rand::rand_alphanumerics(len - vnet_hdr_len())
-                .as_bytes()
-                .to_vec();
-            tap_traffic_simulator.push_tx_packet(&frame);
-            frame.splice(0..0, vec![b'\0'; vnet_hdr_len()]);
-
-            frame
-        }
-    }
 
     impl Net {
         pub fn read_tap(&mut self) -> io::Result<usize> {
@@ -975,196 +867,6 @@ pub mod tests {
                 )),
                 ReadTapMock::TapFrame => self.tap.read(&mut self.rx_frame_buf),
             }
-        }
-    }
-
-    pub enum NetQueue {
-        Rx,
-        Tx,
-    }
-
-    pub enum NetEvent {
-        Custom(i32),
-        RxQueue,
-        RxRateLimiter,
-        Tap,
-        TxQueue,
-        TxRateLimiter,
-    }
-
-    pub struct TestHelper<'a> {
-        pub event_manager: EventManager,
-        pub net: Arc<Mutex<Net>>,
-        pub mem: GuestMemoryMmap,
-        pub rxq: VirtQueue<'a>,
-        pub txq: VirtQueue<'a>,
-    }
-
-    impl<'a> TestHelper<'a> {
-        const QUEUE_SIZE: u16 = 16;
-
-        pub fn default() -> TestHelper<'a> {
-            let mut event_manager = EventManager::new().unwrap();
-            let mut net = Net::default_net();
-            let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), MAX_BUFFER_SIZE)]).unwrap();
-            // transmute mem_ref lifetime to 'a
-            let mem_ref = unsafe { mem::transmute::<&GuestMemoryMmap, &'a GuestMemoryMmap>(&mem) };
-
-            let rxq = VirtQueue::new(GuestAddress(0), mem_ref, Self::QUEUE_SIZE);
-            let txq = VirtQueue::new(
-                rxq.end().unchecked_align_up(VirtqDesc::ALIGNMENT),
-                mem_ref,
-                Self::QUEUE_SIZE,
-            );
-            net.assign_queues(rxq.create_queue(), txq.create_queue());
-
-            let net = Arc::new(Mutex::new(net));
-            event_manager.add_subscriber(net.clone()).unwrap();
-
-            Self {
-                event_manager,
-                net,
-                mem,
-                rxq,
-                txq,
-            }
-        }
-
-        pub fn net(&mut self) -> MutexGuard<Net> {
-            self.net.lock().unwrap()
-        }
-
-        pub fn activate_net(&mut self) {
-            self.net.lock().unwrap().activate(self.mem.clone()).unwrap();
-            // Process the activate event.
-            let ev_count = self.event_manager.run_with_timeout(100).unwrap();
-            assert_eq!(ev_count, 1);
-        }
-
-        pub fn simulate_event(&mut self, event: NetEvent) {
-            let event_fd = match event {
-                NetEvent::Custom(event_fd) => event_fd,
-                NetEvent::RxQueue => self.net().queue_evts[RX_INDEX].as_raw_fd(),
-                NetEvent::RxRateLimiter => self.net().rx_rate_limiter.as_raw_fd(),
-                NetEvent::Tap => self.net().tap.as_raw_fd(),
-                NetEvent::TxQueue => self.net().queue_evts[TX_INDEX].as_raw_fd(),
-                NetEvent::TxRateLimiter => self.net().tx_rate_limiter.as_raw_fd(),
-            };
-            self.net.lock().unwrap().process(
-                &EpollEvent::new(EventSet::IN, event_fd as u64),
-                &mut self.event_manager,
-            );
-        }
-
-        fn data_addr(&self) -> u64 {
-            self.txq.end().raw_value()
-        }
-
-        pub fn add_desc_chain(
-            &mut self,
-            queue: NetQueue,
-            addr_offset: u64,
-            desc_list: &[(u16, u32, u16)],
-        ) {
-            // Get queue and event_fd.
-            let net = self.net.lock().unwrap();
-            let (queue, event_fd) = match queue {
-                NetQueue::Rx => (&self.rxq, &net.queue_evts[RX_INDEX]),
-                NetQueue::Tx => (&self.txq, &net.queue_evts[TX_INDEX]),
-            };
-
-            // Create the descriptor chain.
-            let mut iter = desc_list.iter().peekable();
-            let mut addr = self.data_addr() + addr_offset;
-            while let Some(&(index, len, flags)) = iter.next() {
-                let desc = &queue.dtable[index as usize];
-                desc.set(addr, len, flags, 0);
-                if let Some(&&(next_index, _, _)) = iter.peek() {
-                    desc.flags.set(flags | VIRTQ_DESC_F_NEXT);
-                    desc.next.set(next_index);
-                }
-
-                addr += len as u64;
-                // Add small random gaps between descriptor addresses in order to make sure we
-                // don't blindly read contiguous memory.
-                addr += utils::rand::xor_psuedo_rng_u32() as u64 % 10;
-            }
-
-            // Mark the chain as available.
-            if let Some(&(index, _, _)) = desc_list.first() {
-                let ring_index = queue.avail.idx.get();
-                queue.avail.ring[ring_index as usize].set(index);
-                queue.avail.idx.set(ring_index + 1);
-            }
-            event_fd.write(1).unwrap();
-        }
-
-        /// Generate a tap frame of `frame_len` and check that it is deferred
-        fn check_rx_deferred_frame(&mut self, frame_len: usize) -> Vec<u8> {
-            self.net().mocks.set_read_tap(ReadTapMock::TapFrame);
-            let used_idx = self.rxq.used.idx.get();
-
-            // Inject frame to tap and run epoll.
-            let frame = self.net().inject_tap_tx_frame(frame_len);
-            check_metric_after_block!(
-                METRICS.net.rx_packets_count,
-                0,
-                self.event_manager.run_with_timeout(100).unwrap()
-            );
-            // Check that the frame has been deferred.
-            assert!(self.net().rx_deferred_frame);
-            // Check that the descriptor chain has been discarded.
-            assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
-            self.net().check_used_queue_signal(1);
-
-            frame
-        }
-
-        /// Check that after adding a valid Rx queue descriptor chain a previously deferred frame
-        /// is eventually received by the guest
-        fn check_rx_queue_resume(&mut self, expected_frame: &[u8]) {
-            let used_idx = self.rxq.used.idx.get();
-            // Add a valid Rx avail descriptor chain and run epoll.
-            self.add_desc_chain(
-                NetQueue::Rx,
-                0,
-                &[(0, expected_frame.len() as u32, VIRTQ_DESC_F_WRITE)],
-            );
-            check_metric_after_block!(
-                METRICS.net.rx_packets_count,
-                1,
-                self.event_manager.run_with_timeout(100).unwrap()
-            );
-            // Check that the expected frame was sent to the Rx queue eventually.
-            assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
-            self.net().check_used_queue_signal(1);
-            self.rxq
-                .check_used_elem(used_idx, 0, expected_frame.len() as u32);
-            self.rxq.dtable[0].check_data(&expected_frame);
-        }
-
-        // Generates a frame of `frame_len` and writes it to the provided descriptor chain.
-        // Doesn't generate an error if the descriptor chain is longer than `frame_len`.
-        fn write_tx_frame(&self, desc_list: &[(u16, u32, u16)], frame_len: usize) -> Vec<u8> {
-            let mut frame = utils::rand::rand_alphanumerics(frame_len)
-                .as_bytes()
-                .to_vec();
-            let prefix_len = vnet_hdr_len() + ETH_HLEN as usize;
-            frame.splice(..prefix_len, vec![0; prefix_len]);
-
-            let mut frame_slice = frame.as_slice();
-            for &(index, len, _) in desc_list {
-                let chunk_size = cmp::min(frame_slice.len(), len as usize);
-                self.mem
-                    .write_slice(
-                        &frame_slice[..chunk_size],
-                        GuestAddress::new(self.txq.dtable[index as usize].addr.get()),
-                    )
-                    .unwrap();
-                frame_slice = &frame_slice[chunk_size..];
-            }
-
-            frame
         }
     }
 
@@ -1201,15 +903,15 @@ pub mod tests {
 
     #[test]
     fn test_virtio_device_type() {
-        let mut net = Net::default_net();
-        net.set_mac(MacAddr::parse_str("11:22:33:44:55:66").unwrap());
+        let mut net = default_net();
+        set_mac(&mut net, MacAddr::parse_str("11:22:33:44:55:66").unwrap());
         assert_eq!(net.device_type(), TYPE_NET);
     }
 
     #[test]
     fn test_virtio_device_features() {
-        let mut net = Net::default_net();
-        net.set_mac(MacAddr::parse_str("11:22:33:44:55:66").unwrap());
+        let mut net = default_net();
+        set_mac(&mut net, MacAddr::parse_str("11:22:33:44:55:66").unwrap());
 
         // Test `features()` and `ack_features()`.
         let features = 1 << VIRTIO_NET_F_GUEST_CSUM
@@ -1236,8 +938,8 @@ pub mod tests {
 
     #[test]
     fn test_virtio_device_read_config() {
-        let mut net = Net::default_net();
-        net.set_mac(MacAddr::parse_str("11:22:33:44:55:66").unwrap());
+        let mut net = default_net();
+        set_mac(&mut net, MacAddr::parse_str("11:22:33:44:55:66").unwrap());
 
         // Test `read_config()`. This also validates the MAC was properly configured.
         let mac = MacAddr::parse_str("11:22:33:44:55:66").unwrap();
@@ -1253,8 +955,8 @@ pub mod tests {
 
     #[test]
     fn test_virtio_device_rewrite_config() {
-        let mut net = Net::default_net();
-        net.set_mac(MacAddr::parse_str("11:22:33:44:55:66").unwrap());
+        let mut net = default_net();
+        set_mac(&mut net, MacAddr::parse_str("11:22:33:44:55:66").unwrap());
 
         let new_config: [u8; 6] = [0x66, 0x55, 0x44, 0x33, 0x22, 0x11];
         net.write_config(0, &new_config);
@@ -1384,7 +1086,7 @@ pub mod tests {
         th.add_desc_chain(NetQueue::Rx, 1300, &[(5, 1000, VIRTQ_DESC_F_WRITE)]);
 
         // Inject frame to tap and run epoll.
-        let frame = th.net().inject_tap_tx_frame(1000);
+        let frame = inject_tap_tx_frame(&th.net(), 1000);
         check_metric_after_block!(
             METRICS.net.rx_packets_count,
             1,
@@ -1393,7 +1095,7 @@ pub mod tests {
 
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 4);
-        th.net().check_used_queue_signal(1);
+        check_used_queue_signal(&th.net(), 1);
         // Check that the invalid descriptor chains have been discarded
         th.rxq.check_used_elem(0, 0, 0);
         th.rxq.check_used_elem(1, 3, 0);
@@ -1424,7 +1126,7 @@ pub mod tests {
             ],
         );
         // Inject frame to tap and run epoll.
-        let frame = th.net().inject_tap_tx_frame(1000);
+        let frame = inject_tap_tx_frame(&th.net(), 1000);
         check_metric_after_block!(
             METRICS.net.rx_packets_count,
             1,
@@ -1435,7 +1137,7 @@ pub mod tests {
         assert!(!th.net().rx_deferred_frame);
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 1);
-        th.net().check_used_queue_signal(1);
+        check_used_queue_signal(&th.net(), 1);
         // Check that the frame has been written successfully to the Rx descriptor chain.
         th.rxq.check_used_elem(0, 3, frame.len() as u32);
         th.rxq.dtable[3].check_data(&frame[..100]);
@@ -1462,8 +1164,8 @@ pub mod tests {
             &[(2, 500, VIRTQ_DESC_F_WRITE), (3, 500, VIRTQ_DESC_F_WRITE)],
         );
         // Inject 2 frames to tap and run epoll.
-        let frame_1 = th.net().inject_tap_tx_frame(200);
-        let frame_2 = th.net().inject_tap_tx_frame(300);
+        let frame_1 = inject_tap_tx_frame(&th.net(), 200);
+        let frame_2 = inject_tap_tx_frame(&th.net(), 300);
         check_metric_after_block!(
             METRICS.net.rx_packets_count,
             2,
@@ -1474,7 +1176,7 @@ pub mod tests {
         assert!(!th.net().rx_deferred_frame);
         // Check that the used queue has advanced.
         assert_eq!(th.rxq.used.idx.get(), 2);
-        th.net().check_used_queue_signal(1);
+        check_used_queue_signal(&th.net(), 1);
         // Check that the 1st frame was written successfully to the 1st Rx descriptor chain.
         th.rxq.check_used_elem(0, 0, frame_1.len() as u32);
         th.rxq.dtable[0].check_data(&frame_1);
@@ -1489,7 +1191,7 @@ pub mod tests {
     fn test_tx_missing_queue_signal() {
         let mut th = TestHelper::default();
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
         th.net().queue_evts[TX_INDEX].read().unwrap();
@@ -1509,7 +1211,7 @@ pub mod tests {
     fn test_tx_writeable_descriptor() {
         let mut th = TestHelper::default();
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
         let desc_list = [(0, 100, 0), (1, 100, VIRTQ_DESC_F_WRITE), (2, 500, 0)];
         th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
@@ -1518,7 +1220,7 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
-        th.net().check_used_queue_signal(1);
+        check_used_queue_signal(&th.net(), 1);
         th.txq.check_used_elem(0, 0, 0);
         // Check that the frame was skipped.
         assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
@@ -1528,7 +1230,7 @@ pub mod tests {
     fn test_tx_short_frame() {
         let mut th = TestHelper::default();
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
         // Send an invalid frame (too small, VNET header missing).
         th.add_desc_chain(NetQueue::Tx, 0, &[(0, 1, 0)]);
@@ -1540,7 +1242,7 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
-        th.net().check_used_queue_signal(1);
+        check_used_queue_signal(&th.net(), 1);
         th.txq.check_used_elem(0, 0, 0);
         // Check that the frame was skipped.
         assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
@@ -1550,7 +1252,7 @@ pub mod tests {
     fn test_tx_partial_read() {
         let mut th = TestHelper::default();
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
         // The descriptor chain is created so that the last descriptor doesn't fit in the
         // guest memory.
@@ -1568,7 +1270,7 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
-        th.net().check_used_queue_signal(1);
+        check_used_queue_signal(&th.net(), 1);
         th.txq.check_used_elem(0, 0, 0);
         // Check that the frame was skipped.
         assert!(!tap_traffic_simulator.pop_rx_packet(&mut []));
@@ -1578,7 +1280,7 @@ pub mod tests {
     fn test_tx_retry() {
         let mut th = TestHelper::default();
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
         // Add invalid descriptor chain - writeable descriptor.
         th.add_desc_chain(
@@ -1604,7 +1306,7 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 4);
-        th.net().check_used_queue_signal(1);
+        check_used_queue_signal(&th.net(), 1);
         th.txq.check_used_elem(3, 4, 0);
         // Check that the valid frame was sent to the tap.
         let mut buf = vec![0; 1000];
@@ -1618,7 +1320,7 @@ pub mod tests {
     fn test_tx_complex_descriptor() {
         let mut th = TestHelper::default();
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
         // Add gaps between the descriptor ids in order to ensure that we follow
         // the `next` field.
@@ -1634,7 +1336,7 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 1);
-        th.net().check_used_queue_signal(1);
+        check_used_queue_signal(&th.net(), 1);
         th.txq.check_used_elem(0, 3, 0);
         // Check that the frame was sent to the tap.
         let mut buf = vec![0; 1000];
@@ -1646,7 +1348,7 @@ pub mod tests {
     fn test_tx_multiple_frame() {
         let mut th = TestHelper::default();
         th.activate_net();
-        let tap_traffic_simulator = TapTrafficSimulator::new(th.net().tap.if_index());
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
         // Write the first frame to the Tx queue
         let desc_list = [(0, 50, 0), (1, 100, 0), (2, 150, 0)];
@@ -1665,7 +1367,7 @@ pub mod tests {
 
         // Check that the used queue advanced.
         assert_eq!(th.txq.used.idx.get(), 2);
-        th.net().check_used_queue_signal(1);
+        check_used_queue_signal(&th.net(), 1);
         th.txq.check_used_elem(0, 0, 0);
         th.txq.check_used_elem(1, 3, 0);
         // Check that the first frame was sent to the tap.
@@ -1712,7 +1414,7 @@ pub mod tests {
 
     #[test]
     fn test_mmds_detour_and_injection() {
-        let mut net = Net::default_net();
+        let mut net = default_net();
 
         let src_mac = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
         let src_ip = Ipv4Addr::new(10, 1, 2, 3);
@@ -1746,7 +1448,7 @@ pub mod tests {
 
     #[test]
     fn test_mac_spoofing_detection() {
-        let mut net = Net::default_net();
+        let mut net = default_net();
 
         let guest_mac = MacAddr::parse_str("11:11:11:11:11:11").unwrap();
         let not_guest_mac = MacAddr::parse_str("33:33:33:33:33:33").unwrap();
@@ -1932,7 +1634,7 @@ pub mod tests {
                 assert_eq!(METRICS.net.rx_rate_limiter_throttled.count(), 1);
                 assert!(th.net().rx_deferred_frame);
                 // assert that no operation actually completed (limiter blocked it)
-                th.net().check_used_queue_signal(1);
+                check_used_queue_signal(&th.net(), 1);
                 // make sure the data is still queued for processing
                 assert_eq!(th.rxq.used.idx.get(), 0);
             }
@@ -1953,7 +1655,7 @@ pub mod tests {
                 // validate the rate_limiter is no longer blocked
                 assert!(!th.net().rx_rate_limiter.is_blocked());
                 // make sure the virtio queue operation completed this time
-                th.net().check_used_queue_signal(1);
+                check_used_queue_signal(&th.net(), 1);
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq.check_used_elem(0, 0, frame.len() as u32);
@@ -2041,14 +1743,14 @@ pub mod tests {
                 assert!(METRICS.net.rx_rate_limiter_throttled.count() >= 1);
                 assert!(th.net().rx_deferred_frame);
                 // assert that no operation actually completed (limiter blocked it)
-                th.net().check_used_queue_signal(1);
+                check_used_queue_signal(&th.net(), 1);
                 // make sure the data is still queued for processing
                 assert_eq!(th.rxq.used.idx.get(), 0);
 
                 // trigger the RX handler again, this time it should do the limiter fast path exit
                 th.simulate_event(NetEvent::Tap);
                 // assert that no operation actually completed, that the limiter blocked it
-                th.net().check_used_queue_signal(0);
+                check_used_queue_signal(&th.net(), 0);
                 // make sure the data is still queued for processing
                 assert_eq!(th.rxq.used.idx.get(), 0);
             }
@@ -2062,7 +1764,7 @@ pub mod tests {
                 let frame = &th.net().mocks.read_tap.mock_frame();
                 th.simulate_event(NetEvent::RxRateLimiter);
                 // make sure the virtio queue operation completed this time
-                th.net().check_used_queue_signal(1);
+                check_used_queue_signal(&th.net(), 1);
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq.check_used_elem(0, 0, frame.len() as u32);
@@ -2135,6 +1837,6 @@ pub mod tests {
             VIRTIO_MMIO_INT_VRING as usize
         );
 
-        net.check_used_queue_signal(0);
+        check_used_queue_signal(&net, 0);
     }
 }

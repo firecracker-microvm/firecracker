@@ -37,40 +37,6 @@ ioctl_iow_nr!(TUNSETIFF, TUNTAP, 202, ::std::os::raw::c_int);
 ioctl_iow_nr!(TUNSETOFFLOAD, TUNTAP, 208, ::std::os::raw::c_uint);
 ioctl_iow_nr!(TUNSETVNETHDRSZ, TUNTAP, 216, ::std::os::raw::c_int);
 
-struct IfReqBuilder(ifreq);
-
-impl IfReqBuilder {
-    fn new() -> Self {
-        Self(Default::default())
-    }
-
-    fn if_name(mut self, if_name: &[u8; IFACE_NAME_MAX_LEN]) -> Self {
-        // Since we don't call as_mut on the same union field more than once, this block is safe.
-        let ifrn_name = unsafe { self.0.ifr_ifrn.ifrn_name.as_mut() };
-        ifrn_name.copy_from_slice(if_name.as_ref());
-
-        self
-    }
-
-    fn flags(mut self, flags: i16) -> Self {
-        // Since we don't call as_mut on the same union field more than once, this block is safe.
-        let ifru_flags = unsafe { self.0.ifr_ifru.ifru_flags.as_mut() };
-        *ifru_flags = flags;
-
-        self
-    }
-
-    fn execute<F: AsRawFd>(mut self, socket: &F, ioctl: u64) -> Result<ifreq> {
-        // ioctl is safe. Called with a valid socket fd, and we check the return.
-        let ret = unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) };
-        if ret < 0 {
-            return Err(Error::IoctlError(IoError::last_os_error()));
-        }
-
-        Ok(self.0)
-    }
-}
-
 /// Handle for a network tap interface.
 ///
 /// For now, this simply wraps the file descriptor for the tap device so methods
@@ -79,7 +45,7 @@ impl IfReqBuilder {
 #[derive(Debug)]
 pub struct Tap {
     tap_file: File,
-    if_name: [u8; IFACE_NAME_MAX_LEN],
+    pub(crate) if_name: [u8; IFACE_NAME_MAX_LEN],
 }
 
 // Returns a byte vector representing the contents of a null terminated C string which
@@ -97,6 +63,40 @@ fn build_terminated_if_name(if_name: &str) -> Result<[u8; IFACE_NAME_MAX_LEN]> {
     terminated_if_name[..if_name.len()].copy_from_slice(if_name);
 
     Ok(terminated_if_name)
+}
+
+pub struct IfReqBuilder(ifreq);
+
+impl IfReqBuilder {
+    pub fn new() -> Self {
+        Self(Default::default())
+    }
+
+    pub fn if_name(mut self, if_name: &[u8; IFACE_NAME_MAX_LEN]) -> Self {
+        // Since we don't call as_mut on the same union field more than once, this block is safe.
+        let ifrn_name = unsafe { self.0.ifr_ifrn.ifrn_name.as_mut() };
+        ifrn_name.copy_from_slice(if_name.as_ref());
+
+        self
+    }
+
+    pub(crate) fn flags(mut self, flags: i16) -> Self {
+        // Since we don't call as_mut on the same union field more than once, this block is safe.
+        let ifru_flags = unsafe { self.0.ifr_ifru.ifru_flags.as_mut() };
+        *ifru_flags = flags;
+
+        self
+    }
+
+    pub(crate) fn execute<F: AsRawFd>(mut self, socket: &F, ioctl: u64) -> Result<ifreq> {
+        // ioctl is safe. Called with a valid socket fd, and we check the return.
+        let ret = unsafe { ioctl_with_mut_ref(socket, ioctl, &mut self.0) };
+        if ret < 0 {
+            return Err(Error::IoctlError(IoError::last_os_error()));
+        }
+
+        Ok(self.0)
+    }
 }
 
 impl Tap {
@@ -189,12 +189,10 @@ impl AsRawFd for Tap {
 
 #[cfg(test)]
 pub mod tests {
-
-    use std::mem;
     use std::os::unix::ffi::OsStrExt;
-    use std::process::Command;
 
     use super::*;
+    use crate::virtio::net::test_utils::{enable, if_index, TapTrafficSimulator};
     use net_gen::ETH_HLEN;
 
     // The size of the virtio net header
@@ -202,135 +200,6 @@ pub mod tests {
 
     const PAYLOAD_SIZE: usize = 512;
     const PACKET_SIZE: usize = 1024;
-
-    fn create_socket() -> File {
-        // This is safe since we check the return value.
-        let socket = unsafe {
-            libc::socket(
-                libc::AF_PACKET,
-                libc::SOCK_RAW,
-                libc::ETH_P_ALL.to_be() as i32,
-            )
-        };
-        if socket < 0 {
-            panic!("Unable to create tap socket");
-        }
-
-        // This is safe; nothing else will use or hold onto the raw socket fd.
-        unsafe { File::from_raw_fd(socket) }
-    }
-
-    impl Tap {
-        pub fn if_index(&self) -> i32 {
-            let sock = create_socket();
-            let ifreq = IfReqBuilder::new()
-                .if_name(&self.if_name)
-                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCGIFINDEX))
-                .unwrap();
-
-            unsafe { *ifreq.ifr_ifru.ifru_ivalue.as_ref() }
-        }
-
-        /// Enable the tap interface.
-        pub fn enable(&self) {
-            // Disable IPv6 router advertisment requests
-            Command::new("sh")
-                .arg("-c")
-                .arg(format!(
-                    "echo 0 > /proc/sys/net/ipv6/conf/{}/accept_ra",
-                    self.if_name_as_str()
-                ))
-                .output()
-                .unwrap();
-
-            let sock = create_socket();
-            IfReqBuilder::new()
-                .if_name(&self.if_name)
-                .flags(
-                    (net_gen::net_device_flags_IFF_UP
-                        | net_gen::net_device_flags_IFF_RUNNING
-                        | net_gen::net_device_flags_IFF_NOARP) as i16,
-                )
-                .execute(&sock, c_ulong::from(net_gen::sockios::SIOCSIFFLAGS))
-                .unwrap();
-        }
-    }
-
-    pub struct TapTrafficSimulator {
-        socket: File,
-        send_addr: libc::sockaddr_ll,
-    }
-
-    impl TapTrafficSimulator {
-        pub fn new(tap_index: i32) -> Self {
-            // Create sockaddr_ll struct.
-            let send_addr_ptr = &unsafe { mem::zeroed() } as *const libc::sockaddr_storage;
-            unsafe {
-                let sock_addr: *mut libc::sockaddr_ll = send_addr_ptr as *mut libc::sockaddr_ll;
-                (*sock_addr).sll_family = libc::AF_PACKET as libc::sa_family_t;
-                (*sock_addr).sll_protocol = (libc::ETH_P_ALL as u16).to_be();
-                (*sock_addr).sll_halen = libc::ETH_ALEN as u8;
-                (*sock_addr).sll_ifindex = tap_index;
-            }
-
-            // Bind socket to tap interface.
-            let socket = create_socket();
-            let ret = unsafe {
-                libc::bind(
-                    socket.as_raw_fd(),
-                    send_addr_ptr as *const _,
-                    mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
-                )
-            };
-            if ret == -1 {
-                panic!("Can't create TapChannel");
-            }
-
-            // Enable nonblocking
-            let ret = unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) };
-            if ret == -1 {
-                panic!("Couldn't make TapChannel non-blocking");
-            }
-
-            Self {
-                socket,
-                send_addr: unsafe { *(send_addr_ptr as *const _) },
-            }
-        }
-
-        pub fn push_tx_packet(&self, buf: &[u8]) {
-            let res = unsafe {
-                libc::sendto(
-                    self.socket.as_raw_fd(),
-                    buf.as_ptr() as *const _,
-                    buf.len(),
-                    0,
-                    (&self.send_addr as *const libc::sockaddr_ll) as *const _,
-                    mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
-                )
-            };
-            if res == -1 {
-                panic!("Can't inject tx_packet");
-            }
-        }
-
-        pub fn pop_rx_packet(&self, buf: &mut [u8]) -> bool {
-            let ret = unsafe {
-                libc::recvfrom(
-                    self.socket.as_raw_fd(),
-                    buf.as_ptr() as *mut _,
-                    buf.len(),
-                    0,
-                    (&mut mem::zeroed() as *mut libc::sockaddr_storage) as *mut _,
-                    &mut (mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t),
-                )
-            };
-            if ret == -1 {
-                return false;
-            }
-            true
-        }
-    }
 
     #[test]
     fn test_tap_name() {
@@ -392,8 +261,8 @@ pub mod tests {
     #[test]
     fn test_read() {
         let mut tap = Tap::open_named("").unwrap();
-        tap.enable();
-        let tap_traffic_simulator = TapTrafficSimulator::new(tap.if_index());
+        enable(&tap);
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
 
         let packet = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
         tap_traffic_simulator.push_tx_packet(packet.as_bytes());
@@ -409,8 +278,8 @@ pub mod tests {
     #[test]
     fn test_write() {
         let mut tap = Tap::open_named("").unwrap();
-        tap.enable();
-        let tap_traffic_simulator = TapTrafficSimulator::new(tap.if_index());
+        enable(&tap);
+        let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&tap));
 
         let mut packet = [0u8; PACKET_SIZE];
         let payload = utils::rand::rand_alphanumerics(PAYLOAD_SIZE);
