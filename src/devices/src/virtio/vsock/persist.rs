@@ -122,11 +122,11 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::super::tests::{TestBackend, TestContext};
     use super::device::AVAIL_FEATURES;
     use super::*;
     use crate::virtio::device::VirtioDevice;
     use crate::virtio::vsock::defs::uapi;
+    use crate::virtio::vsock::test_utils::{TestBackend, TestContext};
     use utils::byte_order;
 
     impl Persist<'_> for TestBackend {

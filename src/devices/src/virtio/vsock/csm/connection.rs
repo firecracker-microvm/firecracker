@@ -673,11 +673,11 @@ mod tests {
     use utils::eventfd::EventFd;
 
     use super::super::super::defs::uapi;
-    use super::super::super::tests::TestContext;
     use super::super::defs as csm_defs;
     use super::*;
 
     use crate::virtio::vsock::device::RXQ_INDEX;
+    use crate::virtio::vsock::test_utils::TestContext;
 
     const LOCAL_CID: u64 = 2;
     const PEER_CID: u64 = 3;

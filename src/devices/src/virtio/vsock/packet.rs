@@ -343,11 +343,11 @@ mod tests {
 
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
-    use super::super::tests::TestContext;
     use super::*;
-    use crate::virtio::queue::tests::VirtqDesc as GuestQDesc;
+    use crate::virtio::test_utils::VirtqDesc as GuestQDesc;
     use crate::virtio::vsock::defs::MAX_PKT_BUF_SIZE;
     use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
+    use crate::virtio::vsock::test_utils::TestContext;
     use crate::virtio::VIRTQ_DESC_F_WRITE;
 
     macro_rules! create_context {
