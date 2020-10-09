@@ -252,6 +252,25 @@ pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     frame
 }
 
+pub fn write_element_in_queue(net: &Net, idx: usize, val: u64) -> result::Result<(), DeviceError> {
+    if idx > net.queue_evts.len() {
+        return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
+            idx as u16,
+        )));
+    }
+    net.queue_evts[idx].write(val).unwrap();
+    Ok(())
+}
+
+pub fn get_element_from_queue(net: &Net, idx: usize) -> result::Result<u64, DeviceError> {
+    if idx > net.queue_evts.len() {
+        return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
+            idx as u16,
+        )));
+    }
+    Ok(net.queue_evts[idx].as_raw_fd() as u64)
+}
+
 pub fn default_guest_mac() -> MacAddr {
     MacAddr::parse_str("11:22:33:44:55:66").unwrap()
 }
@@ -274,6 +293,7 @@ pub fn assign_queues(net: &mut Net, rxq: Queue, txq: Queue) {
 
 #[cfg(test)]
 pub mod test {
+    use crate::check_metric_after_block;
     use crate::virtio::net::device::vnet_hdr_len;
     use crate::virtio::net::test_utils::{
         assign_queues, check_used_queue_signal, default_net, inject_tap_tx_frame, NetEvent,
@@ -294,7 +314,6 @@ pub mod test {
     use std::sync::{Arc, Mutex, MutexGuard};
     use utils::epoll::{EpollEvent, EventSet};
     use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
-    use crate::check_metric_after_block;
 
     pub struct TestHelper<'a> {
         pub event_manager: EventManager,
