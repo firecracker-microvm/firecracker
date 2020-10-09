@@ -778,8 +778,8 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::super::super::csm::defs as csm_defs;
-    use super::super::super::tests::TestContext as VsockTestContext;
     use super::*;
+    use crate::virtio::vsock::test_utils::TestContext as VsockTestContext;
 
     use crate::virtio::vsock::device::RXQ_INDEX;
 
