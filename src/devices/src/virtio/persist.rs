@@ -196,10 +196,11 @@ impl Persist<'_> for MmioTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::virtio::block::device::tests::default_mem;
     use crate::virtio::mmio::tests::DummyDevice;
-    use crate::virtio::{Block, Net, Vsock, VsockUnixBackend};
+    use crate::virtio::{net, Block, Net, Vsock, VsockUnixBackend};
 
+    use crate::virtio::block::test_utils::default_block_with_path;
+    use crate::virtio::test_utils::default_mem;
     use utils::tempfile::TempFile;
 
     const DEFAULT_QUEUE_MAX_SIZE: u16 = 256;
@@ -362,7 +363,6 @@ mod tests {
     }
 
     fn default_block() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Block>>) {
-        use crate::virtio::block::device::tests::default_block_with_path;
         let mem = default_mem();
 
         // Create backing file.
@@ -377,7 +377,7 @@ mod tests {
 
     fn default_net() -> (MmioTransport, GuestMemoryMmap, Arc<Mutex<Net>>) {
         let mem = default_mem();
-        let net = Arc::new(Mutex::new(Net::default_net()));
+        let net = Arc::new(Mutex::new(net::test_utils::default_net()));
         let mmio_transport = MmioTransport::new(mem.clone(), net.clone());
 
         (mmio_transport, mem, net)
