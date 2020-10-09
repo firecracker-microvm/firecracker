@@ -120,11 +120,12 @@ mod tests {
     use super::*;
     use crate::virtio::device::VirtioDevice;
 
+    use crate::virtio::net::test_utils::{default_guest_memory, default_net};
     use std::sync::atomic::Ordering;
 
     #[test]
     fn test_persistence() {
-        let guest_mem = Net::default_guest_memory();
+        let guest_mem = default_guest_memory();
         let mut mem = vec![0; 4096];
         let version_map = VersionMap::new();
 
@@ -135,7 +136,7 @@ mod tests {
 
         // Create and save the net device.
         {
-            let net = Net::default_net();
+            let net = default_net();
 
             <Net as Persist>::save(&net)
                 .serialize(&mut mem.as_mut_slice(), &version_map, 1)
