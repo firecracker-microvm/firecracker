@@ -122,15 +122,17 @@ impl SnapshotMemory for GuestMemoryMmap {
         let mut writer_offset = 0;
 
         self.with_regions_mut(|slot, region| {
-            let bitmap = dirty_bitmap.get(&slot).unwrap();
+            let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
+            let firecracker_bitmap = region.dirty_bitmap().unwrap();
             let mut write_size = 0;
             let mut dirty_batch_start: u64 = 0;
 
-            for (i, v) in bitmap.iter().enumerate() {
+            for (i, v) in kvm_bitmap.iter().enumerate() {
                 for j in 0..64 {
-                    let is_dirty_page = ((v >> j) & 1u64) != 0u64;
-                    if is_dirty_page {
-                        let page_offset = ((i * 64) + j) * page_size;
+                    let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
+                    let page_offset = ((i * 64) + j) * page_size;
+                    let is_firecracker_page_dirty = firecracker_bitmap.is_addr_set(page_offset);
+                    if is_kvm_page_dirty || is_firecracker_page_dirty {
                         // We are at the start of a new batch of dirty pages.
                         if write_size == 0 {
                             // Seek forward over the unmodified pages.
@@ -157,6 +159,8 @@ impl SnapshotMemory for GuestMemoryMmap {
             }
 
             writer_offset += region.len();
+            firecracker_bitmap.reset();
+
             Ok(())
         })
         .map_err(Error::WriteMemory)
@@ -202,6 +206,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use std::io::{Read, Seek};
     use utils::tempfile::TempFile;
     use vm_memory::GuestAddress;
 
@@ -269,7 +274,13 @@ mod tests {
             (GuestAddress(0), page_size * 2),
             (GuestAddress(page_size as u64 * 3), page_size * 2),
         ];
-        let guest_memory = GuestMemoryMmap::from_ranges(&mem_regions[..]).unwrap();
+        let guest_memory = GuestMemoryMmap::from_ranges_with_tracking(&mem_regions[..]).unwrap();
+        // Check that Firecracker bitmap is clean.
+        let _res: std::result::Result<(), Error> = guest_memory.with_regions(|_, r| {
+            assert!(!r.dirty_bitmap().unwrap().is_bit_set(0));
+            assert!(!r.dirty_bitmap().unwrap().is_bit_set(1));
+            Ok(())
+        });
 
         // Fill the first region with 1s and the second with 2s.
         let first_region = vec![1u8; page_size * 2];
@@ -310,6 +321,7 @@ mod tests {
 
         // Case 2: dump only the dirty pages.
         {
+            // KVM Bitmap
             // First region pages: [dirty, clean]
             // Second region pages: [clean, dirty]
             let mut dirty_bitmap: DirtyBitmap = HashMap::new();
@@ -321,21 +333,16 @@ mod tests {
                 .dump_dirty(&mut file.as_file(), &dirty_bitmap)
                 .unwrap();
 
+            // We can restore from this because this is the first dirty dump.
             let restored_guest_memory =
-                GuestMemoryMmap::restore(&file.as_file(), &memory_state, true).unwrap();
+                GuestMemoryMmap::restore(&file.as_file(), &memory_state, false).unwrap();
 
-            // Check that only the dirty pages have been restored.
-            let zeros = vec![0u8; page_size];
-            let ones = vec![1u8; page_size];
-            let twos = vec![2u8; page_size];
-            let expected_first_region = [ones.as_slice(), zeros.as_slice()].concat();
-            let expected_second_region = [zeros.as_slice(), twos.as_slice()].concat();
-
+            // Check that the region contents are the same.
             let mut actual_region = vec![0u8; page_size * 2];
             restored_guest_memory
                 .read(&mut actual_region.as_mut_slice(), GuestAddress(0))
                 .unwrap();
-            assert_eq!(expected_first_region, actual_region);
+            assert_eq!(first_region, actual_region);
 
             restored_guest_memory
                 .read(
@@ -343,7 +350,36 @@ mod tests {
                     GuestAddress(page_size as u64 * 3),
                 )
                 .unwrap();
-            assert_eq!(expected_second_region, actual_region);
+            assert_eq!(second_region, actual_region);
+
+            // Dirty the memory and dump again
+            let file = TempFile::new().unwrap();
+            let mut reader = file.as_file();
+            let zeros = vec![0u8; page_size];
+            let ones = vec![1u8; page_size];
+            let twos = vec![2u8; page_size];
+
+            // Firecracker Bitmap
+            // First region pages: [dirty, clean]
+            // Second region pages: [clean, clean]
+            guest_memory
+                .write(&twos[..], GuestAddress(page_size as u64))
+                .unwrap();
+
+            guest_memory.dump_dirty(&mut reader, &dirty_bitmap).unwrap();
+
+            // Check that only the dirty regions are dumped.
+            let mut diff_file_content = Vec::new();
+            let expected_first_region = [
+                ones.as_slice(),
+                twos.as_slice(),
+                zeros.as_slice(),
+                twos.as_slice(),
+            ]
+            .concat();
+            reader.seek(SeekFrom::Start(0)).unwrap();
+            reader.read_to_end(&mut diff_file_content).unwrap();
+            assert_eq!(expected_first_region, diff_file_content);
         }
     }
 }
