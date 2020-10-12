@@ -432,6 +432,7 @@ mod tests {
             net_builder: default_net_builder(),
             mmds_config: None,
             boot_timer: false,
+            debugger: false,
         }
     }
 
