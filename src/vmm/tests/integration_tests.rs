@@ -57,7 +57,8 @@ fn default_vmm(_kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
         .into();
 
     (
-        build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter).unwrap(),
+        build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter, false)
+            .unwrap(),
         event_manager,
     )
 }
@@ -95,7 +96,8 @@ fn test_build_microvm() {
         let mut event_manager = EventManager::new().unwrap();
         let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
 
-        let vmm_ret = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter);
+        let vmm_ret =
+            build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter, false);
         assert_eq!(format!("{:?}", vmm_ret.err()), "Some(MissingKernelConfig)");
     }
 
@@ -144,7 +146,8 @@ fn test_vmm_seccomp() {
 
             // The customer "forgot" to whitelist the KVM_RUN ioctl.
             let filter: BpfProgram = MockSeccomp::new().without_kvm_run().into();
-            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &filter).unwrap();
+            let vmm =
+                build_microvm_for_boot(&resources, &mut event_manager, &filter, false).unwrap();
             // Give the vCPUs a chance to attempt KVM_RUN.
             thread::sleep(Duration::from_millis(200));
             // Should never get here.
