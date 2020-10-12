@@ -13,3 +13,4 @@ kernel = { path = "../kernel" }
 kvm-bindings = { git = "https://github.com/firecracker-microvm/kvm-bindings", tag = "v0.2.0-2", features = ["fam-wrappers"] }
 gdbstub = "0.3.0"
 vmm-sys-util = ">=0.2.1"
+arch = { path = "../arch" }
