@@ -103,12 +103,17 @@ impl Debugger {
 
     /// Function that performs guest page-walking, on top of the 4-Level paging mechanism,
     /// obtaining the physical address corresponding to the one received from a GDB client
-    pub fn virt_to_phys(addr: u64, srv: &FirecrackerGDBServer) -> Result<u64, DebuggerError> {
+    pub fn virt_to_phys(
+        addr: u64,
+        gm: &GuestMemoryMmap,
+        guest_state: &FullVcpuState,
+        e_phdrs: &Vec<Elf64_Phdr>,
+    ) -> Result<u64, DebuggerError> {
         let mut linear_addr = addr;
         let context: kvm_sregs;
         let mut pt_level = PagingType::NONE;
 
-        context = srv.guest_state.special_regs;
+        context = guest_state.special_regs;
         // Paging enabled
         if context.cr0 & CR0_PG != 0 {
             // Determine the type of paging
@@ -146,14 +151,14 @@ impl Debugger {
         paddr += (linear_addr & mask) >> movem;
 
         let mut table_entry;
-        if let Ok(e) = srv.guest_memory.read_obj(GuestAddress(paddr)) {
+        if let Ok(e) = gm.read_obj(GuestAddress(paddr)) {
             table_entry = e;
         } else {
             return Err(DebuggerError::MemoryError);
         }
 
         if Debugger::check_entry(table_entry, TABLE_ENTRY_RSVD_BITS[0]).is_err() {
-            return Debugger::fixup_pointer(addr, srv);
+            return Debugger::fixup_pointer(addr, e_phdrs);
         }
 
         // There is one loop iteration for each level (PDPT, PDT, PT);
@@ -170,7 +175,7 @@ impl Debugger {
             movem -= 9;
             paddr = table_entry & TABLE_ENTRY_MASK;
             paddr += (linear_addr & mask) >> movem;
-            if let Ok(e) = srv.guest_memory.read_obj(GuestAddress(paddr)) {
+            if let Ok(e) = gm.read_obj(GuestAddress(paddr)) {
                 table_entry = e;
             } else {
                 return Err(DebuggerError::MemoryError);
@@ -207,11 +212,11 @@ impl Debugger {
                 }
             }
             if Debugger::check_entry(table_entry, TABLE_ENTRY_RSVD_BITS[rsvd_idx]).is_err() {
-                return Debugger::fixup_pointer(addr, srv);
+                return Debugger::fixup_pointer(addr, e_phdrs);
             }
         }
         if Debugger::check_entry(table_entry, TABLE_ENTRY_RSVD_BITS[rsvd_idx]).is_err() {
-            return Debugger::fixup_pointer(addr, srv);
+            return Debugger::fixup_pointer(addr, e_phdrs);
         }
 
         Ok(paddr)
@@ -233,8 +238,8 @@ impl Debugger {
     /// Following the kernel strategy, during the early boot phase, before the notion
     /// of virtual addresses has been put in place, we obtain the corresponding
     /// physical address by subtracting the section offset.
-    fn fixup_pointer(addr: u64, srv: &FirecrackerGDBServer) -> Result<u64, DebuggerError> {
-        for phdr in &srv.e_phdrs {
+    fn fixup_pointer(addr: u64, e_phdrs: &Vec<Elf64_Phdr>) -> Result<u64, DebuggerError> {
+        for phdr in e_phdrs {
             if (phdr.p_type & PT_LOAD) == 0 {
                 continue;
             }
