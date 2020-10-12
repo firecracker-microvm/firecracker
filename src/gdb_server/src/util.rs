@@ -1,9 +1,11 @@
 use std::fmt::{Display, Formatter};
+use vm_memory::Bytes;
 use vmm_sys_util::errno::Error;
 
+pub use super::arch::x86_64::regs::setup_sregs;
 use super::kvm_bindings::*;
 use super::target::FirecrackerGDBServer;
-use super::{Bytes, GuestAddress, VcpuFd, PT_LOAD};
+use super::{Elf64_Phdr, GuestAddress, GuestMemoryMmap, VcpuFd, PT_LOAD};
 
 const CR0_PG: u64 = 0x80000000;
 const CR4_PAE: u64 = 0x00000020;
@@ -249,5 +251,80 @@ impl Debugger {
         }
 
         Err(DebuggerError::InvalidLinearAddress)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::setup_sregs;
+    use kvm_ioctls::Kvm;
+    use vm_memory::{GuestAddress, GuestMemoryMmap};
+
+    #[test]
+    fn test_virt_to_phys() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let vcpu_fd = vm.create_vcpu(0).unwrap();
+        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+
+        setup_sregs(&gm, &vcpu_fd).unwrap();
+        let state = super::FullVcpuState {
+            regular_regs: vcpu_fd.get_regs().unwrap(),
+            special_regs: vcpu_fd.get_sregs().unwrap(),
+        };
+        let e_phdrs = vec![
+            super::Elf64_Phdr {
+                p_type: super::PT_LOAD,
+                p_flags: 0,
+                p_offset: 0,
+                p_vaddr: 0xffffffff81000000,
+                p_paddr: 0x1000000,
+                p_filesz: 11984896,
+                p_memsz: 11984896,
+                p_align: 0,
+            },
+            super::Elf64_Phdr {
+                p_type: super::PT_LOAD,
+                p_flags: 0,
+                p_offset: 0,
+                p_vaddr: 0xffffffff81cca000,
+                p_paddr: 0x1cca000,
+                p_filesz: 4243456,
+                p_memsz: 4243456,
+                p_align: 0,
+            },
+        ];
+        // Testing translation through identity-mapped page tables set by Firecracker.
+        // These page tables cover the first 1GB of memory, therefore we can only go
+        // as far as 0x3ffffff
+        assert_eq!(
+            super::Debugger::virt_to_phys(0x1000000, &gm, &state, &e_phdrs).unwrap(),
+            0x1000000
+        );
+        assert_eq!(
+            super::Debugger::virt_to_phys(0xf000000, &gm, &state, &e_phdrs).unwrap(),
+            0xf000000
+        );
+        assert_eq!(
+            super::Debugger::virt_to_phys(0x3f000000, &gm, &state, &e_phdrs).unwrap(),
+            0x3f000000
+        );
+        assert_eq!(
+            super::Debugger::virt_to_phys(0x3fffffff, &gm, &state, &e_phdrs).unwrap(),
+            0x3fffffff
+        );
+        // Testing translation thorugh elf binary information
+        assert_eq!(
+            super::Debugger::virt_to_phys(0xffffffff81ccab6b, &gm, &state, &e_phdrs).unwrap(),
+            0x1ccab6b
+        );
+        assert_eq!(
+            super::Debugger::virt_to_phys(0xffffffff81cde9b1, &gm, &state, &e_phdrs).unwrap(),
+            0x1cde9b1
+        );
+        assert_eq!(
+            super::Debugger::virt_to_phys(0xffffffff81365070, &gm, &state, &e_phdrs).unwrap(),
+            0x1365070
+        );
     }
 }
