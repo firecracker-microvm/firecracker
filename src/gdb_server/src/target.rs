@@ -103,7 +103,12 @@ impl FirecrackerGDBServer {
         let mut phys_addr = linear_addr;
         // Breakpoint has never been set until now
         if translate {
-            match Debugger::virt_to_phys(linear_addr, &self) {
+            match Debugger::virt_to_phys(
+                linear_addr,
+                &self.guest_memory,
+                &self.guest_state,
+                &self.e_phdrs,
+            ) {
                 Ok(addr) => {
                     phys_addr = addr;
                 }
@@ -212,7 +217,9 @@ impl Target for FirecrackerGDBServer {
                                     // an invalid one
                                     match Debugger::virt_to_phys(
                                         self.guest_state.regular_regs.rip,
-                                        &self,
+                                        &self.guest_memory,
+                                        &self.guest_state,
+                                        &self.e_phdrs,
                                     ) {
                                         Ok(phys_addr) => {
                                             if let Err(e) = self.remove_bp(
@@ -264,7 +271,12 @@ impl Target for FirecrackerGDBServer {
                             return Ok((SINGLE_THREAD_TID, StopReason::Halted));
                         } else {
                             if prev_rip == self.guest_state.regular_regs.rip {
-                                match Debugger::virt_to_phys(prev_rip, &self) {
+                                match Debugger::virt_to_phys(
+                                    prev_rip,
+                                    &self.guest_memory,
+                                    &self.guest_state,
+                                    &self.e_phdrs,
+                                ) {
                                     Ok(phys_addr) => {
                                         if let Err(e) = self.remove_bp(prev_rip, Some(phys_addr)) {
                                             return Err(e);
@@ -323,7 +335,9 @@ impl Target for FirecrackerGDBServer {
     /// Function that is called when the user or the GDB client requests a number of val.len
     /// bytes from the guest memory at address 'addrs'
     fn read_addrs(&mut self, addrs: u64, val: &mut [u8]) -> Result<bool, Self::Error> {
-        if let Ok(phys_addr) = Debugger::virt_to_phys(addrs, &self) {
+        if let Ok(phys_addr) =
+            Debugger::virt_to_phys(addrs, &self.guest_memory, &self.guest_state, &self.e_phdrs)
+        {
             for i in 0..val.len() {
                 if let Ok(byte) = self
                     .guest_memory
