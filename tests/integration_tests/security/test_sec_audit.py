@@ -11,6 +11,10 @@ import pytest
 
 
 @pytest.mark.skipif(
+    True,
+    reason="Temporarly disabled, testing performed manually"
+)
+@pytest.mark.skipif(
     platform.machine() != "x86_64",
     reason="The audit is based on cargo.lock which "
            "is identical on all platforms"
