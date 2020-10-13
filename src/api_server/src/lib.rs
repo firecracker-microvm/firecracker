@@ -124,6 +124,7 @@ impl ApiServer {
     ///     convert::TryInto, io::Read, io::Write, os::unix::net::UnixStream, path::PathBuf,
     ///     sync::mpsc::channel, thread, time::Duration,
     /// };
+    /// use std::env::consts::ARCH;
     /// use utils::{eventfd::EventFd, tempfile::TempFile};
     /// use vmm::vmm_config::instance_info::InstanceInfo;
     ///
@@ -157,7 +158,7 @@ impl ApiServer {
     ///             PathBuf::from(api_thread_path_to_socket),
     ///             Some(1),
     ///             Some(1),
-    ///             SeccompFilter::empty().try_into().unwrap(),
+    ///             SeccompFilter::empty(ARCH).unwrap().try_into().unwrap(),
     ///         )
     ///         .unwrap();
     ///     })
@@ -408,6 +409,7 @@ impl ApiServer {
 #[cfg(test)]
 mod tests {
     use std::convert::TryInto;
+    use std::env::consts::ARCH;
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
     use std::sync::mpsc::channel;
@@ -764,7 +766,7 @@ mod tests {
                     PathBuf::from(api_thread_path_to_socket),
                     Some(1),
                     Some(1),
-                    SeccompFilter::empty().try_into().unwrap(),
+                    SeccompFilter::empty(ARCH).unwrap().try_into().unwrap(),
                 )
                 .unwrap();
             })
