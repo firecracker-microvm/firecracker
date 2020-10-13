@@ -23,7 +23,7 @@ use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
 use polly::event_manager::EventManager;
-use seccomp::BpfProgramRef;
+use seccomp::BpfThreadMap;
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -248,7 +248,7 @@ fn snapshot_memory_to_file(
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
 pub fn load_snapshot(
     event_manager: &mut EventManager,
-    seccomp_filter: BpfProgramRef,
+    seccomp_filters: &mut BpfThreadMap,
     params: &LoadSnapshotParams,
     version_map: VersionMap,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
@@ -265,7 +265,7 @@ pub fn load_snapshot(
         microvm_state,
         guest_memory,
         track_dirty_pages,
-        seccomp_filter,
+        seccomp_filters,
     )
     .map_err(BuildMicroVm)
 }

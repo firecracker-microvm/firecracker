@@ -13,14 +13,14 @@ use std::thread;
 use std::time::Duration;
 
 use polly::event_manager::EventManager;
-use seccomp::{BpfProgram, SeccompLevel};
+use seccomp::{BpfProgram, BpfThreadMap};
 #[cfg(target_arch = "x86_64")]
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
 #[cfg(target_arch = "x86_64")]
 use vmm::builder::build_microvm_from_snapshot;
 use vmm::builder::{build_microvm_for_boot, setup_serial_device};
-use vmm::default_syscalls::get_seccomp_filter;
+use vmm::default_syscalls::get_empty_filters;
 #[cfg(target_arch = "x86_64")]
 use vmm::persist;
 #[cfg(target_arch = "x86_64")]
@@ -42,7 +42,7 @@ use crate::test_utils::{restore_stdin, set_panic_hook};
 
 fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>>, EventManager) {
     let mut event_manager = EventManager::new().unwrap();
-    let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
+    let mut empty_seccomp_filters = get_empty_filters();
 
     let boot_source_cfg = MockBootSourceConfig::new().with_default_boot_args();
     #[cfg(target_arch = "aarch64")]
@@ -62,7 +62,7 @@ fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>>, E
     };
 
     (
-        build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter).unwrap(),
+        build_microvm_for_boot(&resources, &mut event_manager, &mut empty_seccomp_filters).unwrap(),
         event_manager,
     )
 }
@@ -107,9 +107,10 @@ fn test_build_microvm() {
     {
         let resources: VmResources = MockVmResources::new().into();
         let mut event_manager = EventManager::new().unwrap();
-        let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
+        let mut empty_seccomp_filters = get_empty_filters();
 
-        let vmm_ret = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter);
+        let vmm_ret =
+            build_microvm_for_boot(&resources, &mut event_manager, &mut empty_seccomp_filters);
         assert_eq!(format!("{:?}", vmm_ret.err()), "Some(MissingKernelConfig)");
     }
 
@@ -158,7 +159,10 @@ fn test_vmm_seccomp() {
 
             // The customer "forgot" to whitelist the KVM_RUN ioctl.
             let filter: BpfProgram = MockSeccomp::new().without_kvm_run().into();
-            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &filter).unwrap();
+            let mut filters = BpfThreadMap::new();
+            filters.insert("vmm".to_string(), filter.clone());
+            filters.insert("vcpu".to_string(), filter);
+            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &mut filters).unwrap();
             // Give the vCPUs a chance to attempt KVM_RUN.
             thread::sleep(Duration::from_millis(200));
             // Should never get here.
@@ -408,7 +412,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         0 => {
             set_panic_hook();
             let mut event_manager = EventManager::new().unwrap();
-            let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
+            let mut empty_seccomp_filters = get_empty_filters();
 
             // Deserialize microVM state.
             let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
@@ -430,7 +434,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
                 microvm_state,
                 mem,
                 false,
-                &empty_seccomp_filter,
+                &mut empty_seccomp_filters,
             )
             .unwrap();
             // For now we're happy we got this far, we don't test what the guest is actually doing.

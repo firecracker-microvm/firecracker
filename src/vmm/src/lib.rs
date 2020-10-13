@@ -62,7 +62,7 @@ use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
 use rate_limiter::BucketUpdate;
-use seccomp::BpfProgramRef;
+use seccomp::BpfProgram;
 #[cfg(target_arch = "x86_64")]
 use snapshot::Persist;
 use utils::epoll::{EpollEvent, EventSet};
@@ -256,7 +256,7 @@ impl Vmm {
     pub fn start_vcpus(
         &mut self,
         mut vcpus: Vec<Vcpu>,
-        vcpu_seccomp_filter: BpfProgramRef,
+        vcpu_seccomp_filter: BpfProgram,
     ) -> Result<()> {
         let vcpu_count = vcpus.len();
 
@@ -275,7 +275,7 @@ impl Vmm {
                 .set_pio_bus(self.pio_device_manager.io_bus.clone());
 
             self.vcpus_handles.push(
-                vcpu.start_threaded(vcpu_seccomp_filter.to_vec())
+                vcpu.start_threaded(vcpu_seccomp_filter.clone())
                     .map_err(Error::VcpuHandle)?,
             );
         }
