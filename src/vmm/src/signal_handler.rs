@@ -160,7 +160,9 @@ mod tests {
     use super::*;
 
     use libc::{cpu_set_t, syscall};
-    use std::{convert::TryInto, mem, process, thread};
+    use std::convert::TryInto;
+    use std::env::consts::ARCH;
+    use std::{mem, process, thread};
 
     use seccomp::{allow_syscall, SeccompAction, SeccompFilter};
 
@@ -211,6 +213,7 @@ mod tests {
                 .into_iter()
                 .collect(),
                 SeccompAction::Trap,
+                ARCH,
             )
             .unwrap();
 
