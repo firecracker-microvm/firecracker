@@ -588,16 +588,7 @@ impl SeccompCondition {
         let arg_offset = SECCOMP_DATA_ARGS_OFFSET + self.arg_number * SECCOMP_DATA_ARG_SIZE;
 
         // Extracts offsets of most significant and least significant halves of argument.
-        let (msb_offset, lsb_offset) = {
-            #[cfg(target_endian = "big")]
-            {
-                (arg_offset, arg_offset + SECCOMP_DATA_ARG_SIZE / 2)
-            }
-            #[cfg(target_endian = "little")]
-            {
-                (arg_offset + SECCOMP_DATA_ARG_SIZE / 2, arg_offset)
-            }
-        };
+        let (msb_offset, lsb_offset) = { (arg_offset + SECCOMP_DATA_ARG_SIZE / 2, arg_offset) };
 
         (msb, lsb, msb_offset, lsb_offset)
     }
@@ -1697,17 +1688,7 @@ mod tests {
             SeccompAction::Allow,
         );
 
-        // Calculates architecture dependent argument value offsets.
-        let (msb_offset, lsb_offset) = {
-            #[cfg(target_endian = "big")]
-            {
-                (0, 4)
-            }
-            #[cfg(target_endian = "little")]
-            {
-                (4, 0)
-            }
-        };
+        let (msb_offset, lsb_offset) = { (4, 0) };
 
         // Builds hardcoded BPF instructions.
         let instructions = vec![
@@ -1741,17 +1722,7 @@ mod tests {
         conditions.push(Cond::new(0, ArgLen::QWORD, Eq, 0).unwrap());
         let rule = SeccompRule::new(conditions, SeccompAction::Allow);
 
-        // Calculates architecture dependent argument value offsets.
-        let (msb_offset, lsb_offset) = {
-            #[cfg(target_endian = "big")]
-            {
-                (0, 4)
-            }
-            #[cfg(target_endian = "little")]
-            {
-                (4, 0)
-            }
-        };
+        let (msb_offset, lsb_offset) = { (4, 0) };
 
         // Builds hardcoded BPF instructions.
         let mut instructions = vec![
