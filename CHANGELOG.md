@@ -6,11 +6,14 @@
 
 - Added devtool build `--ssh-keys` flag to support fetching from private
   git repositories.
+- Added `--no-seccomp` parameter for disabling the default seccomp filters.
+- Added `--seccomp-filter` parameter for supplying user-provided, custom filters.
 
 ### Changed
 
 - Changed Docker images repository from DockerHub to Amazon ECR.
 - Fixed off-by-one error in virtio-block descriptor address validation.
+- Removed the `--seccomp-level parameter`.
 
 ## [0.24.0]
 
