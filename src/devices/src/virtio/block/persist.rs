@@ -84,10 +84,10 @@ impl Persist<'_> for Block {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::virtio::block::device::tests::default_mem;
     use crate::virtio::device::VirtioDevice;
     use utils::tempfile::TempFile;
 
+    use crate::virtio::test_utils::default_mem;
     use std::sync::atomic::Ordering;
 
     #[test]

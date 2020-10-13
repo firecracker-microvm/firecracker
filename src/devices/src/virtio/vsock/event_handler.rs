@@ -224,14 +224,14 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::sync::{Arc, Mutex};
 
-    use super::super::tests::{EventHandlerContext, TestContext};
     use super::super::*;
     use super::*;
 
-    use crate::virtio::device::VirtioDevice;
     use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
+    use crate::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
     use crate::virtio::VIRTIO_MMIO_INT_VRING;
     use crate::Error as DeviceError;
+    use vm_memory::Bytes;
 
     #[test]
     fn test_irq() {
@@ -466,7 +466,7 @@ mod tests {
     // desc_idx = 0 we are altering the header (first descriptor in the chain), and when
     // desc_idx = 1 we are altering the packet buffer.
     fn vsock_bof_helper(test_ctx: &mut TestContext, desc_idx: usize, addr: u64, len: u32) {
-        use vm_memory::{Bytes, GuestAddress};
+        use vm_memory::GuestAddress;
 
         assert!(desc_idx <= 1);
 

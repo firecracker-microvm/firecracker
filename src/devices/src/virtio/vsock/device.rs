@@ -320,9 +320,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::TestContext;
     use super::*;
     use crate::virtio::vsock::defs::uapi;
+    use crate::virtio::vsock::test_utils::TestContext;
 
     #[test]
     fn test_virtio_device() {
