@@ -583,6 +583,7 @@ name = "seccomp"
 version = "0.1.0"
 dependencies = [
  "libc 0.2.81 (registry+https://github.com/rust-lang/crates.io-index)",
+ "utils 0.1.0",
 ]
 
 [[package]]
