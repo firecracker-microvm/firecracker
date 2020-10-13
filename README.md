@@ -73,7 +73,7 @@ To contribute to Firecracker, check out the development setup section in the
 
 New Firecracker versions are released via the GitHub repository
 [releases](https://github.com/firecracker-microvm/firecracker/releases) page,
-typically every one or two months. A history of changes is recorded in our
+typically every two or three months. A history of changes is recorded in our
 [changelog](CHANGELOG.md).
 
 The Firecracker release policy is detailed [here](docs/RELEASE_POLICY.md).
