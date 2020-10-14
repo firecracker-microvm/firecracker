@@ -127,7 +127,7 @@ impl TestContext {
     }
 
     pub fn create_event_handler_context(&self) -> EventHandlerContext {
-        const QSIZE: u16 = 2;
+        const QSIZE: u16 = 256;
 
         let guest_rxvq = GuestQ::new(GuestAddress(0x0010_0000), &self.mem, QSIZE as u16);
         let guest_txvq = GuestQ::new(GuestAddress(0x0020_0000), &self.mem, QSIZE as u16);
