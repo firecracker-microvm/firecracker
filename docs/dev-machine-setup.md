@@ -251,7 +251,7 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in Azure
      ```
      $ az login 
      ```
-  1. SET a Azure/VirtulMachines options , Notice: nested support VM SIZE!
+  1. SET a Azure/VirtulMachines options. Azure VM "Sizes" that support Nested Virtualization e.g. Standard_D2s_v3 
      ```
      $ RG="<Your resource-group>"
      $ VNET="fc_dev"
