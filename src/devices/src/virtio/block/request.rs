@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::convert::From;
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{self, Seek, SeekFrom};
 use std::mem;
 use std::result;
 
@@ -21,7 +21,7 @@ use super::{Error, SECTOR_SHIFT, SECTOR_SIZE};
 #[derive(Debug)]
 pub enum ExecuteError {
     BadRequest(Error),
-    Flush(io::Error),
+    SyncAll(io::Error),
     Read(GuestMemoryError),
     Seek(io::Error),
     Write(GuestMemoryError),
@@ -32,7 +32,7 @@ impl ExecuteError {
     pub fn status(&self) -> u32 {
         match *self {
             ExecuteError::BadRequest(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::SyncAll(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
@@ -227,13 +227,11 @@ impl Request {
                 METRICS.block.write_bytes.add(self.data_len as usize);
                 METRICS.block.write_count.inc();
             }
-            RequestType::Flush => match diskfile.flush() {
-                Ok(_) => {
-                    METRICS.block.flush_count.inc();
-                    return Ok(0);
-                }
-                Err(e) => return Err(ExecuteError::Flush(e)),
-            },
+            RequestType::Flush => {
+                diskfile.sync_all().map_err(ExecuteError::SyncAll)?;
+                METRICS.block.flush_count.inc();
+                return Ok(0);
+            }
             RequestType::GetDeviceID => {
                 let disk_id = disk.image_id();
                 if (self.data_len as usize) < disk_id.len() {
@@ -304,7 +302,7 @@ mod tests {
             VIRTIO_BLK_S_IOERR
         );
         assert_eq!(
-            ExecuteError::Flush(io::Error::from_raw_os_error(42)).status(),
+            ExecuteError::SyncAll(io::Error::from_raw_os_error(42)).status(),
             VIRTIO_BLK_S_IOERR
         );
         assert_eq!(
