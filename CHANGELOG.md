@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.21.3]
+
+### Fixed
+
+- Limited serial device buffer size to maximum 64 bytes.
+
 ## [0.21.2]
 
 ### Fixed
