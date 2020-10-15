@@ -230,7 +230,6 @@ impl Request {
             RequestType::Flush => {
                 diskfile.sync_all().map_err(ExecuteError::SyncAll)?;
                 METRICS.block.flush_count.inc();
-                return Ok(0);
             }
             RequestType::GetDeviceID => {
                 let disk_id = disk.image_id();
