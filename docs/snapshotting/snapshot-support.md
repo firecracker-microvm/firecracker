@@ -9,6 +9,13 @@ guest workload at that particular point in time.
 
 ## Snapshotting in Firecracker
 
+### Supported platforms
+
+The Firecracker snapshot feature is in [developer preview](docs/RELEASE_POLICY.md) 
+on all CPU micro-architectures listed in [README](../README.md#supported-platforms) 
+except ARM which is not supported.
+
+### Overview
 A Firecracker microVM snapshot can be used for loading it later in a different
 Firecracker process, and the original guest workload is being simply resumed.
 
@@ -31,9 +38,8 @@ flexibility to our snapshotting support. This means that taking a snapshot resul
 in multiple files that are composing the full microVM snapshot:
 - the guest memory file,
 - the microVM state file,
-- zero or more disk files (depending on how many the guest had; these are
-  **managed by the users**, which means they need to externally back up their
-  block devices backing files).
+- zero or more disk files (depending on how many the guest had; these are  
+**managed by the users**).
 
 The design allows sharing of memory pages and read only disks between multiple
 microVMs. When loading a snapshot, instead of loading at resume time the full
@@ -45,7 +51,22 @@ This has the advantage of very fast snapshot loading times, but comes with the c
 of having to keep the guest memory file around for the entire lifetime of the
 resumed microVM.
 
-*Note*: Snapshotting is currently supported only on `x86_64` machines.
+## Performance
+
+The Firecracker snapshot create/resume performance depends on the memory size,
+vCPU count and emulated devices count. The Firecracker CI runs snapshots tests 
+on AWS **m5d.metal** instances and the baseline for snapshot resume latency 
+target is under **8ms** with 5ms p90 for a microvm with this specs: 
+2vCPU/512MB/1 block/1 net device.
+
+## Known issues and limitations
+
+- High snapshot latency on 5.4+ host kernels - 
+[#2129](https://github.com/firecracker-microvm/firecracker/issues/2129)
+- Guest network connectivity is not guaranteed to be preserved after resume
+- Restoring microVMs with vsock devices doesn't work.
+- Poor entropy and replayable randomness when resuming multiple microvms which 
+deal with cryptographic secrets. Please see [Snapshot security and uniqueness](#snapshot-security-and-uniqueness)
 
 ## Firecracker Snapshotting characteristics
 
