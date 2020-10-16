@@ -6,3 +6,4 @@ target
 .idea
 __pycache__
 *.pyc
+*.core
