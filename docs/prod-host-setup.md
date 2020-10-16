@@ -1,14 +1,26 @@
 # Production Host Setup Recommendations
 
+## Firecracker Configuration
+
+### Seccomp
+
+Firecracker uses
+[seccomp](https://www.kernel.org/doc/Documentation/prctl/seccomp_filter.txt)
+filters to limit the system calls allowed by the host OS to the required
+minimum.
+
+By default, Firecracker uses advanced filtering, which is the most restrictive
+option, and the recommended setting for production workloads.
+This can also be explicitly requested by supplying `--seccomp-level=2` to the
+Firecracker executable.
+
 ## Jailer Configuration
 
 Using Jailer in a production Firecracker deployment is highly recommended,
 as it provides additional security boundaries for the microVM.
 The Jailer process applies
 [cgroup](https://www.kernel.org/doc/Documentation/cgroup-v1/cgroups.txt),
-namespace,
-[seccomp](https://www.kernel.org/doc/Documentation/prctl/seccomp_filter.txt)
-isolation and drops privileges of the Firecracker process.
+namespace isolation and drops privileges of the Firecracker process.
 
 To set up the jailer correctly, you'll need to:
 
@@ -130,7 +142,7 @@ It can be enabled by adding the following Linux kernel boot parameter:
 spec_store_bypass_disable=seccomp
 ```
 
-which will apply SSB if seccomp is enabled by Firecracker's jailer.
+which will apply SSB if seccomp is enabled by Firecracker.
 
 Verification can be done by running:
 

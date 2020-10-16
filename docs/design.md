@@ -143,7 +143,21 @@ Firecracker microVMs expose access to a minimal MicroVM-Metadata Service
 (MMDS) to the guest through the API endpoint. The metadata stored by the
 service is fully configured by users.
 
-### Jailing
+### Sandboxing
+
+#### __Firecracker process__
+
+##### Seccomp
+
+Seccomp filters are used by default to further limit the system calls Firecracker
+can use. There are 3 possible levels of seccomp filtering, configurable by passing
+a command line argument to Firecracker: 0 (disabled), 1 (whitelists a set of
+trusted system calls by their identifiers) and 2 (whitelists a set of trusted
+system calls with trusted parameter values), the latter being the most
+restrictive and the recommended one. The filters are loaded in the Firecracker
+process, immediately before the execution of the untrusted guest code starts.
+
+#### __Jailer process__
 
 The Firecracker process can be started by another `jailer` process. The jailer
 sets up system resources that require elevated permissions (e.g., cgroup,
@@ -152,15 +166,7 @@ then runs as an unprivileged process. Past this point, Firecracker can only
 access resources that a privileged third-party grants access to (e.g., by
 copying a file into the chroot, or passing a file descriptor).
 
-Seccomp filters are used to further limit the system calls Firecracker can use.
-There are 3 possible levels of seccomp filtering, configurable by passing a
-command line argument to the jailer: 0 (disabled), 1 (whitelists a set of
-trusted system calls by their identifiers) and 2 (whitelists a set of trusted
-system calls with trusted parameter values), the latter being the most
-restrictive and the recommended one. The filters are loaded in the Firecracker
-process, immediately before the execution of the untrusted guest code starts.
-
-#### Cgroups and Quotas
+##### Cgroups and Quotas
 
 Each Firecracker microVM can be further encapsulated into a cgroup. By setting the
 affinity of the Firecracker microVM to a node via the cpuset subsystem, one
