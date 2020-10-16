@@ -306,18 +306,14 @@ fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &[u64]) -> Result<()> {
     append_property_u32(fdt, "#address-cells", 0x02)?;
     append_property_u32(fdt, "#size-cells", 0x0)?;
 
-    let num_cpus = vcpu_mpidr.len();
     for (cpu_index, mpidr) in vcpu_mpidr.iter().enumerate() {
         let cpu_name = format!("cpu@{:x}", cpu_index);
         append_begin_node(fdt, &cpu_name)?;
         append_property_string(fdt, "device_type", "cpu")?;
         append_property_string(fdt, "compatible", "arm,arm-v8")?;
-        if num_cpus > 1 {
-            // If the microVM has more than 1 vcpu we need to enable the power
-            // state coordination interface (PSCI) which will decide for us which
-            // vcpu is running or halted.
-            append_property_string(fdt, "enable-method", "psci")?;
-        }
+        // The power state coordination interface (PSCI) needs to be enabled for
+        // all vcpus.
+        append_property_string(fdt, "enable-method", "psci")?;
         // Set the field to first 24 bits of the MPIDR - Multiprocessor Affinity Register.
         // See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488c/BABHBJCI.html.
         append_property_u64(fdt, "reg", mpidr & 0x7F_FFFF)?;
@@ -643,7 +639,10 @@ mod tests {
         set_size(&mut dtb, pos, val);
         let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
         let generated_fdt = device_tree::DeviceTree::load(&dtb).unwrap();
-        assert!(format!("{:?}", original_fdt) == format!("{:?}", generated_fdt));
+        assert_eq!(
+            format!("{:?}", original_fdt),
+            format!("{:?}", generated_fdt)
+        );
     }
 
     #[test]
@@ -693,6 +692,9 @@ mod tests {
         set_size(&mut dtb, pos, val);
         let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
         let generated_fdt = device_tree::DeviceTree::load(&dtb).unwrap();
-        assert!(format!("{:?}", original_fdt) == format!("{:?}", generated_fdt));
+        assert_eq!(
+            format!("{:?}", original_fdt),
+            format!("{:?}", generated_fdt)
+        );
     }
 }
