@@ -179,12 +179,12 @@ mod tests {
     };
     use bincode::Error as BincodeError;
     use seccomp::{
-        SeccompAction, SeccompCmpArgLen::*, SeccompCmpOp::*, SeccompCondition as Cond, TargetArch,
-        TargetArchError,
+        deserialize_binary, SeccompAction, SeccompCmpArgLen::*, SeccompCmpOp::*,
+        SeccompCondition as Cond, TargetArch, TargetArchError,
     };
     use std::collections::HashMap;
     use std::io;
-    use std::io::{Read, Write};
+    use std::io::Write;
     use std::path::PathBuf;
     use utils::tempfile::TempFile;
 
@@ -593,10 +593,6 @@ mod tests {
             // do the compilation & serialization
             compile(&arguments).unwrap();
 
-            // get the serialized data from the file
-            let mut result = Vec::new();
-            out_file.as_file().read_to_end(&mut result).unwrap();
-
             // simulate the compilation
             let compiler = Compiler::new(arguments.target_arch);
             let filters = parse_json(&mut json_input.as_ref()).unwrap();
@@ -604,7 +600,7 @@ mod tests {
 
             // deserialize and compare
             assert_eq!(
-                bincode::deserialize::<BpfThreadMap>(&result).unwrap(),
+                deserialize_binary(&mut out_file.into_file()).unwrap(),
                 bpf_data
             );
         }
