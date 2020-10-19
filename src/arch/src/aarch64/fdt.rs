@@ -329,6 +329,9 @@ fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &[u64]) -> Result<()> {
         // Set the field to first 24 bits of the MPIDR - Multiprocessor Affinity Register.
         // See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488c/BABHBJCI.html.
         append_property_u64(fdt, "reg", mpidr & 0x7F_FFFF)?;
+
+        // Attach CPU to Numa0.
+        append_property_u32(fdt, "numa-node-id", 0)?;
         append_end_node(fdt)?;
     }
 
@@ -366,6 +369,7 @@ fn create_memory_node(fdt: &mut Vec<u8>, guest_mem: &GuestMemoryMmap) -> Result<
     append_begin_node(fdt, "memory")?;
     append_property_string(fdt, "device_type", "memory")?;
     append_property(fdt, "reg", &mem_reg_prop)?;
+    append_property_u32(fdt, "numa-node-id", 0)?;
     append_end_node(fdt)?;
     Ok(())
 }
