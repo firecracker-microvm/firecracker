@@ -151,7 +151,7 @@ class Microvm:
                     ignore_return_code=True)
         else:
             utils.run_cmd(
-                'screen -XS {} kill'.format(self._session_name))
+                'screen -XS {} kill || true'.format(self._session_name))
 
         if self._memory_monitor and self._memory_monitor.is_alive():
             self._memory_monitor.signal_stop()
@@ -461,9 +461,9 @@ class Microvm:
                 tries=30,
                 delay=1).group(1)
 
-            self.jailer_clone_pid = open('/proc/{0}/task/{0}/children'
-                                         .format(screen_pid)
-                                         ).read().strip()
+            self.jailer_clone_pid = int(open('/proc/{0}/task/{0}/children'
+                                             .format(screen_pid)
+                                             ).read().strip())
 
             # Configure screen to flush stdout to file.
             flush_cmd = 'screen -S {session} -X colon "logfile flush 0^M"'

@@ -14,6 +14,7 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 def test_reboot(test_microvm_with_ssh, network_config):
     """Test reboot from guest kernel."""
     test_microvm = test_microvm_with_ssh
+    test_microvm.jailer.daemonize = False
     test_microvm.spawn()
 
     # We don't need to monitor the memory for this test because we are
