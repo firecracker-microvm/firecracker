@@ -319,6 +319,26 @@ impl MMIODeviceManager {
         }
         None
     }
+
+    /// Run fn for each registered device.
+    pub fn for_each_device<F, E>(&self, mut f: F) -> std::result::Result<(), E>
+    where
+        F: FnMut(
+            &DeviceType,
+            &String,
+            &MMIODeviceInfo,
+            &Mutex<dyn BusDevice>,
+        ) -> std::result::Result<(), E>,
+    {
+        for ((device_type, device_id), device_info) in self.get_device_info().iter() {
+            let bus_device = self
+                .get_device(*device_type, device_id)
+                // Safe to unwrap() because we know the device exists.
+                .unwrap();
+            f(device_type, device_id, device_info, bus_device)?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
