@@ -319,6 +319,27 @@ impl MMIODeviceManager {
         }
         None
     }
+
+    #[cfg(target_arch = "x86_64")]
+    /// Run fn for each registered device.
+    pub fn for_each_device<F, E>(&self, mut f: F) -> std::result::Result<(), E>
+    where
+        F: FnMut(
+            &DeviceType,
+            &String,
+            &MMIODeviceInfo,
+            &Mutex<dyn BusDevice>,
+        ) -> std::result::Result<(), E>,
+    {
+        for ((device_type, device_id), device_info) in self.get_device_info().iter() {
+            let bus_device = self
+                .get_device(*device_type, device_id)
+                // Safe to unwrap() because we know the device exists.
+                .unwrap();
+            f(device_type, device_id, device_info, bus_device)?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -552,6 +573,10 @@ mod tests {
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
 
         #[cfg(target_arch = "x86_64")]
+        // Only used for x86_64 part of the test.
+        let mem_clone = guest_mem.clone();
+
+        #[cfg(target_arch = "x86_64")]
         assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
         #[cfg(target_arch = "aarch64")]
         assert!(builder::setup_interrupt_controller(&mut vm, 1).is_ok());
@@ -582,6 +607,27 @@ mod tests {
         assert!(device_manager
             .get_device(DeviceType::Virtio(type_id), &id)
             .is_none());
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            let dummy2 = Arc::new(Mutex::new(DummyDevice::new()));
+            let id2 = String::from("foo2");
+            device_manager
+                .register_virtio_test_device(vm.fd(), mem_clone, dummy2, &mut cmdline, &id2)
+                .unwrap();
+
+            let mut count = 0;
+            let _: Result<()> = device_manager.for_each_device(|devtype, devid, _, _| {
+                assert_eq!(*devtype, DeviceType::Virtio(type_id));
+                match devid.as_str() {
+                    "foo" => count += 1,
+                    "foo2" => count += 2,
+                    _ => unreachable!(),
+                };
+                Ok(())
+            });
+            assert_eq!(count, 3);
+        }
     }
 
     #[test]
