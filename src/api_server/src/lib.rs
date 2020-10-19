@@ -186,6 +186,10 @@ impl ApiServer {
                     &METRICS.latencies_us.full_create_snapshot,
                     "create full snapshot",
                 )),
+                SnapshotType::Diff => Some((
+                    &METRICS.latencies_us.diff_create_snapshot,
+                    "create diff snapshot",
+                )),
             },
             #[cfg(target_arch = "x86_64")]
             VmmAction::LoadSnapshot(_) => {
@@ -378,13 +382,13 @@ mod tests {
 
         #[cfg(target_arch = "x86_64")]
         {
-            assert_eq!(METRICS.latencies_us.full_create_snapshot.fetch(), 0);
+            assert_eq!(METRICS.latencies_us.diff_create_snapshot.fetch(), 0);
             to_api
                 .send(Box::new(Err(VmmActionError::OperationNotSupportedPreBoot)))
                 .unwrap();
             let response = api_server.serve_vmm_action_request(
                 Box::new(VmmAction::CreateSnapshot(CreateSnapshotParams {
-                    snapshot_type: SnapshotType::Full,
+                    snapshot_type: SnapshotType::Diff,
                     snapshot_path: PathBuf::new(),
                     mem_file_path: PathBuf::new(),
                     version: None,
@@ -394,12 +398,11 @@ mod tests {
             assert_eq!(response.status(), StatusCode::BadRequest);
             // The metric should not be updated if the request wasn't successful.
             assert_eq!(METRICS.latencies_us.diff_create_snapshot.fetch(), 0);
-            assert_eq!(METRICS.latencies_us.full_create_snapshot.fetch(), 0);
 
             to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
             let response = api_server.serve_vmm_action_request(
                 Box::new(VmmAction::CreateSnapshot(CreateSnapshotParams {
-                    snapshot_type: SnapshotType::Full,
+                    snapshot_type: SnapshotType::Diff,
                     snapshot_path: PathBuf::new(),
                     mem_file_path: PathBuf::new(),
                     version: None,
@@ -407,8 +410,8 @@ mod tests {
                 start_time_us,
             );
             assert_eq!(response.status(), StatusCode::NoContent);
-            assert_eq!(METRICS.latencies_us.diff_create_snapshot.fetch(), 0);
-            assert_ne!(METRICS.latencies_us.full_create_snapshot.fetch(), 0);
+            assert_ne!(METRICS.latencies_us.diff_create_snapshot.fetch(), 0);
+            assert_eq!(METRICS.latencies_us.full_create_snapshot.fetch(), 0);
         }
     }
 

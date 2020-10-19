@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 /// creating a new snapshot.
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum SnapshotType {
+    /// Diff snapshot.
+    Diff,
     /// Full snapshot.
     Full,
 }

@@ -26,13 +26,13 @@
 - Added metrics for counting RX and TX partial writes.
 - Added metrics that measure the duration of pausing and resuming the microVM,
   from the VMM perspective.
-- Added metric for measuring the duration of the last full snapshot created,
+- Added metric for measuring the duration of the last full/diff snapshot created,
   from the VMM perspective.
 - Added metric for measuring the duration of loading a snapshot, from the VMM
   perspective.
 - Added metrics that measure the duration of pausing and resuming the microVM,
   from the API (user) perspective.
-- Added metric for measuring the duration of the last full snapshot created,
+- Added metric for measuring the duration of the last full/diff snapshot created,
   from the API (user) perspective.
 - Added metric for measuring the duration of loading a snapshot, from the API
   (user) perspective.
@@ -41,7 +41,7 @@
   in a sparse file.
 - Added a new API call, `PATCH /vm`, for changing the microVM state (to
   `Paused` or `Resumed`).
-- Added a new API call, `PUT /snapshot/create`, for creating a full snapshot.
+- Added a new API call, `PUT /snapshot/create`, for creating a full or diff snapshot.
 - Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 - Added new jailer command line argument `--cgroup` which allow the user to
   specify the cgroups that are going to be set by the Jailer.

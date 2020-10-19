@@ -126,9 +126,11 @@ curl --unix-socket /tmp/firecracker.socket -i \
 
 ## Creating snapshots
 
-Now that the microVM is paused, you can create a snapshot. Full snapshots always
-create a complete, resumeable snapshot of the current microVM state and memory.
-`Diff` snapshots functionality is not yet supported.
+Now that the microVM is paused, you can create a snapshot, which can be either a `full`
+one or a `diff` one. Full snapshots always create a complete, resume-able snapshot of
+the current microVM state and memory. Diff snapshots save the current microVM state
+and the memory dirtied since the last snapshot (full or diff). Diff snapshots are not
+resume-able, but can be merged into a full snapshot using external (provided) tooling.
 
 ### Creating full snapshots
 
@@ -179,7 +181,63 @@ block device file components of the snapshot have to be handled by the user.
 
 ### Creating diff snapshots
 
-Not yet supported.
+For creating a diff snapshot, you should use the same API command, but with
+`snapshot_type` field set to `Diff`.
+*Note*: If not specified, `snapshot_type` is by default `Full`.
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT 'http://localhost/snapshot/create' \
+    -H  'Accept: application/json' \
+    -H  'Content-Type: application/json' \
+    -d '{
+            "snapshot_type": "Diff",
+            "snapshot_path": "./snapshot_file",
+            "mem_file_path": "./mem_file",
+            "version": "0.23.0"
+    }'
+```
+
+**Prerequisites**: The microVM is `Paused`.
+                   On a fresh microVM, `track_dirty_pages` field should be set to `true`,
+                   when configuring the `/machine-config` resource, while on a snapshot
+                   loaded microVM, `enable_diff_snapshots` from `PUT /snapshot/load`
+                   request body, should be set.
+
+**Effects**:
+- _on success_:
+  - The file indicated by `snapshot_path` contains the devices' model state and
+    emulation state, same as when creating a full snapshot. The one indicated by
+    `mem_file_path` contains this time a **diff copy** of the guest memory - the diff
+    consists of the memory pages which have been dirtied since the last snapshot creation
+    or since the creation of the microVM, whichever of these events was the most recent.
+  - All the other effects mentioned in the **Effects** paragraph from
+    **Creating full snapshots** section apply here.
+- _on failure_: no side-effects.
+
+*Note*: This is an example of an API command that enables dirty page tracking:
+
+```bash
+curl --unix-socket /tmp/firecracker.socket -i  \
+    -X PUT 'http://localhost/machine-config' \
+    -H 'Accept: application/json'            \
+    -H 'Content-Type: application/json'      \
+    -d '{
+            "vcpu_count": 2,
+            "mem_size_mib": 1024,
+            "ht_enabled": false,
+            "track_dirty_pages": true
+    }'
+```
+
+Enabling this support enables KVM dirty page tracking, so it comes at a cost
+(which consists of CPU cycles spent by KVM accounting for dirtied pages); it should only
+be used when needed.
+
+Creating a snapshot will **not** influence state, will **not** stop or end the microVM,
+it can be used as before, so the microVM can be resumed if you still want to use it.
+At this point, in case you plan to continue using the current microVM, you should make
+sure to also copy the disk backing files.
 
 ### Resuming the microVM
 
@@ -249,11 +307,15 @@ Details about the required and optional fields can be found in the
                 is ended (as it might be in an invalid state).
 
 *Notes*:
-`enable_diff_snapshots` on the snapshot load API is currently just an equivalent for
-`track_dirty_pages` from the vm config API. Actual diff snapshots are not yet supported.
-Keeping the name snapshot-related so that it will not be an API breaking change when
-we add the diff snapshots support.
-
+Please, keep in mind that only by setting to true `enable_diff_snapshots`, when loading a
+snapshot, or `track_dirty_pages`, when configuring the machine on a fresh microVM, you can
+then create a `diff` snapshot. Also, `track_dirty_pages` is not saved when creating a
+snapshot, so you need to explicitly set `enable_diff_snapshots` when sending `LoadSnapshot`
+command if you want to be able to do diff snapshots from a loaded microVM.
+Another thing that you should be aware of is the following: if a fresh microVM can create
+diff snapshots, then if you create a **full** snapshot, the memory file contains
+the whole guest memory, while if you create a **diff** one, that file is sparse and only
+contains the guest dirtied pages.
 With these in mind, some possible snapshotting scenarios are the following:
 - `Boot from a fresh microVM` -> `Pause` -> `Create snapshot` -> `Resume` -> `Pause` ->
   `Create snapshot` -> ... ;
@@ -263,8 +325,8 @@ With these in mind, some possible snapshotting scenarios are the following:
   `Create snapshot` -> ... ;
 - `Load snapshot` -> `Resume` -> `Pause` -> `Create snapshot` -> `Resume` -> `Pause` ->
   `Resume` -> ... -> `Pause` -> `Create snapshot` -> ... ;
-
-### Timekeeping and snapshots
+  where `Create snapshot` can refer to either a full or a diff snapshot for all the
+  aforementioned flows.
 
 It is also worth knowing, a microVM that is restored from snapshot will be resumed with
 the guest OS wall-clock continuing from the moment of the snapshot creation. For this
