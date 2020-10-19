@@ -5,7 +5,7 @@ minimal-overhead execution of container and serverless workloads. These
 specifications are enforced by integration tests (that run for each PR and
 master branch merge).
 
-On an I3.metal instance¹, with hyperthreading disabled and given host system
+On an M5D.metal instance¹, with hyperthreading disabled and given host system
 resources are available (e.g., there are enough free CPU cycles, there is
 enough RAM, etc.), customers can rely on the following:
 
@@ -56,8 +56,8 @@ enough RAM, etc.), customers can rely on the following:
    pipes are full will be lost. Any such events will be signaled through the
    `lost-logs` and `lost-metrics` counters.
 
-¹ I3.metal instances:
-[https://aws.amazon.com/ec2/instance-types/i3/](https://aws.amazon.com/ec2/instance-types/i3/)
+¹ M5D.metal instances:
+[https://aws.amazon.com/ec2/instance-types/m5/](https://aws.amazon.com/ec2/instance-types/m5/)
 
 ² CPU ms are actual ms of a user space thread's on-CPU runtime; useful for
   getting consistent measurements for some performance metrics.
