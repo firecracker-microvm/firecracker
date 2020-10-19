@@ -24,6 +24,11 @@ use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, Gue
 const GIC_PHANDLE: u32 = 1;
 // This is a value for uniquely identifying the FDT node containing the clock definition.
 const CLOCK_PHANDLE: u32 = 2;
+// Uniquely identifies the FDT node containing information on L2 cache.
+const CACHE2_PHANDLE: u32 = 3;
+// Uniquely identifies the FDT node containing information on L3 cache.
+const CACHE3_PHANDLE: u32 = 4;
+
 // Read the documentation specified when appending the root node to the FDT.
 const ADDRESS_CELLS: u32 = 0x2;
 const SIZE_CELLS: u32 = 0x2;
@@ -314,11 +319,40 @@ fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &[u64]) -> Result<()> {
         // The power state coordination interface (PSCI) needs to be enabled for
         // all vcpus.
         append_property_string(fdt, "enable-method", "psci")?;
+        // For info on how to add cache information on arm, checkout
+        // https://github.com/devicetree-org/devicetree-specification/releases/download/v0.3/devicetree-specification-v0.3.pdf,
+        // section 3.8.
+        append_property_u32(fdt, "i-cache-size", 65536)?;
+        append_property_u32(fdt, "d-cache-size", 65536)?;
+        append_property_u32(fdt, "next-level-cache", CACHE2_PHANDLE)?;
+
         // Set the field to first 24 bits of the MPIDR - Multiprocessor Affinity Register.
         // See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488c/BABHBJCI.html.
         append_property_u64(fdt, "reg", mpidr & 0x7F_FFFF)?;
         append_end_node(fdt)?;
     }
+
+    // Setting up L2 cache. The values copy the cache topology for an m6g machine.
+    append_begin_node(fdt, "l2-cache")?;
+    append_property_u32(fdt, "phandle", CACHE2_PHANDLE)?;
+    append_property_string(fdt, "compatible", "cache")?;
+    append_property_u32(fdt, "cache-level", 2)?;
+    // 1024K for the L2.
+    append_property_u32(fdt, "cache-size", 1_048_576)?;
+    append_property_u32(fdt, "next-level-cache", CACHE3_PHANDLE)?;
+    append_end_node(fdt)?;
+
+    // Setting up L3 cache. The values copy the cache topology for an m6g machine.
+    append_begin_node(fdt, "l3-cache")?;
+    append_property_u32(fdt, "phandle", CACHE3_PHANDLE)?;
+    append_property_string(fdt, "compatible", "cache")?;
+    append_property_u32(fdt, "cache-level", 3)?;
+    // 32768K for the L3.
+    append_property_u32(fdt, "cache-size", 33_554_432)?;
+    // Unlike l2 cache which is set to "unified" by default, the l3 needs to be explicitly set as "unified"
+    append_property_null(fdt, "cache-unified")?;
+    append_end_node(fdt)?;
+
     append_end_node(fdt)?;
     Ok(())
 }
