@@ -3,10 +3,13 @@
 """Tests for the CPU topology emulation feature."""
 
 import platform
+import os
 import re
 import pytest
 from framework.utils import CpuVendor, get_cpu_vendor
 import host_tools.network as net_tools  # pylint: disable=import-error
+
+PLATFORM = platform.machine()
 
 
 def _check_guest_cmd_output(test_microvm, guest_cmd, expected_header,
@@ -67,7 +70,7 @@ def _check_cpu_topology(test_microvm, expected_cpu_count,
                             expected_cpu_topology)
 
 
-def _check_cpu_features(test_microvm, expected_cpu_count, expected_htt):
+def _check_cpu_features_x86(test_microvm, expected_cpu_count, expected_htt):
     expected_cpu_features = {
         "cpu count": '{} ({})'.format(hex(expected_cpu_count),
                                       expected_cpu_count),
@@ -80,7 +83,16 @@ def _check_cpu_features(test_microvm, expected_cpu_count, expected_htt):
                             expected_cpu_features)
 
 
-def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
+def _check_cpu_features_arm(test_microvm):
+    expected_cpu_features = {
+        "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs",
+    }
+
+    _check_guest_cmd_output(test_microvm, "lscpu", None, ':',
+                            expected_cpu_features)
+
+
+def _check_cache_topology_x86(test_microvm, num_vcpus_on_lvl_1_cache,
                           num_vcpus_on_lvl_3_cache):
     expected_lvl_1_str = '{} ({})'.format(hex(num_vcpus_on_lvl_1_cache),
                                           num_vcpus_on_lvl_1_cache)
@@ -117,10 +129,43 @@ def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
                             expected_level_3_topology)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
-)
+def _check_cache_topology_arm(no_cpus=1):
+    # We will check the cache topology by looking at what each cpu
+    # contains as far as cache info.
+    # For that we are iterating through the hierarchy of folders inside:
+    # /sys/devices/system/cpu/cpuX/cache/indexY/type - the type of the cache
+    # (i.e Instruction, Data, Unified)
+    # /sys/devices/system/cpu/cpuX/cache/indexY/size - size of the cache
+    # /sys/devices/system/cpu/cpuX/cache/indexY/level - L1, L2 or L3 cache.
+    # There are 2 types of L1 cache (instruction and data) that is why the
+    # "cache_info" variable below has 4 items.
+
+    path = "/sys/devices/system/cpu/"
+    cache_info = [{"level": "1", "size": "64K", "type": "Data"}, {"level": "1", "size": "64K", "type": "Instruction"},
+    {"level": "2", "size": "1024K", "type": "Unified"}, {"level": "3", "size": "32768K", "type": "Unified"}]
+
+    for i in range(no_cpus):
+        cpu_path = os.path.join(os.path.join(path, 'cpu{}'.format(i)), "cache")
+        index = 0
+
+        for j in cache_info:
+            cache_path = os.path.join(cpu_path, 'index{}'.format(index))
+            cache_level_path = os.path.join(cache_path, 'level')
+            cache_size_path = os.path.join(cache_path, 'size')
+            cache_type_path = os.path.join(cache_path, 'type')
+            with open(cache_level_path, 'r') as file:
+                level = file.readline().strip()
+                with open(cache_size_path, 'r') as file:
+                    size = file.readline().strip()
+                    with open(cache_type_path, 'r') as file:
+                        type = file.readline().strip()
+                assert j["level"] == level
+                assert j["type"] == type
+                assert j["size"] == size
+
+            index = index + 1
+
+
 def test_1vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -129,14 +174,14 @@ def test_1vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     test_microvm_with_ssh.start()
 
     _check_cpu_topology(test_microvm_with_ssh, 1, 1, "0")
-    _check_cpu_features(test_microvm_with_ssh, 1, "false")
-    _check_cache_topology(test_microvm_with_ssh, 0, 0)
+    if PLATFORM == "x86_64":
+        _check_cpu_features_x86(test_microvm_with_ssh, 1, "false")
+        _check_cache_topology_x86(test_microvm_with_ssh, 0, 0)
+    else:
+        _check_cpu_features_arm(test_microvm_with_ssh)
+        _check_cache_topology_arm()
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
-)
 def test_1vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -145,14 +190,13 @@ def test_1vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     test_microvm_with_ssh.start()
 
     _check_cpu_topology(test_microvm_with_ssh, 1, 1, "0")
-    _check_cpu_features(test_microvm_with_ssh, 1, "false")
-    _check_cache_topology(test_microvm_with_ssh, 0, 0)
+    if PLATFORM == "x86_64":
+        _check_cpu_features_x86(test_microvm_with_ssh, 1, "false")
+        _check_cache_topology_x86(test_microvm_with_ssh, 0, 0)
+    else:
+        _check_cache_topology_arm()
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
-)
 def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -161,14 +205,13 @@ def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     test_microvm_with_ssh.start()
 
     _check_cpu_topology(test_microvm_with_ssh, 2, 1, "0,1")
-    _check_cpu_features(test_microvm_with_ssh, 2, "true")
-    _check_cache_topology(test_microvm_with_ssh, 0, 1)
+    if PLATFORM == "x86_64":
+        _check_cpu_features_x86(test_microvm_with_ssh, 2, "true")
+        _check_cache_topology_x86(test_microvm_with_ssh, 0, 1)
+    else:
+        _check_cache_topology_arm(2)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
-)
 def test_2vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -177,14 +220,13 @@ def test_2vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     test_microvm_with_ssh.start()
 
     _check_cpu_topology(test_microvm_with_ssh, 2, 2, "0,1")
-    _check_cpu_features(test_microvm_with_ssh, 2, "true")
-    _check_cache_topology(test_microvm_with_ssh, 1, 1)
+    if PLATFORM == "x86_64":
+        _check_cpu_features_x86(test_microvm_with_ssh, 2, "true")
+        _check_cache_topology_x86(test_microvm_with_ssh, 1, 1)
+    else:
+        _check_cache_topology_arm(2)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
-)
 def test_16vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -193,14 +235,13 @@ def test_16vcpu_ht_disabled(test_microvm_with_ssh, network_config):
     test_microvm_with_ssh.start()
 
     _check_cpu_topology(test_microvm_with_ssh, 16, 1, "0-15")
-    _check_cpu_features(test_microvm_with_ssh, 16, "true")
-    _check_cache_topology(test_microvm_with_ssh, 0, 15)
+    if PLATFORM == "x86_64":
+        _check_cpu_features_x86(test_microvm_with_ssh, 16, "true")
+        _check_cache_topology_x86(test_microvm_with_ssh, 0, 15)
+    else:
+        _check_cache_topology_arm(16)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
-)
 def test_16vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     """Check the CPUID for a microvm with the specified config."""
     test_microvm_with_ssh.spawn()
@@ -209,12 +250,15 @@ def test_16vcpu_ht_enabled(test_microvm_with_ssh, network_config):
     test_microvm_with_ssh.start()
 
     _check_cpu_topology(test_microvm_with_ssh, 16, 2, "0-15")
-    _check_cpu_features(test_microvm_with_ssh, 16, "true")
-    _check_cache_topology(test_microvm_with_ssh, 1, 15)
+    if PLATFORM == "x86_64":
+        _check_cpu_features_x86(test_microvm_with_ssh, 16, "true")
+        _check_cache_topology_x86(test_microvm_with_ssh, 1, 15)
+    else:
+        _check_cache_topology_arm(16)
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    PLATFORM != "x86_64",
     reason="The CPU brand string is masked only on x86_64."
 )
 def test_brand_string(test_microvm_with_ssh, network_config):
@@ -274,7 +318,7 @@ def test_brand_string(test_microvm_with_ssh, network_config):
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    PLATFORM != "x86_64",
     reason="CPU features are masked only on x86_64."
 )
 @pytest.mark.parametrize("cpu_template", ["T2", "C3"])
