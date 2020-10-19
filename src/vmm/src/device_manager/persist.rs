@@ -7,11 +7,11 @@
 #![cfg(target_arch = "x86_64")]
 
 use std::io;
+use std::result::Result;
 use std::sync::{Arc, Mutex};
 
 use super::mmio::*;
 
-use devices::pseudo::BootTimer;
 use devices::virtio::block::persist::{BlockConstructorArgs, BlockState};
 use devices::virtio::block::Block;
 use devices::virtio::net::persist::{Error as NetError, NetConstructorArgs, NetState};
@@ -106,20 +106,14 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             net_devices: Vec::new(),
             vsock_device: None,
         };
-        for ((device_type, device_id), device_info) in self.get_device_info().iter() {
-            let bus_device = self
-                .get_device(*device_type, device_id)
-                // Safe to unwrap() because we know the device exists.
-                .unwrap()
-                .lock()
-                .expect("Poisoned lock");
-
-            if bus_device.as_any().downcast_ref::<BootTimer>().is_some() {
+        let _: Result<(), ()> = self.for_each_device(|devtype, devid, devinfo, bus_dev| {
+            if *devtype == arch::DeviceType::BootTimer {
                 // No need to save BootTimer state.
-                continue;
+                return Ok(());
             }
 
-            let mmio_transport = bus_device
+            let locked_bus_dev = bus_dev.lock().expect("Poisoned lock");
+            let mmio_transport = locked_bus_dev
                 .as_any()
                 // Only MmioTransport implements BusDevice on x86_64 at this point.
                 .downcast_ref::<MmioTransport>()
@@ -136,19 +130,19 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         .unwrap()
                         .save();
                     states.block_devices.push(ConnectedBlockState {
-                        device_id: device_id.clone(),
+                        device_id: devid.clone(),
                         device_state: block_state,
                         transport_state,
-                        mmio_slot: device_info.clone(),
+                        mmio_slot: devinfo.clone(),
                     });
                 }
                 TYPE_NET => {
                     let net_state = locked_device.as_any().downcast_ref::<Net>().unwrap().save();
                     states.net_devices.push(ConnectedNetState {
-                        device_id: device_id.clone(),
+                        device_id: devid.clone(),
                         device_state: net_state,
                         transport_state,
-                        mmio_slot: device_info.clone(),
+                        mmio_slot: devinfo.clone(),
                     });
                 }
                 TYPE_VSOCK => {
@@ -162,22 +156,24 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         frontend: vsock.save(),
                     };
                     states.vsock_device = Some(ConnectedVsockState {
-                        device_id: device_id.clone(),
+                        device_id: devid.clone(),
                         device_state: vsock_state,
                         transport_state,
-                        mmio_slot: device_info.clone(),
+                        mmio_slot: devinfo.clone(),
                     });
                 }
                 _ => unreachable!(),
             };
-        }
+
+            Ok(())
+        });
         states
     }
 
     fn restore(
         constructor_args: Self::ConstructorArgs,
         state: &Self::State,
-    ) -> std::result::Result<Self, Self::Error> {
+    ) -> Result<Self, Self::Error> {
         let mut dev_manager =
             MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mem = &constructor_args.mem;
