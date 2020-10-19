@@ -19,7 +19,7 @@ use devices::virtio::net::Net;
 use devices::virtio::persist::{MmioTransportConstructorArgs, MmioTransportState};
 use devices::virtio::vsock::persist::{VsockConstructorArgs, VsockState, VsockUdsConstructorArgs};
 use devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
-use devices::virtio::{MmioTransport, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK};
+use devices::virtio::{MmioTransport, VirtioDevice, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK};
 use kvm_ioctls::VmFd;
 use polly::event_manager::{Error as EventMgrError, EventManager};
 use snapshot::Persist;
@@ -180,6 +180,26 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         let vm = constructor_args.vm;
         let event_manager = constructor_args.event_manager;
 
+        let mut register_virtio_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
+                                          id: &String,
+                                          state: &MmioTransportState,
+                                          slot: &MMIODeviceInfo|
+         -> Result<(), Self::Error> {
+            dev_manager
+                .slot_sanity_check(slot)
+                .map_err(Error::DeviceManager)?;
+
+            let restore_args = MmioTransportConstructorArgs {
+                mem: mem.clone(),
+                device,
+            };
+            let mmio_transport =
+                MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
+            dev_manager
+                .register_virtio_mmio_device(vm, id.clone(), mmio_transport, slot)
+                .map_err(Error::DeviceManager)
+        };
+
         for block_state in &state.block_devices {
             let device = Arc::new(Mutex::new(
                 Block::restore(
@@ -189,22 +209,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .map_err(Error::Block)?,
             ));
 
-            let device_id = block_state.device_id.clone();
-            let transport_state = &block_state.transport_state;
-            let mmio_slot = &block_state.mmio_slot;
-            dev_manager
-                .slot_sanity_check(mmio_slot)
-                .map_err(Error::DeviceManager)?;
-
-            let restore_args = MmioTransportConstructorArgs {
-                mem: mem.clone(),
-                device: device.clone(),
-            };
-            let mmio_transport = MmioTransport::restore(restore_args, transport_state)
-                .map_err(|()| Error::MmioTransport)?;
-            dev_manager
-                .register_virtio_mmio_device(vm, device_id, mmio_transport, &mmio_slot)
-                .map_err(Error::DeviceManager)?;
+            register_virtio_helper(
+                device.clone(),
+                &block_state.device_id,
+                &block_state.transport_state,
+                &block_state.mmio_slot,
+            )?;
 
             event_manager
                 .add_subscriber(device)
@@ -219,22 +229,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .map_err(Error::Net)?,
             ));
 
-            let device_id = net_state.device_id.clone();
-            let transport_state = &net_state.transport_state;
-            let mmio_slot = &net_state.mmio_slot;
-            dev_manager
-                .slot_sanity_check(mmio_slot)
-                .map_err(Error::DeviceManager)?;
-
-            let restore_args = MmioTransportConstructorArgs {
-                mem: mem.clone(),
-                device: device.clone(),
-            };
-            let mmio_transport = MmioTransport::restore(restore_args, transport_state)
-                .map_err(|()| Error::MmioTransport)?;
-            dev_manager
-                .register_virtio_mmio_device(vm, device_id, mmio_transport, &mmio_slot)
-                .map_err(Error::DeviceManager)?;
+            register_virtio_helper(
+                device.clone(),
+                &net_state.device_id,
+                &net_state.transport_state,
+                &net_state.mmio_slot,
+            )?;
 
             event_manager
                 .add_subscriber(device)
@@ -257,22 +257,13 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .map_err(Error::Vsock)?,
             ));
 
-            let device_id = vsock_state.device_id.clone();
-            let transport_state = &vsock_state.transport_state;
-            let mmio_slot = &vsock_state.mmio_slot;
-            dev_manager
-                .slot_sanity_check(mmio_slot)
-                .map_err(Error::DeviceManager)?;
+            register_virtio_helper(
+                device.clone(),
+                &vsock_state.device_id,
+                &vsock_state.transport_state,
+                &vsock_state.mmio_slot,
+            )?;
 
-            let restore_args = MmioTransportConstructorArgs {
-                mem: mem.clone(),
-                device: device.clone(),
-            };
-            let mmio_transport = MmioTransport::restore(restore_args, transport_state)
-                .map_err(|()| Error::MmioTransport)?;
-            dev_manager
-                .register_virtio_mmio_device(vm, device_id, mmio_transport, &mmio_slot)
-                .map_err(Error::DeviceManager)?;
             event_manager
                 .add_subscriber(device)
                 .map_err(Error::EventManager)?;
