@@ -47,6 +47,9 @@ When deploying Firecracker microVMs to handle multi-tenant workloads, the
 following host environment configurations are strongly recommended to guard
 against side-channel security issues.
 
+Some of the mitigations are platform specific. When applicable, this information 
+will be specified between brackets.
+
 #### Disable Simultaneous Multithreading (SMT)
 
 Disabling SMT will help mitigate side-channels issues between sibling
@@ -64,7 +67,7 @@ Verification can be done by running:
 (grep -q "^forceoff$\|^notsupported$" /sys/devices/system/cpu/smt/control && echo "Hyperthreading: DISABLED (OK)") || echo "Hyperthreading: ENABLED (Recommendation: DISABLED)"
 ```
 
-#### Check Kernel Page-Table Isolation (KPTI) support
+#### [Intel only] Check Kernel Page-Table Isolation (KPTI) support
 
 KPTI is used to prevent certain side-channel issues that allow access to
 protected kernel memory pages that are normally inaccessible to guests. Some
@@ -96,8 +99,8 @@ Verification can be done by running:
 #### Check for speculative branch prediction issue mitigation
 
 Use a kernel compiled with retpoline and run on hardware with microcode
-supporting Indirect Branch Prediction Barriers (IBPB) and Indirect Branch
-Restricted Speculation (IBRS).
+supporting conditional Indirect Branch Prediction Barriers (IBPB) and 
+Indirect Branch Restricted Speculation (IBRS).
 
 These features provide side-channel mitigation for variants of Spectre such
 as the Branch Target Injection variant.
@@ -105,10 +108,10 @@ as the Branch Target Injection variant.
 Verification can be done by running:
 
 ```bash
-(grep -q "^Mitigation: Full generic retpoline, IBPB, IBRS_FW$" /sys/devices/system/cpu/vulnerabilities/spectre_v2 && echo "retpoline, IBPB, IBRS: ENABLED (OK)") || echo "retpoline, IBPB, IBRS: DISABLED (Recommendation: ENABLED)"
+(grep -Eq '^Mitigation: Full [[:alpha:]]+ retpoline, IBPB: conditional, IBRS_FW' /sys/devices/system/cpu/vulnerabilities/spectre_v2 && echo "retpoline, IBPB, IBRS: ENABLED (OK)") || echo "retpoline, IBPB, IBRS: DISABLED (Recommendation: ENABLED)"
 ```
 
-#### Apply L1 Terminal Fault (L1TF) mitigation
+#### [Intel only] Apply L1 Terminal Fault (L1TF) mitigation
 
 These features provide mitigation for Foreshadow/L1TF side-channel issue on
 affected hardware.
