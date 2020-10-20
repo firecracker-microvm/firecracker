@@ -41,13 +41,24 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name='/dev/vdb'):
     return stdout.readline().strip()
 
 
+def _copy_vsock_data_to_guest(ssh_connection,
+                              blob_path,
+                              vm_blob_path,
+                              vsock_helper):
+    # Copy the data file and a vsock helper to the guest.
+    cmd = "mkdir -p /tmp/vsock && mount -t tmpfs tmpfs /tmp/vsock"
+    ecode, _, _ = ssh_connection.execute_command(cmd)
+    assert ecode == 0, "Failed to set up tmpfs drive on the guest."
+
+    ssh_connection.scp_file(vsock_helper, '/bin/vsock_helper')
+    ssh_connection.scp_file(blob_path, vm_blob_path)
+
+
 def _test_seq_snapshots(context):
     logger = context.custom['logger']
     seq_len = context.custom['seq_len']
     vm_builder = context.custom['builder']
     snapshot_type = context.custom['snapshot_type']
-    bin_vsock_path = context.custom['bin_vsock_path']
-    test_session_root_path = context.custom['test_session_root_path']
     enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
@@ -67,14 +78,13 @@ def _test_seq_snapshots(context):
                               config=context.microvm,
                               enable_diff_snapshots=enable_diff_snapshots)
 
-    # Configure vsock device.
-    basevm.vsock.put(
-        vsock_id="vsock0",
-        guest_cid=3,
-        uds_path="/{}".format(VSOCK_UDS_PATH)
-    )
-    # Generate a random data file for vsock.
-    blob_path, blob_hash = make_blob(test_session_root_path)
+    # The vsock device is configured for Full snapshots only.
+    if snapshot_type == SnapshotType.FULL:
+        basevm.vsock.put(
+            vsock_id="vsock0",
+            guest_cid=3,
+            uds_path="/{}".format(VSOCK_UDS_PATH)
+        )
 
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -83,15 +93,17 @@ def _test_seq_snapshots(context):
     exit_code, _, _ = ssh_connection.execute_command("sync")
     assert exit_code == 0
 
-    # Copy the data file and a vsock helper to the guest.
-    cmd = "mkdir -p /tmp/vsock && mount -t tmpfs tmpfs /tmp/vsock"
-    ecode, _, _ = ssh_connection.execute_command(cmd)
-    assert ecode == 0, "Failed to set up tmpfs drive on the guest."
-
-    vsock_helper = bin_vsock_path
-    ssh_connection.scp_file(vsock_helper, '/bin/vsock_helper')
-    vm_blob_path = "/tmp/vsock/test.blob"
-    ssh_connection.scp_file(blob_path, vm_blob_path)
+    if snapshot_type == SnapshotType.FULL:
+        test_session_root_path = context.custom['test_session_root_path']
+        vsock_helper = context.custom['bin_vsock_path']
+        vm_blob_path = "/tmp/vsock/test.blob"
+        # Generate a random data file for vsock.
+        blob_path, blob_hash = make_blob(test_session_root_path)
+        # Copy the data file and a vsock helper to the guest.
+        _copy_vsock_data_to_guest(ssh_connection,
+                                  blob_path,
+                                  vm_blob_path,
+                                  vsock_helper)
 
     logger.info("Create {} #0.".format(snapshot_type))
     # Create a snapshot builder from a microvm.
@@ -114,15 +126,16 @@ def _test_seq_snapshots(context):
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
-        # Test vsock guest-initiated connections.
-        path = os.path.join(
-            microvm.path,
-            "{}_{}".format(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
-        )
-        check_guest_connections(microvm, path, vm_blob_path, blob_hash)
-        # Test vsock host-initiated connections.
-        path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
-        check_host_connections(microvm, path, blob_path, blob_hash)
+        if snapshot_type == SnapshotType.FULL:
+            # Test vsock guest-initiated connections.
+            path = os.path.join(
+                microvm.path,
+                "{}_{}".format(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
+            )
+            check_guest_connections(microvm, path, vm_blob_path, blob_hash)
+            # Test vsock host-initiated connections.
+            path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
+            check_host_connections(microvm, path, blob_path, blob_hash)
 
         # Start a new instance of fio on each iteration.
         _guest_run_fio_iteration(ssh_connection, i)
@@ -256,8 +269,8 @@ def test_5_full_snapshots(network_config,
 
 
 @pytest.mark.skipif(
-    True,
-    reason="Blocked by Github issue #1997"
+    platform.machine() != "x86_64",
+    reason="Not supported yet."
 )
 def test_5_inc_snapshots(network_config,
                          bin_cloner_path):
