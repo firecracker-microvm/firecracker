@@ -9,10 +9,12 @@ pub mod instance_info;
 pub mod logger;
 pub mod machine_configuration;
 pub mod metrics;
+pub mod migration;
 pub mod mmds;
 pub mod net;
 pub mod snapshot;
 pub mod vsock;
+
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, StatusCode, Version,
 };

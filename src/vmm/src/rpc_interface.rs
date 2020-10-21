@@ -31,6 +31,7 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
 use crate::vmm_config::metrics::{MetricsConfig, MetricsConfigError};
+use crate::vmm_config::migration::{AcceptMigrationParams, StartMigrationParams};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::{
     NetworkInterfaceConfig, NetworkInterfaceError, NetworkInterfaceUpdateConfig,
@@ -64,6 +65,12 @@ pub enum VmmAction {
     GetBalloonConfig,
     /// Get the ballon device latest statistics.
     GetBalloonStats,
+    /// Accept VM migration.
+    #[cfg(target_arch = "x86_64")]
+    AcceptMigration(AcceptMigrationParams),
+    /// Accept VM migration.
+    #[cfg(target_arch = "x86_64")]
+    StartMigration(StartMigrationParams),
     /// Get the configuration of the microVM.
     GetVmConfiguration,
     /// Flush the metrics. This action can only be called after the logger has been configured.
@@ -306,6 +313,10 @@ impl<'a> PrebootApiController<'a> {
             InsertNetworkDevice(config) => self.insert_net_device(config),
             #[cfg(target_arch = "x86_64")]
             LoadSnapshot(config) => self.load_snapshot(&config),
+            #[cfg(target_arch = "x86_64")]
+            AcceptMigration(accept_migration_cfg) => self
+                .accept_migration(&accept_migration_cfg)
+                .map(|_| VmmData::Empty),
             SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
             SetVmConfiguration(config) => self.set_vm_config(config),
@@ -321,7 +332,9 @@ impl<'a> PrebootApiController<'a> {
             | UpdateBlockDevice(_)
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
-            CreateSnapshot(_) | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
+            CreateSnapshot(_) | StartMigration(_) | SendCtrlAltDel => {
+                Err(VmmActionError::OperationNotSupportedPreBoot)
+            }
         }
     }
 
@@ -405,6 +418,14 @@ impl<'a> PrebootApiController<'a> {
     }
 
     #[cfg(target_arch = "x86_64")]
+    fn accept_migration(
+        &mut self,
+        _accept_migration_params: &AcceptMigrationParams,
+    ) -> ActionResult {
+        Ok(VmmData::Empty)
+    }
+
+    #[cfg(target_arch = "x86_64")]
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
     fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
@@ -448,6 +469,10 @@ impl RuntimeApiController {
         use self::VmmAction::*;
         match request {
             // Supported operations allowed post-boot.
+            #[cfg(target_arch = "x86_64")]
+            StartMigration(start_migration_cfg) => self
+                .start_migration(&start_migration_cfg)
+                .map(|_| VmmData::Empty),
             #[cfg(target_arch = "x86_64")]
             CreateSnapshot(snapshot_create_cfg) => self.create_snapshot(&snapshot_create_cfg),
             FlushMetrics => self.flush_metrics(),
@@ -499,7 +524,9 @@ impl RuntimeApiController {
             | SetVmConfiguration(_)
             | StartMicroVm => Err(VmmActionError::OperationNotSupportedPostBoot),
             #[cfg(target_arch = "x86_64")]
-            LoadSnapshot(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
+            LoadSnapshot(_) | AcceptMigration(_) => {
+                Err(VmmActionError::OperationNotSupportedPostBoot)
+            }
         }
     }
 
@@ -564,6 +591,11 @@ impl RuntimeApiController {
             .send_ctrl_alt_del()
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::InternalVmm)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn start_migration(&mut self, _start_migration_params: &StartMigrationParams) -> ActionResult {
+        Ok(VmmData::Empty)
     }
 
     #[cfg(target_arch = "x86_64")]

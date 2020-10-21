@@ -23,6 +23,7 @@ use crate::request::vsock::parse_put_vsock;
 use crate::ApiServer;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 
+use crate::request::migration::parse_put_migration;
 use logger::{error, info};
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
@@ -75,6 +76,7 @@ impl ParsedRequest {
             }
             #[cfg(target_arch = "x86_64")]
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.get(1)),
+            (Method::Put, "migration", Some(body)) => parse_put_migration(body, path_tokens.get(1)),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
             (Method::Put, _, None) => method_to_error(Method::Put),
             (Method::Patch, "balloon", Some(body)) => parse_patch_balloon(body, path_tokens.get(1)),
