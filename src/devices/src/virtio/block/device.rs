@@ -145,6 +145,7 @@ pub struct Block {
     pub(crate) partuuid: Option<String>,
     pub(crate) root_device: bool,
     pub(crate) rate_limiter: RateLimiter,
+    pub(crate) events_registered: bool,
 }
 
 impl Block {
@@ -186,6 +187,7 @@ impl Block {
             queues,
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK)?,
+            events_registered: false,
         })
     }
 

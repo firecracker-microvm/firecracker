@@ -64,6 +64,7 @@ pub struct Vsock<B> {
     // continuous triggers from happening before the device gets activated.
     pub(crate) activate_evt: EventFd,
     pub(crate) device_state: DeviceState,
+    pub(crate) events_registered: bool,
 }
 
 // TODO: Detect / handle queue deadlock:
@@ -96,6 +97,7 @@ where
             interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
+            events_registered: false,
         })
     }
 

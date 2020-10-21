@@ -57,6 +57,8 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             ),
             // Used for drive patching & rescanning, for reading the local timezone
             allow_syscall(libc::SYS_fstat),
+            // Used for flushing drive to backing storage on pause
+            allow_syscall(libc::SYS_fsync),
             // Used for snapshotting
             #[cfg(target_arch = "x86_64")]
             allow_syscall(libc::SYS_ftruncate),

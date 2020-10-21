@@ -2,15 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::os::unix::io::AsRawFd;
+use std::result::Result;
+use std::sync::{Arc, Mutex};
 
 use logger::{debug, error, warn};
 use polly::event_manager::{EventManager, Subscriber};
 use utils::epoll::{EpollEvent, EventSet};
 
 use crate::report_balloon_event_fail;
-use crate::virtio::{
-    balloon::device::Balloon, VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX,
-};
+use crate::virtio::balloon::device::Balloon;
+use crate::virtio::{VirtioDevice, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 
 impl Balloon {
     fn process_activate_event(&self, event_manager: &mut EventManager) {
@@ -125,6 +126,36 @@ impl Subscriber for Balloon {
                 self.activate_evt.as_raw_fd() as u64,
             )]
         }
+    }
+
+    fn stop(&mut self, evmgr: &mut EventManager) -> Result<(), String> {
+        if self.events_registered {
+            for event in self.interest_list() {
+                evmgr
+                    .unregister(event.data() as i32)
+                    .map_err(|e| format!("Failed to unregister events: {:?}", e))?;
+            }
+            self.events_registered = false;
+        }
+        Ok(())
+    }
+
+    fn start(
+        &mut self,
+        self_subscriber: Arc<Mutex<dyn Subscriber>>,
+        evmgr: &mut EventManager,
+    ) -> Result<(), String> {
+        if !self.events_registered {
+            for event in self.interest_list() {
+                evmgr
+                    .register(event.data() as i32, event, self_subscriber.clone())
+                    .map_err(|e| format!("Failed to re-register events: {:?}", e))?;
+                // Kick the device to make up for lost, in-flight events.
+                self.process(&event, evmgr);
+            }
+            self.events_registered = true;
+        }
+        Ok(())
     }
 }
 

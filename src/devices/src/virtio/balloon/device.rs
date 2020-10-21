@@ -117,6 +117,7 @@ pub struct Balloon {
     pub(crate) device_state: DeviceState,
 
     // Implementation specific fields.
+    pub(crate) events_registered: bool,
     pub(crate) restored: bool,
     pub(crate) stats_polling_interval_s: u16,
     pub(crate) stats_timer: TimerFd,
@@ -172,6 +173,7 @@ impl Balloon {
             queues,
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
+            events_registered: false,
             restored,
             stats_polling_interval_s,
             stats_timer,

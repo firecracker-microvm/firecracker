@@ -123,6 +123,7 @@ pub struct Net {
     pub(crate) activate_evt: EventFd,
 
     pub(crate) mmds_ns: Option<MmdsNetworkStack>,
+    pub(crate) events_registered: bool,
 
     #[cfg(test)]
     pub(crate) mocks: Mocks,
@@ -200,6 +201,7 @@ impl Net {
             config_space,
             mmds_ns,
             guest_mac: guest_mac.copied(),
+            events_registered: false,
 
             #[cfg(test)]
             mocks: Mocks::default(),
