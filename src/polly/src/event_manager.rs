@@ -61,6 +61,24 @@ pub trait Subscriber {
 
     /// Returns a list of `EpollEvent` that this subscriber is interested in.
     fn interest_list(&self) -> Vec<EpollEvent>;
+
+    /// Callback for the `Subscriber` to handle stopping/pausing its event handling.
+    ///
+    /// The `Subscriber` is also responsible for unregistering its events from `EventManager`.
+    fn stop(&mut self, _: &mut EventManager) -> std::result::Result<(), String> {
+        Ok(())
+    }
+
+    /// Callback for the Subscriber to handle starting/resuming its event handling.
+    ///
+    /// The `Subscriber` is also responsible for registering its events from `EventManager`.
+    fn start(
+        &mut self,
+        _: Arc<Mutex<dyn Subscriber>>,
+        _: &mut EventManager,
+    ) -> std::result::Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Manages I/O notifications using epoll mechanism.
