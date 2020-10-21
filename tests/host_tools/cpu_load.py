@@ -76,9 +76,7 @@ class CpuLoadMonitor(Thread):
         """
         clock_ticks_cmd = 'getconf CLK_TCK'
         try:
-            stdout = utils.cmd_run(
-                    clock_ticks_cmd,
-                ).stdout.decode('utf-8')
+            _, stdout, _ = utils.run_cmd(clock_ticks_cmd)
         except ChildProcessError:
             return
         try:
