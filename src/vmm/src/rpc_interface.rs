@@ -31,7 +31,6 @@ use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use arch::DeviceType;
 use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
-use polly::event_manager::EventManager;
 use seccomp::BpfProgram;
 
 /// This enum represents the public interface of the VMM. Each action contains various
@@ -181,8 +180,7 @@ pub struct PrebootApiController<'a> {
     seccomp_filter: BpfProgram,
     instance_info: InstanceInfo,
     vm_resources: &'a mut VmResources,
-    event_manager: &'a mut EventManager,
-    built_vmm: Option<Arc<Mutex<Vmm>>>,
+    built_vmm: Option<Vmm>,
 }
 
 impl<'a> PrebootApiController<'a> {
@@ -191,13 +189,11 @@ impl<'a> PrebootApiController<'a> {
         seccomp_filter: BpfProgram,
         instance_info: InstanceInfo,
         vm_resources: &'a mut VmResources,
-        event_manager: &'a mut EventManager,
     ) -> PrebootApiController<'a> {
         PrebootApiController {
             seccomp_filter,
             instance_info,
             vm_resources,
-            event_manager,
             built_vmm: None,
         }
     }
@@ -209,24 +205,19 @@ impl<'a> PrebootApiController<'a> {
     /// Returns a populated `VmResources` object and a running `Vmm` object.
     pub fn build_microvm_from_requests<F, G>(
         seccomp_filter: BpfProgram,
-        event_manager: &mut EventManager,
         instance_info: InstanceInfo,
         recv_req: F,
         respond: G,
         boot_timer_enabled: bool,
-    ) -> (VmResources, Arc<Mutex<Vmm>>)
+    ) -> (VmResources, Vmm)
     where
         F: Fn() -> VmmAction,
         G: Fn(result::Result<VmmData, VmmActionError>),
     {
         let mut vm_resources = VmResources::default();
         vm_resources.boot_timer = boot_timer_enabled;
-        let mut preboot_controller = PrebootApiController::new(
-            seccomp_filter,
-            instance_info,
-            &mut vm_resources,
-            event_manager,
-        );
+        let mut preboot_controller =
+            PrebootApiController::new(seccomp_filter, instance_info, &mut vm_resources);
         // Configure and start microVM through successive API calls.
         // Iterate through API calls to configure microVm.
         // The loop breaks when a microVM is successfully started, and a running Vmm is built.
@@ -295,16 +286,14 @@ impl<'a> PrebootApiController<'a> {
                 .set_mmds_config(mmds_config)
                 .map(|_| VmmData::Empty)
                 .map_err(VmmActionError::MmdsConfig),
-            StartMicroVm => builder::build_microvm_for_boot(
-                &self.vm_resources,
-                &mut self.event_manager,
-                &self.seccomp_filter,
-            )
-            .map(|vmm| {
-                self.built_vmm = Some(vmm);
-                VmmData::Empty
-            })
-            .map_err(VmmActionError::StartMicrovm),
+            StartMicroVm => {
+                builder::build_microvm_for_boot(&self.vm_resources, &self.seccomp_filter)
+                    .map(|vmm| {
+                        self.built_vmm = Some(vmm);
+                        VmmData::Empty
+                    })
+                    .map_err(VmmActionError::StartMicrovm)
+            }
             // Operations not allowed pre-boot.
             FlushMetrics
             | Pause
@@ -320,12 +309,8 @@ impl<'a> PrebootApiController<'a> {
     fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        let loaded_vmm = persist::load_snapshot(
-            &mut self.event_manager,
-            &self.seccomp_filter,
-            load_params,
-            VERSION_MAP.clone(),
-        );
+        let loaded_vmm =
+            persist::load_snapshot(&self.seccomp_filter, load_params, VERSION_MAP.clone());
 
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);

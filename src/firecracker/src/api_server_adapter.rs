@@ -168,16 +168,11 @@ pub fn run_with_api(
 
     // Configure, build and start the microVM.
     let (vm_resources, vmm) = match config_json {
-        Some(json) => super::build_microvm_from_json(
-            seccomp_filter,
-            &mut event_manager,
-            json,
-            &instance_info,
-            boot_timer_enabled,
-        ),
+        Some(json) => {
+            super::build_microvm_from_json(seccomp_filter, json, &instance_info, boot_timer_enabled)
+        }
         None => PrebootApiController::build_microvm_from_requests(
             seccomp_filter,
-            &mut event_manager,
             instance_info,
             || {
                 let req = from_api
@@ -198,6 +193,10 @@ pub fn run_with_api(
             boot_timer_enabled,
         ),
     };
+    let vmm = Arc::new(Mutex::new(vmm));
+    event_manager
+        .add_subscriber(vmm.clone())
+        .expect("Cannot register the vmm to the events manager.");
 
     // Start the metrics.
     firecracker_metrics

@@ -286,9 +286,8 @@ fn create_vmm_and_vcpus(
 /// is returned.
 pub fn build_microvm_for_boot(
     vm_resources: &super::resources::VmResources,
-    _event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
-) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
+) -> std::result::Result<Vmm, StartMicrovmError> {
     use self::StartMicrovmError::*;
     let boot_config = vm_resources.boot_source().ok_or(MissingKernelConfig)?;
 
@@ -348,11 +347,6 @@ pub fn build_microvm_for_boot(
     // The vcpus start off in the `Paused` state, let them run.
     vmm.resume_vcpus().map_err(Internal)?;
 
-    let vmm = Arc::new(Mutex::new(vmm));
-    _event_manager
-        .add_subscriber(vmm.clone())
-        .map_err(RegisterEvent)?;
-
     Ok(vmm)
 }
 
@@ -362,12 +356,11 @@ pub fn build_microvm_for_boot(
 /// is returned.
 #[cfg(target_arch = "x86_64")]
 pub fn build_microvm_from_snapshot(
-    _event_manager: &mut EventManager,
     microvm_state: MicrovmState,
     guest_memory: GuestMemoryMmap,
     track_dirty_pages: bool,
     seccomp_filter: BpfProgramRef,
-) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
+) -> std::result::Result<Vmm, StartMicrovmError> {
     use self::StartMicrovmError::*;
     let vcpu_count = u8::try_from(microvm_state.vcpu_states.len())
         .map_err(|_| MicrovmStateError::InvalidInput)
@@ -401,11 +394,6 @@ pub fn build_microvm_from_snapshot(
     // Restore vcpus kvm state.
     vmm.restore_vcpu_states(microvm_state.vcpu_states)
         .map_err(RestoreMicrovmState)?;
-
-    let vmm = Arc::new(Mutex::new(vmm));
-    _event_manager
-        .add_subscriber(vmm.clone())
-        .map_err(StartMicrovmError::RegisterEvent)?;
 
     // Load seccomp filters for the VMM thread.
     // Keep this as the last step of the building process.

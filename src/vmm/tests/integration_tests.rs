@@ -56,10 +56,11 @@ fn default_vmm(_kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
         .with_boot_source(boot_source_cfg)
         .into();
 
-    (
-        build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter).unwrap(),
-        event_manager,
-    )
+    let vmm = Arc::new(Mutex::new(
+        build_microvm_for_boot(&resources, &empty_seccomp_filter).unwrap(),
+    ));
+    event_manager.add_subscriber(vmm.clone()).unwrap();
+    (vmm, event_manager)
 }
 
 fn wait_vmm_child_process(vmm_pid: i32) {
@@ -92,10 +93,9 @@ fn test_build_microvm() {
     // Error case: no boot source configured.
     {
         let resources: VmResources = MockVmResources::new().into();
-        let mut event_manager = EventManager::new().unwrap();
         let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
 
-        let vmm_ret = build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter);
+        let vmm_ret = build_microvm_for_boot(&resources, &empty_seccomp_filter);
         assert_eq!(format!("{:?}", vmm_ret.err()), "Some(MissingKernelConfig)");
     }
 
@@ -140,15 +140,14 @@ fn test_vmm_seccomp() {
             let resources: VmResources = MockVmResources::new()
                 .with_boot_source(boot_source_cfg)
                 .into();
-            let mut event_manager = EventManager::new().unwrap();
 
             // The customer "forgot" to whitelist the KVM_RUN ioctl.
             let filter: BpfProgram = MockSeccomp::new().without_kvm_run().into();
-            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &filter).unwrap();
+            let mut vmm = build_microvm_for_boot(&resources, &filter).unwrap();
             // Give the vCPUs a chance to attempt KVM_RUN.
             thread::sleep(Duration::from_millis(200));
             // Should never get here.
-            vmm.lock().unwrap().stop(-1);
+            vmm.stop(-1);
         }
         vmm_pid => {
             // Parent process: wait for the vmm to exit.
@@ -395,7 +394,6 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
     match pid {
         0 => {
             set_panic_hook();
-            let mut event_manager = EventManager::new().unwrap();
             let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
 
             // Deserialize microVM state.
@@ -412,16 +410,11 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
                 .unwrap();
 
             // Build microVM from state.
-            let vmm = build_microvm_from_snapshot(
-                &mut event_manager,
-                microvm_state,
-                mem,
-                false,
-                &empty_seccomp_filter,
-            )
-            .unwrap();
+            let mut vmm =
+                build_microvm_from_snapshot(microvm_state, mem, false, &empty_seccomp_filter)
+                    .unwrap();
             // For now we're happy we got this far, we don't test what the guest is actually doing.
-            vmm.lock().unwrap().stop(0);
+            vmm.stop(0);
         }
         vmm_pid => {
             // Parent process: wait for the vmm to exit.

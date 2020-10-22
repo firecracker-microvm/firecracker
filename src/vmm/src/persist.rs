@@ -10,7 +10,6 @@ use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use crate::builder::{self, StartMicrovmError};
 use crate::device_manager::persist::Error as DevicePersistError;
@@ -21,7 +20,6 @@ use crate::device_manager::persist::DeviceStates;
 use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
-use polly::event_manager::EventManager;
 use seccomp::BpfProgramRef;
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -244,23 +242,16 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
 
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
 pub fn load_snapshot(
-    event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
     params: &LoadSnapshotParams,
     version_map: VersionMap,
-) -> std::result::Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
+) -> std::result::Result<Vmm, LoadSnapshotError> {
     use self::LoadSnapshotError::*;
     let track_dirty = params.enable_diff_snapshots;
     let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
     let guest_memory = guest_memory_from_file(&params.mem_file_path, &microvm_state.memory_state)?;
-    builder::build_microvm_from_snapshot(
-        event_manager,
-        microvm_state,
-        guest_memory,
-        track_dirty,
-        seccomp_filter,
-    )
-    .map_err(BuildMicroVm)
+    builder::build_microvm_from_snapshot(microvm_state, guest_memory, track_dirty, seccomp_filter)
+        .map_err(BuildMicroVm)
 }
 
 fn snapshot_state_from_file(
