@@ -297,18 +297,17 @@ mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::Vmm;
 
-    use polly::event_manager::EventManager;
     use snapshot::Persist;
     use utils::{errno, tempfile::TempFile};
 
-    fn default_vmm_with_devices(event_manager: &mut EventManager) -> Vmm {
+    fn default_vmm_with_devices() -> Vmm {
         let mut vmm = default_vmm();
         let mut cmdline = default_kernel_cmdline();
 
         // Add a block device.
         let drive_id = String::from("root");
         let block_configs = vec![CustomBlockConfig::new(drive_id, true, None, true)];
-        insert_block_devices(&mut vmm, &mut cmdline, event_manager, block_configs);
+        insert_block_devices(&mut vmm, &mut cmdline, block_configs);
 
         // Add net device.
         let network_interface = NetworkInterfaceConfig {
@@ -319,22 +318,21 @@ mod tests {
             tx_rate_limiter: None,
             allow_mmds_requests: true,
         };
-        insert_net_device(&mut vmm, &mut cmdline, event_manager, network_interface);
+        insert_net_device(&mut vmm, &mut cmdline, network_interface);
 
         // Add vsock device.
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
         let vsock_config = default_config(&tmp_sock_file);
 
-        insert_vsock_device(&mut vmm, &mut cmdline, event_manager, vsock_config);
+        insert_vsock_device(&mut vmm, &mut cmdline, vsock_config);
 
         vmm
     }
 
     #[test]
     fn test_microvmstate_versionize() {
-        let mut event_manager = EventManager::new().expect("Cannot create EventManager");
-        let vmm = default_vmm_with_devices(&mut event_manager);
+        let vmm = default_vmm_with_devices();
         let states = vmm.mmio_device_manager.save();
 
         // Only checking that all devices are saved, actual device state

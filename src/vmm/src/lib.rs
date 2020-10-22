@@ -226,6 +226,9 @@ pub struct Vmm {
     mmio_device_manager: MMIODeviceManager,
     #[cfg(target_arch = "x86_64")]
     pio_device_manager: PortIODeviceManager,
+
+    // Emulation event manager.
+    emu_evmgr: EventManager,
 }
 
 impl Vmm {
@@ -501,7 +504,11 @@ impl Subscriber for Vmm {
         let source = event.fd();
         let event_set = event.event_set();
 
-        if source == self.exit_evt.as_raw_fd() && event_set == EventSet::IN {
+        if source == self.emu_evmgr.as_raw_fd() && event_set == EventSet::IN {
+            self.emu_evmgr
+                .run_with_timeout(0)
+                .expect("Emulation EventManager fatal error");
+        } else if source == self.exit_evt.as_raw_fd() && event_set == EventSet::IN {
             let _ = self.exit_evt.read();
             // Query each vcpu for the exit_code.
             // If the exit_code can't be found on any vcpu, it means that the exit signal
@@ -522,9 +529,9 @@ impl Subscriber for Vmm {
     }
 
     fn interest_list(&self) -> Vec<EpollEvent> {
-        vec![EpollEvent::new(
-            EventSet::IN,
-            self.exit_evt.as_raw_fd() as u64,
-        )]
+        vec![
+            EpollEvent::new(EventSet::IN, self.emu_evmgr.as_raw_fd() as u64),
+            EpollEvent::new(EventSet::IN, self.exit_evt.as_raw_fd() as u64),
+        ]
     }
 }

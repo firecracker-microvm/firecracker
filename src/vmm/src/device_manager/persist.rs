@@ -92,7 +92,7 @@ pub struct DeviceStates {
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: GuestMemoryMmap,
     pub vm: &'a VmFd,
-    pub event_manager: &'a mut EventManager,
+    pub emu_evmgr: &'a mut EventManager,
 }
 
 impl<'a> Persist<'a> for MMIODeviceManager {
@@ -178,7 +178,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
-        let event_manager = constructor_args.event_manager;
+        let event_manager = constructor_args.emu_evmgr;
 
         let mut register_virtio_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
                                           id: &String,
@@ -279,7 +279,6 @@ mod tests {
     use crate::builder::tests::*;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
-    use polly::event_manager::EventManager;
     use utils::tempfile::TempFile;
 
     impl PartialEq for ConnectedBlockState {
@@ -394,15 +393,13 @@ mod tests {
         tmp_sock_file.remove().unwrap();
         // Set up a vmm with one of each device, and get the serialized DeviceStates.
         let original_mmio_device_manager = {
-            let mut event_manager = EventManager::new().expect("Unable to create EventManager");
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
 
             // Add a block device.
             let drive_id = String::from("root");
             let block_configs = vec![CustomBlockConfig::new(drive_id, true, None, true)];
-            _block_files =
-                insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
+            _block_files = insert_block_devices(&mut vmm, &mut cmdline, block_configs);
             // Add a net device.
             let network_interface = NetworkInterfaceConfig {
                 iface_id: String::from("netif"),
@@ -412,12 +409,7 @@ mod tests {
                 tx_rate_limiter: None,
                 allow_mmds_requests: true,
             };
-            insert_net_device(
-                &mut vmm,
-                &mut cmdline,
-                &mut event_manager,
-                network_interface,
-            );
+            insert_net_device(&mut vmm, &mut cmdline, network_interface);
             // Add a vsock device.
             let vsock_dev_id = "vsock";
             let vsock_config = VsockDeviceConfig {
@@ -425,7 +417,7 @@ mod tests {
                 guest_cid: 3,
                 uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
             };
-            insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
+            insert_vsock_device(&mut vmm, &mut cmdline, vsock_config);
 
             vmm.mmio_device_manager
                 .save()
@@ -437,14 +429,13 @@ mod tests {
         };
         tmp_sock_file.remove().unwrap();
 
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-        let vmm = default_vmm();
+        let mut vmm = default_vmm();
         let device_states: DeviceStates =
             DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 1).unwrap();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.guest_memory().clone(),
             vm: vmm.vm.fd(),
-            event_manager: &mut event_manager,
+            emu_evmgr: &mut vmm.emu_evmgr,
         };
         let restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_states).unwrap();
