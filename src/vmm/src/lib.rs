@@ -99,6 +99,10 @@ pub enum Error {
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::Error),
+    /// Device pause failed.
+    DevicePause(String),
+    /// Device resume failed.
+    DeviceResume(String),
     /// Cannot fetch the KVM dirty bitmap.
     DirtyBitmap(kvm_ioctls::Error),
     /// Cannot read from an Event file descriptor.
@@ -158,6 +162,8 @@ impl Display for Error {
         match self {
             #[cfg(target_arch = "x86_64")]
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {}", e),
+            DevicePause(e) => write!(f, "Failed to pause device: {}", e),
+            DeviceResume(e) => write!(f, "Failed to resume device: {}", e),
             DirtyBitmap(e) => write!(f, "Error getting the KVM dirty bitmap. {}", e),
             EventFd(e) => write!(f, "Event fd error: {}", e),
             I8042Error(e) => write!(f, "I8042 error: {}", e),
@@ -286,16 +292,28 @@ impl Vmm {
         Ok(())
     }
 
-    /// Sends a resume command to the vCPUs.
-    pub fn resume_vcpus(&mut self) -> Result<()> {
+    /// Resumes device emulation, then sends a resume command to the vCPUs.
+    pub fn resume_emulation(&mut self, evmgr: &mut EventManager) -> Result<()> {
+        self.mmio_device_manager
+            .for_each_subscriber_device(|device| {
+                let as_subscriber = device.clone();
+                let mut locked_device = device.lock().expect("Poisoned lock");
+                locked_device.start(as_subscriber, evmgr)
+            })
+            .map_err(Error::DeviceResume)?;
+
         self.broadcast_vcpu_event(VcpuEvent::Resume, VcpuResponse::Resumed)
             .map_err(|_| Error::VcpuResume)
     }
 
-    /// Sends a pause command to the vCPUs.
-    pub fn pause_vcpus(&mut self) -> Result<()> {
+    /// Sends a pause command to the vCPUs, then pauses device emulation.
+    pub fn pause_emulation(&mut self, evmgr: &mut EventManager) -> Result<()> {
         self.broadcast_vcpu_event(VcpuEvent::Pause, VcpuResponse::Paused)
-            .map_err(|_| Error::VcpuPause)
+            .map_err(|_| Error::VcpuPause)?;
+
+        self.mmio_device_manager
+            .for_each_subscriber_device(|device| device.lock().expect("Poisoned lock").stop(evmgr))
+            .map_err(Error::DevicePause)
     }
 
     /// Sends an exit command to the vCPUs.
@@ -306,6 +324,7 @@ impl Vmm {
         )
         .map_err(|_| Error::VcpuExit)
     }
+
     /// Returns a reference to the inner `GuestMemoryMmap` object if present, or `None` otherwise.
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.guest_memory

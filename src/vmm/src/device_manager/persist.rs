@@ -21,7 +21,7 @@ use devices::virtio::vsock::persist::{VsockConstructorArgs, VsockState, VsockUds
 use devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBackendError};
 use devices::virtio::{MmioTransport, VirtioDevice, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK};
 use kvm_ioctls::VmFd;
-use polly::event_manager::{Error as EventMgrError, EventManager};
+use polly::event_manager::{Error as EventMgrError, Subscriber};
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -92,7 +92,6 @@ pub struct DeviceStates {
 pub struct MMIODevManagerConstructorArgs<'a> {
     pub mem: GuestMemoryMmap,
     pub vm: &'a VmFd,
-    pub event_manager: &'a mut EventManager,
 }
 
 impl<'a> Persist<'a> for MMIODeviceManager {
@@ -178,12 +177,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
-        let event_manager = constructor_args.event_manager;
 
         let mut register_virtio_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
                                           id: &String,
                                           state: &MmioTransportState,
-                                          slot: &MMIODeviceInfo|
+                                          slot: &MMIODeviceInfo,
+                                          subscriber: Arc<Mutex<dyn Subscriber>>|
          -> Result<(), Self::Error> {
             dev_manager
                 .slot_sanity_check(slot)
@@ -196,7 +195,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let mmio_transport =
                 MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
             dev_manager
-                .register_virtio_mmio_device(vm, id.clone(), mmio_transport, slot)
+                .register_virtio_mmio_device(vm, id.clone(), mmio_transport, slot, Some(subscriber))
                 .map_err(Error::DeviceManager)
         };
 
@@ -214,11 +213,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &block_state.device_id,
                 &block_state.transport_state,
                 &block_state.mmio_slot,
+                device as Arc<Mutex<dyn Subscriber>>,
             )?;
-
-            event_manager
-                .add_subscriber(device)
-                .map_err(Error::EventManager)?;
         }
         for net_state in &state.net_devices {
             let device = Arc::new(Mutex::new(
@@ -234,11 +230,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &net_state.device_id,
                 &net_state.transport_state,
                 &net_state.mmio_slot,
+                device as Arc<Mutex<dyn Subscriber>>,
             )?;
-
-            event_manager
-                .add_subscriber(device)
-                .map_err(Error::EventManager)?;
         }
         if let Some(vsock_state) = &state.vsock_device {
             let ctor_args = VsockUdsConstructorArgs {
@@ -262,11 +255,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &vsock_state.device_id,
                 &vsock_state.transport_state,
                 &vsock_state.mmio_slot,
+                device as Arc<Mutex<dyn Subscriber>>,
             )?;
-
-            event_manager
-                .add_subscriber(device)
-                .map_err(Error::EventManager)?;
         }
 
         Ok(dev_manager)
@@ -437,14 +427,12 @@ mod tests {
         };
         tmp_sock_file.remove().unwrap();
 
-        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let vmm = default_vmm();
         let device_states: DeviceStates =
             DeviceStates::deserialize(&mut buf.as_slice(), &version_map, 1).unwrap();
         let restore_args = MMIODevManagerConstructorArgs {
             mem: vmm.guest_memory().clone(),
             vm: vmm.vm.fd(),
-            event_manager: &mut event_manager,
         };
         let restored_dev_manager =
             MMIODeviceManager::restore(restore_args, &device_states).unwrap();

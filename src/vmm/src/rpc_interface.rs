@@ -351,6 +351,7 @@ impl RuntimeApiController {
     pub fn handle_request(
         &mut self,
         request: VmmAction,
+        evmgr: &mut EventManager,
     ) -> result::Result<VmmData, VmmActionError> {
         use self::VmmAction::*;
         match request {
@@ -361,8 +362,8 @@ impl RuntimeApiController {
                 .map(|_| VmmData::Empty),
             FlushMetrics => self.flush_metrics().map(|_| VmmData::Empty),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
-            Pause => self.pause().map(|_| VmmData::Empty),
-            Resume => self.resume().map(|_| VmmData::Empty),
+            Pause => self.pause(evmgr).map(|_| VmmData::Empty),
+            Resume => self.resume(evmgr).map(|_| VmmData::Empty),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del().map(|_| VmmData::Empty),
             UpdateBlockDevicePath(drive_id, path_on_host) => self
@@ -396,13 +397,13 @@ impl RuntimeApiController {
     }
 
     /// Pauses the microVM by pausing the vCPUs.
-    pub fn pause(&mut self) -> ActionResult {
+    pub fn pause(&mut self, evmgr: &mut EventManager) -> ActionResult {
         let pause_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
         self.vmm
             .lock()
             .expect("Poisoned lock")
-            .pause_vcpus()
+            .pause_emulation(evmgr)
             .map_err(VmmActionError::InternalVmm)?;
 
         let elapsed_time_us =
@@ -413,13 +414,13 @@ impl RuntimeApiController {
     }
 
     /// Resumes the microVM by resuming the vCPUs.
-    pub fn resume(&mut self) -> ActionResult {
+    pub fn resume(&mut self, evmgr: &mut EventManager) -> ActionResult {
         let resume_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
         self.vmm
             .lock()
             .expect("Poisoned lock")
-            .resume_vcpus()
+            .resume_emulation(evmgr)
             .map_err(VmmActionError::InternalVmm)?;
 
         let elapsed_time_us =

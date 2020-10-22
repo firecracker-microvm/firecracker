@@ -355,7 +355,7 @@ pub fn build_microvm_for_boot(
         .map_err(Internal)?;
 
     // The vcpus start off in the `Paused` state, let them run.
-    vmm.resume_vcpus().map_err(Internal)?;
+    vmm.resume_emulation(event_manager).map_err(Internal)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager
@@ -400,7 +400,6 @@ pub fn build_microvm_from_snapshot(
     let mmio_ctor_args = MMIODevManagerConstructorArgs {
         mem: guest_memory,
         vm: vmm.vm.fd(),
-        event_manager,
     };
     vmm.mmio_device_manager =
         MMIODeviceManager::restore(mmio_ctor_args, &microvm_state.device_states)
@@ -690,7 +689,7 @@ pub fn configure_system_for_boot(
 
 /// Attaches a VirtioDevice device to the device manager and event manager.
 fn attach_virtio_device<T: 'static + VirtioDevice + Subscriber>(
-    event_manager: &mut EventManager,
+    _event_manager: &mut EventManager,
     vmm: &mut Vmm,
     id: String,
     device: Arc<Mutex<T>>,
@@ -698,14 +697,11 @@ fn attach_virtio_device<T: 'static + VirtioDevice + Subscriber>(
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    event_manager
-        .add_subscriber(device.clone())
-        .map_err(RegisterEvent)?;
-
+    let subscriber = Some(device.clone() as Arc<Mutex<dyn Subscriber>>);
     // The device mutex mustn't be locked here otherwise it will deadlock.
-    let device = MmioTransport::new(vmm.guest_memory().clone(), device);
+    let mmio = MmioTransport::new(vmm.guest_memory().clone(), device);
     vmm.mmio_device_manager
-        .register_new_virtio_mmio_device(vmm.vm.fd(), id, device, cmdline)
+        .register_new_virtio_mmio_device(vmm.vm.fd(), id, mmio, cmdline, subscriber)
         .map_err(RegisterMmioDevice)
         .map(|_| ())
 }
