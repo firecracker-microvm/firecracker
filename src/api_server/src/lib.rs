@@ -156,7 +156,7 @@ impl ApiServer {
         }
     }
 
-    fn handle_request(&self, request: &Request, request_processing_start_us: u64) -> Response {
+    pub fn handle_request(&self, request: &Request, request_processing_start_us: u64) -> Response {
         match ParsedRequest::try_from_request(request) {
             Ok(ParsedRequest::Sync(vmm_action)) => {
                 self.serve_vmm_action_request(vmm_action, request_processing_start_us)
