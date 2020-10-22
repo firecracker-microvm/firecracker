@@ -228,7 +228,7 @@ pub struct Vmm {
     pio_device_manager: PortIODeviceManager,
 
     // Emulation event manager.
-    emu_evmgr: EventManager,
+    pub(crate) emu_evmgr: EventManager,
 }
 
 impl Vmm {

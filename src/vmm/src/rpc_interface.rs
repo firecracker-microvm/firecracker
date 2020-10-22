@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter};
+use std::os::unix::io::AsRawFd;
 use std::result;
 use std::sync::{Arc, Mutex};
 
@@ -31,7 +32,9 @@ use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use arch::DeviceType;
 use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
+use polly::event_manager::{Error as EventManagerError, EventManager};
 use seccomp::BpfProgram;
+use utils::epoll::{EpollEvent, EventSet};
 
 /// This enum represents the public interface of the VMM. Each action contains various
 /// bits of information (ids, paths, etc.).
@@ -125,6 +128,10 @@ pub enum VmmActionError {
     OperationNotSupportedPreBoot,
     /// The action `StartMicroVm` failed because of an internal error.
     StartMicrovm(StartMicrovmError),
+    /// Pausing the VMM failed.
+    VmmPause(EventManagerError),
+    /// Resuming the VMM failed.
+    VmmResume(EventManagerError),
     /// The action `SetVsockDevice` failed because of bad user input.
     VsockConfig(VsockConfigError),
 }
@@ -158,6 +165,8 @@ impl Display for VmmActionError {
                         .to_string()
                 }
                 StartMicrovm(err) => err.to_string(),
+                VmmPause(err) => format!("Vmm Pause failed: {:?}", err),
+                VmmResume(err) => format!("Vmm Resume failed: {:?}", err),
                 // The action `SetVsockDevice` failed because of bad user input.
                 VsockConfig(err) => err.to_string(),
             }
@@ -336,6 +345,7 @@ impl RuntimeApiController {
     pub fn handle_request(
         &mut self,
         request: VmmAction,
+        evmgr: &mut EventManager,
     ) -> result::Result<VmmData, VmmActionError> {
         use self::VmmAction::*;
         match request {
@@ -346,8 +356,8 @@ impl RuntimeApiController {
                 .map(|_| VmmData::Empty),
             FlushMetrics => self.flush_metrics().map(|_| VmmData::Empty),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
-            Pause => self.pause().map(|_| VmmData::Empty),
-            Resume => self.resume().map(|_| VmmData::Empty),
+            Pause => self.pause(evmgr).map(|_| VmmData::Empty),
+            Resume => self.resume(evmgr).map(|_| VmmData::Empty),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del().map(|_| VmmData::Empty),
             UpdateBlockDevicePath(drive_id, path_on_host) => self
@@ -381,14 +391,16 @@ impl RuntimeApiController {
     }
 
     /// Pauses the microVM by pausing the vCPUs.
-    pub fn pause(&mut self) -> ActionResult {
+    pub fn pause(&mut self, evmgr: &mut EventManager) -> ActionResult {
         let pause_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        self.vmm
-            .lock()
-            .expect("Poisoned lock")
-            .pause_vcpus()
-            .map_err(VmmActionError::InternalVmm)?;
+        let mut vmm = self.vmm.lock().expect("Poisoned lock");
+
+        vmm.pause_vcpus().map_err(VmmActionError::InternalVmm)?;
+
+        evmgr
+            .unregister(vmm.emu_evmgr.as_raw_fd())
+            .map_err(VmmActionError::VmmPause)?;
 
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_pause_vm, pause_start_us);
@@ -398,14 +410,19 @@ impl RuntimeApiController {
     }
 
     /// Resumes the microVM by resuming the vCPUs.
-    pub fn resume(&mut self) -> ActionResult {
+    pub fn resume(&mut self, evmgr: &mut EventManager) -> ActionResult {
         let resume_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        self.vmm
-            .lock()
-            .expect("Poisoned lock")
-            .resume_vcpus()
-            .map_err(VmmActionError::InternalVmm)?;
+        let vmm_subscriber = self.vmm.clone();
+        let mut vmm = self.vmm.lock().expect("Poisoned lock");
+
+        let emu_evmgr_fd = vmm.emu_evmgr.as_raw_fd();
+        let event = EpollEvent::new(EventSet::IN, emu_evmgr_fd as u64);
+        evmgr
+            .register(emu_evmgr_fd, event, vmm_subscriber)
+            .map_err(VmmActionError::VmmResume)?;
+
+        vmm.resume_vcpus().map_err(VmmActionError::InternalVmm)?;
 
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_resume_vm, resume_start_us);

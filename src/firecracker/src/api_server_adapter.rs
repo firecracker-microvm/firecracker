@@ -61,14 +61,14 @@ impl ApiServerAdapter {
 }
 impl Subscriber for ApiServerAdapter {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: &EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: &EpollEvent, evmgr: &mut EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 
         if source == self.api_event_fd.as_raw_fd() && event_set == EventSet::IN {
             match self.from_api.try_recv() {
                 Ok(api_request) => {
-                    let response = self.controller.handle_request(*api_request);
+                    let response = self.controller.handle_request(*api_request, evmgr);
                     // Send back the result.
                     self.to_api
                         .send(Box::new(response))
