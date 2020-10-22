@@ -10,6 +10,9 @@ libc = "0.2"
 versionize = "0.1.2"
 versionize_derive = ">=0.1.1"
 
+[dev-dependencies]
+criterion = "0.3.0"
+
 [[bench]]
 name = "main"
 harness = false
