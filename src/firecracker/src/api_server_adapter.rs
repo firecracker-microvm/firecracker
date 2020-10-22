@@ -19,7 +19,7 @@ use utils::{
     eventfd::EventFd,
 };
 use vmm::{
-    rpc_interface::{PrebootApiController, RuntimeApiController},
+    rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction},
     vmm_config::instance_info::InstanceInfo,
     vmm_config::machine_config::VmConfig,
     Vmm,
@@ -58,6 +58,15 @@ impl ApiServerAdapter {
                 .expect("EventManager events driver fatal error");
         }
     }
+
+    fn handle_request(&mut self, req_action: VmmAction) {
+        let response = self.controller.handle_request(req_action);
+        // Send back the result.
+        self.to_api
+            .send(Box::new(response))
+            .map_err(|_| ())
+            .expect("one-shot channel closed");
+    }
 }
 impl Subscriber for ApiServerAdapter {
     /// Handle a read event (EPOLLIN).
@@ -68,12 +77,26 @@ impl Subscriber for ApiServerAdapter {
         if source == self.api_event_fd.as_raw_fd() && event_set == EventSet::IN {
             match self.from_api.try_recv() {
                 Ok(api_request) => {
-                    let response = self.controller.handle_request(*api_request);
-                    // Send back the result.
-                    self.to_api
-                        .send(Box::new(response))
-                        .map_err(|_| ())
-                        .expect("one-shot channel closed");
+                    let request_is_pause = *api_request == VmmAction::Pause;
+                    self.handle_request(*api_request);
+
+                    // If the latest req is a pause request, temporarily switch to a mode where we
+                    // do blocking `recv`s on the `from_api` receiver in a loop, until we get
+                    // unpaused. The device emulation is implicitly paused since we do not
+                    // relinquish control to the event manager because we're not returning from
+                    // `process`.
+                    if request_is_pause {
+                        // This loop only attempts to process API requests, so things like the
+                        // metric flush timerfd handling are frozen as well.
+                        loop {
+                            let req = self.from_api.recv().expect("Error receiving API request.");
+                            let req_is_resume = *req == VmmAction::Resume;
+                            self.handle_request(*req);
+                            if req_is_resume {
+                                break;
+                            }
+                        }
+                    }
                 }
                 Err(TryRecvError::Empty) => {
                     warn!("Got a spurious notification from api thread");
