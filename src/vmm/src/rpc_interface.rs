@@ -422,6 +422,10 @@ impl RuntimeApiController {
             .register(emu_evmgr_fd, event, vmm_subscriber)
             .map_err(VmmActionError::VmmResume)?;
 
+        // FIXME: If we're coming off a snapshot we may have lost pending events, so
+        // It's not enough to register the emulation event manager, we also need to
+        // kick all of its Subscribers.
+
         vmm.resume_vcpus().map_err(VmmActionError::InternalVmm)?;
 
         let elapsed_time_us =
