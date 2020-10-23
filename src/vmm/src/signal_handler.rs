@@ -282,6 +282,8 @@ mod tests {
         assert!(METRICS.signals.sigxcpu.count() >= 1);
         assert!(METRICS.signals.sigpipe.count() >= 1);
         assert!(METRICS.signals.sighup.count() >= 1);
+        // Workaround to GitHub issue 2216.
+        #[cfg(not(target_arch = "aarch64"))]
         assert!(METRICS.signals.sigill.count() >= 1);
     }
 }
