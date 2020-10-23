@@ -92,15 +92,17 @@ def test_seccomp_applies_to_all_threads(test_microvm_with_api):
     # Get Firecracker PID so we can count the number of threads.
     firecracker_pid = test_microvm.jailer_clone_pid
 
-    # Get number of threads in Firecracker
-    cmd = 'ps -T --no-headers -p {} | awk \'{{print $2}}\''.format(
-        firecracker_pid
-    )
-    process = utils.run_cmd(cmd)
-    threads_out_lines = process.stdout.splitlines()
-    for tid in threads_out_lines:
-        # Verify each Firecracker thread Seccomp status
-        cmd = 'cat /proc/{}/status | grep Seccomp'.format(tid)
-        process = utils.run_cmd(cmd)
-        seccomp_line = ''.join(process.stdout.split())
-        assert seccomp_line == "Seccomp:2"
+    utils.assert_seccomp_level(firecracker_pid, "2")
+
+
+def test_no_seccomp(test_microvm_with_api):
+    """Test Firecracker --no-seccomp."""
+    test_microvm = test_microvm_with_api
+    test_microvm.jailer.extra_args.update({"no-seccomp": None})
+    test_microvm.spawn()
+
+    test_microvm.basic_config()
+
+    test_microvm.start()
+
+    utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "0")
