@@ -196,7 +196,14 @@ impl Block {
             METRICS.block.event_fails.inc();
         } else if self.rate_limiter.is_blocked() {
             METRICS.block.rate_limiter_throttled_events.inc();
-        } else if self.process_queue(0) {
+        } else {
+            self.process_virtio_queues();
+        }
+    }
+
+    /// Process device virtio queue(s).
+    pub fn process_virtio_queues(&mut self) {
+        if self.process_queue(0) {
             let _ = self.signal_used_queue();
         }
     }
