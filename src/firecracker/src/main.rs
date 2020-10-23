@@ -82,7 +82,7 @@ fn main() {
         .arg(
             Argument::new("seccomp-level")
                 .takes_value(true)
-                .default_value("2")
+                .default_value("0")
                 .help(
                     "Level of seccomp filtering (0: no filter | 1: filter by syscall number | 2: filter by syscall \
                      number and argument values) that will be passed to executed path as argument."

@@ -16,6 +16,7 @@ pub mod builder;
 pub mod default_syscalls;
 pub(crate) mod device_manager;
 pub mod memory_snapshot;
+mod migration;
 /// Save/restore utilities.
 pub mod persist;
 /// Resource store for configured microVM resources.

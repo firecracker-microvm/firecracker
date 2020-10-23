@@ -17,6 +17,9 @@ use tests::{create_snapshot, load_snapshot};
 
 use super::Error as VmmError;
 use crate::builder::StartMicrovmError;
+use crate::migration::{
+    accept_migration, start_migration, AcceptMigrationError, StartMigrationError,
+};
 #[cfg(target_arch = "x86_64")]
 use crate::persist::{CreateSnapshotError, LoadSnapshotError};
 #[cfg(target_arch = "x86_64")]
@@ -126,6 +129,12 @@ pub enum VmmAction {
 pub enum VmmActionError {
     /// The action `SetBalloonDevice` failed because of bad user input.
     BalloonConfig(BalloonConfigError),
+    /// The action `StartMigration` failed.
+    #[cfg(target_arch = "x86_64")]
+    StartMigration(StartMigrationError),
+    /// The action `AcceptMigration` failed.
+    #[cfg(target_arch = "x86_64")]
+    AcceptMigration(AcceptMigrationError),
     /// The action `ConfigureBootSource` failed because of bad user input.
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
@@ -171,6 +180,8 @@ impl Display for VmmActionError {
             "{}",
             match self {
                 BalloonConfig(err) => err.to_string(),
+                StartMigration(err) => err.to_string(),
+                AcceptMigration(err) => err.to_string(),
                 BootSource(err) => err.to_string(),
                 #[cfg(target_arch = "x86_64")]
                 CreateSnapshot(err) => err.to_string(),
@@ -420,8 +431,10 @@ impl<'a> PrebootApiController<'a> {
     #[cfg(target_arch = "x86_64")]
     fn accept_migration(
         &mut self,
-        _accept_migration_params: &AcceptMigrationParams,
+        accept_migration_params: &AcceptMigrationParams,
     ) -> ActionResult {
+        accept_migration(accept_migration_params).map_err(VmmActionError::AcceptMigration)?;
+
         Ok(VmmData::Empty)
     }
 
@@ -594,7 +607,9 @@ impl RuntimeApiController {
     }
 
     #[cfg(target_arch = "x86_64")]
-    fn start_migration(&mut self, _start_migration_params: &StartMigrationParams) -> ActionResult {
+    fn start_migration(&mut self, start_migration_params: &StartMigrationParams) -> ActionResult {
+        start_migration(start_migration_params).map_err(VmmActionError::StartMigration)?;
+
         Ok(VmmData::Empty)
     }
 
