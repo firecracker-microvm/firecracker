@@ -730,6 +730,12 @@ impl Net {
             }
         }
     }
+
+    /// Process device virtio queue(s).
+    pub fn process_virtio_queues(&mut self) {
+        let _ = self.resume_rx();
+        let _ = self.process_tx();
+    }
 }
 
 impl VirtioDevice for Net {
