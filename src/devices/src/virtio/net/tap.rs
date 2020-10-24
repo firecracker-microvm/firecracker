@@ -5,13 +5,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use net_gen::ifreq;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Error as IoError, Read, Result as IoResult, Write};
-use std::os::raw::*;
-use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
-use utils::ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val};
-use utils::{ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr};
+use std::os::{
+    raw::*,
+    unix::{
+        fs::{FileTypeExt, OpenOptionsExt},
+        io::{AsRawFd, FromRawFd, RawFd},
+    },
+};
+use std::path::Path;
+
+use net_gen::ifreq;
+use utils::{
+    ioctl::{ioctl_with_mut_ref, ioctl_with_ref, ioctl_with_val},
+    ioctl_expr, ioctl_ioc_nr, ioctl_iow_nr,
+    net::macvtap::MacVTap,
+};
 
 // As defined in the Linux UAPI:
 // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/if.h#L33
@@ -24,10 +34,16 @@ pub enum Error {
     CreateTap(IoError),
     /// Invalid interface name.
     InvalidIfname,
+    /// Tap interface device is not a character device.
+    InvalidTapDevType,
     /// ioctl failed.
     IoctlError(IoError),
+    /// Unable to open tap interface device.
+    OpenTapDev(IoError),
     /// Couldn't open /dev/net/tun.
     OpenTun(IoError),
+    /// Unable to stat tap interface device for macvtap interface.
+    StatTapDev(IoError),
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
@@ -100,11 +116,66 @@ impl IfReqBuilder {
 }
 
 impl Tap {
-    /// Create a TUN/TAP device given the interface name.
+    /// * `if_name` - the name of the interface.
+    /// Create a TUN/TAP device given the tap or macvtap interface name.
     /// # Arguments
     ///
     /// * `if_name` - the name of the interface.
     pub fn open_named(if_name: &str) -> Result<Tap> {
+        // Options:
+        //  - /dev/net/<if_name> exists; open it.
+        //  - It's a macvtap device: determine by checking /sys; open the
+        //    corresponding /dev/tapX node.
+        //  - It's a tap device: open /dev/net/tun and allocate via SETIFF.
+        if let Ok(path) = MacVTap::get_device_node(if_name) {
+            Self::macvtap_open_named(if_name, &path)
+        } else {
+            Self::tap_open_named(if_name)
+        }
+    }
+
+    /// Create a TUN/TAP device given the macvtap interface name and device node.
+    /// # Arguments
+    ///
+    /// * `if_name` - the name of the interface.
+    /// * `dev_path` - location of the interface's device node.
+    fn macvtap_open_named(if_name: &str, dev_path: &Path) -> Result<Tap> {
+        // Open the device node
+        let mut opts = OpenOptions::new();
+        let tap_file = opts
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
+            .open(dev_path)
+            .map_err(Error::OpenTapDev)?;
+
+        // Must be a char device
+        let md = tap_file.metadata().map_err(Error::StatTapDev)?;
+        if !md.file_type().is_char_device() {
+            return Err(Error::InvalidTapDevType);
+        }
+
+        // The length check is probably unnecessary because we know that the
+        // network interface is valid at this point, but it doesn't hurt.
+        let name_bytes = if_name.as_bytes();
+        if name_bytes.len() >= IFACE_NAME_MAX_LEN {
+            return Err(Error::InvalidIfname);
+        }
+
+        let mut ret = Tap {
+            tap_file,
+            if_name: [0; IFACE_NAME_MAX_LEN],
+        };
+
+        ret.if_name[..name_bytes.len()].copy_from_slice(name_bytes);
+        Ok(ret)
+    }
+
+    /// Create a TUN/TAP device given the tap interface name.
+    /// # Arguments
+    ///
+    /// * `if_name` - the name of the interface.
+    fn tap_open_named(if_name: &str) -> Result<Tap> {
         let terminated_if_name = build_terminated_if_name(if_name)?;
 
         let fd = unsafe {
