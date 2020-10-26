@@ -77,7 +77,7 @@ class Stddev(StatisticFunction):
     ...observations.
     """
 
-    def call(self) -> Any:
+    def __call__(self) -> Any:
         """Get the stddev."""
         assert len(self.results) > 0
         # pylint: disable=R0123
@@ -98,7 +98,7 @@ class Percentile(StatisticFunction):
         super().__init__(results)
         self.k = k
 
-    def __call__(self, results) -> Any:
+    def __call__(self) -> Any:
         """Get the kth percentile of the statistical exercise."""
         # pylint: disable=R0123
         if len(self.results) is 1:
