@@ -8,6 +8,8 @@ from datetime import datetime
 from collections import namedtuple, defaultdict
 import types
 from typing_extensions import TypedDict
+
+from framework.statistics.criteria import Failed
 from framework.statistics.producer import Producer
 from framework.statistics.consumer import Consumer
 
@@ -57,8 +59,13 @@ class Core:
                     pipe.consumer.ingest(iteration, raw_data)
 
         for tag, pipe in self._pipes.items():
-            result, custom = pipe.consumer.process()
-            self._statistics['results'][tag] = result
+            try:
+                stats, custom = pipe.consumer.process()
+            except Failed as err:
+                assert False, f"Failed on '{tag}': {err.msg}"
+
+            self._statistics['results'][tag] = stats
+
             # Custom information extracted from all the iterations.
             if len(custom) > 0:
                 self._statistics['custom'][tag] = custom
