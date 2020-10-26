@@ -160,7 +160,7 @@ impl Display for StartMicrovmError {
 }
 
 // Wrapper over io::Stdin that implements `Serial::ReadableFd` and `vmm::VmmEventsObserver`.
-struct SerialStdin(io::Stdin);
+pub(crate) struct SerialStdin(io::Stdin);
 impl SerialStdin {
     /// Returns a `SerialStdin` wrapper over `io::stdin`.
     pub fn get() -> Self {
