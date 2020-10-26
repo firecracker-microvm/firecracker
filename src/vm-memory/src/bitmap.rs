@@ -78,6 +78,13 @@ impl Bitmap {
     pub fn is_empty(&self) -> bool {
         false
     }
+
+    /// Reset all bitmap bits to 0.
+    pub fn reset(&self) {
+        for it in self.map.iter() {
+            it.store(0, Ordering::Release);
+        }
+    }
 }
 
 /// Implementing `Clone` for `Bitmap` allows us to return a deep copy of the bitmap for taking
@@ -117,6 +124,11 @@ mod tests {
         let copy_b = b.clone();
         assert!(copy_b.is_addr_set(256));
         assert!(!copy_b.is_addr_set(384));
+
+        b.reset();
+        assert!(!b.is_addr_set(128));
+        assert!(!b.is_addr_set(256));
+        assert!(!b.is_addr_set(384));
     }
 
     #[test]
