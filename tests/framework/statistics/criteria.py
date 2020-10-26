@@ -7,6 +7,24 @@ from numbers import Number
 from abc import ABC, abstractmethod
 
 
+class Failed(Exception):
+    """Exception to be raised when criteria fails."""
+
+    def __init__(self, msg=""):
+        """Initialize the result."""
+        self._msg = msg
+
+    @property
+    def msg(self):
+        """Return the result message."""
+        return self._msg
+
+    @msg.setter
+    def msg(self, msg):
+        """Set the result message."""
+        self._msg = msg
+
+
 # pylint: disable=R0903
 class ComparisonCriteria(ABC):
     """Comparison criteria between results and targets."""
@@ -33,7 +51,8 @@ class GraterThan(ComparisonCriteria):
         """Compare the target and the actual."""
         fail_msg = self.name + f" failed. Target: '{self.target} " \
                                f"vs Actual: '{actual}'."
-        assert self.target < actual, fail_msg
+        if self.target > actual:
+            raise Failed(msg=fail_msg)
 
 
 # pylint: disable=R0903
@@ -48,7 +67,8 @@ class LowerThan(ComparisonCriteria):
         """Compare the target and the actual."""
         fail_msg = self.name + f" failed. Target: '{self.target} " \
                                f"vs Actual: '{actual}'."
-        assert self.target > actual, fail_msg
+        if self.target < actual:
+            raise Failed(msg=fail_msg)
 
 
 # pylint: disable=R0903
@@ -65,4 +85,5 @@ class EqualWith(ComparisonCriteria):
         fail_msg = self.name + f" failed. Target: '{self.target} +- " \
                                f"{self.tolerance}' " \
                                f"vs Actual: '{actual}'."
-        assert abs(self.target - actual) <= self.tolerance, fail_msg
+        if abs(self.target - actual) > self.tolerance:
+            raise Failed(msg=fail_msg)
