@@ -13,14 +13,15 @@ from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
 from framework.statistics import core, consumer, producer, types, criteria,\
     function
-from framework.utils import eager_map
+from framework.utils import eager_map, CpuMap
+from framework.builder import DEFAULT_HOST_IP
 
 
 PING = "ping -c {} -i {} {}"
 BASELINES = {
     "x86_64": {
-        "target": 0.140,
-        "delta": 0.025
+        "target": 0.150,  # milliseconds
+        "delta": 0.05  # milliseconds
     }
 }
 
@@ -72,8 +73,8 @@ def consume_ping_output(cons, raw_data, requests):
     eager_map(cons.set_stat_def, stats())
 
     st_keys = [types.DefaultStat.MIN.name,
-               types.DefaultStat.MAX.name,
                types.DefaultStat.AVG.name,
+               types.DefaultStat.MAX.name,
                types.DefaultStat.STDDEV.name]
 
     output = raw_data.strip().split('\n')
@@ -125,11 +126,12 @@ def consume_ping_output(cons, raw_data, requests):
 @pytest.mark.skipif(platform.machine() != "x86_64",
                     reason="This test was observed only on x86_64. Further "
                            "support need to be added for aarch64 and amd64.")
-def test_network_latency(network_config, bin_cloner_path):
+@pytest.mark.timeout(3600)
+def test_network_latency(bin_cloner_path):
     """Test network latency driver for multiple artifacts."""
     logger = logging.getLogger("network_latency")
     microvm_artifacts = ArtifactSet(
-        ARTIFACTS_COLLECTION.microvms(keyword="2vcpu_1024mb")
+        ARTIFACTS_COLLECTION.microvms(keyword="1vcpu_1024mb")
     )
     kernel_artifacts = ArtifactSet(ARTIFACTS_COLLECTION.kernels())
     disk_artifacts = ArtifactSet(ARTIFACTS_COLLECTION.disks(keyword="ubuntu"))
@@ -138,9 +140,8 @@ def test_network_latency(network_config, bin_cloner_path):
     test_context = TestContext()
     test_context.custom = {
         'builder': MicrovmBuilder(bin_cloner_path),
-        'network_config': network_config,
         'logger': logger,
-        'requests': 10,
+        'requests': 1000,
         'interval': 0.2,  # Seconds.
         'name': 'network_latency'
     }
@@ -160,7 +161,6 @@ def _g2h_send_ping(context):
     """Send ping from guest to host."""
     logger = context.custom['logger']
     vm_builder = context.custom['builder']
-    network_config = context.custom['network_config']
     interval_between_req = context.custom['interval']
     name = context.custom['name']
 
@@ -178,12 +178,26 @@ def _g2h_send_ping(context):
     basevm = vm_builder.build(kernel=context.kernel,
                               disks=[rw_disk],
                               ssh_key=ssh_key,
-                              config=context.microvm,
-                              network_config=network_config)
-
-    _tap, host_ip, _ = basevm.ssh_network_config(network_config, '1')
+                              config=context.microvm)
 
     basevm.start()
+
+    # Check if the needed CPU cores are available. We have the API thread, VMM
+    # thread and then one thread for each configured vCPU.
+    assert CpuMap.len() >= 2 + basevm.vcpus_count
+
+    # Pin uVM threads to physical cores.
+    current_cpu_id = 0
+    assert basevm.pin_vmm(current_cpu_id), \
+        "Failed to pin firecracker thread."
+    current_cpu_id += 1
+    assert basevm.pin_api(current_cpu_id), \
+        "Failed to pin fc_api thread."
+    for i in range(basevm.vcpus_count):
+        current_cpu_id += 1
+        assert basevm.pin_vcpu(i, current_cpu_id + i), \
+            f"Failed to pin fc_vcpu {i} thread."
+
     custom = {"microvm": context.microvm.name(),
               "kernel": context.kernel.name(),
               "disk": context.disk.name()}
@@ -193,9 +207,10 @@ def _g2h_send_ping(context):
         func=consume_ping_output,
         func_kwargs={"requests": context.custom['requests']}
     )
-    prod = producer.SSHCommand(PING.format(context.custom['requests'],
-                                           interval_between_req,
-                                           host_ip),
+    cmd = PING.format(context.custom['requests'],
+                      interval_between_req,
+                      DEFAULT_HOST_IP)
+    prod = producer.SSHCommand(cmd,
                                net_tools.SSHConnection(basevm.ssh_config))
     st_core.add_pipe(producer=prod, consumer=cons, tag="ping")
 
