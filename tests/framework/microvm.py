@@ -558,6 +558,7 @@ class Microvm:
             root_device=False,
             is_read_only=False,
             partuuid=None,
+            want_flush=False,
     ):
         """Add a block device."""
         response = self.drive.put(
@@ -565,7 +566,8 @@ class Microvm:
             path_on_host=self.create_jailed_resource(file_path),
             is_root_device=root_device,
             is_read_only=is_read_only,
-            partuuid=partuuid
+            partuuid=partuuid,
+            want_flush=want_flush
         )
         assert self.api_session.is_status_no_content(response.status_code)
 

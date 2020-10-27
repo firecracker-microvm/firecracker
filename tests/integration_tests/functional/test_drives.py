@@ -10,6 +10,7 @@ import framework.utils as utils
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
+import host_tools.logging as log_tools  # metrics
 
 
 def test_rescan_file(test_microvm_with_ssh, network_config):
@@ -327,6 +328,108 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     assert stderr.read() == ''
     stdout.readline()  # skip "SIZE"
     assert stdout.readline().strip() == size_bytes_str
+
+
+def test_rootfs_rw_noflush(test_microvm_with_ssh, network_config):
+    """Verify default rootfs does not invoke flush."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    # Set up the microVM with 1 vCPUs, 256 MiB of RAM, no network ifaces and
+    # a root file system with the rw permission. The network interfaces is
+    # added after we get a unique MAC and IP.
+    test_microvm.basic_config(
+        vcpu_count=1,
+        add_root_device=False
+    )
+
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+
+    # Add the root block device
+    test_microvm.add_drive(
+        'rootfs',
+        test_microvm.rootfs_file,
+        root_device=True,
+    )
+
+    # Configure metrics, to get later the `flush_count`.
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    response = test_microvm.metrics.put(
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    test_microvm.start()
+
+    # From spec: pub const VIRTIO_F_VERSION_1: u32 = 32;
+    lo32 = "00000000000000000000000000000000"
+    hi32 = "10000000000000000000000000000000"
+    default_features = lo32 + hi32
+
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    cmd = "cat /sys/block/vda/device/features"
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read() == ''
+    assert stdout.readline().strip() == default_features
+
+    # Verify no flush commands were generated during boot. By
+    # default, on a RW device with flush enabled, there will be
+    # +- six virtio flush commands
+    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    assert fc_metrics['block']['flush_count'] == 0
+
+
+def test_rootfs_rw_flush(test_microvm_with_ssh, network_config):
+    """Verify rootfs with flush does invoke flush."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    # Set up the microVM with 1 vCPUs, 256 MiB of RAM, no network ifaces and
+    # a root file system with the rw permission. The network interfaces is
+    # added after we get a unique MAC and IP.
+    test_microvm.basic_config(
+        vcpu_count=1,
+        add_root_device=False
+    )
+
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+
+    # Add the root block device
+    test_microvm.add_drive(
+        'rootfs',
+        test_microvm.rootfs_file,
+        root_device=True,
+        want_flush=True,
+    )
+
+    # Configure metrics, to get later the `flush_count`.
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    response = test_microvm.metrics.put(
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    test_microvm.start()
+
+    # From spec: pub const VIRTIO_F_VERSION_1: u32 = 32;
+    #            pub const VIRTIO_BLK_F_FLUSH: u32 = 9;
+    lo32 = "00000000010000000000000000000000"
+    hi32 = "10000000000000000000000000000000"
+    default_features = lo32 + hi32
+
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    cmd = "cat /sys/block/vda/device/features"
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read() == ''
+    assert stdout.readline().strip() == default_features
+
+    # Verify no flush commands were generated during boot. By
+    # default, on a RW device with flush enabled, there will be
+    # +- six virtio flush commands
+    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    assert fc_metrics['block']['flush_count'] > 0
 
 
 def _check_block_size(ssh_connection, dev_path, size):

@@ -142,7 +142,8 @@ class Drive():
             is_root_device=None,
             partuuid=None,
             is_read_only=None,
-            rate_limiter=None):
+            rate_limiter=None,
+            want_flush=None):
         """Compose the json associated to this type of API request."""
         datax = {}
 
@@ -163,6 +164,9 @@ class Drive():
 
         if rate_limiter is not None:
             datax['rate_limiter'] = rate_limiter
+
+        if want_flush is not None:
+            datax['want_flush'] = want_flush
 
         return datax
 
