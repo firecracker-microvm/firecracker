@@ -27,6 +27,7 @@ use super::{
     Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
 };
 
+use crate::virtio::VIRTIO_MMIO_INT_CONFIG;
 use crate::Error as DeviceError;
 
 /// Helper object for setting up all `Block` fields derived from its backing file.
@@ -313,6 +314,12 @@ impl Block {
         let disk_properties = DiskProperties::new(disk_image_path, self.is_read_only())?;
         self.disk = disk_properties;
         self.config_space = self.disk.virtio_block_config_space();
+
+        // Kick the driver to pick up the changes.
+        self.interrupt_status
+            .fetch_or(VIRTIO_MMIO_INT_CONFIG as usize, Ordering::SeqCst);
+        self.interrupt_evt.write(1).unwrap();
+
         METRICS.block.update_count.inc();
         Ok(())
     }

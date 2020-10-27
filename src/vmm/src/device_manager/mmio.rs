@@ -35,6 +35,8 @@ pub enum Error {
     EventFd(io::Error),
     /// Incorrect device type.
     IncorrectDeviceType,
+    /// Internal device error.
+    InternalDeviceError(String),
     /// Invalid configuration attempted.
     InvalidInput,
     /// No more IRQs are available.
@@ -49,17 +51,16 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::BusError(ref e) => write!(f, "failed to perform bus operation: {}", e),
-            Error::Cmdline(ref e) => {
-                write!(f, "unable to add device to kernel command line: {}", e)
-            }
-            Error::EventFd(ref e) => write!(f, "failed to create or clone event descriptor: {}", e),
+        match self {
+            Error::BusError(e) => write!(f, "failed to perform bus operation: {}", e),
+            Error::Cmdline(e) => write!(f, "unable to add device to kernel command line: {}", e),
+            Error::EventFd(e) => write!(f, "failed to create or clone event descriptor: {}", e),
             Error::IncorrectDeviceType => write!(f, "incorrect device type"),
+            Error::InternalDeviceError(e) => write!(f, "device error: {}", e),
             Error::InvalidInput => write!(f, "invalid configuration"),
             Error::IrqsExhausted => write!(f, "no more IRQs are available"),
-            Error::RegisterIoEvent(ref e) => write!(f, "failed to register IO event: {}", e),
-            Error::RegisterIrqFd(ref e) => write!(f, "failed to register irqfd: {}", e),
+            Error::RegisterIoEvent(e) => write!(f, "failed to register IO event: {}", e),
+            Error::RegisterIrqFd(e) => write!(f, "failed to register irqfd: {}", e),
             Error::DeviceNotFound => write!(f, "the device couldn't be found"),
             Error::UpdateFailed => write!(f, "failed to update the mmio device"),
         }
@@ -349,7 +350,7 @@ impl MMIODeviceManager {
     pub fn with_virtio_device_with_id<T, F>(&self, virtio_type: u32, id: &str, f: F) -> Result<()>
     where
         T: VirtioDevice + 'static,
-        F: FnOnce(&mut T),
+        F: FnOnce(&mut T) -> std::result::Result<(), String>,
     {
         if let Some(busdev) = self.get_device(DeviceType::Virtio(virtio_type), id) {
             let virtio_device = busdev
@@ -363,7 +364,8 @@ impl MMIODeviceManager {
             f(dev
                 .as_mut_any()
                 .downcast_mut::<T>()
-                .ok_or(Error::IncorrectDeviceType)?);
+                .ok_or(Error::IncorrectDeviceType)?)
+            .map_err(Error::InternalDeviceError)?;
         } else {
             return Err(Error::DeviceNotFound);
         }
@@ -575,6 +577,7 @@ mod tests {
                 Error::DeviceNotFound => format!("{}{:?}", e, e),
                 Error::EventFd(_) => format!("{}{:?}", e, e),
                 Error::IncorrectDeviceType => format!("{}{:?}", e, e),
+                Error::InternalDeviceError(_) => format!("{}{:?}", e, e),
                 Error::InvalidInput => format!("{}{:?}", e, e),
                 Error::IrqsExhausted => format!("{}{:?}", e, e),
                 Error::RegisterIoEvent(_) => format!("{}{:?}", e, e),
@@ -588,6 +591,7 @@ mod tests {
         check_fmt_err(Error::DeviceNotFound);
         check_fmt_err(Error::EventFd(io::Error::from_raw_os_error(0)));
         check_fmt_err(Error::IncorrectDeviceType);
+        check_fmt_err(Error::InternalDeviceError(String::new()));
         check_fmt_err(Error::InvalidInput);
         check_fmt_err(Error::IrqsExhausted);
         check_fmt_err(Error::RegisterIoEvent(errno::Error::new(0)));

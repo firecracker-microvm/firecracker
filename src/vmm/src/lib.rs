@@ -53,7 +53,7 @@ use crate::vstate::{
     vm::Vm,
 };
 use arch::DeviceType;
-use devices::virtio::{Net, TYPE_NET};
+use devices::virtio::{Block, Net, TYPE_BLOCK, TYPE_NET};
 use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
@@ -499,6 +499,18 @@ impl Vmm {
             .map_err(Error::Vm)
     }
 
+    /// Updates the path of the host file backing the emulated block device with id `drive_id`.
+    /// We update the disk image on the device and its virtio configuration.
+    fn update_block_device_path(&mut self, drive_id: &str, path_on_host: String) -> Result<()> {
+        self.mmio_device_manager
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
+                block
+                    .update_disk_image(path_on_host)
+                    .map_err(|e| e.to_string())
+            })
+            .map_err(Error::DeviceManager)
+    }
+
     /// Updates the rate limiter parameters for net device with `net_id` id.
     pub fn update_net_rate_limiters(
         &mut self,
@@ -510,7 +522,8 @@ impl Vmm {
     ) -> Result<()> {
         self.mmio_device_manager
             .with_virtio_device_with_id(TYPE_NET, net_id, |net: &mut Net| {
-                net.patch_rate_limiters(rx_bytes, rx_ops, tx_bytes, tx_ops)
+                net.patch_rate_limiters(rx_bytes, rx_ops, tx_bytes, tx_ops);
+                Ok(())
             })
             .map_err(Error::DeviceManager)
     }
