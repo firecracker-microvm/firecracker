@@ -255,6 +255,58 @@ def get_free_mem_ssh(ssh_connection):
     raise Exception('Available memory not found in `/proc/meminfo')
 
 
+def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False):
+    """
+    Executes a given command.
+
+    :param cmd: command to execute
+    :param ignore_return_code: whether a non-zero return code should be ignored
+    :param noshell: don't run the command in a sub-shell
+    :return: return code, stdout, stderr
+    """
+    if isinstance(cmd, list) or no_shell:
+        # Create the async process
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE)
+    else:
+        proc = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE)
+
+    # Capture stdout/stderr
+    stdout, stderr = proc.communicate()
+
+    output_message = f"\n[{proc.pid}] Command:\n{cmd}"
+    # Append stdout/stderr to the output message
+    if stdout != "":
+        output_message += f"\n[{proc.pid}] stdout:\n{stdout.decode()}"
+    if stderr != "":
+        output_message += f"\n[{proc.pid}] stderr:\n{stderr.decode()}"
+
+    # If a non-zero return code was thrown, raise an exception
+    if not ignore_return_code and proc.returncode != 0:
+        output_message += \
+            f"\nReturned error code: {proc.returncode}"
+
+        if stderr != "":
+            output_message += \
+                f"\nstderr:\n{stderr.decode()}"
+        raise ChildProcessError(output_message)
+
+    # Log the message with one call so that multiple statuses
+    # don't get mixed up
+    CMDLOG.debug(output_message)
+
+    return CommandReturn(
+        proc.returncode,
+        stdout.decode(),
+        stderr.decode())
+
+
 async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
     """
     Create a coroutine that executes a given command.
@@ -342,17 +394,10 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
     :param noshell: don't run the command in a sub-shell
     :returns: tuple of (return code, stdout, stderr)
     """
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        # Create event loop when one is not available
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
 
-    return loop.run_until_complete(
-        run_cmd_async(cmd=cmd,
-                      ignore_return_code=ignore_return_code,
-                      no_shell=no_shell))
+    return run_cmd_sync(cmd=cmd,
+                        ignore_return_code=ignore_return_code,
+                        no_shell=no_shell)
 
 
 def eager_map(func, iterable):

@@ -5,7 +5,6 @@
 import os
 import socket
 import struct
-
 from io import StringIO
 from nsenter import Namespace
 from retry import retry
