@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::{Arc, Mutex};
 
-use logger::{error, info, Metric, LOGGER, METRICS};
+use logger::{error, info, IncMetric, LOGGER, METRICS};
 use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
 use utils::arg_parser::{ArgParser, Argument};

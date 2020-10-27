@@ -6,7 +6,7 @@ use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
 #[cfg(target_arch = "aarch64")]
 use crate::request::StatusCode;
-use logger::{Metric, METRICS};
+use logger::{IncMetric, METRICS};
 
 use serde::{Deserialize, Serialize};
 

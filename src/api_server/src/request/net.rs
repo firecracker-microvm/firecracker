@@ -4,7 +4,7 @@
 use super::super::VmmAction;
 use crate::parsed_request::{checked_id, Error, ParsedRequest};
 use crate::request::{Body, StatusCode};
-use logger::{Metric, METRICS};
+use logger::{IncMetric, METRICS};
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
 pub fn parse_put_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {

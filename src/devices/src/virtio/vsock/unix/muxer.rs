@@ -35,7 +35,7 @@ use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use logger::{debug, error, info, warn, Metric, METRICS};
+use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 
 use super::super::csm::ConnState;
