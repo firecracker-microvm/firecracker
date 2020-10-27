@@ -479,7 +479,8 @@ impl RuntimeApiController {
             .lock()
             .expect("Poisoned lock")
             .update_block_device_path(drive_id, path_on_host)
-            .map_err(|_| VmmActionError::DriveConfig(DriveError::InvalidBlockDeviceID))
+            .map_err(DriveError::DeviceUpdate)
+            .map_err(VmmActionError::DriveConfig)
     }
 
     /// Updates configuration for an emulated net device as described in `new_cfg`.
@@ -494,6 +495,7 @@ impl RuntimeApiController {
                 new_cfg.tx_bytes(),
                 new_cfg.tx_ops(),
             )
-            .map_err(|_| VmmActionError::NetworkConfig(NetworkInterfaceError::DeviceIdNotFound))
+            .map_err(NetworkInterfaceError::DeviceUpdate)
+            .map_err(VmmActionError::NetworkConfig)
     }
 }
