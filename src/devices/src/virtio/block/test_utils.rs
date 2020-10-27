@@ -18,14 +18,32 @@ pub fn default_block() -> Block {
     default_block_with_path(f.as_path().to_str().unwrap().to_string())
 }
 
+/// Create a Block instance with flush enabled
+pub fn default_block_flush() -> Block {
+    // Create backing file.
+    let f = TempFile::new().unwrap();
+    f.as_file().set_len(0x1000).unwrap();
+
+    default_block_with_path_flush(f.as_path().to_str().unwrap().to_string())
+}
+
 /// Create a default Block instance using file at the specified path to be used in tests.
 pub fn default_block_with_path(path: String) -> Block {
     // Rate limiting is enabled but with a high operation rate (10 million ops/s).
     let rate_limiter = RateLimiter::new(0, 0, 0, 100_000, 0, 10).unwrap();
 
     let id = "test".to_string();
-    // The default block device is read-write and non-root.
-    Block::new(id, None, path, false, false, rate_limiter).unwrap()
+    // The default block device is read-write, non-root with flush disabled
+    Block::new(id, None, path, false, false, rate_limiter, false).unwrap()
+}
+
+/// Create a default Block instance using file at the specified path with flush enabled
+pub fn default_block_with_path_flush(path: String) -> Block {
+    // Rate limiting is enabled but with a high operation rate (10 million ops/s).
+    let rate_limiter = RateLimiter::new(0, 0, 0, 100_000, 0, 10).unwrap();
+
+    let id = "test".to_string();
+    Block::new(id, None, path, false, false, rate_limiter, true).unwrap()
 }
 
 pub fn invoke_handler_for_queue_event(b: &mut Block) {

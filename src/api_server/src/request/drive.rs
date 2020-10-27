@@ -249,7 +249,8 @@ mod tests {
                     "one_time_burst": 0,
                     "refill_time": 0
                     }
-                }
+                },
+                "want_flush": false
             }"#;
         assert!(parse_put_drive(&Body::new(body), Some(&"1000")).is_ok());
 

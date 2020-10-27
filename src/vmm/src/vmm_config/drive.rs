@@ -81,6 +81,9 @@ pub struct BlockDeviceConfig {
     pub is_read_only: bool,
     /// Rate Limiter for I/O operations.
     pub rate_limiter: Option<RateLimiterConfig>,
+    /// If set to true, the virtio layer will advertise VIRTIO_BLK_F_FLUSH and
+    /// synchronously flush data to backing store upon receipt of a flush request
+    pub want_flush: Option<bool>,
 }
 
 /// Wrapper for the collection that holds all the Block Devices
@@ -165,6 +168,7 @@ impl BlockBuilder {
         if !path_on_host.exists() {
             return Err(DriveError::InvalidBlockDevicePath);
         }
+        let want_flush = block_device_config.want_flush.unwrap_or(false);
 
         let rate_limiter = block_device_config
             .rate_limiter
@@ -180,6 +184,7 @@ impl BlockBuilder {
             block_device_config.is_read_only,
             block_device_config.is_root_device,
             rate_limiter.unwrap_or_default(),
+            want_flush,
         )
         .map_err(DriveError::CreateBlockDevice)
     }
@@ -208,6 +213,7 @@ mod tests {
                 is_read_only: self.is_read_only,
                 drive_id: self.drive_id.clone(),
                 rate_limiter: None,
+                want_flush: self.want_flush,
             }
         }
     }
@@ -230,6 +236,7 @@ mod tests {
             is_read_only: false,
             drive_id: dummy_id.clone(),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -259,6 +266,7 @@ mod tests {
             is_read_only: true,
             drive_id: String::from("1"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -285,6 +293,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -296,6 +305,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -318,6 +328,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -329,6 +340,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let dummy_file_3 = TempFile::new().unwrap();
@@ -340,6 +352,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("3"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -376,6 +389,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -387,6 +401,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let dummy_file_3 = TempFile::new().unwrap();
@@ -398,6 +413,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("3"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -435,6 +451,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -446,6 +463,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
+            want_flush: None,
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -504,6 +522,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
+            want_flush: None,
         };
         // Switch roots and add a PARTUUID for the new one.
         let mut root_block_device_old = root_block_device;
@@ -515,6 +534,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
+            want_flush: None,
         };
         assert!(block_devs.insert(root_block_device_old).is_ok());
         let root_block_id = root_block_device_new.drive_id.clone();
@@ -537,6 +557,7 @@ mod tests {
             partuuid: Some("0eaa91a0-01".to_string()),
             is_read_only: true,
             rate_limiter: None,
+            want_flush: None,
         };
 
         assert_eq!(
@@ -548,5 +569,80 @@ mod tests {
             dummy_block_file.as_path().to_str().unwrap().to_string()
         );
         assert_eq!(block_config.is_read_only, expected_is_read_only);
+    }
+
+    // Test adding devices with explicit flush parameters
+    #[test]
+    fn test_block_dev_flush() {
+        use devices::virtio::device::VirtioDevice;
+        use virtio_gen::virtio_blk::VIRTIO_BLK_F_FLUSH;
+
+        let dummy_file_1 = TempFile::new().unwrap();
+        let dummy_path_1 = dummy_file_1.as_path().to_str().unwrap().to_string();
+        let root_block_device = BlockDeviceConfig {
+            path_on_host: dummy_path_1,
+            is_root_device: true,
+            partuuid: None,
+            is_read_only: false,
+            drive_id: String::from("1"),
+            rate_limiter: None,
+            want_flush: None,
+        };
+
+        let dummy_file_2 = TempFile::new().unwrap();
+        let dummy_path_2 = dummy_file_2.as_path().to_str().unwrap().to_string();
+        let dummy_block_dev_2 = BlockDeviceConfig {
+            path_on_host: dummy_path_2,
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            drive_id: String::from("2"),
+            rate_limiter: None,
+            want_flush: Some(false),
+        };
+
+        let dummy_file_3 = TempFile::new().unwrap();
+        let dummy_path_3 = dummy_file_3.as_path().to_str().unwrap().to_string();
+        let dummy_block_dev_3 = BlockDeviceConfig {
+            path_on_host: dummy_path_3,
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            drive_id: String::from("3"),
+            rate_limiter: None,
+            want_flush: Some(true),
+        };
+
+        let mut block_devs = BlockBuilder::new();
+        assert!(block_devs.insert(dummy_block_dev_2.clone()).is_ok());
+        assert!(block_devs.insert(dummy_block_dev_3.clone()).is_ok());
+        assert!(block_devs.insert(root_block_device.clone()).is_ok());
+
+        assert_eq!(block_devs.list.len(), 3);
+        assert_eq!(
+            block_devs.list[0].lock().unwrap().id(),
+            &root_block_device.drive_id
+        );
+        assert_eq!(
+            block_devs.list[1].lock().unwrap().id(),
+            &dummy_block_dev_2.drive_id
+        );
+        assert_eq!(
+            block_devs.list[2].lock().unwrap().id(),
+            &dummy_block_dev_3.drive_id
+        );
+
+        // Make sure the correct bit is enabled
+        let feature = block_devs.list[0].lock().unwrap().avail_features();
+        assert_eq!((feature & (1u64 << VIRTIO_BLK_F_FLUSH)), 0);
+
+        let feature = block_devs.list[1].lock().unwrap().avail_features();
+        assert_eq!((feature & (1u64 << VIRTIO_BLK_F_FLUSH)), 0);
+
+        let feature = block_devs.list[2].lock().unwrap().avail_features();
+        assert_eq!(
+            (feature & (1u64 << VIRTIO_BLK_F_FLUSH)),
+            (1u64 << VIRTIO_BLK_F_FLUSH)
+        );
     }
 }

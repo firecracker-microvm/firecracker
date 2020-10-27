@@ -556,6 +556,9 @@ definitions:
         description: Host level path for the guest drive
       rate_limiter:
         $ref: "#/definitions/RateLimiter"
+      want_flush:
+        type: boolean
+        description: advertise synchronous virtio flush capability
 
   Error:
     type: object

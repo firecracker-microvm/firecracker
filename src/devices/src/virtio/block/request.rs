@@ -22,6 +22,7 @@ use super::{Error, SECTOR_SHIFT, SECTOR_SIZE};
 pub enum ExecuteError {
     BadRequest(Error),
     Flush(io::Error),
+    SyncAll(io::Error),
     Read(GuestMemoryError),
     Seek(io::Error),
     Write(GuestMemoryError),
@@ -33,6 +34,7 @@ impl ExecuteError {
         match *self {
             ExecuteError::BadRequest(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::SyncAll(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
@@ -227,13 +229,13 @@ impl Request {
                 METRICS.block.write_bytes.add(self.data_len as usize);
                 METRICS.block.write_count.inc();
             }
-            RequestType::Flush => match diskfile.flush() {
-                Ok(_) => {
-                    METRICS.block.flush_count.inc();
-                    return Ok(0);
-                }
-                Err(e) => return Err(ExecuteError::Flush(e)),
-            },
+            RequestType::Flush => {
+                // flush() first to force any cached data out
+                diskfile.flush().map_err(ExecuteError::Flush)?;
+                // sync data out to physical media on host
+                diskfile.sync_all().map_err(ExecuteError::SyncAll)?;
+                METRICS.block.flush_count.inc();
+            }
             RequestType::GetDeviceID => {
                 let disk_id = disk.image_id();
                 if (self.data_len as usize) < disk_id.len() {

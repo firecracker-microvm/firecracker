@@ -307,7 +307,7 @@ mod tests {
 
         // Add a block device.
         let drive_id = String::from("root");
-        let block_configs = vec![CustomBlockConfig::new(drive_id, true, None, true)];
+        let block_configs = vec![CustomBlockConfig::new(drive_id, true, None, true, false)];
         insert_block_devices(&mut vmm, &mut cmdline, event_manager, block_configs);
 
         // Add net device.

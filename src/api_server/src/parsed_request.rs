@@ -614,7 +614,7 @@ pub(crate) mod tests {
             .write_all(
                 b"PUT /drives/string HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
-                Content-Length: 266\r\n\r\n{ \
+                Content-Length: 287\r\n\r\n{ \
                 \"drive_id\": \"string\", \
                 \"path_on_host\": \"string\", \
                 \"is_root_device\": true, \
@@ -631,7 +631,8 @@ pub(crate) mod tests {
                         \"one_time_burst\": 0, \
                         \"refill_time\": 0 \
                     } \
-                } \
+                }, \
+                \"want_flush\": false \
             }",
             )
             .unwrap();

@@ -11,7 +11,7 @@ use rate_limiter::{persist::RateLimiterState, RateLimiter};
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
+use virtio_gen::virtio_blk::{VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO};
 use vm_memory::GuestMemoryMmap;
 
 use super::*;
@@ -46,6 +46,7 @@ impl Persist<'_> for Block {
             disk_path: self.disk.file_path().clone(),
             virtio_state: VirtioDeviceState::from_device(self),
             rate_limiter_state: self.rate_limiter.save(),
+            // has_flush will come from advertised features
         }
     }
 
@@ -55,6 +56,7 @@ impl Persist<'_> for Block {
     ) -> Result<Self, Self::Error> {
         let is_disk_read_only = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0;
         let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)?;
+        let has_flush = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_FLUSH) != 0;
 
         let mut block = Block::new(
             state.id.clone(),
@@ -63,6 +65,7 @@ impl Persist<'_> for Block {
             is_disk_read_only,
             state.root_device,
             rate_limiter,
+            has_flush,
         )?;
 
         block.queues = state
@@ -104,6 +107,7 @@ mod tests {
             false,
             false,
             RateLimiter::default(),
+            false,
         )
         .unwrap();
         let guest_mem = default_mem();

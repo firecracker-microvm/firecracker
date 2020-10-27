@@ -159,10 +159,15 @@ impl Block {
         is_disk_read_only: bool,
         is_disk_root: bool,
         rate_limiter: RateLimiter,
+        want_flush: bool,
     ) -> io::Result<Block> {
         let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only)?;
 
-        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
+        let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
+
+        if want_flush {
+            avail_features |= 1u64 << VIRTIO_BLK_F_FLUSH;
+        };
 
         if is_disk_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
@@ -443,7 +448,8 @@ pub(crate) mod tests {
 
     use crate::check_metric_after_block;
     use crate::virtio::block::test_utils::{
-        default_block, invoke_handler_for_queue_event, set_queue, set_rate_limiter,
+        default_block, default_block_flush, invoke_handler_for_queue_event, set_queue,
+        set_rate_limiter,
     };
     use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
 
@@ -476,7 +482,7 @@ pub(crate) mod tests {
 
         assert_eq!(block.device_type(), TYPE_BLOCK);
 
-        let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
+        let features: u64 = 1u64 << VIRTIO_F_VERSION_1;
 
         assert_eq!(block.avail_features_by_page(0), features as u32);
         assert_eq!(block.avail_features_by_page(1), (features >> 32) as u32);
@@ -714,8 +720,10 @@ pub(crate) mod tests {
         }
     }
 
+    // Verify injected flush request does not hang when feature not supported
     #[test]
-    fn test_flush() {
+    fn test_flush_default_nohang() {
+        // default block device has flush disabled
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -757,6 +765,49 @@ pub(crate) mod tests {
         }
     }
 
+    // Verify injected flush request does not hang when feature enabled
+    #[test]
+    fn test_flush_enabled_nohang() {
+        let mut block = default_block_flush();
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        set_queue(&mut block, 0, vq.create_queue());
+        block.activate(mem.clone()).unwrap();
+        initialize_virtqueue(&vq);
+
+        let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
+        let status_addr = GuestAddress(vq.dtable[2].addr.get());
+
+        // Flush completes successfully without a data descriptor.
+        {
+            vq.dtable[0].next.set(2);
+
+            mem.write_obj::<u32>(VIRTIO_BLK_T_FLUSH, request_type_addr)
+                .unwrap();
+
+            invoke_handler_for_queue_event(&mut block);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+        }
+
+        // Flush completes successfully even with a data descriptor.
+        {
+            vq.used.idx.set(0);
+            set_queue(&mut block, 0, vq.create_queue());
+            vq.dtable[0].next.set(1);
+
+            mem.write_obj::<u32>(VIRTIO_BLK_T_FLUSH, request_type_addr)
+                .unwrap();
+
+            invoke_handler_for_queue_event(&mut block);
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+        }
+    }
     #[test]
     fn test_get_device_id() {
         let mut block = default_block();

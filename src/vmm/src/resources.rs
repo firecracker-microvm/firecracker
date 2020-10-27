@@ -348,6 +348,7 @@ mod tests {
                 partuuid: Some("0eaa91a0-01".to_string()),
                 is_read_only: false,
                 rate_limiter: Some(RateLimiterConfig::default()),
+                want_flush: Some(false),
             },
             tmp_file,
         )
