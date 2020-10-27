@@ -29,7 +29,7 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use arch::DeviceType;
-use devices::virtio::{Block, MmioTransport, Net, TYPE_BLOCK, TYPE_NET};
+use devices::virtio::{Block, MmioTransport, TYPE_BLOCK};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
 use polly::event_manager::EventManager;
 use seccomp::BpfProgram;
@@ -529,39 +529,16 @@ impl RuntimeApiController {
 
     /// Updates configuration for an emulated net device as described in `new_cfg`.
     fn update_net_rate_limiters(&mut self, new_cfg: NetworkInterfaceUpdateConfig) -> ActionResult {
-        if let Some(busdev) = self
-            .vmm
+        self.vmm
             .lock()
             .expect("Poisoned lock")
-            .get_bus_device(DeviceType::Virtio(TYPE_NET), &new_cfg.iface_id)
-        {
-            let virtio_device = busdev
-                .lock()
-                .expect("Poisoned lock")
-                .as_any()
-                .downcast_ref::<MmioTransport>()
-                // Only MmioTransport implements BusDevice at this point.
-                .expect("Unexpected BusDevice type")
-                .device();
-
-            virtio_device
-                .lock()
-                .expect("Poisoned lock")
-                .as_mut_any()
-                .downcast_mut::<Net>()
-                .unwrap()
-                .patch_rate_limiters(
-                    new_cfg.rx_bytes(),
-                    new_cfg.rx_ops(),
-                    new_cfg.tx_bytes(),
-                    new_cfg.tx_ops(),
-                );
-        } else {
-            return Err(VmmActionError::NetworkConfig(
-                NetworkInterfaceError::DeviceIdNotFound,
-            ));
-        }
-
-        Ok(())
+            .update_net_rate_limiters(
+                &new_cfg.iface_id,
+                new_cfg.rx_bytes(),
+                new_cfg.rx_ops(),
+                new_cfg.tx_bytes(),
+                new_cfg.tx_ops(),
+            )
+            .map_err(|_| VmmActionError::NetworkConfig(NetworkInterfaceError::DeviceIdNotFound))
     }
 }

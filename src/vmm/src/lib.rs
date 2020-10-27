@@ -53,9 +53,11 @@ use crate::vstate::{
     vm::Vm,
 };
 use arch::DeviceType;
+use devices::virtio::{Net, TYPE_NET};
 use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
+use rate_limiter::BucketUpdate;
 use seccomp::BpfProgramRef;
 #[cfg(target_arch = "x86_64")]
 use snapshot::Persist;
@@ -99,6 +101,8 @@ pub enum Error {
     /// of resource exhaustion.
     #[cfg(target_arch = "x86_64")]
     CreateLegacyDevice(device_manager::legacy::Error),
+    /// Device manager error.
+    DeviceManager(device_manager::mmio::Error),
     /// Cannot fetch the KVM dirty bitmap.
     DirtyBitmap(kvm_ioctls::Error),
     /// Cannot read from an Event file descriptor.
@@ -158,6 +162,7 @@ impl Display for Error {
         match self {
             #[cfg(target_arch = "x86_64")]
             CreateLegacyDevice(e) => write!(f, "Error creating legacy device: {}", e),
+            DeviceManager(e) => write!(f, "{}", e),
             DirtyBitmap(e) => write!(f, "Error getting the KVM dirty bitmap. {}", e),
             EventFd(e) => write!(f, "Event fd error: {}", e),
             I8042Error(e) => write!(f, "I8042 error: {}", e),
@@ -492,6 +497,22 @@ impl Vmm {
         self.vm
             .set_kvm_memory_regions(&self.guest_memory, enable)
             .map_err(Error::Vm)
+    }
+
+    /// Updates the rate limiter parameters for net device with `net_id` id.
+    pub fn update_net_rate_limiters(
+        &mut self,
+        net_id: &str,
+        rx_bytes: BucketUpdate,
+        rx_ops: BucketUpdate,
+        tx_bytes: BucketUpdate,
+        tx_ops: BucketUpdate,
+    ) -> Result<()> {
+        self.mmio_device_manager
+            .with_virtio_device_with_id(TYPE_NET, net_id, |net: &mut Net| {
+                net.patch_rate_limiters(rx_bytes, rx_ops, tx_bytes, tx_ops)
+            })
+            .map_err(Error::DeviceManager)
     }
 }
 

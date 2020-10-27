@@ -15,6 +15,7 @@ use crate::virtio::{
     ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING,
 };
 use crate::{report_net_event_fail, Error as DeviceError};
+
 use dumbo::pdu::ethernet::EthernetFrame;
 use libc::EAGAIN;
 use logger::{error, warn, Metric, METRICS};
