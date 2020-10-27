@@ -13,6 +13,7 @@ use std::{fmt, io};
 use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
 use devices::pseudo::BootTimer;
+use devices::virtio::VirtioDevice;
 use devices::{virtio::MmioTransport, BusDevice};
 use kernel::cmdline as kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
@@ -28,10 +29,12 @@ pub enum Error {
     BusError(devices::BusError),
     /// Appending to kernel command line failed.
     Cmdline(kernel_cmdline::Error),
-    /// The device couldn't be found
+    /// The device couldn't be found.
     DeviceNotFound,
     /// Failure in creating or cloning an event fd.
     EventFd(io::Error),
+    /// Incorrect device type.
+    IncorrectDeviceType,
     /// Invalid configuration attempted.
     InvalidInput,
     /// No more IRQs are available.
@@ -52,6 +55,7 @@ impl fmt::Display for Error {
                 write!(f, "unable to add device to kernel command line: {}", e)
             }
             Error::EventFd(ref e) => write!(f, "failed to create or clone event descriptor: {}", e),
+            Error::IncorrectDeviceType => write!(f, "incorrect device type"),
             Error::InvalidInput => write!(f, "invalid configuration"),
             Error::IrqsExhausted => write!(f, "no more IRQs are available"),
             Error::RegisterIoEvent(ref e) => write!(f, "failed to register IO event: {}", e),
@@ -340,6 +344,31 @@ impl MMIODeviceManager {
         }
         Ok(())
     }
+
+    /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
+    pub fn with_virtio_device_with_id<T, F>(&self, virtio_type: u32, id: &str, f: F) -> Result<()>
+    where
+        T: VirtioDevice + 'static,
+        F: FnOnce(&mut T),
+    {
+        if let Some(busdev) = self.get_device(DeviceType::Virtio(virtio_type), id) {
+            let virtio_device = busdev
+                .lock()
+                .expect("Poisoned lock")
+                .as_any()
+                .downcast_ref::<MmioTransport>()
+                .expect("Unexpected BusDevice type")
+                .device();
+            let mut dev = virtio_device.lock().expect("Poisoned lock");
+            f(dev
+                .as_mut_any()
+                .downcast_mut::<T>()
+                .ok_or(Error::IncorrectDeviceType)?);
+        } else {
+            return Err(Error::DeviceNotFound);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -545,6 +574,7 @@ mod tests {
                 Error::Cmdline(_) => format!("{}{:?}", e, e),
                 Error::DeviceNotFound => format!("{}{:?}", e, e),
                 Error::EventFd(_) => format!("{}{:?}", e, e),
+                Error::IncorrectDeviceType => format!("{}{:?}", e, e),
                 Error::InvalidInput => format!("{}{:?}", e, e),
                 Error::IrqsExhausted => format!("{}{:?}", e, e),
                 Error::RegisterIoEvent(_) => format!("{}{:?}", e, e),
@@ -557,6 +587,7 @@ mod tests {
         check_fmt_err(Error::Cmdline(kernel_cmdline::Error::CommandLineCopy));
         check_fmt_err(Error::DeviceNotFound);
         check_fmt_err(Error::EventFd(io::Error::from_raw_os_error(0)));
+        check_fmt_err(Error::IncorrectDeviceType);
         check_fmt_err(Error::InvalidInput);
         check_fmt_err(Error::IrqsExhausted);
         check_fmt_err(Error::RegisterIoEvent(errno::Error::new(0)));
