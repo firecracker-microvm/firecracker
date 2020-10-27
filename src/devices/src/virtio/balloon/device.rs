@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use ::timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
-use ::logger::{error, Metric, METRICS};
+use ::logger::{error, IncMetric, METRICS};
 use ::utils::eventfd::EventFd;
 use ::versionize::{VersionMap, Versionize, VersionizeResult};
 use ::versionize_derive::Versionize;

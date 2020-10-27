@@ -4,7 +4,7 @@
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
-use logger::{Metric, METRICS};
+use logger::{IncMetric, METRICS};
 use vmm::vmm_config::boot_source::BootSourceConfig;
 
 pub fn parse_put_boot_source(body: &Body) -> Result<ParsedRequest, Error> {

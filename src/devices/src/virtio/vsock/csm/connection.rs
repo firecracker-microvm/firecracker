@@ -83,7 +83,7 @@ use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
-use logger::{debug, error, info, warn, Metric, METRICS};
+use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
 
 use super::super::defs::uapi;
