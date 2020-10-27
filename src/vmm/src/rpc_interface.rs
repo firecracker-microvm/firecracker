@@ -28,8 +28,6 @@ use crate::vmm_config::net::{
 #[cfg(target_arch = "x86_64")]
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
-use arch::DeviceType;
-use devices::virtio::{Block, MmioTransport, TYPE_BLOCK};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
 use polly::event_manager::EventManager;
 use seccomp::BpfProgram;
@@ -367,8 +365,7 @@ impl RuntimeApiController {
             SendCtrlAltDel => self.send_ctrl_alt_del().map(|_| VmmData::Empty),
             UpdateBlockDevicePath(drive_id, path_on_host) => self
                 .update_block_device_path(&drive_id, path_on_host)
-                .map(|_| VmmData::Empty)
-                .map_err(VmmActionError::DriveConfig),
+                .map(|_| VmmData::Empty),
             UpdateNetworkInterface(netif_update) => self
                 .update_net_rate_limiters(netif_update)
                 .map(|_| VmmData::Empty),
@@ -477,54 +474,12 @@ impl RuntimeApiController {
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
-    fn update_block_device_path(
-        &mut self,
-        drive_id: &str,
-        path_on_host: String,
-    ) -> result::Result<(), DriveError> {
-        if let Some(busdev) = self
-            .vmm
+    fn update_block_device_path(&mut self, drive_id: &str, path_on_host: String) -> ActionResult {
+        self.vmm
             .lock()
             .expect("Poisoned lock")
-            .get_bus_device(DeviceType::Virtio(TYPE_BLOCK), drive_id)
-        {
-            // Call the update_disk_image() handler on Block. Release the lock when done.
-            {
-                let virtio_dev = busdev
-                    .lock()
-                    .expect("Poisoned lock")
-                    .as_any()
-                    // Only MmioTransport implements BusDevice at this point.
-                    .downcast_ref::<MmioTransport>()
-                    .expect("Unexpected BusDevice type")
-                    // Here we get a *new* clone of Arc<Mutex<dyn VirtioDevice>>.
-                    .device();
-
-                // We need this bound to a variable so that it lives as long as the 'block' ref.
-                let mut locked_device = virtio_dev.lock().expect("Poisoned lock");
-                // Get a '&mut Block' ref from the above MutexGuard<dyn VirtioDevice>.
-                let block = locked_device
-                    .as_mut_any()
-                    // We know this is a block device from the HashMap.
-                    .downcast_mut::<Block>()
-                    .expect("Unexpected VirtioDevice type");
-
-                // Now we have a Block, so call its update handler.
-                block
-                    .update_disk_image(path_on_host)
-                    .map_err(DriveError::BlockDeviceUpdateFailed)?;
-            }
-
-            // Kick the driver to pick up the changes.
-            let locked_dev = busdev.lock().expect("Poisoned lock");
-            locked_dev
-                .interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG)
-                .map_err(DriveError::BlockDeviceUpdateFailed)?;
-
-            Ok(())
-        } else {
-            Err(DriveError::InvalidBlockDeviceID)
-        }
+            .update_block_device_path(drive_id, path_on_host)
+            .map_err(|_| VmmActionError::DriveConfig(DriveError::InvalidBlockDeviceID))
     }
 
     /// Updates configuration for an emulated net device as described in `new_cfg`.
