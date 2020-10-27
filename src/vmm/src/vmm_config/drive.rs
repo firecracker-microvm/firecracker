@@ -10,6 +10,7 @@ use std::result;
 use std::sync::{Arc, Mutex};
 
 use super::RateLimiterConfig;
+use crate::Error as VmmError;
 use devices::virtio::Block;
 
 use serde::Deserialize;
@@ -26,8 +27,8 @@ pub enum DriveError {
     CreateBlockDevice(io::Error),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(io::Error),
-    /// The block device ID is invalid.
-    InvalidBlockDeviceID,
+    /// Error during drive update (patch).
+    DeviceUpdate(VmmError),
     /// The block device path is invalid.
     InvalidBlockDevicePath,
     /// Cannot open block device due to invalid permissions or path.
@@ -48,7 +49,7 @@ impl Display for DriveError {
             ),
             BlockDeviceUpdateFailed(e) => write!(f, "The update operation failed: {}", e),
             CreateRateLimiter(e) => write!(f, "Cannot create RateLimiter: {}", e),
-            InvalidBlockDeviceID => write!(f, "Invalid block device ID!"),
+            DeviceUpdate(e) => write!(f, "Error during drive update (patch): {}", e),
             InvalidBlockDevicePath => write!(f, "Invalid block device path!"),
             OpenBlockDevice(e) => write!(
                 f,

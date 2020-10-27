@@ -7,6 +7,7 @@ use std::result;
 use std::sync::{Arc, Mutex};
 
 use super::RateLimiterConfig;
+use crate::Error as VmmError;
 use devices::virtio::net::TapError;
 use devices::virtio::Net;
 use rate_limiter::{BucketUpdate, TokenBucket};
@@ -113,8 +114,8 @@ pub enum NetworkInterfaceError {
     CreateRateLimiter(std::io::Error),
     /// The MAC address is already in use.
     GuestMacAddressInUse(String),
-    /// Couldn't find the interface to update (patch).
-    DeviceIdNotFound,
+    /// Error during interface update (patch).
+    DeviceUpdate(VmmError),
     /// Cannot open/create tap device.
     OpenTap(TapError),
 }
@@ -122,16 +123,16 @@ pub enum NetworkInterfaceError {
 impl fmt::Display for NetworkInterfaceError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::NetworkInterfaceError::*;
-        match *self {
-            CreateNetworkDevice(ref e) => write!(f, "Could not create Network Device: {:?}", e),
-            CreateRateLimiter(ref e) => write!(f, "Cannot create RateLimiter: {}", e),
-            GuestMacAddressInUse(ref mac_addr) => write!(
+        match self {
+            CreateNetworkDevice(e) => write!(f, "Could not create Network Device: {:?}", e),
+            CreateRateLimiter(e) => write!(f, "Cannot create RateLimiter: {}", e),
+            GuestMacAddressInUse(mac_addr) => write!(
                 f,
                 "{}",
                 format!("The guest MAC address {} is already in use.", mac_addr)
             ),
-            DeviceIdNotFound => write!(f, "Invalid interface ID - not found."),
-            OpenTap(ref e) => {
+            DeviceUpdate(e) => write!(f, "Error during interface update (patch): {}", e),
+            OpenTap(e) => {
                 // We are propagating the Tap Error. This error can contain
                 // imbricated quotes which would result in an invalid json.
                 let mut tap_err = format!("{:?}", e);
@@ -381,8 +382,8 @@ mod tests {
         let _ = format!("{}{:?}", err, err);
         let _ = format!(
             "{}{:?}",
-            NetworkInterfaceError::DeviceIdNotFound,
-            NetworkInterfaceError::DeviceIdNotFound
+            NetworkInterfaceError::DeviceUpdate(VmmError::VcpuExit),
+            NetworkInterfaceError::DeviceUpdate(VmmError::VcpuExit)
         );
         let _ = format!(
             "{}{:?}",
