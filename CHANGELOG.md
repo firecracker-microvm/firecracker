@@ -4,6 +4,15 @@
 
 ### Added
 
+- Added devtool test `-c|--cpuset-cpus` flag for cpus confinement when tests
+  run.
+- Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
+  run.
+
+## [0.23.0]
+
+### Added
+
 - Added metric for throttled block device events.
 - Added metrics for counting rate limiter throttling events.
 - Added metric for counting MAC address updates.
@@ -30,10 +39,8 @@
 - Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 - Added new jailer command line argument `--cgroup` which allow the user to
   specify the cgroups that are going to be set by the Jailer.
-- Added devtool test `-c|--cpuset-cpus` flag for cpus confinement when tests
-  run.
-- Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
-  run.
+- Added full support for AMD CPUs (General Availability). More details
+  [here](README.md#supported-platforms).
 
 ### Fixed
 
