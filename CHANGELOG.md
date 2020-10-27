@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.23.0]
 
 ### Added
 
@@ -30,6 +30,8 @@
 - Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 - Added new jailer command line argument `--cgroup` which allow the user to
   specify the cgroups that are going to be set by the Jailer.
+- Added full support for AMD CPUs (General Availability). More details
+  [here](README.md#supported-platforms).
 
 ### Fixed
 
