@@ -397,14 +397,14 @@ def test_stats(test_microvm_with_ssh_and_balloon, network_config):
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # Get an initial reading of the stats.
-    initial_stats = test_microvm.balloon.get().json()
+    initial_stats = test_microvm.balloon.get_stats().json()
 
     # Dirty 10MB of pages.
     make_guest_dirty_memory(ssh_connection, amount=(10 * MB_TO_PAGES))
     time.sleep(1)
 
     # Make sure that the stats catch the page faults.
-    after_workload_stats = test_microvm.balloon.get().json()
+    after_workload_stats = test_microvm.balloon.get_stats().json()
     assert initial_stats['minor_faults'] < after_workload_stats['minor_faults']
     assert initial_stats['major_faults'] < after_workload_stats['major_faults']
 
@@ -414,7 +414,7 @@ def test_stats(test_microvm_with_ssh_and_balloon, network_config):
     time.sleep(1)
 
     # Get another reading of the stats after the polling interval has passed.
-    inflated_stats = test_microvm.balloon.get().json()
+    inflated_stats = test_microvm.balloon.get_stats().json()
 
     # Ensure the stats reflect inflating the balloon.
     assert (
@@ -433,7 +433,7 @@ def test_stats(test_microvm_with_ssh_and_balloon, network_config):
     time.sleep(1)
 
     # Get another reading of the stats after the polling interval has passed.
-    deflated_stats = test_microvm.balloon.get().json()
+    deflated_stats = test_microvm.balloon.get_stats().json()
 
     # Ensure the stats reflect deflating the balloon.
     assert (
