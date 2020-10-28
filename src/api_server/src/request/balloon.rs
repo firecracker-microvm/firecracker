@@ -9,8 +9,17 @@ use vmm::vmm_config::balloon::{
     BalloonDeviceConfig, BalloonUpdateConfig, BalloonUpdateStatsConfig,
 };
 
-pub fn parse_get_balloon_stats() -> Result<ParsedRequest, Error> {
-    Ok(ParsedRequest::new_sync(VmmAction::GetBalloonStats))
+pub fn parse_get_balloon(path_second_token: Option<&&str>) -> Result<ParsedRequest, Error> {
+    match path_second_token {
+        Some(stats_path) => match *stats_path {
+            "statistics" => Ok(ParsedRequest::new_sync(VmmAction::GetBalloonStats)),
+            _ => Err(Error::Generic(
+                StatusCode::BadRequest,
+                format!("Unrecognized GET request path `{}`.", *stats_path),
+            )),
+        },
+        None => Ok(ParsedRequest::new_sync(VmmAction::GetBalloonConfig)),
+    }
 }
 
 pub fn parse_put_balloon(body: &Body) -> Result<ParsedRequest, Error> {
@@ -47,7 +56,11 @@ mod tests {
 
     #[test]
     fn test_parse_get_balloon_request() {
-        assert!(parse_get_balloon_stats().is_ok());
+        assert!(parse_get_balloon(None).is_ok());
+
+        assert!(parse_get_balloon(Some(&"unrelated")).is_err());
+
+        assert!(parse_get_balloon(Some(&"statistics")).is_ok());
     }
 
     #[test]
