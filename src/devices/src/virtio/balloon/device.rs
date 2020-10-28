@@ -75,6 +75,15 @@ unsafe impl ByteValued for BalloonStat {}
 
 // BalloonStats holds statistics returned from the stats_queue.
 #[derive(Clone, Default, Debug, PartialEq, Serialize)]
+pub struct BalloonConfig {
+    pub amount_mb: u32,
+    pub deflate_on_oom: bool,
+    pub must_tell_host: bool,
+    pub stats_polling_interval_s: u16,
+}
+
+// BalloonStats holds statistics returned from the stats_queue.
+#[derive(Clone, Default, Debug, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonStats {
     pub target_pages: u32,
@@ -427,6 +436,18 @@ impl Balloon {
         pages_to_mb(self.config_space.num_pages)
     }
 
+    pub fn deflate_on_oom(&self) -> bool {
+        self.avail_features & (1u64 << VIRTIO_BALLOON_F_DEFLATE_ON_OOM) != 0
+    }
+
+    pub fn must_tell_host(&self) -> bool {
+        self.avail_features & (1u64 << VIRTIO_BALLOON_F_MUST_TELL_HOST) != 0
+    }
+
+    pub fn stats_polling_interval_s(&self) -> u16 {
+        self.stats_polling_interval_s
+    }
+
     pub fn latest_stats(&mut self) -> Option<&BalloonStats> {
         if self.stats_enabled() {
             self.latest_stats.target_pages = self.config_space.num_pages;
@@ -436,6 +457,15 @@ impl Balloon {
             Some(&self.latest_stats)
         } else {
             None
+        }
+    }
+
+    pub fn config(&self) -> BalloonConfig {
+        BalloonConfig {
+            amount_mb: self.size_mb(),
+            deflate_on_oom: self.deflate_on_oom(),
+            must_tell_host: self.must_tell_host(),
+            stats_polling_interval_s: self.stats_polling_interval_s(),
         }
     }
 
@@ -666,6 +696,14 @@ pub(crate) mod tests {
     #[test]
     fn test_virtio_read_config() {
         let balloon = Balloon::new(0x10, true, true, 0, false).unwrap();
+
+        let cfg = BalloonConfig {
+            amount_mb: 16,
+            deflate_on_oom: true,
+            must_tell_host: true,
+            stats_polling_interval_s: 0,
+        };
+        assert_eq!(balloon.config(), cfg);
 
         let mut actual_config_space = [0u8; CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config_space);
