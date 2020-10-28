@@ -60,6 +60,115 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /balloon:
+    get:
+      summary: Returns the current balloon device configuration.
+      operationId: describeBalloonConfig
+      responses:
+        200:
+          description: The balloon device configuration
+          schema:
+            $ref: "#/definitions/Balloon"
+        400:
+          description: Balloon device not configured.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal Server Error
+          schema:
+            $ref: "#/definitions/Error"
+    put:
+      summary: Creates or updates a balloon device.
+      description:
+        Creates a new balloon device if one does not already exist, otherwise updates it, before machine startup.
+        This will fail after machine startup.
+        Will fail if update is not possible.
+      operationId: putBalloon
+      parameters:
+      - name: body
+        in: body
+        description: Balloon properties
+        required: true
+        schema:
+          $ref: "#/definitions/Balloon"
+      responses:
+        204:
+          description: Balloon device created/updated
+        400:
+          description: Balloon device cannot be created/updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+    patch:
+      summary: Updates a balloon device.
+      description:
+        Updates an existing balloon device, before or after machine startup.
+        Will fail if update is not possible.
+      operationId: patchBalloon
+      parameters:
+      - name: body
+        in: body
+        description: Balloon properties
+        required: true
+        schema:
+          $ref: "#/definitions/BalloonUpdate"
+      responses:
+        204:
+          description: Balloon device updated
+        400:
+          description: Balloon device cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+              
+  /balloon/statistics:
+    get:
+      summary: Returns the latest balloon device statistics, only if enabled pre-boot.
+      operationId: describeBalloonStats
+      responses:
+        200:
+          description: The balloon device statistics
+          schema:
+            $ref: "#/definitions/BalloonStats"
+        400:
+          description: The balloon device statistics were not enabled when the device was configured.
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal Server Error
+          schema:
+            $ref: "#/definitions/Error"
+    patch:
+      summary: Updates a balloon device statistics polling interval.
+      description:
+        Updates an existing balloon device statistics interval, before or after machine startup.
+        Will fail if update is not possible.
+      operationId: patchBalloonStatsInterval
+      parameters:
+      - name: body
+        in: body
+        description: Balloon properties
+        required: true
+        schema:
+          $ref: "#/definitions/BalloonStatsUpdate"
+      responses:
+        204:
+          description: Balloon statistics interval updated
+        400:
+          description: Balloon statistics interval cannot be updated due to bad input
+          schema:
+            $ref: "#/definitions/Error"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /boot-source:
     put:
       summary: Creates or updates the boot source. Pre-boot only.
@@ -505,6 +614,113 @@ paths:
             $ref: "#/definitions/Error"
 
 definitions:
+  Balloon:
+    type: object
+    required:
+      - amount_mb
+      - deflate_on_oom
+      - must_tell_host
+    description:
+      Balloon device descriptor.
+    properties:
+      amount_mb:
+        type: integer
+        description: Target balloon size in MB.
+      deflate_on_oom:
+        type: boolean
+        description: Whether the balloon should deflate when the guest has memory pressure.
+      must_tell_host:
+        type: boolean
+        description: Whether the guest should wait for the host to acknowledge deflated pages or not.
+      stats_polling_interval_s:
+        type: integer
+        description: Interval in seconds between refreshing statistics. A non-zero value will enable the statistics. Defaults to 0.
+  
+  BalloonUpdate:
+    type: object
+    required:
+      - amount_mb
+    description:
+      Balloon device descriptor.
+    properties:
+      amount_mb:
+        type: integer
+        description: Target balloon size in MB.
+  
+  BalloonStats:
+    type: object
+    description:
+      Describes the balloon device statistics.
+    required:
+      - target_pages
+      - actual_pages
+      - target_mb
+      - actual_mb
+    properties:
+      target_pages:
+        description: Target number of pages the device aims to hold.
+        type: integer
+      actual_pages:
+        description: Actual number of pages the device is holding.
+        type: integer
+      target_mb:
+        description: Target amount of memory (in MB) the device aims to hold.
+        type: integer
+      actual_mb:
+        description: Actual amount of memory (in MB) the device is holding.
+        type: integer
+      swap_in:
+        description: The amount of memory that has been swapped in (in bytes).
+        type: integer
+        format: int64
+      swap_out:
+        description: The amount of memory that has been swapped out to disk (in bytes).
+        type: integer
+        format: int64
+      major_faults:
+        description: The number of major page faults that have occurred.
+        type: integer
+        format: int64
+      minor_faults:
+        description: The number of minor page faults that have occurred.
+        type: integer
+        format: int64
+      free_memory:
+        description: The amount of memory not being used for any purpose (in bytes).
+        type: integer
+        format: int64
+      total_memory:
+        description: The total amount of memory available (in bytes).
+        type: integer
+        format: int64
+      available_memory:
+        description: An estimate of how much memory is available (in bytes) for starting new applications, without pushing the system to swap.
+        type: integer
+        format: int64
+      disk_caches:
+        description: The amount of memory, in bytes, that can be quickly reclaimed without additional I/O. Typically these pages are used for caching files from disk.
+        type: integer
+        format: int64
+      hugetlb_allocations:
+        description: The number of successful hugetlb page allocations in the guest.
+        type: integer
+        format: int64
+      hugetlb_failures:
+        description: The number of failed hugetlb page allocations in the guest.
+        type: integer
+        format: int64
+        
+  BalloonStatsUpdate:
+    type: object
+    required:
+      - stats_polling_interval_s
+    description:
+      Update the statistics polling interval. Statistics cannot be turned on/off after boot.
+    properties:
+      stats_polling_interval_s:
+        type: integer
+        description: Interval in seconds between refreshing statistics.
+
   BootSource:
     type: object
     required:
