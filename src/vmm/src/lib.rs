@@ -53,9 +53,11 @@ use crate::vstate::{
     vm::Vm,
 };
 use arch::DeviceType;
-use devices::virtio::{Block, Net, TYPE_BLOCK, TYPE_NET};
 use devices::virtio::balloon::Error as BalloonError;
-use devices::virtio::{Balloon, BalloonStats, MmioTransport, BALLOON_DEV_ID, TYPE_BALLOON};
+use devices::virtio::{
+    Balloon, BalloonConfig, BalloonStats, MmioTransport, BALLOON_DEV_ID, TYPE_BALLOON,
+};
+use devices::virtio::{Block, Net, TYPE_BLOCK, TYPE_NET};
 use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
@@ -528,7 +530,34 @@ impl Vmm {
                 Ok(())
             })
             .map_err(Error::DeviceManager)
+    }
+
+    /// Returns a reference to the balloon device if present.
+    fn balloon_config(&self) -> std::result::Result<BalloonConfig, BalloonError> {
+        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        {
+            let virtio_device = busdev
+                .lock()
+                .expect("Poisoned lock")
+                .as_any()
+                .downcast_ref::<MmioTransport>()
+                // Only MmioTransport implements BusDevice at this point.
+                .expect("Unexpected BusDevice type")
+                .device();
+
+            let config = virtio_device
+                .lock()
+                .expect("Poisoned lock")
+                .as_mut_any()
+                .downcast_mut::<Balloon>()
+                .unwrap()
+                .config();
+
+            Ok(config)
+        } else {
+            Err(BalloonError::DeviceNotFound)
         }
+    }
 
     /// Returns the latest balloon statistics if they are enabled.
     fn latest_balloon_stats(&self) -> std::result::Result<BalloonStats, BalloonError> {
