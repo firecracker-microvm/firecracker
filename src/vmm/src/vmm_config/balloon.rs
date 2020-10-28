@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 pub use devices::virtio::balloon::device::BalloonStats;
 use devices::virtio::balloon::Error as BalloonError;
-use devices::virtio::Balloon;
 pub use devices::virtio::BALLOON_DEV_ID;
+use devices::virtio::{Balloon, BalloonConfig};
 
 use serde::{Deserialize, Serialize};
 
@@ -85,6 +85,17 @@ pub struct BalloonDeviceConfig {
     pub stats_polling_interval_s: u16,
 }
 
+impl From<BalloonConfig> for BalloonDeviceConfig {
+    fn from(state: BalloonConfig) -> Self {
+        BalloonDeviceConfig {
+            amount_mb: state.amount_mb,
+            deflate_on_oom: state.deflate_on_oom,
+            must_tell_host: state.must_tell_host,
+            stats_polling_interval_s: state.stats_polling_interval_s,
+        }
+    }
+}
+
 /// The data fed into a balloon update request. Currently, only the number
 /// of pages and the stats polling interval can be updated.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -140,6 +151,14 @@ impl BalloonBuilder {
     pub fn get(&self) -> Option<&MutexBalloon> {
         self.inner.as_ref()
     }
+
+    /// Returns the same structure that was used to configure the device.
+    pub fn get_config(&self) -> Result<BalloonDeviceConfig> {
+        self.get()
+            .ok_or(BalloonConfigError::DeviceNotFound)
+            .map(|balloon_mutex| balloon_mutex.lock().expect("Poisoned lock").config())
+            .map(BalloonDeviceConfig::from)
+    }
 }
 
 #[cfg(test)]
@@ -170,11 +189,31 @@ pub(crate) mod tests {
 
         builder.set(balloon_config).unwrap();
         assert_eq!(builder.get().unwrap().lock().unwrap().num_pages(), 0);
+        assert_eq!(builder.get_config().unwrap(), default_balloon_config);
 
         let _update_config = BalloonUpdateConfig { amount_mb: 5 };
         let _stats_update_config = BalloonUpdateStatsConfig {
             stats_polling_interval_s: 5,
         };
+    }
+
+    #[test]
+    fn test_from_balloon_state() {
+        let expected_balloon_config = BalloonDeviceConfig {
+            amount_mb: 5,
+            deflate_on_oom: false,
+            must_tell_host: true,
+            stats_polling_interval_s: 3,
+        };
+
+        let actual_balloon_config = BalloonDeviceConfig::from(BalloonConfig {
+            amount_mb: 5,
+            deflate_on_oom: false,
+            must_tell_host: true,
+            stats_polling_interval_s: 3,
+        });
+
+        assert_eq!(expected_balloon_config, actual_balloon_config);
     }
 
     #[test]
