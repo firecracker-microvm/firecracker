@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use super::VmmData;
 use crate::request::actions::parse_put_actions;
-use crate::request::balloon::{parse_get_balloon_stats, parse_patch_balloon, parse_put_balloon};
+use crate::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
 use crate::request::boot_source::parse_put_boot_source;
 use crate::request::drive::{parse_patch_drive, parse_put_drive};
 use crate::request::instance_info::parse_get_instance_info;
@@ -58,7 +58,7 @@ impl ParsedRequest {
 
         match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
-            (Method::Get, "balloon", None) => parse_get_balloon_stats(),
+            (Method::Get, "balloon", None) => parse_get_balloon(path_tokens.get(1)),
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
             (Method::Get, _, Some(_)) => method_to_error(Method::Get),
@@ -105,6 +105,12 @@ impl ParsedRequest {
                     info!("The request was executed successfully. Status code: 200 OK.");
                     let mut response = Response::new(Version::Http11, StatusCode::OK);
                     response.set_body(Body::new(vm_config.to_string()));
+                    response
+                }
+                VmmData::BalloonConfig(balloon_config) => {
+                    info!("The request was executed successfully. Status code: 200 OK.");
+                    let mut response = Response::new(Version::Http11, StatusCode::OK);
+                    response.set_body(Body::new(serde_json::to_string(balloon_config).unwrap()));
                     response
                 }
                 VmmData::BalloonStats(stats) => {
@@ -577,10 +583,22 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_try_from_get_balloon_stats() {
+    fn test_try_from_get_balloon() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
         sender.write_all(b"GET /balloon HTTP/1.1\r\n\r\n").unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_get_balloon_stats() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(b"GET /balloon/statistics HTTP/1.1\r\n\r\n")
+            .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
