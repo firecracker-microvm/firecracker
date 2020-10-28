@@ -60,6 +60,8 @@ pub enum VmmAction {
     /// after the microVM has booted and only when the microVM is in `Paused` state.
     #[cfg(target_arch = "x86_64")]
     CreateSnapshot(CreateSnapshotParams),
+    /// Get the balloon device configuration.
+    GetBalloonConfig,
     /// Get the ballon device latest statistics.
     GetBalloonStats,
     /// Get the configuration of the microVM.
@@ -200,6 +202,8 @@ impl Display for VmmActionError {
 /// empty, when no data needs to be sent, or an internal VMM structure.
 #[derive(Debug, PartialEq)]
 pub enum VmmData {
+    /// The balloon device configuration.
+    BalloonConfig(BalloonDeviceConfig),
     /// The latest balloon device statistics.
     BalloonStats(BalloonStats),
     /// No data is sent on the channel.
@@ -295,6 +299,12 @@ impl<'a> PrebootApiController<'a> {
             ConfigureMetrics(metrics_cfg) => vmm_config::metrics::init_metrics(metrics_cfg)
                 .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Metrics),
+            GetBalloonConfig => self
+                .vm_resources
+                .balloon
+                .get_config()
+                .map(VmmData::BalloonConfig)
+                .map_err(VmmActionError::BalloonConfig),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
@@ -436,6 +446,13 @@ impl RuntimeApiController {
             #[cfg(target_arch = "x86_64")]
             CreateSnapshot(snapshot_create_cfg) => self.create_snapshot(&snapshot_create_cfg),
             FlushMetrics => self.flush_metrics(),
+            GetBalloonConfig => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .balloon_config()
+                .map(|state| VmmData::BalloonConfig(BalloonDeviceConfig::from(state)))
+                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
             GetBalloonStats => self
                 .vmm
                 .lock()
