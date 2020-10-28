@@ -773,6 +773,14 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
+    # Getting the device configuration should be available pre-boot.
+    response = test_microvm.balloon.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json()['amount_mb'] == 0
+    assert response.json()['deflate_on_oom'] is False
+    assert response.json()['must_tell_host'] is True
+    assert response.json()['stats_polling_interval_s'] == 5
+
     # Updating an existing balloon device is forbidden before boot.
     response = test_microvm.balloon.patch(amount_mb=2)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
@@ -805,6 +813,14 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     # We can, however, change the interval to a non-zero value.
     response = test_microvm.balloon.patch_stats(stats_polling_interval_s=5)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Getting the device configuration should be available post-boot.
+    response = test_microvm.balloon.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json()['amount_mb'] == 4
+    assert response.json()['deflate_on_oom'] is False
+    assert response.json()['must_tell_host'] is True
+    assert response.json()['stats_polling_interval_s'] == 5
 
     # Check we can't overflow the `num_pages` field in the config space by
     # requesting too many MB. There are 256 4K pages in a MB. Here, we are

@@ -80,9 +80,15 @@ class Balloon():
         )
 
     def get(self):
-        """Get the response of specifying the balloon statistics."""
+        """Get the response of specifying the balloon configuration."""
         return self._api_session.get(
             self._balloon_cfg_url
+        )
+
+    def get_stats(self):
+        """Get the response of specifying the balloon statistics."""
+        return self._api_session.get(
+            "{}".format(self._balloon_cfg_url + "/statistics")
         )
 
     @staticmethod
