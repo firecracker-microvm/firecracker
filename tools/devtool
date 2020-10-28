@@ -749,7 +749,7 @@ cmd_fmt() {
 }
 
 
-# Prepare a Firecracker release by updating the version, crate dependencies
+# Prepare a Firecracker release by updating the version, changelog
 # and credits.
 # Example: `devtool release 0.42.0`
 #
@@ -791,14 +791,15 @@ cmd_prepare_release() {
         rm -f "${file}="
     done
 
-    # Update crate dependencies.
-    say "Updating crate dependencies..."
+    # Run `cargo check` to update firecracker and jailer versions in 
+    # `Cargo.lock`.
+    say "Updating lockfile..."
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
-        cargo update
-    ok_or_die "cargo update failed."
+        cargo check
+    ok_or_die "cargo check failed."
 
     # Update credits.
     say "Updating credits..."
