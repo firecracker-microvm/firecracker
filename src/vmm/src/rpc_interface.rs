@@ -174,6 +174,9 @@ pub enum VmmData {
     MachineConfiguration(VmConfig),
 }
 
+/// Shorthand result type for external VMM commands.
+pub type ActionResult = result::Result<VmmData, VmmActionError>;
+
 /// Enables pre-boot setup and instantiation of a Firecracker VMM.
 pub struct PrebootApiController<'a> {
     seccomp_filter: BpfProgram,
@@ -215,7 +218,7 @@ impl<'a> PrebootApiController<'a> {
     ) -> (VmResources, Arc<Mutex<Vmm>>)
     where
         F: Fn() -> VmmAction,
-        G: Fn(result::Result<VmmData, VmmActionError>),
+        G: Fn(ActionResult),
     {
         let mut vm_resources = VmResources::default();
         vm_resources.boot_timer = boot_timer_enabled;
@@ -240,69 +243,31 @@ impl<'a> PrebootApiController<'a> {
 
     /// Handles the incoming preboot request and provides a response for it.
     /// Returns a built/running `Vmm` after handling a successful `StartMicroVm` request.
-    pub fn handle_preboot_request(
-        &mut self,
-        request: VmmAction,
-    ) -> result::Result<VmmData, VmmActionError> {
+    pub fn handle_preboot_request(&mut self, request: VmmAction) -> ActionResult {
         use self::VmmAction::*;
 
         match request {
             // Supported operations allowed pre-boot.
-            ConfigureBootSource(boot_source_body) => self
-                .vm_resources
-                .set_boot_source(boot_source_body)
-                .map(|_| VmmData::Empty)
-                .map_err(VmmActionError::BootSource),
+            ConfigureBootSource(config) => self.set_boot_source(config),
             ConfigureLogger(logger_cfg) => {
                 vmm_config::logger::init_logger(logger_cfg, &self.instance_info)
-                    .map(|_| VmmData::Empty)
+                    .map(|()| VmmData::Empty)
                     .map_err(VmmActionError::Logger)
             }
             ConfigureMetrics(metrics_cfg) => vmm_config::metrics::init_metrics(metrics_cfg)
-                .map(|_| VmmData::Empty)
+                .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Metrics),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
-            InsertBlockDevice(block_device_config) => self
-                .vm_resources
-                .set_block_device(block_device_config)
-                .map(|_| VmmData::Empty)
-                .map_err(VmmActionError::DriveConfig),
-            InsertNetworkDevice(netif_body) => self
-                .vm_resources
-                .build_net_device(netif_body)
-                .map(|_| VmmData::Empty)
-                .map_err(VmmActionError::NetworkConfig),
+            InsertBlockDevice(config) => self.insert_block_device(config),
+            InsertNetworkDevice(config) => self.insert_net_device(config),
             #[cfg(target_arch = "x86_64")]
-            LoadSnapshot(snapshot_load_cfg) => self
-                .load_snapshot(&snapshot_load_cfg)
-                .map(|_| VmmData::Empty),
-            SetVsockDevice(vsock_cfg) => self
-                .vm_resources
-                .set_vsock_device(vsock_cfg)
-                .map(|_| VmmData::Empty)
-                .map_err(VmmActionError::VsockConfig),
-            SetVmConfiguration(machine_config_body) => self
-                .vm_resources
-                .set_vm_config(&machine_config_body)
-                .map(|_| VmmData::Empty)
-                .map_err(VmmActionError::MachineConfig),
-            SetMmdsConfiguration(mmds_config) => self
-                .vm_resources
-                .set_mmds_config(mmds_config)
-                .map(|_| VmmData::Empty)
-                .map_err(VmmActionError::MmdsConfig),
-            StartMicroVm => builder::build_microvm_for_boot(
-                &self.vm_resources,
-                &mut self.event_manager,
-                &self.seccomp_filter,
-            )
-            .map(|vmm| {
-                self.built_vmm = Some(vmm);
-                VmmData::Empty
-            })
-            .map_err(VmmActionError::StartMicrovm),
+            LoadSnapshot(config) => self.load_snapshot(&config),
+            SetVsockDevice(config) => self.set_vsock_device(config),
+            SetVmConfiguration(config) => self.set_vm_config(config),
+            SetMmdsConfiguration(config) => self.set_mmds_config(config),
+            StartMicroVm => self.start_microvm(),
             // Operations not allowed pre-boot.
             FlushMetrics
             | Pause
@@ -314,7 +279,66 @@ impl<'a> PrebootApiController<'a> {
         }
     }
 
+    fn insert_block_device(&mut self, cfg: BlockDeviceConfig) -> ActionResult {
+        self.vm_resources
+            .set_block_device(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::DriveConfig)
+    }
+
+    fn insert_net_device(&mut self, cfg: NetworkInterfaceConfig) -> ActionResult {
+        self.vm_resources
+            .build_net_device(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::NetworkConfig)
+    }
+
+    fn set_boot_source(&mut self, cfg: BootSourceConfig) -> ActionResult {
+        self.vm_resources
+            .set_boot_source(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::BootSource)
+    }
+
+    fn set_mmds_config(&mut self, cfg: MmdsConfig) -> ActionResult {
+        self.vm_resources
+            .set_mmds_config(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::MmdsConfig)
+    }
+
+    fn set_vm_config(&mut self, cfg: VmConfig) -> ActionResult {
+        self.vm_resources
+            .set_vm_config(&cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::MachineConfig)
+    }
+
+    fn set_vsock_device(&mut self, cfg: VsockDeviceConfig) -> ActionResult {
+        self.vm_resources
+            .set_vsock_device(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::VsockConfig)
+    }
+
+    // On success, this command will end the pre-boot stage and this controller
+    // will be replaced by a runtime controller.
+    fn start_microvm(&mut self) -> ActionResult {
+        builder::build_microvm_for_boot(
+            &self.vm_resources,
+            &mut self.event_manager,
+            &self.seccomp_filter,
+        )
+        .map(|vmm| {
+            self.built_vmm = Some(vmm);
+            VmmData::Empty
+        })
+        .map_err(VmmActionError::StartMicrovm)
+    }
+
     #[cfg(target_arch = "x86_64")]
+    // On success, this command will end the pre-boot stage and this controller
+    // will be replaced by a runtime controller.
     fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
@@ -330,13 +354,13 @@ impl<'a> PrebootApiController<'a> {
         info!("'load snapshot' VMM action took {} us.", elapsed_time_us);
 
         loaded_vmm
-            .map(|vmm| self.built_vmm = Some(vmm))
+            .map(|vmm| {
+                self.built_vmm = Some(vmm);
+                VmmData::Empty
+            })
             .map_err(VmmActionError::LoadSnapshot)
     }
 }
-
-/// Shorthand result type for external VMM commands.
-pub type ActionResult = result::Result<(), VmmActionError>;
 
 /// Enables RPC interaction with a running Firecracker VMM.
 pub struct RuntimeApiController {
@@ -346,29 +370,22 @@ pub struct RuntimeApiController {
 
 impl RuntimeApiController {
     /// Handles the incoming runtime `VmmAction` request and provides a response for it.
-    pub fn handle_request(
-        &mut self,
-        request: VmmAction,
-    ) -> result::Result<VmmData, VmmActionError> {
+    pub fn handle_request(&mut self, request: VmmAction) -> ActionResult {
         use self::VmmAction::*;
         match request {
             // Supported operations allowed post-boot.
             #[cfg(target_arch = "x86_64")]
-            CreateSnapshot(snapshot_create_cfg) => self
-                .create_snapshot(&snapshot_create_cfg)
-                .map(|_| VmmData::Empty),
-            FlushMetrics => self.flush_metrics().map(|_| VmmData::Empty),
+            CreateSnapshot(snapshot_create_cfg) => self.create_snapshot(&snapshot_create_cfg),
+            FlushMetrics => self.flush_metrics(),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
-            Pause => self.pause().map(|_| VmmData::Empty),
-            Resume => self.resume().map(|_| VmmData::Empty),
+            Pause => self.pause(),
+            Resume => self.resume(),
             #[cfg(target_arch = "x86_64")]
-            SendCtrlAltDel => self.send_ctrl_alt_del().map(|_| VmmData::Empty),
-            UpdateBlockDevicePath(drive_id, path_on_host) => self
-                .update_block_device_path(&drive_id, path_on_host)
-                .map(|_| VmmData::Empty),
-            UpdateNetworkInterface(netif_update) => self
-                .update_net_rate_limiters(netif_update)
-                .map(|_| VmmData::Empty),
+            SendCtrlAltDel => self.send_ctrl_alt_del(),
+            UpdateBlockDevicePath(drive_id, new_path) => {
+                self.update_block_device_path(&drive_id, new_path)
+            }
+            UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
 
             // Operations not allowed post-boot.
             ConfigureBootSource(_)
@@ -406,7 +423,7 @@ impl RuntimeApiController {
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_pause_vm, pause_start_us);
         info!("'pause vm' VMM action took {} us.", elapsed_time_us);
 
-        Ok(())
+        Ok(VmmData::Empty)
     }
 
     /// Resumes the microVM by resuming the vCPUs.
@@ -423,7 +440,7 @@ impl RuntimeApiController {
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_resume_vm, resume_start_us);
         info!("'resume vm' VMM action took {} us.", elapsed_time_us);
 
-        Ok(())
+        Ok(VmmData::Empty)
     }
 
     /// Write the metrics on user demand (flush). We use the word `flush` here to highlight the fact
@@ -434,7 +451,7 @@ impl RuntimeApiController {
         // FIXME: we're losing the bool saying whether metrics were actually written.
         METRICS
             .write()
-            .map(|_| ())
+            .map(|_| VmmData::Empty)
             .map_err(super::Error::Metrics)
             .map_err(VmmActionError::InternalVmm)
     }
@@ -446,6 +463,7 @@ impl RuntimeApiController {
             .lock()
             .expect("Poisoned lock")
             .send_ctrl_alt_del()
+            .map(|()| VmmData::Empty)
             .map_err(VmmActionError::InternalVmm)
     }
 
@@ -469,16 +487,17 @@ impl RuntimeApiController {
                 );
             }
         }
-        Ok(())
+        Ok(VmmData::Empty)
     }
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
-    fn update_block_device_path(&mut self, drive_id: &str, path_on_host: String) -> ActionResult {
+    fn update_block_device_path(&mut self, drive_id: &str, new_path: String) -> ActionResult {
         self.vmm
             .lock()
             .expect("Poisoned lock")
-            .update_block_device_path(drive_id, path_on_host)
+            .update_block_device_path(drive_id, new_path)
+            .map(|()| VmmData::Empty)
             .map_err(DriveError::DeviceUpdate)
             .map_err(VmmActionError::DriveConfig)
     }
@@ -495,6 +514,7 @@ impl RuntimeApiController {
                 new_cfg.tx_bytes(),
                 new_cfg.tx_ops(),
             )
+            .map(|()| VmmData::Empty)
             .map_err(NetworkInterfaceError::DeviceUpdate)
             .map_err(VmmActionError::NetworkConfig)
     }
