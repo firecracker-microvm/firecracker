@@ -78,6 +78,10 @@ def test_ensure_mod_tests():
 
 
 @pytest.mark.timeout(400)
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="unstable on aarch64 as of right now"
+)
 def test_coverage(test_session_root_path, test_session_tmp_path):
     """Test line coverage with kcov.
 
