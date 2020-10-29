@@ -111,7 +111,7 @@ def test_rss_memory_lower(test_microvm_with_ssh_and_balloon, network_config):
     # Add a memory balloon.
     response = test_microvm.balloon.put(
         amount_mb=0,
-        deflate_on_oom=False,
+        deflate_on_oom=True,
         must_tell_host=False,
         stats_polling_interval_s=0
     )
@@ -124,20 +124,30 @@ def test_rss_memory_lower(test_microvm_with_ssh_and_balloon, network_config):
     firecracker_pid = test_microvm.jailer_clone_pid
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
+    # Using deflate_on_oom, get the RSS as low as possible
+    response = test_microvm.balloon.patch(amount_mb=(200))
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    time.sleep(5)
+
     # Get initial rss consumption.
     init_rss = get_rss_mem_by_pid(firecracker_pid)
+
+    # Get the balloon back to 0.
+    response = test_microvm.balloon.patch(amount_mb=(0))
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    time.sleep(2)
 
     # Dirty memory, then inflate balloon and get ballooned rss consumption.
     make_guest_dirty_memory(ssh_connection)
 
-    response = test_microvm.balloon.patch(amount_mb=(256 - init_rss // 1024))
+    response = test_microvm.balloon.patch(amount_mb=(200))
 
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     time.sleep(5)
     balloon_rss = get_rss_mem_by_pid(firecracker_pid)
 
     # Check that the ballooning reclaimed the memory.
-    assert balloon_rss - init_rss <= 10000
+    assert balloon_rss - init_rss <= 15000
 
 
 # pylint: disable=C0103
