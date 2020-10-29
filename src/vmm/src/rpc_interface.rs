@@ -5,13 +5,17 @@ use std::fmt::{Display, Formatter};
 use std::result;
 use std::sync::{Arc, Mutex};
 
+#[cfg(not(test))]
+use super::{builder::build_microvm_for_boot, resources::VmResources};
+#[cfg(test)]
+use tests::{build_microvm_for_boot, MockVmRes as VmResources};
+
 use super::Vmm;
 
 use super::Error as VmmError;
-use crate::builder::{self, StartMicrovmError};
+use crate::builder::StartMicrovmError;
 #[cfg(target_arch = "x86_64")]
 use crate::persist::{self, CreateSnapshotError, LoadSnapshotError};
-use crate::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config;
@@ -324,7 +328,7 @@ impl<'a> PrebootApiController<'a> {
     // On success, this command will end the pre-boot stage and this controller
     // will be replaced by a runtime controller.
     fn start_microvm(&mut self) -> ActionResult {
-        builder::build_microvm_for_boot(
+        build_microvm_for_boot(
             &self.vm_resources,
             &mut self.event_manager,
             &self.seccomp_filter,
@@ -515,5 +519,99 @@ impl RuntimeApiController {
             .map(|()| VmmData::Empty)
             .map_err(NetworkInterfaceError::DeviceUpdate)
             .map_err(VmmActionError::NetworkConfig)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use devices::virtio::VsockError;
+    use seccomp::BpfProgramRef;
+
+    // Mock `VmResources` used for testing.
+    #[derive(Debug, Default)]
+    pub struct MockVmRes {
+        vm_config: VmConfig,
+        boot_cfg_set: bool,
+        block_set: bool,
+        vsock_set: bool,
+        net_set: bool,
+        mmds_set: bool,
+        pub boot_timer: bool,
+        // when `true`, all self methods are forced to fail
+        pub force_errors: bool,
+    }
+
+    impl MockVmRes {
+        pub fn vm_config(&self) -> &VmConfig {
+            &self.vm_config
+        }
+
+        pub fn set_vm_config(&mut self, machine_config: &VmConfig) -> Result<(), VmConfigError> {
+            if self.force_errors {
+                return Err(VmConfigError::InvalidVcpuCount);
+            }
+            self.vm_config = machine_config.clone();
+            Ok(())
+        }
+
+        pub fn set_boot_source(
+            &mut self,
+            _: BootSourceConfig,
+        ) -> Result<(), BootSourceConfigError> {
+            if self.force_errors {
+                return Err(BootSourceConfigError::InvalidKernelPath(
+                    std::io::Error::from_raw_os_error(0),
+                ));
+            }
+            self.boot_cfg_set = true;
+            Ok(())
+        }
+
+        pub fn set_block_device(&mut self, _: BlockDeviceConfig) -> Result<(), DriveError> {
+            if self.force_errors {
+                return Err(DriveError::RootBlockDeviceAlreadyAdded);
+            }
+            self.block_set = true;
+            Ok(())
+        }
+
+        pub fn build_net_device(
+            &mut self,
+            _: NetworkInterfaceConfig,
+        ) -> Result<(), NetworkInterfaceError> {
+            if self.force_errors {
+                return Err(NetworkInterfaceError::GuestMacAddressInUse(String::new()));
+            }
+            self.net_set = true;
+            Ok(())
+        }
+
+        pub fn set_vsock_device(&mut self, _: VsockDeviceConfig) -> Result<(), VsockConfigError> {
+            if self.force_errors {
+                return Err(VsockConfigError::CreateVsockDevice(
+                    VsockError::BufDescMissing,
+                ));
+            }
+            self.vsock_set = true;
+            Ok(())
+        }
+
+        pub fn set_mmds_config(&mut self, _: MmdsConfig) -> Result<(), MmdsConfigError> {
+            if self.force_errors {
+                return Err(MmdsConfigError::InvalidIpv4Addr);
+            }
+            self.mmds_set = true;
+            Ok(())
+        }
+    }
+
+    pub fn build_microvm_for_boot(
+        _: &VmResources,
+        _: &mut EventManager,
+        _: BpfProgramRef,
+    ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
+        Err(StartMicrovmError::InitrdLoad)
     }
 }
