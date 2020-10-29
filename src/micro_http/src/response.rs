@@ -77,7 +77,7 @@ impl StatusLine {
 /// When creating a ResponseHeaders object, the content type is initialized to `text/plain`.
 /// The content type can be updated with a call to `set_content_type`.
 #[derive(Debug, PartialEq)]
-pub struct ResponseHeaders {
+struct ResponseHeaders {
     content_length: i32,
     content_type: MediaType,
     server: String,
