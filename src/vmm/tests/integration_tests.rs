@@ -69,8 +69,8 @@ fn wait_vmm_child_process(vmm_pid: i32) {
     assert_eq!(pid_done, vmm_pid);
     restore_stdin();
     // If any panics occurred, its exit status will be != 0.
-    assert!(unsafe { libc::WIFEXITED(vmm_status) });
-    assert_eq!(unsafe { libc::WEXITSTATUS(vmm_status) }, 0);
+    assert!(libc::WIFEXITED(vmm_status));
+    assert_eq!(libc::WEXITSTATUS(vmm_status), 0);
 }
 
 #[test]
@@ -157,8 +157,8 @@ fn test_vmm_seccomp() {
             assert_eq!(pid_done, vmm_pid);
             restore_stdin();
             // The seccomp fault should have caused death by SIGSYS.
-            assert!(unsafe { libc::WIFSIGNALED(vmm_status) });
-            assert_eq!(unsafe { libc::WTERMSIG(vmm_status) }, libc::SIGSYS);
+            assert!(libc::WIFSIGNALED(vmm_status));
+            assert_eq!(libc::WTERMSIG(vmm_status), libc::SIGSYS);
         }
     }
 }
