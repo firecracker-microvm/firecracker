@@ -170,7 +170,7 @@ impl Display for VmmActionError {
 
 /// The enum represents the response sent by the VMM in case of success. The response is either
 /// empty, when no data needs to be sent, or an internal VMM structure.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum VmmData {
     /// No data is sent on the channel.
     Empty,
@@ -529,6 +529,31 @@ mod tests {
     use devices::virtio::VsockError;
     use seccomp::BpfProgramRef;
 
+    impl PartialEq for VmmActionError {
+        fn eq(&self, other: &VmmActionError) -> bool {
+            use VmmActionError::*;
+            match (self, other) {
+                (BootSource(_), BootSource(_)) => true,
+                #[cfg(target_arch = "x86_64")]
+                (CreateSnapshot(_), CreateSnapshot(_)) => true,
+                (DriveConfig(_), DriveConfig(_)) => true,
+                (InternalVmm(_), InternalVmm(_)) => true,
+                #[cfg(target_arch = "x86_64")]
+                (LoadSnapshot(_), LoadSnapshot(_)) => true,
+                (Logger(_), Logger(_)) => true,
+                (MachineConfig(_), MachineConfig(_)) => true,
+                (Metrics(_), Metrics(_)) => true,
+                (MmdsConfig(_), MmdsConfig(_)) => true,
+                (NetworkConfig(_), NetworkConfig(_)) => true,
+                (OperationNotSupportedPostBoot, OperationNotSupportedPostBoot) => true,
+                (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot) => true,
+                (StartMicrovm(_), StartMicrovm(_)) => true,
+                (VsockConfig(_), VsockConfig(_)) => true,
+                _ => false,
+            }
+        }
+    }
+
     // Mock `VmResources` used for testing.
     #[derive(Debug, Default)]
     pub struct MockVmRes {
@@ -607,11 +632,245 @@ mod tests {
         }
     }
 
+    // Need to redefine this since the non-test one uses real VmResources
+    // instead of our mocks.
     pub fn build_microvm_for_boot(
         _: &VmResources,
         _: &mut EventManager,
         _: BpfProgramRef,
     ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
-        Err(StartMicrovmError::InitrdLoad)
+        Err(StartMicrovmError::MissingKernelConfig)
+    }
+
+    fn default_preboot<'a>(
+        vm_resources: &'a mut VmResources,
+        event_manager: &'a mut EventManager,
+    ) -> PrebootApiController<'a> {
+        let instance_info = InstanceInfo {
+            id: String::new(),
+            started: false,
+            vmm_version: String::new(),
+            app_name: String::new(),
+        };
+        PrebootApiController::new(
+            BpfProgram::new(),
+            instance_info,
+            vm_resources,
+            event_manager,
+        )
+    }
+
+    fn check_preboot_request<F>(request: VmmAction, check_success: F)
+    where
+        F: FnOnce(ActionResult, &MockVmRes),
+    {
+        let mut vm_resources = MockVmRes::default();
+        let mut evmgr = EventManager::new().unwrap();
+        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr);
+        let res = preboot.handle_preboot_request(request);
+        check_success(res, &vm_resources);
+    }
+
+    // Forces error and validates error kind against expected.
+    fn check_preboot_request_err(request: VmmAction, expected_err: VmmActionError) {
+        let mut vm_resources = MockVmRes::default();
+        vm_resources.force_errors = true;
+        let mut evmgr = EventManager::new().unwrap();
+        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr);
+        let err = preboot.handle_preboot_request(request).unwrap_err();
+        assert_eq!(err, expected_err);
+    }
+
+    #[test]
+    fn test_preboot_config_boot_src() {
+        let req = VmmAction::ConfigureBootSource(BootSourceConfig::default());
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vm_res.boot_cfg_set)
+        });
+
+        let req = VmmAction::ConfigureBootSource(BootSourceConfig::default());
+        check_preboot_request_err(
+            req,
+            VmmActionError::BootSource(BootSourceConfigError::InvalidKernelCommandLine(
+                String::new(),
+            )),
+        );
+    }
+
+    #[test]
+    fn test_preboot_get_vm_config() {
+        let req = VmmAction::GetVmConfiguration;
+        let expected_cfg = VmConfig::default();
+        check_preboot_request(req, |result, _| {
+            assert_eq!(result, Ok(VmmData::MachineConfiguration(expected_cfg)))
+        });
+
+        let req = VmmAction::ConfigureBootSource(BootSourceConfig::default());
+        check_preboot_request_err(
+            req,
+            VmmActionError::BootSource(BootSourceConfigError::InvalidKernelCommandLine(
+                String::new(),
+            )),
+        );
+    }
+
+    #[test]
+    fn test_preboot_set_vm_config() {
+        let req = VmmAction::SetVmConfiguration(VmConfig::default());
+        let expected_cfg = VmConfig::default();
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert_eq!(vm_res.vm_config, expected_cfg);
+        });
+
+        let req = VmmAction::SetVmConfiguration(VmConfig::default());
+        check_preboot_request_err(
+            req,
+            VmmActionError::MachineConfig(VmConfigError::InvalidVcpuCount),
+        );
+    }
+
+    #[test]
+    fn test_preboot_insert_block_dev() {
+        let req = VmmAction::InsertBlockDevice(BlockDeviceConfig {
+            path_on_host: String::new(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            drive_id: String::new(),
+            rate_limiter: None,
+        });
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vm_res.block_set)
+        });
+
+        let req = VmmAction::InsertBlockDevice(BlockDeviceConfig {
+            path_on_host: String::new(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            drive_id: String::new(),
+            rate_limiter: None,
+        });
+        check_preboot_request_err(
+            req,
+            VmmActionError::DriveConfig(DriveError::RootBlockDeviceAlreadyAdded),
+        );
+    }
+
+    #[test]
+    fn test_preboot_insert_net_dev() {
+        let req = VmmAction::InsertNetworkDevice(NetworkInterfaceConfig {
+            iface_id: String::new(),
+            host_dev_name: String::new(),
+            guest_mac: None,
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+        });
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vm_res.net_set)
+        });
+
+        let req = VmmAction::InsertNetworkDevice(NetworkInterfaceConfig {
+            iface_id: String::new(),
+            host_dev_name: String::new(),
+            guest_mac: None,
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+        });
+        check_preboot_request_err(
+            req,
+            VmmActionError::NetworkConfig(NetworkInterfaceError::GuestMacAddressInUse(
+                String::new(),
+            )),
+        );
+    }
+
+    #[test]
+    fn test_preboot_set_vsock_dev() {
+        let req = VmmAction::SetVsockDevice(VsockDeviceConfig {
+            vsock_id: String::new(),
+            guest_cid: 0,
+            uds_path: String::new(),
+        });
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vm_res.vsock_set)
+        });
+
+        let req = VmmAction::SetVsockDevice(VsockDeviceConfig {
+            vsock_id: String::new(),
+            guest_cid: 0,
+            uds_path: String::new(),
+        });
+        check_preboot_request_err(
+            req,
+            VmmActionError::VsockConfig(VsockConfigError::CreateVsockDevice(
+                VsockError::BufDescMissing,
+            )),
+        );
+    }
+
+    #[test]
+    fn test_preboot_set_mmds_config() {
+        let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vm_res.mmds_set)
+        });
+
+        let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });
+        check_preboot_request_err(
+            req,
+            VmmActionError::MmdsConfig(MmdsConfigError::InvalidIpv4Addr),
+        );
+    }
+
+    #[test]
+    fn test_preboot_disallowed() {
+        check_preboot_request_err(
+            VmmAction::FlushMetrics,
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
+        check_preboot_request_err(
+            VmmAction::Pause,
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
+        check_preboot_request_err(
+            VmmAction::Resume,
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
+        check_preboot_request_err(
+            VmmAction::UpdateBlockDevicePath(String::new(), String::new()),
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
+        check_preboot_request_err(
+            VmmAction::UpdateNetworkInterface(NetworkInterfaceUpdateConfig {
+                iface_id: String::new(),
+                rx_rate_limiter: None,
+                tx_rate_limiter: None,
+            }),
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
+        #[cfg(target_arch = "x86_64")]
+        check_preboot_request_err(
+            VmmAction::CreateSnapshot(CreateSnapshotParams {
+                snapshot_type: SnapshotType::Full,
+                snapshot_path: std::path::PathBuf::new(),
+                mem_file_path: std::path::PathBuf::new(),
+                version: None,
+            }),
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
+        #[cfg(target_arch = "x86_64")]
+        check_preboot_request_err(
+            VmmAction::SendCtrlAltDel,
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
     }
 }
