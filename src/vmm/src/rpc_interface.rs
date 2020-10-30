@@ -941,4 +941,49 @@ mod tests {
             VmmActionError::OperationNotSupportedPreBoot,
         );
     }
+
+    #[test]
+    fn test_build_microvm_from_requests() {
+        // Use atomics to be able to use them non-mutably in closures below.
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let cmd_step = AtomicUsize::new(0);
+        let commands = || {
+            cmd_step.fetch_add(1, Ordering::SeqCst);
+            match cmd_step.load(Ordering::SeqCst) {
+                1 => VmmAction::FlushMetrics,
+                2 => VmmAction::Pause,
+                3 => VmmAction::Resume,
+                4 => VmmAction::StartMicroVm,
+                _ => unreachable!(),
+            }
+        };
+
+        let resp_step = AtomicUsize::new(0);
+        let expected_resp = |resp: ActionResult| {
+            resp_step.fetch_add(1, Ordering::SeqCst);
+            let expect = match resp_step.load(Ordering::SeqCst) {
+                1 => Err(VmmActionError::OperationNotSupportedPreBoot),
+                2 => Err(VmmActionError::OperationNotSupportedPreBoot),
+                3 => Err(VmmActionError::OperationNotSupportedPreBoot),
+                4 => Ok(VmmData::Empty),
+                _ => unreachable!(),
+            };
+            assert_eq!(resp, expect);
+        };
+
+        let (_vm_res, _vmm) = PrebootApiController::build_microvm_from_requests(
+            vec![],
+            &mut EventManager::new().unwrap(),
+            InstanceInfo {
+                id: String::new(),
+                started: false,
+                vmm_version: String::new(),
+                app_name: String::new(),
+            },
+            commands,
+            expected_resp,
+            false,
+        );
+    }
 }
