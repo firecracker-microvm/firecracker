@@ -6,16 +6,19 @@ use std::result;
 use std::sync::{Arc, Mutex};
 
 #[cfg(not(test))]
-use super::{builder::build_microvm_for_boot, resources::VmResources};
-#[cfg(test)]
-use tests::{build_microvm_for_boot, MockVmRes as VmResources};
+use super::{builder::build_microvm_for_boot, resources::VmResources, Vmm};
+#[cfg(all(not(test), target_arch = "x86_64"))]
+use super::{persist::create_snapshot, persist::load_snapshot};
 
-use super::Vmm;
+#[cfg(test)]
+use tests::{build_microvm_for_boot, MockVmRes as VmResources, MockVmm as Vmm};
+#[cfg(all(test, target_arch = "x86_64"))]
+use tests::{create_snapshot, load_snapshot};
 
 use super::Error as VmmError;
 use crate::builder::StartMicrovmError;
 #[cfg(target_arch = "x86_64")]
-use crate::persist::{self, CreateSnapshotError, LoadSnapshotError};
+use crate::persist::{CreateSnapshotError, LoadSnapshotError};
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config;
@@ -346,7 +349,7 @@ impl<'a> PrebootApiController<'a> {
     fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        let loaded_vmm = persist::load_snapshot(
+        let loaded_vmm = load_snapshot(
             &mut self.event_manager,
             &self.seccomp_filter,
             load_params,
@@ -474,7 +477,7 @@ impl RuntimeApiController {
         let mut locked_vmm = self.vmm.lock().unwrap();
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
-        persist::create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())
+        create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())
             .map_err(VmmActionError::CreateSnapshot)?;
 
         match create_params.snapshot_type {
@@ -632,14 +635,79 @@ mod tests {
         }
     }
 
+    // Mock `Vmm` used for testing.
+    #[derive(Debug, Default)]
+    pub struct MockVmm {
+        pub pause_called: bool,
+        pub resume_called: bool,
+        pub send_ctrl_alt_del_called: bool,
+        pub update_block_device_path_called: bool,
+        pub update_net_rate_limiters_called: bool,
+        // when `true`, all self methods are forced to fail
+        pub force_errors: bool,
+    }
+
+    impl MockVmm {
+        pub fn resume_vcpus(&mut self) -> Result<(), VmmError> {
+            Ok(())
+        }
+
+        pub fn pause_vcpus(&mut self) -> Result<(), VmmError> {
+            Ok(())
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
+            Ok(())
+        }
+
+        pub fn update_block_device_path(&mut self, _: &str, _: String) -> Result<(), VmmError> {
+            Ok(())
+        }
+
+        pub fn update_net_rate_limiters(
+            &mut self,
+            _: &str,
+            _: rate_limiter::BucketUpdate,
+            _: rate_limiter::BucketUpdate,
+            _: rate_limiter::BucketUpdate,
+            _: rate_limiter::BucketUpdate,
+        ) -> Result<(), VmmError> {
+            Ok(())
+        }
+    }
+
     // Need to redefine this since the non-test one uses real VmResources
-    // instead of our mocks.
+    // and real Vmm instead of our mocks.
     pub fn build_microvm_for_boot(
         _: &VmResources,
         _: &mut EventManager,
         _: BpfProgramRef,
     ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
-        Err(StartMicrovmError::MissingKernelConfig)
+        Ok(Arc::new(Mutex::new(MockVmm::default())))
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    // Need to redefine this since the non-test one uses real Vmm
+    // instead of our mocks.
+    pub fn create_snapshot(
+        _: &mut Vmm,
+        _: &CreateSnapshotParams,
+        _: versionize::VersionMap,
+    ) -> std::result::Result<(), CreateSnapshotError> {
+        Ok(())
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    // Need to redefine this since the non-test one uses real Vmm
+    // instead of our mocks.
+    pub fn load_snapshot(
+        _: &mut EventManager,
+        _: BpfProgramRef,
+        _: &LoadSnapshotParams,
+        _: versionize::VersionMap,
+    ) -> Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
+        Ok(Arc::new(Mutex::new(MockVmm::default())))
     }
 
     fn default_preboot<'a>(
