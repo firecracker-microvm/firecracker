@@ -501,7 +501,7 @@ impl Vmm {
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
-    fn update_block_device_path(&mut self, drive_id: &str, path_on_host: String) -> Result<()> {
+    pub fn update_block_device_path(&mut self, drive_id: &str, path_on_host: String) -> Result<()> {
         self.mmio_device_manager
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
