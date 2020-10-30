@@ -19,6 +19,7 @@ use utils::validators::validate_instance_id;
 use vmm::default_syscalls::get_seccomp_filter;
 use vmm::resources::VmResources;
 use vmm::signal_handler::register_signal_handlers;
+use vmm::version_map::FC_VERSION_TO_SNAP_VERSION;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 
@@ -140,7 +141,7 @@ fn main() {
         .arg(
             Argument::new("version")
                 .takes_value(false)
-                .help("Print the binary version number.")
+                .help("Print the binary version number and a list of supported snapshot data format versions.")
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {
@@ -164,6 +165,7 @@ fn main() {
             if let Some(version) = arg_parser.arguments().value_as_bool("version") {
                 if version {
                     println!("Firecracker v{}\n", FIRECRACKER_VERSION);
+                    print_supported_snapshot_versions();
                     process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
                 }
             }
@@ -258,6 +260,22 @@ fn main() {
             boot_timer_enabled,
         );
     }
+}
+
+// Print supported snapshot data format versions.
+fn print_supported_snapshot_versions() {
+    let mut snapshot_versions_str = "Supported snapshot data format versions:".to_string();
+    let mut snapshot_versions: Vec<String> = FC_VERSION_TO_SNAP_VERSION
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect();
+    snapshot_versions.sort();
+
+    snapshot_versions
+        .iter()
+        .for_each(|v| snapshot_versions_str.push_str(format!(" v{},", v).as_str()));
+    snapshot_versions_str.pop();
+    println!("{}\n", snapshot_versions_str);
 }
 
 // Configure and start a microVM as described by the command-line JSON.
