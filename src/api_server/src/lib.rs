@@ -360,7 +360,7 @@ mod tests {
 
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
-                StartMicrovmError::MicroVMAlreadyRunning,
+                StartMicrovmError::MissingKernelConfig,
             ))))
             .unwrap();
         let response = api_server.serve_vmm_action_request(Box::new(VmmAction::StartMicroVm), 0);
@@ -551,7 +551,7 @@ mod tests {
         .unwrap();
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
-                StartMicrovmError::MicroVMAlreadyRunning,
+                StartMicrovmError::MissingKernelConfig,
             ))))
             .unwrap();
 

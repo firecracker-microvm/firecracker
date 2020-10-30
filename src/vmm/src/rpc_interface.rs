@@ -395,12 +395,10 @@ impl RuntimeApiController {
             | InsertNetworkDevice(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
-            | SetVmConfiguration(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
+            | SetVmConfiguration(_)
+            | StartMicroVm => Err(VmmActionError::OperationNotSupportedPostBoot),
             #[cfg(target_arch = "x86_64")]
             LoadSnapshot(_) => Err(VmmActionError::OperationNotSupportedPostBoot),
-            StartMicroVm => Err(VmmActionError::StartMicrovm(
-                StartMicrovmError::MicroVMAlreadyRunning,
-            )),
         }
     }
 
