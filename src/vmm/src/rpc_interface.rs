@@ -528,9 +528,11 @@ impl RuntimeApiController {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use crate::vmm_config::logger::LoggerLevel;
     use devices::virtio::VsockError;
     use seccomp::BpfProgramRef;
+
+    use std::path::PathBuf;
 
     impl PartialEq for VmmActionError {
         fn eq(&self, other: &VmmActionError) -> bool {
@@ -640,6 +642,7 @@ mod tests {
     pub struct MockVmm {
         pub pause_called: bool,
         pub resume_called: bool,
+        #[cfg(target_arch = "x86_64")]
         pub send_ctrl_alt_del_called: bool,
         pub update_block_device_path_called: bool,
         pub update_net_rate_limiters_called: bool,
@@ -649,19 +652,39 @@ mod tests {
 
     impl MockVmm {
         pub fn resume_vcpus(&mut self) -> Result<(), VmmError> {
+            if self.force_errors {
+                return Err(VmmError::VcpuResume);
+            }
+            self.resume_called = true;
             Ok(())
         }
 
         pub fn pause_vcpus(&mut self) -> Result<(), VmmError> {
+            if self.force_errors {
+                return Err(VmmError::VcpuPause);
+            }
+            self.pause_called = true;
             Ok(())
         }
 
         #[cfg(target_arch = "x86_64")]
         pub fn send_ctrl_alt_del(&mut self) -> Result<(), VmmError> {
+            if self.force_errors {
+                return Err(VmmError::I8042Error(
+                    devices::legacy::I8042DeviceError::InternalBufferFull,
+                ));
+            }
+            self.send_ctrl_alt_del_called = true;
             Ok(())
         }
 
         pub fn update_block_device_path(&mut self, _: &str, _: String) -> Result<(), VmmError> {
+            if self.force_errors {
+                return Err(VmmError::DeviceManager(
+                    crate::device_manager::mmio::Error::IncorrectDeviceType,
+                ));
+            }
+            self.update_block_device_path_called = true;
             Ok(())
         }
 
@@ -673,6 +696,12 @@ mod tests {
             _: rate_limiter::BucketUpdate,
             _: rate_limiter::BucketUpdate,
         ) -> Result<(), VmmError> {
+            if self.force_errors {
+                return Err(VmmError::DeviceManager(
+                    crate::device_manager::mmio::Error::IncorrectDeviceType,
+                ));
+            }
+            self.update_net_rate_limiters_called = true;
             Ok(())
         }
     }
@@ -929,8 +958,8 @@ mod tests {
         check_preboot_request_err(
             VmmAction::CreateSnapshot(CreateSnapshotParams {
                 snapshot_type: SnapshotType::Full,
-                snapshot_path: std::path::PathBuf::new(),
-                mem_file_path: std::path::PathBuf::new(),
+                snapshot_path: PathBuf::new(),
+                mem_file_path: PathBuf::new(),
                 version: None,
             }),
             VmmActionError::OperationNotSupportedPreBoot,
@@ -984,6 +1013,201 @@ mod tests {
             commands,
             expected_resp,
             false,
+        );
+    }
+
+    fn check_runtime_request<F>(request: VmmAction, check_success: F)
+    where
+        F: FnOnce(ActionResult, &MockVmm),
+    {
+        let vmm = Arc::new(Mutex::new(MockVmm::default()));
+        let mut runtime = RuntimeApiController::new(VmConfig::default(), vmm.clone());
+        let res = runtime.handle_request(request);
+        check_success(res, &vmm.lock().unwrap());
+    }
+
+    // Forces error and validates error kind against expected.
+    fn check_runtime_request_err(request: VmmAction, expected_err: VmmActionError) {
+        let vmm = Arc::new(Mutex::new(MockVmm {
+            force_errors: true,
+            ..Default::default()
+        }));
+        let mut runtime = RuntimeApiController::new(VmConfig::default(), vmm);
+        let err = runtime.handle_request(request).unwrap_err();
+        assert_eq!(err, expected_err);
+    }
+
+    #[test]
+    fn test_runtime_get_vm_config() {
+        let req = VmmAction::GetVmConfiguration;
+        check_runtime_request(req, |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MachineConfiguration(VmConfig::default()))
+            );
+        });
+    }
+
+    #[test]
+    fn test_runtime_pause() {
+        let req = VmmAction::Pause;
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vmm.pause_called)
+        });
+
+        let req = VmmAction::Pause;
+        check_runtime_request_err(req, VmmActionError::InternalVmm(VmmError::VcpuPause));
+    }
+
+    #[test]
+    fn test_runtime_resume() {
+        let req = VmmAction::Resume;
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vmm.resume_called)
+        });
+
+        let req = VmmAction::Resume;
+        check_runtime_request_err(req, VmmActionError::InternalVmm(VmmError::VcpuResume));
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_runtime_ctrl_alt_del() {
+        let req = VmmAction::SendCtrlAltDel;
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vmm.send_ctrl_alt_del_called)
+        });
+
+        let req = VmmAction::SendCtrlAltDel;
+        check_runtime_request_err(
+            req,
+            VmmActionError::InternalVmm(VmmError::I8042Error(
+                devices::legacy::I8042DeviceError::InternalBufferFull,
+            )),
+        );
+    }
+
+    #[test]
+    fn test_runtime_update_block_device_path() {
+        let req = VmmAction::UpdateBlockDevicePath(String::new(), String::new());
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vmm.update_block_device_path_called)
+        });
+
+        let req = VmmAction::UpdateBlockDevicePath(String::new(), String::new());
+        check_runtime_request_err(
+            req,
+            VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
+                crate::device_manager::mmio::Error::IncorrectDeviceType,
+            ))),
+        );
+    }
+
+    #[test]
+    fn test_runtime_update_net_rate_limiters() {
+        let req = VmmAction::UpdateNetworkInterface(NetworkInterfaceUpdateConfig {
+            iface_id: String::new(),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+        });
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vmm.update_net_rate_limiters_called)
+        });
+
+        let req = VmmAction::UpdateNetworkInterface(NetworkInterfaceUpdateConfig {
+            iface_id: String::new(),
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+        });
+        check_runtime_request_err(
+            req,
+            VmmActionError::NetworkConfig(NetworkInterfaceError::DeviceUpdate(
+                VmmError::DeviceManager(crate::device_manager::mmio::Error::IncorrectDeviceType),
+            )),
+        );
+    }
+
+    #[test]
+    fn test_runtime_disallowed() {
+        check_runtime_request_err(
+            VmmAction::ConfigureBootSource(BootSourceConfig::default()),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+        check_runtime_request_err(
+            VmmAction::ConfigureLogger(LoggerConfig {
+                log_path: PathBuf::new(),
+                level: LoggerLevel::Debug,
+                show_level: false,
+                show_log_origin: false,
+            }),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+        check_runtime_request_err(
+            VmmAction::ConfigureMetrics(MetricsConfig {
+                metrics_path: PathBuf::new(),
+            }),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+        check_runtime_request_err(
+            VmmAction::InsertBlockDevice(BlockDeviceConfig {
+                path_on_host: String::new(),
+                is_root_device: false,
+                partuuid: None,
+                is_read_only: false,
+                drive_id: String::new(),
+                rate_limiter: None,
+            }),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+        check_runtime_request_err(
+            VmmAction::InsertNetworkDevice(NetworkInterfaceConfig {
+                iface_id: String::new(),
+                host_dev_name: String::new(),
+                guest_mac: None,
+                rx_rate_limiter: None,
+                tx_rate_limiter: None,
+                allow_mmds_requests: false,
+            }),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+        check_runtime_request_err(
+            VmmAction::SetVsockDevice(VsockDeviceConfig {
+                vsock_id: String::new(),
+                guest_cid: 0,
+                uds_path: String::new(),
+            }),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+
+        check_runtime_request_err(
+            VmmAction::SetVsockDevice(VsockDeviceConfig {
+                vsock_id: String::new(),
+                guest_cid: 0,
+                uds_path: String::new(),
+            }),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+        check_runtime_request_err(
+            VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None }),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+        check_runtime_request_err(
+            VmmAction::SetVmConfiguration(VmConfig::default()),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
+        #[cfg(target_arch = "x86_64")]
+        check_runtime_request_err(
+            VmmAction::LoadSnapshot(LoadSnapshotParams {
+                snapshot_path: PathBuf::new(),
+                mem_file_path: PathBuf::new(),
+                enable_diff_snapshots: false,
+            }),
+            VmmActionError::OperationNotSupportedPostBoot,
         );
     }
 }
