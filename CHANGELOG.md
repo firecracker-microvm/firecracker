@@ -14,6 +14,8 @@
 
 - Removed the jailer `--extra-args` parameter. It was a noop, having been
   replaced by the `--` separator for extra arguments.
+- Changed the output of the `--version` command line parameter to include a list
+  of supported snapshot data format versions for the firecracker binary.
 
 ## [0.23.0]
 
