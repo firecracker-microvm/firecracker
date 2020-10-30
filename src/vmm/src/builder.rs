@@ -62,8 +62,6 @@ pub enum StartMicrovmError {
     KernelLoader(kernel::loader::Error),
     /// Cannot load command line string.
     LoadCommandline(kernel::cmdline::Error),
-    /// The start command was issued more than once.
-    MicroVMAlreadyRunning,
     /// Cannot start the VM because the kernel was not configured.
     MissingKernelConfig,
     /// Cannot start the VM because the size of the guest memory  was not specified.
@@ -132,7 +130,6 @@ impl Display for StartMicrovmError {
                 err_msg = err_msg.replace("\"", "");
                 write!(f, "Cannot load command line string. {}", err_msg)
             }
-            MicroVMAlreadyRunning => write!(f, "Microvm already running."),
             MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),
             MissingMemSizeConfig => {
                 write!(f, "Cannot start microvm without guest mem_size config.")
@@ -1237,9 +1234,6 @@ pub mod tests {
         let _ = format!("{}{:?}", err, err);
 
         let err = LoadCommandline(kernel::cmdline::Error::TooLarge);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = MicroVMAlreadyRunning;
         let _ = format!("{}{:?}", err, err);
 
         let err = MissingKernelConfig;
