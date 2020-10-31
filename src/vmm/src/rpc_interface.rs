@@ -115,6 +115,9 @@ pub enum VmmActionError {
     /// Loading a microVM snapshot failed.
     #[cfg(target_arch = "x86_64")]
     LoadSnapshot(LoadSnapshotError),
+    /// Loading a microVM snapshot not allowed after configuring boot-specific resources.
+    #[cfg(target_arch = "x86_64")]
+    LoadSnapshotNotAllowed,
     /// The action `ConfigureLogger` failed because of bad user input.
     Logger(LoggerConfigError),
     /// One of the actions `GetVmConfiguration` or `SetVmConfiguration` failed because of bad input.
@@ -150,6 +153,11 @@ impl Display for VmmActionError {
                 InternalVmm(err) => format!("Internal Vmm error: {}", err),
                 #[cfg(target_arch = "x86_64")]
                 LoadSnapshot(err) => format!("Load microVM snapshot error: {}", err),
+                #[cfg(target_arch = "x86_64")]
+                LoadSnapshotNotAllowed => {
+                    "Loading a microVM snapshot not allowed after configuring boot-specific resources."
+                        .to_string()
+                }
                 Logger(err) => err.to_string(),
                 MachineConfig(err) => err.to_string(),
                 Metrics(err) => err.to_string(),
@@ -191,6 +199,9 @@ pub struct PrebootApiController<'a> {
     vm_resources: &'a mut VmResources,
     event_manager: &'a mut EventManager,
     built_vmm: Option<Arc<Mutex<Vmm>>>,
+    // Configuring boot specific resources will set this to true.
+    // Loading from snapshot will not be allowed once this is true.
+    boot_path: bool,
 }
 
 impl<'a> PrebootApiController<'a> {
@@ -207,6 +218,7 @@ impl<'a> PrebootApiController<'a> {
             vm_resources,
             event_manager,
             built_vmm: None,
+            boot_path: false,
         }
     }
 
@@ -287,6 +299,7 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn insert_block_device(&mut self, cfg: BlockDeviceConfig) -> ActionResult {
+        self.boot_path = true;
         self.vm_resources
             .set_block_device(cfg)
             .map(|()| VmmData::Empty)
@@ -294,6 +307,7 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn insert_net_device(&mut self, cfg: NetworkInterfaceConfig) -> ActionResult {
+        self.boot_path = true;
         self.vm_resources
             .build_net_device(cfg)
             .map(|()| VmmData::Empty)
@@ -301,6 +315,7 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn set_boot_source(&mut self, cfg: BootSourceConfig) -> ActionResult {
+        self.boot_path = true;
         self.vm_resources
             .set_boot_source(cfg)
             .map(|()| VmmData::Empty)
@@ -308,6 +323,7 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn set_mmds_config(&mut self, cfg: MmdsConfig) -> ActionResult {
+        self.boot_path = true;
         self.vm_resources
             .set_mmds_config(cfg)
             .map(|()| VmmData::Empty)
@@ -315,6 +331,7 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn set_vm_config(&mut self, cfg: VmConfig) -> ActionResult {
+        self.boot_path = true;
         self.vm_resources
             .set_vm_config(&cfg)
             .map(|()| VmmData::Empty)
@@ -322,6 +339,7 @@ impl<'a> PrebootApiController<'a> {
     }
 
     fn set_vsock_device(&mut self, cfg: VsockDeviceConfig) -> ActionResult {
+        self.boot_path = true;
         self.vm_resources
             .set_vsock_device(cfg)
             .map(|()| VmmData::Empty)
@@ -348,6 +366,12 @@ impl<'a> PrebootApiController<'a> {
     // will be replaced by a runtime controller.
     fn load_snapshot(&mut self, load_params: &LoadSnapshotParams) -> ActionResult {
         let load_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
+        if self.boot_path {
+            let err = VmmActionError::LoadSnapshotNotAllowed;
+            info!("{}", err);
+            return Err(err);
+        }
 
         let loaded_vmm = load_snapshot(
             &mut self.event_manager,
@@ -545,6 +569,8 @@ mod tests {
                 (InternalVmm(_), InternalVmm(_)) => true,
                 #[cfg(target_arch = "x86_64")]
                 (LoadSnapshot(_), LoadSnapshot(_)) => true,
+                #[cfg(target_arch = "x86_64")]
+                (LoadSnapshotNotAllowed, LoadSnapshotNotAllowed) => true,
                 (Logger(_), Logger(_)) => true,
                 (MachineConfig(_), MachineConfig(_)) => true,
                 (Metrics(_), Metrics(_)) => true,
@@ -1209,5 +1235,69 @@ mod tests {
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn verify_load_snap_disallowed_after_boot_resources(res: VmmAction, res_name: &str) {
+        let mut vm_resources = MockVmRes::default();
+        let mut evmgr = EventManager::new().unwrap();
+        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr);
+
+        preboot.handle_preboot_request(res).unwrap();
+
+        // Load snapshot should no longer be allowed.
+        let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
+            snapshot_path: PathBuf::new(),
+            mem_file_path: PathBuf::new(),
+            enable_diff_snapshots: false,
+        });
+        let err = preboot.handle_preboot_request(req);
+        assert_eq!(
+            err,
+            Err(VmmActionError::LoadSnapshotNotAllowed),
+            "LoadSnapshot should be disallowed after {}",
+            res_name
+        );
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_preboot_load_snap_disallowed_after_boot_resources() {
+        // Verify LoadSnapshot not allowed after configuring various boot-specific resources.
+        let req = VmmAction::ConfigureBootSource(BootSourceConfig::default());
+        verify_load_snap_disallowed_after_boot_resources(req, "ConfigureBootSource");
+
+        let req = VmmAction::InsertBlockDevice(BlockDeviceConfig {
+            path_on_host: String::new(),
+            is_root_device: false,
+            partuuid: None,
+            is_read_only: false,
+            drive_id: String::new(),
+            rate_limiter: None,
+        });
+        verify_load_snap_disallowed_after_boot_resources(req, "InsertBlockDevice");
+
+        let req = VmmAction::InsertNetworkDevice(NetworkInterfaceConfig {
+            iface_id: String::new(),
+            host_dev_name: String::new(),
+            guest_mac: None,
+            rx_rate_limiter: None,
+            tx_rate_limiter: None,
+            allow_mmds_requests: false,
+        });
+        verify_load_snap_disallowed_after_boot_resources(req, "InsertNetworkDevice");
+
+        let req = VmmAction::SetVsockDevice(VsockDeviceConfig {
+            vsock_id: String::new(),
+            guest_cid: 0,
+            uds_path: String::new(),
+        });
+        verify_load_snap_disallowed_after_boot_resources(req, "SetVsockDevice");
+
+        let req = VmmAction::SetVmConfiguration(VmConfig::default());
+        verify_load_snap_disallowed_after_boot_resources(req, "SetVmConfiguration");
+
+        let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });
+        verify_load_snap_disallowed_after_boot_resources(req, "SetMmdsConfiguration");
     }
 }
