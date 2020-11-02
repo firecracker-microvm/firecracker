@@ -74,13 +74,13 @@ impl Env {
     ) -> Result<Self> {
         // Unwraps should not fail because the arguments are mandatory arguments or with default values.
         let id = arguments
-            .value_as_string("id")
+            .single_value("id")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("id".to_string())))?;
 
         validators::validate_instance_id(&id.as_str()).map_err(Error::InvalidInstanceId)?;
 
         let exec_file = arguments
-            .value_as_string("exec-file")
+            .single_value("exec-file")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("exec-file".to_string())))?;
         let exec_file_path = canonicalize(&exec_file)
             .map_err(|e| Error::Canonicalize(PathBuf::from(&exec_file), e))?;
@@ -94,7 +94,7 @@ impl Env {
             .ok_or_else(|| Error::FileName(exec_file_path.clone()))?;
 
         let chroot_base = arguments
-            .value_as_string("chroot-base-dir")
+            .single_value("chroot-base-dir")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("chroot-base-dir".to_string())))?;
         let mut chroot_dir = canonicalize(&chroot_base)
             .map_err(|e| Error::Canonicalize(PathBuf::from(&chroot_base), e))?;
@@ -108,24 +108,24 @@ impl Env {
         chroot_dir.push("root");
 
         let uid_str = arguments
-            .value_as_string("uid")
+            .single_value("uid")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("uid".to_string())))?;
         let uid = uid_str.parse::<u32>().map_err(|_| Error::Uid(uid_str))?;
 
         let gid_str = arguments
-            .value_as_string("gid")
+            .single_value("gid")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("gid".to_string())))?;
         let gid = gid_str.parse::<u32>().map_err(|_| Error::Gid(gid_str))?;
 
-        let netns = arguments.value_as_string("netns");
+        let netns = arguments.single_value("netns");
 
-        let daemonize = arguments.value_as_bool("daemonize").unwrap_or(false);
+        let daemonize = arguments.flag_present("daemonize");
 
         // Optional arguments.
         let mut cgroups = Vec::new();
 
         // If `--node` is used, the corresponding cgroups will be created.
-        if let Some(numa_node_str) = arguments.value_as_string("node") {
+        if let Some(numa_node_str) = arguments.single_value("node") {
             let numa_node = numa_node_str
                 .parse::<u32>()
                 .map_err(|_| Error::NumaNode(numa_node_str))?;
@@ -138,7 +138,7 @@ impl Env {
         }
 
         // cgroup format: <cgroup_controller>.<cgroup_property>=<value>,...
-        if let Some(cgroups_args) = arguments.value_as_vector("cgroup") {
+        if let Some(cgroups_args) = arguments.multiple_values("cgroup") {
             for cg in cgroups_args {
                 let aux: Vec<&str> = cg.split('=').collect();
                 if aux.len() != 2 || aux[1].is_empty() {
