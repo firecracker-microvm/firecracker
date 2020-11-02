@@ -208,7 +208,7 @@ fn main() {
     // It's safe to unwrap here because the field's been provided with a default value.
     let seccomp_level = arguments.single_value("seccomp-level").unwrap();
     let seccomp_filter = get_seccomp_filter(
-        SeccompLevel::from_string(seccomp_level).unwrap_or_else(|err| {
+        SeccompLevel::from_string(&seccomp_level).unwrap_or_else(|err| {
             panic!("Invalid value for seccomp-level: {}", err);
         }),
     )
