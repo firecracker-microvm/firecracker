@@ -9,7 +9,9 @@ use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::{fmt, io};
 
 use crate::parsed_request::ParsedRequest;
-use logger::{debug, error, info, update_metric_with_elapsed_time, Metric, METRICS};
+use logger::{
+    debug, error, info, update_metric_with_elapsed_time, IncMetric, StoreMetric, METRICS,
+};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
@@ -367,16 +369,16 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BadRequest);
 
         let start_time_us = utils::time::get_time_us(ClockType::Monotonic);
-        assert_eq!(METRICS.latencies_us.pause_vm.count(), 0);
+        assert_eq!(METRICS.latencies_us.pause_vm.fetch(), 0);
         to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
         let response =
             api_server.serve_vmm_action_request(Box::new(VmmAction::Pause), start_time_us);
         assert_eq!(response.status(), StatusCode::NoContent);
-        assert_ne!(METRICS.latencies_us.pause_vm.count(), 0);
+        assert_ne!(METRICS.latencies_us.pause_vm.fetch(), 0);
 
         #[cfg(target_arch = "x86_64")]
         {
-            assert_eq!(METRICS.latencies_us.full_create_snapshot.count(), 0);
+            assert_eq!(METRICS.latencies_us.full_create_snapshot.fetch(), 0);
             to_api
                 .send(Box::new(Err(VmmActionError::OperationNotSupportedPreBoot)))
                 .unwrap();
@@ -391,8 +393,8 @@ mod tests {
             );
             assert_eq!(response.status(), StatusCode::BadRequest);
             // The metric should not be updated if the request wasn't successful.
-            assert_eq!(METRICS.latencies_us.diff_create_snapshot.count(), 0);
-            assert_eq!(METRICS.latencies_us.full_create_snapshot.count(), 0);
+            assert_eq!(METRICS.latencies_us.diff_create_snapshot.fetch(), 0);
+            assert_eq!(METRICS.latencies_us.full_create_snapshot.fetch(), 0);
 
             to_api.send(Box::new(Ok(VmmData::Empty))).unwrap();
             let response = api_server.serve_vmm_action_request(
@@ -405,8 +407,8 @@ mod tests {
                 start_time_us,
             );
             assert_eq!(response.status(), StatusCode::NoContent);
-            assert_eq!(METRICS.latencies_us.diff_create_snapshot.count(), 0);
-            assert_ne!(METRICS.latencies_us.full_create_snapshot.count(), 0);
+            assert_eq!(METRICS.latencies_us.diff_create_snapshot.fetch(), 0);
+            assert_ne!(METRICS.latencies_us.full_create_snapshot.fetch(), 0);
         }
     }
 

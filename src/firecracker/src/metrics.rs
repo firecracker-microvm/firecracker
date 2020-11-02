@@ -4,7 +4,7 @@
 use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
-use logger::{error, warn, Metric, METRICS};
+use logger::{error, warn, IncMetric, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 use utils::epoll::{EpollEvent, EventSet};

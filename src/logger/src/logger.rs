@@ -84,7 +84,7 @@ use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
 
-use crate::metrics::{Metric, METRICS};
+use crate::metrics::{IncMetric, METRICS};
 use lazy_static::lazy_static;
 use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
 use utils::time::LocalTime;

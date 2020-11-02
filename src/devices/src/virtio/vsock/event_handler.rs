@@ -24,7 +24,7 @@
 ///   - again, attempt to fetch any incoming packets queued by the backend into virtio RX buffers.
 use std::os::unix::io::AsRawFd;
 
-use logger::{debug, error, warn, Metric, METRICS};
+use logger::{debug, error, warn, IncMetric, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
 use utils::epoll::{EpollEvent, EventSet};
 

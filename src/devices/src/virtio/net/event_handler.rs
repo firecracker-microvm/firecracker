@@ -3,7 +3,7 @@
 
 use std::os::unix::io::AsRawFd;
 
-use logger::{debug, error, warn, Metric, METRICS};
+use logger::{debug, error, warn, IncMetric, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
 use utils::epoll::{EpollEvent, EventSet};
 
@@ -118,7 +118,7 @@ pub mod tests {
     use crate::check_metric_after_block;
     use crate::virtio::net::test_utils::test::TestHelper;
     use crate::virtio::net::test_utils::{NetEvent, NetQueue};
-    use logger::{Metric, METRICS};
+    use logger::{IncMetric, METRICS};
 
     #[test]
     fn test_event_handler() {

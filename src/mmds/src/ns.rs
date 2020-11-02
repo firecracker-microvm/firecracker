@@ -22,7 +22,7 @@ use dumbo::pdu::tcp::Error as TcpSegmentError;
 use dumbo::pdu::Incomplete;
 use dumbo::tcp::handler::{self, RecvEvent, TcpIPv4Handler, WriteEvent};
 use dumbo::tcp::NextSegmentStatus;
-use logger::{Metric, METRICS};
+use logger::{IncMetric, METRICS};
 use utils::net::mac::MacAddr;
 use utils::time::timestamp_cycles;
 

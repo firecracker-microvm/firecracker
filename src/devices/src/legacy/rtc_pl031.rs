@@ -12,7 +12,7 @@ use std::time::Instant;
 use std::{io, result};
 
 use crate::BusDevice;
-use logger::{warn, Metric, METRICS};
+use logger::{warn, IncMetric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 //use bus::Error;

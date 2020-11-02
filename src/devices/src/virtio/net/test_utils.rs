@@ -304,7 +304,7 @@ pub mod test {
         Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
         VIRTQ_DESC_F_WRITE,
     };
-    use logger::{Metric, METRICS};
+    use logger::{IncMetric, METRICS};
     use net_gen::ETH_HLEN;
     use polly::event_manager::{EventManager, Subscriber};
     use std::cmp;
