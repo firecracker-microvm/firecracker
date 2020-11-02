@@ -1157,7 +1157,7 @@ pub enum SeccompLevel {
 impl SeccompLevel {
     /// Converts from a seccomp level value of type String to the corresponding SeccompLevel variant
     /// or returns an error if the parsing failed.
-    pub fn from_string(seccomp_value: String) -> std::result::Result<Self, SeccompError> {
+    pub fn from_string(seccomp_value: &str) -> std::result::Result<Self, SeccompError> {
         match seccomp_value.parse::<u8>() {
             Ok(0) => Ok(SeccompLevel::None),
             Ok(1) => Ok(SeccompLevel::Basic),
@@ -2019,38 +2019,26 @@ mod tests {
     #[test]
     fn test_parse_seccomp() {
         // Check `from_string()` behaviour for different scenarios.
-        match SeccompLevel::from_string("3".to_string()) {
+        match SeccompLevel::from_string("3") {
             Err(SeccompError::Level(_)) => (),
             _ => panic!("Unexpected result"),
         }
         assert_eq!(
-            format!(
-                "{}",
-                SeccompLevel::from_string("3".to_string()).unwrap_err()
-            ),
+            format!("{}", SeccompLevel::from_string("3").unwrap_err()),
             "'3' isn't a valid value for 'seccomp-level'. Must be 0, 1 or 2."
         );
-        match SeccompLevel::from_string("foo".to_string()) {
+        match SeccompLevel::from_string("foo") {
             Err(SeccompError::Parse(_)) => (),
             _ => panic!("Unexpected result"),
         }
         assert_eq!(
-            format!(
-                "{}",
-                SeccompLevel::from_string("foo".to_string()).unwrap_err()
-            ),
+            format!("{}", SeccompLevel::from_string("foo").unwrap_err()),
             "Could not parse to 'u8': invalid digit found in string"
         );
+        assert_eq!(SeccompLevel::from_string("0").unwrap(), SeccompLevel::None);
+        assert_eq!(SeccompLevel::from_string("1").unwrap(), SeccompLevel::Basic);
         assert_eq!(
-            SeccompLevel::from_string("0".to_string()).unwrap(),
-            SeccompLevel::None
-        );
-        assert_eq!(
-            SeccompLevel::from_string("1".to_string()).unwrap(),
-            SeccompLevel::Basic
-        );
-        assert_eq!(
-            SeccompLevel::from_string("2".to_string()).unwrap(),
+            SeccompLevel::from_string("2").unwrap(),
             SeccompLevel::Advanced
         );
     }
