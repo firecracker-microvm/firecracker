@@ -240,9 +240,9 @@ pub enum Value {
 }
 
 impl Value {
-    fn as_single_value(&self) -> Option<String> {
+    fn as_single_value(&self) -> Option<&String> {
         match self {
-            Value::Single(s) => Some(s.to_string()),
+            Value::Single(s) => Some(s),
             _ => None,
         }
     }
@@ -254,9 +254,9 @@ impl Value {
         }
     }
 
-    fn as_multiple(&self) -> Option<Vec<String>> {
+    fn as_multiple(&self) -> Option<&[String]> {
         match self {
-            Value::Multiple(v) => Some(v.to_vec()),
+            Value::Multiple(v) => Some(v),
             _ => None,
         }
     }
@@ -299,7 +299,7 @@ impl<'a> Arguments<'a> {
 
     /// Return the value of an argument if the argument exists and has the type
     /// String. Otherwise return None.
-    pub fn single_value(&self, arg_name: &'static str) -> Option<String> {
+    pub fn single_value(&self, arg_name: &'static str) -> Option<&String> {
         self.value_of(arg_name)
             .and_then(|arg_value| arg_value.as_single_value())
     }
@@ -314,7 +314,7 @@ impl<'a> Arguments<'a> {
 
     /// Return the value of an argument if the argument exists and has the type
     /// vector. Otherwise return None.
-    pub fn multiple_values(&self, arg_name: &'static str) -> Option<Vec<String>> {
+    pub fn multiple_values(&self, arg_name: &'static str) -> Option<&[String]> {
         self.value_of(arg_name)
             .and_then(|arg_value| arg_value.as_multiple())
     }
@@ -622,7 +622,7 @@ mod tests {
         let mut value = Value::Flag;
         assert!(Value::as_single_value(&value).is_none());
         value = Value::Single("arg".to_string());
-        assert_eq!(Value::as_single_value(&value).unwrap(), "arg".to_string());
+        assert_eq!(Value::as_single_value(&value).unwrap(), "arg");
 
         value = Value::Single("arg".to_string());
         assert!(!Value::as_flag(&value));
