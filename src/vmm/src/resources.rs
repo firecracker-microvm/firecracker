@@ -143,8 +143,7 @@ impl VmResources {
 
         if let Some(balloon_config) = vmm_config.balloon_device {
             resources
-                .balloon
-                .set(balloon_config)
+                .set_balloon_device(balloon_config)
                 .map_err(Error::BalloonDevice)?;
         }
 
@@ -221,6 +220,14 @@ impl VmResources {
     /// Gets a reference to the boot source configuration.
     pub fn boot_source(&self) -> Option<&BootConfig> {
         self.boot_config.as_ref()
+    }
+
+    /// Sets a balloon device to be attached when the VM starts.
+    pub fn set_balloon_device(
+        &mut self,
+        config: BalloonDeviceConfig,
+    ) -> Result<BalloonConfigError> {
+        self.balloon.set(config)
     }
 
     /// Set the guest boot source configuration.
