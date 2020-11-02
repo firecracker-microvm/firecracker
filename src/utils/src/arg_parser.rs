@@ -188,7 +188,7 @@ impl<'a> Argument<'a> {
     /// Keep a default value which will be used if the user didn't provide a value for
     /// the argument.
     pub fn default_value(mut self, default_value: &'a str) -> Self {
-        self.default_value = Some(Value::String(String::from(default_value)));
+        self.default_value = Some(Value::Single(String::from(default_value)));
         self
     }
 
@@ -231,33 +231,32 @@ impl<'a> Argument<'a> {
     }
 }
 
-/// Represents the value of an argument, which will be a `String` if
-/// the argument takes a value, or `bool` if it's a flag.
+/// Represents the type of argument, and the values it takes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
-    Bool(bool),
-    String(String),
-    Vector(Vec<String>),
+    Flag,
+    Single(String),
+    Multiple(Vec<String>),
 }
 
 impl Value {
-    fn as_string(&self) -> Option<String> {
+    fn as_single_value(&self) -> Option<String> {
         match self {
-            Value::String(s) => Some(s.to_string()),
+            Value::Single(s) => Some(s.to_string()),
             _ => None,
         }
     }
 
-    fn as_bool(&self) -> Option<bool> {
+    fn as_flag(&self) -> bool {
         match self {
-            Value::Bool(b) => Some(*b),
-            _ => None,
+            Value::Flag => true,
+            _ => false,
         }
     }
 
-    fn as_vector(&self) -> Option<Vec<String>> {
+    fn as_multiple(&self) -> Option<Vec<String>> {
         match self {
-            Value::Vector(v) => Some(v.to_vec()),
+            Value::Multiple(v) => Some(v.to_vec()),
             _ => None,
         }
     }
@@ -266,9 +265,9 @@ impl Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Bool(b) => write!(f, "{}", b),
-            Value::String(s) => write!(f, "\"{}\"", s),
-            Value::Vector(v) => write!(f, "{:?}", v),
+            Value::Flag => write!(f, "true"),
+            Value::Single(s) => write!(f, "\"{}\"", s),
+            Value::Multiple(v) => write!(f, "{:?}", v),
         }
     }
 }
@@ -300,23 +299,24 @@ impl<'a> Arguments<'a> {
 
     /// Return the value of an argument if the argument exists and has the type
     /// String. Otherwise return None.
-    pub fn value_as_string(&self, arg_name: &'static str) -> Option<String> {
+    pub fn single_value(&self, arg_name: &'static str) -> Option<String> {
         self.value_of(arg_name)
-            .and_then(|arg_value| arg_value.as_string())
+            .and_then(|arg_value| arg_value.as_single_value())
     }
 
-    /// Return the value of an argument if the argument exists and has the type
-    /// bool. Otherwise return None.
-    pub fn value_as_bool(&self, arg_name: &'static str) -> Option<bool> {
-        self.value_of(arg_name)
-            .and_then(|arg_value| arg_value.as_bool())
+    /// Return whether an `arg_name` argument of type flag exists.
+    pub fn flag_present(&self, arg_name: &'static str) -> bool {
+        match self.value_of(arg_name) {
+            Some(v) => v.as_flag(),
+            None => false,
+        }
     }
 
     /// Return the value of an argument if the argument exists and has the type
     /// vector. Otherwise return None.
-    pub fn value_as_vector(&self, arg_name: &'static str) -> Option<Vec<String>> {
+    pub fn multiple_values(&self, arg_name: &'static str) -> Option<Vec<String>> {
         self.value_of(arg_name)
-            .and_then(|arg_value| arg_value.as_vector())
+            .and_then(|arg_value| arg_value.as_multiple())
     }
 
     /// Get the extra arguments (all arguments after `--`).
@@ -353,7 +353,7 @@ impl<'a> Arguments<'a> {
         // returning.
         if args.contains(&HELP_ARG.to_string()) {
             let mut help_arg = Argument::new("help").help("Show the help message.");
-            help_arg.user_value = Some(Value::Bool(true));
+            help_arg.user_value = Some(Value::Flag);
             self.insert_arg(help_arg);
             return Ok(());
         }
@@ -363,7 +363,7 @@ impl<'a> Arguments<'a> {
         // returning.
         if args.contains(&VERSION_ARG.to_string()) {
             let mut version_arg = Argument::new("version");
-            version_arg.user_value = Some(Value::Bool(true));
+            version_arg.user_value = Some(Value::Flag);
             self.insert_arg(version_arg);
             return Ok(());
         }
@@ -436,18 +436,18 @@ impl<'a> Arguments<'a> {
 
                 if argument.allow_multiple {
                     match argument.user_value.clone() {
-                        Some(Value::Vector(mut v)) => {
+                        Some(Value::Multiple(mut v)) => {
                             v.push(val);
-                            Value::Vector(v)
+                            Value::Multiple(v)
                         }
-                        None => Value::Vector(vec![val]),
+                        None => Value::Multiple(vec![val]),
                         _ => return Err(Error::UnexpectedArgument(argument.name.to_string())),
                     }
                 } else {
-                    Value::String(val)
+                    Value::Single(val)
                 }
             } else {
-                Value::Bool(true)
+                Value::Flag
             };
 
             argument.user_value = Some(arg_val);
@@ -618,16 +618,16 @@ mod tests {
 
     #[test]
     fn test_value() {
-        //Test `as_string()` and `as_bool()` functions behaviour.
-        let mut value = Value::Bool(true);
-        assert!(Value::as_string(&value).is_none());
-        value = Value::String("arg".to_string());
-        assert_eq!(Value::as_string(&value).unwrap(), "arg".to_string());
+        //Test `as_string()` and `as_flag()` functions behaviour.
+        let mut value = Value::Flag;
+        assert!(Value::as_single_value(&value).is_none());
+        value = Value::Single("arg".to_string());
+        assert_eq!(Value::as_single_value(&value).unwrap(), "arg".to_string());
 
-        value = Value::String("arg".to_string());
-        assert!(Value::as_bool(&value).is_none());
-        value = Value::Bool(true);
-        assert_eq!(Value::as_bool(&value).unwrap(), true);
+        value = Value::Single("arg".to_string());
+        assert!(!Value::as_flag(&value));
+        value = Value::Flag;
+        assert!(Value::as_flag(&value));
     }
 
     #[test]
@@ -888,8 +888,8 @@ mod tests {
 
     #[test]
     fn test_value_display() {
-        assert_eq!(format!("{}", Value::Bool(true)), "true");
-        assert_eq!(format!("{}", Value::String("foo".to_string())), "\"foo\"");
+        assert_eq!(format!("{}", Value::Flag), "true");
+        assert_eq!(format!("{}", Value::Single("foo".to_string())), "\"foo\"");
     }
 
     #[test]
