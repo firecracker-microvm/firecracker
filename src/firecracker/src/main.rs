@@ -181,11 +181,11 @@ fn main() {
         app_name: "Firecracker".to_string(),
     };
 
-    LOGGER.set_instance_id(instance_id);
+    LOGGER.set_instance_id(instance_id.to_owned());
 
     if let Some(log) = arguments.single_value("log-path") {
         // It's safe to unwrap here because the field's been provided with a default value.
-        let level = arguments.single_value("level").unwrap();
+        let level = arguments.single_value("level").unwrap().to_owned();
         let logger_level = LoggerLevel::from_string(level).unwrap_or_else(|err| {
             error!("Invalid value for logger level: {}. Possible values: [Error, Warning, Info, Debug]", err);
             process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));

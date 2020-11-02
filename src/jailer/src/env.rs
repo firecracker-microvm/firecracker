@@ -77,7 +77,7 @@ impl Env {
             .single_value("id")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("id".to_string())))?;
 
-        validators::validate_instance_id(&id.as_str()).map_err(Error::InvalidInstanceId)?;
+        validators::validate_instance_id(id).map_err(Error::InvalidInstanceId)?;
 
         let exec_file = arguments
             .single_value("exec-file")
@@ -104,20 +104,24 @@ impl Env {
         }
 
         chroot_dir.push(&exec_file_name);
-        chroot_dir.push(&id);
+        chroot_dir.push(id);
         chroot_dir.push("root");
 
         let uid_str = arguments
             .single_value("uid")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("uid".to_string())))?;
-        let uid = uid_str.parse::<u32>().map_err(|_| Error::Uid(uid_str))?;
+        let uid = uid_str
+            .parse::<u32>()
+            .map_err(|_| Error::Uid(uid_str.to_owned()))?;
 
         let gid_str = arguments
             .single_value("gid")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("gid".to_string())))?;
-        let gid = gid_str.parse::<u32>().map_err(|_| Error::Gid(gid_str))?;
+        let gid = gid_str
+            .parse::<u32>()
+            .map_err(|_| Error::Gid(gid_str.to_owned()))?;
 
-        let netns = arguments.single_value("netns");
+        let netns = arguments.single_value("netns").cloned();
 
         let daemonize = arguments.flag_present("daemonize");
 
@@ -128,10 +132,10 @@ impl Env {
         if let Some(numa_node_str) = arguments.single_value("node") {
             let numa_node = numa_node_str
                 .parse::<u32>()
-                .map_err(|_| Error::NumaNode(numa_node_str))?;
+                .map_err(|_| Error::NumaNode(numa_node_str.to_owned()))?;
 
             if let Ok(mut numa_cgroups) =
-                cgroup::cgroups_from_numa_node(numa_node, &id, &exec_file_name)
+                cgroup::cgroups_from_numa_node(numa_node, id, &exec_file_name)
             {
                 cgroups.append(&mut numa_cgroups);
             }
@@ -148,7 +152,7 @@ impl Env {
                 let cgroup = Cgroup::new(
                     aux[0].to_string(), // cgroup file
                     aux[1].to_string(), // cgroup value
-                    &id,
+                    id,
                     &exec_file_name,
                 )?;
 
@@ -157,7 +161,7 @@ impl Env {
         }
 
         Ok(Env {
-            id,
+            id: id.to_owned(),
             chroot_dir,
             exec_file_path,
             uid,
