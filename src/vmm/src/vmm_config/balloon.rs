@@ -70,7 +70,7 @@ type Result<T> = std::result::Result<T, BalloonConfigError>;
 
 /// This struct represents the strongly typed equivalent of the json body
 /// from balloon related requests.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonDeviceConfig {
     /// Target balloon size in MB.
@@ -117,9 +117,15 @@ pub struct BalloonUpdateStatsConfig {
 }
 
 /// A builder for `Balloon` devices from 'BalloonDeviceConfig'.
-#[derive(Default)]
 pub struct BalloonBuilder {
     inner: Option<MutexBalloon>,
+}
+
+#[cfg(not(test))]
+impl Default for BalloonBuilder {
+    fn default() -> BalloonBuilder {
+        BalloonBuilder { inner: None }
+    }
 }
 
 impl BalloonBuilder {
@@ -171,6 +177,14 @@ pub(crate) mod tests {
             must_tell_host: false,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
+        }
+    }
+
+    impl Default for BalloonBuilder {
+        fn default() -> BalloonBuilder {
+            let mut balloon = BalloonBuilder::new();
+            assert!(balloon.set(BalloonDeviceConfig::default()).is_ok());
+            balloon
         }
     }
 

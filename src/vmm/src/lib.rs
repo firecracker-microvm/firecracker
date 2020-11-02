@@ -533,7 +533,7 @@ impl Vmm {
     }
 
     /// Returns a reference to the balloon device if present.
-    fn balloon_config(&self) -> std::result::Result<BalloonConfig, BalloonError> {
+    pub fn balloon_config(&self) -> std::result::Result<BalloonConfig, BalloonError> {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             let virtio_device = busdev
@@ -560,7 +560,7 @@ impl Vmm {
     }
 
     /// Returns the latest balloon statistics if they are enabled.
-    fn latest_balloon_stats(&self) -> std::result::Result<BalloonStats, BalloonError> {
+    pub fn latest_balloon_stats(&self) -> std::result::Result<BalloonStats, BalloonError> {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             let virtio_device = busdev
@@ -589,7 +589,10 @@ impl Vmm {
     }
 
     /// Updates configuration for the balloon device target size.
-    fn update_balloon_config(&mut self, amount_mb: u32) -> std::result::Result<(), BalloonError> {
+    pub fn update_balloon_config(
+        &mut self,
+        amount_mb: u32,
+    ) -> std::result::Result<(), BalloonError> {
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             {
@@ -621,7 +624,7 @@ impl Vmm {
     }
 
     /// Updates configuration for the balloon device as described in `balloon_stats_update`.
-    fn update_balloon_stats_config(
+    pub fn update_balloon_stats_config(
         &mut self,
         stats_polling_interval_s: u16,
     ) -> std::result::Result<(), BalloonError> {
