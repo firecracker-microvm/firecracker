@@ -208,10 +208,6 @@ def _test_compare_mem_files(context):
     basevm.kill()
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_patch_drive_snapshot(bin_cloner_path):
     """Test scenario: 5 full sequential snapshots."""
     logger = logging.getLogger("snapshot_sequence")
@@ -271,10 +267,6 @@ def test_patch_drive_snapshot(bin_cloner_path):
     microvm.kill()
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_5_full_snapshots(network_config,
                           bin_cloner_path,
                           bin_vsock_path,
@@ -315,10 +307,6 @@ def test_5_full_snapshots(network_config,
     test_matrix.run_test(_test_seq_snapshots)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_5_inc_snapshots(network_config,
                          bin_cloner_path):
     """Test scenario: 5 incremental snapshots with disk intensive workload."""
@@ -426,10 +414,6 @@ def test_load_snapshot_failure_handling(bin_cloner_path):
      have ended with error!"
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_cmp_full_and_first_diff_mem(network_config,
                                      bin_cloner_path):
     """Test scenario: cmp memory of 2 consecutive full and diff snapshots."""
