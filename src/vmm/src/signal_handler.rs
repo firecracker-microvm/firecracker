@@ -6,7 +6,7 @@ use libc::{
     SIGXFSZ,
 };
 
-use logger::{error, Metric, METRICS};
+use logger::{error, IncMetric, METRICS};
 use utils::signal::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure

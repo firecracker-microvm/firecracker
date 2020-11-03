@@ -4,7 +4,7 @@
 use super::super::VmmAction;
 use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
-use logger::{Metric, METRICS};
+use logger::{IncMetric, METRICS};
 use vmm::vmm_config::logger::LoggerConfig;
 
 pub fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {

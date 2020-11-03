@@ -10,7 +10,7 @@ use std::net::Ipv4Addr;
 #[serde(deny_unknown_fields)]
 pub struct MmdsConfig {
     /// MMDS IPv4 configured address.
-    ipv4_address: Option<Ipv4Addr>,
+    pub ipv4_address: Option<Ipv4Addr>,
 }
 
 impl MmdsConfig {

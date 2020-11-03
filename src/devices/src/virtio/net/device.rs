@@ -18,7 +18,7 @@ use crate::{report_net_event_fail, Error as DeviceError};
 
 use dumbo::pdu::ethernet::EthernetFrame;
 use libc::EAGAIN;
-use logger::{error, warn, Metric, METRICS};
+use logger::{error, warn, IncMetric, METRICS};
 use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 #[cfg(not(test))]
@@ -852,7 +852,7 @@ pub mod tests {
     };
     use dumbo::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
     use dumbo::pdu::ethernet::ETHERTYPE_ARP;
-    use logger::{Metric, METRICS};
+    use logger::{IncMetric, METRICS};
     use rate_limiter::{RateLimiter, TokenBucket, TokenType};
     use virtio_gen::virtio_net::{
         virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
