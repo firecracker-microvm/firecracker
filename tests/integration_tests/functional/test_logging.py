@@ -6,7 +6,6 @@ It checks the response of the API configuration calls and the logs that show
 up in the configured logging FIFO.
 """
 import os
-import platform
 import re
 
 from time import strptime
@@ -238,21 +237,12 @@ def _test_log_config(
     # Configure logging.
     log_fifo_path = os.path.join(microvm.path, 'log_fifo')
     log_fifo = log_tools.Fifo(log_fifo_path)
-    if platform.machine() == 'x86_64':
-        response = microvm.logger.put(
-            log_path=microvm.create_jailed_resource(log_fifo.path),
-            level=log_level,
-            show_level=show_level,
-            show_log_origin=show_origin
-           )
-    else:
-        response = microvm.logger.put(
-            log_path=microvm.create_jailed_resource(log_fifo.path),
-            level=log_level,
-            show_level=show_level,
-            show_log_origin=show_origin,
-           )
-
+    response = microvm.logger.put(
+        log_path=microvm.create_jailed_resource(log_fifo.path),
+        level=log_level,
+        show_level=show_level,
+        show_log_origin=show_origin
+       )
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     microvm.start_console_logger(log_fifo)
