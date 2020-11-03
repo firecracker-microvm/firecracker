@@ -4,7 +4,6 @@
 
 import logging
 import os
-import platform
 import tempfile
 import pytest
 from conftest import _test_images_s3_bucket
@@ -148,10 +147,6 @@ def _test_seq_snapshots(context):
         microvm.kill()
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_patch_drive_snapshot(bin_cloner_path):
     """Test scenario: 5 full sequential snapshots."""
     logger = logging.getLogger("snapshot_sequence")
@@ -211,10 +206,6 @@ def test_patch_drive_snapshot(bin_cloner_path):
     microvm.kill()
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_5_full_snapshots(network_config,
                           bin_cloner_path,
                           bin_vsock_path,
