@@ -280,10 +280,6 @@ def test_snapshot_create_diff_latency(network_config,
     test_matrix.run_test(_test_snapshot_create_latency)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_snapshot_resume_latency(network_config,
                                  bin_cloner_path):
     """Test scenario: Snapshot load performance measurement."""
