@@ -3,8 +3,6 @@
 """Basic tests scenarios for snapshot save/restore."""
 
 import os
-import platform
-import pytest
 from framework.microvms import VMNano
 import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -30,10 +28,6 @@ def verify_net_emulation_paused(metrics):
     print(net_metrics)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_pause_resume(bin_cloner_path):
     """Test scenario: boot/pause/resume."""
     vm_instance = VMNano.spawn(bin_cloner_path)
