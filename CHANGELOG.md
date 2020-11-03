@@ -8,6 +8,7 @@
   run.
 - Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
   run.
+- Added the virtio traditional memory ballooning device.
 
 ## [0.23.0]
 
