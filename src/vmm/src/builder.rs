@@ -25,7 +25,7 @@ use crate::{device_manager, Error, Vmm, VmmEventsObserver};
 
 use arch::InitrdConfig;
 use devices::legacy::Serial;
-use devices::virtio::{Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
+use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::warn;
 use polly::event_manager::{Error as EventManagerError, EventManager, Subscriber};
@@ -314,8 +314,15 @@ pub fn build_microvm_for_boot(
         vcpu_config.vcpu_count,
     )?;
 
+    // The boot timer device needs to be the first device attached in order
+    // to maintain the same MMIO address referenced in the documentation
+    // and tests.
     if vm_resources.boot_timer {
         attach_boot_timer_device(&mut vmm, request_ts)?;
+    }
+
+    if let Some(balloon) = vm_resources.balloon.get() {
+        attach_balloon_device(&mut vmm, &mut boot_cmdline, balloon, event_manager)?;
     }
 
     attach_block_devices(
@@ -787,18 +794,30 @@ fn attach_unixsock_vsock_device(
     attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
 }
 
+fn attach_balloon_device(
+    vmm: &mut Vmm,
+    cmdline: &mut KernelCmdline,
+    balloon: &Arc<Mutex<Balloon>>,
+    event_manager: &mut EventManager,
+) -> std::result::Result<(), StartMicrovmError> {
+    let id = String::from(balloon.lock().expect("Poisoned lock").id());
+    // The device mutex mustn't be locked here otherwise it will deadlock.
+    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
+}
+
 #[cfg(test)]
 pub mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use arch::DeviceType;
-    use devices::virtio::{TYPE_BLOCK, TYPE_VSOCK};
+    use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use kernel::cmdline::Cmdline;
     use polly::event_manager::EventManager;
     use utils::tempfile::TempFile;
@@ -939,6 +958,24 @@ pub mod tests {
         assert!(vmm
             .mmio_device_manager
             .get_device(DeviceType::Virtio(TYPE_VSOCK), &vsock_dev_id)
+            .is_some());
+    }
+
+    pub(crate) fn insert_balloon_device(
+        vmm: &mut Vmm,
+        cmdline: &mut Cmdline,
+        event_manager: &mut EventManager,
+        balloon_config: BalloonDeviceConfig,
+    ) {
+        let mut builder = BalloonBuilder::new();
+        assert!(builder.set(balloon_config).is_ok());
+        let balloon = builder.get().unwrap();
+
+        assert!(attach_balloon_device(vmm, cmdline, balloon, event_manager).is_ok());
+
+        assert!(vmm
+            .mmio_device_manager
+            .get_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
             .is_some());
     }
 
@@ -1190,6 +1227,27 @@ pub mod tests {
             .mmio_device_manager
             .get_device(DeviceType::BootTimer, &DeviceType::BootTimer.to_string())
             .is_some());
+    }
+
+    #[test]
+    fn test_attach_balloon_device() {
+        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut vmm = default_vmm();
+
+        let balloon_config = BalloonDeviceConfig {
+            amount_mb: 0,
+            must_tell_host: false,
+            deflate_on_oom: false,
+            stats_polling_interval_s: 0,
+        };
+
+        let mut cmdline = default_kernel_cmdline();
+        insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_config);
+        // Check if the vsock device is described in kernel_cmdline.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        assert!(cmdline
+            .as_str()
+            .contains("virtio_mmio.device=4K@0xd0000000:5"));
     }
 
     #[test]

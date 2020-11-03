@@ -1,6 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use serde::Serialize;
 use std::cmp;
 use std::io::Write;
 use std::result::Result;
@@ -12,8 +13,6 @@ use ::timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use ::logger::{error, IncMetric, METRICS};
 use ::utils::eventfd::EventFd;
-use ::versionize::{VersionMap, Versionize, VersionizeResult};
-use ::versionize_derive::Versionize;
 use ::virtio_gen::virtio_blk::*;
 use ::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
@@ -23,6 +22,7 @@ use super::{
         ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON, VIRTIO_MMIO_INT_VRING,
     },
     utils::{compact_page_frame_numbers, remove_range},
+    BALLOON_DEV_ID,
 };
 
 use crate::report_balloon_event_fail;
@@ -41,11 +41,21 @@ macro_rules! mem_of_active_device {
     };
 }
 
+fn mb_to_pages(amount_mb: u32) -> Result<u32, BalloonError> {
+    amount_mb
+        .checked_mul(MB_TO_4K_PAGES)
+        .ok_or(BalloonError::TooManyPagesRequested)
+}
+
+fn pages_to_mb(amount_pages: u32) -> u32 {
+    amount_pages / MB_TO_4K_PAGES
+}
+
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Versionize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct ConfigSpace {
-    num_pages: u32,
-    actual_pages: u32,
+    pub num_pages: u32,
+    pub actual_pages: u32,
 }
 
 // Safe because ConfigSpace only contains plain data.
@@ -64,17 +74,41 @@ struct BalloonStat {
 unsafe impl ByteValued for BalloonStat {}
 
 // BalloonStats holds statistics returned from the stats_queue.
-#[derive(Clone, Default, Debug, PartialEq, Versionize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize)]
+pub struct BalloonConfig {
+    pub amount_mb: u32,
+    pub deflate_on_oom: bool,
+    pub must_tell_host: bool,
+    pub stats_polling_interval_s: u16,
+}
+
+// BalloonStats holds statistics returned from the stats_queue.
+#[derive(Clone, Default, Debug, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BalloonStats {
+    pub target_pages: u32,
+    pub actual_pages: u32,
+    pub target_mb: u32,
+    pub actual_mb: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub swap_in: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub swap_out: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub major_faults: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub minor_faults: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub free_memory: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub total_memory: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub available_memory: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub disk_caches: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hugetlb_allocations: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hugetlb_failures: Option<u64>,
 }
 
@@ -128,7 +162,7 @@ pub struct Balloon {
 
 impl Balloon {
     pub fn new(
-        num_pages: u32,
+        amount_mb: u32,
         must_tell_host: bool,
         deflate_on_oom: bool,
         stats_polling_interval_s: u16,
@@ -154,7 +188,13 @@ impl Balloon {
             EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
         ];
 
-        let queues = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
+        let mut queues: Vec<Queue> = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
+
+        // The VirtIO specification states that the statistics queue should
+        // not be present at all if the statistics are not enabled.
+        if stats_polling_interval_s == 0 {
+            let _ = queues.remove(STATS_INDEX);
+        }
 
         let stats_timer =
             TimerFd::new_custom(ClockId::Monotonic, true, true).map_err(BalloonError::Timer)?;
@@ -163,7 +203,7 @@ impl Balloon {
             avail_features,
             acked_features: 0u64,
             config_space: ConfigSpace {
-                num_pages,
+                num_pages: mb_to_pages(amount_mb)?,
                 actual_pages: 0,
             },
             interrupt_status: Arc::new(AtomicUsize::new(0)),
@@ -346,16 +386,87 @@ impl Balloon {
         Ok(())
     }
 
-    pub fn update_num_pages(&mut self, num_pages: u32) {
-        self.config_space.num_pages = num_pages;
+    /// Process device virtio queue(s).
+    pub fn process_virtio_queues(&mut self) {
+        let _ = self.process_inflate();
+        let _ = self.process_deflate_queue();
+    }
+
+    pub fn id(&self) -> &str {
+        BALLOON_DEV_ID
+    }
+
+    pub fn update_size(&mut self, amount_mb: u32) -> Result<(), BalloonError> {
+        if self.is_activated() {
+            self.config_space.num_pages = mb_to_pages(amount_mb)?;
+            Ok(())
+        } else {
+            Err(BalloonError::DeviceNotActive)
+        }
+    }
+
+    pub fn update_stats_polling_interval(&mut self, interval_s: u16) -> Result<(), BalloonError> {
+        if self.stats_polling_interval_s == interval_s {
+            return Ok(());
+        }
+
+        if self.stats_polling_interval_s == 0 || interval_s == 0 {
+            return Err(BalloonError::StatisticsStateChange);
+        }
+
+        self.stats_polling_interval_s = interval_s;
+        self.update_timer_state();
+        Ok(())
+    }
+
+    pub fn update_timer_state(&mut self) {
+        let timer_state = TimerState::Periodic {
+            current: Duration::from_secs(self.stats_polling_interval_s as u64),
+            interval: Duration::from_secs(self.stats_polling_interval_s as u64),
+        };
+        self.stats_timer
+            .set_state(timer_state, SetTimeFlags::Default);
     }
 
     pub fn num_pages(&self) -> u32 {
         self.config_space.num_pages
     }
 
-    pub fn latest_stats(&self) -> &BalloonStats {
-        &self.latest_stats
+    pub fn size_mb(&self) -> u32 {
+        pages_to_mb(self.config_space.num_pages)
+    }
+
+    pub fn deflate_on_oom(&self) -> bool {
+        self.avail_features & (1u64 << VIRTIO_BALLOON_F_DEFLATE_ON_OOM) != 0
+    }
+
+    pub fn must_tell_host(&self) -> bool {
+        self.avail_features & (1u64 << VIRTIO_BALLOON_F_MUST_TELL_HOST) != 0
+    }
+
+    pub fn stats_polling_interval_s(&self) -> u16 {
+        self.stats_polling_interval_s
+    }
+
+    pub fn latest_stats(&mut self) -> Option<&BalloonStats> {
+        if self.stats_enabled() {
+            self.latest_stats.target_pages = self.config_space.num_pages;
+            self.latest_stats.actual_pages = self.config_space.actual_pages;
+            self.latest_stats.target_mb = pages_to_mb(self.latest_stats.target_pages);
+            self.latest_stats.actual_mb = pages_to_mb(self.latest_stats.actual_pages);
+            Some(&self.latest_stats)
+        } else {
+            None
+        }
+    }
+
+    pub fn config(&self) -> BalloonConfig {
+        BalloonConfig {
+            amount_mb: self.size_mb(),
+            deflate_on_oom: self.deflate_on_oom(),
+            must_tell_host: self.must_tell_host(),
+            stats_polling_interval_s: self.stats_polling_interval_s(),
+        }
     }
 
     pub(crate) fn stats_enabled(&self) -> bool {
@@ -445,12 +556,7 @@ impl VirtioDevice for Balloon {
         }
 
         if self.stats_enabled() {
-            let timer_state = TimerState::Periodic {
-                current: Duration::from_secs(self.stats_polling_interval_s as u64),
-                interval: Duration::from_secs(self.stats_polling_interval_s as u64),
-            };
-            self.stats_timer
-                .set_state(timer_state, SetTimeFlags::Default);
+            self.update_timer_state();
         }
 
         Ok(())
@@ -483,6 +589,10 @@ pub(crate) mod tests {
             self.config_space.actual_pages
         }
 
+        pub fn update_num_pages(&mut self, num_pages: u32) {
+            self.config_space.num_pages = num_pages;
+        }
+
         pub fn update_actual_pages(&mut self, actual_pages: u32) {
             self.config_space.actual_pages = actual_pages;
         }
@@ -497,6 +607,10 @@ pub(crate) mod tests {
     fn test_update_balloon_stats() {
         // Test all feature combinations.
         let mut stats = BalloonStats {
+            target_pages: 5120,
+            actual_pages: 2560,
+            target_mb: 20,
+            actual_mb: 10,
             swap_in: Some(0),
             swap_out: Some(0),
             major_faults: Some(0),
@@ -583,12 +697,22 @@ pub(crate) mod tests {
     fn test_virtio_read_config() {
         let balloon = Balloon::new(0x10, true, true, 0, false).unwrap();
 
+        let cfg = BalloonConfig {
+            amount_mb: 16,
+            deflate_on_oom: true,
+            must_tell_host: true,
+            stats_polling_interval_s: 0,
+        };
+        assert_eq!(balloon.config(), cfg);
+
         let mut actual_config_space = [0u8; CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config_space);
         // The first 4 bytes are num_pages, the last 4 bytes are actual_pages.
         // The config space is little endian.
+        // 0x10 MB in the constructor corresponds to 0x1000 pages in the
+        // config space.
         let expected_config_space: [u8; CONFIG_SPACE_SIZE] =
-            [0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+            [0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         assert_eq!(actual_config_space, expected_config_space);
 
         // Invalid read.
@@ -844,7 +968,7 @@ pub(crate) mod tests {
                 // Don't check for completion yet.
             });
 
-            let stats = balloon.latest_stats();
+            let stats = balloon.latest_stats().unwrap();
             let expected_stats = BalloonStats {
                 swap_out: Some(0x1),
                 free_memory: Some(0x5678),
@@ -868,20 +992,46 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_update_stats_interval() {
+        let mut balloon = Balloon::new(0, true, true, 0, false).unwrap();
+        assert_eq!(
+            format!("{:?}", balloon.update_stats_polling_interval(1)),
+            "Err(StatisticsStateChange)"
+        );
+        assert!(balloon.update_stats_polling_interval(0).is_ok());
+
+        let mut balloon = Balloon::new(0, true, true, 1, false).unwrap();
+        assert_eq!(
+            format!("{:?}", balloon.update_stats_polling_interval(0)),
+            "Err(StatisticsStateChange)"
+        );
+        assert!(balloon.update_stats_polling_interval(1).is_ok());
+        assert!(balloon.update_stats_polling_interval(2).is_ok());
+    }
+
+    #[test]
     fn test_num_pages() {
         let mut balloon = Balloon::new(0, true, true, 0, false).unwrap();
+        // Assert that we can't update an inactive device.
+        assert!(balloon.update_size(1).is_err());
+        // Switch the state to active.
+        balloon.device_state = DeviceState::Activated(GuestMemoryMmap::new());
+
         assert_eq!(balloon.num_pages(), 0);
         assert_eq!(balloon.actual_pages(), 0);
 
         // Update fields through the API.
         balloon.update_actual_pages(0x1234);
-        balloon.update_num_pages(0x1000);
+        balloon.update_num_pages(0x100);
+        assert_eq!(balloon.num_pages(), 0x100);
+        assert!(balloon.update_size(16).is_ok());
 
         let mut actual_config = vec![0; CONFIG_SPACE_SIZE];
         balloon.read_config(0, &mut actual_config);
         assert_eq!(actual_config, vec![0x0, 0x10, 0x0, 0x0, 0x34, 0x12, 0, 0]);
         assert_eq!(balloon.num_pages(), 0x1000);
         assert_eq!(balloon.actual_pages(), 0x1234);
+        assert_eq!(balloon.size_mb(), 16);
 
         // Update fields through the config space.
         let expected_config = vec![0x44, 0x33, 0x22, 0x11, 0x78, 0x56, 0x34, 0x12];
