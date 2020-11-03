@@ -108,6 +108,8 @@ class MicrovmBuilder:
         )
         assert vm.api_session.is_status_no_content(response.status_code)
 
+        vm.vcpus_count = int(microvm_config['vcpu_count'])
+
         # Reset root path so next microvm is built some place else.
         self.init_root_path()
         return vm

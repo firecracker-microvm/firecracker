@@ -136,6 +136,7 @@ class Microvm:
         # Cpu load monitoring has to be explicitly enabled using
         # the `enable_cpu_load_monitor` method.
         self._cpu_load_monitor = None
+        self._vcpus_count = None
 
         # External clone/exec tool, because Python can't into clone
         self.bin_cloner_path = bin_cloner_path
@@ -354,6 +355,43 @@ class Microvm:
             self._api_socket,
             self._api_session
         )
+
+    @property
+    def vcpus_count(self):
+        """Get the vcpus count."""
+        return self._vcpus_count
+
+    @vcpus_count.setter
+    def vcpus_count(self, vcpus_count: int):
+        """Set the vcpus count."""
+        self._vcpus_count = vcpus_count
+
+    def pin_vmm(self, cpu_id: int) -> bool:
+        """Pin the firecracker process VMM thread to a cpu list."""
+        if self.jailer_clone_pid:
+            for thread in utils.ProcessManager.get_threads(
+                    self.jailer_clone_pid)["firecracker"]:
+                utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
+                return True
+        return False
+
+    def pin_vcpu(self, vcpu_id: int, cpu_id: int):
+        """Pin the firecracker vcpu thread to a cpu list."""
+        if self.jailer_clone_pid:
+            for thread in utils.ProcessManager.get_threads(
+                    self.jailer_clone_pid)[f"fc_vcpu {vcpu_id}"]:
+                utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
+            return True
+        return False
+
+    def pin_api(self, cpu_id: int):
+        """Pin the firecracker process API server thread to a cpu list."""
+        if self.jailer_clone_pid:
+            for thread in utils.ProcessManager.get_threads(
+                    self.jailer_clone_pid)["fc_api"]:
+                utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
+            return True
+        return False
 
     def spawn(self, create_logger=True, log_file='log_fifo', log_level='Info'):
         """Start a microVM as a daemon or in a screen session."""
