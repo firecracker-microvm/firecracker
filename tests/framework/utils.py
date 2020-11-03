@@ -19,29 +19,32 @@ CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
 
 
-class ProcessCpuAffinity:
-    """Manage process cpu affinity."""
+class ProcessManager:
+    """Host process manager.
 
-    def __init__(self, pid):
-        """Initialize CpuAffinity class."""
-        self._pid = pid
+    TODO: Extend the management to guest processes.
+    TODO: Extend with automated process/cpu_id pinning accountability.
+    """
 
-    def get_threads(self) -> dict:
+    @staticmethod
+    def get_threads(pid: int) -> dict:
         """Return dict consisting of child threads."""
         threads_map = defaultdict(list)
-        proc = psutil.Process(self._pid)
+        proc = psutil.Process(pid)
         for thread in proc.threads():
             threads_map[psutil.Process(thread.id).name()].append(thread.id)
         return threads_map
 
-    def get_cpu_affinity(self) -> list:
+    @staticmethod
+    def get_cpu_affinity(pid: int) -> list:
         """Get CPU affinity for a thread."""
-        return psutil.Process(self._pid).cpu_affinity()
+        return psutil.Process(pid).cpu_affinity()
 
-    def set_cpu_affinity(self, cpulist: list) -> list:
+    @staticmethod
+    def set_cpu_affinity(pid: int, cpulist: list) -> list:
         """Set CPU affinity for a thread."""
         real_cpulist = list(map(CpuMap, cpulist))
-        return psutil.Process(self._pid).cpu_affinity(real_cpulist)
+        return psutil.Process(pid).cpu_affinity(real_cpulist)
 
 
 # pylint: disable=R0903
@@ -55,13 +58,21 @@ class CpuMap:
     starting from 0.
     """
 
-    arr = []
+    arr = list()
 
     def __new__(cls, x):
         """Instantiate the class field."""
+        assert CpuMap.len() > x
         if not CpuMap.arr:
             CpuMap.arr = CpuMap._cpus()
         return CpuMap.arr[x]
+
+    @staticmethod
+    def len():
+        """Get the host cpus count."""
+        if not CpuMap.arr:
+            CpuMap.arr = CpuMap._cpus()
+        return len(CpuMap.arr)
 
     @classmethod
     def _cpuset_mountpoint(cls):
