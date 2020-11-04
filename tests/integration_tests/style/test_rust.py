@@ -1,31 +1,29 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Tests ensuring codebase contains neccessary licenses."""
+"""Tests ensuring codebase style compliance for Rust."""
 
 import os
-import platform
-
-import pytest
+import framework.utils as utils
 
 AMAZON_COPYRIGHT_YEARS = (2018, 2019, 2020)
 AMAZON_COPYRIGHT = (
     "Copyright {} Amazon.com, Inc. or its affiliates. All Rights Reserved."
-    )
+)
 AMAZON_LICENSE = (
-        "SPDX-License-Identifier: Apache-2.0"
-    )
+    "SPDX-License-Identifier: Apache-2.0"
+)
 CHROMIUM_COPYRIGHT = (
     "Copyright 2017 The Chromium OS Authors. All rights reserved."
-    )
+)
 CHROMIUM_LICENSE = (
     "Use of this source code is governed by a BSD-style license that can be"
-    )
+)
 TUNTAP_COPYRIGHT = (
     "Copyright TUNTAP, 2017 The Chromium OS Authors. All rights reserved."
-    )
+)
 TUNTAP_LICENSE = (
     "Use of this source code is governed by a BSD-style license that can be"
-    )
+)
 
 EXCLUDED_DIRECTORIES = ((os.path.join(os.getcwd(), 'build')))
 
@@ -73,11 +71,48 @@ def _validate_license(filename):
     return True
 
 
-@pytest.mark.timeout(120)
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="no need to test it on multiple platforms"
-)
+def test_rust_style():
+    """Fail if there's misbehaving Rust style in this repo."""
+    # Check that the output is empty.
+    _, stdout, _ = utils.run_cmd(
+        'cargo fmt --all -- --check')
+
+    # rustfmt prepends `"Diff in"` to the reported output.
+    assert "Diff in" not in stdout
+
+
+def test_ensure_mod_tests():
+    """Check that files containing unit tests have a 'tests' module defined."""
+    # List all source files containing rust #[test] attribute,
+    # (excluding generated files and integration test directories).
+    # Take the list and check each file contains 'mod tests {', output file
+    # name if it doesn't.
+    cmd = (
+        '/bin/bash '
+        '-c '
+        '"grep '
+        '--files-without-match '
+        '\'mod tests {\' '
+        '\\$(grep '
+        '--files-with-matches '
+        '--recursive '
+        '--exclude-dir=src/*_gen/* '
+        '\'\\#\\[test\\]\' ../src/*/src)" '
+    )
+
+    # The outer grep returns 0 even if it finds files without the match, so we
+    # ignore the return code.
+    result = utils.run_cmd(cmd, no_shell=False, ignore_return_code=True)
+
+    error_msg = (
+        'Tests found in files without a "tests" module:\n {}'
+        'To ensure code coverage is reported correctly, please check that '
+        'your tests are in a module named "tests".'.format(result.stdout)
+    )
+
+    assert not result.stdout, error_msg
+
+
 def test_for_valid_licenses():
     """Fail if a file lacks an Amazon or Chromium OS license."""
     for subdir, _, files in os.walk(os.getcwd()):
