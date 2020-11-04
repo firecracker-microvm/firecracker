@@ -22,6 +22,10 @@ use crate::persist::{CreateSnapshotError, LoadSnapshotError};
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config;
+use crate::vmm_config::balloon::{
+    BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
+    BalloonUpdateStatsConfig,
+};
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
 use crate::vmm_config::instance_info::InstanceInfo;
@@ -56,6 +60,10 @@ pub enum VmmAction {
     /// after the microVM has booted and only when the microVM is in `Paused` state.
     #[cfg(target_arch = "x86_64")]
     CreateSnapshot(CreateSnapshotParams),
+    /// Get the balloon device configuration.
+    GetBalloonConfig,
+    /// Get the ballon device latest statistics.
+    GetBalloonStats,
     /// Get the configuration of the microVM.
     GetVmConfiguration,
     /// Flush the metrics. This action can only be called after the logger has been configured.
@@ -76,6 +84,10 @@ pub enum VmmAction {
     Pause,
     /// Resume the guest, by resuming the microVM VCPUs.
     Resume,
+    /// Set the balloon device or update the one that already exists using the
+    /// `BalloonDeviceConfig` as input. This action can only be called before the microVM
+    /// has booted.
+    SetBalloonDevice(BalloonDeviceConfig),
     /// Set the MMDS configuration.
     SetMmdsConfiguration(MmdsConfig),
     /// Set the vsock device or update the one that already exists using the
@@ -91,6 +103,10 @@ pub enum VmmAction {
     /// driver is listening on the guest end, this can be used to shut down the microVM gracefully.
     #[cfg(target_arch = "x86_64")]
     SendCtrlAltDel,
+    /// Update the balloon size, after microVM start.
+    UpdateBalloon(BalloonUpdateConfig),
+    /// Update the balloon statistics polling interval, after microVM start.
+    UpdateBalloonStatistics(BalloonUpdateStatsConfig),
     /// Update the path of an existing block device. The data associated with this variant
     /// represents the `drive_id` and the `path_on_host`.
     UpdateBlockDevicePath(String, String),
@@ -102,6 +118,8 @@ pub enum VmmAction {
 /// Wrapper for all errors associated with VMM actions.
 #[derive(Debug)]
 pub enum VmmActionError {
+    /// The action `SetBalloonDevice` failed because of bad user input.
+    BalloonConfig(BalloonConfigError),
     /// The action `ConfigureBootSource` failed because of bad user input.
     BootSource(BootSourceConfigError),
     /// The action `CreateSnapshot` failed.
@@ -146,6 +164,7 @@ impl Display for VmmActionError {
             f,
             "{}",
             match self {
+                BalloonConfig(err) => err.to_string(),
                 BootSource(err) => err.to_string(),
                 #[cfg(target_arch = "x86_64")]
                 CreateSnapshot(err) => err.to_string(),
@@ -183,6 +202,10 @@ impl Display for VmmActionError {
 /// empty, when no data needs to be sent, or an internal VMM structure.
 #[derive(Debug, PartialEq)]
 pub enum VmmData {
+    /// The balloon device configuration.
+    BalloonConfig(BalloonDeviceConfig),
+    /// The latest balloon device statistics.
+    BalloonStats(BalloonStats),
     /// No data is sent on the channel.
     Empty,
     /// The microVM configuration represented by `VmConfig`.
@@ -276,6 +299,7 @@ impl<'a> PrebootApiController<'a> {
             ConfigureMetrics(metrics_cfg) => vmm_config::metrics::init_metrics(metrics_cfg)
                 .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Metrics),
+            GetBalloonConfig => self.balloon_config(),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
@@ -283,6 +307,7 @@ impl<'a> PrebootApiController<'a> {
             InsertNetworkDevice(config) => self.insert_net_device(config),
             #[cfg(target_arch = "x86_64")]
             LoadSnapshot(config) => self.load_snapshot(&config),
+            SetBalloonDevice(config) => self.set_balloon_device(config),
             SetVsockDevice(config) => self.set_vsock_device(config),
             SetVmConfiguration(config) => self.set_vm_config(config),
             SetMmdsConfiguration(config) => self.set_mmds_config(config),
@@ -291,11 +316,22 @@ impl<'a> PrebootApiController<'a> {
             FlushMetrics
             | Pause
             | Resume
+            | GetBalloonStats
+            | UpdateBalloon(_)
+            | UpdateBalloonStatistics(_)
             | UpdateBlockDevicePath(_, _)
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             CreateSnapshot(_) | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
         }
+    }
+
+    fn balloon_config(&mut self) -> ActionResult {
+        self.vm_resources
+            .balloon
+            .get_config()
+            .map(VmmData::BalloonConfig)
+            .map_err(VmmActionError::BalloonConfig)
     }
 
     fn insert_block_device(&mut self, cfg: BlockDeviceConfig) -> ActionResult {
@@ -312,6 +348,14 @@ impl<'a> PrebootApiController<'a> {
             .build_net_device(cfg)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::NetworkConfig)
+    }
+
+    fn set_balloon_device(&mut self, cfg: BalloonDeviceConfig) -> ActionResult {
+        self.boot_path = true;
+        self.vm_resources
+            .set_balloon_device(cfg)
+            .map(|()| VmmData::Empty)
+            .map_err(VmmActionError::BalloonConfig)
     }
 
     fn set_boot_source(&mut self, cfg: BootSourceConfig) -> ActionResult {
@@ -408,11 +452,39 @@ impl RuntimeApiController {
             #[cfg(target_arch = "x86_64")]
             CreateSnapshot(snapshot_create_cfg) => self.create_snapshot(&snapshot_create_cfg),
             FlushMetrics => self.flush_metrics(),
+            GetBalloonConfig => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .balloon_config()
+                .map(|state| VmmData::BalloonConfig(BalloonDeviceConfig::from(state)))
+                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
+            GetBalloonStats => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .latest_balloon_stats()
+                .map(VmmData::BalloonStats)
+                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
             Pause => self.pause(),
             Resume => self.resume(),
             #[cfg(target_arch = "x86_64")]
             SendCtrlAltDel => self.send_ctrl_alt_del(),
+            UpdateBalloon(balloon_update) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .update_balloon_config(balloon_update.amount_mb)
+                .map(|_| VmmData::Empty)
+                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
+            UpdateBalloonStatistics(balloon_stats_update) => self
+                .vmm
+                .lock()
+                .expect("Poisoned lock")
+                .update_balloon_stats_config(balloon_stats_update.stats_polling_interval_s)
+                .map(|_| VmmData::Empty)
+                .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
             UpdateBlockDevicePath(drive_id, new_path) => {
                 self.update_block_device_path(&drive_id, new_path)
             }
@@ -424,6 +496,7 @@ impl RuntimeApiController {
             | ConfigureMetrics(_)
             | InsertBlockDevice(_)
             | InsertNetworkDevice(_)
+            | SetBalloonDevice(_)
             | SetVsockDevice(_)
             | SetMmdsConfiguration(_)
             | SetVmConfiguration(_)
@@ -552,7 +625,9 @@ impl RuntimeApiController {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::logger::LoggerLevel;
+    use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
     use devices::virtio::VsockError;
     use seccomp::BpfProgramRef;
 
@@ -562,6 +637,7 @@ mod tests {
         fn eq(&self, other: &VmmActionError) -> bool {
             use VmmActionError::*;
             match (self, other) {
+                (BalloonConfig(_), BalloonConfig(_)) => true,
                 (BootSource(_), BootSource(_)) => true,
                 #[cfg(target_arch = "x86_64")]
                 (CreateSnapshot(_), CreateSnapshot(_)) => true,
@@ -586,9 +662,12 @@ mod tests {
     }
 
     // Mock `VmResources` used for testing.
-    #[derive(Debug, Default)]
+    #[derive(Default)]
     pub struct MockVmRes {
         vm_config: VmConfig,
+        pub balloon: BalloonBuilder,
+        balloon_config_called: bool,
+        balloon_set: bool,
         boot_cfg_set: bool,
         block_set: bool,
         vsock_set: bool,
@@ -604,11 +683,30 @@ mod tests {
             &self.vm_config
         }
 
+        pub fn balloon_config(&mut self) -> Result<BalloonConfig, BalloonError> {
+            if self.force_errors {
+                return Err(BalloonError::DeviceNotFound);
+            }
+            self.balloon_config_called = true;
+            Ok(BalloonConfig::default())
+        }
+
         pub fn set_vm_config(&mut self, machine_config: &VmConfig) -> Result<(), VmConfigError> {
             if self.force_errors {
                 return Err(VmConfigError::InvalidVcpuCount);
             }
             self.vm_config = machine_config.clone();
+            Ok(())
+        }
+
+        pub fn set_balloon_device(
+            &mut self,
+            _: BalloonDeviceConfig,
+        ) -> Result<(), BalloonConfigError> {
+            if self.force_errors {
+                return Err(BalloonConfigError::DeviceNotFound);
+            }
+            self.balloon_set = true;
             Ok(())
         }
 
@@ -666,10 +764,14 @@ mod tests {
     // Mock `Vmm` used for testing.
     #[derive(Debug, Default)]
     pub struct MockVmm {
+        pub balloon_config_called: bool,
+        pub latest_balloon_stats_called: bool,
         pub pause_called: bool,
         pub resume_called: bool,
         #[cfg(target_arch = "x86_64")]
         pub send_ctrl_alt_del_called: bool,
+        pub update_balloon_config_called: bool,
+        pub update_balloon_stats_config_called: bool,
         pub update_block_device_path_called: bool,
         pub update_net_rate_limiters_called: bool,
         // when `true`, all self methods are forced to fail
@@ -701,6 +803,38 @@ mod tests {
                 ));
             }
             self.send_ctrl_alt_del_called = true;
+            Ok(())
+        }
+
+        pub fn balloon_config(&mut self) -> Result<BalloonConfig, BalloonError> {
+            if self.force_errors {
+                return Err(BalloonError::DeviceNotFound);
+            }
+            self.balloon_config_called = true;
+            Ok(BalloonConfig::default())
+        }
+
+        pub fn latest_balloon_stats(&mut self) -> Result<BalloonStats, BalloonError> {
+            if self.force_errors {
+                return Err(BalloonError::DeviceNotFound);
+            }
+            self.latest_balloon_stats_called = true;
+            Ok(BalloonStats::default())
+        }
+
+        pub fn update_balloon_config(&mut self, _: u32) -> Result<(), BalloonError> {
+            if self.force_errors {
+                return Err(BalloonError::DeviceNotFound);
+            }
+            self.update_balloon_config_called = true;
+            Ok(())
+        }
+
+        pub fn update_balloon_stats_config(&mut self, _: u16) -> Result<(), BalloonError> {
+            if self.force_errors {
+                return Err(BalloonError::DeviceNotFound);
+            }
+            self.update_balloon_stats_config_called = true;
             Ok(())
         }
 
@@ -839,6 +973,15 @@ mod tests {
     }
 
     #[test]
+    fn test_preboot_get_balloon_config() {
+        let req = VmmAction::GetBalloonConfig;
+        let expected_cfg = BalloonDeviceConfig::default();
+        check_preboot_request(req, |result, _| {
+            assert_eq!(result, Ok(VmmData::BalloonConfig(expected_cfg)))
+        });
+    }
+
+    #[test]
     fn test_preboot_set_vm_config() {
         let req = VmmAction::SetVmConfiguration(VmConfig::default());
         let expected_cfg = VmConfig::default();
@@ -851,6 +994,21 @@ mod tests {
         check_preboot_request_err(
             req,
             VmmActionError::MachineConfig(VmConfigError::InvalidVcpuCount),
+        );
+    }
+
+    #[test]
+    fn test_preboot_set_balloon_dev() {
+        let req = VmmAction::SetBalloonDevice(BalloonDeviceConfig::default());
+        check_preboot_request(req, |result, vm_res| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vm_res.balloon_set)
+        });
+
+        let req = VmmAction::SetBalloonDevice(BalloonDeviceConfig::default());
+        check_preboot_request_err(
+            req,
+            VmmActionError::BalloonConfig(BalloonConfigError::DeviceNotFound),
         );
     }
 
@@ -962,6 +1120,24 @@ mod tests {
         );
         check_preboot_request_err(
             VmmAction::Pause,
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
+        check_preboot_request_err(
+            VmmAction::Resume,
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
+        check_preboot_request_err(
+            VmmAction::GetBalloonStats,
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
+        check_preboot_request_err(
+            VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mb: 0 }),
+            VmmActionError::OperationNotSupportedPreBoot,
+        );
+        check_preboot_request_err(
+            VmmAction::UpdateBalloonStatistics(BalloonUpdateStatsConfig {
+                stats_polling_interval_s: 0,
+            }),
             VmmActionError::OperationNotSupportedPreBoot,
         );
         check_preboot_request_err(
@@ -1117,6 +1293,73 @@ mod tests {
     }
 
     #[test]
+    fn test_runtime_balloon_config() {
+        let req = VmmAction::GetBalloonConfig;
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(
+                result,
+                Ok(VmmData::BalloonConfig(BalloonDeviceConfig::default()))
+            );
+            assert!(vmm.balloon_config_called)
+        });
+
+        let req = VmmAction::GetBalloonConfig;
+        check_runtime_request_err(
+            req,
+            VmmActionError::BalloonConfig(BalloonConfigError::DeviceNotFound),
+        );
+    }
+
+    #[test]
+    fn test_runtime_latest_balloon_stats() {
+        let req = VmmAction::GetBalloonStats;
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::BalloonStats(BalloonStats::default())));
+            assert!(vmm.latest_balloon_stats_called)
+        });
+
+        let req = VmmAction::GetBalloonStats;
+        check_runtime_request_err(
+            req,
+            VmmActionError::BalloonConfig(BalloonConfigError::DeviceNotFound),
+        );
+    }
+
+    #[test]
+    fn test_runtime_update_balloon_config() {
+        let req = VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mb: 0 });
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vmm.update_balloon_config_called)
+        });
+
+        let req = VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mb: 0 });
+        check_runtime_request_err(
+            req,
+            VmmActionError::BalloonConfig(BalloonConfigError::DeviceNotFound),
+        );
+    }
+
+    #[test]
+    fn test_runtime_update_balloon_stats_config() {
+        let req = VmmAction::UpdateBalloonStatistics(BalloonUpdateStatsConfig {
+            stats_polling_interval_s: 0,
+        });
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vmm.update_balloon_stats_config_called)
+        });
+
+        let req = VmmAction::UpdateBalloonStatistics(BalloonUpdateStatsConfig {
+            stats_polling_interval_s: 0,
+        });
+        check_runtime_request_err(
+            req,
+            VmmActionError::BalloonConfig(BalloonConfigError::DeviceNotFound),
+        );
+    }
+
+    #[test]
     fn test_runtime_update_block_device_path() {
         let req = VmmAction::UpdateBlockDevicePath(String::new(), String::new());
         check_runtime_request(req, |result, vmm| {
@@ -1209,7 +1452,10 @@ mod tests {
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
-
+        check_runtime_request_err(
+            VmmAction::SetBalloonDevice(BalloonDeviceConfig::default()),
+            VmmActionError::OperationNotSupportedPostBoot,
+        );
         check_runtime_request_err(
             VmmAction::SetVsockDevice(VsockDeviceConfig {
                 vsock_id: String::new(),
@@ -1286,6 +1532,9 @@ mod tests {
             allow_mmds_requests: false,
         });
         verify_load_snap_disallowed_after_boot_resources(req, "InsertNetworkDevice");
+
+        let req = VmmAction::SetBalloonDevice(BalloonDeviceConfig::default());
+        verify_load_snap_disallowed_after_boot_resources(req, "SetBalloonDevice");
 
         let req = VmmAction::SetVsockDevice(VsockDeviceConfig {
             vsock_id: String::new(),
