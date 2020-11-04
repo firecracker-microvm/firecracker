@@ -86,6 +86,7 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
+import host_tools.proc as proc
 
 from framework.artifacts import ArtifactCollection
 import framework.utils as utils
@@ -107,6 +108,8 @@ If variable exists in `os.environ`, its value will be used as the s3 bucket
 for microvm test images.
 """
 
+SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
+
 
 # This codebase uses Python features available in Python 3.6 or above
 if sys.version_info < (3, 6):
@@ -116,6 +119,11 @@ if sys.version_info < (3, 6):
 # Some tests create system-level resources; ensure we run as root.
 if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
+
+
+# Style related tests are run only on AMD.
+if "AMD" not in proc.proc_type():
+    collect_ignore = [os.path.join(SCRIPT_FOLDER, "integration_tests/style")]
 
 
 def _test_images_s3_bucket():
