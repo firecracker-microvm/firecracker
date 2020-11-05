@@ -23,7 +23,7 @@ pub use util::*;
 pub type DynResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
-    let sockaddr = format!("127.0.0.1:{}", port);
+    let sockaddr = format!("0.0.0.0:{}", port);
     eprintln!("Waiting for a GDB connection on {:?}...", sockaddr);
 
     let sock = TcpListener::bind(sockaddr)?;
@@ -51,7 +51,7 @@ pub fn run_gdb_server<'a>(
         return Err("GDB server error".into());
     }
 
-    let connection: Box<dyn Connection<Error = std::io::Error>> = { Box::new(wait_for_tcp(9001)?) };
+    let connection: Box<dyn Connection<Error = std::io::Error>> = { Box::new(wait_for_tcp(8443)?) };
     let mut debugger = GdbStub::new(connection);
     match debugger.run(&mut target)? {
         DisconnectReason::Disconnect => {
