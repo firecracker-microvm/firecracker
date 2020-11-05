@@ -26,6 +26,7 @@ pub struct FirecrackerGDBServer {
     pub single_step_en: bool,
 
     pub e_phdrs: Vec<Elf64_Phdr>,
+    pub entry_addr: GuestAddress,
 }
 
 impl FirecrackerGDBServer {
@@ -34,6 +35,7 @@ impl FirecrackerGDBServer {
         vcpu_event_receiver: Receiver<DebugEvent>,
         vcpu_event_sender: Sender<DebugEvent>,
         e_phdrs: Vec<Elf64_Phdr>,
+        entry_addr: GuestAddress,
     ) -> DynResult<FirecrackerGDBServer> {
         Ok(FirecrackerGDBServer {
             guest_memory,
@@ -44,6 +46,7 @@ impl FirecrackerGDBServer {
             guest_state: Default::default(),
             single_step_en: false,
             e_phdrs,
+            entry_addr,
         })
     }
 
@@ -205,8 +208,16 @@ impl Target for FirecrackerGDBServer {
                             if let Ok(DebugEvent::NOTIFY(state)) =
                                 self.vcpu_event_receiver.try_recv()
                             {
-                                interrupted = true;
                                 self.guest_state = state;
+                                // Initial breakpoint was not set by the client, we must
+                                // remove it manually
+                                if self.guest_state.regular_regs.rip == self.entry_addr.0 {
+                                    if let Err(e) = self.remove_bp(self.entry_addr.0, None) {
+                                        return Err(e);
+                                    }
+                                    return Ok((SINGLE_THREAD_TID, StopReason::GdbInterrupt));
+                                }
+                                interrupted = true;
                                 valid_bp_not_reached =
                                     self.invalid_state(self.guest_state.regular_regs.rip);
                                 if valid_bp_not_reached {
