@@ -197,7 +197,7 @@ impl Target for FirecrackerGDBServer {
                     while valid_bp_not_reached {
                         if self
                             .vcpu_event_sender
-                            .send(DebugEvent::CONTINUE(self.single_step_en))
+                            .send(DebugEvent::Continue(self.single_step_en))
                             .is_err()
                         {
                             return Err(Self::Error::ChannelError);
@@ -205,7 +205,7 @@ impl Target for FirecrackerGDBServer {
                         self.single_step_en = false;
                         let mut interrupted = false;
                         while !check_gdb_interrupt() {
-                            if let Ok(DebugEvent::NOTIFY(state)) =
+                            if let Ok(DebugEvent::Notify(state)) =
                                 self.vcpu_event_receiver.try_recv()
                             {
                                 self.guest_state = state;
@@ -261,7 +261,7 @@ impl Target for FirecrackerGDBServer {
                     loop {
                         if self
                             .vcpu_event_sender
-                            .send(DebugEvent::STEP_INTO(self.single_step_en))
+                            .send(DebugEvent::StepInto(self.single_step_en))
                             .is_err()
                         {
                             return Err(Self::Error::ChannelError);
@@ -270,7 +270,7 @@ impl Target for FirecrackerGDBServer {
                         self.single_step_en = true;
                         let mut interrupted = false;
                         while !check_gdb_interrupt() {
-                            if let Ok(DebugEvent::NOTIFY(state)) =
+                            if let Ok(DebugEvent::Notify(state)) =
                                 self.vcpu_event_receiver.try_recv()
                             {
                                 interrupted = true;
@@ -340,6 +340,36 @@ impl Target for FirecrackerGDBServer {
         &mut self,
         regs: &arch::x86::reg::X86_64CoreRegs,
     ) -> Result<(), Self::Error> {
+        self.guest_state.regular_regs.rax = regs.regs[0];
+        self.guest_state.regular_regs.rbx = regs.regs[1];
+        self.guest_state.regular_regs.rcx = regs.regs[2];
+        self.guest_state.regular_regs.rdx = regs.regs[3];
+        self.guest_state.regular_regs.rsi = regs.regs[4];
+        self.guest_state.regular_regs.rdi = regs.regs[5];
+        self.guest_state.regular_regs.rbp = regs.regs[6];
+        self.guest_state.regular_regs.rsp = regs.regs[7];
+
+        self.guest_state.regular_regs.r8 = regs.regs[8];
+        self.guest_state.regular_regs.r9 = regs.regs[9];
+        self.guest_state.regular_regs.r10 = regs.regs[10];
+        self.guest_state.regular_regs.r11 = regs.regs[11];
+        self.guest_state.regular_regs.r12 = regs.regs[12];
+        self.guest_state.regular_regs.r13 = regs.regs[13];
+        self.guest_state.regular_regs.r14 = regs.regs[14];
+        self.guest_state.regular_regs.r15 = regs.regs[15];
+
+        self.guest_state.regular_regs.rip = regs.rip;
+        self.guest_state.regular_regs.rflags = regs.eflags as u64;
+
+        let state = self.guest_state.clone();
+        if self
+            .vcpu_event_sender
+            .send(DebugEvent::SetRegs(state))
+            .is_err()
+        {
+            return Err(Self::Error::ChannelError);
+        }
+
         Ok(())
     }
 
