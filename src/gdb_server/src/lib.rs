@@ -39,25 +39,15 @@ pub fn run_gdb_server<'a>(
     vcpu_event_receiver: Receiver<DebugEvent>,
     vcpu_event_sender: Sender<DebugEvent>,
 ) -> DynResult<()> {
-    let mut target =
-        FirecrackerGDBServer::new(vmm_gm, vcpu_event_receiver, vcpu_event_sender, e_phdrs)?;
+    let mut target = FirecrackerGDBServer::new(
+        vmm_gm,
+        vcpu_event_receiver,
+        vcpu_event_sender,
+        e_phdrs,
+        entry_addr,
+    )?;
 
     if target.insert_bp(entry_addr.0, false).is_err() {
-        return Err("GDB server error".into());
-    }
-
-    // This signals the main thread it is ok to start the vcpus
-    if target.vcpu_event_sender.send(DebugEvent::START).is_err() {
-        return Err("GDB server - main thread communication error".into());
-    }
-    // Guarantees that the vcpus are in a waiting state at the entry point of the kernel
-    if let Ok(DebugEvent::NOTIFY(state)) = target.vcpu_event_receiver.recv() {
-        target.guest_state = state;
-    } else {
-        return Err("GDB server - main thread communication error".into());
-    }
-
-    if target.remove_bp(entry_addr.0, None).is_err() {
         return Err("GDB server error".into());
     }
 
