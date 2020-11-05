@@ -538,7 +538,7 @@ impl Vcpu {
                     // by a breakpoint and one caused by single-stepping
                     if self
                         .dbg_event_sender
-                        .send(DebugEvent::NOTIFY(FullVcpuState {
+                        .send(DebugEvent::Notify(FullVcpuState {
                             regular_regs,
                             special_regs,
                         }))
@@ -548,16 +548,31 @@ impl Vcpu {
                     }
                     loop {
                         match self.dbg_response_receiver.recv() {
-                            Ok(DebugEvent::GET_REGS) => {
+                            Ok(DebugEvent::GetRegs) => {
                                 self.dbg_event_sender
-                                    .send(DebugEvent::PEEK_REGS(FullVcpuState {
+                                    .send(DebugEvent::PeekRegs(FullVcpuState {
                                         regular_regs,
                                         special_regs,
                                     }))
                                     .unwrap();
                                 continue;
                             }
-                            Ok(DebugEvent::CONTINUE(single_step_en)) => {
+                            Ok(DebugEvent::SetRegs(state)) => {
+                                if let Err(err) = self.kvm_vcpu.fd.set_regs(&state.regular_regs) {
+                                    return Err(Error::GDBServer(format!(
+                                        "Ioctl call failed: {}",
+                                        err
+                                    )));
+                                }
+                                if let Err(err) = self.kvm_vcpu.fd.set_sregs(&state.special_regs) {
+                                    return Err(Error::GDBServer(format!(
+                                        "Ioctl call failed: {}",
+                                        err
+                                    )));
+                                }
+                                continue;
+                            }
+                            Ok(DebugEvent::Continue(single_step_en)) => {
                                 if single_step_en {
                                     if let Err(err) = gdb_server::Debugger::enable_kvm_debug(
                                         &self.kvm_vcpu.fd,
@@ -571,7 +586,7 @@ impl Vcpu {
                                 }
                                 break;
                             }
-                            Ok(DebugEvent::STEP_INTO(single_step_en)) => {
+                            Ok(DebugEvent::StepInto(single_step_en)) => {
                                 if !single_step_en {
                                     if let Err(err) = gdb_server::Debugger::enable_kvm_debug(
                                         &self.kvm_vcpu.fd,
