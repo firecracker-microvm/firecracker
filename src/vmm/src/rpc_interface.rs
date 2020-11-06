@@ -1141,10 +1141,6 @@ mod tests {
             VmmActionError::OperationNotSupportedPreBoot,
         );
         check_preboot_request_err(
-            VmmAction::Resume,
-            VmmActionError::OperationNotSupportedPreBoot,
-        );
-        check_preboot_request_err(
             VmmAction::UpdateBlockDevicePath(String::new(), String::new()),
             VmmActionError::OperationNotSupportedPreBoot,
         );
