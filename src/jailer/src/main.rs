@@ -265,11 +265,6 @@ pub fn build_arg_parser() -> ArgParser<'static> {
             "Daemonize the jailer before exec, by invoking setsid(), and redirecting \
              the standard I/O file descriptors to /dev/null.",
         ))
-        .arg(
-            Argument::new("extra-args")
-                .takes_value(true)
-                .help("Arguments that will be passed verbatim to the exec file."),
-        )
         .arg(Argument::new("cgroup").allow_multiple(true).help(
             "Cgroup and value to be set by the jailer. It must follow this format: \
              <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used
@@ -329,7 +324,11 @@ fn main() {
             if let Some(help) = arg_parser.arguments().value_as_bool("help") {
                 if help {
                     println!("Jailer v{}\n", JAILER_VERSION);
-                    println!("{}", arg_parser.formatted_help());
+                    println!("{}\n", arg_parser.formatted_help());
+                    println!(
+                        "Any arguments after the -- separator will be supplied to the jailed \
+                        binary.\n"
+                    );
                     process::exit(0);
                 }
             }

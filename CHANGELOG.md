@@ -10,6 +10,11 @@
   run.
 - Added the virtio traditional memory ballooning device.
 
+### Changed
+
+- Removed the jailer `--extra-args` parameter. It was a noop, having been
+  replaced by the `--` separator for extra arguments.
+
 ## [0.23.0]
 
 ### Added
