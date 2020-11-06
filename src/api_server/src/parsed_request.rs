@@ -746,12 +746,11 @@ pub(crate) mod tests {
             .write_all(
                 b"PUT /machine-config HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
-                Content-Length: 80\r\n\r\n{ \
-                \"vcpu_count\": 0, \
-                \"mem_size_mib\": 0, \
-                \"ht_enabled\": true, \
-                \"cpu_template\": \"C3\" \
-            }",
+                Content-Length: 58\r\n\r\n{ \
+                    \"vcpu_count\": 0, \
+                    \"mem_size_mib\": 0, \
+                    \"ht_enabled\": true \
+                }",
             )
             .unwrap();
         assert!(connection.try_read().is_ok());
@@ -981,6 +980,21 @@ pub(crate) mod tests {
             .write_all(
                 b"PATCH /machine-config HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
+                Content-Length: 58\r\n\r\n{ \
+                \"vcpu_count\": 0, \
+                \"mem_size_mib\": 0, \
+                \"ht_enabled\": true \
+            }",
+            )
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+
+        sender
+            .write_all(
+                b"PATCH /machine-config HTTP/1.1\r\n\
+                Content-Type: application/json\r\n\
                 Content-Length: 80\r\n\r\n{ \
                 \"vcpu_count\": 0, \
                 \"mem_size_mib\": 0, \
@@ -991,7 +1005,10 @@ pub(crate) mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
+        #[cfg(target_arch = "x86_64")]
         assert!(ParsedRequest::try_from_request(&req).is_ok());
+        #[cfg(target_arch = "aarch64")]
+        assert!(ParsedRequest::try_from_request(&req).is_err());
     }
 
     #[test]

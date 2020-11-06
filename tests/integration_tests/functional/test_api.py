@@ -100,16 +100,27 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         'vcpu_count': 4,
         'ht_enabled': True,
         'mem_size_mib': 256,
-        'cpu_template': 'C3',
         'track_dirty_pages': True
     }
-    response = test_microvm.machine_cfg.put(
-        vcpu_count=microvm_config_json['vcpu_count'],
-        ht_enabled=microvm_config_json['ht_enabled'],
-        mem_size_mib=microvm_config_json['mem_size_mib'],
-        cpu_template=microvm_config_json['cpu_template'],
-        track_dirty_pages=microvm_config_json['track_dirty_pages']
-    )
+    if platform.machine() == 'x86_64':
+        microvm_config_json['cpu_template'] = 'C3'
+
+    if platform.machine() == 'aarch64':
+        response = test_microvm.machine_cfg.put(
+            vcpu_count=microvm_config_json['vcpu_count'],
+            ht_enabled=microvm_config_json['ht_enabled'],
+            mem_size_mib=microvm_config_json['mem_size_mib'],
+            track_dirty_pages=microvm_config_json['track_dirty_pages']
+        )
+    else:
+        response = test_microvm.machine_cfg.put(
+            vcpu_count=microvm_config_json['vcpu_count'],
+            ht_enabled=microvm_config_json['ht_enabled'],
+            mem_size_mib=microvm_config_json['mem_size_mib'],
+            cpu_template=microvm_config_json['cpu_template'],
+            track_dirty_pages=microvm_config_json['track_dirty_pages']
+        )
+
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     response = test_microvm.machine_cfg.get()
@@ -125,8 +136,9 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     mem_size_mib = microvm_config_json['mem_size_mib']
     assert response_json['mem_size_mib'] == mem_size_mib
 
-    cpu_template = str(microvm_config_json['cpu_template'])
-    assert response_json['cpu_template'] == cpu_template
+    if platform.machine() == 'x86_64':
+        cpu_template = str(microvm_config_json['cpu_template'])
+        assert response_json['cpu_template'] == cpu_template
 
     track_dirty_pages = microvm_config_json['track_dirty_pages']
     assert response_json['track_dirty_pages'] == track_dirty_pages
@@ -227,6 +239,24 @@ def test_api_put_machine_config(test_microvm_with_api):
         cpu_template='random_string'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    response = test_microvm.machine_cfg.patch(
+        track_dirty_pages=True
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    response = test_microvm.machine_cfg.patch(
+        cpu_template='C3'
+    )
+    if platform.machine() == "x86_64":
+        assert test_microvm.api_session.is_status_no_content(
+            response.status_code
+        )
+    else:
+        assert test_microvm.api_session.is_status_bad_request(
+            response.status_code
+        )
+        assert "CPU templates are not supported on aarch64" in response.text
 
 
 def test_api_put_update_post_boot(test_microvm_with_api):
