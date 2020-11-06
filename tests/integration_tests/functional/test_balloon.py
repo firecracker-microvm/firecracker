@@ -4,11 +4,8 @@
 
 import logging
 import os
-import platform
 import subprocess
 import time
-
-import pytest
 
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
@@ -455,10 +452,6 @@ def test_stats(test_microvm_with_ssh_and_balloon, network_config):
     )
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_balloon_snapshot(
     network_config,
     bin_cloner_path
@@ -579,10 +572,6 @@ def _test_balloon_snapshot(context):
     microvm.kill()
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_snapshot_compatibility(
     network_config,
     bin_cloner_path
