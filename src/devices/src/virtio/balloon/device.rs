@@ -992,6 +992,14 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_process_balloon_queues() {
+        let mut balloon = Balloon::new(0x10, true, true, 0, false).unwrap();
+        let mem = default_mem();
+        balloon.activate(mem).unwrap();
+        balloon.process_virtio_queues()
+    }
+
+    #[test]
     fn test_update_stats_interval() {
         let mut balloon = Balloon::new(0, true, true, 0, false).unwrap();
         assert_eq!(

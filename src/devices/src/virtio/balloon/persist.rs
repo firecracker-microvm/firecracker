@@ -18,7 +18,7 @@ use super::*;
 
 use crate::virtio::balloon::device::{BalloonStats, ConfigSpace};
 use crate::virtio::persist::VirtioDeviceState;
-use crate::virtio::{DeviceState, Queue};
+use crate::virtio::{DeviceState, TYPE_BALLOON};
 
 #[derive(Clone, Versionize)]
 pub struct BalloonConfigSpaceState {
@@ -115,12 +115,16 @@ impl Persist<'_> for Balloon {
         // num_pages because we will overwrite them after.
         let mut balloon = Balloon::new(0, false, false, state.stats_polling_interval_s, true)?;
 
+        let mut num_queues = NUM_QUEUES;
+        // As per the virtio 1.1 specification, the statistics queue
+        // should not exist if the statistics are not enabled.
+        if state.stats_polling_interval_s == 0 {
+            num_queues -= 1;
+        }
         balloon.queues = state
             .virtio_state
-            .queues
-            .iter()
-            .map(|queue_state| Queue::restore((), &queue_state).unwrap())
-            .collect();
+            .build_queues_checked(&constructor_args.mem, TYPE_BALLOON, num_queues, QUEUE_SIZE)
+            .map_err(|_| Self::Error::QueueRestoreError)?;
         balloon.interrupt_status = Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         balloon.avail_features = state.virtio_state.avail_features;
         balloon.acked_features = state.virtio_state.acked_features;
@@ -165,8 +169,7 @@ mod tests {
         let version_map = VersionMap::new();
 
         // Create and save the balloon device.
-        let mut balloon = Balloon::new(0x42, true, false, 2, false).unwrap();
-        balloon.activate(guest_mem.clone()).unwrap();
+        let balloon = Balloon::new(0x42, true, false, 2, false).unwrap();
 
         <Balloon as Persist>::save(&balloon)
             .serialize(&mut mem.as_mut_slice(), &version_map, 1)
