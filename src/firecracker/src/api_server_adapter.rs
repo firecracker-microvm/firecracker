@@ -119,7 +119,7 @@ impl Subscriber for ApiServerAdapter {
     }
 }
 
-pub fn run_with_api(
+pub(crate) fn run_with_api(
     seccomp_filter: BpfProgram,
     config_json: Option<String>,
     bind_path: PathBuf,
