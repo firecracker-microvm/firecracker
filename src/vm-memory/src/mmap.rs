@@ -16,6 +16,7 @@ use std::borrow::Borrow;
 use std::io::{Read, Write};
 use std::ops::Deref;
 use std::result;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use vm_memory_upstream::address::Address;
@@ -23,7 +24,7 @@ use vm_memory_upstream::guest_memory::{
     self, FileOffset, GuestAddress, GuestMemory, GuestMemoryRegion, GuestUsize, MemoryRegionAddress,
 };
 use vm_memory_upstream::volatile_memory::{VolatileMemory, VolatileSlice};
-use vm_memory_upstream::{ByteValued, Bytes};
+use vm_memory_upstream::{AtomicAccess, ByteValued, Bytes};
 
 #[cfg(unix)]
 pub use vm_memory_upstream::mmap::{MmapRegion, MmapRegionError};
@@ -190,6 +191,25 @@ impl Bytes<MemoryRegionAddress> for GuestRegionMmap {
         self.local_volatile_slice()
             .write_all_to::<F>(maddr, dst, count)
             .map_err(Into::into)
+    }
+
+    fn store<T: AtomicAccess>(
+        &self,
+        _val: T,
+        _addr: MemoryRegionAddress,
+        _order: Ordering,
+    ) -> guest_memory::Result<()> {
+        // We do not use this.
+        Err(guest_memory::Error::HostAddressNotAvailable)
+    }
+
+    fn load<T: AtomicAccess>(
+        &self,
+        _addr: MemoryRegionAddress,
+        _order: Ordering,
+    ) -> guest_memory::Result<T> {
+        // We do not use this.
+        Err(guest_memory::Error::HostAddressNotAvailable)
     }
 }
 
