@@ -13,7 +13,7 @@ use utils::epoll::{EpollEvent, EventSet};
 pub const WRITE_METRICS_PERIOD_MS: u64 = 60000;
 
 /// Object to drive periodic reporting of metrics.
-pub struct PeriodicMetrics {
+pub(crate) struct PeriodicMetrics {
     write_metrics_event_fd: TimerFd,
     #[cfg(test)]
     flush_counter: u64,
@@ -32,7 +32,7 @@ impl PeriodicMetrics {
     }
 
     /// Start the periodic metrics engine which will flush metrics every `interval_ms` millisecs.
-    pub fn start(&mut self, interval_ms: u64) {
+    pub(crate) fn start(&mut self, interval_ms: u64) {
         // Arm the log write timer.
         let timer_state = TimerState::Periodic {
             current: Duration::from_millis(interval_ms),
