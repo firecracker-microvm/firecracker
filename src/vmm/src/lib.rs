@@ -45,7 +45,7 @@ use crate::device_manager::mmio::MMIODeviceManager;
 #[cfg(target_arch = "x86_64")]
 use crate::memory_snapshot::SnapshotMemory;
 #[cfg(target_arch = "x86_64")]
-use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
+use crate::persist::{mem_size_mib, MicrovmState, MicrovmStateError, VmInfo};
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::vcpu::VcpuState;
 use crate::vstate::{
@@ -593,6 +593,12 @@ impl Vmm {
         &mut self,
         amount_mb: u32,
     ) -> std::result::Result<(), BalloonError> {
+        // The balloon cannot have a target size greater than the size of
+        // the guest memory.
+        if amount_mb as u64 > mem_size_mib(self.guest_memory()) {
+            return Err(BalloonError::TooManyPagesRequested);
+        }
+
         if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
         {
             {
