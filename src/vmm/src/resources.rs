@@ -12,7 +12,7 @@ use crate::vmm_config::boot_source::{
 use crate::vmm_config::drive::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
-use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
+use crate::vmm_config::machine_config::{VmConfig, VmConfigError, DEFAULT_MEM_SIZE_MIB};
 use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
 use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
 use crate::vmm_config::net::*;
@@ -187,6 +187,22 @@ impl VmResources {
             return Err(VmConfigError::InvalidMemorySize);
         }
 
+        // The VM cannot have a memory size greater than the target size
+        // of the balloon device, if present.
+        if self.balloon.get().is_some()
+            && machine_config
+                .mem_size_mib
+                .clone()
+                .unwrap_or(DEFAULT_MEM_SIZE_MIB)
+                < self
+                    .balloon
+                    .get_config()
+                    .map_err(|_| VmConfigError::InvalidVmState)?
+                    .amount_mb as usize
+        {
+            return Err(VmConfigError::IncompatibleBalloonSize);
+        }
+
         let ht_enabled = machine_config
             .ht_enabled
             .unwrap_or_else(|| self.vm_config.ht_enabled.unwrap());
@@ -227,6 +243,18 @@ impl VmResources {
         &mut self,
         config: BalloonDeviceConfig,
     ) -> Result<BalloonConfigError> {
+        // The balloon cannot have a target size greater than the size of
+        // the guest memory.
+        if config.amount_mb as usize
+            > self
+                .vm_config
+                .mem_size_mib
+                .clone()
+                .unwrap_or(DEFAULT_MEM_SIZE_MIB)
+        {
+            return Err(BalloonConfigError::TooManyPagesRequested);
+        }
+
         self.balloon.set(config)
     }
 
@@ -785,6 +813,78 @@ mod tests {
             vm_resources.set_vm_config(&aux_vm_config),
             Err(VmConfigError::InvalidMemorySize)
         );
+
+        // Incompatible mem_size_mib with balloon size.
+        vm_resources.vm_config.mem_size_mib = Some(128);
+        vm_resources
+            .set_balloon_device(BalloonDeviceConfig {
+                amount_mb: 100,
+                must_tell_host: false,
+                deflate_on_oom: false,
+                stats_polling_interval_s: 0,
+            })
+            .unwrap();
+        aux_vm_config.mem_size_mib = Some(90);
+        assert_eq!(
+            vm_resources.set_vm_config(&aux_vm_config),
+            Err(VmConfigError::IncompatibleBalloonSize)
+        );
+
+        // mem_size_mib compatible with balloon size.
+        aux_vm_config.mem_size_mib = Some(256);
+        assert!(vm_resources.set_vm_config(&aux_vm_config).is_ok());
+    }
+
+    #[test]
+    fn test_set_balloon_device() {
+        let mut vm_resources = VmResources {
+            vm_config: VmConfig::default(),
+            boot_config: Some(default_boot_cfg()),
+            block: default_blocks(),
+            vsock: Default::default(),
+            balloon: BalloonBuilder::new(),
+            net_builder: default_net_builder(),
+            mmds_config: None,
+            boot_timer: false,
+        };
+        let mut new_balloon_cfg = BalloonDeviceConfig {
+            amount_mb: 100,
+            must_tell_host: false,
+            deflate_on_oom: false,
+            stats_polling_interval_s: 0,
+        };
+        assert!(vm_resources.balloon.get().is_none());
+        vm_resources
+            .set_balloon_device(new_balloon_cfg.clone())
+            .unwrap();
+
+        let actual_balloon_cfg = vm_resources.balloon.get_config().unwrap();
+        assert_eq!(actual_balloon_cfg.amount_mb, new_balloon_cfg.amount_mb);
+        assert_eq!(
+            actual_balloon_cfg.must_tell_host,
+            new_balloon_cfg.must_tell_host
+        );
+        assert_eq!(
+            actual_balloon_cfg.deflate_on_oom,
+            new_balloon_cfg.deflate_on_oom
+        );
+        assert_eq!(
+            actual_balloon_cfg.stats_polling_interval_s,
+            new_balloon_cfg.stats_polling_interval_s
+        );
+
+        vm_resources = VmResources {
+            vm_config: VmConfig::default(),
+            boot_config: Some(default_boot_cfg()),
+            block: default_blocks(),
+            vsock: Default::default(),
+            balloon: BalloonBuilder::new(),
+            net_builder: default_net_builder(),
+            mmds_config: None,
+            boot_timer: false,
+        };
+        new_balloon_cfg.amount_mb = 256;
+        assert!(vm_resources.set_balloon_device(new_balloon_cfg).is_err());
     }
 
     #[test]
