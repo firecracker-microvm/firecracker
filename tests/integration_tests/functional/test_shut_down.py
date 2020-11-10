@@ -3,6 +3,7 @@
 """Tests scenarios for shutting down Firecracker/VM."""
 import os
 import time
+import json
 
 import framework.utils as utils
 
@@ -13,6 +14,7 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 def test_reboot(test_microvm_with_ssh, network_config):
     """Test reboot from guest kernel."""
     test_microvm = test_microvm_with_ssh
+    test_microvm.jailer.daemonize = False
     test_microvm.spawn()
 
     # We don't need to monitor the memory for this test because we are
@@ -52,6 +54,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
     # Rebooting Firecracker sends an exit event and should gracefully kill.
     # the instance.
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
     ssh_connection.execute_command("reboot")
 
     while True:
@@ -65,3 +68,6 @@ def test_reboot(test_microvm_with_ssh, network_config):
     # Consume existing metrics
     lines = metrics_fifo.sequential_reader(100)
     assert len(lines) == 1
+
+    # Make sure that the FC process was not killed by a seccomp fault
+    assert json.loads(lines[0])["seccomp"]["num_faults"] == 0

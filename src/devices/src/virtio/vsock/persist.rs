@@ -15,27 +15,27 @@ use vm_memory::GuestMemoryMmap;
 use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, TYPE_VSOCK};
 
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub struct VsockState {
     pub backend: VsockBackendState,
     pub frontend: VsockFrontendState,
 }
 
 /// The Vsock serializable state.
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub struct VsockFrontendState {
     pub cid: u64,
     virtio_state: VirtioDeviceState,
 }
 
 /// An enum for the serializable backend state types.
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub enum VsockBackendState {
     Uds(VsockUdsState),
 }
 
 /// The Vsock Unix Backend serializable state.
-#[derive(Versionize)]
+#[derive(Clone, Versionize)]
 pub struct VsockUdsState {
     /// The path for the UDS socket.
     pub(crate) path: String,
@@ -122,11 +122,11 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use super::super::tests::{TestBackend, TestContext};
     use super::device::AVAIL_FEATURES;
     use super::*;
     use crate::virtio::device::VirtioDevice;
     use crate::virtio::vsock::defs::uapi;
+    use crate::virtio::vsock::test_utils::{TestBackend, TestContext};
     use utils::byte_order;
 
     impl Persist<'_> for TestBackend {

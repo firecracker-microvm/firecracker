@@ -21,7 +21,7 @@ use kvm_bindings::{
     kvm_xsave, CpuId, MsrList, Msrs,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
-use logger::{error, Metric, METRICS};
+use logger::{error, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};

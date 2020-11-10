@@ -86,7 +86,9 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
+import host_tools.proc as proc
 
+from framework.artifacts import ArtifactCollection
 import framework.utils as utils
 from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
@@ -106,6 +108,8 @@ If variable exists in `os.environ`, its value will be used as the s3 bucket
 for microvm test images.
 """
 
+SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
+
 
 # This codebase uses Python features available in Python 3.6 or above
 if sys.version_info < (3, 6):
@@ -117,6 +121,11 @@ if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
 
 
+# Style related tests are run only on AMD.
+if "AMD" not in proc.proc_type():
+    collect_ignore = [os.path.join(SCRIPT_FOLDER, "integration_tests/style")]
+
+
 def _test_images_s3_bucket():
     """Auxiliary function for getting this session's bucket name."""
     return os.environ.get(
@@ -125,6 +134,7 @@ def _test_images_s3_bucket():
     )
 
 
+ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
 
 
@@ -157,6 +167,7 @@ def pytest_configure(config):
 
     Initialize the test scheduler and IPC services.
     """
+    config.addinivalue_line("markers", "nonci: mark test as nonci.")
     PytestScheduler.instance().register_mp_singleton(
         net_tools.UniqueIPv4Generator.instance()
     )

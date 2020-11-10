@@ -35,7 +35,7 @@ use std::io::Read;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use logger::{debug, error, info, warn, Metric, METRICS};
+use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 
 use super::super::csm::ConnState;
@@ -778,8 +778,8 @@ mod tests {
     use utils::tempfile::TempFile;
 
     use super::super::super::csm::defs as csm_defs;
-    use super::super::super::tests::TestContext as VsockTestContext;
     use super::*;
+    use crate::virtio::vsock::test_utils::TestContext as VsockTestContext;
 
     use crate::virtio::vsock::device::RXQ_INDEX;
 

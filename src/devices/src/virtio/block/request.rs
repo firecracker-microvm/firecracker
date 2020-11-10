@@ -10,7 +10,7 @@ use std::io::{self, Seek, SeekFrom, Write};
 use std::mem;
 use std::result;
 
-use logger::{Metric, METRICS};
+use logger::{IncMetric, METRICS};
 use virtio_gen::virtio_blk::*;
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
 
@@ -251,7 +251,9 @@ impl Request {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::virtio::queue::tests::*;
+    use crate::virtio::test_utils::VirtQueue;
     use vm_memory::{Address, GuestAddress};
 
     #[test]

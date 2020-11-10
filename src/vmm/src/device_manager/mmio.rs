@@ -13,6 +13,7 @@ use std::{fmt, io};
 use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
 use devices::pseudo::BootTimer;
+use devices::virtio::VirtioDevice;
 use devices::{virtio::MmioTransport, BusDevice};
 use kernel::cmdline as kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
@@ -28,10 +29,14 @@ pub enum Error {
     BusError(devices::BusError),
     /// Appending to kernel command line failed.
     Cmdline(kernel_cmdline::Error),
-    /// The device couldn't be found
+    /// The device couldn't be found.
     DeviceNotFound,
     /// Failure in creating or cloning an event fd.
     EventFd(io::Error),
+    /// Incorrect device type.
+    IncorrectDeviceType,
+    /// Internal device error.
+    InternalDeviceError(String),
     /// Invalid configuration attempted.
     InvalidInput,
     /// No more IRQs are available.
@@ -46,16 +51,16 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::BusError(ref e) => write!(f, "failed to perform bus operation: {}", e),
-            Error::Cmdline(ref e) => {
-                write!(f, "unable to add device to kernel command line: {}", e)
-            }
-            Error::EventFd(ref e) => write!(f, "failed to create or clone event descriptor: {}", e),
+        match self {
+            Error::BusError(e) => write!(f, "failed to perform bus operation: {}", e),
+            Error::Cmdline(e) => write!(f, "unable to add device to kernel command line: {}", e),
+            Error::EventFd(e) => write!(f, "failed to create or clone event descriptor: {}", e),
+            Error::IncorrectDeviceType => write!(f, "incorrect device type"),
+            Error::InternalDeviceError(e) => write!(f, "device error: {}", e),
             Error::InvalidInput => write!(f, "invalid configuration"),
             Error::IrqsExhausted => write!(f, "no more IRQs are available"),
-            Error::RegisterIoEvent(ref e) => write!(f, "failed to register IO event: {}", e),
-            Error::RegisterIrqFd(ref e) => write!(f, "failed to register irqfd: {}", e),
+            Error::RegisterIoEvent(e) => write!(f, "failed to register IO event: {}", e),
+            Error::RegisterIrqFd(e) => write!(f, "failed to register irqfd: {}", e),
             Error::DeviceNotFound => write!(f, "the device couldn't be found"),
             Error::UpdateFailed => write!(f, "failed to update the mmio device"),
         }
@@ -319,6 +324,53 @@ impl MMIODeviceManager {
         }
         None
     }
+
+    #[cfg(target_arch = "x86_64")]
+    /// Run fn for each registered device.
+    pub fn for_each_device<F, E>(&self, mut f: F) -> std::result::Result<(), E>
+    where
+        F: FnMut(
+            &DeviceType,
+            &String,
+            &MMIODeviceInfo,
+            &Mutex<dyn BusDevice>,
+        ) -> std::result::Result<(), E>,
+    {
+        for ((device_type, device_id), device_info) in self.get_device_info().iter() {
+            let bus_device = self
+                .get_device(*device_type, device_id)
+                // Safe to unwrap() because we know the device exists.
+                .unwrap();
+            f(device_type, device_id, device_info, bus_device)?;
+        }
+        Ok(())
+    }
+
+    /// Run fn `f()` for the virtio device matching `virtio_type` and `id`.
+    pub fn with_virtio_device_with_id<T, F>(&self, virtio_type: u32, id: &str, f: F) -> Result<()>
+    where
+        T: VirtioDevice + 'static,
+        F: FnOnce(&mut T) -> std::result::Result<(), String>,
+    {
+        if let Some(busdev) = self.get_device(DeviceType::Virtio(virtio_type), id) {
+            let virtio_device = busdev
+                .lock()
+                .expect("Poisoned lock")
+                .as_any()
+                .downcast_ref::<MmioTransport>()
+                .expect("Unexpected BusDevice type")
+                .device();
+            let mut dev = virtio_device.lock().expect("Poisoned lock");
+            f(dev
+                .as_mut_any()
+                .downcast_mut::<T>()
+                .ok_or(Error::IncorrectDeviceType)?)
+            .map_err(Error::InternalDeviceError)?;
+        } else {
+            return Err(Error::DeviceNotFound);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -524,6 +576,8 @@ mod tests {
                 Error::Cmdline(_) => format!("{}{:?}", e, e),
                 Error::DeviceNotFound => format!("{}{:?}", e, e),
                 Error::EventFd(_) => format!("{}{:?}", e, e),
+                Error::IncorrectDeviceType => format!("{}{:?}", e, e),
+                Error::InternalDeviceError(_) => format!("{}{:?}", e, e),
                 Error::InvalidInput => format!("{}{:?}", e, e),
                 Error::IrqsExhausted => format!("{}{:?}", e, e),
                 Error::RegisterIoEvent(_) => format!("{}{:?}", e, e),
@@ -536,6 +590,8 @@ mod tests {
         check_fmt_err(Error::Cmdline(kernel_cmdline::Error::CommandLineCopy));
         check_fmt_err(Error::DeviceNotFound);
         check_fmt_err(Error::EventFd(io::Error::from_raw_os_error(0)));
+        check_fmt_err(Error::IncorrectDeviceType);
+        check_fmt_err(Error::InternalDeviceError(String::new()));
         check_fmt_err(Error::InvalidInput);
         check_fmt_err(Error::IrqsExhausted);
         check_fmt_err(Error::RegisterIoEvent(errno::Error::new(0)));
@@ -550,6 +606,10 @@ mod tests {
         let guest_mem =
             GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
+
+        #[cfg(target_arch = "x86_64")]
+        // Only used for x86_64 part of the test.
+        let mem_clone = guest_mem.clone();
 
         #[cfg(target_arch = "x86_64")]
         assert!(builder::setup_interrupt_controller(&mut vm).is_ok());
@@ -582,6 +642,27 @@ mod tests {
         assert!(device_manager
             .get_device(DeviceType::Virtio(type_id), &id)
             .is_none());
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            let dummy2 = Arc::new(Mutex::new(DummyDevice::new()));
+            let id2 = String::from("foo2");
+            device_manager
+                .register_virtio_test_device(vm.fd(), mem_clone, dummy2, &mut cmdline, &id2)
+                .unwrap();
+
+            let mut count = 0;
+            let _: Result<()> = device_manager.for_each_device(|devtype, devid, _, _| {
+                assert_eq!(*devtype, DeviceType::Virtio(type_id));
+                match devid.as_str() {
+                    "foo" => count += 1,
+                    "foo2" => count += 2,
+                    _ => unreachable!(),
+                };
+                Ok(())
+            });
+            assert_eq!(count, 3);
+        }
     }
 
     #[test]

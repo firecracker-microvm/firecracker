@@ -15,7 +15,7 @@ pub mod virtio;
 
 pub use self::bus::{Bus, BusDevice, Error as BusError};
 use crate::virtio::QueueError;
-use logger::{error, Metric, METRICS};
+use logger::{error, IncMetric, METRICS};
 
 // Function used for reporting error in terms of logging
 // but also in terms of METRICS net event fails.

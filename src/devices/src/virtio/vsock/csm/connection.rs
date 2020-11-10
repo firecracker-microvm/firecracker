@@ -83,7 +83,7 @@ use std::num::Wrapping;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
-use logger::{debug, error, info, warn, Metric, METRICS};
+use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::EventSet;
 
 use super::super::defs::uapi;
@@ -673,11 +673,11 @@ mod tests {
     use utils::eventfd::EventFd;
 
     use super::super::super::defs::uapi;
-    use super::super::super::tests::TestContext;
     use super::super::defs as csm_defs;
     use super::*;
 
     use crate::virtio::vsock::device::RXQ_INDEX;
+    use crate::virtio::vsock::test_utils::TestContext;
 
     const LOCAL_CID: u64 = 2;
     const PEER_CID: u64 = 3;

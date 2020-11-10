@@ -23,7 +23,7 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use logger::{debug, error, warn, Metric, METRICS};
+use logger::{debug, error, warn, IncMetric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;
@@ -320,9 +320,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::TestContext;
     use super::*;
     use crate::virtio::vsock::defs::uapi;
+    use crate::virtio::vsock::test_utils::TestContext;
 
     #[test]
     fn test_virtio_device() {

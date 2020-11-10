@@ -18,7 +18,7 @@ use crate::tcp::{
     connection::{Connection, PassiveOpenError, RecvStatusFlags},
     seq_after, NextSegmentStatus, MAX_WINDOW_SIZE,
 };
-use logger::{Metric, METRICS};
+use logger::{IncMetric, METRICS};
 use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use utils::time::timestamp_cycles;
 

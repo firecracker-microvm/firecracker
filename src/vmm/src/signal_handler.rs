@@ -6,7 +6,7 @@ use libc::{
     SIGXFSZ,
 };
 
-use logger::{error, Metric, METRICS};
+use logger::{error, IncMetric, METRICS};
 use utils::signal::register_signal_handler;
 
 // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
@@ -282,6 +282,8 @@ mod tests {
         assert!(METRICS.signals.sigxcpu.count() >= 1);
         assert!(METRICS.signals.sigpipe.count() >= 1);
         assert!(METRICS.signals.sighup.count() >= 1);
+        // Workaround to GitHub issue 2216.
+        #[cfg(not(target_arch = "aarch64"))]
         assert!(METRICS.signals.sigill.count() >= 1);
     }
 }

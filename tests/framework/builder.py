@@ -55,6 +55,7 @@ class MicrovmBuilder:
               disks: [DiskArtifact],
               ssh_key: Artifact,
               config: Artifact,
+              network_config: net_tools.UniqueIPv4Generator = None,
               enable_diff_snapshots=False,
               cpu_template=None):
         """Build a fresh microvm."""
@@ -72,13 +73,17 @@ class MicrovmBuilder:
         ssh_key.download(self.root_path)
         vm.ssh_config['ssh_key_path'] = ssh_key.local_path()
         os.chmod(vm.ssh_config['ssh_key_path'], 0o400)
-        vm.create_tap_and_ssh_config(host_ip=DEFAULT_HOST_IP,
-                                     guest_ip=DEFAULT_GUEST_IP,
+        if network_config:
+            (host_ip, guest_ip) = network_config.get_next_available_ips(2)
+        else:
+            host_ip, guest_ip = DEFAULT_HOST_IP, DEFAULT_GUEST_IP
+        vm.create_tap_and_ssh_config(host_ip=host_ip,
+                                     guest_ip=guest_ip,
                                      netmask_len=DEFAULT_NETMASK,
                                      tapname=DEFAULT_TAP_NAME)
 
         # TODO: propper network configuraiton with artifacts.
-        guest_mac = net_tools.mac_from_ip(DEFAULT_GUEST_IP)
+        guest_mac = net_tools.mac_from_ip(guest_ip)
         response = vm.network.put(
             iface_id=DEFAULT_DEV_NAME,
             host_dev_name=DEFAULT_TAP_NAME,
@@ -102,6 +107,8 @@ class MicrovmBuilder:
             cpu_template=cpu_template,
         )
         assert vm.api_session.is_status_no_content(response.status_code)
+
+        vm.vcpus_count = int(microvm_config['vcpu_count'])
 
         # Reset root path so next microvm is built some place else.
         self.init_root_path()
@@ -171,7 +178,9 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
                disks,
                ssh_key: Artifact,
                snapshot_type: SnapshotType = SnapshotType.FULL,
-               target_version: str = None):
+               target_version: str = None,
+               mem_file_name: str = "vm.mem",
+               snapshot_name: str = "vm.vmstate"):
         """Create a Snapshot object from a microvm and artifacts."""
         # Disable API timeout as the APIs for snapshot related procedures
         # take longer.
@@ -184,15 +193,15 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
                                       snapshot_dir)
         utils.run_cmd(cmd)
         self._microvm.pause_to_snapshot(
-            mem_file_path="/snapshot/vm.mem",
-            snapshot_path="/snapshot/vm.vmstate",
+            mem_file_path="/snapshot/"+mem_file_name,
+            snapshot_path="/snapshot/"+snapshot_name,
             diff=snapshot_type == SnapshotType.DIFF,
             version=target_version)
 
         # Create a copy of the ssh_key artifact.
         ssh_key_copy = ssh_key.copy()
-        mem_path = os.path.join(snapshot_dir, "vm.mem")
-        vmstate_path = os.path.join(snapshot_dir, "vm.vmstate")
+        mem_path = os.path.join(snapshot_dir, mem_file_name)
+        vmstate_path = os.path.join(snapshot_dir, snapshot_name)
         return Snapshot(mem=mem_path,
                         vmstate=vmstate_path,
                         # TODO: To support more disks we need to figure out a

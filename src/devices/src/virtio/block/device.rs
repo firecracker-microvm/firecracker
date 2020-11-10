@@ -15,7 +15,7 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use logger::{error, warn, Metric, METRICS};
+use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
@@ -27,6 +27,7 @@ use super::{
     Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
 };
 
+use crate::virtio::VIRTIO_MMIO_INT_CONFIG;
 use crate::Error as DeviceError;
 
 /// Helper object for setting up all `Block` fields derived from its backing file.
@@ -136,7 +137,7 @@ pub struct Block {
     // Transport related fields.
     pub(crate) queues: Vec<Queue>,
     pub(crate) interrupt_status: Arc<AtomicUsize>,
-    interrupt_evt: EventFd,
+    pub(crate) interrupt_evt: EventFd,
     pub(crate) queue_evts: [EventFd; 1],
     pub(crate) device_state: DeviceState,
 
@@ -196,7 +197,14 @@ impl Block {
             METRICS.block.event_fails.inc();
         } else if self.rate_limiter.is_blocked() {
             METRICS.block.rate_limiter_throttled_events.inc();
-        } else if self.process_queue(0) {
+        } else {
+            self.process_virtio_queues();
+        }
+    }
+
+    /// Process device virtio queue(s).
+    pub fn process_virtio_queues(&mut self) {
+        if self.process_queue(0) {
             let _ = self.signal_used_queue();
         }
     }
@@ -210,7 +218,7 @@ impl Block {
         }
     }
 
-    pub(crate) fn process_queue(&mut self, queue_index: usize) -> bool {
+    pub fn process_queue(&mut self, queue_index: usize) -> bool {
         let mem = match self.device_state {
             DeviceState::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
@@ -306,6 +314,12 @@ impl Block {
         let disk_properties = DiskProperties::new(disk_image_path, self.is_read_only())?;
         self.disk = disk_properties;
         self.config_space = self.disk.virtio_block_config_space();
+
+        // Kick the driver to pick up the changes.
+        self.interrupt_status
+            .fetch_or(VIRTIO_MMIO_INT_CONFIG as usize, Ordering::SeqCst);
+        self.interrupt_evt.write(1).unwrap();
+
         METRICS.block.update_count.inc();
         Ok(())
     }
@@ -427,99 +441,11 @@ pub(crate) mod tests {
     use utils::tempfile::TempFile;
     use vm_memory::GuestAddress;
 
-    /// Will read $metric, run the code in $block, then assert metric has increased by $delta.
-    macro_rules! check_metric_after_block {
-        ($metric:expr, $delta:expr, $block:expr) => {{
-            let before = $metric.count();
-            let _ = $block;
-            assert_eq!($metric.count(), before + $delta, "unexpected metric value");
-        }};
-    }
-
-    impl Block {
-        pub(crate) fn set_queue(&mut self, idx: usize, q: Queue) {
-            self.queues[idx] = q;
-        }
-
-        fn set_rate_limiter(&mut self, rl: RateLimiter) {
-            self.rate_limiter = rl;
-        }
-
-        fn rate_limiter(&mut self) -> &RateLimiter {
-            &self.rate_limiter
-        }
-    }
-
-    /// Create a default Block instance to be used in tests.
-    pub fn default_block() -> Block {
-        // Create backing file.
-        let f = TempFile::new().unwrap();
-        f.as_file().set_len(0x1000).unwrap();
-
-        default_block_with_path(f.as_path().to_str().unwrap().to_string())
-    }
-
-    /// Create a default Block instance using file at the specified path to be used in tests.
-    pub fn default_block_with_path(path: String) -> Block {
-        // Rate limiting is enabled but with a high operation rate (10 million ops/s).
-        let rate_limiter = RateLimiter::new(0, 0, 0, 100_000, 0, 10).unwrap();
-
-        let id = "test".to_string();
-        // The default block device is read-write and non-root.
-        Block::new(id, None, path, false, false, rate_limiter).unwrap()
-    }
-
-    pub fn default_mem() -> GuestMemoryMmap {
-        GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap()
-    }
-
-    pub fn initialize_virtqueue(vq: &VirtQueue) {
-        let request_type_desc: usize = 0;
-        let data_desc: usize = 1;
-        let status_desc: usize = 2;
-
-        let request_addr: u64 = 0x1000;
-        let data_addr: u64 = 0x2000;
-        let status_addr: u64 = 0x3000;
-        let len = 0x1000;
-
-        // Set the request type descriptor.
-        vq.avail.ring[request_type_desc].set(request_type_desc as u16);
-        vq.dtable[request_type_desc].set(request_addr, len, VIRTQ_DESC_F_NEXT, data_desc as u16);
-
-        // Set the data descriptor.
-        vq.avail.ring[data_desc].set(data_desc as u16);
-        vq.dtable[data_desc].set(
-            data_addr,
-            len,
-            VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE,
-            status_desc as u16,
-        );
-
-        // Set the status descriptor.
-        vq.avail.ring[status_desc].set(status_desc as u16);
-        vq.dtable[status_desc].set(
-            status_addr,
-            len,
-            VIRTQ_DESC_F_WRITE,
-            (status_desc + 1) as u16,
-        );
-
-        // Mark the next available descriptor.
-        vq.avail.idx.set(1);
-    }
-
-    fn invoke_handler_for_queue_event(b: &mut Block) {
-        // Trigger the queue event.
-        b.queue_evts[0].write(1).unwrap();
-        // Handle event.
-        b.process(
-            &EpollEvent::new(EventSet::IN, b.queue_evts[0].as_raw_fd() as u64),
-            &mut EventManager::new().unwrap(),
-        );
-        // Validate the queue operation finished successfully.
-        assert_eq!(b.interrupt_evt.read().unwrap(), 1);
-    }
+    use crate::check_metric_after_block;
+    use crate::virtio::block::test_utils::{
+        default_block, invoke_handler_for_queue_event, set_queue, set_rate_limiter,
+    };
+    use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
 
     #[test]
     fn test_disk_backing_file_helper() {
@@ -621,7 +547,7 @@ pub(crate) mod tests {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        block.set_queue(0, vq.create_queue());
+        set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
         initialize_virtqueue(&vq);
 
@@ -646,7 +572,7 @@ pub(crate) mod tests {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        block.set_queue(0, vq.create_queue());
+        set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
         initialize_virtqueue(&vq);
 
@@ -677,7 +603,7 @@ pub(crate) mod tests {
         {
             // Reset the queue to reuse descriptors and memory.
             vq.used.idx.set(0);
-            block.set_queue(0, vq.create_queue());
+            set_queue(&mut block, 0, vq.create_queue());
 
             vq.dtable[1]
                 .flags
@@ -704,7 +630,7 @@ pub(crate) mod tests {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        block.set_queue(0, vq.create_queue());
+        set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
         initialize_virtqueue(&vq);
 
@@ -734,7 +660,7 @@ pub(crate) mod tests {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        block.set_queue(0, vq.create_queue());
+        set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
         initialize_virtqueue(&vq);
 
@@ -766,7 +692,7 @@ pub(crate) mod tests {
         // Read.
         {
             vq.used.idx.set(0);
-            block.set_queue(0, vq.create_queue());
+            set_queue(&mut block, 0, vq.create_queue());
 
             mem.write_obj::<u32>(VIRTIO_BLK_T_IN, request_type_addr)
                 .unwrap();
@@ -793,7 +719,7 @@ pub(crate) mod tests {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        block.set_queue(0, vq.create_queue());
+        set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
         initialize_virtqueue(&vq);
 
@@ -817,7 +743,7 @@ pub(crate) mod tests {
         // Flush completes successfully even with a data descriptor.
         {
             vq.used.idx.set(0);
-            block.set_queue(0, vq.create_queue());
+            set_queue(&mut block, 0, vq.create_queue());
             vq.dtable[0].next.set(1);
 
             mem.write_obj::<u32>(VIRTIO_BLK_T_FLUSH, request_type_addr)
@@ -836,7 +762,7 @@ pub(crate) mod tests {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        block.set_queue(0, vq.create_queue());
+        set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
         initialize_virtqueue(&vq);
 
@@ -880,7 +806,7 @@ pub(crate) mod tests {
         // Test that a device ID request will fail, if it fails to provide enough buffer space.
         {
             vq.used.idx.set(0);
-            block.set_queue(0, vq.create_queue());
+            set_queue(&mut block, 0, vq.create_queue());
             vq.dtable[1].len.set(VIRTIO_BLK_ID_BYTES - 1);
 
             mem.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, request_type_addr)
@@ -902,7 +828,7 @@ pub(crate) mod tests {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        block.set_queue(0, vq.create_queue());
+        set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
         initialize_virtqueue(&vq);
 
@@ -918,7 +844,7 @@ pub(crate) mod tests {
         // Use up the budget.
         assert!(rl.consume(8, TokenType::Bytes));
 
-        block.set_rate_limiter(rl);
+        set_rate_limiter(&mut block, rl);
         let rate_limiter_evt = EpollEvent::new(EventSet::IN, block.rate_limiter.as_raw_fd() as u64);
 
         mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
@@ -939,7 +865,7 @@ pub(crate) mod tests {
             );
 
             // Assert that limiter is blocked.
-            assert!(block.rate_limiter().is_blocked());
+            assert!(block.rate_limiter.is_blocked());
             // Assert that no operation actually completed (limiter blocked it).
             assert!(block.interrupt_evt.read().is_err());
             // Make sure the data is still queued for processing.
@@ -958,7 +884,7 @@ pub(crate) mod tests {
                 block.process(&rate_limiter_evt, &mut event_manager)
             );
             // Validate the rate_limiter is no longer blocked.
-            assert!(!block.rate_limiter().is_blocked());
+            assert!(!block.rate_limiter.is_blocked());
 
             // Make sure the virtio queue operation completed this time.
             assert_eq!(block.interrupt_evt.read().unwrap(), 1);
@@ -976,7 +902,7 @@ pub(crate) mod tests {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        block.set_queue(0, vq.create_queue());
+        set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
         initialize_virtqueue(&vq);
 
@@ -992,7 +918,7 @@ pub(crate) mod tests {
         // Use up the budget.
         assert!(rl.consume(1, TokenType::Ops));
 
-        block.set_rate_limiter(rl);
+        set_rate_limiter(&mut block, rl);
         let rate_limiter_evt = EpollEvent::new(EventSet::IN, block.rate_limiter.as_raw_fd() as u64);
 
         mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
@@ -1013,7 +939,7 @@ pub(crate) mod tests {
             );
 
             // Assert that limiter is blocked.
-            assert!(block.rate_limiter().is_blocked());
+            assert!(block.rate_limiter.is_blocked());
             // Assert that no operation actually completed (limiter blocked it).
             assert!(block.interrupt_evt.read().is_err());
             // Make sure the data is still queued for processing.
@@ -1031,7 +957,7 @@ pub(crate) mod tests {
             );
 
             // Assert that limiter is blocked.
-            assert!(block.rate_limiter().is_blocked());
+            assert!(block.rate_limiter.is_blocked());
             // Assert that no operation actually completed (limiter blocked it).
             assert!(block.interrupt_evt.read().is_err());
             // Make sure the data is still queued for processing.
@@ -1050,7 +976,7 @@ pub(crate) mod tests {
                 block.process(&rate_limiter_evt, &mut event_manager)
             );
             // Validate the rate_limiter is no longer blocked.
-            assert!(!block.rate_limiter().is_blocked());
+            assert!(!block.rate_limiter.is_blocked());
             // Make sure the virtio queue operation completed this time.
             assert_eq!(block.interrupt_evt.read().unwrap(), 1);
 

@@ -4,6 +4,21 @@
 
 ### Added
 
+- Added devtool test `-c|--cpuset-cpus` flag for cpus confinement when tests
+  run.
+- Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
+  run.
+- Added the virtio traditional memory ballooning device.
+
+### Changed
+
+- Removed the jailer `--extra-args` parameter. It was a noop, having been
+  replaced by the `--` separator for extra arguments.
+
+## [0.23.0]
+
+### Added
+
 - Added metric for throttled block device events.
 - Added metrics for counting rate limiter throttling events.
 - Added metric for counting MAC address updates.
@@ -11,13 +26,13 @@
 - Added metrics for counting RX and TX partial writes.
 - Added metrics that measure the duration of pausing and resuming the microVM,
   from the VMM perspective.
-- Added metric for measuring the duration of the last full snapshot created,
+- Added metric for measuring the duration of the last full/diff snapshot created,
   from the VMM perspective.
 - Added metric for measuring the duration of loading a snapshot, from the VMM
   perspective.
 - Added metrics that measure the duration of pausing and resuming the microVM,
   from the API (user) perspective.
-- Added metric for measuring the duration of the last full snapshot created,
+- Added metric for measuring the duration of the last full/diff snapshot created,
   from the API (user) perspective.
 - Added metric for measuring the duration of loading a snapshot, from the API
   (user) perspective.
@@ -26,14 +41,12 @@
   in a sparse file.
 - Added a new API call, `PATCH /vm`, for changing the microVM state (to
   `Paused` or `Resumed`).
-- Added a new API call, `PUT /snapshot/create`, for creating a full snapshot.
+- Added a new API call, `PUT /snapshot/create`, for creating a full or diff snapshot.
 - Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
 - Added new jailer command line argument `--cgroup` which allow the user to
   specify the cgroups that are going to be set by the Jailer.
-- Added devtool test `-c|--cpuset-cpus` flag for cpus confinement when tests
-  run.
-- Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
-  run.
+- Added full support for AMD CPUs (General Availability). More details
+  [here](README.md#supported-platforms).
 
 ### Fixed
 

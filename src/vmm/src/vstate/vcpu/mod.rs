@@ -22,7 +22,7 @@ use crate::{
     FC_EXIT_CODE_OK,
 };
 use kvm_ioctls::VcpuExit;
-use logger::{error, info, Metric, METRICS};
+use logger::{error, info, IncMetric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
 use utils::{
     eventfd::EventFd,

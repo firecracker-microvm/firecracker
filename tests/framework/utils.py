@@ -19,29 +19,32 @@ CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
 
 
-class ProcessCpuAffinity:
-    """Manage process cpu affinity."""
+class ProcessManager:
+    """Host process manager.
 
-    def __init__(self, pid):
-        """Initialize CpuAffinity class."""
-        self._pid = pid
+    TODO: Extend the management to guest processes.
+    TODO: Extend with automated process/cpu_id pinning accountability.
+    """
 
-    def get_threads(self) -> dict:
+    @staticmethod
+    def get_threads(pid: int) -> dict:
         """Return dict consisting of child threads."""
         threads_map = defaultdict(list)
-        proc = psutil.Process(self._pid)
+        proc = psutil.Process(pid)
         for thread in proc.threads():
             threads_map[psutil.Process(thread.id).name()].append(thread.id)
         return threads_map
 
-    def get_cpu_affinity(self) -> list:
+    @staticmethod
+    def get_cpu_affinity(pid: int) -> list:
         """Get CPU affinity for a thread."""
-        return psutil.Process(self._pid).cpu_affinity()
+        return psutil.Process(pid).cpu_affinity()
 
-    def set_cpu_affinity(self, cpulist: list) -> list:
+    @staticmethod
+    def set_cpu_affinity(pid: int, cpulist: list) -> list:
         """Set CPU affinity for a thread."""
         real_cpulist = list(map(CpuMap, cpulist))
-        return psutil.Process(self._pid).cpu_affinity(real_cpulist)
+        return psutil.Process(pid).cpu_affinity(real_cpulist)
 
 
 # pylint: disable=R0903
@@ -55,13 +58,21 @@ class CpuMap:
     starting from 0.
     """
 
-    arr = []
+    arr = list()
 
     def __new__(cls, x):
         """Instantiate the class field."""
+        assert CpuMap.len() > x
         if not CpuMap.arr:
             CpuMap.arr = CpuMap._cpus()
         return CpuMap.arr[x]
+
+    @staticmethod
+    def len():
+        """Get the host cpus count."""
+        if not CpuMap.arr:
+            CpuMap.arr = CpuMap._cpus()
+        return len(CpuMap.arr)
 
     @classmethod
     def _cpuset_mountpoint(cls):
@@ -223,6 +234,27 @@ def get_files_from(find_path: str, pattern: str, exclude_names: list = None,
     return found
 
 
+def get_free_mem_ssh(ssh_connection):
+    """
+    Get how much free memory in kB a guest sees, over ssh.
+
+    :param ssh_connection: connection to the guest
+    :return: available mem column output of 'free'
+    """
+    _, stdout, stderr = ssh_connection.execute_command(
+        'cat /proc/meminfo | grep MemAvailable'
+    )
+    assert stderr.read() == ''
+
+    # Split "MemAvailable:   123456 kB" and validate it
+    meminfo_data = stdout.read().split()
+    if len(meminfo_data) == 3:
+        # Return the middle element in the array
+        return int(meminfo_data[1])
+
+    raise Exception('Available memory not found in `/proc/meminfo')
+
+
 async def run_cmd_async(cmd, ignore_return_code=False, no_shell=False):
     """
     Create a coroutine that executes a given command.
@@ -321,3 +353,9 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
         run_cmd_async(cmd=cmd,
                       ignore_return_code=ignore_return_code,
                       no_shell=no_shell))
+
+
+def eager_map(func, iterable):
+    """Map version for Python 3.x which is eager and returns nothing."""
+    for _ in map(func, iterable):
+        continue

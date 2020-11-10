@@ -12,7 +12,7 @@ use std::{
 
 use crate::vstate::{vcpu::VcpuEmulation, vm::Vm};
 use kvm_ioctls::*;
-use logger::{error, Metric, METRICS};
+use logger::{error, IncMetric, METRICS};
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
 /// Errors associated with the wrappers over KVM ioctls.

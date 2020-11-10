@@ -23,7 +23,7 @@ import host_tools.proc as proc
 # this contains the frequency while on AMD it does not.
 # Checkout the cpuid crate. In the future other
 # differences may appear.
-COVERAGE_DICT = {"Intel": 85.15, "AMD": 84.33}
+COVERAGE_DICT = {"Intel": 85.72, "AMD": 84.94, "ARM": 83.47}
 PROC_MODEL = proc.proc_type()
 
 COVERAGE_MAX_DELTA = 0.05
@@ -40,47 +40,10 @@ KCOV_TOTAL_LINES_REGEX = r'"total_lines" : "(\d+)"'
 """Regex for extracting number of total executable lines found by kcov."""
 
 
-@pytest.mark.timeout(120)
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="no need to test it on multiple platforms"
-)
-def test_ensure_mod_tests():
-    """Check that files containing unit tests have a 'tests' module defined."""
-    # List all source files containing rust #[test] attribute,
-    # (excluding generated files and integration test directories).
-    # Take the list and check each file contains 'mod tests {', output file
-    # name if it doesn't.
-    cmd = (
-        '/bin/bash '
-        '-c '
-        '"grep '
-        '--files-without-match '
-        '\'mod tests {\' '
-        '\\$(grep '
-        '--files-with-matches '
-        '--recursive '
-        '--exclude-dir=src/*_gen/* '
-        '\'\\#\\[test\\]\' ../src/*/src)" '
-    )
-
-    # The outer grep returns 0 even if it finds files without the match, so we
-    # ignore the return code.
-    result = utils.run_cmd(cmd, no_shell=False, ignore_return_code=True)
-
-    error_msg = (
-        'Tests found in files without a "tests" module:\n {}'
-        'To ensure code coverage is reported correctly, please check that '
-        'your tests are in a module named "tests".'.format(result.stdout)
-    )
-
-    assert not result.stdout, error_msg
-
-
 @pytest.mark.timeout(400)
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="kcov hangs on aarch64"
+    reason="unstable on aarch64 as of right now"
 )
 def test_coverage(test_session_root_path, test_session_tmp_path):
     """Test line coverage with kcov.
@@ -97,6 +60,7 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
         'tests/,'
         'usr/lib/gcc,'
         'lib/x86_64-linux-gnu/,'
+        'test_utils.rs,'
         # The following files/directories are auto-generated
         'bootparam.rs,'
         'elf.rs,'
@@ -105,14 +69,17 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
         '_gen'
     )
     exclude_region = '\'mod tests {\''
+    target = "{}-unknown-linux-musl".format(platform.machine())
 
     cmd = (
-        'CARGO_TARGET_DIR={} cargo kcov --all '
-        '--output {} -- '
+        'RUSTFLAGS="{}" CARGO_TARGET_DIR={} cargo kcov --all '
+        '--target {} --output {} -- '
         '--exclude-pattern={} '
         '--exclude-region={} --verify'
     ).format(
+        host.get_rustflags(),
         os.path.join(test_session_root_path, CARGO_KCOV_REL_PATH),
+        target,
         test_session_tmp_path,
         exclude_pattern,
         exclude_region

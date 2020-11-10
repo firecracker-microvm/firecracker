@@ -25,7 +25,7 @@ use crate::{device_manager, Error, Vmm, VmmEventsObserver};
 
 use arch::InitrdConfig;
 use devices::legacy::Serial;
-use devices::virtio::{Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
+use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::warn;
 use polly::event_manager::{Error as EventManagerError, EventManager, Subscriber};
@@ -35,7 +35,7 @@ use snapshot::Persist;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
+use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -62,8 +62,6 @@ pub enum StartMicrovmError {
     KernelLoader(kernel::loader::Error),
     /// Cannot load command line string.
     LoadCommandline(kernel::cmdline::Error),
-    /// The start command was issued more than once.
-    MicroVMAlreadyRunning,
     /// Cannot start the VM because the kernel was not configured.
     MissingKernelConfig,
     /// Cannot start the VM because the size of the guest memory  was not specified.
@@ -132,7 +130,6 @@ impl Display for StartMicrovmError {
                 err_msg = err_msg.replace("\"", "");
                 write!(f, "Cannot load command line string. {}", err_msg)
             }
-            MicroVMAlreadyRunning => write!(f, "Microvm already running."),
             MissingKernelConfig => write!(f, "Cannot start microvm without kernel configuration."),
             MissingMemSizeConfig => {
                 write!(f, "Cannot start microvm without guest mem_size config.")
@@ -191,6 +188,12 @@ impl VmmEventsObserver for SerialStdin {
         self.0.lock().set_raw_mode().map_err(|e| {
             warn!("Cannot set raw mode for the terminal. {:?}", e);
             e
+        })?;
+
+        // Set non blocking stdin.
+        self.0.lock().set_non_block(true).map_err(|e| {
+            warn!("Cannot set non block for the terminal. {:?}", e);
+            e
         })
     }
     fn on_vmm_stop(&mut self) -> std::result::Result<(), utils::errno::Error> {
@@ -238,7 +241,7 @@ fn create_vmm_and_vcpus(
             Box::new(SerialStdin::get()),
             Box::new(io::stdout()),
         )
-        .map_err(StartMicrovmError::Internal)?;
+        .map_err(Internal)?;
         // x86_64 uses the i8042 reset event as the Vmm exit event.
         let reset_evt = exit_evt
             .try_clone()
@@ -287,14 +290,15 @@ pub fn build_microvm_for_boot(
     use self::StartMicrovmError::*;
     let boot_config = vm_resources.boot_source().ok_or(MissingKernelConfig)?;
 
+    let track_dirty_pages = vm_resources.track_dirty_pages();
     let guest_memory = create_guest_memory(
         vm_resources
             .vm_config()
             .mem_size_mib
             .ok_or(MissingMemSizeConfig)?,
+        track_dirty_pages,
     )?;
     let vcpu_config = vm_resources.vcpu_config();
-    let track_dirty_pages = vm_resources.track_dirty_pages();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
@@ -311,8 +315,15 @@ pub fn build_microvm_for_boot(
         vcpu_config.vcpu_count,
     )?;
 
+    // The boot timer device needs to be the first device attached in order
+    // to maintain the same MMIO address referenced in the documentation
+    // and tests.
     if vm_resources.boot_timer {
         attach_boot_timer_device(&mut vmm, request_ts)?;
+    }
+
+    if let Some(balloon) = vm_resources.balloon.get() {
+        attach_balloon_device(&mut vmm, &mut boot_cmdline, balloon, event_manager)?;
     }
 
     attach_block_devices(
@@ -432,12 +443,20 @@ pub fn build_microvm_from_snapshot(
 /// Creates GuestMemory of `mem_size_mib` MiB in size.
 pub fn create_guest_memory(
     mem_size_mib: usize,
+    track_dirty_pages: bool,
 ) -> std::result::Result<GuestMemoryMmap, StartMicrovmError> {
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
-    Ok(GuestMemoryMmap::from_ranges(&arch_mem_regions)
-        .map_err(StartMicrovmError::GuestMemoryMmap)?)
+    if !track_dirty_pages {
+        Ok(GuestMemoryMmap::from_ranges(&arch_mem_regions)
+            .map_err(StartMicrovmError::GuestMemoryMmap)?)
+    } else {
+        Ok(
+            GuestMemoryMmap::from_ranges_with_tracking(&arch_mem_regions)
+                .map_err(StartMicrovmError::GuestMemoryMmap)?,
+        )
+    }
 }
 
 fn load_kernel(
@@ -556,7 +575,13 @@ pub fn setup_serial_device(
     out: Box<dyn io::Write + Send>,
 ) -> super::Result<Arc<Mutex<Serial>>> {
     let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-    let serial = Arc::new(Mutex::new(Serial::new_in_out(interrupt_evt, input, out)));
+    let kick_stdin_read_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
+    let serial = Arc::new(Mutex::new(Serial::new_in_out(
+        interrupt_evt,
+        input,
+        out,
+        Some(kick_stdin_read_evt),
+    )));
     if let Err(e) = event_manager.add_subscriber(serial.clone()) {
         // TODO: We just log this message, and immediately return Ok, instead of returning the
         // actual error because this operation always fails with EPERM when adding a fd which
@@ -778,18 +803,30 @@ fn attach_unixsock_vsock_device(
     attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
 }
 
+fn attach_balloon_device(
+    vmm: &mut Vmm,
+    cmdline: &mut KernelCmdline,
+    balloon: &Arc<Mutex<Balloon>>,
+    event_manager: &mut EventManager,
+) -> std::result::Result<(), StartMicrovmError> {
+    let id = String::from(balloon.lock().expect("Poisoned lock").id());
+    // The device mutex mustn't be locked here otherwise it will deadlock.
+    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
+}
+
 #[cfg(test)]
 pub mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
     use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use arch::DeviceType;
-    use devices::virtio::{TYPE_BLOCK, TYPE_VSOCK};
+    use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use kernel::cmdline::Cmdline;
     use polly::event_manager::EventManager;
     use utils::tempfile::TempFile;
@@ -839,7 +876,7 @@ pub mod tests {
     }
 
     pub(crate) fn default_vmm() -> Vmm {
-        let guest_memory = create_guest_memory(128).unwrap();
+        let guest_memory = create_guest_memory(128, false).unwrap();
 
         let exit_evt = EventFd::new(libc::EFD_NONBLOCK)
             .map_err(Error::EventFd)
@@ -933,6 +970,24 @@ pub mod tests {
             .is_some());
     }
 
+    pub(crate) fn insert_balloon_device(
+        vmm: &mut Vmm,
+        cmdline: &mut Cmdline,
+        event_manager: &mut EventManager,
+        balloon_config: BalloonDeviceConfig,
+    ) {
+        let mut builder = BalloonBuilder::new();
+        assert!(builder.set(balloon_config).is_ok());
+        let balloon = builder.get().unwrap();
+
+        assert!(attach_balloon_device(vmm, cmdline, balloon, event_manager).is_ok());
+
+        assert!(vmm
+            .mmio_device_manager
+            .get_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+            .is_some());
+    }
+
     fn make_test_bin() -> Vec<u8> {
         let mut fake_bin = Vec::new();
         fake_bin.resize(1_000_000, 0xAA);
@@ -1000,9 +1055,26 @@ pub mod tests {
     }
 
     #[test]
+    fn test_create_guest_memory() {
+        let mem_size = 4096 * 2;
+
+        // Case 1: create guest memory without dirty page tracking
+        {
+            let guest_memory = create_guest_memory(mem_size, false).unwrap();
+            assert!(!guest_memory.is_dirty_tracking_enabled());
+        }
+
+        // Case 2: create guest memory with dirty page tracking
+        {
+            let guest_memory = create_guest_memory(mem_size, true).unwrap();
+            assert!(guest_memory.is_dirty_tracking_enabled());
+        }
+    }
+
+    #[test]
     fn test_create_vcpus() {
         let vcpu_count = 2;
-        let guest_memory = create_guest_memory(128).unwrap();
+        let guest_memory = create_guest_memory(128, false).unwrap();
 
         #[allow(unused_mut)]
         let mut vm = setup_kvm_vm(&guest_memory, false).unwrap();
@@ -1184,6 +1256,27 @@ pub mod tests {
     }
 
     #[test]
+    fn test_attach_balloon_device() {
+        let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+        let mut vmm = default_vmm();
+
+        let balloon_config = BalloonDeviceConfig {
+            amount_mb: 0,
+            must_tell_host: false,
+            deflate_on_oom: false,
+            stats_polling_interval_s: 0,
+        };
+
+        let mut cmdline = default_kernel_cmdline();
+        insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_config);
+        // Check if the vsock device is described in kernel_cmdline.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        assert!(cmdline
+            .as_str()
+            .contains("virtio_mmio.device=4K@0xd0000000:5"));
+    }
+
+    #[test]
     fn test_attach_vsock_device() {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
         let mut vmm = default_vmm();
@@ -1225,9 +1318,6 @@ pub mod tests {
         let _ = format!("{}{:?}", err, err);
 
         let err = LoadCommandline(kernel::cmdline::Error::TooLarge);
-        let _ = format!("{}{:?}", err, err);
-
-        let err = MicroVMAlreadyRunning;
         let _ = format!("{}{:?}", err, err);
 
         let err = MissingKernelConfig;
