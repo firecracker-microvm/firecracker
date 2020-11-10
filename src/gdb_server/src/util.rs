@@ -258,6 +258,9 @@ impl Debugger {
                     return Err(DebuggerError::InvalidState);
                 }
             }
+            // After each page table iteration we check whether the current entry is valid.
+            // If that is not the case, we try saving the translation process by skipping
+            // the page tables altogether and using direct translation through offset subtraction.
             if Debugger::check_entry(table_entry, TABLE_ENTRY_RSVD_BITS[rsvd_idx]).is_err() {
                 return Debugger::fixup_pointer(addr, e_phdrs);
             }

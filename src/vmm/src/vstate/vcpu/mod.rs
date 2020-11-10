@@ -602,7 +602,9 @@ impl Vcpu {
                             }
                             Ok(_) => return Err(Error::GDBServer("Invalid state".to_string())),
                             Err(_) => {
-                                return Err(Error::GDBServer("Communication terminated".to_string()))
+                                return Err(Error::GDBServer(
+                                    "Communication terminated".to_string(),
+                                ))
                             }
                         }
                     }
