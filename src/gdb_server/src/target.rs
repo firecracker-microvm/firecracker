@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use gdbstub::{
-    arch, Actions, BreakOp, OptResult, StopReason, Target, Tid, WatchKind, SINGLE_THREAD_TID,
+    arch, Actions, BreakOp, StopReason, Target, Tid, SINGLE_THREAD_TID,
 };
 
 use super::{Bytes, Elf64_Phdr, GuestAddress, GuestMemoryMmap};
@@ -55,18 +55,20 @@ impl FirecrackerGDBServer {
         linear_addr: u64,
         phys_addr: Option<u64>,
     ) -> Result<(), DebuggerError> {
-        if phys_addr.is_some() && self.breakpoints_phys.contains_key(&phys_addr.unwrap()) {
-            let val = self.breakpoints_phys.get_mut(&phys_addr.unwrap()).unwrap();
-            if self
-                .guest_memory
-                .write_obj(val.0, GuestAddress(phys_addr.unwrap()))
-                .is_err()
-            {
-                return Err(DebuggerError::MemoryError);
-            }
-            val.1 = false;
+        if let Some(phys_addr_val) = phys_addr {
+            if self.breakpoints_phys.contains_key(&phys_addr_val) {
+                let val = self.breakpoints_phys.get_mut(&phys_addr_val).unwrap();
+                if self
+                    .guest_memory
+                    .write_obj(val.0, GuestAddress(phys_addr_val))
+                    .is_err()
+                {
+                    return Err(DebuggerError::MemoryError);
+                }
+                val.1 = false;
 
-            return Ok(());
+                return Ok(());
+            }
         }
         if phys_addr.is_none() && self.breakpoints_linear.contains_key(&linear_addr) {
             let val = self.breakpoints_linear.get_mut(&linear_addr).unwrap();
@@ -130,7 +132,7 @@ impl FirecrackerGDBServer {
         if self.breakpoints_phys.contains_key(&phys_addr) {
             opcode = Some(self.breakpoints_phys.get(&phys_addr).unwrap().0);
         }
-        if !opcode.is_some() {
+        if opcode.is_none() {
             if let Ok(byte) = self.guest_memory.read_obj(GuestAddress(phys_addr)) {
                 opcode = Some(byte);
             } else {
@@ -174,7 +176,7 @@ impl FirecrackerGDBServer {
         {
             return false;
         }
-        return true;
+        true
     }
 }
 
@@ -208,7 +210,7 @@ impl Target for FirecrackerGDBServer {
                             if let Ok(DebugEvent::Notify(state)) =
                                 self.vcpu_event_receiver.try_recv()
                             {
-                                self.guest_state = state;
+                                self.guest_state = *state;
                                 // Initial breakpoint was not set by the client, we must
                                 // remove it manually
                                 if self.guest_state.regular_regs.rip == self.entry_addr.0 {
@@ -274,30 +276,28 @@ impl Target for FirecrackerGDBServer {
                                 self.vcpu_event_receiver.try_recv()
                             {
                                 interrupted = true;
-                                self.guest_state = state;
+                                self.guest_state = *state;
                                 break;
                             }
                         }
                         if !interrupted {
                             return Ok((SINGLE_THREAD_TID, StopReason::Halted));
-                        } else {
-                            if prev_rip == self.guest_state.regular_regs.rip {
-                                match Debugger::virt_to_phys(
-                                    prev_rip,
-                                    &self.guest_memory,
-                                    &self.guest_state,
-                                    &self.e_phdrs,
-                                ) {
-                                    Ok(phys_addr) => {
-                                        if let Err(e) = self.remove_bp(prev_rip, Some(phys_addr)) {
-                                            return Err(e);
-                                        }
+                        } else if prev_rip == self.guest_state.regular_regs.rip {
+                            match Debugger::virt_to_phys(
+                                prev_rip,
+                                &self.guest_memory,
+                                &self.guest_state,
+                                &self.e_phdrs,
+                            ) {
+                                Ok(phys_addr) => {
+                                    if let Err(e) = self.remove_bp(prev_rip, Some(phys_addr)) {
+                                        return Err(e);
                                     }
-                                    Err(e) => return Err(e),
                                 }
-                            } else {
-                                return Ok((SINGLE_THREAD_TID, StopReason::DoneStep));
+                                Err(e) => return Err(e),
                             }
+                        } else {
+                            return Ok((SINGLE_THREAD_TID, StopReason::DoneStep));
                         }
                     }
                 }
@@ -364,7 +364,7 @@ impl Target for FirecrackerGDBServer {
         let state = self.guest_state.clone();
         if self
             .vcpu_event_sender
-            .send(DebugEvent::SetRegs(state))
+            .send(DebugEvent::SetRegs(Box::new(state)))
             .is_err()
         {
             return Err(Self::Error::ChannelError);
@@ -379,12 +379,12 @@ impl Target for FirecrackerGDBServer {
         if let Ok(phys_addr) =
             Debugger::virt_to_phys(addrs, &self.guest_memory, &self.guest_state, &self.e_phdrs)
         {
-            for i in 0..val.len() {
+            for (i, item) in val.iter_mut().enumerate() {
                 if let Ok(byte) = self
                     .guest_memory
                     .read_obj(GuestAddress(phys_addr + (i as u64)))
                 {
-                    val[i] = byte;
+                    *item = byte;
                 } else {
                     return Err(Self::Error::MemoryError);
                 }
@@ -394,6 +394,7 @@ impl Target for FirecrackerGDBServer {
         Ok(false)
     }
 
+    #[allow(unused_variables)]
     fn write_addrs(&mut self, start_addr: u64, data: &[u8]) -> Result<bool, Self::Error> {
         Ok(true)
     }
@@ -401,23 +402,10 @@ impl Target for FirecrackerGDBServer {
     /// Function called when the user or the GDB client request the insertion/removal of a
     /// software breakpoint
     fn update_sw_breakpoint(&mut self, addr: u64, op: BreakOp) -> Result<bool, Self::Error> {
-        return match op {
+        match op {
             BreakOp::Add => self.insert_bp(addr, true),
             BreakOp::Remove => self.remove_bp(addr, None),
         }
-        .map(|_| true);
-    }
-
-    fn update_hw_breakpoint(&mut self, addr: u64, op: BreakOp) -> OptResult<bool, Self::Error> {
-        Ok(false)
-    }
-
-    fn update_hw_watchpoint(
-        &mut self,
-        addr: u64,
-        op: BreakOp,
-        kind: WatchKind,
-    ) -> OptResult<bool, Self::Error> {
-        Ok(false)
+        .map(|_| true)
     }
 }
