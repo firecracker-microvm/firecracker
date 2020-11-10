@@ -500,6 +500,8 @@ fn load_kernel(
         kernel::loader::load_kernel(guest_memory, &mut kernel_file, arch::get_kernel_start())
             .map_err(StartMicrovmError::KernelLoader)?;
 
+    // The program headers of the kernel image are necessary in the address translation
+    // mechanism in the GDB Server thread
     let phdrs = kernel::loader::extract_phdrs(&mut kernel_file).unwrap();
 
     Ok((entry_addr, phdrs))
