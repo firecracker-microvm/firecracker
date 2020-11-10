@@ -12,8 +12,7 @@ serde_json = ">=1.0.9"
 sysconf = ">=0.3.4"
 versionize = ">=0.1.2"
 versionize_derive = ">=0.1.1"
-vm-memory = { version = ">=0.2.2", features = ["backend-mmap"] }
-
+vm-memory = { path = "../vm-memory" }
 arch = { path = "../arch" }
 devices = { path = "../devices" }
 kernel = { path = "../kernel" }

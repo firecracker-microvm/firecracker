@@ -298,6 +298,16 @@ def test_reinflate_balloon(test_microvm_with_ssh_and_balloon, network_config):
     firecracker_pid = test_microvm.jailer_clone_pid
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
+    # First inflate the balloon to free up the uncertain amount of memory
+    # used by the kernel at boot and establish a baseline, then give back
+    # the memory.
+    response = test_microvm.balloon.patch(amount_mb=200)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    time.sleep(5)
+    response = test_microvm.balloon.patch(amount_mb=0)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    time.sleep(2)
+
     # Get the guest to dirty memory.
     make_guest_dirty_memory(ssh_connection)
     first_reading = get_rss_mem_by_pid(firecracker_pid)

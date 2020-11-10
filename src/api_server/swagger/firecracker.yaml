@@ -510,7 +510,7 @@ paths:
 
   /snapshot/create:
     put:
-      summary: Creates a full snapshot. Post-boot only.
+      summary: Creates a full or diff snapshot. Post-boot only.
       description:
         Creates a snapshot of the microVM state. The microVM should be
         in the `Paused` state.
@@ -985,6 +985,7 @@ definitions:
         type: string
         enum:
           - Full
+          - Diff
         description:
           Type of snapshot to create. It is optional and by default, a full
           snapshot is created.
