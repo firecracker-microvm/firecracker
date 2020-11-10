@@ -498,22 +498,22 @@ impl Vcpu {
                     // by a breakpoint and one caused by single-stepping
                     if self
                         .dbg_event_sender
-                        .send(DebugEvent::Notify(FullVcpuState {
+                        .send(DebugEvent::Notify(Box::new(FullVcpuState {
                             regular_regs,
                             special_regs,
-                        }))
+                        })))
                         .is_err()
                     {
-                        return Err(Error::GDBServer(format!("Invalid state")));
+                        return Err(Error::GDBServer("Invalid state".to_string()));
                     }
                     loop {
                         match self.dbg_response_receiver.recv() {
                             Ok(DebugEvent::GetRegs) => {
                                 self.dbg_event_sender
-                                    .send(DebugEvent::PeekRegs(FullVcpuState {
+                                    .send(DebugEvent::PeekRegs(Box::new(FullVcpuState {
                                         regular_regs,
                                         special_regs,
-                                    }))
+                                    })))
                                     .unwrap();
                                 continue;
                             }
@@ -560,9 +560,9 @@ impl Vcpu {
                                 }
                                 break;
                             }
-                            Ok(_) => return Err(Error::GDBServer(format!("Invalid state"))),
+                            Ok(_) => return Err(Error::GDBServer("Invalid state".to_string())),
                             Err(_) => {
-                                return Err(Error::GDBServer(format!("Communication terminated")))
+                                return Err(Error::GDBServer("Communication terminated".to_string()))
                             }
                         }
                     }

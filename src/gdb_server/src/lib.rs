@@ -32,7 +32,7 @@ fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
     Ok(stream)
 }
 
-pub fn run_gdb_server<'a>(
+pub fn run_gdb_server(
     vmm_gm: GuestMemoryMmap,
     entry_addr: GuestAddress,
     e_phdrs: Vec<Elf64_Phdr>,
