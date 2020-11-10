@@ -8,22 +8,22 @@ use super::{Elf64_Phdr, GuestAddress, GuestMemoryMmap, VcpuFd, PT_LOAD};
 
 // See Chapter 2.5 (Control Registers), Volume 3A in Intel Arch SW Developer's Manual.
 // Bit 0 of CR0 register on x86 architecture
-const CR0_PG: u64 = 0x80000000;
+const CR0_PG: u64 = 0x8000_0000;
 // Bit 5 of CR4 register on x86 architecture
-const CR4_PAE: u64 = 0x00000020;
+const CR4_PAE: u64 = 0x0000_0020;
 // Bit 12 of CR4 register on x86 architecture
-const CR4_LA57: u64 = 0x00001000;
+const CR4_LA57: u64 = 0x0000_1000;
 
 // See Chapter 2.2.1 (Extended Feature Enable Register),
 // Volume 3A in Intel Arch SW Developer's Manual.
 // Bit 8 of IA32_EFER register on x86 architecture
-const EFER_LME: u64 = 0x00000100;
+const EFER_LME: u64 = 0x0000_0100;
 
 // See Tables 4.16 - 4.18, Volume 3A in Intel Arch SW Developer's Manual.
 // Bit 7 of a PDPT entry
-const PDPTE_PS: u64 = 0x00000080;
+const PDPTE_PS: u64 = 0x0000_0080;
 // Bit 7 of a PD entry
-const PDE_PS: u64 = 0x00000080;
+const PDE_PS: u64 = 0x0000_0080;
 
 // See Chapter 4.7, Volume 3A in Intel Arch SW Developer's Manual.
 // Bit 0 in any level's page table entry. Marks whether a valid translation
@@ -31,28 +31,28 @@ const PDE_PS: u64 = 0x00000080;
 const BIT_P: u64 = 0x1;
 
 // [PML4E, PDPTE_PS0, PDPTE_PS1, PDE_PS0, PDE_PS1, PTE]
-const TABLE_ENTRY_RSVD_BITS: [u64; 6] = [0x80, 0x0, 0x3fffe000, 0x0, 0x1fe000, 0x0];
+const TABLE_ENTRY_RSVD_BITS: [u64; 6] = [0x80, 0x0, 0x3fff_e000, 0x0, 0x1f_e000, 0x0];
 
 // Bits 51:12 of register CR3 and mostly any page table entry that follows.
 // These bits become part of the next level's entry address
-const TABLE_ENTRY_MASK: u64 = 0x000ffffffffff000u64;
+const TABLE_ENTRY_MASK: u64 = 0x000f_ffff_ffff_f000u64;
 // Bits 51:30 of a PDPT entry when PS flag is 1.
 // These bits become part of a 1GB memory region start address
-const PDPTE_PS_ENTRY_MASK: u64 = 0x000fffffc0000000u64;
+const PDPTE_PS_ENTRY_MASK: u64 = 0x000f_ffff_c000_0000u64;
 // Bits 51:21 of PD entry when PS flag is 1.
 // These bits become part of a 2MB page table start address
-const PDE_PS_ENTRY_MASK: u64 = 0x000fffffffe00000u64;
+const PDE_PS_ENTRY_MASK: u64 = 0x000f_ffff_ffe0_0000u64;
 
 // In 4-Level paging mode we only need first 52 bits
-const LINEAR_ADDR_FULL_MASK: u64 = 0x0000ffffffffffffu64;
+const LINEAR_ADDR_FULL_MASK: u64 = 0x0000_ffff_ffff_ffffu64;
 // Mask of bits in the linear address that are to be part of PML4 entry address
-const LINEAR_ADDR_PML4_MASK: u64 = 0x0000ff8000000000u64;
+const LINEAR_ADDR_PML4_MASK: u64 = 0x0000_ff80_0000_0000u64;
 // Mask of bits in the linear address that are to be part of the final physical
 // address together with bits from a PDPT entry when PS flag is 1
-const LINEAR_ADDR_PDPTE_PS_MASK: u64 = 0x3fffffffu64;
+const LINEAR_ADDR_PDPTE_PS_MASK: u64 = 0x3fff_ffffu64;
 // Mask of bits in the linear address that are to be part of the final physical
 // address together with bits from a PD entry when PS flag is 1
-const LINEAR_ADDR_PDE_PS_MASK: u64 = 0x1fffff;
+const LINEAR_ADDR_PDE_PS_MASK: u64 = 0x1f_ffff;
 // Mask of bits in the linear address that are to be part of the final physical
 // address together with bits from a PT entry
 const LINEAR_ADDR_PTE_MASK: u64 = 0xfff;
@@ -68,10 +68,10 @@ enum PagingType {
 }
 
 pub enum DebugEvent {
-    Notify(FullVcpuState),
-    SetRegs(FullVcpuState),
+    Notify(Box<FullVcpuState>),
+    SetRegs(Box<FullVcpuState>),
     GetRegs,
-    PeekRegs(FullVcpuState),
+    PeekRegs(Box<FullVcpuState>),
     Continue(bool),
     StepInto(bool),
 }
@@ -134,7 +134,7 @@ impl Debugger {
             control |= KVM_GUESTDBG_SINGLESTEP;
         }
         let debug_struct = kvm_guest_debug {
-            control: control,
+            control,
             pad: 0,
             arch: kvm_guest_debug_arch {
                 debugreg: [0, 0, 0, 0, 0, 0, 0, 0],
@@ -168,7 +168,7 @@ impl Debugger {
         addr: u64,
         guest_memory: &GuestMemoryMmap,
         guest_state: &FullVcpuState,
-        e_phdrs: &Vec<Elf64_Phdr>,
+        e_phdrs: &[Elf64_Phdr],
     ) -> Result<u64, DebuggerError> {
         let mut linear_addr = addr;
         let pt_level = Debugger::get_paging_strategy(&guest_state.special_regs);
@@ -283,17 +283,13 @@ impl Debugger {
         if context.cr0 & CR0_PG != 0 {
             pt_level = if context.cr4 & CR4_LA57 != 0 {
                 PagingType::_5LVL
+            } else if context.efer & EFER_LME != 0 {
+                PagingType::_4LVL
+            } else if context.cr4 & CR4_PAE != 0 {
+                PagingType::PAE
             } else {
-                if context.efer & EFER_LME != 0 {
-                    PagingType::_4LVL
-                } else {
-                    if context.cr4 & CR4_PAE != 0 {
-                        PagingType::PAE
-                    } else {
-                        PagingType::_32BIT
-                    }
-                }
-            };
+                PagingType::_32BIT
+            }
         }
         pt_level
     }
@@ -328,7 +324,7 @@ impl Debugger {
     /// * `addr`    - linear address for which a valid translation through the page table
     ///             mechanism was not found
     /// * `e_phdrs` - ELF program headers   
-    fn fixup_pointer(addr: u64, e_phdrs: &Vec<Elf64_Phdr>) -> Result<u64, DebuggerError> {
+    fn fixup_pointer(addr: u64, e_phdrs: &[Elf64_Phdr]) -> Result<u64, DebuggerError> {
         for phdr in e_phdrs {
             if (phdr.p_type & PT_LOAD) == 0 {
                 continue;
@@ -365,20 +361,20 @@ mod tests {
                 p_type: super::PT_LOAD,
                 p_flags: 0,
                 p_offset: 0,
-                p_vaddr: 0xffffffff81000000,
-                p_paddr: 0x1000000,
-                p_filesz: 11984896,
-                p_memsz: 11984896,
+                p_vaddr: 0xffff_ffff_8100_0000,
+                p_paddr: 0x100_0000,
+                p_filesz: 11_984_896,
+                p_memsz: 11_984_896,
                 p_align: 0,
             },
             super::Elf64_Phdr {
                 p_type: super::PT_LOAD,
                 p_flags: 0,
                 p_offset: 0,
-                p_vaddr: 0xffffffff81cca000,
-                p_paddr: 0x1cca000,
-                p_filesz: 4243456,
-                p_memsz: 4243456,
+                p_vaddr: 0xffff_ffff_81cc_a000,
+                p_paddr: 0x1cc_a000,
+                p_filesz: 4_243_456,
+                p_memsz: 4_243_456,
                 p_align: 0,
             },
         ];
@@ -386,33 +382,33 @@ mod tests {
         // These page tables cover the first 1GB of memory, therefore we can only go
         // as far as 0x3ffffff
         assert_eq!(
-            super::Debugger::virt_to_phys(0x1000000, &gm, &state, &e_phdrs).unwrap(),
-            0x1000000
+            super::Debugger::virt_to_phys(0x100_0000, &gm, &state, &e_phdrs).unwrap(),
+            0x100_0000
         );
         assert_eq!(
-            super::Debugger::virt_to_phys(0xf000000, &gm, &state, &e_phdrs).unwrap(),
-            0xf000000
+            super::Debugger::virt_to_phys(0xf00_0000, &gm, &state, &e_phdrs).unwrap(),
+            0xf00_0000
         );
         assert_eq!(
-            super::Debugger::virt_to_phys(0x3f000000, &gm, &state, &e_phdrs).unwrap(),
-            0x3f000000
+            super::Debugger::virt_to_phys(0x3f00_0000, &gm, &state, &e_phdrs).unwrap(),
+            0x3f00_0000
         );
         assert_eq!(
-            super::Debugger::virt_to_phys(0x3fffffff, &gm, &state, &e_phdrs).unwrap(),
-            0x3fffffff
+            super::Debugger::virt_to_phys(0x3fff_ffff, &gm, &state, &e_phdrs).unwrap(),
+            0x3fff_ffff
         );
         // Testing translation thorugh elf binary information
         assert_eq!(
-            super::Debugger::virt_to_phys(0xffffffff81ccab6b, &gm, &state, &e_phdrs).unwrap(),
-            0x1ccab6b
+            super::Debugger::virt_to_phys(0xffff_ffff_81cc_ab6b, &gm, &state, &e_phdrs).unwrap(),
+            0x1cc_ab6b
         );
         assert_eq!(
-            super::Debugger::virt_to_phys(0xffffffff81cde9b1, &gm, &state, &e_phdrs).unwrap(),
-            0x1cde9b1
+            super::Debugger::virt_to_phys(0xffff_ffff_81cd_e9b1, &gm, &state, &e_phdrs).unwrap(),
+            0x1cd_e9b1
         );
         assert_eq!(
-            super::Debugger::virt_to_phys(0xffffffff81365070, &gm, &state, &e_phdrs).unwrap(),
-            0x1365070
+            super::Debugger::virt_to_phys(0xffff_ffff_8136_5070, &gm, &state, &e_phdrs).unwrap(),
+            0x136_5070
         );
     }
 }

@@ -66,7 +66,7 @@ use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap};
 
-use gdb_server;
+pub use gdb_server;
 
 /// Success exit code.
 pub const FC_EXIT_CODE_OK: u8 = 0;

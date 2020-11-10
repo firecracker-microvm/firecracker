@@ -21,7 +21,7 @@ use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vstate::{
     system::KvmContext,
-    vcpu::{Vcpu, VcpuConfig, VcpuEvent},
+    vcpu::{Vcpu, VcpuConfig},
     vm::Vm,
 };
 use crate::{device_manager, Error, Vmm, VmmEventsObserver};
@@ -856,13 +856,13 @@ fn attach_balloon_device(
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
 }
 
-fn vmm_run_gdb_server<'a>(
+fn vmm_run_gdb_server(
     vmm_mem: GuestMemoryMmap,
     receiver: Receiver<gdb_server::DebugEvent>,
     sender: Sender<gdb_server::DebugEvent>,
     e_phdrs: Vec<kernel::loader::Elf64_Phdr>,
     entry_point: GuestAddress,
-    vcpus: &Vec<Vcpu>,
+    vcpus: &[Vcpu],
 ) -> Result<(), StartMicrovmError> {
     // For now we assume there's one vcpu only
     if gdb_server::Debugger::enable_kvm_debug(&vcpus[0].kvm_vcpu.fd, false).is_err() {
