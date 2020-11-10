@@ -270,6 +270,11 @@ pub fn build_arg_parser() -> ArgParser<'static> {
              <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used
              multiple times to add multiple cgroups.",
         ))
+        .arg(
+            Argument::new("version")
+                .takes_value(false)
+                .help("Print the binary version number."),
+        )
 }
 
 fn sanitize_process() {

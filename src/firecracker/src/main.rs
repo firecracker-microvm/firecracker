@@ -136,6 +136,11 @@ fn main() {
             Argument::new("boot-timer")
                 .takes_value(false)
                 .help("Whether or not to load boot timer device for logging elapsed time since InstanceStart command.")
+        )
+        .arg(
+            Argument::new("version")
+                .takes_value(false)
+                .help("Print the binary version number.")
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {

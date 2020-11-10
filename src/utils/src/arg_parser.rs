@@ -362,7 +362,7 @@ impl<'a> Arguments<'a> {
         // command line arguments by adding just the version argument to the parsed list and
         // returning.
         if args.contains(&VERSION_ARG.to_string()) {
-            let mut version_arg = Argument::new("version").help("Print the binary version number.");
+            let mut version_arg = Argument::new("version");
             version_arg.user_value = Some(Value::Bool(true));
             self.insert_arg(version_arg);
             return Ok(());
