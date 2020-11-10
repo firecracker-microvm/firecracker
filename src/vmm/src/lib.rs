@@ -53,6 +53,10 @@ use crate::vstate::{
     vm::Vm,
 };
 use arch::DeviceType;
+use devices::virtio::balloon::Error as BalloonError;
+use devices::virtio::{
+    Balloon, BalloonConfig, BalloonStats, MmioTransport, BALLOON_DEV_ID, TYPE_BALLOON,
+};
 use devices::virtio::{Block, Net, TYPE_BLOCK, TYPE_NET};
 use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
@@ -501,7 +505,7 @@ impl Vmm {
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
-    fn update_block_device_path(&mut self, drive_id: &str, path_on_host: String) -> Result<()> {
+    pub fn update_block_device_path(&mut self, drive_id: &str, path_on_host: String) -> Result<()> {
         self.mmio_device_manager
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
@@ -526,6 +530,128 @@ impl Vmm {
                 Ok(())
             })
             .map_err(Error::DeviceManager)
+    }
+
+    /// Returns a reference to the balloon device if present.
+    pub fn balloon_config(&self) -> std::result::Result<BalloonConfig, BalloonError> {
+        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        {
+            let virtio_device = busdev
+                .lock()
+                .expect("Poisoned lock")
+                .as_any()
+                .downcast_ref::<MmioTransport>()
+                // Only MmioTransport implements BusDevice at this point.
+                .expect("Unexpected BusDevice type")
+                .device();
+
+            let config = virtio_device
+                .lock()
+                .expect("Poisoned lock")
+                .as_mut_any()
+                .downcast_mut::<Balloon>()
+                .unwrap()
+                .config();
+
+            Ok(config)
+        } else {
+            Err(BalloonError::DeviceNotFound)
+        }
+    }
+
+    /// Returns the latest balloon statistics if they are enabled.
+    pub fn latest_balloon_stats(&self) -> std::result::Result<BalloonStats, BalloonError> {
+        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        {
+            let virtio_device = busdev
+                .lock()
+                .expect("Poisoned lock")
+                .as_any()
+                .downcast_ref::<MmioTransport>()
+                // Only MmioTransport implements BusDevice at this point.
+                .expect("Unexpected BusDevice type")
+                .device();
+
+            let latest_stats = virtio_device
+                .lock()
+                .expect("Poisoned lock")
+                .as_mut_any()
+                .downcast_mut::<Balloon>()
+                .unwrap()
+                .latest_stats()
+                .ok_or(BalloonError::StatisticsDisabled)
+                .map(|stats| stats.clone())?;
+
+            Ok(latest_stats)
+        } else {
+            Err(BalloonError::DeviceNotFound)
+        }
+    }
+
+    /// Updates configuration for the balloon device target size.
+    pub fn update_balloon_config(
+        &mut self,
+        amount_mb: u32,
+    ) -> std::result::Result<(), BalloonError> {
+        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        {
+            {
+                let virtio_device = busdev
+                    .lock()
+                    .expect("Poisoned lock")
+                    .as_any()
+                    .downcast_ref::<MmioTransport>()
+                    // Only MmioTransport implements BusDevice at this point.
+                    .expect("Unexpected BusDevice type")
+                    .device();
+
+                virtio_device
+                    .lock()
+                    .expect("Poisoned lock")
+                    .as_mut_any()
+                    .downcast_mut::<Balloon>()
+                    .unwrap()
+                    .update_size(amount_mb)?;
+            }
+
+            let locked_dev = busdev.lock().expect("Poisoned lock");
+            locked_dev
+                .interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG)
+                .map_err(BalloonError::InterruptError)
+        } else {
+            Err(BalloonError::DeviceNotFound)
+        }
+    }
+
+    /// Updates configuration for the balloon device as described in `balloon_stats_update`.
+    pub fn update_balloon_stats_config(
+        &mut self,
+        stats_polling_interval_s: u16,
+    ) -> std::result::Result<(), BalloonError> {
+        if let Some(busdev) = self.get_bus_device(DeviceType::Virtio(TYPE_BALLOON), BALLOON_DEV_ID)
+        {
+            {
+                let virtio_device = busdev
+                    .lock()
+                    .expect("Poisoned lock")
+                    .as_any()
+                    .downcast_ref::<MmioTransport>()
+                    // Only MmioTransport implements BusDevice at this point.
+                    .expect("Unexpected BusDevice type")
+                    .device();
+
+                virtio_device
+                    .lock()
+                    .expect("Poisoned lock")
+                    .as_mut_any()
+                    .downcast_mut::<Balloon>()
+                    .unwrap()
+                    .update_stats_polling_interval(stats_polling_interval_s)?;
+            }
+            Ok(())
+        } else {
+            Err(BalloonError::DeviceNotFound)
+        }
     }
 }
 

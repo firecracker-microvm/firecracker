@@ -80,7 +80,7 @@ impl Persist<'_> for Queue {
 }
 
 /// State of a VirtioDevice.
-#[derive(Debug, PartialEq, Versionize)]
+#[derive(Clone, Debug, PartialEq, Versionize)]
 pub struct VirtioDeviceState {
     pub device_type: u32,
     pub avail_features: u64,
@@ -148,7 +148,7 @@ impl VirtioDeviceState {
     }
 }
 
-#[derive(Debug, PartialEq, Versionize)]
+#[derive(Clone, Debug, PartialEq, Versionize)]
 pub struct MmioTransportState {
     // The register where feature bits are stored.
     features_select: u32,

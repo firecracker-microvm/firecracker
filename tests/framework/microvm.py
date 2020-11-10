@@ -29,8 +29,9 @@ import framework.utils as utils
 from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
 from framework.http import Session
 from framework.jailer import JailerContext
-from framework.resources import Actions, BootSource, Drive, Logger, MMDS, \
-    MachineConfigure, Metrics, Network, Vm, Vsock, SnapshotCreate, SnapshotLoad
+from framework.resources import Actions, Balloon, BootSource, Drive, Logger, \
+    MMDS, MachineConfigure, Metrics, Network, Vm, Vsock, SnapshotCreate, \
+    SnapshotLoad
 
 LOG = logging.getLogger("microvm")
 
@@ -100,6 +101,7 @@ class Microvm:
 
         # nice-to-have: Put these in a dictionary.
         self.actions = None
+        self.balloon = None
         self.boot = None
         self.drive = None
         self.logger = None
@@ -134,6 +136,7 @@ class Microvm:
         # Cpu load monitoring has to be explicitly enabled using
         # the `enable_cpu_load_monitor` method.
         self._cpu_load_monitor = None
+        self._vcpus_count = None
 
         # External clone/exec tool, because Python can't into clone
         self.bin_cloner_path = bin_cloner_path
@@ -353,6 +356,43 @@ class Microvm:
             self._api_session
         )
 
+    @property
+    def vcpus_count(self):
+        """Get the vcpus count."""
+        return self._vcpus_count
+
+    @vcpus_count.setter
+    def vcpus_count(self, vcpus_count: int):
+        """Set the vcpus count."""
+        self._vcpus_count = vcpus_count
+
+    def pin_vmm(self, cpu_id: int) -> bool:
+        """Pin the firecracker process VMM thread to a cpu list."""
+        if self.jailer_clone_pid:
+            for thread in utils.ProcessManager.get_threads(
+                    self.jailer_clone_pid)["firecracker"]:
+                utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
+                return True
+        return False
+
+    def pin_vcpu(self, vcpu_id: int, cpu_id: int):
+        """Pin the firecracker vcpu thread to a cpu list."""
+        if self.jailer_clone_pid:
+            for thread in utils.ProcessManager.get_threads(
+                    self.jailer_clone_pid)[f"fc_vcpu {vcpu_id}"]:
+                utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
+            return True
+        return False
+
+    def pin_api(self, cpu_id: int):
+        """Pin the firecracker process API server thread to a cpu list."""
+        if self.jailer_clone_pid:
+            for thread in utils.ProcessManager.get_threads(
+                    self.jailer_clone_pid)["fc_api"]:
+                utils.ProcessManager.set_cpu_affinity(thread, [cpu_id])
+            return True
+        return False
+
     def spawn(self, create_logger=True, log_file='log_fifo', log_level='Info'):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
@@ -361,6 +401,7 @@ class Microvm:
         self._api_session = Session()
 
         self.actions = Actions(self._api_socket, self._api_session)
+        self.balloon = Balloon(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
         self.drive = Drive(self._api_socket, self._api_session)
         self.logger = Logger(self._api_socket, self._api_session)
@@ -400,32 +441,7 @@ class Microvm:
         # 2) Python's ctypes libc interface appears to be broken, causing
         # our clone / exec to deadlock at some point.
         if self._jailer.daemonize:
-            if self.bin_cloner_path:
-                cmd = [self.bin_cloner_path] + \
-                      [self._jailer_binary_path] + \
-                    jailer_param_list
-                _p = utils.run_cmd(cmd)
-                # Terrible hack to make the tests fail when starting the
-                # jailer fails with a panic. This is needed because we can't
-                # get the exit code of the jailer. In newpid_clone.c we are
-                # not waiting for the process and we always return 0 if the
-                # clone was successful (which in most cases will be) and we
-                # don't do anything if the jailer was not started
-                # successfully.
-                if _p.stderr.strip():
-                    raise Exception(_p.stderr)
-                self.jailer_clone_pid = int(_p.stdout.rstrip())
-            else:
-                # This code path is not used at the moment, but I just feel
-                # it's nice to have a fallback mechanism in place, in case
-                # we decide to offload PID namespacing to the jailer.
-                _pid = os.fork()
-                if _pid == 0:
-                    os.execv(
-                        self._jailer_binary_path,
-                        [self._jailer_binary_path] + jailer_param_list
-                    )
-                self.jailer_clone_pid = _pid
+            self.daemonize_jailer(jailer_param_list)
         else:
             # Delete old screen log if any.
             try:
@@ -550,6 +566,38 @@ class Microvm:
                 is_read_only=False
             )
             assert self._api_session.is_status_no_content(response.status_code)
+
+    def daemonize_jailer(
+            self,
+            jailer_param_list
+    ):
+        """Daemonize the jailer."""
+        if self.bin_cloner_path:
+            cmd = [self.bin_cloner_path] + \
+                [self._jailer_binary_path] + \
+                jailer_param_list
+            _p = utils.run_cmd(cmd)
+            # Terrible hack to make the tests fail when starting the
+            # jailer fails with a panic. This is needed because we can't
+            # get the exit code of the jailer. In newpid_clone.c we are
+            # not waiting for the process and we always return 0 if the
+            # clone was successful (which in most cases will be) and we
+            # don't do anything if the jailer was not started
+            # successfully.
+            if _p.stderr.strip():
+                raise Exception(_p.stderr)
+            self.jailer_clone_pid = int(_p.stdout.rstrip())
+        else:
+            # This code path is not used at the moment, but I just feel
+            # it's nice to have a fallback mechanism in place, in case
+            # we decide to offload PID namespacing to the jailer.
+            _pid = os.fork()
+            if _pid == 0:
+                os.execv(
+                    self._jailer_binary_path,
+                    [self._jailer_binary_path] + jailer_param_list
+                )
+            self.jailer_clone_pid = _pid
 
     def add_drive(
             self,

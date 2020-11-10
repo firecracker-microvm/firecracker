@@ -99,12 +99,15 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             // Used for reading the timezone in LocalTime::now()
             allow_syscall_if(
                 libc::SYS_mmap,
-                or![and![Cond::new(
-                    3,
-                    ArgLen::DWORD,
-                    Eq,
-                    libc::MAP_SHARED as u64
-                )?],],
+                or![
+                    and![Cond::new(3, ArgLen::DWORD, Eq, libc::MAP_SHARED as u64)?],
+                    and![Cond::new(
+                        3,
+                        ArgLen::DWORD,
+                        Eq,
+                        (libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE) as u64
+                    )?],
+                ],
             ),
             #[cfg(target_arch = "x86_64")]
             allow_syscall(libc::SYS_open),

@@ -575,7 +575,7 @@ impl Net {
                         error!("Failed to read slice: {:?}", e);
                         match e {
                             GuestMemoryError::PartialBuffer { .. } => &METRICS.net.tx_partial_reads,
-                            _ => &METRICS.net.rx_fails,
+                            _ => &METRICS.net.tx_fails,
                         }
                         .inc();
                         read_count = 0;

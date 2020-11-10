@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Basic tests scenarios for snapshot save/restore."""
 
+import filecmp
 import logging
 import os
 import platform
@@ -41,13 +42,24 @@ def _get_guest_drive_size(ssh_connection, guest_dev_name='/dev/vdb'):
     return stdout.readline().strip()
 
 
+def _copy_vsock_data_to_guest(ssh_connection,
+                              blob_path,
+                              vm_blob_path,
+                              vsock_helper):
+    # Copy the data file and a vsock helper to the guest.
+    cmd = "mkdir -p /tmp/vsock && mount -t tmpfs tmpfs /tmp/vsock"
+    ecode, _, _ = ssh_connection.execute_command(cmd)
+    assert ecode == 0, "Failed to set up tmpfs drive on the guest."
+
+    ssh_connection.scp_file(vsock_helper, '/bin/vsock_helper')
+    ssh_connection.scp_file(blob_path, vm_blob_path)
+
+
 def _test_seq_snapshots(context):
     logger = context.custom['logger']
     seq_len = context.custom['seq_len']
     vm_builder = context.custom['builder']
     snapshot_type = context.custom['snapshot_type']
-    bin_vsock_path = context.custom['bin_vsock_path']
-    test_session_root_path = context.custom['test_session_root_path']
     enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
@@ -67,14 +79,13 @@ def _test_seq_snapshots(context):
                               config=context.microvm,
                               enable_diff_snapshots=enable_diff_snapshots)
 
-    # Configure vsock device.
-    basevm.vsock.put(
-        vsock_id="vsock0",
-        guest_cid=3,
-        uds_path="/{}".format(VSOCK_UDS_PATH)
-    )
-    # Generate a random data file for vsock.
-    blob_path, blob_hash = make_blob(test_session_root_path)
+    # The vsock device is configured for Full snapshots only.
+    if snapshot_type == SnapshotType.FULL:
+        basevm.vsock.put(
+            vsock_id="vsock0",
+            guest_cid=3,
+            uds_path="/{}".format(VSOCK_UDS_PATH)
+        )
 
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -83,15 +94,17 @@ def _test_seq_snapshots(context):
     exit_code, _, _ = ssh_connection.execute_command("sync")
     assert exit_code == 0
 
-    # Copy the data file and a vsock helper to the guest.
-    cmd = "mkdir -p /tmp/vsock && mount -t tmpfs tmpfs /tmp/vsock"
-    ecode, _, _ = ssh_connection.execute_command(cmd)
-    assert ecode == 0, "Failed to set up tmpfs drive on the guest."
-
-    vsock_helper = bin_vsock_path
-    ssh_connection.scp_file(vsock_helper, '/bin/vsock_helper')
-    vm_blob_path = "/tmp/vsock/test.blob"
-    ssh_connection.scp_file(blob_path, vm_blob_path)
+    if snapshot_type == SnapshotType.FULL:
+        test_session_root_path = context.custom['test_session_root_path']
+        vsock_helper = context.custom['bin_vsock_path']
+        vm_blob_path = "/tmp/vsock/test.blob"
+        # Generate a random data file for vsock.
+        blob_path, blob_hash = make_blob(test_session_root_path)
+        # Copy the data file and a vsock helper to the guest.
+        _copy_vsock_data_to_guest(ssh_connection,
+                                  blob_path,
+                                  vm_blob_path,
+                                  vsock_helper)
 
     logger.info("Create {} #0.".format(snapshot_type))
     # Create a snapshot builder from a microvm.
@@ -114,15 +127,16 @@ def _test_seq_snapshots(context):
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
-        # Test vsock guest-initiated connections.
-        path = os.path.join(
-            microvm.path,
-            "{}_{}".format(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
-        )
-        check_guest_connections(microvm, path, vm_blob_path, blob_hash)
-        # Test vsock host-initiated connections.
-        path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
-        check_host_connections(microvm, path, blob_path, blob_hash)
+        if snapshot_type == SnapshotType.FULL:
+            # Test vsock guest-initiated connections.
+            path = os.path.join(
+                microvm.path,
+                "{}_{}".format(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
+            )
+            check_guest_connections(microvm, path, vm_blob_path, blob_hash)
+            # Test vsock host-initiated connections.
+            path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
+            check_host_connections(microvm, path, blob_path, blob_hash)
 
         # Start a new instance of fio on each iteration.
         _guest_run_fio_iteration(ssh_connection, i)
@@ -146,6 +160,49 @@ def _test_seq_snapshots(context):
             base_snapshot = snapshot
 
         microvm.kill()
+
+
+def _test_compare_mem_files(context):
+    logger = context.custom['logger']
+    vm_builder = context.custom['builder']
+
+    # Create a rw copy artifact.
+    root_disk = context.disk.copy()
+    # Get ssh key from read-only artifact.
+    ssh_key = context.disk.ssh_key()
+    # Create a fresh microvm from aftifacts.
+    basevm = vm_builder.build(kernel=context.kernel,
+                              disks=[root_disk],
+                              ssh_key=ssh_key,
+                              config=context.microvm,
+                              enable_diff_snapshots=True)
+
+    basevm.start()
+    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
+
+    # Verify if guest can run commands.
+    exit_code, _, _ = ssh_connection.execute_command("sync")
+    assert exit_code == 0
+
+    # Create a snapshot builder from a microvm.
+    snapshot_builder = SnapshotBuilder(basevm)
+
+    logger.info("Create full snapshot.")
+    # Create full snapshot.
+    full_snapshot = snapshot_builder.create([root_disk.local_path()],
+                                            ssh_key,
+                                            SnapshotType.FULL)
+
+    logger.info("Create diff snapshot.")
+    # Create diff snapshot.
+    diff_snapshot = snapshot_builder.create([root_disk.local_path()],
+                                            ssh_key,
+                                            SnapshotType.DIFF,
+                                            mem_file_name="diff_vm.mem",
+                                            snapshot_name="diff_vm.vmstate")
+    assert filecmp.cmp(full_snapshot.mem, diff_snapshot.mem)
+
+    basevm.kill()
 
 
 @pytest.mark.skipif(
@@ -256,8 +313,8 @@ def test_5_full_snapshots(network_config,
 
 
 @pytest.mark.skipif(
-    True,
-    reason="Blocked by Github issue #1997"
+    platform.machine() != "x86_64",
+    reason="Not supported yet."
 )
 def test_5_inc_snapshots(network_config,
                          bin_cloner_path):
@@ -293,3 +350,40 @@ def test_5_inc_snapshots(network_config,
                              ])
 
     test_matrix.run_test(_test_seq_snapshots)
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="Not supported yet."
+)
+def test_cmp_full_and_first_diff_mem(network_config,
+                                     bin_cloner_path):
+    """Test scenario: cmp memory of 2 consecutive full and diff snapshots."""
+    logger = logging.getLogger("snapshot_sequence")
+
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    # Testing matrix:
+    # - Guest kernel: Linux 4.9/4.14
+    # - Rootfs: Ubuntu 18.04
+    # - Microvm: 2vCPU with 512 MB RAM
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
+    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+
+    # Create a test context and add builder, logger, network.
+    test_context = TestContext()
+    test_context.custom = {
+        'builder': MicrovmBuilder(bin_cloner_path),
+        'network_config': network_config,
+        'logger': logger
+    }
+
+    # Create the test matrix.
+    test_matrix = TestMatrix(context=test_context,
+                             artifact_sets=[
+                                 microvm_artifacts,
+                                 kernel_artifacts,
+                                 disk_artifacts
+                             ])
+
+    test_matrix.run_test(_test_compare_mem_files)
