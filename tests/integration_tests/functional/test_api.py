@@ -815,6 +815,16 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     response = test_microvm.balloon.patch(amount_mb=2)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
+    # We can't have a balloon device with a target size greater than
+    # the available amount of memory.
+    response = test_microvm.balloon.put(
+        amount_mb=1024,
+        deflate_on_oom=False,
+        must_tell_host=True,
+        stats_polling_interval_s=5
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
     # Start the microvm.
     test_microvm.start()
 
@@ -838,6 +848,10 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     # But updating should be OK.
     response = test_microvm.balloon.patch(amount_mb=4)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Check we can't request more than the total amount of VM memory.
+    response = test_microvm.balloon.patch(amount_mb=300)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     # Check we can't disable statistics as they were enabled at boot.
     # We can, however, change the interval to a non-zero value.
