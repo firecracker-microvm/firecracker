@@ -22,6 +22,8 @@ pub use util::*;
 
 pub type DynResult<T> = Result<T, Box<dyn std::error::Error>>;
 
+const PORT_NUM: u16 = 8443;
+
 fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
     let sockaddr = format!("0.0.0.0:{}", port);
     eprintln!("Waiting for a GDB connection on {:?}...", sockaddr);
@@ -46,12 +48,18 @@ pub fn run_gdb_server(
         e_phdrs,
         entry_addr,
     )?;
-
+    // Setting this breakpoint guarantees that the first continue command issued
+    // by the client will bring the guest at the entry point of the kernel image.
+    // This is necessary in the case of IDEs, which automatically issue a continue
+    // command when the debugger is started and is useful in the case of CLI, as
+    // this initial breakpoint also allows for guest information retrieval (its
+    // state) - which is necessary for page walking and breakpoint setting, implicitly.
     if target.insert_bp(entry_addr.0, false).is_err() {
         return Err("GDB server error".into());
     }
 
-    let connection: Box<dyn Connection<Error = std::io::Error>> = { Box::new(wait_for_tcp(8443)?) };
+    let connection: Box<dyn Connection<Error = std::io::Error>> =
+        { Box::new(wait_for_tcp(PORT_NUM)?) };
     let mut debugger = GdbStub::new(connection);
     match debugger.run(&mut target)? {
         DisconnectReason::Disconnect => {
