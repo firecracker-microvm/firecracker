@@ -53,6 +53,8 @@ pub enum Error {
     InvalidFormatVersion(u16),
     /// Magic value does not match arch.
     InvalidMagic(u64),
+    /// Snapshot file is smaller than CRC length.
+    InvalidSnapshotSize,
     /// An IO error occurred.
     Io(i32),
     /// A versioned serialization/deserialization error occurred.
@@ -140,7 +142,9 @@ impl Snapshot {
         let mut crc_reader = CRC64Reader::new(reader);
 
         // Extract snapshot data without stored checksum, which is 8 bytes in size
-        let raw_snapshot_len = snapshot_len - std::mem::size_of::<u64>();
+        let raw_snapshot_len = snapshot_len
+            .checked_sub(std::mem::size_of::<u64>())
+            .ok_or(Error::InvalidSnapshotSize)?;
         let mut snapshot = vec![0u8; raw_snapshot_len];
         crc_reader
             .read_exact(&mut snapshot)
@@ -506,6 +510,16 @@ mod tests {
             .unwrap();
 
         let _: Test1 = Snapshot::load(&mut snapshot_mem.as_slice(), 38, vm).unwrap();
+    }
+
+    #[test]
+    fn test_invalid_snapshot_size() {
+        let vm = VersionMap::new();
+        // Create a snapshot shorter than CRC length.
+        let snapshot_mem = vec![0u8; 4];
+        let expected_err = Error::InvalidSnapshotSize;
+        let load_result: Result<Test1, Error> = Snapshot::load(&mut snapshot_mem.as_slice(), 4, vm);
+        assert_eq!(load_result.unwrap_err(), expected_err);
     }
 
     #[test]

@@ -71,6 +71,8 @@ pub enum Error {
     MalformedDescriptor,
     /// Guest gave us a malformed payload.
     MalformedPayload,
+    /// Error restoring the balloon device queues.
+    QueueRestoreError,
     /// Received stats querry when stats are disabled.
     StatisticsDisabled,
     /// Statistics cannot be enabled/disabled after activation.

@@ -5,6 +5,7 @@ FROM ubuntu:18.04
 # dependencies layer intact for much longer.
 
 ARG RUST_TOOLCHAIN="1.43.1"
+ARG RUST_TOOLCHAIN_AUDIT="1.47.0"
 ARG TINI_VERSION_TAG="v0.18.0"
 ARG TMP_BUILD_DIR=/tmp/build
 ARG FIRECRACKER_SRC_DIR="/firecracker"
@@ -76,9 +77,10 @@ RUN mkdir "$TMP_BUILD_DIR" \
         && rustup target add x86_64-unknown-linux-musl \
         && rustup component add rustfmt \
         && rustup component add clippy-preview \
+        && rustup install "$RUST_TOOLCHAIN_AUDIT" \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
-            && cargo install cargo-audit \
+            && cargo +"$RUST_TOOLCHAIN_AUDIT" install cargo-audit \
             && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
