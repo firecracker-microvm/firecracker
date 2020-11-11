@@ -45,7 +45,7 @@ use crate::device_manager::mmio::MMIODeviceManager;
 #[cfg(target_arch = "x86_64")]
 use crate::memory_snapshot::SnapshotMemory;
 #[cfg(target_arch = "x86_64")]
-use crate::persist::{mem_size_mib, MicrovmState, MicrovmStateError, VmInfo};
+use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::vcpu::VcpuState;
 use crate::vstate::{
@@ -220,6 +220,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Shorthand type for KVM dirty page bitmap.
 pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
 
+/// Returns the size of guest memory, in MiB.
+pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
+    guest_memory.map_and_fold(0, |(_, region)| region.len(), |a, b| a + b) >> 20
+}
+
 /// Contains the state and associated methods required for the Firecracker VMM.
 pub struct Vmm {
     events_observer: Option<Box<dyn VmmEventsObserver>>,
@@ -363,7 +368,7 @@ impl Vmm {
 
         let device_states = self.mmio_device_manager.save();
 
-        let mem_size_mib = persist::mem_size_mib(self.guest_memory());
+        let mem_size_mib = mem_size_mib(self.guest_memory());
         let memory_state = self.guest_memory().describe();
 
         Ok(MicrovmState {
