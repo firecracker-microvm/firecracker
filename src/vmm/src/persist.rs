@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::builder::{self, StartMicrovmError};
 use crate::device_manager::persist::Error as DevicePersistError;
+use crate::mem_size_mib;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vstate::{self, vcpu::VcpuState, vm::VmState};
 
@@ -26,7 +27,7 @@ use seccomp::BpfProgramRef;
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
-use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
+use vm_memory::GuestMemoryMmap;
 
 use crate::Vmm;
 
@@ -242,10 +243,6 @@ fn snapshot_memory_to_file(
         }
         SnapshotType::Full => vmm.guest_memory().dump(&mut file).map_err(Memory),
     }
-}
-
-pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
-    guest_memory.map_and_fold(0, |(_, region)| region.len(), |a, b| a + b) >> 20
 }
 
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
