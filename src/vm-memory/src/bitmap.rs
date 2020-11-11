@@ -3,10 +3,6 @@
 //
 //! Atomic bitmap implementation.
 
-// Temporarly disable unused warnings.
-// TODO: remove these once the Bitmap integration is completed.
-#![allow(dead_code)]
-
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// `Bitmap` implements a simple bit map on the page level with test and set operations. It is
@@ -42,7 +38,7 @@ impl Bitmap {
     #[inline]
     pub fn is_bit_set(&self, n: usize) -> bool {
         if n <= self.size {
-            (self.map[n >> 6].load(Ordering::SeqCst) & (1 << (n & 63))) != 0
+            (self.map[n >> 6].load(Ordering::Acquire) & (1 << (n & 63))) != 0
         } else {
             // Out-of-range bits are always unset.
             false
@@ -96,7 +92,7 @@ impl Clone for Bitmap {
         let map = self
             .map
             .iter()
-            .map(|i| i.load(Ordering::SeqCst))
+            .map(|i| i.load(Ordering::Acquire))
             .map(AtomicU64::new)
             .collect();
         Bitmap {
