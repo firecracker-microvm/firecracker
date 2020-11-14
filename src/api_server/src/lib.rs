@@ -314,7 +314,7 @@ impl ApiServer {
     }
 
     /// An HTTP response which also includes a body.
-    pub fn json_response<T: Into<String>>(status: StatusCode, body: T) -> Response {
+    pub(crate) fn json_response<T: Into<String>>(status: StatusCode, body: T) -> Response {
         let mut response = Response::new(Version::Http11, status);
         response.set_body(Body::new(body.into()));
         response

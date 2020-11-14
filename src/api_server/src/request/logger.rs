@@ -7,7 +7,7 @@ use crate::request::Body;
 use logger::{IncMetric, METRICS};
 use vmm::vmm_config::logger::LoggerConfig;
 
-pub fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.logger_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::ConfigureLogger(
         serde_json::from_slice::<LoggerConfig>(body.raw()).map_err(|e| {

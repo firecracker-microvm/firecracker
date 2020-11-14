@@ -7,7 +7,10 @@ use crate::request::{Body, StatusCode};
 use logger::{IncMetric, METRICS};
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 
-pub fn parse_put_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_net(
+    body: &Body,
+    id_from_path: Option<&&str>,
+) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.network_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
@@ -32,7 +35,10 @@ pub fn parse_put_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedR
     )))
 }
 
-pub fn parse_patch_net(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_net(
+    body: &Body,
+    id_from_path: Option<&&str>,
+) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.network_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
