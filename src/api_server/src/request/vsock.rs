@@ -6,7 +6,7 @@ use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
 use vmm::vmm_config::vsock::VsockDeviceConfig;
 
-pub fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_vsock(body: &Body) -> Result<ParsedRequest, Error> {
     Ok(ParsedRequest::new_sync(VmmAction::SetVsockDevice(
         serde_json::from_slice::<VsockDeviceConfig>(body.raw()).map_err(Error::SerdeJson)?,
     )))

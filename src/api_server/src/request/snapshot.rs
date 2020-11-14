@@ -11,7 +11,7 @@ use vmm::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
 use vmm::vmm_config::snapshot::{Vm, VmState};
 
 #[cfg(target_arch = "x86_64")]
-pub fn parse_put_snapshot(
+pub(crate) fn parse_put_snapshot(
     body: &Body,
     request_type_from_path: Option<&&str>,
 ) -> Result<ParsedRequest, Error> {
@@ -37,7 +37,7 @@ pub fn parse_put_snapshot(
     }
 }
 
-pub fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> {
     let vm = serde_json::from_slice::<Vm>(body.raw()).map_err(Error::SerdeJson)?;
 
     match vm.state {

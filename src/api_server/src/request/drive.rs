@@ -7,7 +7,10 @@ use crate::request::{Body, StatusCode};
 use logger::{IncMetric, METRICS};
 use vmm::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig};
 
-pub fn parse_put_drive(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_drive(
+    body: &Body,
+    id_from_path: Option<&&str>,
+) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.drive_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
@@ -34,7 +37,10 @@ pub fn parse_put_drive(body: &Body, id_from_path: Option<&&str>) -> Result<Parse
     }
 }
 
-pub fn parse_patch_drive(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_drive(
+    body: &Body,
+    id_from_path: Option<&&str>,
+) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.drive_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?

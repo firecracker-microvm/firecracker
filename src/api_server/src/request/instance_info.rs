@@ -4,7 +4,7 @@
 use crate::parsed_request::{Error, ParsedRequest};
 use logger::{IncMetric, METRICS};
 
-pub fn parse_get_instance_info() -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_get_instance_info() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.instance_info_count.inc();
     Ok(ParsedRequest::GetInstanceInfo)
 }
