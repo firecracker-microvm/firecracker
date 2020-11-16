@@ -472,15 +472,158 @@ mod tests {
     fn test_parse_json() {
         // test with malformed JSON
         {
-            let mut json_input = r#"hjkln"#.to_string();
-            // safe because we know the string is UTF-8
+            // empty file
+            let mut json_input = "".to_string();
             let json_input = unsafe { json_input.as_bytes_mut() };
 
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // not json
+            let mut json_input = "hjkln".to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // top-level array
+            let mut json_input = "[]".to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // thread key must be a string
+            let mut json_input = "{1}".to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // empty Filter object
+            let mut json_input = r#"{"a": {}}"#.to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // missing 'filter' field
+            let mut json_input =
+                r#"{"a": {"filter_action": "allow", "default_action":"log"}}"#.to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // wrong key 'filters'
+            let mut json_input =
+                r#"{"a": {"filter_action": "allow", "default_action":"log", "filters": []}}"#
+                    .to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // wrong action 'logs'
+            let mut json_input =
+                r#"{"a": {"filter_action": "allow", "default_action":"logs", "filter": []}}"#
+                    .to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // action that expects a value
+            let mut json_input =
+                r#"{"a": {"filter_action": "allow", "default_action":"errno", "filter": []}}"#
+                    .to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // overflowing u64 value
+            let mut json_input = r#"
+            {
+                "thread_2": {
+                    "default_action": "trap",
+                    "filter_action": "allow",
+                    "filter": [
+                        {
+                            "syscall": "ioctl",
+                            "args": [
+                                {
+                                    "arg_index": 3,
+                                    "arg_type": "qword",
+                                    "op": "eq",
+                                    "val": 18446744073709551616
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            "#
+            .to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // negative integer value
+            let mut json_input = r#"
+            {
+                "thread_2": {
+                    "default_action": "trap",
+                    "filter_action": "allow",
+                    "filter": [
+                        {
+                            "syscall": "ioctl",
+                            "args": [
+                                {
+                                    "arg_index": 3,
+                                    "arg_type": "qword",
+                                    "op": "eq",
+                                    "val": -1846
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            "#
+            .to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // float value
+            let mut json_input = r#"
+            {
+                "thread_2": {
+                    "default_action": "trap",
+                    "filter_action": "allow",
+                    "filter": [
+                        {
+                            "syscall": "ioctl",
+                            "args": [
+                                {
+                                    "arg_index": 3,
+                                    "arg_type": "qword",
+                                    "op": "eq",
+                                    "val": 1846.4
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            "#
+            .to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
             assert!(parse_json(&mut json_input.as_ref()).is_err());
         }
 
         // test with correctly formed JSON
         {
+            // empty JSON file
+            let mut json_input = "{}".to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+
+            assert_eq!(parse_json(&mut json_input.as_ref()).unwrap().len(), 0);
+
+            // empty Filter
+            let mut json_input =
+                r#"{"a": {"filter_action": "allow", "default_action":"log", "filter": []}}"#
+                    .to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+            assert!(parse_json(&mut json_input.as_ref()).is_ok());
+
+            // correctly formed JSON filter
             let mut json_input = get_correct_json_input();
             // safe because we know the string is UTF-8
             let json_input = unsafe { json_input.as_bytes_mut() };
