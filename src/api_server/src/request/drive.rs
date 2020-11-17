@@ -59,11 +59,16 @@ pub fn parse_patch_drive(body: &Body, id_from_path: Option<&&str>) -> Result<Par
 
     // Validate request - we need to have at least one parameter set:
     // - path_on_host
-    if block_device_update_cfg.path_on_host.is_none() {
+    // - rate_limiter
+    if block_device_update_cfg.path_on_host.is_none()
+        && block_device_update_cfg.rate_limiter.is_none()
+    {
         METRICS.patch_api_requests.drive_fails.inc();
         return Err(Error::Generic(
             StatusCode::BadRequest,
-            String::from("Please specify at least one property to patch: path_on_host."),
+            String::from(
+                "Please specify at least one property to patch: path_on_host, rate_limiter.",
+            ),
         ));
     }
 
@@ -148,10 +153,56 @@ mod tests {
         };
 
         let body = r#"{
-                "drive_id": "foo",
-                "path_on_host": "dummy"
-              }"#;
+            "drive_id": "foo",
+            "path_on_host": "dummy"
+        }"#;
+        // Must fail since the drive id differs from id_from_path (foo vs bar).
         assert!(parse_patch_drive(&Body::new(body), Some(&"bar")).is_err());
+
+        let body = r#"{
+            "drive_id": "foo",
+            "rate_limiter": {
+                "bandwidth": {
+                    "size": 5000,
+                    "refill_time": 100
+                },
+                "ops": {
+                    "size": 500,
+                    "refill_time": 100
+                }
+            }
+        }"#;
+        // Validate that updating just the ratelimiter works.
+        assert!(parse_patch_drive(&Body::new(body), Some(&"foo")).is_ok());
+
+        let body = r#"{
+            "drive_id": "foo",
+            "path_on_host": "/there",
+            "rate_limiter": {
+                "bandwidth": {
+                    "size": 5000,
+                    "refill_time": 100
+                },
+                "ops": {
+                    "size": 500,
+                    "refill_time": 100
+                }
+            }
+        }"#;
+        // Validate that updating both path and rate limiter succeds.
+        assert!(parse_patch_drive(&Body::new(body), Some(&"foo")).is_ok());
+
+        let body = r#"{
+            "drive_id": "foo",
+            "path_on_host": "/there",
+            "rate_limiter": {
+                "ops": {
+                    "size": 100
+                }
+            }
+        }"#;
+        // Validate that parse_patch_drive fails for invalid rate limiter cfg.
+        assert!(parse_patch_drive(&Body::new(body), Some(&"foo")).is_err());
     }
 
     #[test]

@@ -521,6 +521,21 @@ impl Vmm {
             .map_err(Error::DeviceManager)
     }
 
+    /// Updates the rate limiter parameters for block device with `drive_id` id.
+    pub fn update_block_rate_limiter(
+        &mut self,
+        drive_id: &str,
+        rl_bytes: BucketUpdate,
+        rl_ops: BucketUpdate,
+    ) -> Result<()> {
+        self.mmio_device_manager
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
+                block.update_rate_limiter(rl_bytes, rl_ops);
+                Ok(())
+            })
+            .map_err(Error::DeviceManager)
+    }
+
     /// Updates the rate limiter parameters for net device with `net_id` id.
     pub fn update_net_rate_limiters(
         &mut self,
