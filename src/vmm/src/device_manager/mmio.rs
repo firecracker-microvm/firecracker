@@ -13,10 +13,14 @@ use std::{fmt, io};
 use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
 use devices::pseudo::BootTimer;
-use devices::virtio::VirtioDevice;
-use devices::{virtio::MmioTransport, BusDevice};
+use devices::virtio::{
+    Balloon, Block, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
+    TYPE_VSOCK,
+};
+use devices::BusDevice;
 use kernel::cmdline as kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
+use logger::info;
 #[cfg(target_arch = "aarch64")]
 use utils::eventfd::EventFd;
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -325,7 +329,6 @@ impl MMIODeviceManager {
         None
     }
 
-    #[cfg(target_arch = "x86_64")]
     /// Run fn for each registered device.
     pub fn for_each_device<F, E>(&self, mut f: F) -> std::result::Result<(), E>
     where
@@ -370,6 +373,62 @@ impl MMIODeviceManager {
             return Err(Error::DeviceNotFound);
         }
         Ok(())
+    }
+
+    /// Artificially kick devices as if they had external events.
+    pub fn kick_devices(&self) {
+        info!("Artificially kick devices.");
+        let _: Result<()> = self.for_each_device(|devtype, id, _, bus_dev| {
+            // We only kick virtio devices for now.
+            if let DeviceType::Virtio(virtio_type) = *devtype {
+                let bus_dev = bus_dev.lock().expect("Poisoned lock");
+                // Virtio devices are guaranteed MmioTransport.
+                let mmio_dev = bus_dev.as_any().downcast_ref::<MmioTransport>().unwrap();
+                let mut virtio = mmio_dev.locked_device();
+                match virtio_type {
+                    TYPE_BALLOON => {
+                        info!("kick balloon {}.", id);
+                        let balloon = virtio.as_mut_any().downcast_mut::<Balloon>().unwrap();
+                        // If device is activated, kick the balloon queue(s) to make up for any
+                        // pending or in-flight epoll events we may have not captured in snapshot.
+                        // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
+                        if balloon.is_activated() {
+                            balloon.process_virtio_queues();
+                        }
+                    }
+                    TYPE_BLOCK => {
+                        info!("kick block {}.", id);
+                        let block = virtio.as_mut_any().downcast_mut::<Block>().unwrap();
+                        // If device is activated, kick the block queue(s) to make up for any
+                        // pending or in-flight epoll events we may have not captured in snapshot.
+                        // No need to kick Ratelimiters because they are restored 'unblocked' so
+                        // any inflight `timer_fd` events can be safely discarded.
+                        if block.is_activated() {
+                            block.process_virtio_queues();
+                        }
+                    }
+                    TYPE_NET => {
+                        info!("kick net {}.", id);
+                        let net = virtio.as_mut_any().downcast_mut::<Net>().unwrap();
+                        // If device is activated, kick the net queue(s) to make up for any
+                        // pending or in-flight epoll events we may have not captured in snapshot.
+                        // No need to kick Ratelimiters because they are restored 'unblocked' so
+                        // any inflight `timer_fd` events can be safely discarded.
+                        if net.is_activated() {
+                            net.process_virtio_queues();
+                        }
+                    }
+                    TYPE_VSOCK => {
+                        // Vsock has complicated protocol that isn't resilient to any packet loss,
+                        // so for Vsock we don't support connection persistence through snapshot.
+                        // Any in-flight packets or events are simply lost.
+                        // Vsock is restored 'empty'.
+                    }
+                    _ => (),
+                }
+            };
+            Ok(())
+        });
     }
 }
 
