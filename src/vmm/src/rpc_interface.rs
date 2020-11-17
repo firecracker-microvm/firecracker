@@ -27,7 +27,7 @@ use crate::vmm_config::balloon::{
     BalloonUpdateStatsConfig,
 };
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
-use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
+use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
@@ -107,9 +107,8 @@ pub enum VmmAction {
     UpdateBalloon(BalloonUpdateConfig),
     /// Update the balloon statistics polling interval, after microVM start.
     UpdateBalloonStatistics(BalloonUpdateStatsConfig),
-    /// Update the path of an existing block device. The data associated with this variant
-    /// represents the `drive_id` and the `path_on_host`.
-    UpdateBlockDevicePath(String, String),
+    /// Update existing block device properties such as `path_on_host` or `rate_limiter`.
+    UpdateBlockDevice(BlockDeviceUpdateConfig),
     /// Update a network interface, after microVM start. Currently, the only updatable properties
     /// are the RX and TX rate limiters.
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
@@ -319,7 +318,7 @@ impl<'a> PrebootApiController<'a> {
             | GetBalloonStats
             | UpdateBalloon(_)
             | UpdateBalloonStatistics(_)
-            | UpdateBlockDevicePath(_, _)
+            | UpdateBlockDevice(_)
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             CreateSnapshot(_) | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
@@ -485,9 +484,7 @@ impl RuntimeApiController {
                 .update_balloon_stats_config(balloon_stats_update.stats_polling_interval_s)
                 .map(|_| VmmData::Empty)
                 .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
-            UpdateBlockDevicePath(drive_id, new_path) => {
-                self.update_block_device_path(&drive_id, new_path)
-            }
+            UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
 
             // Operations not allowed post-boot.
@@ -604,14 +601,18 @@ impl RuntimeApiController {
 
     /// Updates the path of the host file backing the emulated block device with id `drive_id`.
     /// We update the disk image on the device and its virtio configuration.
-    fn update_block_device_path(&mut self, drive_id: &str, new_path: String) -> ActionResult {
-        self.vmm
-            .lock()
-            .expect("Poisoned lock")
-            .update_block_device_path(drive_id, new_path)
-            .map(|()| VmmData::Empty)
-            .map_err(DriveError::DeviceUpdate)
-            .map_err(VmmActionError::DriveConfig)
+    fn update_block_device(&mut self, new_cfg: BlockDeviceUpdateConfig) -> ActionResult {
+        if let Some(new_path) = new_cfg.path_on_host {
+            self.vmm
+                .lock()
+                .expect("Poisoned lock")
+                .update_block_device_path(&new_cfg.drive_id, new_path)
+                .map(|()| VmmData::Empty)
+                .map_err(DriveError::DeviceUpdate)
+                .map_err(VmmActionError::DriveConfig)
+        } else {
+            Ok(VmmData::Empty)
+        }
     }
 
     /// Updates configuration for an emulated net device as described in `new_cfg`.
@@ -1151,7 +1152,7 @@ mod tests {
             VmmActionError::OperationNotSupportedPreBoot,
         );
         check_preboot_request_err(
-            VmmAction::UpdateBlockDevicePath(String::new(), String::new()),
+            VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig::default()),
             VmmActionError::OperationNotSupportedPreBoot,
         );
         check_preboot_request_err(
@@ -1367,13 +1368,13 @@ mod tests {
 
     #[test]
     fn test_runtime_update_block_device_path() {
-        let req = VmmAction::UpdateBlockDevicePath(String::new(), String::new());
+        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig::default());
         check_runtime_request(req, |result, vmm| {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vmm.update_block_device_path_called)
         });
 
-        let req = VmmAction::UpdateBlockDevicePath(String::new(), String::new());
+        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig::default());
         check_runtime_request_err(
             req,
             VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(

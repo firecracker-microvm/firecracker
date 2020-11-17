@@ -926,7 +926,6 @@ definitions:
     type: object
     required:
       - drive_id
-      - path_on_host
     properties:
       drive_id:
         type: string

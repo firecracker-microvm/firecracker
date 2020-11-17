@@ -692,7 +692,7 @@ def _drive_patch(test_microvm):
         drive_id='scratch'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Required key path_on_host not present in the json." \
+    assert "at least one property to patch: path_on_host, rate_limiter" \
            in response.text
 
     # Cannot patch drive permissions post boot.
@@ -702,8 +702,7 @@ def _drive_patch(test_microvm):
         is_read_only=True
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Invalid PATCH payload. Only updates on path_on_host are allowed." \
-           in response.text
+    assert "unknown field `is_read_only`" in response.text
 
     # Updates to `is_root_device` with a valid value are not allowed.
     response = test_microvm.drive.patch(
@@ -712,8 +711,7 @@ def _drive_patch(test_microvm):
         is_root_device=False
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Invalid PATCH payload. Only updates on path_on_host are allowed." \
-           in response.text
+    assert "unknown field `is_root_device`" in response.text
 
     # Updates to `path_on_host` with an invalid path are not allowed.
     response = test_microvm.drive.patch(
