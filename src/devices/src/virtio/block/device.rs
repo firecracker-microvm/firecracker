@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use logger::{error, warn, IncMetric, METRICS};
-use rate_limiter::{RateLimiter, TokenType};
+use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
 use vm_memory::{Bytes, GuestMemoryMmap};
@@ -322,6 +322,11 @@ impl Block {
 
         METRICS.block.update_count.inc();
         Ok(())
+    }
+
+    /// Updates the parameters for the rate limiter
+    pub fn update_rate_limiter(&mut self, bytes: BucketUpdate, ops: BucketUpdate) {
+        self.rate_limiter.update_buckets(bytes, ops);
     }
 
     /// Provides the ID of this block device.

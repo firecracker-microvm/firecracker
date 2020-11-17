@@ -92,6 +92,8 @@ pub struct BlockDeviceUpdateConfig {
     pub drive_id: String,
     /// New block file path on the host. Only provided data will be updated.
     pub path_on_host: Option<String>,
+    /// New rate limiter config.
+    pub rate_limiter: Option<RateLimiterConfig>,
 }
 
 /// Wrapper for the collection that holds all the Block Devices

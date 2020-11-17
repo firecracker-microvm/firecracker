@@ -932,6 +932,8 @@ definitions:
       path_on_host:
         type: string
         description: Host level path for the guest drive
+      rate_limiter:
+        $ref: "#/definitions/RateLimiter"
 
   PartialNetworkInterface:
     type: object
