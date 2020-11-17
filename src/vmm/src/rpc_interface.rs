@@ -518,7 +518,7 @@ impl RuntimeApiController {
         self.vmm
             .lock()
             .expect("Poisoned lock")
-            .pause_vcpus()
+            .pause_vm()
             .map_err(VmmActionError::InternalVmm)?;
 
         let elapsed_time_us =
@@ -535,7 +535,7 @@ impl RuntimeApiController {
         self.vmm
             .lock()
             .expect("Poisoned lock")
-            .resume_vcpus()
+            .resume_vm()
             .map_err(VmmActionError::InternalVmm)?;
 
         let elapsed_time_us =
@@ -789,7 +789,7 @@ mod tests {
     }
 
     impl MockVmm {
-        pub fn resume_vcpus(&mut self) -> Result<(), VmmError> {
+        pub fn resume_vm(&mut self) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::VcpuResume);
             }
@@ -797,7 +797,7 @@ mod tests {
             Ok(())
         }
 
-        pub fn pause_vcpus(&mut self) -> Result<(), VmmError> {
+        pub fn pause_vm(&mut self) -> Result<(), VmmError> {
             if self.force_errors {
                 return Err(VmmError::VcpuPause);
             }
