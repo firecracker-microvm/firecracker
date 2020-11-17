@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::convert::TryInto;
+use std::convert::{From, TryInto};
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use libc::O_NONBLOCK;
 use serde::Deserialize;
 
-use rate_limiter::RateLimiter;
+use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 
 /// Wrapper for configuring the balloon device.
 pub mod balloon;
@@ -65,6 +65,50 @@ pub struct RateLimiterConfig {
     pub bandwidth: Option<TokenBucketConfig>,
     /// Data used to initialize the RateLimiter::ops bucket.
     pub ops: Option<TokenBucketConfig>,
+}
+
+/// A public-facing, stateless structure, specifying RateLimiter properties updates.
+pub struct RateLimiterUpdate {
+    /// Possible update to the RateLimiter::bandwidth bucket.
+    pub bandwidth: BucketUpdate,
+    /// Possible update to the RateLimiter::ops bucket.
+    pub ops: BucketUpdate,
+}
+
+fn get_bucket_update(tb_cfg: &Option<TokenBucketConfig>) -> BucketUpdate {
+    match tb_cfg {
+        // There is data to update.
+        Some(tb_cfg) => {
+            TokenBucket::new(
+                tb_cfg.size,
+                tb_cfg.one_time_burst.unwrap_or(0),
+                tb_cfg.refill_time,
+            )
+            // Updated active rate-limiter.
+            .map(BucketUpdate::Update)
+            // Updated/deactivated rate-limiter
+            .unwrap_or(BucketUpdate::Disabled)
+        }
+        // No update to the rate-limiter.
+        None => BucketUpdate::None,
+    }
+}
+
+impl From<Option<RateLimiterConfig>> for RateLimiterUpdate {
+    fn from(cfg: Option<RateLimiterConfig>) -> Self {
+        if let Some(cfg) = cfg {
+            RateLimiterUpdate {
+                bandwidth: get_bucket_update(&cfg.bandwidth),
+                ops: get_bucket_update(&cfg.ops),
+            }
+        } else {
+            // No update to the rate-limiter.
+            RateLimiterUpdate {
+                bandwidth: BucketUpdate::None,
+                ops: BucketUpdate::None,
+            }
+        }
+    }
 }
 
 impl TryInto<RateLimiter> for RateLimiterConfig {

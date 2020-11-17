@@ -732,6 +732,57 @@ def _drive_patch(test_microvm):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
+    # Updates to valid `path_on_host` and `rate_limiter` are allowed.
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        path_on_host=test_microvm.create_jailed_resource(fs.path),
+        rate_limiter={
+            'bandwidth': {
+                'size': 1000000,
+                'refill_time': 100
+            },
+            'ops': {
+                'size': 1,
+                'refill_time': 100
+            }
+        }
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Updates to `rate_limiter` only are allowed.
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        rate_limiter={
+            'bandwidth': {
+                'size': 5000,
+                'refill_time': 100
+            },
+            'ops': {
+                'size': 500,
+                'refill_time': 100
+            }
+        }
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Updates to `rate_limiter` and invalid path fail.
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        path_on_host='foo.bar',
+        rate_limiter={
+            'bandwidth': {
+                'size': 5000,
+                'refill_time': 100
+            },
+            'ops': {
+                'size': 500,
+                'refill_time': 100
+            }
+        }
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "No such file or directory" in response.text
+
 
 def test_api_vsock(test_microvm_with_api):
     """Test vsock related API commands."""

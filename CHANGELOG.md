@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added support for block rate limiter PATCH.
 - Added devtool test `-c|--cpuset-cpus` flag for cpus confinement when tests
   run.
 - Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
