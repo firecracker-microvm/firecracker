@@ -10,6 +10,7 @@
 - Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
   run.
 - Added the virtio traditional memory ballooning device.
+- Added a mechanism to handle vCPU/VMM errors that result in process termination.
 
 ### Changed
 

@@ -25,6 +25,8 @@ use vmm::vmm_config::instance_info::InstanceInfo;
 #[cfg(target_arch = "x86_64")]
 use vmm::vmm_config::snapshot::SnapshotType;
 
+use vmm::FC_EXIT_CODE_BAD_CONFIGURATION;
+
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
 /// Shorthand type for a response containing a boxed Result.
@@ -67,6 +69,9 @@ pub struct ApiServer {
     /// FD on which we notify the VMM that we have sent at least one
     /// `VmmRequest`.
     to_vmm_fd: EventFd,
+    /// If this flag is set, the process encountered a fatal error
+    /// and it is going to exit once it sends any pending API response.
+    vmm_fatal_error: bool,
 }
 
 impl ApiServer {
@@ -83,6 +88,7 @@ impl ApiServer {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
+            vmm_fatal_error: false,
         })
     }
 
@@ -146,6 +152,18 @@ impl ApiServer {
                         let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
                             - request_processing_start_us;
                         debug!("Total previous API call duration: {} us.", delta_us);
+                        if self.vmm_fatal_error {
+                            // Flush the remaining outgoing responses
+                            // and proceed to exit
+                            server.flush_outgoing_writes();
+                            error!(
+                                "Fatal error with exit code: {}",
+                                FC_EXIT_CODE_BAD_CONFIGURATION
+                            );
+                            unsafe {
+                                libc::_exit(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
+                            }
+                        }
                     }
                 }
                 Err(e) => {
@@ -158,7 +176,11 @@ impl ApiServer {
         }
     }
 
-    pub fn handle_request(&self, request: &Request, request_processing_start_us: u64) -> Response {
+    pub fn handle_request(
+        &mut self,
+        request: &Request,
+        request_processing_start_us: u64,
+    ) -> Response {
         match ParsedRequest::try_from_request(request) {
             Ok(ParsedRequest::Sync(vmm_action)) => {
                 self.serve_vmm_action_request(vmm_action, request_processing_start_us)
@@ -175,7 +197,7 @@ impl ApiServer {
     }
 
     fn serve_vmm_action_request(
-        &self,
+        &mut self,
         vmm_action: Box<VmmAction>,
         request_processing_start_us: u64,
     ) -> Response {
@@ -205,6 +227,8 @@ impl ApiServer {
             .expect("Failed to send VMM message");
         self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
         let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
+        #[cfg(target_arch = "x86_64")]
+        self.check_for_fatal_error(&vmm_outcome);
         let response = ParsedRequest::convert_to_response(&vmm_outcome);
 
         if vmm_outcome.is_ok() {
@@ -215,6 +239,14 @@ impl ApiServer {
             }
         }
         response
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn check_for_fatal_error(&mut self, response: &std::result::Result<VmmData, VmmActionError>) {
+        // Errors considered as fatal are added here
+        if let Err(VmmActionError::LoadSnapshot(_)) = response {
+            self.vmm_fatal_error = true;
+        }
     }
 
     fn get_instance_info(&self) -> Response {
@@ -355,7 +387,7 @@ mod tests {
         let (to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
 
-        let api_server = ApiServer::new(
+        let mut api_server = ApiServer::new(
             mmds_info,
             vmm_shared_info,
             api_request_sender,
@@ -546,7 +578,7 @@ mod tests {
         let (to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
 
-        let api_server = ApiServer::new(
+        let mut api_server = ApiServer::new(
             mmds_info,
             vmm_shared_info,
             api_request_sender,

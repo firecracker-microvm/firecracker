@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use logger::error;
 use std::io::{Read, Write};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
@@ -48,9 +49,9 @@ impl ServerRequest {
     /// The response is then wrapped in a `ServerResponse`.
     ///
     /// Returns a `ServerResponse` ready for yielding to the server
-    pub fn process<F>(&self, callable: F) -> ServerResponse
+    pub fn process<F>(&self, mut callable: F) -> ServerResponse
     where
-        F: Fn(&Request) -> Response,
+        F: FnMut(&Request) -> Response,
     {
         let http_response = callable(self.inner());
         ServerResponse::new(http_response, self.id)
@@ -377,6 +378,27 @@ impl HttpServer {
             .retain(|_, client_connection| !client_connection.is_done());
 
         Ok(parsed_requests)
+    }
+
+    /// This function is responsible with flushing any remaining outgoing
+    /// requests on the server.
+    ///
+    /// Note that this function can block the thread on write, since the
+    /// operation is blocking.
+    pub fn flush_outgoing_writes(&mut self) {
+        for (_, connection) in self.connections.iter_mut() {
+            while connection.state == ClientConnectionState::AwaitingOutgoing {
+                if let Err(e) = connection.write() {
+                    if let ServerError::ConnectionError(ConnectionError::InvalidWrite) = e {
+                        // Nothing is logged since an InvalidWrite means we have successfully
+                        // flushed the connection
+                    } else {
+                        error!("Connection write error: {}", e);
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     /// The file descriptor of the `epoll` structure can enable the server to become
