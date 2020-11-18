@@ -463,13 +463,7 @@ impl Vmm {
         for response in vcpu_responses.into_iter() {
             match response {
                 VcpuResponse::RestoredState => (),
-                VcpuResponse::Error(e) => {
-                    error!("Fatal error: {}", e);
-                    // Stop all vCPUs and exit.
-                    let _ = self.exit_vcpus();
-                    self.stop(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
-                    unreachable!()
-                }
+                VcpuResponse::Error(e) => return Err(MicrovmStateError::RestoreVcpuState(e)),
                 VcpuResponse::NotAllowed(reason) => {
                     return Err(MicrovmStateError::NotAllowed(reason))
                 }
@@ -679,6 +673,12 @@ impl Vmm {
         } else {
             Err(BalloonError::DeviceNotFound)
         }
+    }
+}
+
+impl Drop for Vmm {
+    fn drop(&mut self) {
+        let _ = self.exit_vcpus();
     }
 }
 
