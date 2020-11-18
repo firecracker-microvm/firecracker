@@ -174,6 +174,27 @@ class ListFormatParser:
         return list(functools.reduce(func, groups, arr))
 
 
+class CmdBuilder:
+    """Command builder class."""
+
+    def __init__(self, bin_path):
+        """Initialize the command builder."""
+        self._bin_path = bin_path
+        self._args = {}
+
+    def with_arg(self, flag, value=""):
+        """Add a new argument."""
+        self._args[flag] = value
+        return self
+
+    def build(self):
+        """Build the command."""
+        cmd = self._bin_path + " "
+        for flag in self._args:
+            cmd += flag + " " + "{}".format(self._args[flag]) + " "
+        return cmd
+
+
 class StoppableThread(threading.Thread):
     """
     Thread class with a stop() method.
