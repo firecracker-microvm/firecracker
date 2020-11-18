@@ -48,15 +48,15 @@ class Consumer(ABC):
                             value: Any):
         """Aggregate measurement."""
         results = self._results.get(ms_name)
-        if results is None:
+        if not results:
             self._results[ms_name] = dict()
             self._results[ms_name][self.DATA_KEY] = list()
         self._results[ms_name][self.DATA_KEY].append(value)
 
     def consume_custom(self, name, value: Any):
         """Aggregate custom information."""
-        if not self._custom[self._iteration]:
-            self._custom[self._iteration] = {}
+        if not self._custom.get(self._iteration):
+            self._custom[self._iteration] = dict()
         self._custom[self._iteration][name] = value
 
     def set_stat_def(self, value: StatisticDef):
