@@ -290,6 +290,7 @@ impl Vm {
 #[cfg(target_arch = "x86_64")]
 #[derive(Versionize)]
 /// Structure holding VM kvm state.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VmState {
     pitstate: kvm_pit_state2,
     clock: kvm_clock_data,

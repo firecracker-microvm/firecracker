@@ -21,12 +21,14 @@ use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, TYPE_BALLOON};
 
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BalloonConfigSpaceState {
     num_pages: u32,
     actual_pages: u32,
 }
 
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BalloonStatsState {
     swap_in: Option<u64>,
     swap_out: Option<u64>,
@@ -77,6 +79,7 @@ impl BalloonStatsState {
 }
 
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BalloonState {
     stats_polling_interval_s: u16,
     stats_desc_index: Option<u16>,
