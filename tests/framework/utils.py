@@ -359,3 +359,19 @@ def eager_map(func, iterable):
     """Map version for Python 3.x which is eager and returns nothing."""
     for _ in map(func, iterable):
         continue
+
+
+def assert_seccomp_level(pid, seccomp_level):
+    """Test that seccomp_level applies to all threads of a process."""
+    # Get number of threads
+    cmd = 'ps -T --no-headers -p {} | awk \'{{print $2}}\''.format(
+        pid
+    )
+    process = run_cmd(cmd)
+    threads_out_lines = process.stdout.splitlines()
+    for tid in threads_out_lines:
+        # Verify each thread's Seccomp status
+        cmd = 'cat /proc/{}/status | grep Seccomp'.format(tid)
+        process = run_cmd(cmd)
+        seccomp_line = ''.join(process.stdout.split())
+        assert seccomp_line == "Seccomp:" + seccomp_level
