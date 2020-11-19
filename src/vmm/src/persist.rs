@@ -33,6 +33,7 @@ use crate::Vmm;
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Debug, PartialEq, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VmInfo {
     /// Guest memory size.
     pub mem_size_mib: u64,
@@ -40,6 +41,7 @@ pub struct VmInfo {
 
 /// Contains the necesary state for saving/restoring a microVM.
 #[derive(Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct MicrovmState {
     /// Miscellaneous VM info.
     pub vm_info: VmInfo,

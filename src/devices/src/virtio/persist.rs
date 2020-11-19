@@ -21,6 +21,7 @@ pub enum Error {
 }
 
 #[derive(Clone, Debug, PartialEq, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct QueueState {
     /// The maximal size in elements offered by the device
     max_size: u16,
@@ -81,6 +82,7 @@ impl Persist<'_> for Queue {
 
 /// State of a VirtioDevice.
 #[derive(Clone, Debug, PartialEq, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VirtioDeviceState {
     pub device_type: u32,
     pub avail_features: u64,
@@ -149,6 +151,7 @@ impl VirtioDeviceState {
 }
 
 #[derive(Clone, Debug, PartialEq, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct MmioTransportState {
     // The register where feature bits are stored.
     features_select: u32,

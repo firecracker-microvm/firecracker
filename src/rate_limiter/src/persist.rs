@@ -10,6 +10,7 @@ use versionize_derive::Versionize;
 
 /// State for saving a TokenBucket.
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct TokenBucketState {
     size: u64,
     one_time_burst: u64,
@@ -52,6 +53,7 @@ impl Persist<'_> for TokenBucket {
 
 /// State for saving a RateLimiter.
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct RateLimiterState {
     ops: Option<TokenBucketState>,
     bandwidth: Option<TokenBucketState>,

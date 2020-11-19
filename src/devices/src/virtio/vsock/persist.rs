@@ -16,6 +16,7 @@ use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, TYPE_VSOCK};
 
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VsockState {
     pub backend: VsockBackendState,
     pub frontend: VsockFrontendState,
@@ -23,6 +24,7 @@ pub struct VsockState {
 
 /// The Vsock serializable state.
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VsockFrontendState {
     pub cid: u64,
     virtio_state: VirtioDeviceState,
@@ -30,12 +32,14 @@ pub struct VsockFrontendState {
 
 /// An enum for the serializable backend state types.
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub enum VsockBackendState {
     Uds(VsockUdsState),
 }
 
 /// The Vsock Unix Backend serializable state.
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VsockUdsState {
     /// The path for the UDS socket.
     pub(crate) path: String,

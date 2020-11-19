@@ -22,11 +22,13 @@ use crate::virtio::persist::{Error as VirtioStateError, VirtioDeviceState};
 use crate::virtio::{DeviceState, TYPE_NET};
 
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct NetConfigSpaceState {
     guest_mac: [u8; MAC_ADDR_LEN],
 }
 
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct NetState {
     id: String,
     tap_if_name: String,
