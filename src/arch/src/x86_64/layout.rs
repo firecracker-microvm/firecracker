@@ -18,11 +18,11 @@ pub const CMDLINE_MAX_SIZE: usize = 0x10000;
 /// Start of the high memory.
 pub const HIMEM_START: u64 = 0x0010_0000; //1 MB.
 
-// Typically, on x86 systems 16 IRQs are used (0-15).
+// Typically, on x86 systems 24 IRQs are used (0-23).
 /// First usable IRQ ID for virtio device interrupts on x86_64.
 pub const IRQ_BASE: u32 = 5;
 /// Last usable IRQ ID for virtio device interrupts on x86_64.
-pub const IRQ_MAX: u32 = 15;
+pub const IRQ_MAX: u32 = 23;
 
 /// Address for the TSS setup.
 pub const KVM_TSS_ADDRESS: u64 = 0xfffb_d000;
