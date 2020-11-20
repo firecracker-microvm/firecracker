@@ -1510,6 +1510,7 @@ mod tests {
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
                 enable_diff_snapshots: false,
+                resume_vm: false,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
@@ -1528,6 +1529,7 @@ mod tests {
             snapshot_path: PathBuf::new(),
             mem_file_path: PathBuf::new(),
             enable_diff_snapshots: false,
+            resume_vm: false,
         });
         let err = preboot.handle_preboot_request(req);
         assert_eq!(
