@@ -114,6 +114,7 @@ mod tests {
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             enable_diff_snapshots: false,
+            resume_vm: false,
         };
         match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())
         {
@@ -131,6 +132,26 @@ mod tests {
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             enable_diff_snapshots: true,
+            resume_vm: false,
+        };
+
+        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())
+        {
+            VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
+            _ => panic!("Test failed."),
+        }
+
+        body = r#"{
+                "snapshot_path": "foo",
+                "mem_file_path": "bar",
+                "resume_vm": true
+              }"#;
+
+        expected_cfg = LoadSnapshotParams {
+            snapshot_path: PathBuf::from("foo"),
+            mem_file_path: PathBuf::from("bar"),
+            enable_diff_snapshots: false,
+            resume_vm: true,
         };
 
         match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())

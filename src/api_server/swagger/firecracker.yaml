@@ -1005,6 +1005,10 @@ definitions:
       snapshot_path:
         type: string
         description: Path to the file that contains the microVM state to be loaded.
+      resume_vm:
+        type: boolean
+        description:
+          When set to true, the vm is also resumed if the snapshot load is successful.
 
   TokenBucket:
     type: object
