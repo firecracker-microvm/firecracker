@@ -95,7 +95,6 @@ class Balloon():
     def create_json(
             amount_mb=None,
             deflate_on_oom=None,
-            must_tell_host=None,
             stats_polling_interval_s=None
     ):
         """Compose the json associated to this type of API request."""
@@ -106,9 +105,6 @@ class Balloon():
 
         if deflate_on_oom is not None:
             datax['deflate_on_oom'] = deflate_on_oom
-
-        if must_tell_host is not None:
-            datax['must_tell_host'] = must_tell_host
 
         if stats_polling_interval_s is not None:
             datax['stats_polling_interval_s'] = stats_polling_interval_s

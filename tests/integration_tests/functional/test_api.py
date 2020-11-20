@@ -789,8 +789,7 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     # Adding a memory balloon should be OK.
     response = test_microvm.balloon.put(
         amount_mb=1,
-        deflate_on_oom=True,
-        must_tell_host=False
+        deflate_on_oom=True
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -798,7 +797,6 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=False,
-        must_tell_host=True,
         stats_polling_interval_s=5
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -808,7 +806,6 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json()['amount_mb'] == 0
     assert response.json()['deflate_on_oom'] is False
-    assert response.json()['must_tell_host'] is True
     assert response.json()['stats_polling_interval_s'] == 5
 
     # Updating an existing balloon device is forbidden before boot.
@@ -820,7 +817,6 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     response = test_microvm.balloon.put(
         amount_mb=1024,
         deflate_on_oom=False,
-        must_tell_host=True,
         stats_polling_interval_s=5
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
@@ -836,7 +832,6 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     response = test_microvm.balloon.put(
         amount_mb=3,
         deflate_on_oom=False,
-        must_tell_host=True,
         stats_polling_interval_s=3
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
@@ -863,7 +858,6 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json()['amount_mb'] == 4
     assert response.json()['deflate_on_oom'] is False
-    assert response.json()['must_tell_host'] is True
     assert response.json()['stats_polling_interval_s'] == 5
 
     # Check we can't overflow the `num_pages` field in the config space by

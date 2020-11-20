@@ -136,7 +136,6 @@ def test_rss_memory_lower(test_microvm_with_ssh_and_balloon, network_config):
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -190,7 +189,6 @@ def test_inflate_reduces_free(test_microvm_with_ssh_and_balloon,
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=False,
-        must_tell_host=False,
         stats_polling_interval_s=1
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -235,7 +233,6 @@ def test_deflate_on_oom_true(test_microvm_with_ssh_and_balloon,
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -277,7 +274,6 @@ def test_deflate_on_oom_false(test_microvm_with_ssh_and_balloon,
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=False,
-        must_tell_host=False,
         stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -315,7 +311,6 @@ def test_reinflate_balloon(test_microvm_with_ssh_and_balloon, network_config):
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -388,7 +383,6 @@ def test_size_reduction(test_microvm_with_ssh_and_balloon, network_config):
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -434,7 +428,6 @@ def test_stats(test_microvm_with_ssh_and_balloon, network_config):
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=1
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -546,7 +539,6 @@ def _test_balloon_snapshot(context):
     response = basevm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=1
     )
     assert basevm.api_session.is_status_no_content(response.status_code)
@@ -667,7 +659,6 @@ def _test_snapshot_compatibility(context):
     response = microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=1
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
@@ -743,7 +734,6 @@ def _test_memory_scrub(context):
     response = microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=1
     )
     assert microvm.api_session.is_status_no_content(response.status_code)

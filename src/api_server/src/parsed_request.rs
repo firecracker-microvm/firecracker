@@ -652,9 +652,8 @@ pub(crate) mod tests {
             .write_all(
                 b"PUT /balloon HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
-                Content-Length: 99\r\n\r\n{ \
+                Content-Length: 74\r\n\r\n{ \
                 \"amount_mb\": 0, \
-                \"must_tell_host\": false, \
                 \"deflate_on_oom\": false, \
                 \"stats_polling_interval_s\": 0 \
                 }",
