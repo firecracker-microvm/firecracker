@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.22.2]
+
+### Fixed
+
+ - Fixed inconsistency in YAML file InstanceInfo definition
+ 
 ## [0.22.1]
 
 ### Fixed
