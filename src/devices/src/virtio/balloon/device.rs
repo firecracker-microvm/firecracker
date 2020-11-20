@@ -78,7 +78,6 @@ unsafe impl ByteValued for BalloonStat {}
 pub struct BalloonConfig {
     pub amount_mb: u32,
     pub deflate_on_oom: bool,
-    pub must_tell_host: bool,
     pub stats_polling_interval_s: u16,
 }
 
@@ -163,16 +162,11 @@ pub struct Balloon {
 impl Balloon {
     pub fn new(
         amount_mb: u32,
-        must_tell_host: bool,
         deflate_on_oom: bool,
         stats_polling_interval_s: u16,
         restored: bool,
     ) -> Result<Balloon, BalloonError> {
         let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
-
-        if must_tell_host {
-            avail_features |= 1u64 << VIRTIO_BALLOON_F_MUST_TELL_HOST;
-        };
 
         if deflate_on_oom {
             avail_features |= 1u64 << VIRTIO_BALLOON_F_DEFLATE_ON_OOM;
@@ -440,10 +434,6 @@ impl Balloon {
         self.avail_features & (1u64 << VIRTIO_BALLOON_F_DEFLATE_ON_OOM) != 0
     }
 
-    pub fn must_tell_host(&self) -> bool {
-        self.avail_features & (1u64 << VIRTIO_BALLOON_F_MUST_TELL_HOST) != 0
-    }
-
     pub fn stats_polling_interval_s(&self) -> u16 {
         self.stats_polling_interval_s
     }
@@ -464,7 +454,6 @@ impl Balloon {
         BalloonConfig {
             amount_mb: self.size_mb(),
             deflate_on_oom: self.deflate_on_oom(),
-            must_tell_host: self.must_tell_host(),
             stats_polling_interval_s: self.stats_polling_interval_s(),
         }
     }
@@ -662,45 +651,37 @@ pub(crate) mod tests {
     #[test]
     fn test_virtio_features() {
         // Test all feature combinations.
-        for must_tell_host in vec![true, false].iter() {
-            for deflate_on_oom in vec![true, false].iter() {
-                for stats_interval in vec![0, 1].iter() {
-                    let mut balloon =
-                        Balloon::new(0, *must_tell_host, *deflate_on_oom, *stats_interval, false)
-                            .unwrap();
-                    assert_eq!(balloon.device_type(), TYPE_BALLOON);
+        for deflate_on_oom in vec![true, false].iter() {
+            for stats_interval in vec![0, 1].iter() {
+                let mut balloon = Balloon::new(0, *deflate_on_oom, *stats_interval, false).unwrap();
+                assert_eq!(balloon.device_type(), TYPE_BALLOON);
 
-                    let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
-                        | ((if *must_tell_host { 1 } else { 0 })
-                            << VIRTIO_BALLOON_F_MUST_TELL_HOST)
-                        | ((if *deflate_on_oom { 1 } else { 0 })
-                            << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
-                        | ((*stats_interval as u64) << VIRTIO_BALLOON_F_STATS_VQ);
+                let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
+                    | ((if *deflate_on_oom { 1 } else { 0 }) << VIRTIO_BALLOON_F_DEFLATE_ON_OOM)
+                    | ((*stats_interval as u64) << VIRTIO_BALLOON_F_STATS_VQ);
 
-                    assert_eq!(balloon.avail_features_by_page(0), features as u32);
-                    assert_eq!(balloon.avail_features_by_page(1), (features >> 32) as u32);
-                    for i in 2..10 {
-                        assert_eq!(balloon.avail_features_by_page(i), 0u32);
-                    }
-
-                    for i in 0..10 {
-                        balloon.ack_features_by_page(i, u32::MAX);
-                    }
-                    // Only present features should be acknowledged.
-                    assert_eq!(balloon.acked_features, features);
+                assert_eq!(balloon.avail_features_by_page(0), features as u32);
+                assert_eq!(balloon.avail_features_by_page(1), (features >> 32) as u32);
+                for i in 2..10 {
+                    assert_eq!(balloon.avail_features_by_page(i), 0u32);
                 }
+
+                for i in 0..10 {
+                    balloon.ack_features_by_page(i, u32::MAX);
+                }
+                // Only present features should be acknowledged.
+                assert_eq!(balloon.acked_features, features);
             }
         }
     }
 
     #[test]
     fn test_virtio_read_config() {
-        let balloon = Balloon::new(0x10, true, true, 0, false).unwrap();
+        let balloon = Balloon::new(0x10, true, 0, false).unwrap();
 
         let cfg = BalloonConfig {
             amount_mb: 16,
             deflate_on_oom: true,
-            must_tell_host: true,
             stats_polling_interval_s: 0,
         };
         assert_eq!(balloon.config(), cfg);
@@ -727,7 +708,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_virtio_write_config() {
-        let mut balloon = Balloon::new(0, true, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
 
         let expected_config_space: [u8; CONFIG_SPACE_SIZE] =
             [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
@@ -747,7 +728,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_invalid_request() {
-        let mut balloon = Balloon::new(0, true, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         let mem = default_mem();
         // Only initialize the inflate queue to demonstrate invalid request handling.
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -806,7 +787,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_inflate() {
-        let mut balloon = Balloon::new(0, true, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         let mem = default_mem();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, infq.create_queue());
@@ -868,7 +849,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_deflate() {
-        let mut balloon = Balloon::new(0, true, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         let mem = default_mem();
         let defq = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(DEFLATE_INDEX, defq.create_queue());
@@ -908,7 +889,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_stats() {
-        let mut balloon = Balloon::new(0, true, true, 1, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 1, false).unwrap();
         let mem = default_mem();
         let statsq = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(STATS_INDEX, statsq.create_queue());
@@ -993,7 +974,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_process_balloon_queues() {
-        let mut balloon = Balloon::new(0x10, true, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0x10, true, 0, false).unwrap();
         let mem = default_mem();
         balloon.activate(mem).unwrap();
         balloon.process_virtio_queues()
@@ -1001,14 +982,14 @@ pub(crate) mod tests {
 
     #[test]
     fn test_update_stats_interval() {
-        let mut balloon = Balloon::new(0, true, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         assert_eq!(
             format!("{:?}", balloon.update_stats_polling_interval(1)),
             "Err(StatisticsStateChange)"
         );
         assert!(balloon.update_stats_polling_interval(0).is_ok());
 
-        let mut balloon = Balloon::new(0, true, true, 1, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 1, false).unwrap();
         assert_eq!(
             format!("{:?}", balloon.update_stats_polling_interval(0)),
             "Err(StatisticsStateChange)"
@@ -1019,7 +1000,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_num_pages() {
-        let mut balloon = Balloon::new(0, true, true, 0, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 0, false).unwrap();
         // Assert that we can't update an inactive device.
         assert!(balloon.update_size(1).is_err());
         // Switch the state to active.
