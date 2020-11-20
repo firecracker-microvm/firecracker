@@ -73,6 +73,13 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                         Eq,
                         super::FUTEX_CMP_REQUEUE_PRIVATE
                     )?],
+                    #[cfg(target_env = "gnu")]
+                    and![Cond::new(
+                        1,
+                        ArgLen::DWORD,
+                        Eq,
+                        super::FUTEX_WAIT_BITSET_PRIVATE
+                    )?],
                 ],
             ),
             // Used by glibc's tgkill

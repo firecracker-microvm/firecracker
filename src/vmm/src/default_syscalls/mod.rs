@@ -22,11 +22,15 @@ const FUTEX_WAIT: u64 = 0;
 const FUTEX_WAKE: u64 = 1;
 #[cfg(target_env = "gnu")]
 const FUTEX_CMP_REQUEUE: u64 = 4;
+#[cfg(target_env = "gnu")]
+const FUTEX_WAIT_BITSET: u64 = 9;
 const FUTEX_PRIVATE_FLAG: u64 = 128;
 const FUTEX_WAIT_PRIVATE: u64 = FUTEX_WAIT | FUTEX_PRIVATE_FLAG;
 const FUTEX_WAKE_PRIVATE: u64 = FUTEX_WAKE | FUTEX_PRIVATE_FLAG;
 #[cfg(target_env = "gnu")]
 const FUTEX_CMP_REQUEUE_PRIVATE: u64 = FUTEX_CMP_REQUEUE | FUTEX_PRIVATE_FLAG;
+#[cfg(target_env = "gnu")]
+const FUTEX_WAIT_BITSET_PRIVATE: u64 = FUTEX_WAIT_BITSET | FUTEX_PRIVATE_FLAG;
 
 // See include/uapi/asm-generic/ioctls.h in the kernel code.
 const TCGETS: u64 = 0x5401;
