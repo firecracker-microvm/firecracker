@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 mod mock_devices;
 mod mock_resources;
-mod mock_seccomp;
 mod test_utils;
 
 use std::io;
 #[cfg(target_arch = "x86_64")]
 use std::io::{Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
+#[cfg(target_arch = "x86_64")]
 use std::thread;
+#[cfg(target_arch = "x86_64")]
 use std::time::Duration;
 
 use polly::event_manager::EventManager;
-use seccomp::{BpfProgram, BpfThreadMap};
 #[cfg(target_arch = "x86_64")]
 use snapshot::Snapshot;
 use utils::tempfile::TempFile;
@@ -37,7 +37,6 @@ use crate::mock_devices::MockSerialInput;
 #[cfg(target_arch = "x86_64")]
 use crate::mock_resources::NOISY_KERNEL_IMAGE;
 use crate::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
-use crate::mock_seccomp::MockSeccomp;
 use crate::test_utils::{restore_stdin, set_panic_hook};
 
 fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>>, EventManager) {
@@ -139,44 +138,6 @@ fn test_build_microvm() {
         vmm_pid => {
             // Parent process: wait for the vmm to exit.
             wait_vmm_child_process(vmm_pid);
-        }
-    }
-}
-
-#[test]
-fn test_vmm_seccomp() {
-    // Tests the behavior of a customized seccomp filter on the VMM.
-    let pid = unsafe { libc::fork() };
-    match pid {
-        0 => {
-            // Child process: build vmm and (try to) run it.
-            let boot_source_cfg: BootSourceConfig =
-                MockBootSourceConfig::new().with_default_boot_args().into();
-            let resources: VmResources = MockVmResources::new()
-                .with_boot_source(boot_source_cfg)
-                .into();
-            let mut event_manager = EventManager::new().unwrap();
-
-            // The customer "forgot" to whitelist the KVM_RUN ioctl.
-            let filter: BpfProgram = MockSeccomp::new().without_kvm_run().into();
-            let mut filters = BpfThreadMap::new();
-            filters.insert("vmm".to_string(), filter.clone());
-            filters.insert("vcpu".to_string(), filter);
-            let vmm = build_microvm_for_boot(&resources, &mut event_manager, &mut filters).unwrap();
-            // Give the vCPUs a chance to attempt KVM_RUN.
-            thread::sleep(Duration::from_millis(200));
-            // Should never get here.
-            vmm.lock().unwrap().stop(-1);
-        }
-        vmm_pid => {
-            // Parent process: wait for the vmm to exit.
-            let mut vmm_status: i32 = -1;
-            let pid_done = unsafe { libc::waitpid(vmm_pid, &mut vmm_status, 0) };
-            assert_eq!(pid_done, vmm_pid);
-            restore_stdin();
-            // The seccomp fault should have caused death by SIGSYS.
-            assert!(libc::WIFSIGNALED(vmm_status));
-            assert_eq!(libc::WTERMSIG(vmm_status), libc::SIGSYS);
         }
     }
 }
