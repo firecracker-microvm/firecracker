@@ -304,7 +304,7 @@ pub fn validate_x86_64_cpu_vendor(
 }
 
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
-pub fn load_snapshot(
+pub fn restore_from_snapshot(
     event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
     params: &LoadSnapshotParams,
