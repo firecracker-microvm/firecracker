@@ -790,7 +790,7 @@ mod tests {
     }
 
     // Mock `Vmm` used for testing.
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PartialEq)]
     pub struct MockVmm {
         pub balloon_config_called: bool,
         pub latest_balloon_stats_called: bool,
@@ -1147,6 +1147,42 @@ mod tests {
             req,
             VmmActionError::MmdsConfig(MmdsConfigError::InvalidIpv4Addr),
         );
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_preboot_load_snapshot() {
+        let mut vm_resources = MockVmRes::default();
+        let mut evmgr = EventManager::new().unwrap();
+        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr);
+
+        // Without resume.
+        let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
+            snapshot_path: PathBuf::new(),
+            mem_file_path: PathBuf::new(),
+            enable_diff_snapshots: false,
+            resume_vm: false,
+        });
+        // Request should succeed.
+        preboot.handle_preboot_request(req).unwrap();
+        // Should have built default mock vmm.
+        let vmm = preboot.built_vmm.take().unwrap();
+        assert_eq!(*vmm.lock().unwrap(), MockVmm::default());
+
+        // With resume.
+        let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
+            snapshot_path: PathBuf::new(),
+            mem_file_path: PathBuf::new(),
+            enable_diff_snapshots: false,
+            resume_vm: true,
+        });
+        // Request should succeed.
+        preboot.handle_preboot_request(req).unwrap();
+        let vmm = preboot.built_vmm.as_ref().unwrap().lock().unwrap();
+        // Should have built mock vmm then called resume on it.
+        assert!(vmm.resume_called);
+        // Extra sanity check - pause was never called.
+        assert!(!vmm.pause_called);
     }
 
     #[test]
