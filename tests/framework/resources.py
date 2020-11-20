@@ -172,6 +172,25 @@ class BootSource():
         return datax
 
 
+# Too few public methods (1/2) (too-few-public-methods)
+# pylint: disable=R0903
+class DescribeInstance():
+    """Facility for getting the microVM state."""
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        self._descinst_cfg_url = \
+            API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        self._api_session = api_session
+
+    def get(self):
+        """Get the status of configuring the current microvm."""
+        return self._api_session.get(
+            self._descinst_cfg_url
+        )
+
+
 class Drive():
     """Facility for attaching a block device."""
 
