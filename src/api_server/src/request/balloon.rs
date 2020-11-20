@@ -107,8 +107,7 @@ mod tests {
         // PATCH that tries to update something else other than allowed fields.
         let body = r#"{
                 "amount_mb": "dummy_id",
-                "stats_polling_interval_s": "dummy_host",
-                "must_tell_host": false
+                "stats_polling_interval_s": "dummy_host"
               }"#;
         let res = parse_patch_balloon(&Body::new(body), None);
         assert!(res.is_err());
@@ -162,7 +161,6 @@ mod tests {
         // PUT with valid input fields.
         let body = r#"{
                 "amount_mb": 1000,
-                "must_tell_host": true,
                 "deflate_on_oom": true,
                 "stats_polling_interval_s": 0
             }"#;
