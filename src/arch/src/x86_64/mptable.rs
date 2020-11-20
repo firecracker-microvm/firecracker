@@ -5,6 +5,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+use std::convert::TryFrom;
 use std::io;
 use std::mem;
 use std::result;
@@ -14,6 +15,8 @@ use libc::c_char;
 
 use arch_gen::x86::mpspec;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+
+use crate::IRQ_MAX;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `ByteValued`) where:
@@ -57,6 +60,8 @@ pub enum Error {
     Clear,
     /// Number of CPUs exceeds the maximum supported CPUs
     TooManyCpus,
+    /// Number of IRQs exceeds the maximum supported IRQs
+    TooManyIrqs,
     /// Failure to write the MP floating pointer.
     WriteMpfIntel,
     /// Failure to write MP CPU entry.
@@ -120,7 +125,7 @@ fn compute_mp_size(num_cpus: u8) -> usize {
         + mem::size_of::<MpcCpuWrapper>() * (num_cpus as usize)
         + mem::size_of::<MpcIoapicWrapper>()
         + mem::size_of::<MpcBusWrapper>()
-        + mem::size_of::<MpcIntsrcWrapper>() * 16
+        + mem::size_of::<MpcIntsrcWrapper>() * (IRQ_MAX as usize + 1)
         + mem::size_of::<MpcLintsrcWrapper>() * 2
 }
 
@@ -215,7 +220,7 @@ pub fn setup_mptable(mem: &GuestMemoryMmap, num_cpus: u8) -> Result<()> {
         checksum = checksum.wrapping_add(compute_checksum(&mpc_ioapic.0));
     }
     // Per kvm_setup_default_irq_routing() in kernel
-    for i in 0..16 {
+    for i in 0..=u8::try_from(IRQ_MAX).map_err(|_| Error::TooManyIrqs)? {
         let size = mem::size_of::<MpcIntsrcWrapper>() as u64;
         let mut mpc_intsrc = MpcIntsrcWrapper(mpspec::mpc_intsrc::default());
         mpc_intsrc.0.type_ = mpspec::MP_INTSRC as u8;
