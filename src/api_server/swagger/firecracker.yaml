@@ -619,7 +619,6 @@ definitions:
     required:
       - amount_mb
       - deflate_on_oom
-      - must_tell_host
     description:
       Balloon device descriptor.
     properties:
@@ -629,9 +628,6 @@ definitions:
       deflate_on_oom:
         type: boolean
         description: Whether the balloon should deflate when the guest has memory pressure.
-      must_tell_host:
-        type: boolean
-        description: Whether the guest should wait for the host to acknowledge deflated pages or not.
       stats_polling_interval_s:
         type: integer
         description: Interval in seconds between refreshing statistics. A non-zero value will enable the statistics. Defaults to 0.
