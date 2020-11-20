@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added optional `resume_vm` field to `/snapshot/load` API call.
 - Added support for block rate limiter PATCH.
 - Added devtool test `-c|--cpuset-cpus` flag for cpus confinement when tests
   run.
