@@ -416,23 +416,31 @@ impl<'a> PrebootApiController<'a> {
             return Err(err);
         }
 
-        let loaded_vmm = load_snapshot(
+        let result = load_snapshot(
             &mut self.event_manager,
             &self.seccomp_filter,
             load_params,
             VERSION_MAP.clone(),
-        );
+        )
+        .and_then(|vmm| {
+            let ret = if load_params.resume_vm {
+                vmm.lock().expect("Poisoned lock").resume_vm()
+            } else {
+                Ok(())
+            };
+            ret.map(|()| {
+                self.built_vmm = Some(vmm);
+                VmmData::Empty
+            })
+            .map_err(LoadSnapshotError::ResumeMicroVm)
+        })
+        .map_err(VmmActionError::LoadSnapshot);
 
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);
         info!("'load snapshot' VMM action took {} us.", elapsed_time_us);
 
-        loaded_vmm
-            .map(|vmm| {
-                self.built_vmm = Some(vmm);
-                VmmData::Empty
-            })
-            .map_err(VmmActionError::LoadSnapshot)
+        result
     }
 }
 

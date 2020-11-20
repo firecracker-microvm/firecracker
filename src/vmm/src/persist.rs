@@ -23,7 +23,7 @@ use crate::device_manager::persist::DeviceStates;
 use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
-use crate::Vmm;
+use crate::{Error as VmmError, Vmm};
 use arch::IRQ_BASE;
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 use logger::{error, info};
@@ -161,6 +161,8 @@ pub enum LoadSnapshotError {
     DeserializeMicrovmState(snapshot::Error),
     /// Failed to open memory backing file.
     MemoryBackingFile(io::Error),
+    /// Failed to resume Vm after loading snapshot.
+    ResumeMicroVm(VmmError),
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(io::Error),
     /// Failed to retrieve the metadata of the snapshot backing file.
@@ -177,6 +179,7 @@ impl Display for LoadSnapshotError {
             DeserializeMemory(err) => write!(f, "Cannot deserialize memory: {}", err),
             DeserializeMicrovmState(err) => write!(f, "Cannot deserialize MicrovmState: {:?}", err),
             MemoryBackingFile(err) => write!(f, "Cannot open memory file: {}", err),
+            ResumeMicroVm(err) => write!(f, "Failed to resume Vm after loading snapshot: {}", err),
             SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {}", err),
             SnapshotBackingFileMetadata(err) => write!(f, "Cannot retrieve file metadata: {}", err),
             CpuVendorMismatch(err) => write!(f, "Snapshot cpu vendor mismatch: {}", err),
