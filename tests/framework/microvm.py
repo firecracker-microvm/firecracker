@@ -29,9 +29,9 @@ import framework.utils as utils
 from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
 from framework.http import Session
 from framework.jailer import JailerContext
-from framework.resources import Actions, Balloon, BootSource, Drive, Logger, \
-    MMDS, MachineConfigure, Metrics, Network, Vm, Vsock, SnapshotCreate, \
-    SnapshotLoad
+from framework.resources import Actions, Balloon, BootSource, Drive, \
+    DescribeInstance, Logger, MMDS, MachineConfigure, Metrics, Network, \
+    Vm, Vsock, SnapshotCreate, SnapshotLoad
 
 LOG = logging.getLogger("microvm")
 
@@ -103,6 +103,7 @@ class Microvm:
         self.actions = None
         self.balloon = None
         self.boot = None
+        self.desc_inst = None
         self.drive = None
         self.logger = None
         self.metrics = None
@@ -252,6 +253,11 @@ class Microvm:
     def memory_monitor(self):
         """Get the memory monitor."""
         return self._memory_monitor
+
+    @property
+    def started(self):
+        """Get the InstanceInfo property and return the started field."""
+        return json.loads(self.desc_inst.get().content)["started"]
 
     @memory_monitor.setter
     def memory_monitor(self, monitor):
@@ -403,6 +409,7 @@ class Microvm:
         self.actions = Actions(self._api_socket, self._api_session)
         self.balloon = Balloon(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
+        self.desc_inst = DescribeInstance(self._api_socket, self._api_session)
         self.drive = Drive(self._api_socket, self._api_session)
         self.logger = Logger(self._api_socket, self._api_session)
         self.machine_cfg = MachineConfigure(
@@ -699,8 +706,14 @@ class Microvm:
 
         This function has asserts to validate that the microvm boot success.
         """
+        # Check that the VM has not started yet
+        assert self.started is False
+
         response = self.actions.put(action_type='InstanceStart')
         assert self._api_session.is_status_no_content(response.status_code)
+
+        # Check that the VM has started
+        assert self.started is True
 
     def pause_to_snapshot(self,
                           mem_file_path=None,
