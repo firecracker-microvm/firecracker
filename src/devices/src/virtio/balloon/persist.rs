@@ -113,7 +113,7 @@ impl Persist<'_> for Balloon {
     ) -> std::result::Result<Self, Self::Error> {
         // We can safely create the balloon with arbitrary flags and
         // num_pages because we will overwrite them after.
-        let mut balloon = Balloon::new(0, false, false, state.stats_polling_interval_s, true)?;
+        let mut balloon = Balloon::new(0, false, state.stats_polling_interval_s, true)?;
 
         let mut num_queues = NUM_QUEUES;
         // As per the virtio 1.1 specification, the statistics queue
@@ -169,7 +169,7 @@ mod tests {
         let version_map = VersionMap::new();
 
         // Create and save the balloon device.
-        let balloon = Balloon::new(0x42, true, false, 2, false).unwrap();
+        let balloon = Balloon::new(0x42, false, 2, false).unwrap();
 
         <Balloon as Persist>::save(&balloon)
             .serialize(&mut mem.as_mut_slice(), &version_map, 1)

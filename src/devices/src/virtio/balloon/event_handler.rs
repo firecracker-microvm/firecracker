@@ -140,7 +140,7 @@ pub mod tests {
     #[test]
     fn test_event_handler() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut balloon = Balloon::new(0, true, true, 10, false).unwrap();
+        let mut balloon = Balloon::new(0, true, 10, false).unwrap();
         let mem = default_mem();
         let infq = VirtQueue::new(GuestAddress(0), &mem, 16);
         balloon.set_queue(INFLATE_INDEX, infq.create_queue());
