@@ -285,8 +285,7 @@ def bin_seccomp_paths(test_fc_session_root_path):
 
     They currently consist of:
 
-    * a jailer with a simple syscall whitelist;
-    * a jailer with a (syscall, arguments) advanced whitelist;
+    * a jailer that receives a seccompiler generated filter;
     * a jailed binary that follows the seccomp rules;
     * a jailed binary that breaks the seccomp rules.
     """
@@ -309,16 +308,10 @@ def bin_seccomp_paths(test_fc_session_root_path):
         build_tools.RELEASE_BINARIES_REL_PATH
     )
 
-    demo_basic_jailer = os.path.normpath(
+    demo_jailer = os.path.normpath(
         os.path.join(
             release_binaries_path,
-            'demo_basic_jailer'
-        )
-    )
-    demo_advanced_jailer = os.path.normpath(
-        os.path.join(
-            release_binaries_path,
-            'demo_advanced_jailer'
+            'demo_jailer'
         )
     )
     demo_harmless = os.path.normpath(
@@ -335,8 +328,7 @@ def bin_seccomp_paths(test_fc_session_root_path):
     )
 
     yield {
-        'demo_basic_jailer': demo_basic_jailer,
-        'demo_advanced_jailer': demo_advanced_jailer,
+        'demo_jailer': demo_jailer,
         'demo_harmless': demo_harmless,
         'demo_malicious': demo_malicious
     }
