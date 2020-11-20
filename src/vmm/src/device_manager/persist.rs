@@ -263,20 +263,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
-                device.clone(),
+                device,
                 &balloon_state.device_id,
                 &balloon_state.transport_state,
                 &balloon_state.mmio_slot,
                 constructor_args.event_manager,
             )?;
-
-            // If device is activated, kick the balloon queue(s) to make up for any
-            // pending or in-flight epoll events we may have not captured in snapshot.
-            // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
-            let mut dev = device.lock().expect("Poisoned lock");
-            if dev.is_activated() {
-                dev.process_virtio_queues();
-            }
         }
 
         for block_state in &state.block_devices {
@@ -290,21 +282,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
-                device.clone(),
+                device,
                 &block_state.device_id,
                 &block_state.transport_state,
                 &block_state.mmio_slot,
                 constructor_args.event_manager,
             )?;
-
-            // If device is activated, kick the block queue(s) to make up for any
-            // pending or in-flight epoll events we may have not captured in snapshot.
-            // No need to kick Ratelimiters because they are restored 'unblocked' so
-            // any inflight `timer_fd` events can be safely discarded.
-            let mut dev = device.lock().expect("Poisoned lock");
-            if dev.is_activated() {
-                dev.process_virtio_queues();
-            }
         }
         for net_state in &state.net_devices {
             let device = Arc::new(Mutex::new(
@@ -317,21 +300,12 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             restore_helper(
                 device.clone(),
-                device.clone(),
+                device,
                 &net_state.device_id,
                 &net_state.transport_state,
                 &net_state.mmio_slot,
                 constructor_args.event_manager,
             )?;
-
-            // If device is activated, kick the net queue(s) to make up for any
-            // pending or in-flight epoll events we may have not captured in snapshot.
-            // No need to kick Ratelimiters because they are restored 'unblocked' so
-            // any inflight `timer_fd` events can be safely discarded.
-            let mut dev = device.lock().expect("Poisoned lock");
-            if dev.is_activated() {
-                dev.process_virtio_queues();
-            }
         }
         if let Some(vsock_state) = &state.vsock_device {
             let ctor_args = VsockUdsConstructorArgs {
@@ -358,10 +332,6 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 &vsock_state.mmio_slot,
                 constructor_args.event_manager,
             )?;
-
-            // Vsock has complicated protocol that isn't resilient to any packet loss,
-            // so for Vsock we don't support connection persistence through snapshot.
-            // Any in-flight packets or events are simply lost. Vsock is restored 'empty'.
         }
 
         Ok(dev_manager)
