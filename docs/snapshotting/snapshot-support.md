@@ -274,7 +274,8 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -d '{
             "snapshot_path": "./snapshot_file",
             "mem_file_path": "./mem_file",
-            "enable_diff_snapshots": true
+            "enable_diff_snapshots": true,
+            "resume_vm": false
     }'
 ```
 
@@ -303,6 +304,7 @@ Details about the required and optional fields can be found in the
   - The file indicated by `snapshot_path`, that is used to load from, is released and no
     longer used by this process.
   - If `enable_diff_snapshots` is set, then diff snapshots can be taken afterwards.
+  - If `resume_vm` is set, the vm is automatically resumed if load is successful.
 - _on failure_: A specific error is reported and then the current Firecracker process
                 is ended (as it might be in an invalid state).
 
