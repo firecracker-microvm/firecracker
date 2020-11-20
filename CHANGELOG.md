@@ -17,6 +17,10 @@
 - Changed the output of the `--version` command line parameter to include a list
   of supported snapshot data format versions for the firecracker binary.
 
+### Fixed
+
+- Fixed inconsistency in YAML file InstanceInfo definition
+
 ## [0.23.0]
 
 ### Added

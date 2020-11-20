@@ -126,7 +126,7 @@ paths:
           description: Internal server error
           schema:
             $ref: "#/definitions/Error"
-              
+
   /balloon/statistics:
     get:
       summary: Returns the latest balloon device statistics, only if enabled pre-boot.
@@ -635,7 +635,7 @@ definitions:
       stats_polling_interval_s:
         type: integer
         description: Interval in seconds between refreshing statistics. A non-zero value will enable the statistics. Defaults to 0.
-  
+
   BalloonUpdate:
     type: object
     required:
@@ -646,7 +646,7 @@ definitions:
       amount_mb:
         type: integer
         description: Target balloon size in MB.
-  
+
   BalloonStats:
     type: object
     description:
@@ -709,7 +709,7 @@ definitions:
         description: The number of failed hugetlb page allocations in the guest.
         type: integer
         format: int64
-        
+
   BalloonStatsUpdate:
     type: object
     required:
@@ -811,15 +811,11 @@ definitions:
       id:
         description: MicroVM / instance ID.
         type: string
-      state:
+      started:
         description:
           The current detailed state of the Firecracker instance.
           This value is read-only for the control-plane.
-        type: string
-        enum:
-          - Uninitialized
-          - Starting
-          - Running
+        type: boolean
       vmm_version:
         description: MicroVM hypervisor build version.
         type: string
