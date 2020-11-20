@@ -38,9 +38,8 @@ of time in seconds at which the balloon statistics are updated.
 
 ## Security disclaimer
 
-> [!IMPORTANT]
-> The balloon device is a paravirtualized virtio device that requires cooperation
-from a driver in the guest.
+**The balloon device is a paravirtualized virtio device that requires cooperation
+from a driver in the guest.**
 
 In normal conditions, the balloon device will:
 * not change the target size, which is set directly by the host
@@ -61,11 +60,20 @@ memory usage, they can be broken by a compromised driver in the guest. The
 balloon device operates on a best effort model and users should always ensure
 the host is prepared to handle a situation in which the Firecracker process
 uses all of the memory it was given at boot even if the balloon was used to
-restrict the amount of memory available to the guest.
+restrict the amount of memory available to the guest. It is also the users'
+responsibility to monitor the memory consumption of the VM and, in case
+unexpected increases in memory usage are observed, we recommend the following
+options:
+* migrate the VM to a machine with higher memory availability through
+snapshotting at the cost of disrupting the workload;
+* kill the Firecracker process that exceeds memory restrictions;
+* enable swap with a sufficient amount of memory to handle the demand at the
+cost of memory access speed;
 
 Users should also never rely solely on the statistics provided by the balloon
 when controlling the Firecracker process as they are provided directly by the
-guest driver.
+guest driver and should always be viewed as an indication rather than a
+guarantee of what the memory state looks like in the guest.
 
 Please note that even in the case where the driver is not working properly,
 the balloon will never leak memory from one Firecracker process to another,
