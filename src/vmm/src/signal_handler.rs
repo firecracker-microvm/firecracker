@@ -160,11 +160,8 @@ mod tests {
     use super::*;
 
     use libc::{cpu_set_t, syscall};
-    use std::convert::TryInto;
-    use std::env::consts::ARCH;
+    use seccomp::{sock_filter, SeccompFilter};
     use std::{mem, process, thread};
-
-    use seccomp::{allow_syscall, SeccompAction, SeccompFilter};
 
     // This function is used when running unit tests, so all the unsafes are safe.
     fn cpu_count() -> usize {
@@ -195,32 +192,142 @@ mod tests {
         let child = thread::spawn(move || {
             assert!(register_signal_handlers().is_ok());
 
-            let filter = SeccompFilter::new(
-                vec![
-                    allow_syscall(libc::SYS_brk),
-                    allow_syscall(libc::SYS_exit),
-                    allow_syscall(libc::SYS_futex),
-                    allow_syscall(libc::SYS_getpid),
-                    allow_syscall(libc::SYS_munmap),
-                    allow_syscall(libc::SYS_kill),
-                    allow_syscall(libc::SYS_rt_sigprocmask),
-                    allow_syscall(libc::SYS_rt_sigreturn),
-                    allow_syscall(libc::SYS_sched_getaffinity),
-                    allow_syscall(libc::SYS_set_tid_address),
-                    allow_syscall(libc::SYS_sigaltstack),
-                    allow_syscall(libc::SYS_write),
-                ]
-                .into_iter()
-                .collect(),
-                SeccompAction::Trap,
-                ARCH,
-            )
-            .unwrap();
+            // Test with a seccomp filter that allows all syscalls, except for `SYS_mkdirat`.
+            // For some reason, directly calling `SYS_kill` with SIGSYS, like we do with the
+            // other signals, results in an error. Probably because of the way `cargo test` is
+            // handling signals.
+            #[cfg(target_arch = "aarch64")]
+            #[allow(clippy::unreadable_literal)]
+            let bpf_filter = vec![
+                sock_filter {
+                    code: 32,
+                    jt: 0,
+                    jf: 0,
+                    k: 4,
+                },
+                sock_filter {
+                    code: 21,
+                    jt: 1,
+                    jf: 0,
+                    k: 3221225655,
+                },
+                sock_filter {
+                    code: 6,
+                    jt: 0,
+                    jf: 0,
+                    k: 0,
+                },
+                sock_filter {
+                    code: 32,
+                    jt: 0,
+                    jf: 0,
+                    k: 0,
+                },
+                sock_filter {
+                    code: 21,
+                    jt: 0,
+                    jf: 1,
+                    k: 34,
+                },
+                sock_filter {
+                    code: 5,
+                    jt: 0,
+                    jf: 0,
+                    k: 1,
+                },
+                sock_filter {
+                    code: 5,
+                    jt: 0,
+                    jf: 0,
+                    k: 2,
+                },
+                sock_filter {
+                    code: 6,
+                    jt: 0,
+                    jf: 0,
+                    k: 196608,
+                },
+                sock_filter {
+                    code: 6,
+                    jt: 0,
+                    jf: 0,
+                    k: 2147418112,
+                },
+                sock_filter {
+                    code: 6,
+                    jt: 0,
+                    jf: 0,
+                    k: 2147418112,
+                },
+            ];
+            #[cfg(target_arch = "x86_64")]
+            #[allow(clippy::unreadable_literal)]
+            let bpf_filter = vec![
+                sock_filter {
+                    code: 32,
+                    jt: 0,
+                    jf: 0,
+                    k: 4,
+                },
+                sock_filter {
+                    code: 21,
+                    jt: 1,
+                    jf: 0,
+                    k: 3221225534,
+                },
+                sock_filter {
+                    code: 6,
+                    jt: 0,
+                    jf: 0,
+                    k: 0,
+                },
+                sock_filter {
+                    code: 32,
+                    jt: 0,
+                    jf: 0,
+                    k: 0,
+                },
+                sock_filter {
+                    code: 21,
+                    jt: 0,
+                    jf: 1,
+                    k: 258,
+                },
+                sock_filter {
+                    code: 5,
+                    jt: 0,
+                    jf: 0,
+                    k: 1,
+                },
+                sock_filter {
+                    code: 5,
+                    jt: 0,
+                    jf: 0,
+                    k: 2,
+                },
+                sock_filter {
+                    code: 6,
+                    jt: 0,
+                    jf: 0,
+                    k: 196608,
+                },
+                sock_filter {
+                    code: 6,
+                    jt: 0,
+                    jf: 0,
+                    k: 2147418112,
+                },
+                sock_filter {
+                    code: 6,
+                    jt: 0,
+                    jf: 0,
+                    k: 2147418112,
+                },
+            ];
 
-            assert!(SeccompFilter::apply(filter.try_into().unwrap()).is_ok());
+            assert!(SeccompFilter::apply(bpf_filter).is_ok());
             assert_eq!(METRICS.seccomp.num_faults.count(), 0);
-
-            // Call the blacklisted `SYS_mkdirat`.
+            // Call the forbidden `SYS_mkdirat`.
             unsafe { syscall(libc::SYS_mkdirat, "/foo/bar\0") };
 
             // Call SIGBUS signal handler.
