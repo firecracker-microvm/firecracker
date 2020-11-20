@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 #[cfg(not(test))]
 use super::{builder::build_microvm_for_boot, resources::VmResources, Vmm};
 #[cfg(all(not(test), target_arch = "x86_64"))]
-use super::{persist::create_snapshot, persist::load_snapshot};
+use super::{persist::create_snapshot, persist::restore_from_snapshot};
 
 #[cfg(test)]
 use tests::{build_microvm_for_boot, MockVmRes as VmResources, MockVmm as Vmm};
 #[cfg(all(test, target_arch = "x86_64"))]
-use tests::{create_snapshot, load_snapshot};
+use tests::{create_snapshot, restore_from_snapshot};
 
 use super::Error as VmmError;
 use crate::builder::StartMicrovmError;
@@ -416,7 +416,7 @@ impl<'a> PrebootApiController<'a> {
             return Err(err);
         }
 
-        let result = load_snapshot(
+        let result = restore_from_snapshot(
             &mut self.event_manager,
             &self.seccomp_filter,
             load_params,
@@ -927,7 +927,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     // Need to redefine this since the non-test one uses real Vmm
     // instead of our mocks.
-    pub fn load_snapshot(
+    pub fn restore_from_snapshot(
         _: &mut EventManager,
         _: BpfProgramRef,
         _: &LoadSnapshotParams,
