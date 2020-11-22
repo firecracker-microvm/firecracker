@@ -15,6 +15,8 @@
 
 ### Changed
 
+- Change the information provided in `DescribeInstance` command to provide microVM
+  state information (Not started/Running/Paused) instead of whether it's started or not.
 - Removed the jailer `--extra-args` parameter. It was a noop, having been
   replaced by the `--` separator for extra arguments.
 - Changed the output of the `--version` command line parameter to include a list

@@ -799,7 +799,7 @@ definitions:
     required:
       - app_name
       - id
-      - started
+      - state
       - vmm_version
     properties:
       app_name:
@@ -808,11 +808,15 @@ definitions:
       id:
         description: MicroVM / instance ID.
         type: string
-      started:
+      state:
         description:
-          The current detailed state of the Firecracker instance.
+          The current detailed state (Not started, Running, Paused) of the Firecracker instance.
           This value is read-only for the control-plane.
-        type: boolean
+        type: string
+        enum:
+          - Not started
+          - Running
+          - Paused
       vmm_version:
         description: MicroVM hypervisor build version.
         type: string
