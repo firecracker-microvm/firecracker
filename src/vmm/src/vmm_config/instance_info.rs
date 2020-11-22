@@ -7,8 +7,8 @@ use serde::Serialize;
 pub struct InstanceInfo {
     /// The ID of the microVM.
     pub id: String,
-    /// Whether the microVM has been started.
-    pub started: bool,
+    /// Whether the microVM is not started/running/paused.
+    pub state: String,
     /// The version of the VMM that runs the microVM.
     pub vmm_version: String,
     /// The name of the application that runs the microVM.

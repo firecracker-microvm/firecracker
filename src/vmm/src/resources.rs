@@ -462,7 +462,7 @@ mod tests {
 
         let default_instance_info = InstanceInfo {
             id: "".to_string(),
-            started: false,
+            state: "Not started".to_string(),
             vmm_version: "SOME_VERSION".to_string(),
             app_name: "".to_string(),
         };

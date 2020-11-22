@@ -254,8 +254,16 @@ class Microvm:
         return self._memory_monitor
 
     @property
+    def state(self):
+        """Get the InstanceInfo property and return the state field."""
+        return json.loads(self.desc_inst.get().content)["state"]
+
+    @property
     def started(self):
-        """Get the InstanceInfo property and return the started field."""
+        """Get the InstanceInfo property and return the started field.
+
+        This is kept for legacy snapshot support.
+        """
         return json.loads(self.desc_inst.get().content)["started"]
 
     @memory_monitor.setter
@@ -694,13 +702,19 @@ class Microvm:
         This function has asserts to validate that the microvm boot success.
         """
         # Check that the VM has not started yet
-        assert self.started is False
+        try:
+            assert self.state == "Not started"
+        except KeyError:
+            assert self.started is False
 
         response = self.actions.put(action_type='InstanceStart')
         assert self._api_session.is_status_no_content(response.status_code)
 
         # Check that the VM has started
-        assert self.started is True
+        try:
+            assert self.state == "Running"
+        except KeyError:
+            assert self.started is True
 
     def pause_to_snapshot(self,
                           mem_file_path=None,
