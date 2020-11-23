@@ -4,9 +4,10 @@
 
 import os
 import yaml
+import framework.utils as utils
 
 
-def check_swagger_style(yaml_spec):
+def check_yaml_style(yaml_spec):
     """Check if the swagger definition is correctly formatted."""
     with open(yaml_spec, 'r') as file_stream:
         try:
@@ -16,9 +17,20 @@ def check_swagger_style(yaml_spec):
             print(str(exception))
 
 
+def validate_swagger(swagger_spec):
+    """Fail if OpenApi spec is not followed."""
+    validate_cmd = 'swagger-cli validate {}'.format(swagger_spec)
+    retcode, stdout, _ = utils.run_cmd(validate_cmd)
+
+    # Verify validity.
+    assert "is valid" in stdout
+    assert retcode == 0
+
+
 def test_firecracker_swagger():
     """Fail if Firecracker swagger specification is malformed."""
-    yaml_spec = os.path.normpath(
+    swagger_spec = os.path.normpath(
         os.path.join(os.getcwd(), '../src/api_server/swagger/firecracker.yaml')
     )
-    check_swagger_style(yaml_spec)
+    check_yaml_style(swagger_spec)
+    validate_swagger(swagger_spec)
