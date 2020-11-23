@@ -797,8 +797,9 @@ definitions:
     description:
       Describes MicroVM instance information.
     required:
+      - app_name
       - id
-      - state
+      - started
       - vmm_version
     properties:
       app_name:
