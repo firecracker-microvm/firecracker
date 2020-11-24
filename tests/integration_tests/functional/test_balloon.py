@@ -672,7 +672,7 @@ def _test_snapshot_compatibility(context):
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     # Try to create a snapshot with a balloon on version 0.23.0.
-    response = microvm.snapshot_create.put(
+    response = microvm.snapshot.create(
         mem_file_path='memfile',
         snapshot_path='dummy',
         diff=False,

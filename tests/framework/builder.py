@@ -149,16 +149,12 @@ class MicrovmBuilder:
                                      netmask_len=DEFAULT_NETMASK,
                                      tapname=DEFAULT_TAP_NAME)
 
-        response = vm.snapshot_load.put(mem_file_path=jailed_mem,
-                                        snapshot_path=jailed_vmstate,
-                                        diff=enable_diff_snapshots)
+        response = vm.snapshot.load(mem_file_path=jailed_mem,
+                                    snapshot_path=jailed_vmstate,
+                                    diff=enable_diff_snapshots,
+                                    resume=resume)
 
         assert vm.api_session.is_status_no_content(response.status_code)
-
-        if resume:
-            # Resume microvm
-            response = vm.vm.patch(state='Resumed')
-            assert vm.api_session.is_status_no_content(response.status_code)
 
         # Reset root path so next microvm is built some place else.
         self.init_root_path()
