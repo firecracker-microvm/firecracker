@@ -722,7 +722,6 @@ mod tests {
             r#"{{
                     "balloon": {{
                         "amount_mb": 0,
-                        "must_tell_host": false,
                         "deflate_on_oom": false,
                         "stats_polling_interval_s": 0
                     }},
@@ -819,7 +818,6 @@ mod tests {
         vm_resources
             .set_balloon_device(BalloonDeviceConfig {
                 amount_mb: 100,
-                must_tell_host: false,
                 deflate_on_oom: false,
                 stats_polling_interval_s: 0,
             })
@@ -849,7 +847,6 @@ mod tests {
         };
         let mut new_balloon_cfg = BalloonDeviceConfig {
             amount_mb: 100,
-            must_tell_host: false,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         };
@@ -860,10 +857,6 @@ mod tests {
 
         let actual_balloon_cfg = vm_resources.balloon.get_config().unwrap();
         assert_eq!(actual_balloon_cfg.amount_mb, new_balloon_cfg.amount_mb);
-        assert_eq!(
-            actual_balloon_cfg.must_tell_host,
-            new_balloon_cfg.must_tell_host
-        );
         assert_eq!(
             actual_balloon_cfg.deflate_on_oom,
             new_balloon_cfg.deflate_on_oom

@@ -75,9 +75,6 @@ type Result<T> = std::result::Result<T, BalloonConfigError>;
 pub struct BalloonDeviceConfig {
     /// Target balloon size in MB.
     pub amount_mb: u32,
-    /// Option to make the guest obtain permission from the host in
-    /// order to deflate.
-    pub must_tell_host: bool,
     /// Option to deflate the balloon in case the guest is out of memory.
     pub deflate_on_oom: bool,
     /// Interval in seconds between refreshing statistics.
@@ -90,7 +87,6 @@ impl From<BalloonConfig> for BalloonDeviceConfig {
         BalloonDeviceConfig {
             amount_mb: state.amount_mb,
             deflate_on_oom: state.deflate_on_oom,
-            must_tell_host: state.must_tell_host,
             stats_polling_interval_s: state.stats_polling_interval_s,
         }
     }
@@ -140,7 +136,6 @@ impl BalloonBuilder {
         self.inner = Some(Arc::new(Mutex::new(
             Balloon::new(
                 cfg.amount_mb,
-                cfg.must_tell_host,
                 cfg.deflate_on_oom,
                 cfg.stats_polling_interval_s,
                 // `restored` flag is false because this code path
@@ -174,7 +169,6 @@ pub(crate) mod tests {
     pub(crate) fn default_config() -> BalloonDeviceConfig {
         BalloonDeviceConfig {
             amount_mb: 0,
-            must_tell_host: false,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         }
@@ -193,7 +187,6 @@ pub(crate) mod tests {
         let default_balloon_config = default_config();
         let balloon_config = BalloonDeviceConfig {
             amount_mb: 0,
-            must_tell_host: false,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         };
@@ -216,14 +209,12 @@ pub(crate) mod tests {
         let expected_balloon_config = BalloonDeviceConfig {
             amount_mb: 5,
             deflate_on_oom: false,
-            must_tell_host: true,
             stats_polling_interval_s: 3,
         };
 
         let actual_balloon_config = BalloonDeviceConfig::from(BalloonConfig {
             amount_mb: 5,
             deflate_on_oom: false,
-            must_tell_host: true,
             stats_polling_interval_s: 3,
         });
 

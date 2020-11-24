@@ -319,7 +319,6 @@ mod tests {
         // Add a balloon device.
         let balloon_config = BalloonDeviceConfig {
             amount_mb: 0,
-            must_tell_host: false,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         };

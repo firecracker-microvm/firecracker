@@ -33,10 +33,9 @@ RUN apt-get update \
         iperf3 \
         iproute2 \
         jq \
-        libcurl4-openssl-dev \
         libdw-dev \
         libiberty-dev \
-        libssl-dev \
+        libssl1.0-dev \
         lsof \
         make \
         net-tools \
@@ -50,6 +49,7 @@ RUN apt-get update \
         zlib1g-dev \
         screen \
         tzdata \
+        npm \
     && python3 -m pip install \
         setuptools \
         wheel \
@@ -68,6 +68,7 @@ RUN apt-get update \
         requests-unixsocket \
         retry \
         typing-extensions \
+    && npm install -g @apidevtools/swagger-cli \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the Rust toolchain

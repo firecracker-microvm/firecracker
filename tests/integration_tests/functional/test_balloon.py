@@ -103,13 +103,19 @@ def build_test_matrix(network_config, bin_cloner_path, logger):
     )
 
 
-def copy_fillmem_to_rootfs(rootfs_path):
+def copy_util_to_rootfs(rootfs_path, util):
     """Build and copy the 'memfill' program to the rootfs."""
-    subprocess.check_call("gcc ./host_tools/fillmem.c -o fillmem", shell=True)
+    subprocess.check_call(
+        "gcc ./host_tools/{util}.c -o {util}".format(util=util),
+        shell=True
+    )
     subprocess.check_call("mkdir tmpfs", shell=True)
     subprocess.check_call("mount {} tmpfs".format(rootfs_path), shell=True)
-    subprocess.check_call("cp fillmem tmpfs/sbin/fillmem", shell=True)
-    subprocess.check_call("rm fillmem", shell=True)
+    subprocess.check_call(
+        "cp {util} tmpfs/sbin/{util}".format(util=util),
+        shell=True
+    )
+    subprocess.check_call("rm {}".format(util), shell=True)
     subprocess.check_call("umount tmpfs", shell=True)
     subprocess.check_call("rmdir tmpfs", shell=True)
 
@@ -130,7 +136,6 @@ def test_rss_memory_lower(test_microvm_with_ssh_and_balloon, network_config):
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -184,7 +189,6 @@ def test_inflate_reduces_free(test_microvm_with_ssh_and_balloon,
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=False,
-        must_tell_host=False,
         stats_polling_interval_s=1
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -229,7 +233,6 @@ def test_deflate_on_oom_true(test_microvm_with_ssh_and_balloon,
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -271,7 +274,6 @@ def test_deflate_on_oom_false(test_microvm_with_ssh_and_balloon,
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=False,
-        must_tell_host=False,
         stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -309,7 +311,6 @@ def test_reinflate_balloon(test_microvm_with_ssh_and_balloon, network_config):
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -382,7 +383,6 @@ def test_size_reduction(test_microvm_with_ssh_and_balloon, network_config):
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=0
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -428,7 +428,6 @@ def test_stats(test_microvm_with_ssh_and_balloon, network_config):
     response = test_microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=1
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
@@ -534,13 +533,12 @@ def _test_balloon_snapshot(context):
                               config=context.microvm,
                               enable_diff_snapshots=enable_diff_snapshots)
 
-    copy_fillmem_to_rootfs(root_disk.local_path())
+    copy_util_to_rootfs(root_disk.local_path(), 'fillmem')
 
     # Add a memory balloon with stats enabled.
     response = basevm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=1
     )
     assert basevm.api_session.is_status_no_content(response.status_code)
@@ -661,7 +659,6 @@ def _test_snapshot_compatibility(context):
     response = microvm.balloon.put(
         amount_mb=0,
         deflate_on_oom=True,
-        must_tell_host=False,
         stats_polling_interval_s=1
     )
     assert microvm.api_session.is_status_no_content(response.status_code)
@@ -698,5 +695,76 @@ def _test_snapshot_compatibility(context):
         ssh_key,
         snapshot_type
     )
+
+    microvm.kill()
+
+
+def test_memory_scrub(
+    network_config,
+    bin_cloner_path
+):
+    """Test that the memory is zeroed after deflate."""
+    logger = logging.getLogger()
+
+    # Create the test matrix.
+    test_matrix = build_test_matrix(network_config, bin_cloner_path, logger)
+
+    test_matrix.run_test(_test_memory_scrub)
+
+
+def _test_memory_scrub(context):
+    vm_builder = context.custom['builder']
+
+    # Create a rw copy artifact.
+    root_disk = context.disk.copy()
+    # Get ssh key from read-only artifact.
+    ssh_key = context.disk.ssh_key()
+    # Create a fresh microvm from aftifacts.
+    microvm = vm_builder.build(
+        kernel=context.kernel,
+        disks=[root_disk],
+        ssh_key=ssh_key,
+        config=context.microvm
+    )
+
+    copy_util_to_rootfs(root_disk.local_path(), 'fillmem')
+    copy_util_to_rootfs(root_disk.local_path(), 'readmem')
+
+    # Add a memory balloon with stats enabled.
+    response = microvm.balloon.put(
+        amount_mb=0,
+        deflate_on_oom=True,
+        stats_polling_interval_s=1
+    )
+    assert microvm.api_session.is_status_no_content(response.status_code)
+
+    microvm.start()
+
+    ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
+
+    # Dirty 60MB of pages.
+    make_guest_dirty_memory(ssh_connection, amount=(60 * MB_TO_PAGES))
+
+    # Now inflate the balloon with 60MB of pages.
+    response = microvm.balloon.patch(amount_mb=60)
+    assert microvm.api_session.is_status_no_content(response.status_code)
+
+    # Get the firecracker pid, and open an ssh connection.
+    firecracker_pid = microvm.jailer_clone_pid
+
+    # Wait for the inflate to complete.
+    _ = get_stable_rss_mem_by_pid(firecracker_pid)
+
+    # Deflate the balloon completely.
+    response = microvm.balloon.patch(amount_mb=0)
+    assert microvm.api_session.is_status_no_content(response.status_code)
+
+    # Wait for the deflate to complete.
+    _ = get_stable_rss_mem_by_pid(firecracker_pid)
+
+    exit_code, _, _ = ssh_connection.execute_command(
+        "/sbin/readmem {} {}".format(60, 1)
+    )
+    assert exit_code == 0
 
     microvm.kill()
