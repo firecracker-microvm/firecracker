@@ -646,13 +646,13 @@ def test_drive_patch(test_microvm_with_api):
     platform.machine() != "x86_64",
     reason="not yet implemented on aarch64"
 )
-def test_send_ctrl_alt_del(test_microvm_with_atkbd):
+def test_send_ctrl_alt_del(test_microvm_with_api):
     """Test shutting down the microVM gracefully, by sending CTRL+ALT+DEL.
 
     This relies on i8042 and AT Keyboard support being present in the guest
     kernel.
     """
-    test_microvm = test_microvm_with_atkbd
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     test_microvm.basic_config()
