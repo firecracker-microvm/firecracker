@@ -289,8 +289,10 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     the guest is an exact match of the template.
     """
     common_masked_features = ["avx512", "mpx", "clflushopt", "clwb", "xsavec",
-                              "xgetbv1", "xsaves", "pku", "ospke"]
-    c3_masked_features = ["avx2"]
+                              "xgetbv1", "xsaves", "pku", "ospke", "dtes64", 
+                              "psn", "monitor", "sdbg", "ds_cpl_shift", "tm2",
+                              "cnxt", "sdbg", "xtpr_update", "pdcm", "oxsave"]
+    c3_masked_features = ["avx2","fma", "movbe"]
 
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
