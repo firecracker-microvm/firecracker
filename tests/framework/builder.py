@@ -138,7 +138,7 @@ class MicrovmBuilder:
         # Hardlink all the snapshot files into the microvm jail.
         jailed_mem = vm.create_jailed_resource(snapshot.mem)
         jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
-        assert len(snapshot.disks) > 0, "Snapshot requiures at least one disk."
+        assert len(snapshot.disks) > 0, "Snapshot requires at least one disk."
         _jailed_disks = []
         for disk in snapshot.disks:
             _jailed_disks.append(vm.create_jailed_resource(disk))
@@ -165,6 +165,11 @@ class MicrovmBuilder:
 
         # Return a resumed microvm.
         return vm, metrics_fifo
+
+    def create_basevm(self):
+        """Create a clean VM in an initial state."""
+        return init_microvm(self.root_path, self.bin_cloner_path,
+                            self._fc_binary, self._jailer_binary)
 
 
 class SnapshotBuilder:  # pylint: disable=too-few-public-methods
