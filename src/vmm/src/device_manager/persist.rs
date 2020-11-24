@@ -244,7 +244,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let mmio_transport =
                 MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
             dev_manager
-                .register_virtio_mmio_device(vm, id.clone(), mmio_transport, slot)
+                .register_mmio_virtio(vm, id.clone(), mmio_transport, slot)
                 .map_err(Error::DeviceManager)?;
 
             event_manager
