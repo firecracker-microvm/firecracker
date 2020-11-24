@@ -11,7 +11,7 @@ MAX_BOOT_TIME_US = 150000
 # NOTE: for aarch64 most of the boot time is spent by the kernel to unpack the
 # initramfs in RAM. This time is influenced by the size and the compression
 # method of the used initrd image.
-INITRD_BOOT_TIME_US = 160000 if platform.machine() == "x86_64" else 200000
+INITRD_BOOT_TIME_US = 180000 if platform.machine() == "x86_64" else 200000
 # TODO: Keep a `current` boot time in S3 and validate we don't regress
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
@@ -26,45 +26,48 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
-def test_boottime_no_network(test_microvm_with_boottime_timer):
+def test_boottime_no_network(test_microvm_with_boottime):
     """Check boot time of microVM without network."""
-    test_microvm_with_boottime_timer.jailer.extra_args.update(
+    vm = test_microvm_with_boottime
+    vm.jailer.extra_args.update(
         {'boot-timer': None}
     )
-    _ = _configure_and_run_vm(test_microvm_with_boottime_timer)
+    _ = _configure_and_run_vm(vm)
     time.sleep(0.4)
     boottime_us = _test_microvm_boottime(
-            test_microvm_with_boottime_timer.log_data)
+        vm.log_data)
     print("Boot time with no network is: " + str(boottime_us) + " us")
 
 
 def test_boottime_with_network(
-        test_microvm_with_boottime_timer,
+        test_microvm_with_boottime,
         network_config
 ):
     """Check boot time of microVM with network."""
-    test_microvm_with_boottime_timer.jailer.extra_args.update(
+    vm = test_microvm_with_boottime
+    vm.jailer.extra_args.update(
         {'boot-timer': None}
     )
-    _tap = _configure_and_run_vm(test_microvm_with_boottime_timer, {
+    _tap = _configure_and_run_vm(vm, {
         "config": network_config, "iface_id": "1"
     })
     time.sleep(0.4)
     boottime_us = _test_microvm_boottime(
-            test_microvm_with_boottime_timer.log_data)
+            vm.log_data)
     print("Boot time with network configured is: " + str(boottime_us) + " us")
 
 
 def test_initrd_boottime(
-        test_microvm_with_initrd_timer):
+        test_microvm_with_initrd):
     """Check boot time of microVM when using an initrd."""
-    test_microvm_with_initrd_timer.jailer.extra_args.update(
+    vm = test_microvm_with_initrd
+    vm.jailer.extra_args.update(
         {'boot-timer': None}
     )
-    _tap = _configure_and_run_vm(test_microvm_with_initrd_timer, initrd=True)
+    _tap = _configure_and_run_vm(vm, initrd=True)
     time.sleep(0.8)
     boottime_us = _test_microvm_boottime(
-        test_microvm_with_initrd_timer.log_data,
+        vm.log_data,
         max_time_us=INITRD_BOOT_TIME_US)
     print("Boot time with initrd is: " + str(boottime_us) + " us")
 
