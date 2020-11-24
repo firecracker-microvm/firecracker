@@ -210,7 +210,7 @@ def test_create_with_too_many_devices(test_microvm_with_ssh, network_config):
     # v0.23 allowed a maximum of `FC_V0_23_MAX_DEVICES_ATTACHED` virtio
     # devices at a time. This microVM has `FC_V0_23_MAX_DEVICES_ATTACHED`
     # network devices on top of the rootfs, so the limit is exceeded.
-    response = test_microvm.snapshot_create.put(
+    response = test_microvm.snapshot.create(
         mem_file_path="/snapshot/vm.vmstate",
         snapshot_path="/snapshot/vm.mem",
         diff=True,

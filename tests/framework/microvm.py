@@ -31,7 +31,7 @@ from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import Actions, Balloon, BootSource, Drive, \
     DescribeInstance, Logger, MMDS, MachineConfigure, Metrics, Network, \
-    Vm, Vsock, SnapshotCreate, SnapshotLoad
+    Vm, Vsock, SnapshotHelper
 
 LOG = logging.getLogger("microvm")
 
@@ -112,8 +112,7 @@ class Microvm:
         self.machine_cfg = None
         self.vm = None
         self.vsock = None
-        self.snapshot_create = None
-        self.snapshot_load = None
+        self.snapshot = None
 
         # Initialize the logging subsystem.
         self.logging_thread = None
@@ -351,17 +350,6 @@ class Microvm:
         os.makedirs(self._kernel_path, exist_ok=True)
         os.makedirs(self._fsfiles_path, exist_ok=True)
 
-    def init_snapshot_api(self):
-        """Initialize snapshot helpers."""
-        self.snapshot_create = SnapshotCreate(
-            self._api_socket,
-            self._api_session
-        )
-        self.snapshot_load = SnapshotLoad(
-            self._api_socket,
-            self._api_session
-        )
-
     @property
     def vcpus_count(self):
         """Get the vcpus count."""
@@ -419,10 +407,9 @@ class Microvm:
         self.metrics = Metrics(self._api_socket, self._api_session)
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
+        self.snapshot = SnapshotHelper(self._api_socket, self._api_session)
         self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
-
-        self.init_snapshot_api()
 
         if create_logger:
             log_fifo_path = os.path.join(self.path, log_file)
@@ -731,32 +718,10 @@ class Microvm:
         response = self.vm.patch(state='Paused')
         assert self.api_session.is_status_no_content(response.status_code)
 
-        response = self.snapshot_create.put(mem_file_path=mem_file_path,
-                                            snapshot_path=snapshot_path,
-                                            diff=diff,
-                                            version=version)
-        assert self.api_session.is_status_no_content(response.status_code)
-
-    def resume_from_snapshot(self, mem_file_path, snapshot_path):
-        """Resume snapshotted microVM in a new Firecracker process.
-
-        Starts a new Firecracker process, loads a microVM from snapshot
-        and resumes it.
-
-        This function validates that resuming works.
-        """
-        assert mem_file_path is not None, "Please specify mem_file_path."
-        assert snapshot_path is not None, "Please specify snapshot_path."
-
-        self.jailer.cleanup(reuse_jail=True)
-        self.spawn(create_logger=False)
-
-        response = self.snapshot_load.put(mem_file_path=mem_file_path,
-                                          snapshot_path=snapshot_path)
-
-        assert self.api_session.is_status_no_content(response.status_code)
-
-        response = self.vm.patch(state='Resumed')
+        response = self.snapshot.create(mem_file_path=mem_file_path,
+                                        snapshot_path=snapshot_path,
+                                        diff=diff,
+                                        version=version)
         assert self.api_session.is_status_no_content(response.status_code)
 
     def start_console_logger(self, log_fifo):

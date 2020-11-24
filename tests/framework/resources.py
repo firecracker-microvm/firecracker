@@ -369,7 +369,7 @@ class SnapshotLoad():
         )
 
     @staticmethod
-    def create_json(mem_file_path, snapshot_path, diff=False):
+    def create_json(mem_file_path, snapshot_path, diff=False, resume=False):
         """Compose the json associated to this type of API request."""
         datax = {
             'mem_file_path': mem_file_path,
@@ -377,7 +377,51 @@ class SnapshotLoad():
         }
         if diff:
             datax['enable_diff_snapshots'] = True
+        if resume:
+            datax['resume_vm'] = True
         return datax
+
+
+class SnapshotHelper():
+    """Facility for creation and loading of microvm snapshots."""
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        self._create = SnapshotCreate(api_usocket_full_name, api_session)
+        self._load = SnapshotLoad(api_usocket_full_name, api_session)
+        self._vm_state = Vm(api_usocket_full_name, api_session)
+
+    def create(self, mem_file_path, snapshot_path, diff=False, version=None):
+        """Create a snapshot of the microvm."""
+        return self._create.put(
+            mem_file_path=mem_file_path,
+            snapshot_path=snapshot_path,
+            diff=diff,
+            version=version
+        )
+
+    def load(self, mem_file_path, snapshot_path, diff=False, resume=False):
+        """Load a snapshot of the microvm."""
+        response = self._load.put(
+            mem_file_path=mem_file_path,
+            snapshot_path=snapshot_path,
+            diff=diff,
+            resume=resume
+        )
+
+        if resume and "unknown field `resume_vm`" in response.text:
+            # Retry using old API - separate resume command.
+            response = self._load.put(
+                mem_file_path=mem_file_path,
+                snapshot_path=snapshot_path,
+                diff=diff,
+                resume=False
+            )
+            if response.status_code != 204:
+                return response
+            response = self._vm_state.patch(state='Resumed')
+
+        return response
 
 
 class Metrics:

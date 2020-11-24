@@ -404,8 +404,8 @@ def test_load_snapshot_failure_handling(bin_cloner_path):
     logger.info("FC process time before snapshoat load: %s.", fc_time)
 
     # Load the snapshot
-    response = vm.snapshot_load.put(mem_file_path=jailed_mem,
-                                    snapshot_path=jailed_vmstate)
+    response = vm.snapshot.load(mem_file_path=jailed_mem,
+                                snapshot_path=jailed_vmstate)
 
     logger.info("Response status code %d, content: %s.",
                 response.status_code,
