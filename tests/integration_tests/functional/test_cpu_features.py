@@ -146,9 +146,33 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     containing all features on a t2/c3 instance and check that the cpuid in
     the guest is an exact match of the template.
     """
-    common_masked_features = ["avx512", "mpx", "clflushopt", "clwb", "xsavec",
-                              "xgetbv1", "xsaves", "pku", "ospke"]
-    c3_masked_features = ["avx2"]
+    common_masked_features_lscpu = ["dtes64", "monitor", "ds_cpl", "tm2",
+                                    "cnxt-id", "sdbg", "xtpr", "pdcm",
+                                    "osxsave",
+                                    "psn", "ds", "acpi", "tm", "ss", "pbe",
+                                    "fpdp", "rdt_m", "rdt_a", "mpx", "avx512f",
+                                    "intel_pt",
+                                    "avx512_vpopcntdq",
+                                    "3dnowprefetch", "pdpe1gb"]
+
+    common_masked_features_cpuid = {"SGX": "false", "HLE": "false",
+                                    "RTM": "false", "RDSEED": "false",
+                                    "ADX": "false", "AVX512IFMA": "false",
+                                    "CLFLUSHOPT": "false", "CLWB": "false",
+                                    "AVX512PF": "false", "AVX512ER": "false",
+                                    "AVX512CD": "false", "SHA": "false",
+                                    "AVX512BW": "false", "AVX512VL": "false",
+                                    "AVX512VBMI": "false", "PKU": "false",
+                                    "OSPKE": "false", "RDPID": "false",
+                                    "SGX_LC": "false",
+                                    "AVX512_4VNNIW": "false",
+                                    "AVX512_4FMAPS": "false",
+                                    "XSAVEC": "false", "XGETBV": "false",
+                                    "XSAVES": "false"}
+
+    # These are all discoverable by cpuid -1.
+    c3_masked_features = {"FMA": "false", "MOVBE": "false", "BMI": "false",
+                          "AVX2": "false", "BMI2": "false", "INVPCID": "false"}
 
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
@@ -174,19 +198,26 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     assert test_microvm.api_session.is_status_no_content(
             response.status_code)
 
+    # Check that all common features discoverable with lscpu
+    # are properly masked.
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
     guest_cmd = "cat /proc/cpuinfo | grep 'flags' | head -1"
     _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
     assert stderr.read() == ''
 
-    cpu_flags_output = stdout.readline().rstrip()
+    cpu_flags_output = stdout.readline().rstrip().split(' ')
+
+    for feature in common_masked_features_lscpu:
+        assert feature not in cpu_flags_output, feature
+
+    # Check that all common features discoverable with cpuid
+    # are properly masked.
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   common_masked_features_cpuid)
 
     if cpu_template == "C3":
-        for feature in c3_masked_features:
-            assert feature not in cpu_flags_output
-    # Check that all features in `common_masked_features` are properly masked.
-    for feature in common_masked_features:
-        assert feature not in cpu_flags_output
+        utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                       c3_masked_features)
 
     # Check if XSAVE PKRU is masked for T3/C2.
     expected_cpu_features = {
