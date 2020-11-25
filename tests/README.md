@@ -20,6 +20,12 @@ To run tests from specific directories and/or files:
 tools/devtool test -- <test_dir_or_file_path>...
 ```
 
+To run a single specific test from a file:
+
+``` sh
+tools/devtool test -- <test_file_path>::<test_name>
+```
+
 The testing system is built around [pytest](https://docs.pytest.org/en/latest/).
 Any parameters passed to `tools/devtool test --` are passed to the `pytest`
 command. `devtool` is used to automate fetching of test dependencies (useful
@@ -247,6 +253,11 @@ local image cache.
 *Is there a way to speed up integration tests execution time?*
 `A5:`
 You can speed up tests execution time with any of these:
+
+`Q6:`
+*How can I get live logger output from the tests?*
+`A6:`
+Accessing **pytest.ini** will allow you to modify logger settings.
 
 1. Run the tests from inside the container and set the environment variable
    `KEEP_TEST_SESSION` to a non-empty value.
