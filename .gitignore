@@ -1,4 +1,5 @@
 /build/
+/.kernel/
 target
 *.rs.bk
 *.iml
