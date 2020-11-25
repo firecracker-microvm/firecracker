@@ -326,23 +326,19 @@ fn main() {
             process::exit(1);
         }
         _ => {
-            if let Some(help) = arg_parser.arguments().value_as_bool("help") {
-                if help {
-                    println!("Jailer v{}\n", JAILER_VERSION);
-                    println!("{}\n", arg_parser.formatted_help());
-                    println!(
-                        "Any arguments after the -- separator will be supplied to the jailed \
-                        binary.\n"
-                    );
-                    process::exit(0);
-                }
+            if arg_parser.arguments().flag_present("help") {
+                println!("Jailer v{}\n", JAILER_VERSION);
+                println!("{}\n", arg_parser.formatted_help());
+                println!(
+                    "Any arguments after the -- separator will be supplied to the jailed \
+                    binary.\n"
+                );
+                process::exit(0);
             }
 
-            if let Some(version) = arg_parser.arguments().value_as_bool("version") {
-                if version {
-                    println!("Jailer v{}\n", JAILER_VERSION);
-                    process::exit(0);
-                }
+            if arg_parser.arguments().flag_present("version") {
+                println!("Jailer v{}\n", JAILER_VERSION);
+                process::exit(0);
             }
         }
     }

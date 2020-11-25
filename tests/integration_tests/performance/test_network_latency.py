@@ -20,8 +20,8 @@ from framework.builder import DEFAULT_HOST_IP
 PING = "ping -c {} -i {} {}"
 BASELINES = {
     "x86_64": {
-        "target": 0.150,  # milliseconds
-        "delta": 0.05  # milliseconds
+        "target": 0.250,  # milliseconds
+        "delta": 0.020  # milliseconds
     }
 }
 

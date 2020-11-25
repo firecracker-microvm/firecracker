@@ -366,7 +366,7 @@ pub fn build_microvm_for_boot(
         .map_err(Internal)?;
 
     // The vcpus start off in the `Paused` state, let them run.
-    vmm.resume_vcpus().map_err(Internal)?;
+    vmm.resume_vm().map_err(Internal)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
     event_manager
@@ -1262,7 +1262,6 @@ pub mod tests {
 
         let balloon_config = BalloonDeviceConfig {
             amount_mb: 0,
-            must_tell_host: false,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         };

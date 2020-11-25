@@ -83,6 +83,19 @@ pub struct BlockDeviceConfig {
     pub rate_limiter: Option<RateLimiterConfig>,
 }
 
+/// Only provided fields will be updated. I.e. if any optional fields
+/// are missing, they will not be updated.
+#[derive(Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct BlockDeviceUpdateConfig {
+    /// The drive ID, as provided by the user at creation time.
+    pub drive_id: String,
+    /// New block file path on the host. Only provided data will be updated.
+    pub path_on_host: Option<String>,
+    /// New rate limiter config.
+    pub rate_limiter: Option<RateLimiterConfig>,
+}
+
 /// Wrapper for the collection that holds all the Block Devices
 #[derive(Default)]
 pub struct BlockBuilder {

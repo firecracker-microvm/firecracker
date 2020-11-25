@@ -209,11 +209,11 @@ fn test_pause_resume_microvm() {
 
             // There's a race between this thread and the vcpu thread, but this thread
             // should be able to pause vcpu thread before it finishes running its test-binary.
-            assert!(vmm.lock().unwrap().pause_vcpus().is_ok());
+            assert!(vmm.lock().unwrap().pause_vm().is_ok());
             // Pausing again the microVM should not fail (microVM remains in the
             // `Paused` state).
-            assert!(vmm.lock().unwrap().pause_vcpus().is_ok());
-            assert!(vmm.lock().unwrap().resume_vcpus().is_ok());
+            assert!(vmm.lock().unwrap().pause_vm().is_ok());
+            assert!(vmm.lock().unwrap().resume_vm().is_ok());
 
             let _ = event_manager.run_with_timeout(500).unwrap();
 
@@ -314,7 +314,7 @@ fn test_disallow_snapshots_without_pausing() {
             };
 
             // Pause microVM.
-            vmm.lock().unwrap().pause_vcpus().unwrap();
+            vmm.lock().unwrap().pause_vm().unwrap();
             // It is now allowed.
             vmm.lock().unwrap().save_state().unwrap();
             // Stop.
@@ -343,7 +343,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
             thread::sleep(Duration::from_millis(200));
 
             // Pause microVM.
-            vmm.lock().unwrap().pause_vcpus().unwrap();
+            vmm.lock().unwrap().pause_vm().unwrap();
 
             // Create snapshot.
             let snapshot_type = match is_diff {

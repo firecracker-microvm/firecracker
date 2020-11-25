@@ -55,9 +55,9 @@ use crate::vstate::{
 use arch::DeviceType;
 use devices::virtio::balloon::Error as BalloonError;
 use devices::virtio::{
-    Balloon, BalloonConfig, BalloonStats, MmioTransport, BALLOON_DEV_ID, TYPE_BALLOON,
+    Balloon, BalloonConfig, BalloonStats, Block, MmioTransport, Net, BALLOON_DEV_ID, TYPE_BALLOON,
+    TYPE_BLOCK, TYPE_NET,
 };
-use devices::virtio::{Block, Net, TYPE_BLOCK, TYPE_NET};
 use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
@@ -301,13 +301,14 @@ impl Vmm {
     }
 
     /// Sends a resume command to the vCPUs.
-    pub fn resume_vcpus(&mut self) -> Result<()> {
+    pub fn resume_vm(&mut self) -> Result<()> {
+        self.mmio_device_manager.kick_devices();
         self.broadcast_vcpu_event(VcpuEvent::Resume, VcpuResponse::Resumed)
             .map_err(|_| Error::VcpuResume)
     }
 
     /// Sends a pause command to the vCPUs.
-    pub fn pause_vcpus(&mut self) -> Result<()> {
+    pub fn pause_vm(&mut self) -> Result<()> {
         self.broadcast_vcpu_event(VcpuEvent::Pause, VcpuResponse::Paused)
             .map_err(|_| Error::VcpuPause)
     }
@@ -516,6 +517,21 @@ impl Vmm {
                 block
                     .update_disk_image(path_on_host)
                     .map_err(|e| e.to_string())
+            })
+            .map_err(Error::DeviceManager)
+    }
+
+    /// Updates the rate limiter parameters for block device with `drive_id` id.
+    pub fn update_block_rate_limiter(
+        &mut self,
+        drive_id: &str,
+        rl_bytes: BucketUpdate,
+        rl_ops: BucketUpdate,
+    ) -> Result<()> {
+        self.mmio_device_manager
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
+                block.update_rate_limiter(rl_bytes, rl_ops);
+                Ok(())
             })
             .map_err(Error::DeviceManager)
     }

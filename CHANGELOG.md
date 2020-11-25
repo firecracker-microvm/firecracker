@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added support for block rate limiter PATCH.
 - Added devtool test `-c|--cpuset-cpus` flag for cpus confinement when tests
   run.
 - Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
@@ -16,6 +17,10 @@
   replaced by the `--` separator for extra arguments.
 - Changed the output of the `--version` command line parameter to include a list
   of supported snapshot data format versions for the firecracker binary.
+
+### Fixed
+
+- Fixed inconsistency in YAML file InstanceInfo definition
 
 ## [0.23.0]
 
