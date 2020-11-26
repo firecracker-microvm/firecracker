@@ -260,8 +260,8 @@ pub fn validate_x86_64_cpu_vendor(
         LoadSnapshotError::CpuVendorMismatch("Failed to read vendor from CPUID.".to_owned())
     })?;
 
-    let snapshot_vendor_id =
-        get_vendor_id_from_cpuid(&microvm_state.vcpu_states[0].cpuid).map_err(|_| {
+    let snapshot_vendor_id = get_vendor_id_from_cpuid(&microvm_state.vcpu_states[0].cpuid)
+        .map_err(|_| {
             error!("Snapshot CPU vendor is missing.");
             LoadSnapshotError::CpuVendorMismatch("Failed to read vendor from CPUID.".to_owned())
         })?;
