@@ -462,3 +462,107 @@ fn test_create_and_load_snapshot() {
     // python integration tests for that.
     verify_load_snapshot(snapshot_file, memory_file);
 }
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn test_snapshot_cpu_vendor() {
+    use vmm::persist::validate_x86_64_cpu_vendor;
+    // Create a diff snapshot.
+    let (snapshot_file, _) = verify_create_snapshot(true);
+
+    // Deserialize the microVM state.
+    let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
+    let snapshot_len = snapshot_file_metadata.len() as usize;
+    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
+    let microvm_state: MicrovmState = Snapshot::load(
+        &mut snapshot_file.as_file(),
+        snapshot_len,
+        VERSION_MAP.clone(),
+    )
+    .unwrap();
+
+    // Check if the snapshot created above passes validation since
+    // the snapshot was created locally.
+    assert!(validate_x86_64_cpu_vendor(&microvm_state).is_ok());
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn test_snapshot_cpu_vendor_mismatch() {
+    use vmm::persist::validate_x86_64_cpu_vendor;
+    // Create a diff snapshot.
+    let (snapshot_file, _) = verify_create_snapshot(true);
+
+    // Deserialize the microVM state.
+    let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
+    let snapshot_len = snapshot_file_metadata.len() as usize;
+    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
+    let mut microvm_state: MicrovmState = Snapshot::load(
+        &mut snapshot_file.as_file(),
+        snapshot_len,
+        VERSION_MAP.clone(),
+    )
+    .unwrap();
+
+    // Check if the snapshot created above passes validation since
+    // the snapshot was created locally.
+    assert!(validate_x86_64_cpu_vendor(&microvm_state).is_ok());
+
+    // Modify the vendor id in CPUID.
+    for entry in microvm_state.vcpu_states[0].cpuid.as_mut_slice().iter_mut() {
+        if entry.function == 0 && entry.index == 0 {
+            // Fail if vendor id is NULL as this needs furhter investigation.
+            assert_ne!(entry.ebx, 0);
+            assert_ne!(entry.ecx, 0);
+            assert_ne!(entry.edx, 0);
+            entry.ebx = 0;
+            break;
+        }
+    }
+
+    // This must fail as the cpu vendor has been mangled.
+    assert!(validate_x86_64_cpu_vendor(&microvm_state).is_err());
+
+    // Negative test: remove the vendor id from cpuid.
+    for entry in microvm_state.vcpu_states[0].cpuid.as_mut_slice().iter_mut() {
+        if entry.function == 0 && entry.index == 0 {
+            entry.function = 1234;
+        }
+    }
+
+    // This must fail as the cpu vendor has been mangled.
+    assert!(validate_x86_64_cpu_vendor(&microvm_state).is_err());
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn test_snapshot_cpu_vendor_missing() {
+    use vmm::persist::validate_x86_64_cpu_vendor;
+    // Create a diff snapshot.
+    let (snapshot_file, _) = verify_create_snapshot(true);
+
+    // Deserialize the microVM state.
+    let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
+    let snapshot_len = snapshot_file_metadata.len() as usize;
+    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
+    let mut microvm_state: MicrovmState = Snapshot::load(
+        &mut snapshot_file.as_file(),
+        snapshot_len,
+        VERSION_MAP.clone(),
+    )
+    .unwrap();
+
+    // Check if the snapshot created above passes validation since
+    // the snapshot was created locally.
+    assert!(validate_x86_64_cpu_vendor(&microvm_state).is_ok());
+
+    // Negative test: remove the vendor id from cpuid.
+    for entry in microvm_state.vcpu_states[0].cpuid.as_mut_slice().iter_mut() {
+        if entry.function == 0 && entry.index == 0 {
+            entry.function = 1234;
+        }
+    }
+
+    // This must fail as the cpu vendor entry does not exist.
+    assert!(validate_x86_64_cpu_vendor(&microvm_state).is_err());
+}
