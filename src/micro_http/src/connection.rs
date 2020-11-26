@@ -428,7 +428,8 @@ impl<T: Read + Write> HttpConnection<T> {
         Ok(())
     }
 
-    fn clear_write_buffer(&mut self) {
+    /// Discards all pending writes from the connection.
+    pub fn clear_write_buffer(&mut self) {
         self.response_queue.clear();
         self.response_buffer.take();
     }
