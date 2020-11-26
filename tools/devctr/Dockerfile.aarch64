@@ -50,10 +50,10 @@ RUN apt-get update \
         zlib1g-dev \
         screen \
         tzdata \
-    && python3 -m pip install \
+    && python3 -m pipinstall \
         setuptools \
         wheel \
-    && python3 -m pip install \
+    && python3 -m pipinstall \
         boto3 \
         dataclasses \
         nsenter \

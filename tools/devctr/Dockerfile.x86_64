@@ -53,7 +53,7 @@ RUN apt-get update \
     && python3 -m pip install \
         setuptools \
         wheel \
-    && python3 -m pip install \
+    && python3 -m pipinstall \
         boto3 \
         dataclasses \
         nsenter \
