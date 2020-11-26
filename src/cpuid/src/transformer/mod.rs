@@ -9,7 +9,7 @@ pub use kvm_bindings::{kvm_cpuid_entry2, CpuId};
 
 use crate::brand_string::BrandString;
 use crate::brand_string::Reg as BsReg;
-use crate::common::get_vendor_id;
+use crate::common::get_vendor_id_from_host;
 
 /// Structure containing the specifications of the VM
 pub struct VmSpec {
@@ -31,7 +31,7 @@ impl VmSpec {
     /// Creates a new instance of VmSpec with the specified parameters
     /// The brand string is deduced from the vendor_id
     pub fn new(cpu_index: u8, cpu_count: u8, ht_enabled: bool) -> Result<VmSpec, Error> {
-        let cpu_vendor_id = get_vendor_id().map_err(Error::InternalError)?;
+        let cpu_vendor_id = get_vendor_id_from_host().map_err(Error::InternalError)?;
 
         Ok(VmSpec {
             cpu_vendor_id,

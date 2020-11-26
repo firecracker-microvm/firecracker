@@ -379,7 +379,7 @@ impl KvmVcpu {
 /// Structure holding VCPU kvm state.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VcpuState {
-    cpuid: CpuId,
+    pub cpuid: CpuId,
     msrs: Msrs,
     debug_regs: kvm_debugregs,
     lapic: kvm_lapic_state,
@@ -399,7 +399,7 @@ mod tests {
 
     use super::*;
     use crate::vstate::vm::{tests::setup_vm, Vm};
-    use cpuid::common::{get_vendor_id, VENDOR_ID_INTEL};
+    use cpuid::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
 
     impl Default for VcpuState {
         fn default() -> Self {
@@ -462,7 +462,7 @@ mod tests {
             vm.supported_cpuid().clone(),
         );
 
-        match &get_vendor_id().unwrap() {
+        match &get_vendor_id_from_host().unwrap() {
             VENDOR_ID_INTEL => {
                 assert!(t2_res.is_ok());
                 assert!(c3_res.is_ok());
