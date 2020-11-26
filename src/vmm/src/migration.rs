@@ -1,6 +1,7 @@
 use crate::vmm_config::migration::{AcceptMigrationParams, StartMigrationParams};
 use std::fmt::{Display, Formatter};
 use std::net::{TcpListener, TcpStream};
+use std::thread;
 
 /// Errors associated with initiating a migration.
 #[derive(Debug)]
@@ -39,6 +40,10 @@ pub fn start_migration(
 ) -> Result<(), StartMigrationError> {
     let stream =
         TcpStream::connect(start_migration_params.destination).map_err(StartMigrationError::Tcp)?;
+
+    thread::Builder::new()
+        .name("fc_migration".to_string())
+        .spawn(move || {});
 
     Ok(())
 }
