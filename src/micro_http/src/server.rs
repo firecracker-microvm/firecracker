@@ -193,6 +193,11 @@ impl<T: Read + Write> ClientConnection<T> {
         Ok(())
     }
 
+    /// Discards all pending writes from the inner connection.
+    fn clear_write_buffer(&mut self) {
+        self.connection.clear_write_buffer();
+    }
+
     // Returns `true` if the connection is closed and safe to drop.
     fn is_done(&self) -> bool {
         self.state == ClientConnectionState::Closed
@@ -343,6 +348,22 @@ impl HttpServer {
                 // We have a notification on one of our open connections.
                 let fd = e.fd();
                 let client_connection = self.connections.get_mut(&fd).unwrap();
+
+                // If we receive a hang up on a connection, we clear the write buffer and set
+                // the connection state to closed to mark it ready for removal from the
+                // connections map, which will gracefully close the socket.
+                // The connection is also marked for removal when encountering `EPOLLERR`,
+                // since this is an "error condition happened on the associated file
+                // descriptor", according to the `epoll_ctl` man page.
+                if e.event_set().contains(epoll::EventSet::ERROR)
+                    || e.event_set().contains(epoll::EventSet::HANG_UP)
+                    || e.event_set().contains(epoll::EventSet::READ_HANG_UP)
+                {
+                    client_connection.clear_write_buffer();
+                    client_connection.state = ClientConnectionState::Closed;
+                    continue;
+                }
+
                 if e.event_set().contains(epoll::EventSet::IN) {
                     // We have bytes to read from this connection.
                     // If our `read` yields `Request` objects, we wrap them with an ID before
@@ -358,7 +379,11 @@ impl HttpServer {
                     // either an error message or an `expect` response, we change its `epoll`
                     // event set to notify us when the stream is ready for writing.
                     if client_connection.state == ClientConnectionState::AwaitingOutgoing {
-                        Self::epoll_mod(&self.epoll, fd, epoll::EventSet::OUT)?;
+                        Self::epoll_mod(
+                            &self.epoll,
+                            fd,
+                            epoll::EventSet::OUT | epoll::EventSet::READ_HANG_UP,
+                        )?;
                     }
                 } else if e.event_set().contains(epoll::EventSet::OUT) {
                     // We have bytes to write on this connection.
@@ -367,7 +392,11 @@ impl HttpServer {
                     // and we don't have any more responses to write, we change the `epoll`
                     // event set to notify us when we have bytes to read from the stream.
                     if client_connection.state == ClientConnectionState::AwaitingIncoming {
-                        Self::epoll_mod(&self.epoll, fd, epoll::EventSet::IN)?;
+                        Self::epoll_mod(
+                            &self.epoll,
+                            fd,
+                            epoll::EventSet::IN | epoll::EventSet::READ_HANG_UP,
+                        )?;
                     }
                 }
             }
@@ -484,7 +513,11 @@ impl HttpServer {
             // `epoll` event set to notify us when the stream is ready for writing.
             if let ClientConnectionState::AwaitingIncoming = client_connection.state {
                 client_connection.state = ClientConnectionState::AwaitingOutgoing;
-                Self::epoll_mod(&self.epoll, response.id as RawFd, epoll::EventSet::OUT)?;
+                Self::epoll_mod(
+                    &self.epoll,
+                    response.id as RawFd,
+                    epoll::EventSet::OUT | epoll::EventSet::READ_HANG_UP,
+                )?;
             }
             client_connection.enqueue_response(response.response)?;
         }
@@ -546,7 +579,10 @@ impl HttpServer {
             .ctl(
                 epoll::ControlOperation::Add,
                 stream_fd,
-                epoll::EpollEvent::new(epoll::EventSet::IN, stream_fd as u64),
+                epoll::EpollEvent::new(
+                    epoll::EventSet::IN | epoll::EventSet::READ_HANG_UP,
+                    stream_fd as u64,
+                ),
             )
             .map_err(ServerError::IOError)
     }
@@ -556,6 +592,7 @@ impl HttpServer {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
+    use std::net::Shutdown;
     use std::os::unix::net::UnixStream;
 
     use crate::common::Body;
@@ -731,7 +768,7 @@ mod tests {
         let mut server = HttpServer::new(path_to_socket.as_path()).unwrap();
         server.start_server().unwrap();
 
-        let mut sockets: Vec<UnixStream> = Vec::with_capacity(11);
+        let mut sockets: Vec<UnixStream> = Vec::with_capacity(MAX_CONNECTIONS + 1);
         for _ in 0..MAX_CONNECTIONS {
             sockets.push(UnixStream::connect(path_to_socket.as_path()).unwrap());
             assert!(server.requests().unwrap().is_empty());
@@ -742,6 +779,38 @@ mod tests {
         let mut buf: [u8; 120] = [0; 120];
         sockets[MAX_CONNECTIONS].read_exact(&mut buf).unwrap();
         assert_eq!(&buf[..], SERVER_FULL_ERROR_MESSAGE);
+        assert_eq!(server.connections.len(), 10);
+        {
+            // Drop this stream.
+            let _refused_stream = sockets.pop().unwrap();
+        }
+        assert_eq!(server.connections.len(), 10);
+
+        // Check that the server detects a connection shutdown.
+        let sock: &UnixStream = sockets.get(0).unwrap();
+        sock.shutdown(Shutdown::Both).unwrap();
+        assert!(server.requests().unwrap().is_empty());
+        // Server should drop a closed connection.
+        assert_eq!(server.connections.len(), 9);
+
+        // Close the backing FD of this connection by dropping
+        // it out of scope.
+        {
+            // Enforce the drop call on the stream
+            let _sock = sockets.pop().unwrap();
+        }
+        assert!(server.requests().unwrap().is_empty());
+        // Server should drop a closed connection.
+        assert_eq!(server.connections.len(), 8);
+
+        let sock: &UnixStream = sockets.get(1).unwrap();
+        // Close both the read and write sides of the socket
+        // separately and check that the server detects it.
+        sock.shutdown(Shutdown::Read).unwrap();
+        sock.shutdown(Shutdown::Write).unwrap();
+        assert!(server.requests().unwrap().is_empty());
+        // Server should drop a closed connection.
+        assert_eq!(server.connections.len(), 7);
     }
 
     #[test]
