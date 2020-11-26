@@ -18,11 +18,13 @@ use crate::mem_size_mib;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vstate::{self, vcpu::VcpuState, vm::VmState};
 
+use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::DeviceStates;
 use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
 use crate::Vmm;
+use arch::IRQ_BASE;
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 use logger::{error, info};
 use polly::event_manager::EventManager;
@@ -31,6 +33,10 @@ use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
+
+const FC_V0_23_SNAP_VERSION: u16 = 1;
+const FC_V0_23_IRQ_NUMBER: u32 = 16;
+const FC_V0_23_MAX_DEVICES: u32 = FC_V0_23_IRQ_NUMBER - IRQ_BASE;
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Debug, PartialEq, Versionize)]
@@ -115,6 +121,8 @@ pub enum CreateSnapshotError {
     SerializeMicrovmState(snapshot::Error),
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(io::Error),
+    /// Number of devices exceeds the maximum supported devices for the snapshot data version.
+    TooManyDevices(usize),
 }
 
 impl Display for CreateSnapshotError {
@@ -132,6 +140,12 @@ impl Display for CreateSnapshotError {
             MicrovmState(err) => write!(f, "Cannot save microvm state: {}", err),
             SerializeMicrovmState(err) => write!(f, "Cannot serialize MicrovmState: {:?}", err),
             SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {:?}", err),
+            TooManyDevices(val) => write!(
+                f,
+                "Too many devices attached: {}. The maximum number allowed \
+                 for the snapshot data version requested is {}.",
+                val, FC_V0_23_MAX_DEVICES
+            ),
         }
     }
 }
@@ -187,6 +201,7 @@ pub fn create_snapshot(
         &params.snapshot_path,
         &params.version,
         version_map,
+        &vmm.mmio_device_manager,
     )?;
 
     Ok(())
@@ -197,6 +212,7 @@ fn snapshot_state_to_file(
     snapshot_path: &PathBuf,
     version: &Option<String>,
     version_map: VersionMap,
+    device_manager: &MMIODeviceManager,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
     let mut snapshot_file = OpenOptions::new()
@@ -208,6 +224,10 @@ fn snapshot_state_to_file(
     // Translate the microVM version to its corresponding snapshot data format.
     let snapshot_data_version = match version {
         Some(version) => match FC_VERSION_TO_SNAP_VERSION.get(version) {
+            Some(&FC_V0_23_SNAP_VERSION) => {
+                validate_devices_number(device_manager.used_irqs_count())?;
+                Ok(FC_V0_23_SNAP_VERSION)
+            }
             Some(data_version) => Ok(*data_version),
             _ => Err(InvalidVersion),
         },
@@ -328,6 +348,14 @@ fn guest_memory_from_file(
     use self::LoadSnapshotError::{DeserializeMemory, MemoryBackingFile};
     let mem_file = File::open(mem_file_path).map_err(MemoryBackingFile)?;
     GuestMemoryMmap::restore(&mem_file, mem_state, track_dirty_pages).map_err(DeserializeMemory)
+}
+
+fn validate_devices_number(device_number: usize) -> std::result::Result<(), CreateSnapshotError> {
+    use self::CreateSnapshotError::TooManyDevices;
+    if device_number > FC_V0_23_MAX_DEVICES as usize {
+        return Err(TooManyDevices(device_number));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -461,6 +489,9 @@ mod tests {
         let _ = format!("{}{:?}", err, err);
 
         let err = SnapshotBackingFile(io::Error::from_raw_os_error(0));
+        let _ = format!("{}{:?}", err, err);
+
+        let err = TooManyDevices(0);
         let _ = format!("{}{:?}", err, err);
     }
 
