@@ -8,3 +8,4 @@ edition = "2018"
 libc = ">=0.2.39"
 
 utils = { path = "../utils" }
+logger = { path = "../logger" }
