@@ -1,12 +1,13 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::cpu_leaf::*;
+#[cfg(target_arch = "x86_64")]
+use kvm_bindings::CpuId;
 #[cfg(target_arch = "x86")]
 use std::arch::x86::{CpuidResult, __cpuid_count, __get_cpuid_max};
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::{CpuidResult, __cpuid_count, __get_cpuid_max};
-
-use crate::cpu_leaf::*;
 
 /// Intel brand string.
 pub const VENDOR_ID_INTEL: &[u8; 12] = b"GenuineIntel";
@@ -63,7 +64,7 @@ pub fn get_cpuid(function: u32, count: u32) -> Result<CpuidResult, Error> {
 
 /// Extracts the CPU vendor id from leaf 0x0.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn get_vendor_id() -> Result<[u8; 12], Error> {
+pub fn get_vendor_id_from_host() -> Result<[u8; 12], Error> {
     match get_cpuid(0, 0) {
         Ok(vendor_entry) => {
             let bytes: [u8; 12] = unsafe {
@@ -75,13 +76,28 @@ pub fn get_vendor_id() -> Result<[u8; 12], Error> {
     }
 }
 
+/// Extracts the CPU vendor id from leaf 0x0.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn get_vendor_id_from_cpuid(cpuid: &CpuId) -> Result<[u8; 12], Error> {
+    // Search for vendor id entry.
+    for entry in cpuid.as_slice().iter() {
+        if entry.function == 0 && entry.index == 0 {
+            let cpu_vendor_id: [u8; 12] =
+                unsafe { std::mem::transmute([entry.ebx, entry.edx, entry.ecx]) };
+            return Ok(cpu_vendor_id);
+        }
+    }
+
+    Err(Error::NotSupported)
+}
+
 #[cfg(test)]
 pub mod tests {
     use crate::common::*;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn get_topoext_fn() -> u32 {
-        let vendor_id = get_vendor_id();
+        let vendor_id = get_vendor_id_from_host();
         assert!(vendor_id.is_ok());
         let function = match &vendor_id.ok().unwrap() {
             VENDOR_ID_INTEL => leaf_0x4::LEAF_NUM,
@@ -127,7 +143,7 @@ pub mod tests {
     #[test]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_get_vendor_id() {
-        let vendor_id = get_vendor_id();
+        let vendor_id = get_vendor_id_from_host();
         assert!(vendor_id.is_ok());
         assert!(match &vendor_id.ok().unwrap() {
             VENDOR_ID_INTEL => true,

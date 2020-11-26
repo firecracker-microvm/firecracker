@@ -22,14 +22,15 @@ use crate::device_manager::persist::DeviceStates;
 use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
+use crate::Vmm;
+use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
+use logger::{error, info};
 use polly::event_manager::EventManager;
 use seccomp::BpfProgramRef;
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
-
-use crate::Vmm;
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Debug, PartialEq, Versionize)]
@@ -150,6 +151,8 @@ pub enum LoadSnapshotError {
     SnapshotBackingFile(io::Error),
     /// Failed to retrieve the metadata of the snapshot backing file.
     SnapshotBackingFileMetadata(io::Error),
+    /// Snapshot cpu vendor differs than host cpu vendor.
+    CpuVendorMismatch(String),
 }
 
 impl Display for LoadSnapshotError {
@@ -162,6 +165,7 @@ impl Display for LoadSnapshotError {
             MemoryBackingFile(err) => write!(f, "Cannot open memory file: {}", err),
             SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {}", err),
             SnapshotBackingFileMetadata(err) => write!(f, "Cannot retrieve file metadata: {}", err),
+            CpuVendorMismatch(err) => write!(f, "Snapshot cpu vendor mismatch: {}", err),
         }
     }
 }
@@ -247,6 +251,35 @@ fn snapshot_memory_to_file(
     }
 }
 
+/// Validates that snapshot CPU vendor matches the host CPU vendor.
+#[cfg(target_arch = "x86_64")]
+pub fn validate_x86_64_cpu_vendor(
+    microvm_state: &MicrovmState,
+) -> std::result::Result<(), LoadSnapshotError> {
+    let host_vendor_id = get_vendor_id_from_host().map_err(|_| {
+        LoadSnapshotError::CpuVendorMismatch("Failed to read vendor from CPUID.".to_owned())
+    })?;
+
+    let snapshot_vendor_id =
+        get_vendor_id_from_cpuid(&microvm_state.vcpu_states[0].cpuid).map_err(|_| {
+            error!("Snapshot CPU vendor is missing.");
+            LoadSnapshotError::CpuVendorMismatch("Failed to read vendor from CPUID.".to_owned())
+        })?;
+
+    if host_vendor_id != snapshot_vendor_id {
+        let error_string = format!(
+            "Host CPU vendor id: {:?}, Snapshot CPU vendor id: {:?}",
+            &host_vendor_id, &snapshot_vendor_id
+        );
+        error!("{}", error_string);
+        return Err(LoadSnapshotError::CpuVendorMismatch(error_string));
+    } else {
+        info!("Snapshot CPU vendor id: {:?}", &snapshot_vendor_id);
+    }
+
+    Ok(())
+}
+
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
 pub fn load_snapshot(
     event_manager: &mut EventManager,
@@ -257,6 +290,8 @@ pub fn load_snapshot(
     use self::LoadSnapshotError::*;
     let track_dirty_pages = params.enable_diff_snapshots;
     let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
+    #[cfg(target_arch = "x86_64")]
+    validate_x86_64_cpu_vendor(&microvm_state)?;
     let guest_memory = guest_memory_from_file(
         &params.mem_file_path,
         &microvm_state.memory_state,
@@ -451,6 +486,9 @@ mod tests {
         let _ = format!("{}{:?}", err, err);
 
         let err = SnapshotBackingFileMetadata(io::Error::from_raw_os_error(0));
+        let _ = format!("{}{:?}", err, err);
+
+        let err = CpuVendorMismatch(String::new());
         let _ = format!("{}{:?}", err, err);
     }
 
