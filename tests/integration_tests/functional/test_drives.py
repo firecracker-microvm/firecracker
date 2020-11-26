@@ -11,6 +11,8 @@ import framework.utils as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 
+PARTUUID = {"x86_64": "0eaa91a0-01", "aarch64": "7bf14469-01"}
+
 
 def test_rescan_file(test_microvm_with_ssh, network_config):
     """Verify that rescan works with a file-backed virtio device."""
@@ -208,10 +210,6 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="need to create the proper rootfs for arm"
-)
 def test_partuuid_boot(test_microvm_with_partuuid, network_config):
     """Test the output reported by blockdev when booting with PARTUUID."""
     test_microvm = test_microvm_with_partuuid
@@ -232,7 +230,7 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
         'rootfs',
         test_microvm.rootfs_file,
         root_device=True,
-        partuuid='0eaa91a0-01'
+        partuuid=PARTUUID[platform.machine()]
     )
 
     test_microvm.start()
