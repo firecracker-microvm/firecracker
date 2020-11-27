@@ -23,7 +23,7 @@ import host_tools.proc as proc
 # this contains the frequency while on AMD it does not.
 # Checkout the cpuid crate. In the future other
 # differences may appear.
-COVERAGE_DICT = {"Intel": 85.28, "AMD": 84.56, "ARM": 83.27}
+COVERAGE_DICT = {"Intel": 85.28, "AMD": 84.56, "ARM": 82.81}
 PROC_MODEL = proc.proc_type()
 
 COVERAGE_MAX_DELTA = 0.05
@@ -41,10 +41,6 @@ KCOV_TOTAL_LINES_REGEX = r'"total_lines" : "(\d+)"'
 
 
 @pytest.mark.timeout(400)
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="unstable on aarch64 as of right now"
-)
 def test_coverage(test_session_root_path, test_session_tmp_path):
     """Test line coverage with kcov.
 
