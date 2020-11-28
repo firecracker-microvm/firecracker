@@ -291,8 +291,11 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     common_masked_features = ["avx512", "mpx", "clflushopt", "clwb", "xsavec",
                               "xgetbv1", "xsaves", "pku", "ospke", "dtes64", 
                               "psn", "monitor", "sdbg", "ds_cpl_shift", "tm2",
-                              "cnxt", "sdbg", "xtpr_update", "pdcm", "oxsave"]
-    c3_masked_features = ["avx2","fma", "movbe"]
+                              "cnxt", "sdbg", "xtpr_update", "pdcm", "oxsave", 
+                              "psn", "ds", "acpi", "tm", "pbe", "sgx",
+                              "hle", "fpdp", "rtm", "rdt_m", "rdt_a", "mpx", 
+                              "rdseed", "clwb", "pt", "sha", "rpid", "ss"]
+    c3_masked_features = ["avx2","fma", "movbe", "bmi1", "invpcid", "bmi2"]
 
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
@@ -323,11 +326,12 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
     assert stderr.read() == ''
 
-    cpu_flags_output = stdout.readline().rstrip()
+    cpu_flags_output = stdout.readline().rstrip().split(' ')
 
     if cpu_template == "C3":
         for feature in c3_masked_features:
-            assert feature not in cpu_flags_output
+            assert feature not in cpu_flags_output, feature
+            
     # Check that all features in `common_masked_features` are properly masked.
     for feature in common_masked_features:
-        assert feature not in cpu_flags_output
+        assert feature not in cpu_flags_output, feature
