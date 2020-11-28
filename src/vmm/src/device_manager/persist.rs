@@ -239,7 +239,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                                   event_manager: &mut EventManager|
          -> Result<(), Self::Error> {
             dev_manager
-                .slot_sanity_check(slot)
+                .mmio_device_info_sanity_check(slot)
                 .map_err(Error::DeviceManager)?;
 
             let restore_args = MmioTransportConstructorArgs {
