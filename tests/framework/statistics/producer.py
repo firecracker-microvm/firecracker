@@ -87,6 +87,7 @@ class LambdaProducer(Producer):
 
     def __init__(self, func, func_kwargs=None):
         """Initialize the raw data producer."""
+        super().__init__()
         assert callable(func)
         self._func = func
         self._func_kwargs = func_kwargs

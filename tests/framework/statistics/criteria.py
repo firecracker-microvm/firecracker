@@ -11,17 +11,18 @@ class Failed(Exception):
     """Exception to be raised when criteria fails."""
 
     def __init__(self, msg=""):
-        """Initialize the result."""
+        """Initialize the exception."""
+        super().__init__()
         self._msg = msg
 
     @property
     def msg(self):
-        """Return the result message."""
+        """Return the exception message."""
         return self._msg
 
     @msg.setter
     def msg(self, msg):
-        """Set the result message."""
+        """Set the exception message."""
         self._msg = msg
 
 
