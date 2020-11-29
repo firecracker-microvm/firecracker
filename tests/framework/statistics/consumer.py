@@ -19,13 +19,13 @@ class Consumer(ABC):
     # pylint: disable=W0102
     def __init__(self,
                  consume_stats,
-                 custom=dict()):
+                 custom=None):
         """Initialize a consumer."""
         self._results = defaultdict()  # Aggregated results.
         self._measurements_defs = defaultdict(MeasurementDef)
         self._statistics_defs = defaultdict()
         self._consume_stats = consume_stats
-        self._custom = custom
+        self._custom = dict() if not custom else custom
         self._statistics = dict()
         self._iteration = 0
 
@@ -129,6 +129,7 @@ class Consumer(ABC):
                     try:
                         stat.criteria.check(res)
                     except Failed as err:
+                        # pylint: disable=W0707
                         raise Failed(msg=f"'{ms_name}/{st_name}': {err.msg}")
 
         return self._statistics, self._custom

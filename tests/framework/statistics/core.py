@@ -48,8 +48,8 @@ class Core:
 
     def run_exercise(self) -> Statistics:
         """Drive the statistics producers until completion."""
-        for pipe in self._pipes.values():
-            iterations = self._statistics['iterations']
+        iterations = self._statistics['iterations']
+        for tag, pipe in self._pipes.items():
             for iteration in range(iterations):
                 raw_data = pipe.producer.produce()
                 if isinstance(raw_data, types.GeneratorType):
@@ -57,8 +57,6 @@ class Core:
                         pipe.consumer.ingest(iteration, data)
                 else:
                     pipe.consumer.ingest(iteration, raw_data)
-
-        for tag, pipe in self._pipes.items():
             try:
                 stats, custom = pipe.consumer.process()
             except Failed as err:
