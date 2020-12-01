@@ -83,6 +83,7 @@ use std::io::{sink, stderr, stdout, Write};
 use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
+use std::thread;
 
 use crate::metrics::{IncMetric, METRICS};
 use lazy_static::lazy_static;
@@ -120,6 +121,7 @@ pub struct Logger {
     show_file_path: AtomicBool,
     show_line_numbers: AtomicBool,
     instance_id: RwLock<String>,
+    show_thread_name: AtomicBool,
 }
 
 impl Logger {
@@ -132,6 +134,7 @@ impl Logger {
             show_line_numbers: AtomicBool::new(true),
             show_file_path: AtomicBool::new(true),
             instance_id: RwLock::new(String::new()),
+            show_thread_name: AtomicBool::new(false),
         }
     }
 
@@ -145,6 +148,10 @@ impl Logger {
 
     fn show_line_numbers(&self) -> bool {
         self.show_line_numbers.load(Ordering::Relaxed)
+    }
+
+    fn show_thread_name(&self) -> bool {
+        self.show_thread_name.load(Ordering::Relaxed)
     }
 
     /// Enables or disables including the level in the log message's tag portion.
@@ -244,6 +251,12 @@ impl Logger {
         self
     }
 
+    /// choose whether to log the thread-names.
+    pub fn set_show_thread_name(&self, option: bool) -> &Self {
+        self.show_thread_name.store(option, Ordering::Relaxed);
+        self
+    }
+
     /// Creates the first portion (to the left of the separator)
     /// of the log statement based on the logger settings.
     fn create_prefix(&self, record: &Record) -> String {
@@ -253,6 +266,16 @@ impl Logger {
         if !instance_id.is_empty() {
             prefix.push(instance_id.to_string());
         }
+
+        if self.show_thread_name() {
+            let handle = thread::current();
+            let thread_name;
+            match handle.name() {
+                Some(x) => thread_name = x.to_string(),
+                None => thread_name = "-".to_string(),
+            }
+            prefix.push(thread_name);
+        };
 
         if self.show_level() {
             prefix.push(record.level().to_string());
@@ -647,6 +670,32 @@ mod tests {
             &mut Box::new(&mut reader),
             "[TEST-INSTANCE-ID:WARN:logger.rs:0] msg\n",
         );
+    }
+
+    #[test]
+    fn test_thread_name_custom() {
+        // Name this thread "custom-thread"
+        let custom_thread_1 = thread::Builder::new()
+            .name("custom-thread".to_string())
+            .spawn(move || {
+                // test to check the thread name
+                let logger = Logger::mock_new();
+                let mut reader = logger.mock_init();
+                // Test with a mock instance id.
+                logger.set_instance_id(TEST_INSTANCE_ID.to_string());
+                logger
+                    .set_show_thread_name(true)
+                    .set_include_level(false)
+                    .set_include_origin(false, false);
+                logger.mock_log(Level::Info, "thread-msg");
+                validate_log(
+                    &mut Box::new(&mut reader),
+                    "[TEST-INSTANCE-ID:custom-thread] thread-msg\n",
+                );
+            })
+            .unwrap();
+        let r = custom_thread_1.join();
+        assert_eq!(r.is_ok(), true);
     }
 
     #[test]

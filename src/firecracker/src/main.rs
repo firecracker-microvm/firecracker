@@ -134,6 +134,12 @@ fn main() {
                 .help("Whether or not to include the file path and line number of the log's origin.")
         )
         .arg(
+            Argument::new("show-thread-name")
+                .takes_value(false)
+                .requires("log-path")
+                .help("Whether or not to include the thread name in the logs.")
+        )
+        .arg(
             Argument::new("boot-timer")
                 .takes_value(false)
                 .help("Whether or not to load boot timer device for logging elapsed time since InstanceStart command.")
@@ -192,12 +198,14 @@ fn main() {
         });
         let show_level = arguments.flag_present("show-level");
         let show_log_origin = arguments.flag_present("show-log-origin");
+        let show_thread_name = arguments.flag_present("show-thread-name");
 
         let logger_config = LoggerConfig::new(
             PathBuf::from(log),
             logger_level,
             show_level,
             show_log_origin,
+            show_thread_name,
         );
         init_logger(logger_config, &instance_info).unwrap_or_else(|err| {
             error!("Could not initialize logger: {}", err);

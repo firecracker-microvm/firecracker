@@ -840,6 +840,10 @@ definitions:
         type: boolean
         description: Whether or not to include the file path and line number of the log's origin.
         default: false
+      show_thread_name:
+        type: boolean
+        description: Whether or not to include the thread name in the logs.
+        default: false
 
   MachineConfiguration:
     type: object

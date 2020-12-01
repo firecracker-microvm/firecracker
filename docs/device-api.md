@@ -66,6 +66,7 @@ specification: [firecracker.yaml](./../src/api_server/swagger/firecracker.yaml).
 |                            | log_path              |    O     |       O        |      O       |     O      |      O       |
 |                            | show_level            |    O     |       O        |      O       |     O      |      O       |
 |                            | show_log_origin       |    O     |       O        |      O       |     O      |      O       |
+|                            | show_thread_name      |    O     |       O        |      O       |     O      |      O       |
 | `MachineConfiguration`     | cpu_template          |    O     |       O        |      O       |     O      |      O       |
 |                            | ht_enabled            |    O     |       O        |      O       |     O      |      O       |
 |                            | mem_size_mib          |    O     |       O        |      O       |     O      |      O       |

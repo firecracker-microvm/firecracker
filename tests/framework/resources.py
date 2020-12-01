@@ -291,7 +291,8 @@ class Logger():
             log_path=None,
             level=None,
             show_level=None,
-            show_log_origin=None):
+            show_log_origin=None,
+            show_thread_name=None):
         """Compose the json associated to this type of API request."""
         datax = {}
 
@@ -306,6 +307,9 @@ class Logger():
 
         if show_log_origin is not None:
             datax['show_log_origin'] = show_log_origin
+
+        if show_thread_name is not None:
+            datax['show_thread_name'] = show_thread_name
 
         return datax
 

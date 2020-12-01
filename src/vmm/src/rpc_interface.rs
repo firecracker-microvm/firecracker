@@ -1444,6 +1444,7 @@ mod tests {
                 level: LoggerLevel::Debug,
                 show_level: false,
                 show_log_origin: false,
+                show_thread_name: false,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );

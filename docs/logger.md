@@ -32,7 +32,8 @@ curl --unix-socket /tmp/firecracker.socket -i \
              "log_path": "logs.fifo",
              "level": "Warning",
              "show_level": false,
-             "show_log_origin": false
+             "show_log_origin": false,
+             "show_thread_name": false
     }"
 ```
 

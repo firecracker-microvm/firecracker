@@ -31,7 +31,8 @@ mod tests {
                 "log_path": "log",
                 "level": "Warning",
                 "show_level": false,
-                "show_log_origin": false
+                "show_log_origin": false,
+                "show_thread_name": false
               }"#;
 
         let mut expected_cfg = LoggerConfig {
@@ -39,6 +40,7 @@ mod tests {
             level: LoggerLevel::Warning,
             show_level: false,
             show_log_origin: false,
+            show_thread_name: false,
         };
         match vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()) {
             VmmAction::ConfigureLogger(cfg) => assert_eq!(cfg, expected_cfg),
@@ -49,7 +51,8 @@ mod tests {
                 "log_path": "log",
                 "level": "DEBUG",
                 "show_level": false,
-                "show_log_origin": false
+                "show_log_origin": false,
+                "show_thread_name": false
               }"#;
 
         expected_cfg = LoggerConfig {
@@ -57,6 +60,7 @@ mod tests {
             level: LoggerLevel::Debug,
             show_level: false,
             show_log_origin: false,
+            show_thread_name: false,
         };
         match vmm_action_from_request(parse_put_logger(&Body::new(body)).unwrap()) {
             VmmAction::ConfigureLogger(cfg) => assert_eq!(cfg, expected_cfg),
@@ -67,7 +71,8 @@ mod tests {
                 "invalid_field": "log",
                 "level": "Warning",
                 "show_level": false,
-                "show_log_origin": false
+                "show_log_origin": false,
+                "show_thread_name": false
               }"#;
 
         assert!(parse_put_logger(&Body::new(invalid_body)).is_err());
