@@ -210,6 +210,14 @@ def get_cpu_vendor():
     return CpuVendor.INTEL
 
 
+def get_cpu_model_name():
+    """Return the CPU model name."""
+    _, stdout, _ = run_cmd("cat /proc/cpuinfo | grep 'model name' | uniq")
+    info = stdout.strip().split(sep=":")
+    assert len(info) == 2
+    return info[1].strip()
+
+
 def search_output_from_cmd(cmd: str,
                            find_regex: typing.Pattern) -> typing.Match:
     """
