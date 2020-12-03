@@ -179,6 +179,17 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
         """Initialize the snapshot builder."""
         self._microvm = microvm
 
+    def create_snapshot_dir(self):
+        """Create dir and files for saving snapshot state and memory."""
+        chroot_path = self._microvm.jailer.chroot_path()
+        snapshot_dir = os.path.join(chroot_path, "snapshot")
+        Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
+        cmd = 'chown {}:{} {}'.format(self._microvm.jailer.uid,
+                                      self._microvm.jailer.gid,
+                                      snapshot_dir)
+        utils.run_cmd(cmd)
+        return snapshot_dir
+
     def create(self,
                disks,
                ssh_key: Artifact,
@@ -190,13 +201,7 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
         # Disable API timeout as the APIs for snapshot related procedures
         # take longer.
         self._microvm.api_session.untime()
-        chroot_path = self._microvm.jailer.chroot_path()
-        snapshot_dir = os.path.join(chroot_path, "snapshot")
-        Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
-        cmd = 'chown {}:{} {}'.format(self._microvm.jailer.uid,
-                                      self._microvm.jailer.gid,
-                                      snapshot_dir)
-        utils.run_cmd(cmd)
+        snapshot_dir = self.create_snapshot_dir()
         self._microvm.pause_to_snapshot(
             mem_file_path="/snapshot/"+mem_file_name,
             snapshot_path="/snapshot/"+snapshot_name,
