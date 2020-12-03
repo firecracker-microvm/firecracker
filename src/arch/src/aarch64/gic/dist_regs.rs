@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::{Error, Result};
+use crate::{IRQ_BASE, IRQ_MAX};
 use kvm_ioctls::DeviceFd;
 
 // Distributor registers as detailed at page 456 from
@@ -72,7 +73,7 @@ impl DistReg {
         DistReg { base, bpi, length }
     }
 
-    fn compute_reg_range(&self, fd: &DeviceFd) -> Result<(u32, u32)> {
+    fn compute_reg_range(&self) -> (u32, u32) {
         // The ARM® TrustZone® implements a protection logic which contains a read-as-zero/write-ignore (RAZ/WI) policy
         // where:
         // * A blocked read operation will always return a zero value on the bus, preventing information leak
@@ -81,7 +82,6 @@ impl DistReg {
         // base by shifting it with "REG_SIZE * self.bpi" bytes.
         let base = self.base + REG_SIZE as u32 * self.bpi as u32;
         let mut end = base;
-        let num_irq = get_num_interrupts(fd)?;
 
         if self.length > 0 {
             // This is the single type register (i.e one that is not DIST_X<n>) and for which
@@ -93,12 +93,12 @@ impl DistReg {
             // This is the type of register that takes into account the number of interrupts
             // that the model has. It is also the type of register where
             // a register relates to multiple interrupts.
-            end = base + (self.bpi as u32 * (num_irq - super::super::layout::IRQ_BASE) / 8);
-            if self.bpi as u32 * (num_irq - super::super::layout::IRQ_BASE) % 8 > 0 {
+            end = base + (self.bpi as u32 * (IRQ_MAX - IRQ_BASE) / 8);
+            if self.bpi as u32 * (IRQ_MAX - IRQ_BASE) % 8 > 0 {
                 end += REG_SIZE as u32;
             }
         }
-        Ok((base, end))
+        (base, end)
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -121,24 +121,9 @@ impl DistReg {
     }
 }
 
-fn get_num_interrupts(fd: &DeviceFd) -> Result<u32> {
-    let num_irqs = 0;
-
-    let mut nr_irqs_attr = kvm_bindings::kvm_device_attr {
-        group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_NR_IRQS,
-        attr: 0,
-        addr: &num_irqs as *const u32 as u64,
-        flags: 0,
-    };
-    fd.get_device_attr(&mut nr_irqs_attr).map_err(|e| {
-        Error::DeviceAttribute(e, false, kvm_bindings::KVM_DEV_ARM_VGIC_GRP_NR_IRQS)
-    })?;
-    Ok(num_irqs)
-}
-
 fn access_dist_reg_list(fd: &DeviceFd, action: &mut Action) -> Result<()> {
     for dreg in VGIC_DIST_REGS {
-        let (mut base, end) = dreg.compute_reg_range(fd)?;
+        let (mut base, end) = dreg.compute_reg_range();
         while base < end {
             match action {
                 Action::Set(state, idx) => {
