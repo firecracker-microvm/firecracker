@@ -46,9 +46,9 @@ static VGIC_SGI_REGS: &[RedistReg] = &[
     GICR_IPRIORITYR0,
 ];
 
-// All or at least the registers we are interested in are 32 bit, so
-// we use a constant for size(u32).
-const REG_SIZE: u8 = 4;
+// All or at least the registers we are interested in are multiples of 32 bits.
+// So we access them in chunks of 4 bytes.
+const U32_SIZE: u8 = 4;
 
 /// This is how we represent the registers of a redistributor.
 /// It is relevant their offset from the base address of the redistributor.
@@ -116,7 +116,7 @@ fn access_redist_reg_list(
                         state.push(val);
                     }
                 }
-                base += REG_SIZE as u32;
+                base += U32_SIZE as u32;
             }
         }
     }
