@@ -46,9 +46,6 @@ static VGIC_SGI_REGS: &[RedistReg] = &[
     GICR_IPRIORITYR0,
 ];
 
-const KVM_DEV_ARM_VGIC_V3_MPIDR_SHIFT: u32 = 32;
-const KVM_DEV_ARM_VGIC_V3_MPIDR_MASK: u64 = 0xffff_ffff << KVM_DEV_ARM_VGIC_V3_MPIDR_SHIFT as u64;
-
 // All or at least the registers we are interested in are 32 bit, so
 // we use a constant for size(u32).
 const REG_SIZE: u8 = 4;
@@ -82,7 +79,7 @@ enum Action<'a> {
 fn access_redist_attr(fd: &DeviceFd, offset: u32, typer: u64, val: &u32, set: bool) -> Result<()> {
     let mut gic_dist_attr = kvm_device_attr {
         group: KVM_DEV_ARM_VGIC_GRP_REDIST_REGS,
-        attr: (typer & KVM_DEV_ARM_VGIC_V3_MPIDR_MASK) | (offset as u64), // this needs the mpidr
+        attr: (typer & KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64) | (offset as u64), // this needs the mpidr
         addr: val as *const u32 as u64,
         flags: 0,
     };
@@ -130,8 +127,8 @@ fn access_redist_reg_list(
 pub fn get_redist_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u32>> {
     let mut state = Vec::new();
     let mut action = Action::Get(&mut state);
-    access_redist_reg_list(fd, &gicr_typer, VGIC_RDIST_REGS, &mut action)?;
-    access_redist_reg_list(fd, &gicr_typer, VGIC_SGI_REGS, &mut action)?;
+    access_redist_reg_list(fd, gicr_typer, VGIC_RDIST_REGS, &mut action)?;
+    access_redist_reg_list(fd, gicr_typer, VGIC_SGI_REGS, &mut action)?;
     Ok(state)
 }
 

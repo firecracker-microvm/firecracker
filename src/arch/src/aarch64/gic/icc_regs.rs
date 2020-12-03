@@ -5,9 +5,6 @@ use super::{Error, Result};
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
-const KVM_DEV_ARM_VGIC_V3_MPIDR_SHIFT: u32 = 32;
-const KVM_DEV_ARM_VGIC_V3_MPIDR_MASK: u64 = 0xffff_ffff << KVM_DEV_ARM_VGIC_V3_MPIDR_SHIFT as u64;
-
 const ICC_CTLR_EL1_PRIBITS_SHIFT: u32 = 8;
 const ICC_CTLR_EL1_PRIBITS_MASK: u32 = 7 << ICC_CTLR_EL1_PRIBITS_SHIFT;
 
@@ -82,7 +79,7 @@ enum Action<'a> {
 fn access_icc_attr(fd: &DeviceFd, offset: u64, typer: u64, val: &u32, set: bool) -> Result<()> {
     let mut gic_icc_attr = kvm_bindings::kvm_device_attr {
         group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CPU_SYSREGS,
-        attr: ((typer & KVM_DEV_ARM_VGIC_V3_MPIDR_MASK) | offset), // this needs the mpidr
+        attr: ((typer & KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64) | offset), // this needs the mpidr
         addr: val as *const u32 as u64,
         flags: 0,
     };
@@ -158,7 +155,7 @@ fn access_icc_reg_list(fd: &DeviceFd, gicr_typer: &[u64], action: &mut Action) -
 pub fn get_icc_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u32>> {
     let mut state: Vec<u32> = Vec::new();
     let mut action = Action::Get(&mut state);
-    access_icc_reg_list(fd, &gicr_typer, &mut action)?;
+    access_icc_reg_list(fd, gicr_typer, &mut action)?;
     Ok(state)
 }
 
