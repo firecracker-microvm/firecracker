@@ -14,13 +14,13 @@ const GICD_STATUSR: DistReg = DistReg::new(0x0010, 0, 4);
 const GICD_IGROUPR: DistReg = DistReg::new(0x0080, 1, 0);
 const GICD_ISENABLER: DistReg = DistReg::new(0x0100, 1, 0);
 const GICD_ICENABLER: DistReg = DistReg::new(0x0180, 1, 0);
-const GICD_ISPENDR: DistReg = DistReg::new(0x0200, 64, 0);
-const GICD_ICPENDR: DistReg = DistReg::new(0x0280, 2, 0);
+const GICD_ISPENDR: DistReg = DistReg::new(0x0200, 1, 0);
+const GICD_ICPENDR: DistReg = DistReg::new(0x0280, 1, 0);
 const GICD_ISACTIVER: DistReg = DistReg::new(0x0300, 1, 0);
 const GICD_ICACTIVER: DistReg = DistReg::new(0x0380, 1, 0);
-const GICD_IPRIORITYR: DistReg = DistReg::new(0x0400, 1, 0);
-const GICD_ICFGR: DistReg = DistReg::new(0x0C00, 1, 0);
-const GICD_IROUTER: DistReg = DistReg::new(0x6000, 8, 0);
+const GICD_IPRIORITYR: DistReg = DistReg::new(0x0400, 8, 0);
+const GICD_ICFGR: DistReg = DistReg::new(0x0C00, 2, 0);
+const GICD_IROUTER: DistReg = DistReg::new(0x6000, 64, 0);
 
 // List with relevant distributor registers that we will be restoring.
 // Order is taken from qemu.
