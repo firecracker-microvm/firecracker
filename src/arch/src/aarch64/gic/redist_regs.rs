@@ -15,14 +15,14 @@ const GICR_PENDBASER: RedistReg = RedistReg::new(0x0078, 8);
 // Relevant SGI redistributor registers that we want to save/restore.
 const GICR_SGI_OFFSET: u32 = 0x0001_0000;
 const GICR_IGROUPR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0080, 4);
-const GICR_ICENABLER0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0180, 4);
 const GICR_ISENABLER0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0100, 4);
-const GICR_ISPENDR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0200, 8);
+const GICR_ICENABLER0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0180, 4);
+const GICR_ISPENDR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0200, 4);
 const GICR_ICPENDR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0280, 4);
 const GICR_ISACTIVER0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0300, 4);
 const GICR_ICACTIVER0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0380, 4);
-const GICR_IPRIORITYR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0400, 4);
-const GICR_ICFGR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0C00, 32);
+const GICR_IPRIORITYR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0400, 32);
+const GICR_ICFGR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0C00, 8);
 
 // List with relevant redistributor registers that we will be restoring.
 static VGIC_RDIST_REGS: &[RedistReg] = &[
