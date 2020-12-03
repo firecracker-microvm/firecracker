@@ -5,7 +5,7 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 
 [dependencies]
-kvm-bindings = { git = "https://github.com/firecracker-microvm/kvm-bindings", tag = "v0.3.0-3", features = ["fam-wrappers"] }
-kvm-ioctls = { git = "https://github.com/firecracker-microvm/kvm-ioctls", tag = "v0.6.0-3" }
+kvm-bindings = { version = "0.3.0", features = ["fam-wrappers"] }
+kvm-ioctls = { version = "0.6.0" }
 
 utils = { path = "../utils"}
