@@ -8,20 +8,19 @@ use kvm_ioctls::DeviceFd;
 // Distributor registers as detailed at page 456 from
 // https://static.docs.arm.com/ihi0069/c/IHI0069C_gic_architecture_specification.pdf.
 // Address offsets are relative to the Distributor base address defined
-// by the system memory map. Unless otherwise stated in the register description,
-// all GIC registers are 32-bits wide.
-const GICD_CTLR: DistReg = DistReg::new(0x0, 0, 4);
-const GICD_STATUSR: DistReg = DistReg::new(0x0010, 0, 4);
-const GICD_IGROUPR: DistReg = DistReg::new(0x0080, 1, 0);
-const GICD_ISENABLER: DistReg = DistReg::new(0x0100, 1, 0);
-const GICD_ICENABLER: DistReg = DistReg::new(0x0180, 1, 0);
-const GICD_ISPENDR: DistReg = DistReg::new(0x0200, 1, 0);
-const GICD_ICPENDR: DistReg = DistReg::new(0x0280, 1, 0);
-const GICD_ISACTIVER: DistReg = DistReg::new(0x0300, 1, 0);
-const GICD_ICACTIVER: DistReg = DistReg::new(0x0380, 1, 0);
-const GICD_IPRIORITYR: DistReg = DistReg::new(0x0400, 8, 0);
-const GICD_ICFGR: DistReg = DistReg::new(0x0C00, 2, 0);
-const GICD_IROUTER: DistReg = DistReg::new(0x6000, 64, 0);
+// by the system memory map.
+const GICD_CTLR: DistReg = DistReg::simple(0x0, 4);
+const GICD_STATUSR: DistReg = DistReg::simple(0x0010, 4);
+const GICD_IGROUPR: DistReg = DistReg::shared_irq(0x0080, 1);
+const GICD_ISENABLER: DistReg = DistReg::shared_irq(0x0100, 1);
+const GICD_ICENABLER: DistReg = DistReg::shared_irq(0x0180, 1);
+const GICD_ISPENDR: DistReg = DistReg::shared_irq(0x0200, 1);
+const GICD_ICPENDR: DistReg = DistReg::shared_irq(0x0280, 1);
+const GICD_ISACTIVER: DistReg = DistReg::shared_irq(0x0300, 1);
+const GICD_ICACTIVER: DistReg = DistReg::shared_irq(0x0380, 1);
+const GICD_IPRIORITYR: DistReg = DistReg::shared_irq(0x0400, 8);
+const GICD_ICFGR: DistReg = DistReg::shared_irq(0x0C00, 2);
+const GICD_IROUTER: DistReg = DistReg::shared_irq(0x6000, 64);
 
 // List with relevant distributor registers that we will be restoring.
 // Order is taken from qemu.
@@ -40,9 +39,9 @@ static VGIC_DIST_REGS: &[DistReg] = &[
     GICD_IPRIORITYR,
 ];
 
-// All or at least the registers we are interested in are 32 bit, so
-// we use a constant for size(u32).
-const REG_SIZE: u8 = 4;
+// All or at least the registers we are interested in are multiples of 32 bits.
+// So we access them in chunks of 4 bytes.
+const U32_SIZE: u8 = 4;
 
 // Helps with triggering either a register fetch or a store.
 enum Action<'a> {
@@ -50,55 +49,63 @@ enum Action<'a> {
     Get(&'a mut Vec<u32>),
 }
 
+enum DistRegSize {
+    /// Some of the distributor register (i.e GICD_STATUSR) are simple
+    /// registers (i.e they are associated to a 32 bit value).
+    Simple { size: u16 },
+    /// Other registers have variable lengths since they dedicate a specific number of bits to
+    /// each interrupt. So, their length depends on the number of interrupts.
+    /// (i.e the ones that are represented as GICD_REG<n>) in the documentation mentioned above.
+    SharedIrq { bits_per_irq: u8 },
+}
+
 /// This is how we represent the registers of the vgic's distributor.
-/// Some of the distributor register (i.e GICD_STATUSR) are simple
-/// registers (i.e they are associated to a 32 bit value).
-/// However, there are other registers that have variable lengths since
-/// they dedicate some of the 32 bits to some specific interrupt. So, their length
-/// depends on the number of interrupts (i.e the ones that are represented as GICD_REG<n>)
-/// in the documentation mentioned above.
 struct DistReg {
     /// Offset from distributor address.
-    base: u32,
-    /// Bits per interrupt.
-    /// Relevant for registers that DO share IRQs.
-    bpi: u8,
-    /// Length of the register.
-    /// Relevant for registers that DO NOT share IRQs.
-    length: u16,
+    offset: u32,
+    /// Distributor register size.
+    size: DistRegSize,
 }
 
 impl DistReg {
-    const fn new(base: u32, bpi: u8, length: u16) -> DistReg {
-        DistReg { base, bpi, length }
+    const fn simple(offset: u32, size: u16) -> DistReg {
+        DistReg {
+            offset,
+            size: DistRegSize::Simple { size },
+        }
     }
 
-    fn compute_reg_range(&self) -> (u32, u32) {
-        // The ARM® TrustZone® implements a protection logic which contains a read-as-zero/write-ignore (RAZ/WI) policy
-        // where:
-        // * A blocked read operation will always return a zero value on the bus, preventing information leak
-        // * A write operation to a forbidden region or peripheral will be ignored
-        // The first part of a shared-irq type of register = (i.e GICD_<REG><0>) is RAZ/WI, so we compute the
-        // base by shifting it with "REG_SIZE * self.bpi" bytes.
-        let base = self.base + REG_SIZE as u32 * self.bpi as u32;
-        let mut end = base;
+    const fn shared_irq(offset: u32, bits_per_irq: u8) -> DistReg {
+        DistReg {
+            offset,
+            size: DistRegSize::SharedIrq { bits_per_irq },
+        }
+    }
+}
 
-        if self.length > 0 {
-            // This is the single type register (i.e one that is not DIST_X<n>) and for which
-            // the bpi is 0.
-            // Look in the kernel for REGISTER_DESC_WITH_LENGTH.
-            end = base + self.length as u32;
-        }
-        if self.bpi > 0 {
-            // This is the type of register that takes into account the number of interrupts
-            // that the model has. It is also the type of register where
-            // a register relates to multiple interrupts.
-            end = base + (self.bpi as u32 * (IRQ_MAX - IRQ_BASE) / 8);
-            if self.bpi as u32 * (IRQ_MAX - IRQ_BASE) % 8 > 0 {
-                end += REG_SIZE as u32;
+impl DistReg {
+    fn mem_iter(&self) -> impl Iterator<Item = u32> {
+        let mut start = self.offset;
+        let end = match self.size {
+            DistRegSize::Simple { size } => start + u32::from(size),
+            DistRegSize::SharedIrq { bits_per_irq } => {
+                // The ARM® TrustZone® implements a protection logic which contains a
+                // read-as-zero/write-ignore (RAZ/WI) policy.
+                // The first part of a shared-irq register, the one corresponding to the
+                // SGI and PPI IRQs (0-32) is RAZ/WI, so we skip it.
+                start += IRQ_BASE * u32::from(bits_per_irq) / 8;
+
+                let size_in_bits = u32::from(bits_per_irq) * (IRQ_MAX - IRQ_BASE);
+                let mut size_in_bytes = size_in_bits / 8;
+                if size_in_bits % 8 > 0 {
+                    size_in_bytes += u32::from(U32_SIZE);
+                }
+
+                start + size_in_bytes
             }
-        }
-        (base, end)
+        };
+
+        (start..end).step_by(U32_SIZE as usize)
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -123,20 +130,18 @@ impl DistReg {
 
 fn access_dist_reg_list(fd: &DeviceFd, action: &mut Action) -> Result<()> {
     for dreg in VGIC_DIST_REGS {
-        let (mut base, end) = dreg.compute_reg_range();
-        while base < end {
+        for offset in dreg.mem_iter() {
             match action {
                 Action::Set(state, idx) => {
-                    dreg.access_dist_attr(fd, base, &state[*idx], true)?;
+                    dreg.access_dist_attr(fd, offset, &state[*idx], true)?;
                     *idx += 1;
                 }
                 Action::Get(state) => {
                     let val: u32 = 0;
-                    dreg.access_dist_attr(fd, base, &val, false)?;
+                    dreg.access_dist_attr(fd, offset, &val, false)?;
                     state.push(val);
                 }
             }
-            base += REG_SIZE as u32;
         }
     }
     Ok(())
@@ -184,7 +189,7 @@ mod tests {
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
-            "DeviceAttribute(Error(9), false, 3)"
+            "DeviceAttribute(Error(9), false, 1)"
         );
     }
 }
