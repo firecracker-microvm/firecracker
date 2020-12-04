@@ -5,7 +5,6 @@
 
 from abc import ABC, abstractmethod
 from typing import Callable, Any
-import types
 from framework import utils
 
 
@@ -97,18 +96,10 @@ class LambdaProducer(Producer):
         """Call `self._func`."""
         if self._func_kwargs:
             raw_data = self._func(**self._func_kwargs)
-            if isinstance(raw_data, types.GeneratorType):
-                for res in raw_data:
-                    yield res
-            else:
-                return raw_data
-        else:
-            raw_data = self._func()
-            if isinstance(raw_data, types.GeneratorType):
-                for res in raw_data:
-                    yield res
-            else:
-                return raw_data
+            return raw_data
+
+        raw_data = self._func()
+        return raw_data
 
     @property
     def func(self):
