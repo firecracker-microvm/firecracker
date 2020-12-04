@@ -11,6 +11,8 @@ import framework.utils as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 
+PARTUUID = {"x86_64": "0eaa91a0-01", "aarch64": "7bf14469-01"}
+
 
 def test_rescan_file(test_microvm_with_ssh, network_config):
     """Verify that rescan works with a file-backed virtio device."""
@@ -208,10 +210,6 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="need to create the proper rootfs for arm"
-)
 def test_partuuid_boot(test_microvm_with_partuuid, network_config):
     """Test the output reported by blockdev when booting with PARTUUID."""
     test_microvm = test_microvm_with_partuuid
@@ -232,7 +230,7 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
         'rootfs',
         test_microvm.rootfs_file,
         root_device=True,
-        partuuid='0eaa91a0-01'
+        partuuid=PARTUUID[platform.machine()]
     )
 
     test_microvm.start()
@@ -327,6 +325,110 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     assert stderr.read() == ''
     stdout.readline()  # skip "SIZE"
     assert stdout.readline().strip() == size_bytes_str
+
+
+def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
+    """Verify if the rate limiter throttles block iops using dd."""
+    byte_count = block_size * count
+    dd = "dd if=/dev/vdb of=/dev/null ibs={} count={} iflag=direct".format(
+        block_size, count)
+    print("Running cmd {}".format(dd))
+    # Check read iops.
+    exit_code, _, stderr = ssh_connection.execute_command(dd)
+    assert exit_code == 0
+
+    # "dd" writes to stderr by design. We drop first lines
+    stderr.readline().strip()
+    stderr.readline().strip()
+    dd_result = stderr.readline().strip()
+
+    # Interesting output looks like this:
+    # 4194304 bytes (4.2 MB, 4.0 MiB) copied, 0.0528524 s, 79.4 MB/s
+    tokens = dd_result.split()
+
+    # Check total read bytes.
+    assert int(tokens[0]) == byte_count
+    # Check duration.
+    assert float(tokens[7]) > min_time
+    assert float(tokens[7]) < max_time
+
+
+def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
+    """Test replacing the drive rate-limiter after guest boot works."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.jailer.daemonize = False
+    test_microvm.spawn()
+    # Set up the microVM with 2 vCPUs, 512 MiB of RAM, 1 network iface, a root
+    # file system with the rw permission, and a scratch drive.
+    test_microvm.basic_config(vcpu_count=2,
+                              mem_size_mib=512,
+                              boot_args='console=ttyS0 reboot=k panic=1')
+
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+
+    fs1 = drive_tools.FilesystemFile(
+        os.path.join(test_microvm.fsfiles, 'scratch'),
+        size=512
+    )
+    response = test_microvm.drive.put(
+        drive_id='scratch',
+        path_on_host=test_microvm.create_jailed_resource(fs1.path),
+        is_root_device=False,
+        is_read_only=False,
+        rate_limiter={
+            'bandwidth': {
+                'size': 1024*1024*10,
+                'refill_time': 100
+            },
+            'ops': {
+                'size': 100,
+                'refill_time': 100
+            }
+        }
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    test_microvm.start()
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    # Validate IOPS stays within above configured limits.
+    # For example, the below call will validate that reading 1000 blocks
+    # of 512b will complete in at 0.85-1.25 seconds.
+    check_iops_limit(ssh_connection, 512, 1000, 0.85, 1.25)
+    check_iops_limit(ssh_connection, 4096, 1000, 0.85, 1.25)
+
+    # Patch ratelimiter
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        rate_limiter={
+            'bandwidth': {
+                'size': 1024*1024*100,
+                'refill_time': 100
+            },
+            'ops': {
+                'size': 200,
+                'refill_time': 100
+            }
+        }
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    check_iops_limit(ssh_connection, 512, 2000, 0.85, 1.5)
+    check_iops_limit(ssh_connection, 4096, 2000, 0.85, 1.5)
+
+    # Patch ratelimiter
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        rate_limiter={
+            'ops': {
+                'size': 1250,
+                'refill_time': 100
+            }
+        }
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    check_iops_limit(ssh_connection, 512, 10000, 0.85, 1.5)
+    check_iops_limit(ssh_connection, 4096, 10000, 0.85, 1.5)
 
 
 def _check_block_size(ssh_connection, dev_path, size):

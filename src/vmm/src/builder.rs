@@ -730,7 +730,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + Subscriber>(
     // The device mutex mustn't be locked here otherwise it will deadlock.
     let device = MmioTransport::new(vmm.guest_memory().clone(), device);
     vmm.mmio_device_manager
-        .register_new_virtio_mmio_device(vmm.vm.fd(), id, device, cmdline)
+        .register_mmio_virtio_for_boot(vmm.vm.fd(), id, device, cmdline)
         .map_err(RegisterMmioDevice)
         .map(|_| ())
 }
@@ -744,7 +744,7 @@ pub(crate) fn attach_boot_timer_device(
     let boot_timer = devices::pseudo::BootTimer::new(request_ts);
 
     vmm.mmio_device_manager
-        .register_new_mmio_boot_timer(boot_timer)
+        .register_mmio_boot_timer(boot_timer)
         .map_err(RegisterMmioDevice)?;
 
     Ok(())
@@ -1262,7 +1262,6 @@ pub mod tests {
 
         let balloon_config = BalloonDeviceConfig {
             amount_mb: 0,
-            must_tell_host: false,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         };

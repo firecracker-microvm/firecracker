@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 #[cfg(not(test))]
 use super::{builder::build_microvm_for_boot, resources::VmResources, Vmm};
 #[cfg(all(not(test), target_arch = "x86_64"))]
-use super::{persist::create_snapshot, persist::load_snapshot};
+use super::{persist::create_snapshot, persist::restore_from_snapshot};
 
 #[cfg(test)]
 use tests::{build_microvm_for_boot, MockVmRes as VmResources, MockVmm as Vmm};
 #[cfg(all(test, target_arch = "x86_64"))]
-use tests::{create_snapshot, load_snapshot};
+use tests::{create_snapshot, restore_from_snapshot};
 
 use super::Error as VmmError;
 use crate::builder::StartMicrovmError;
@@ -21,13 +21,12 @@ use crate::builder::StartMicrovmError;
 use crate::persist::{CreateSnapshotError, LoadSnapshotError};
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::VERSION_MAP;
-use crate::vmm_config;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
     BalloonUpdateStatsConfig,
 };
 use crate::vmm_config::boot_source::{BootSourceConfig, BootSourceConfigError};
-use crate::vmm_config::drive::{BlockDeviceConfig, DriveError};
+use crate::vmm_config::drive::{BlockDeviceConfig, BlockDeviceUpdateConfig, DriveError};
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{LoggerConfig, LoggerConfigError};
 use crate::vmm_config::machine_config::{VmConfig, VmConfigError};
@@ -39,6 +38,7 @@ use crate::vmm_config::net::{
 #[cfg(target_arch = "x86_64")]
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
+use crate::vmm_config::{self, RateLimiterUpdate};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
 use polly::event_manager::EventManager;
 use seccomp::BpfProgram;
@@ -107,9 +107,8 @@ pub enum VmmAction {
     UpdateBalloon(BalloonUpdateConfig),
     /// Update the balloon statistics polling interval, after microVM start.
     UpdateBalloonStatistics(BalloonUpdateStatsConfig),
-    /// Update the path of an existing block device. The data associated with this variant
-    /// represents the `drive_id` and the `path_on_host`.
-    UpdateBlockDevicePath(String, String),
+    /// Update existing block device properties such as `path_on_host` or `rate_limiter`.
+    UpdateBlockDevice(BlockDeviceUpdateConfig),
     /// Update a network interface, after microVM start. Currently, the only updatable properties
     /// are the RX and TX rate limiters.
     UpdateNetworkInterface(NetworkInterfaceUpdateConfig),
@@ -319,7 +318,7 @@ impl<'a> PrebootApiController<'a> {
             | GetBalloonStats
             | UpdateBalloon(_)
             | UpdateBalloonStatistics(_)
-            | UpdateBlockDevicePath(_, _)
+            | UpdateBlockDevice(_)
             | UpdateNetworkInterface(_) => Err(VmmActionError::OperationNotSupportedPreBoot),
             #[cfg(target_arch = "x86_64")]
             CreateSnapshot(_) | SendCtrlAltDel => Err(VmmActionError::OperationNotSupportedPreBoot),
@@ -417,23 +416,31 @@ impl<'a> PrebootApiController<'a> {
             return Err(err);
         }
 
-        let loaded_vmm = load_snapshot(
+        let result = restore_from_snapshot(
             &mut self.event_manager,
             &self.seccomp_filter,
             load_params,
             VERSION_MAP.clone(),
-        );
+        )
+        .and_then(|vmm| {
+            let ret = if load_params.resume_vm {
+                vmm.lock().expect("Poisoned lock").resume_vm()
+            } else {
+                Ok(())
+            };
+            ret.map(|()| {
+                self.built_vmm = Some(vmm);
+                VmmData::Empty
+            })
+            .map_err(LoadSnapshotError::ResumeMicroVm)
+        })
+        .map_err(VmmActionError::LoadSnapshot);
 
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);
         info!("'load snapshot' VMM action took {} us.", elapsed_time_us);
 
-        loaded_vmm
-            .map(|vmm| {
-                self.built_vmm = Some(vmm);
-                VmmData::Empty
-            })
-            .map_err(VmmActionError::LoadSnapshot)
+        result
     }
 }
 
@@ -485,9 +492,7 @@ impl RuntimeApiController {
                 .update_balloon_stats_config(balloon_stats_update.stats_polling_interval_s)
                 .map(|_| VmmData::Empty)
                 .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
-            UpdateBlockDevicePath(drive_id, new_path) => {
-                self.update_block_device_path(&drive_id, new_path)
-            }
+            UpdateBlockDevice(new_cfg) => self.update_block_device(new_cfg),
             UpdateNetworkInterface(netif_update) => self.update_net_rate_limiters(netif_update),
 
             // Operations not allowed post-boot.
@@ -602,16 +607,29 @@ impl RuntimeApiController {
         Ok(VmmData::Empty)
     }
 
-    /// Updates the path of the host file backing the emulated block device with id `drive_id`.
-    /// We update the disk image on the device and its virtio configuration.
-    fn update_block_device_path(&mut self, drive_id: &str, new_path: String) -> ActionResult {
-        self.vmm
-            .lock()
-            .expect("Poisoned lock")
-            .update_block_device_path(drive_id, new_path)
+    /// Updates block device properties:
+    ///  - path of the host file backing the emulated block device,
+    ///    update the disk image on the device and its virtio configuration
+    ///  - rate limiter configuration.
+    fn update_block_device(&mut self, new_cfg: BlockDeviceUpdateConfig) -> ActionResult {
+        let mut vmm = self.vmm.lock().expect("Poisoned lock");
+        if let Some(new_path) = new_cfg.path_on_host {
+            vmm.update_block_device_path(&new_cfg.drive_id, new_path)
+                .map(|()| VmmData::Empty)
+                .map_err(DriveError::DeviceUpdate)
+                .map_err(VmmActionError::DriveConfig)?;
+        }
+        if new_cfg.rate_limiter.is_some() {
+            vmm.update_block_rate_limiter(
+                &new_cfg.drive_id,
+                RateLimiterUpdate::from(new_cfg.rate_limiter).bandwidth,
+                RateLimiterUpdate::from(new_cfg.rate_limiter).ops,
+            )
             .map(|()| VmmData::Empty)
             .map_err(DriveError::DeviceUpdate)
-            .map_err(VmmActionError::DriveConfig)
+            .map_err(VmmActionError::DriveConfig)?;
+        }
+        Ok(VmmData::Empty)
     }
 
     /// Updates configuration for an emulated net device as described in `new_cfg`.
@@ -621,10 +639,10 @@ impl RuntimeApiController {
             .expect("Poisoned lock")
             .update_net_rate_limiters(
                 &new_cfg.iface_id,
-                new_cfg.rx_bytes(),
-                new_cfg.rx_ops(),
-                new_cfg.tx_bytes(),
-                new_cfg.tx_ops(),
+                RateLimiterUpdate::from(new_cfg.rx_rate_limiter).bandwidth,
+                RateLimiterUpdate::from(new_cfg.rx_rate_limiter).ops,
+                RateLimiterUpdate::from(new_cfg.tx_rate_limiter).bandwidth,
+                RateLimiterUpdate::from(new_cfg.tx_rate_limiter).ops,
             )
             .map(|()| VmmData::Empty)
             .map_err(NetworkInterfaceError::DeviceUpdate)
@@ -772,7 +790,7 @@ mod tests {
     }
 
     // Mock `Vmm` used for testing.
-    #[derive(Debug, Default)]
+    #[derive(Debug, Default, PartialEq)]
     pub struct MockVmm {
         pub balloon_config_called: bool,
         pub latest_balloon_stats_called: bool,
@@ -858,6 +876,15 @@ mod tests {
             Ok(())
         }
 
+        pub fn update_block_rate_limiter(
+            &mut self,
+            _: &str,
+            _: rate_limiter::BucketUpdate,
+            _: rate_limiter::BucketUpdate,
+        ) -> Result<(), VmmError> {
+            Ok(())
+        }
+
         pub fn update_net_rate_limiters(
             &mut self,
             _: &str,
@@ -900,7 +927,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     // Need to redefine this since the non-test one uses real Vmm
     // instead of our mocks.
-    pub fn load_snapshot(
+    pub fn restore_from_snapshot(
         _: &mut EventManager,
         _: BpfProgramRef,
         _: &LoadSnapshotParams,
@@ -1122,6 +1149,42 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_preboot_load_snapshot() {
+        let mut vm_resources = MockVmRes::default();
+        let mut evmgr = EventManager::new().unwrap();
+        let mut preboot = default_preboot(&mut vm_resources, &mut evmgr);
+
+        // Without resume.
+        let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
+            snapshot_path: PathBuf::new(),
+            mem_file_path: PathBuf::new(),
+            enable_diff_snapshots: false,
+            resume_vm: false,
+        });
+        // Request should succeed.
+        preboot.handle_preboot_request(req).unwrap();
+        // Should have built default mock vmm.
+        let vmm = preboot.built_vmm.take().unwrap();
+        assert_eq!(*vmm.lock().unwrap(), MockVmm::default());
+
+        // With resume.
+        let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
+            snapshot_path: PathBuf::new(),
+            mem_file_path: PathBuf::new(),
+            enable_diff_snapshots: false,
+            resume_vm: true,
+        });
+        // Request should succeed.
+        preboot.handle_preboot_request(req).unwrap();
+        let vmm = preboot.built_vmm.as_ref().unwrap().lock().unwrap();
+        // Should have built mock vmm then called resume on it.
+        assert!(vmm.resume_called);
+        // Extra sanity check - pause was never called.
+        assert!(!vmm.pause_called);
+    }
+
     #[test]
     fn test_preboot_disallowed() {
         check_preboot_request_err(
@@ -1151,7 +1214,7 @@ mod tests {
             VmmActionError::OperationNotSupportedPreBoot,
         );
         check_preboot_request_err(
-            VmmAction::UpdateBlockDevicePath(String::new(), String::new()),
+            VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig::default()),
             VmmActionError::OperationNotSupportedPreBoot,
         );
         check_preboot_request_err(
@@ -1367,13 +1430,19 @@ mod tests {
 
     #[test]
     fn test_runtime_update_block_device_path() {
-        let req = VmmAction::UpdateBlockDevicePath(String::new(), String::new());
+        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
+            path_on_host: Some(String::new()),
+            ..Default::default()
+        });
         check_runtime_request(req, |result, vmm| {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vmm.update_block_device_path_called)
         });
 
-        let req = VmmAction::UpdateBlockDevicePath(String::new(), String::new());
+        let req = VmmAction::UpdateBlockDevice(BlockDeviceUpdateConfig {
+            path_on_host: Some(String::new()),
+            ..Default::default()
+        });
         check_runtime_request_err(
             req,
             VmmActionError::DriveConfig(DriveError::DeviceUpdate(VmmError::DeviceManager(
@@ -1484,6 +1553,7 @@ mod tests {
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
                 enable_diff_snapshots: false,
+                resume_vm: false,
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
@@ -1502,6 +1572,7 @@ mod tests {
             snapshot_path: PathBuf::new(),
             mem_file_path: PathBuf::new(),
             enable_diff_snapshots: false,
+            resume_vm: false,
         });
         let err = preboot.handle_preboot_request(req);
         assert_eq!(

@@ -7,11 +7,11 @@ use micro_http::StatusCode;
 use vmm::rpc_interface::VmmAction::SetMmdsConfiguration;
 use vmm::vmm_config::mmds::MmdsConfig;
 
-pub fn parse_get_mmds() -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, Error> {
     Ok(ParsedRequest::GetMMDS)
 }
 
-pub fn parse_put_mmds(
+pub(crate) fn parse_put_mmds(
     body: &Body,
     path_second_token: Option<&&str>,
 ) -> Result<ParsedRequest, Error> {
@@ -31,7 +31,7 @@ pub fn parse_put_mmds(
     }
 }
 
-pub fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, Error> {
     Ok(ParsedRequest::PatchMMDS(
         serde_json::from_slice(body.raw()).map_err(Error::SerdeJson)?,
     ))

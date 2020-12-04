@@ -11,7 +11,7 @@ use vmm::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams};
 use vmm::vmm_config::snapshot::{Vm, VmState};
 
 #[cfg(target_arch = "x86_64")]
-pub fn parse_put_snapshot(
+pub(crate) fn parse_put_snapshot(
     body: &Body,
     request_type_from_path: Option<&&str>,
 ) -> Result<ParsedRequest, Error> {
@@ -37,7 +37,7 @@ pub fn parse_put_snapshot(
     }
 }
 
-pub fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_vm_state(body: &Body) -> Result<ParsedRequest, Error> {
     let vm = serde_json::from_slice::<Vm>(body.raw()).map_err(Error::SerdeJson)?;
 
     match vm.state {
@@ -114,6 +114,7 @@ mod tests {
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             enable_diff_snapshots: false,
+            resume_vm: false,
         };
         match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())
         {
@@ -131,6 +132,26 @@ mod tests {
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             enable_diff_snapshots: true,
+            resume_vm: false,
+        };
+
+        match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())
+        {
+            VmmAction::LoadSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
+            _ => panic!("Test failed."),
+        }
+
+        body = r#"{
+                "snapshot_path": "foo",
+                "mem_file_path": "bar",
+                "resume_vm": true
+              }"#;
+
+        expected_cfg = LoadSnapshotParams {
+            snapshot_path: PathBuf::from("foo"),
+            mem_file_path: PathBuf::from("bar"),
+            enable_diff_snapshots: false,
+            resume_vm: true,
         };
 
         match vmm_action_from_request(parse_put_snapshot(&Body::new(body), Some(&"load")).unwrap())

@@ -46,6 +46,7 @@ pub enum Error {
 
 #[derive(Clone, Versionize)]
 /// Holds the state of a balloon device connected to the MMIO space.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct ConnectedBalloonState {
     /// Device identifier.
     pub device_id: String,
@@ -59,6 +60,7 @@ pub struct ConnectedBalloonState {
 
 #[derive(Clone, Versionize)]
 /// Holds the state of a block device connected to the MMIO space.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct ConnectedBlockState {
     /// Device identifier.
     pub device_id: String,
@@ -72,6 +74,7 @@ pub struct ConnectedBlockState {
 
 #[derive(Clone, Versionize)]
 /// Holds the state of a net device connected to the MMIO space.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct ConnectedNetState {
     /// Device identifier.
     pub device_id: String,
@@ -85,6 +88,7 @@ pub struct ConnectedNetState {
 
 #[derive(Clone, Versionize)]
 /// Holds the state of a vsock device connected to the MMIO space.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct ConnectedVsockState {
     /// Device identifier.
     pub device_id: String,
@@ -98,6 +102,7 @@ pub struct ConnectedVsockState {
 
 #[derive(Clone, Versionize)]
 /// Holds the device states.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct DeviceStates {
     /// Block device states.
     pub block_devices: Vec<ConnectedBlockState>,
@@ -244,7 +249,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             let mmio_transport =
                 MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
             dev_manager
-                .register_virtio_mmio_device(vm, id.clone(), mmio_transport, slot)
+                .register_mmio_virtio(vm, id.clone(), mmio_transport, slot)
                 .map_err(Error::DeviceManager)?;
 
             event_manager
@@ -485,7 +490,6 @@ mod tests {
             // Add a balloon device.
             let balloon_cfg = BalloonDeviceConfig {
                 amount_mb: 123,
-                must_tell_host: true,
                 deflate_on_oom: false,
                 stats_polling_interval_s: 1,
             };

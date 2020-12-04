@@ -95,7 +95,6 @@ class Balloon():
     def create_json(
             amount_mb=None,
             deflate_on_oom=None,
-            must_tell_host=None,
             stats_polling_interval_s=None
     ):
         """Compose the json associated to this type of API request."""
@@ -106,9 +105,6 @@ class Balloon():
 
         if deflate_on_oom is not None:
             datax['deflate_on_oom'] = deflate_on_oom
-
-        if must_tell_host is not None:
-            datax['must_tell_host'] = must_tell_host
 
         if stats_polling_interval_s is not None:
             datax['stats_polling_interval_s'] = stats_polling_interval_s
@@ -170,6 +166,25 @@ class BootSource():
             datax['boot_args'] = boot_args
 
         return datax
+
+
+# Too few public methods (1/2) (too-few-public-methods)
+# pylint: disable=R0903
+class DescribeInstance():
+    """Facility for getting the microVM state."""
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        self._descinst_cfg_url = \
+            API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        self._api_session = api_session
+
+    def get(self):
+        """Get the status of configuring the current microvm."""
+        return self._api_session.get(
+            self._descinst_cfg_url
+        )
 
 
 class Drive():
@@ -354,7 +369,7 @@ class SnapshotLoad():
         )
 
     @staticmethod
-    def create_json(mem_file_path, snapshot_path, diff=False):
+    def create_json(mem_file_path, snapshot_path, diff=False, resume=False):
         """Compose the json associated to this type of API request."""
         datax = {
             'mem_file_path': mem_file_path,
@@ -362,7 +377,51 @@ class SnapshotLoad():
         }
         if diff:
             datax['enable_diff_snapshots'] = True
+        if resume:
+            datax['resume_vm'] = True
         return datax
+
+
+class SnapshotHelper():
+    """Facility for creation and loading of microvm snapshots."""
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        self._create = SnapshotCreate(api_usocket_full_name, api_session)
+        self._load = SnapshotLoad(api_usocket_full_name, api_session)
+        self._vm_state = Vm(api_usocket_full_name, api_session)
+
+    def create(self, mem_file_path, snapshot_path, diff=False, version=None):
+        """Create a snapshot of the microvm."""
+        return self._create.put(
+            mem_file_path=mem_file_path,
+            snapshot_path=snapshot_path,
+            diff=diff,
+            version=version
+        )
+
+    def load(self, mem_file_path, snapshot_path, diff=False, resume=False):
+        """Load a snapshot of the microvm."""
+        response = self._load.put(
+            mem_file_path=mem_file_path,
+            snapshot_path=snapshot_path,
+            diff=diff,
+            resume=resume
+        )
+
+        if resume and "unknown field `resume_vm`" in response.text:
+            # Retry using old API - separate resume command.
+            response = self._load.put(
+                mem_file_path=mem_file_path,
+                snapshot_path=snapshot_path,
+                diff=diff,
+                resume=False
+            )
+            if response.status_code != 204:
+                return response
+            response = self._vm_state.patch(state='Resumed')
+
+        return response
 
 
 class Metrics:

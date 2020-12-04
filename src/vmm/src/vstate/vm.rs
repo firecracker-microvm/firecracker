@@ -290,6 +290,7 @@ impl Vm {
 #[cfg(target_arch = "x86_64")]
 #[derive(Versionize)]
 /// Structure holding VM kvm state.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VmState {
     pitstate: kvm_pit_state2,
     clock: kvm_clock_data,
@@ -301,7 +302,9 @@ pub struct VmState {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
     use crate::vstate::system::KvmContext;
+    use std::os::unix::io::FromRawFd;
     use vm_memory::GuestAddress;
 
     // Auxiliary function being used throughout the tests.
@@ -320,9 +323,8 @@ pub(crate) mod tests {
         use std::os::unix::io::AsRawFd;
         use utils::tempfile::TempFile;
         // Testing an error case.
-        let vm = Vm::new(&unsafe {
-            Kvm::new_with_fd_number(TempFile::new().unwrap().as_file().as_raw_fd())
-        });
+        let vm =
+            Vm::new(&unsafe { Kvm::from_raw_fd(TempFile::new().unwrap().as_file().as_raw_fd()) });
         assert!(vm.is_err());
 
         // Testing with a valid /dev/kvm descriptor.

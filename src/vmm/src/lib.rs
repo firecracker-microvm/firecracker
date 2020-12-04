@@ -463,13 +463,7 @@ impl Vmm {
         for response in vcpu_responses.into_iter() {
             match response {
                 VcpuResponse::RestoredState => (),
-                VcpuResponse::Error(e) => {
-                    error!("Fatal error: {}", e);
-                    // Stop all vCPUs and exit.
-                    let _ = self.exit_vcpus();
-                    self.stop(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
-                    unreachable!()
-                }
+                VcpuResponse::Error(e) => return Err(MicrovmStateError::RestoreVcpuState(e)),
                 VcpuResponse::NotAllowed(reason) => {
                     return Err(MicrovmStateError::NotAllowed(reason))
                 }
@@ -517,6 +511,21 @@ impl Vmm {
                 block
                     .update_disk_image(path_on_host)
                     .map_err(|e| e.to_string())
+            })
+            .map_err(Error::DeviceManager)
+    }
+
+    /// Updates the rate limiter parameters for block device with `drive_id` id.
+    pub fn update_block_rate_limiter(
+        &mut self,
+        drive_id: &str,
+        rl_bytes: BucketUpdate,
+        rl_ops: BucketUpdate,
+    ) -> Result<()> {
+        self.mmio_device_manager
+            .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
+                block.update_rate_limiter(rl_bytes, rl_ops);
+                Ok(())
             })
             .map_err(Error::DeviceManager)
     }
@@ -664,6 +673,12 @@ impl Vmm {
         } else {
             Err(BalloonError::DeviceNotFound)
         }
+    }
+}
+
+impl Drop for Vmm {
+    fn drop(&mut self) {
+        let _ = self.exit_vcpus();
     }
 }
 

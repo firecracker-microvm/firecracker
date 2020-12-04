@@ -21,6 +21,7 @@ use crate::DirtyBitmap;
 
 /// State of a guest memory region saved to file/buffer.
 #[derive(Debug, PartialEq, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct GuestMemoryRegionState {
     /// Base address.
     pub base_address: u64,
@@ -32,6 +33,7 @@ pub struct GuestMemoryRegionState {
 
 /// Guest memory state.
 #[derive(Debug, Default, PartialEq, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct GuestMemoryState {
     /// List of regions.
     pub regions: Vec<GuestMemoryRegionState>,

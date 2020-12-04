@@ -26,12 +26,6 @@ memory. Note that this applies to allocations from guest processes which would
 make the system enter an OOM state. This does not apply to instances when the
 kernel needs memory for its activities (i.e. constructing caches), or when the
 user requests more memory than the amount available through an inflate.
-* `must_tell_host`: if this is set to `true`, the kernel will wait for host
-confirmation before reclaiming memory from the host. This option is not useful
-in Firecracker's implementation of the balloon device because Firecracker does
-not perform any additional operations on returned pages, so it makes no
-difference if the guest waits for the host's approval on returned pages or not.
-Therefore, this option can be safely set to `false`.
 * `stats_polling_interval_s`: unsigned integer value which if set to 0
 disables the virtio balloon statistics and otherwise represents the interval
 of time in seconds at which the balloon statistics are updated.
@@ -110,7 +104,6 @@ Here is an example command on how to install the balloon through the API:
 ```
 socket_location=...
 amount_mb=...
-must_tell_host=...
 deflate_on_oom=...
 polling_interval=...
 
@@ -120,7 +113,6 @@ curl --unix-socket $socket_location -i \
     -H 'Content-Type: application/json' \
     -d "{
         \"amount_mb\": $amount_mb, \
-        \"must_tell_host\": $must_tell_host, \
         \"deflate_on_oom\": $deflate_on_oom, \
         \"stats_polling_interval_s\": $polling_interval \
     }"
@@ -128,10 +120,9 @@ curl --unix-socket $socket_location -i \
 
 To use this, set `socket_location` to the location of the firecracker socket
 (by default, at `/run/firecracker.socket`. Then, set `amount_mb`,
-`must_tell_host`, `deflate_on_oom` and `stats_polling_interval_s` as
-desired: `num_pages` represents the target size of the balloon, and
-`must_tell_host`, `deflate_on_oom` and `stats_polling_interval_s`
-represent the options mentioned before.
+`deflate_on_oom` and `stats_polling_interval_s` as desired: `amount_mb`
+represents the target size of the balloon, and `deflate_on_oom` and
+`stats_polling_interval_s` represent the options mentioned before.
 
 To install the balloon via the JSON config file, insert the following JSON
 object into your configuration file:
@@ -139,7 +130,6 @@ object into your configuration file:
 ```
 "balloon": {
     "amount_mb": 0,
-    "must_tell_host": false,
     "deflate_on_oom": false,
     "stats_polling_interval_s": 1
 },

@@ -126,7 +126,7 @@ paths:
           description: Internal server error
           schema:
             $ref: "#/definitions/Error"
-              
+
   /balloon/statistics:
     get:
       summary: Returns the latest balloon device statistics, only if enabled pre-boot.
@@ -619,7 +619,6 @@ definitions:
     required:
       - amount_mb
       - deflate_on_oom
-      - must_tell_host
     description:
       Balloon device descriptor.
     properties:
@@ -629,13 +628,10 @@ definitions:
       deflate_on_oom:
         type: boolean
         description: Whether the balloon should deflate when the guest has memory pressure.
-      must_tell_host:
-        type: boolean
-        description: Whether the guest should wait for the host to acknowledge deflated pages or not.
       stats_polling_interval_s:
         type: integer
         description: Interval in seconds between refreshing statistics. A non-zero value will enable the statistics. Defaults to 0.
-  
+
   BalloonUpdate:
     type: object
     required:
@@ -646,7 +642,7 @@ definitions:
       amount_mb:
         type: integer
         description: Target balloon size in MB.
-  
+
   BalloonStats:
     type: object
     description:
@@ -709,7 +705,7 @@ definitions:
         description: The number of failed hugetlb page allocations in the guest.
         type: integer
         format: int64
-        
+
   BalloonStatsUpdate:
     type: object
     required:
@@ -801,8 +797,9 @@ definitions:
     description:
       Describes MicroVM instance information.
     required:
+      - app_name
       - id
-      - state
+      - started
       - vmm_version
     properties:
       app_name:
@@ -811,15 +808,11 @@ definitions:
       id:
         description: MicroVM / instance ID.
         type: string
-      state:
+      started:
         description:
           The current detailed state of the Firecracker instance.
           This value is read-only for the control-plane.
-        type: string
-        enum:
-          - Uninitialized
-          - Starting
-          - Running
+        type: boolean
       vmm_version:
         description: MicroVM hypervisor build version.
         type: string
@@ -933,13 +926,14 @@ definitions:
     type: object
     required:
       - drive_id
-      - path_on_host
     properties:
       drive_id:
         type: string
       path_on_host:
         type: string
         description: Host level path for the guest drive
+      rate_limiter:
+        $ref: "#/definitions/RateLimiter"
 
   PartialNetworkInterface:
     type: object
@@ -1011,6 +1005,10 @@ definitions:
       snapshot_path:
         type: string
         description: Path to the file that contains the microVM state to be loaded.
+      resume_vm:
+        type: boolean
+        description:
+          When set to true, the vm is also resumed if the snapshot load is successful.
 
   TokenBucket:
     type: object

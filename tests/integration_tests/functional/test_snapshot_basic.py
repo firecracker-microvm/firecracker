@@ -5,8 +5,11 @@
 import filecmp
 import logging
 import os
+import subprocess
 import platform
 import tempfile
+from pathlib import Path
+import time
 import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
@@ -350,6 +353,77 @@ def test_5_inc_snapshots(network_config,
                              ])
 
     test_matrix.run_test(_test_seq_snapshots)
+
+
+def _get_process_start_time(p_pid):
+    # Helper function returning:
+    # - start time of process with provided PID
+    # - return code of stat -c%X /proc/$$ command
+    proc = subprocess.Popen(["stat -c%X /proc/{}".format(p_pid)],
+                            stdout=subprocess.PIPE,
+                            shell=True,
+                            encoding='ascii')
+    out = proc.communicate()[0].strip('\n')
+    return out, proc.returncode
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="Not supported yet."
+)
+def test_load_snapshot_failure_handling(bin_cloner_path):
+    """
+    Test scenario.
+
+    1. Create two empty files representing snapshot memory and
+    microvm state
+    2. Try to load a VM snapshot out of the empty files.
+    3. Verify that an error was shown and the FC process is terminated.
+    """
+    logger = logging.getLogger("snapshot_load_failure")
+    vm = MicrovmBuilder(bin_cloner_path).create_basevm()
+    vm.spawn(log_level='Info')
+
+    # Create two empty files for snapshot state and snapshot memory
+    chroot_path = vm.jailer.chroot_path()
+    snapshot_dir = os.path.join(chroot_path, "snapshot")
+    Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
+
+    snapshot_mem = os.path.join(snapshot_dir, "snapshot_mem")
+    open(snapshot_mem, "w+").close()
+    snapshot_vmstate = os.path.join(snapshot_dir, "snapshot_vmstate")
+    open(snapshot_vmstate, "w+").close()
+
+    # Hardlink the snapshot files into the microvm jail.
+    jailed_mem = vm.create_jailed_resource(snapshot_mem)
+    jailed_vmstate = vm.create_jailed_resource(snapshot_vmstate)
+
+    # Get the Firecracker process starting time
+    fc_time, err = _get_process_start_time(vm.jailer_clone_pid)
+    assert err == 0
+    logger.info("FC process time before snapshoat load: %s.", fc_time)
+
+    # Load the snapshot
+    response = vm.snapshot.load(mem_file_path=jailed_mem,
+                                snapshot_path=jailed_vmstate)
+
+    logger.info("Response status code %d, content: %s.",
+                response.status_code,
+                response.text)
+    assert vm.api_session.is_status_bad_request(response.status_code)
+
+    # Check if FC process is closed
+    pid_time, ret = _get_process_start_time(vm.jailer_clone_pid)
+    while True:
+        if ret != 0 or fc_time != pid_time:
+            break
+        time.sleep(0.1)
+        pid_time, ret = _get_process_start_time(vm.jailer_clone_pid)
+    # Check that either:
+    #  - pid no longer exists, or
+    #  - pid exists but is a different process (different process start time)
+    assert ret != 0 or fc_time != pid_time, "Firecracker process should \
+     have ended with error!"
 
 
 @pytest.mark.skipif(

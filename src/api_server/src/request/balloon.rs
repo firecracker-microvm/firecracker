@@ -9,7 +9,7 @@ use vmm::vmm_config::balloon::{
     BalloonDeviceConfig, BalloonUpdateConfig, BalloonUpdateStatsConfig,
 };
 
-pub fn parse_get_balloon(path_second_token: Option<&&str>) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_get_balloon(path_second_token: Option<&&str>) -> Result<ParsedRequest, Error> {
     match path_second_token {
         Some(stats_path) => match *stats_path {
             "statistics" => Ok(ParsedRequest::new_sync(VmmAction::GetBalloonStats)),
@@ -22,13 +22,13 @@ pub fn parse_get_balloon(path_second_token: Option<&&str>) -> Result<ParsedReque
     }
 }
 
-pub fn parse_put_balloon(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_balloon(body: &Body) -> Result<ParsedRequest, Error> {
     Ok(ParsedRequest::new_sync(VmmAction::SetBalloonDevice(
         serde_json::from_slice::<BalloonDeviceConfig>(body.raw()).map_err(Error::SerdeJson)?,
     )))
 }
 
-pub fn parse_patch_balloon(
+pub(crate) fn parse_patch_balloon(
     body: &Body,
     path_second_token: Option<&&str>,
 ) -> Result<ParsedRequest, Error> {
@@ -107,8 +107,7 @@ mod tests {
         // PATCH that tries to update something else other than allowed fields.
         let body = r#"{
                 "amount_mb": "dummy_id",
-                "stats_polling_interval_s": "dummy_host",
-                "must_tell_host": false
+                "stats_polling_interval_s": "dummy_host"
               }"#;
         let res = parse_patch_balloon(&Body::new(body), None);
         assert!(res.is_err());
@@ -162,7 +161,6 @@ mod tests {
         // PUT with valid input fields.
         let body = r#"{
                 "amount_mb": 1000,
-                "must_tell_host": true,
                 "deflate_on_oom": true,
                 "stats_polling_interval_s": 0
             }"#;

@@ -20,6 +20,7 @@ use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, TYPE_BLOCK};
 
 #[derive(Clone, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BlockState {
     id: String,
     partuuid: Option<String>,

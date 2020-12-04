@@ -81,6 +81,7 @@ const MMIO_LEN: u64 = 0x1000;
 
 /// Stores the address range and irq allocated to this device.
 #[derive(Clone, Debug, PartialEq, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct MMIODeviceInfo {
     /// Mmio address at which the device is registered.
     pub addr: u64,
@@ -176,6 +177,7 @@ impl MMIODeviceManager {
         self.irqs.check(&slot.irqs)
     }
 
+    /// Register a device at some MMIO address.
     fn register_mmio_device(
         &mut self,
         identifier: (DeviceType, String),
@@ -190,7 +192,7 @@ impl MMIODeviceManager {
     }
 
     /// Register a virtio-over-MMIO device to be used via MMIO transport at a specific slot.
-    pub fn register_virtio_mmio_device(
+    pub fn register_mmio_virtio(
         &mut self,
         vm: &VmFd,
         device_id: String,
@@ -240,7 +242,7 @@ impl MMIODeviceManager {
 
     /// Allocate slot and register an already created virtio-over-MMIO device. Also Adds the device
     /// to the boot cmdline.
-    pub fn register_new_virtio_mmio_device(
+    pub fn register_mmio_virtio_for_boot(
         &mut self,
         vm: &VmFd,
         device_id: String,
@@ -248,7 +250,7 @@ impl MMIODeviceManager {
         _cmdline: &mut kernel_cmdline::Cmdline,
     ) -> Result<MMIODeviceInfo> {
         let mmio_slot = self.allocate_new_slot(1)?;
-        self.register_virtio_mmio_device(vm, device_id, mmio_device, &mmio_slot)?;
+        self.register_mmio_virtio(vm, device_id, mmio_device, &mmio_slot)?;
         #[cfg(target_arch = "x86_64")]
         Self::add_virtio_device_to_cmdline(_cmdline, &mmio_slot)?;
         Ok(mmio_slot)
@@ -298,9 +300,9 @@ impl MMIODeviceManager {
         self.register_mmio_device(identifier, slot, Arc::new(Mutex::new(device)))
     }
 
-    /// Create and register a boot timer device.
-    pub fn register_new_mmio_boot_timer(&mut self, device: BootTimer) -> Result<()> {
-        // Create and attach a new boot timer device.
+    /// Register a boot timer device.
+    pub fn register_mmio_boot_timer(&mut self, device: BootTimer) -> Result<()> {
+        // Attach a new boot timer device.
         let slot = self.allocate_new_slot(0)?;
 
         let identifier = (DeviceType::BootTimer, DeviceType::BootTimer.to_string());
@@ -310,6 +312,17 @@ impl MMIODeviceManager {
     /// Gets the information of the devices registered up to some point in time.
     pub fn get_device_info(&self) -> &HashMap<(DeviceType, String), MMIODeviceInfo> {
         &self.id_to_dev_info
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    /// Gets the number of interrupts used by the devices registered.
+    pub fn used_irqs_count(&self) -> usize {
+        let mut irq_number = 0;
+        let _: Result<()> = self.for_each_device(|_, _, device_info, _| {
+            irq_number += device_info.irqs.len();
+            Ok(())
+        });
+        irq_number
     }
 
     /// Gets the the specified device.
@@ -469,7 +482,7 @@ mod tests {
         ) -> Result<u64> {
             let mmio_device = MmioTransport::new(guest_mem, device);
             let mmio_slot =
-                self.register_new_virtio_mmio_device(vm, dev_id.to_string(), mmio_device, cmdline)?;
+                self.register_mmio_virtio_for_boot(vm, dev_id.to_string(), mmio_device, cmdline)?;
             Ok(mmio_slot.addr)
         }
     }
@@ -721,6 +734,7 @@ mod tests {
                 Ok(())
             });
             assert_eq!(count, 3);
+            assert_eq!(device_manager.used_irqs_count(), 2);
         }
     }
 

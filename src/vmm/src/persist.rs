@@ -18,10 +18,15 @@ use crate::mem_size_mib;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vstate::{self, vcpu::VcpuState, vm::VmState};
 
+use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::DeviceStates;
 use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
+use crate::{Error as VmmError, Vmm};
+use arch::IRQ_BASE;
+use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
+use logger::{error, info};
 use polly::event_manager::EventManager;
 use seccomp::BpfProgramRef;
 use snapshot::Snapshot;
@@ -29,10 +34,13 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
-use crate::Vmm;
+const FC_V0_23_SNAP_VERSION: u16 = 1;
+const FC_V0_23_IRQ_NUMBER: u32 = 16;
+const FC_V0_23_MAX_DEVICES: u32 = FC_V0_23_IRQ_NUMBER - IRQ_BASE;
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Debug, PartialEq, Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct VmInfo {
     /// Guest memory size.
     pub mem_size_mib: u64,
@@ -40,6 +48,7 @@ pub struct VmInfo {
 
 /// Contains the necesary state for saving/restoring a microVM.
 #[derive(Versionize)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct MicrovmState {
     /// Miscellaneous VM info.
     pub vm_info: VmInfo,
@@ -112,6 +121,8 @@ pub enum CreateSnapshotError {
     SerializeMicrovmState(snapshot::Error),
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(io::Error),
+    /// Number of devices exceeds the maximum supported devices for the snapshot data version.
+    TooManyDevices(usize),
 }
 
 impl Display for CreateSnapshotError {
@@ -129,6 +140,12 @@ impl Display for CreateSnapshotError {
             MicrovmState(err) => write!(f, "Cannot save microvm state: {}", err),
             SerializeMicrovmState(err) => write!(f, "Cannot serialize MicrovmState: {:?}", err),
             SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {:?}", err),
+            TooManyDevices(val) => write!(
+                f,
+                "Too many devices attached: {}. The maximum number allowed \
+                 for the snapshot data version requested is {}.",
+                val, FC_V0_23_MAX_DEVICES
+            ),
         }
     }
 }
@@ -144,10 +161,14 @@ pub enum LoadSnapshotError {
     DeserializeMicrovmState(snapshot::Error),
     /// Failed to open memory backing file.
     MemoryBackingFile(io::Error),
+    /// Failed to resume Vm after loading snapshot.
+    ResumeMicroVm(VmmError),
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(io::Error),
     /// Failed to retrieve the metadata of the snapshot backing file.
     SnapshotBackingFileMetadata(io::Error),
+    /// Snapshot cpu vendor differs than host cpu vendor.
+    CpuVendorMismatch(String),
 }
 
 impl Display for LoadSnapshotError {
@@ -158,8 +179,10 @@ impl Display for LoadSnapshotError {
             DeserializeMemory(err) => write!(f, "Cannot deserialize memory: {}", err),
             DeserializeMicrovmState(err) => write!(f, "Cannot deserialize MicrovmState: {:?}", err),
             MemoryBackingFile(err) => write!(f, "Cannot open memory file: {}", err),
+            ResumeMicroVm(err) => write!(f, "Failed to resume Vm after loading snapshot: {}", err),
             SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {}", err),
             SnapshotBackingFileMetadata(err) => write!(f, "Cannot retrieve file metadata: {}", err),
+            CpuVendorMismatch(err) => write!(f, "Snapshot cpu vendor mismatch: {}", err),
         }
     }
 }
@@ -181,6 +204,7 @@ pub fn create_snapshot(
         &params.snapshot_path,
         &params.version,
         version_map,
+        &vmm.mmio_device_manager,
     )?;
 
     Ok(())
@@ -191,6 +215,7 @@ fn snapshot_state_to_file(
     snapshot_path: &PathBuf,
     version: &Option<String>,
     version_map: VersionMap,
+    device_manager: &MMIODeviceManager,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
     let mut snapshot_file = OpenOptions::new()
@@ -202,6 +227,10 @@ fn snapshot_state_to_file(
     // Translate the microVM version to its corresponding snapshot data format.
     let snapshot_data_version = match version {
         Some(version) => match FC_VERSION_TO_SNAP_VERSION.get(version) {
+            Some(&FC_V0_23_SNAP_VERSION) => {
+                validate_devices_number(device_manager.used_irqs_count())?;
+                Ok(FC_V0_23_SNAP_VERSION)
+            }
             Some(data_version) => Ok(*data_version),
             _ => Err(InvalidVersion),
         },
@@ -245,8 +274,37 @@ fn snapshot_memory_to_file(
     }
 }
 
+/// Validates that snapshot CPU vendor matches the host CPU vendor.
+#[cfg(target_arch = "x86_64")]
+pub fn validate_x86_64_cpu_vendor(
+    microvm_state: &MicrovmState,
+) -> std::result::Result<(), LoadSnapshotError> {
+    let host_vendor_id = get_vendor_id_from_host().map_err(|_| {
+        LoadSnapshotError::CpuVendorMismatch("Failed to read vendor from CPUID.".to_owned())
+    })?;
+
+    let snapshot_vendor_id = get_vendor_id_from_cpuid(&microvm_state.vcpu_states[0].cpuid)
+        .map_err(|_| {
+            error!("Snapshot CPU vendor is missing.");
+            LoadSnapshotError::CpuVendorMismatch("Failed to read vendor from CPUID.".to_owned())
+        })?;
+
+    if host_vendor_id != snapshot_vendor_id {
+        let error_string = format!(
+            "Host CPU vendor id: {:?}, Snapshot CPU vendor id: {:?}",
+            &host_vendor_id, &snapshot_vendor_id
+        );
+        error!("{}", error_string);
+        return Err(LoadSnapshotError::CpuVendorMismatch(error_string));
+    } else {
+        info!("Snapshot CPU vendor id: {:?}", &snapshot_vendor_id);
+    }
+
+    Ok(())
+}
+
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
-pub fn load_snapshot(
+pub fn restore_from_snapshot(
     event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
     params: &LoadSnapshotParams,
@@ -255,6 +313,8 @@ pub fn load_snapshot(
     use self::LoadSnapshotError::*;
     let track_dirty_pages = params.enable_diff_snapshots;
     let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
+    #[cfg(target_arch = "x86_64")]
+    validate_x86_64_cpu_vendor(&microvm_state)?;
     let guest_memory = guest_memory_from_file(
         &params.mem_file_path,
         &microvm_state.memory_state,
@@ -293,6 +353,14 @@ fn guest_memory_from_file(
     GuestMemoryMmap::restore(&mem_file, mem_state, track_dirty_pages).map_err(DeserializeMemory)
 }
 
+fn validate_devices_number(device_number: usize) -> std::result::Result<(), CreateSnapshotError> {
+    use self::CreateSnapshotError::TooManyDevices;
+    if device_number > FC_V0_23_MAX_DEVICES as usize {
+        return Err(TooManyDevices(device_number));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,7 +385,6 @@ mod tests {
         // Add a balloon device.
         let balloon_config = BalloonDeviceConfig {
             amount_mb: 0,
-            must_tell_host: false,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         };
@@ -426,6 +493,9 @@ mod tests {
 
         let err = SnapshotBackingFile(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
+
+        let err = TooManyDevices(0);
+        let _ = format!("{}{:?}", err, err);
     }
 
     #[test]
@@ -450,6 +520,9 @@ mod tests {
         let _ = format!("{}{:?}", err, err);
 
         let err = SnapshotBackingFileMetadata(io::Error::from_raw_os_error(0));
+        let _ = format!("{}{:?}", err, err);
+
+        let err = CpuVendorMismatch(String::new());
         let _ = format!("{}{:?}", err, err);
     }
 

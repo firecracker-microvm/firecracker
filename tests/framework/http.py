@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Wrapper over an http session with timed requests."""
 # pylint: disable=unused-import
-import requests_unixsocket
+import requests
+from requests_unixsocket import DEFAULT_SCHEME, UnixAdapter
 
 from framework import decorators
 
 
-class Session(requests_unixsocket.Session):
+class Session(requests.Session):
     """Wrapper over requests_unixsocket.Session limiting the call duration.
 
     Only the API calls relevant to Firecracker (GET, PUT, PATCH) are
@@ -17,6 +18,11 @@ class Session(requests_unixsocket.Session):
     def __init__(self):
         """Create a Session object and set the is_good_response callback."""
         super().__init__()
+
+        # The `pool_connections` argument indicates the maximum number of
+        # open connections allowed at a time. This value is set to 10 for
+        # consistency with the micro-http's `MAX_CONNECTIONS`.
+        self.mount(DEFAULT_SCHEME, UnixAdapter(pool_connections=10))
 
         def is_good_response(response: int):
             """Return `True` for all HTTP 2xx response codes."""
