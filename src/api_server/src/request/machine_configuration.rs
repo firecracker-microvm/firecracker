@@ -7,12 +7,12 @@ use crate::request::{Body, Method, StatusCode};
 use logger::{IncMetric, METRICS};
 use vmm::vmm_config::machine_config::VmConfig;
 
-pub fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
     Ok(ParsedRequest::new_sync(VmmAction::GetVmConfiguration))
 }
 
-pub fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.machine_cfg_count.inc();
     let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|e| {
         METRICS.put_api_requests.machine_cfg_fails.inc();
@@ -36,7 +36,7 @@ pub fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     )))
 }
 
-pub fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.machine_cfg_count.inc();
     let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|e| {
         METRICS.patch_api_requests.machine_cfg_fails.inc();
