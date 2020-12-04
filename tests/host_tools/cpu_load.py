@@ -3,7 +3,6 @@
 """Utilities for measuring cpu utilisation for a process."""
 import time
 from threading import Thread
-
 import framework.utils as utils
 
 # /proc/<pid>/stat output taken from
@@ -70,49 +69,14 @@ class CpuLoadMonitor(Thread):
     def run(self):
         """Thread for monitoring cpu load of some pid.
 
-        `/proc/<process pid>/task/<thread pid>/stat` is used to compute
-        the cpu load, which is then added to the list.
         It is up to the caller to check the queue.
         """
-        clock_ticks_cmd = 'getconf CLK_TCK'
-        try:
-            _, stdout, _ = utils.run_cmd(clock_ticks_cmd)
-        except ChildProcessError:
-            return
-        try:
-            clock_ticks = int(stdout.strip("\n"))
-        except ValueError:
-            return
-
         while not self._should_stop:
-            try:
-                with open('/proc/uptime') as uptime_file:
-                    uptime = uptime_file.readline().strip("\n").split()[0]
-
-                with open('/proc/{pid}/task/{tid}/stat'.format(
-                    pid=self.process_pid,
-                    tid=self.thread_pid)
-                ) as stat_file:
-                    stat = stat_file.readline().strip("\n").split()
-            except IOError:
-                break
-
-            try:
-                uptime = float(uptime)
-                utime = int(stat[STAT_UTIME_IDX])
-                stime = int(stat[STAT_STIME_IDX])
-                starttime = int(stat[STAT_STARTTIME_IDX])
-            except ValueError:
-                break
-
-            total_time = utime + stime
-            seconds = uptime - starttime / clock_ticks
-            cpu_load = (total_time * 100 / clock_ticks) / seconds
-
+            cpu_load = utils.ProcessManager.get_cpu_percent(
+                self._process_pid)["real"]
             if cpu_load > self.threshold:
                 self.cpu_load_samples.append(cpu_load)
-
-            time.sleep(self.CPU_LOAD_SAMPLES_TIMEOUT_S)
+            time.sleep(1)  # 1 second granularity.
 
     def check_samples(self):
         """Check that there are no samples above the threshold."""

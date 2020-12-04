@@ -12,11 +12,13 @@ import threading
 import typing
 from enum import Enum, auto
 from collections import namedtuple, defaultdict
+import time
 import psutil
 
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
+GET_CPU_LOAD = "top -bn1 -H -p {} | tail -n+8"
 
 
 class ProcessManager:
@@ -45,6 +47,32 @@ class ProcessManager:
         """Set CPU affinity for a thread."""
         real_cpulist = list(map(CpuMap, cpulist))
         return psutil.Process(pid).cpu_affinity(real_cpulist)
+
+    @staticmethod
+    def get_cpu_percent(pid: int) -> float:
+        """Return the instant process CPU utilization percent."""
+        _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
+        cpu_percentages = dict()
+
+        # Take all except the last line
+        lines = stdout.strip().split(sep="\n")
+        for line in lines:
+            info = line.strip().split()
+            # We need at least CPU utilization and threads names cols (which
+            # might be two cols e.g `fc_vcpu 0`).
+            info_len = len(info)
+            assert info_len > 11
+
+            cpu_percent = float(info[8])
+            task_id = info[0]
+
+            # Handles `fc_vcpu 0` case as well.
+            thread_name = info[11] + (" " + info[12] if info_len > 12 else "")
+            if thread_name not in cpu_percentages:
+                cpu_percentages[thread_name] = dict()
+            cpu_percentages[thread_name][task_id] = cpu_percent
+
+        return cpu_percentages
 
 
 # pylint: disable=R0903
@@ -257,7 +285,7 @@ def get_free_mem_ssh(ssh_connection):
 
 def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False):
     """
-    Executes a given command.
+    Execute a given command.
 
     :param cmd: command to execute
     :param ignore_return_code: whether a non-zero return code should be ignored
@@ -387,14 +415,13 @@ def run_cmd_list_async(cmd_list):
 
 def run_cmd(cmd, ignore_return_code=False, no_shell=False):
     """
-    Run a command using the async function that logs the output.
+    Run a command using the sync function that logs the output.
 
     :param cmd: command to run
     :param ignore_return_code: whether a non-zero return code should be ignored
     :param noshell: don't run the command in a sub-shell
     :returns: tuple of (return code, stdout, stderr)
     """
-
     return run_cmd_sync(cmd=cmd,
                         ignore_return_code=ignore_return_code,
                         no_shell=no_shell)
@@ -404,3 +431,28 @@ def eager_map(func, iterable):
     """Map version for Python 3.x which is eager and returns nothing."""
     for _ in map(func, iterable):
         continue
+
+
+def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
+    """Get total PID CPU percentage, as in system time plus user time.
+
+    If the PID has corresponding threads, creates a dictionary with the
+    lists of instant loads for each thread.
+    """
+    assert iterations > 0
+    time.sleep(omit)
+    cpu_percentages = dict()
+    for _ in range(iterations):
+        current_cpu_percentages = ProcessManager.get_cpu_percent(pid)
+        assert len(current_cpu_percentages) > 0
+
+        for thread_name in current_cpu_percentages:
+            if not cpu_percentages.get(thread_name):
+                cpu_percentages[thread_name] = dict()
+            for task_id in current_cpu_percentages[thread_name]:
+                if not cpu_percentages[thread_name].get(task_id):
+                    cpu_percentages[thread_name][task_id] = list()
+                cpu_percentages[thread_name][task_id].append(
+                    current_cpu_percentages[thread_name][task_id])
+        time.sleep(1)  # 1 second granularity.
+    return cpu_percentages
