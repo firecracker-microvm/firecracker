@@ -32,7 +32,7 @@ class Consumer(ABC):
     def ingest(self, iteration: int, raw_data: Any):
         """Abstract method for ingesting the raw result."""
 
-    def consume_stat(self, st_name: str, ms_name: str, value: MeasurementDef):
+    def consume_stat(self, st_name: str, ms_name: str, value: Any):
         """Aggregate statistics."""
         results = self._results.get(ms_name)
         if not results:
@@ -44,7 +44,7 @@ class Consumer(ABC):
 
     def consume_measurement(self,
                             ms_name: str,
-                            value: MeasurementDef):
+                            value: Any):
         """Aggregate measurement."""
         results = self._results.get(ms_name)
         if results is None:
