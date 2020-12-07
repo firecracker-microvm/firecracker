@@ -279,14 +279,12 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
             exit_code, _, _ = ssh_connection.execute_command("sync")
             assert exit_code == 0
 
-            # Create a snapshot builder from a microvm.
-            snapshot_builder = SnapshotBuilder(vm_instance.vm)
-
             # The snapshot builder expects disks as paths, not artifacts.
             disks = []
             for disk in vm_instance.disks:
                 disks.append(disk.local_path())
 
+            # Create a snapshot builder from a microvm.
             snapshot_builder = SnapshotBuilder(vm_instance.vm)
             snapshot = snapshot_builder.create(disks,
                                                vm_instance.ssh_key,
