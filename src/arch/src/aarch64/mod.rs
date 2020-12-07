@@ -1,6 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+pub(crate) mod cache_info;
 mod fdt;
 /// Module for the global interrupt controller configuration.
 pub mod gic;
