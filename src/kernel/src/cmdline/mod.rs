@@ -49,10 +49,7 @@ impl fmt::Display for Error {
 pub type Result<T> = result::Result<T, Error>;
 
 fn valid_char(c: char) -> bool {
-    match c {
-        ' '..='~' => true,
-        _ => false,
-    }
+    matches!(c, ' '..='~')
 }
 
 fn valid_str(s: &str) -> Result<()> {

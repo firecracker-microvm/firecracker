@@ -253,10 +253,7 @@ mod tests {
     fn test_msr_whitelist() {
         for range in WHITELISTED_MSR_RANGES.iter() {
             for msr in range.base..(range.base + range.nmsrs) {
-                let should = match msr {
-                    MSR_IA32_FEATURE_CONTROL | MSR_IA32_MCG_CTL => false,
-                    _ => true,
-                };
+                let should = !matches!(msr, MSR_IA32_FEATURE_CONTROL | MSR_IA32_MCG_CTL);
                 assert_eq!(msr_should_serialize(msr), should);
             }
         }
