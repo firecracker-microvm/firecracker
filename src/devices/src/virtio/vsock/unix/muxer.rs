@@ -391,7 +391,7 @@ impl VsockMuxer {
             Some(EpollListener::LocalStream(_)) => {
                 if let Some(EpollListener::LocalStream(mut stream)) = self.remove_listener(fd) {
                     Self::read_local_stream_port(&mut stream)
-                        .and_then(|peer_port| Ok((self.allocate_local_port(), peer_port)))
+                        .map(|peer_port| (self.allocate_local_port(), peer_port))
                         .and_then(|(local_port, peer_port)| {
                             self.add_connection(
                                 ConnMapKey {
@@ -487,7 +487,7 @@ impl VsockMuxer {
                 evset: conn.get_polled_evset(),
             },
         )
-        .and_then(|_| {
+        .map(|_| {
             if conn.has_pending_rx() {
                 // We can safely ignore any error in adding a connection RX indication. Worst
                 // case scenario, the RX queue will get desynchronized, but we'll handle that
@@ -496,7 +496,6 @@ impl VsockMuxer {
             }
             self.conn_map.insert(key, conn);
             METRICS.vsock.conns_added.inc();
-            Ok(())
         })
     }
 
@@ -540,9 +539,8 @@ impl VsockMuxer {
 
         self.epoll
             .ctl(ControlOperation::Add, fd, EpollEvent::new(evset, fd as u64))
-            .and_then(|_| {
+            .map(|_| {
                 self.listener_map.insert(fd, listener);
-                Ok(())
             })
             .map_err(Error::EpollAdd)?;
 

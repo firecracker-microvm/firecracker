@@ -18,7 +18,7 @@ pub(crate) fn compact_page_frame_numbers(v: &mut Vec<u32>) -> Vec<(u32, u32)> {
     // received at once from a single descriptor is `MAX_PAGES_IN_DESC`,
     // this sort does not change the complexity of handling
     // an inflation.
-    v.sort();
+    v.sort_unstable();
 
     // Since there are at most `MAX_PAGES_IN_DESC` pages, setting the
     // capacity of `result` to this makes sense.
@@ -108,10 +108,7 @@ mod tests {
     /// This asserts that $lhs matches $rhs.
     macro_rules! assert_match {
         ($lhs:expr, $rhs:pat) => {{
-            assert!(match $lhs {
-                $rhs => true,
-                _ => false,
-            })
+            assert!(matches!($lhs, $rhs))
         }};
     }
 

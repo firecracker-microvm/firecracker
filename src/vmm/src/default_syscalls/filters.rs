@@ -177,7 +177,7 @@ pub fn get_seccomp_filter(seccomp_level: SeccompLevel) -> Result<BpfProgram, Sec
     match seccomp_level {
         SeccompLevel::None => Ok(vec![]),
         SeccompLevel::Basic => default_filter()
-            .and_then(|filter| Ok(filter.allow_all()))
+            .map(|filter| filter.allow_all())
             .and_then(|filter| filter.try_into())
             .map_err(SeccompError::SeccompFilter),
         SeccompLevel::Advanced => default_filter()

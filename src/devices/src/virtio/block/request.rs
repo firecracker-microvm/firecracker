@@ -344,20 +344,20 @@ mod tests {
             let request_header = RequestHeader::new(VIRTIO_BLK_T_OUT, 114);
             m.write_obj::<RequestHeader>(request_header, GuestAddress(0x1000))
                 .unwrap();
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::UnexpectedWriteOnlyDescriptor) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::UnexpectedWriteOnlyDescriptor)
+            ));
         }
 
         {
             let mut q = vq.create_queue();
             // Chain too short: no data_descriptor.
             vq.dtable[request_type_descriptor].flags.set(0);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::DescriptorChainTooShort) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::DescriptorChainTooShort)
+            ));
         }
 
         {
@@ -367,10 +367,10 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT);
             vq.dtable[data_descriptor].set(0x2000, 0x1000, 0, 2);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::DescriptorChainTooShort) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::DescriptorChainTooShort)
+            ));
         }
 
         {
@@ -380,10 +380,10 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             vq.dtable[status_descriptor].set(0x3000, 0, 0, 0);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::UnexpectedWriteOnlyDescriptor) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::UnexpectedWriteOnlyDescriptor)
+            ));
         }
 
         {
@@ -392,10 +392,10 @@ mod tests {
             m.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
                 .unwrap();
             vq.dtable[data_descriptor].flags.set(VIRTQ_DESC_F_NEXT);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::UnexpectedReadOnlyDescriptor) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::UnexpectedReadOnlyDescriptor)
+            ));
         }
 
         {
@@ -404,10 +404,10 @@ mod tests {
             m.write_obj::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
                 .unwrap();
             vq.dtable[data_descriptor].flags.set(VIRTQ_DESC_F_NEXT);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::UnexpectedReadOnlyDescriptor) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::UnexpectedReadOnlyDescriptor)
+            ));
         }
 
         {
@@ -416,20 +416,20 @@ mod tests {
             vq.dtable[data_descriptor]
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::UnexpectedReadOnlyDescriptor) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::UnexpectedReadOnlyDescriptor)
+            ));
         }
 
         {
             let mut q = vq.create_queue();
             // Status descriptor too small.
             vq.dtable[status_descriptor].flags.set(VIRTQ_DESC_F_WRITE);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::DescriptorLengthTooSmall) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::DescriptorLengthTooSmall)
+            ));
         }
 
         {
@@ -440,10 +440,10 @@ mod tests {
             vq.dtable[status_descriptor]
                 .addr
                 .set(m.last_addr().raw_value());
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(_))) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(_)))
+            ));
         }
 
         {
@@ -454,10 +454,10 @@ mod tests {
             vq.dtable[data_descriptor]
                 .addr
                 .set(m.last_addr().raw_value());
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(_))) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(_)))
+            ));
         }
 
         {
