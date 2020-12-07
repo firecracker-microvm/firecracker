@@ -21,6 +21,7 @@ use crate::{
     vmm_config::machine_config::CpuFeaturesTemplate, vstate::vm::Vm, FC_EXIT_CODE_GENERIC_ERROR,
     FC_EXIT_CODE_OK,
 };
+use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
 use logger::{error, info, IncMetric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
@@ -473,6 +474,26 @@ impl Vcpu {
                         VcpuExit::InternalError
                     )))
                 }
+                VcpuExit::SystemEvent(event_type, event_flags) => match event_type {
+                    KVM_SYSTEM_EVENT_RESET | KVM_SYSTEM_EVENT_SHUTDOWN => {
+                        info!(
+                            "Received KVM_SYSTEM_EVENT: type: {}, event: {}",
+                            event_type, event_flags
+                        );
+                        Ok(VcpuEmulation::Stopped)
+                    }
+                    _ => {
+                        METRICS.vcpu.failures.inc();
+                        error!(
+                            "Received KVM_SYSTEM_EVENT signal type: {}, flag: {}",
+                            event_type, event_flags
+                        );
+                        Err(Error::FaultyKvmExit(format!(
+                            "{:?}",
+                            VcpuExit::SystemEvent(event_type, event_flags)
+                        )))
+                    }
+                },
                 arch_specific_reason => {
                     // run specific architecture emulation.
                     self.kvm_vcpu.run_arch_emulation(arch_specific_reason)
