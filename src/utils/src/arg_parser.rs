@@ -248,10 +248,7 @@ impl Value {
     }
 
     fn as_flag(&self) -> bool {
-        match self {
-            Value::Flag => true,
-            _ => false,
-        }
+        matches!(self, Value::Flag)
     }
 
     fn as_multiple(&self) -> Option<&[String]> {

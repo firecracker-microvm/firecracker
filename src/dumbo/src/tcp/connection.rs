@@ -310,10 +310,7 @@ impl Connection {
             return false;
         }
 
-        match parse_mss_option(segment) {
-            Ok(mss) if mss == self.mss => true,
-            _ => false,
-        }
+        matches!(parse_mss_option(segment), Ok(mss) if mss == self.mss)
     }
 
     fn reset_for_segment<T: NetworkBytes>(&mut self, s: &TcpSegment<T>) {
@@ -334,10 +331,7 @@ impl Connection {
     // has been ACKed by the other endpoint, and no FIN has been previously sent.
     fn can_send_first_fin(&self) -> bool {
         !self.fin_sent()
-            && match self.send_fin {
-                Some(fin_seq) if fin_seq == self.highest_ack_received => true,
-                _ => false,
-            }
+            && matches!(self.send_fin, Some(fin_seq) if fin_seq == self.highest_ack_received)
     }
 
     // Returns the window size which should be written to an outgoing segment. This is going to be

@@ -404,11 +404,10 @@ impl Net {
 
         // Check for guest MAC spoofing.
         if let Some(mac) = guest_mac {
-            let _ = EthernetFrame::from_bytes(checked_frame(frame_buf)?).and_then(|eth_frame| {
+            let _ = EthernetFrame::from_bytes(checked_frame(frame_buf)?).map(|eth_frame| {
                 if mac != eth_frame.src_mac() {
                     METRICS.net.tx_spoofed_mac_count.inc();
                 }
-                Ok(())
             });
         }
 
