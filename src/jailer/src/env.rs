@@ -221,7 +221,7 @@ impl Env {
             .map_err(|e| Error::ChangeFileOwner(PathBuf::from(dev_path.to_str().unwrap()), e))
     }
 
-    pub fn setup_jailed_folder(&self, folder: &[u8]) -> Result<()> {
+    fn setup_jailed_folder(&self, folder: &[u8]) -> Result<()> {
         let folder_cstr = CStr::from_bytes_with_nul(folder).map_err(Error::FromBytesWithNul)?;
 
         // Safe to unwrap as the byte sequence is UTF-8 validated above.
