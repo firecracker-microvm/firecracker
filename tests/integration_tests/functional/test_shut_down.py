@@ -4,6 +4,7 @@
 import os
 import time
 import json
+import platform
 
 import framework.utils as utils
 
@@ -68,6 +69,11 @@ def test_reboot(test_microvm_with_ssh, network_config):
     # Consume existing metrics
     lines = metrics_fifo.sequential_reader(100)
     assert len(lines) == 1
+
+    if platform.machine() != "x86_64":
+        log_data = test_microvm.log_data
+        assert "Received KVM_SYSTEM_EVENT: type: 2, event: 0" in log_data
+        assert "Vmm is stopping." in log_data
 
     # Make sure that the FC process was not killed by a seccomp fault
     assert json.loads(lines[0])["seccomp"]["num_faults"] == 0
