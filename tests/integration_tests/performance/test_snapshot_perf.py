@@ -39,9 +39,6 @@ CREATE_LATENCY_BASELINES = {
 LOAD_LATENCY_BASELINES = {
     '2vcpu_256mb.json': 8,
     '2vcpu_512mb.json': 8,
-    # We are also tracking restore from older version latency.
-    # Snapshot properties: 2vCPU, 512MB RAM, 1 disk, 1 network iface.
-    '0.23.0': 80,
 }
 
 
@@ -287,14 +284,12 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
             exit_code, _, _ = ssh_connection.execute_command("sync")
             assert exit_code == 0
 
-            # Create a snapshot builder from a microvm.
-            snapshot_builder = SnapshotBuilder(vm_instance.vm)
-
             # The snapshot builder expects disks as paths, not artifacts.
             disks = []
             for disk in vm_instance.disks:
                 disks.append(disk.local_path())
 
+            # Create a snapshot builder from a microvm.
             snapshot_builder = SnapshotBuilder(vm_instance.vm)
             snapshot = snapshot_builder.create(disks,
                                                vm_instance.ssh_key,
@@ -321,7 +316,7 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
                     value = cur_value / USEC_IN_MSEC
                     break
 
-            baseline = LOAD_LATENCY_BASELINES[fc_version]
+            baseline = LOAD_LATENCY_BASELINES['2vcpu_512mb.json']
             logger.info("Latency %s/%s: %s ms", i + 1, SAMPLE_COUNT, value)
             assert baseline > value, "LoadSnapshot latency degraded."
             microvm.kill()
