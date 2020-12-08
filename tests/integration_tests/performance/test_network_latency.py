@@ -14,7 +14,7 @@ from framework.builder import MicrovmBuilder
 from framework.statistics import core, consumer, producer, types, criteria,\
     function
 from framework.utils import eager_map, CpuMap
-from framework.builder import DEFAULT_HOST_IP
+from framework.artifacts import DEFAULT_HOST_IP
 
 
 PING = "ping -c {} -i {} {}"
