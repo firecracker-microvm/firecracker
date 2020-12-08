@@ -493,7 +493,6 @@ impl Vcpu {
                         VcpuExit::InternalError
                     )))
                 }
-<<<<<<< HEAD
                 VcpuExit::SystemEvent(event_type, event_flags) => match event_type {
                     KVM_SYSTEM_EVENT_RESET | KVM_SYSTEM_EVENT_SHUTDOWN => {
                         info!(
@@ -514,7 +513,6 @@ impl Vcpu {
                         )))
                     }
                 },
-=======
                 // Either a breakpoint was reached or we are single-stepping
                 VcpuExit::Debug => {
                     let regular_regs = self.kvm_vcpu.fd.get_regs().unwrap();
@@ -596,7 +594,6 @@ impl Vcpu {
 
                     Ok(VcpuEmulation::Handled)
                 }
->>>>>>> 0af7df83... GDB server: Add initial implementation
                 arch_specific_reason => {
                     // run specific architecture emulation.
                     self.kvm_vcpu.run_arch_emulation(arch_specific_reason)

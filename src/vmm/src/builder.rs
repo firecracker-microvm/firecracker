@@ -303,17 +303,8 @@ pub fn build_microvm_for_boot(
             .ok_or(MissingMemSizeConfig)?,
         track_dirty_pages,
     )?;
-<<<<<<< HEAD
-    guest_memory.with_regions(|idx, region|{ println!("MRMEESEEKS");unsafe {println!("{} {}", (*region).as_slice().unwrap()[0], (*region).start_addr().0); } Err("")});
-=======
->>>>>>> 0af7df83... GDB server: Add initial implementation
     let vcpu_config = vm_resources.vcpu_config();
-<<<<<<< HEAD
-    let entry_addr = load_kernel(boot_config, &guest_memory)?;
-=======
-    let track_dirty_pages = vm_resources.track_dirty_pages();
     let (entry_addr, e_phdrs) = load_kernel(boot_config, &guest_memory)?;
->>>>>>> 4699a398... GDB server: Refactor initial implementation
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -835,6 +826,17 @@ fn attach_unixsock_vsock_device(
     attach_virtio_device(event_manager, vmm, id, unix_vsock.clone(), cmdline)
 }
 
+fn attach_balloon_device(
+    vmm: &mut Vmm,
+    cmdline: &mut KernelCmdline,
+    balloon: &Arc<Mutex<Balloon>>,
+    event_manager: &mut EventManager,
+) -> std::result::Result<(), StartMicrovmError> {
+    let id = String::from(balloon.lock().expect("Poisoned lock").id());
+    // The device mutex mustn't be locked here otherwise it will deadlock.
+    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
+}
+
 fn vmm_run_gdb_server(
     vmm_mem: GuestMemoryMmap,
     receiver: Receiver<gdb_server::DebugEvent>,
@@ -862,17 +864,6 @@ fn vmm_run_gdb_server(
     }
 
     Ok(())
-}
-
-fn attach_balloon_device(
-    vmm: &mut Vmm,
-    cmdline: &mut KernelCmdline,
-    balloon: &Arc<Mutex<Balloon>>,
-    event_manager: &mut EventManager,
-) -> std::result::Result<(), StartMicrovmError> {
-    let id = String::from(balloon.lock().expect("Poisoned lock").id());
-    // The device mutex mustn't be locked here otherwise it will deadlock.
-    attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
 }
 
 #[cfg(test)]

@@ -139,15 +139,14 @@ fn main() {
                 .help("Whether or not to load boot timer device for logging elapsed time since InstanceStart command.")
         )
         .arg(
-<<<<<<< HEAD
             Argument::new("version")
                 .takes_value(false)
                 .help("Print the binary version number and a list of supported snapshot data format versions.")
-=======
+        )
+        .arg(
             Argument::new("debugger")
                 .takes_value(false)
                 .help("Whether or not to launch the guest microvm under GDB")
->>>>>>> 4a969fb7... GDB server: Add command-line option for GDB
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {
@@ -227,14 +226,9 @@ fn main() {
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
-<<<<<<< HEAD
     let boot_timer_enabled = arguments.flag_present("boot-timer");
     let api_enabled = !arguments.flag_present("no-api");
-=======
-    let boot_timer_enabled = arguments.value_as_bool("boot-timer").unwrap_or(false);
-    let api_enabled = !arguments.value_as_bool("no-api").unwrap_or(false);
-    let debugger_enabled = arguments.value_as_bool("debugger").unwrap_or(false);
->>>>>>> 4a969fb7... GDB server: Add command-line option for GDB
+    let debugger_enabled = arguments.flag_present("debugger");
 
     if api_enabled {
         let bind_path = arguments
