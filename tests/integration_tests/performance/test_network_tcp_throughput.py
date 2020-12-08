@@ -16,7 +16,8 @@ from framework.builder import MicrovmBuilder
 from framework.statistics import core, consumer, producer, criteria,  types, \
     function
 from framework.utils import CpuMap, CmdBuilder, run_cmd, eager_map, \
-    get_cpu_percent, get_cpu_model_name
+    get_cpu_percent
+from framework.utils_cpuid import get_cpu_model_name
 import host_tools.network as net_tools
 from integration_tests.performance.network_tcp_throughput_test_config import \
     THROUGHPUT, DURATION, RETRANSMITS, CPU_UTILIZATION_HOST, \
