@@ -5,8 +5,9 @@
 import platform
 import re
 import pytest
-from framework.utils import CpuVendor, get_cpu_vendor
-import host_tools.network as net_tools  # pylint: disable=import-error
+
+import framework.utils_cpuid as utils
+import host_tools.network as net_tools
 
 
 def _check_guest_cmd_output(test_microvm, guest_cmd, expected_header,
@@ -87,8 +88,8 @@ def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
     expected_lvl_3_str = '{} ({})'.format(hex(num_vcpus_on_lvl_3_cache),
                                           num_vcpus_on_lvl_3_cache)
 
-    cpu_vendor = get_cpu_vendor()
-    if cpu_vendor == CpuVendor.AMD:
+    cpu_vendor = utils.get_cpu_vendor()
+    if cpu_vendor == utils.CpuVendor.AMD:
         expected_level_1_topology = {
             "level": '0x1 (1)',
             "extra cores sharing this cache": expected_lvl_1_str
@@ -97,7 +98,7 @@ def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
             "level": '0x3 (3)',
             "extra cores sharing this cache": expected_lvl_3_str
         }
-    elif cpu_vendor == CpuVendor.INTEL:
+    elif cpu_vendor == utils.CpuVendor.INTEL:
         expected_level_1_topology = {
             "cache level": '0x1 (1)',
             "extra threads sharing this cache": expected_lvl_1_str,
@@ -260,11 +261,11 @@ def test_brand_string(test_microvm_with_ssh, network_config):
     guest_brand_string = mo.group(1)
     assert guest_brand_string
 
-    cpu_vendor = get_cpu_vendor()
+    cpu_vendor = utils.get_cpu_vendor()
     expected_guest_brand_string = ""
-    if cpu_vendor == CpuVendor.AMD:
+    if cpu_vendor == utils.CpuVendor.AMD:
         expected_guest_brand_string += "AMD EPYC"
-    elif cpu_vendor == CpuVendor.INTEL:
+    elif cpu_vendor == utils.CpuVendor.INTEL:
         expected_guest_brand_string = "Intel(R) Xeon(R) Processor"
         mo = re.search("[.0-9]+[MG]Hz", host_brand_string)
         if mo:
@@ -307,7 +308,7 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
     response = test_microvm.actions.put(action_type='InstanceStart')
-    if get_cpu_vendor() != CpuVendor.INTEL:
+    if utils.get_cpu_vendor() != utils.CpuVendor.INTEL:
         # We shouldn't be able to apply Intel templates on AMD hosts
         assert test_microvm.api_session.is_status_bad_request(
             response.status_code)
