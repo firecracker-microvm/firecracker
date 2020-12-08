@@ -238,8 +238,9 @@ class SnapshotArtifact:
 
         return Snapshot(dst_mem_path,
                         dst_state_file,
-                        disk_paths,
-                        dst_ssh_key)
+                        disks=disk_paths,
+                        net_ifaces=None,
+                        ssh_key=dst_ssh_key)
 
 
 class DiskArtifact(Artifact):
@@ -433,7 +434,7 @@ class SnapshotType(Enum):
 class Snapshot:
     """Manages Firecracker snapshots."""
 
-    def __init__(self, mem, vmstate, disks, ssh_key):
+    def __init__(self, mem, vmstate, disks, net_ifaces, ssh_key):
         """Initialize mem, vmstate, disks, key."""
         assert mem is not None
         assert vmstate is not None
@@ -443,6 +444,7 @@ class Snapshot:
         self._vmstate = vmstate
         self._disks = disks
         self._ssh_key = ssh_key
+        self._net_ifaces = net_ifaces
 
     def rebase_snapshot(self, base):
         """Rebases current incremental snapshot onto a specified base layer."""
@@ -468,3 +470,58 @@ class Snapshot:
     def ssh_key(self):
         """Return the ssh key file path."""
         return self._ssh_key
+
+    @property
+    def net_ifaces(self):
+        """Return the list of net interface configs."""
+        return self._net_ifaces
+
+
+# Default configuration values for network interfaces.
+DEFAULT_HOST_IP = "192.168.0.1"
+DEFAULT_GUEST_IP = "192.168.0.2"
+DEFAULT_TAP_NAME = "tap0"
+DEFAULT_DEV_NAME = "eth0"
+DEFAULT_NETMASK = 30
+
+
+class NetIfaceConfig:
+    """Defines a network interface configuration."""
+
+    def __init__(self,
+                 host_ip=DEFAULT_HOST_IP,
+                 guest_ip=DEFAULT_GUEST_IP,
+                 tap_name=DEFAULT_TAP_NAME,
+                 dev_name=DEFAULT_DEV_NAME,
+                 netmask=DEFAULT_NETMASK):
+        """Initialize object."""
+        self._host_ip = host_ip
+        self._guest_ip = guest_ip
+        self._tap_name = tap_name
+        self._dev_name = dev_name
+        self._netmask = netmask
+
+    @property
+    def host_ip(self):
+        """Return the host IP."""
+        return self._host_ip
+
+    @property
+    def guest_ip(self):
+        """Return the guest IP."""
+        return self._guest_ip
+
+    @property
+    def tap_name(self):
+        """Return the tap device name."""
+        return self._tap_name
+
+    @property
+    def dev_name(self):
+        """Return the guest device name."""
+        return self._dev_name
+
+    @property
+    def netmask(self):
+        """Return the netmask."""
+        return self._netmask

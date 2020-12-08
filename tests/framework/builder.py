@@ -7,17 +7,12 @@ import os
 import tempfile
 from pathlib import Path
 from conftest import init_microvm
-from framework.artifacts import Artifact, DiskArtifact, Snapshot, SnapshotType
+from framework.artifacts import (
+    Artifact, DiskArtifact, Snapshot, SnapshotType, NetIfaceConfig
+)
 import framework.utils as utils
 import host_tools.logging as log_tools
 import host_tools.network as net_tools
-
-
-DEFAULT_HOST_IP = "192.168.0.1"
-DEFAULT_GUEST_IP = "192.168.0.2"
-DEFAULT_TAP_NAME = "tap0"
-DEFAULT_DEV_NAME = "eth0"
-DEFAULT_NETMASK = 30
 
 
 class MicrovmBuilder:
@@ -55,7 +50,7 @@ class MicrovmBuilder:
               disks: [DiskArtifact],
               ssh_key: Artifact,
               config: Artifact,
-              network_config: net_tools.UniqueIPv4Generator = None,
+              net_ifaces=None,
               enable_diff_snapshots=False,
               cpu_template=None):
         """Build a fresh microvm."""
@@ -73,25 +68,27 @@ class MicrovmBuilder:
         ssh_key.download(self.root_path)
         vm.ssh_config['ssh_key_path'] = ssh_key.local_path()
         os.chmod(vm.ssh_config['ssh_key_path'], 0o400)
-        if network_config:
-            (host_ip, guest_ip) = network_config.get_next_available_ips(2)
+
+        # Provide a default network configuration.
+        if net_ifaces is None or len(net_ifaces) == 0:
+            ifaces = [NetIfaceConfig()]
         else:
-            host_ip, guest_ip = DEFAULT_HOST_IP, DEFAULT_GUEST_IP
-        vm.create_tap_and_ssh_config(host_ip=host_ip,
-                                     guest_ip=guest_ip,
-                                     netmask_len=DEFAULT_NETMASK,
-                                     tapname=DEFAULT_TAP_NAME)
+            ifaces = net_ifaces
 
-        # TODO: propper network configuraiton with artifacts.
-        guest_mac = net_tools.mac_from_ip(guest_ip)
-        response = vm.network.put(
-            iface_id=DEFAULT_DEV_NAME,
-            host_dev_name=DEFAULT_TAP_NAME,
-            guest_mac=guest_mac,
-            allow_mmds_requests=True,
-        )
-
-        assert vm.api_session.is_status_no_content(response.status_code)
+        # Configure network interfaces using artifacts.
+        for iface in ifaces:
+            vm.create_tap_and_ssh_config(host_ip=iface.host_ip,
+                                         guest_ip=iface.guest_ip,
+                                         netmask_len=iface.netmask,
+                                         tapname=iface.tap_name)
+            guest_mac = net_tools.mac_from_ip(iface.guest_ip)
+            response = vm.network.put(
+                iface_id=iface.dev_name,
+                host_dev_name=iface.tap_name,
+                guest_mac=guest_mac,
+                allow_mmds_requests=True,
+            )
+            assert vm.api_session.is_status_no_content(response.status_code)
 
         with open(config.local_path()) as microvm_config_file:
             microvm_config = json.load(microvm_config_file)
@@ -144,16 +141,16 @@ class MicrovmBuilder:
             _jailed_disks.append(vm.create_jailed_resource(disk))
         vm.ssh_config['ssh_key_path'] = snapshot.ssh_key
 
-        vm.create_tap_and_ssh_config(host_ip=DEFAULT_HOST_IP,
-                                     guest_ip=DEFAULT_GUEST_IP,
-                                     netmask_len=DEFAULT_NETMASK,
-                                     tapname=DEFAULT_TAP_NAME)
-
+        # Create network interfaces.
+        for iface in snapshot.net_ifaces:
+            vm.create_tap_and_ssh_config(host_ip=iface.host_ip,
+                                         guest_ip=iface.guest_ip,
+                                         netmask_len=iface.netmask,
+                                         tapname=iface.tap_name)
         response = vm.snapshot.load(mem_file_path=jailed_mem,
                                     snapshot_path=jailed_vmstate,
                                     diff=enable_diff_snapshots,
                                     resume=resume)
-
         assert vm.api_session.is_status_no_content(response.status_code)
 
         # Reset root path so next microvm is built some place else.
@@ -192,7 +189,8 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
                snapshot_type: SnapshotType = SnapshotType.FULL,
                target_version: str = None,
                mem_file_name: str = "vm.mem",
-               snapshot_name: str = "vm.vmstate"):
+               snapshot_name: str = "vm.vmstate",
+               net_ifaces=None):
         """Create a Snapshot object from a microvm and artifacts."""
         # Disable API timeout as the APIs for snapshot related procedures
         # take longer.
@@ -215,4 +213,5 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
                         # in S3. This should be done in a PR where we add tests
                         # that resume from S3 snapshot artifacts.
                         disks=disks,
+                        net_ifaces=net_ifaces or [NetIfaceConfig()],
                         ssh_key=ssh_key_copy.local_path())
