@@ -7,10 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-vm-memory = { version = ">=0.2.0", features = ["backend-mmap"] }
-kvm-ioctls = { git = "https://github.com/firecracker-microvm/kvm-ioctls", tag = "v0.5.0-2" }
+vm-memory = { path = "../vm-memory" }
 kernel = { path = "../kernel" }
-kvm-bindings = { git = "https://github.com/firecracker-microvm/kvm-bindings", tag = "v0.2.0-2", features = ["fam-wrappers"] }
+kvm-bindings = { version = "0.3.0", features = ["fam-wrappers"] }
+kvm-ioctls = { version = "0.6.0" }
 gdbstub = "0.3.0"
 vmm-sys-util = ">=0.2.1"
 arch = { path = "../arch" }
