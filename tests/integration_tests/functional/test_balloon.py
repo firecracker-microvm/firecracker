@@ -120,29 +120,8 @@ def copy_util_to_rootfs(rootfs_path, util):
     subprocess.check_call("rmdir tmpfs", shell=True)
 
 
-# pylint: disable=C0103
-def test_rss_memory_lower(test_microvm_with_ssh_and_balloon, network_config):
+def _test_rss_memory_lower(test_microvm):
     """Check inflating the balloon makes guest use less rss memory."""
-    test_microvm = test_microvm_with_ssh_and_balloon
-    test_microvm.spawn()
-    test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
-    test_microvm.ssh_config['ssh_key_path'] = os.path.join(
-        test_microvm.fsfiles,
-        'debian.rootfs.id_rsa'
-    )
-
-    # Add a memory balloon.
-    response = test_microvm.balloon.put(
-        amount_mb=0,
-        deflate_on_oom=True,
-        stats_polling_interval_s=0
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Start the microvm.
-    test_microvm.start()
-
     # Get the firecracker pid, and open an ssh connection.
     firecracker_pid = test_microvm.jailer_clone_pid
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
@@ -170,6 +149,32 @@ def test_rss_memory_lower(test_microvm_with_ssh_and_balloon, network_config):
 
     # Check that the ballooning reclaimed the memory.
     assert balloon_rss - init_rss <= 15000
+
+
+# pylint: disable=C0103
+def test_rss_memory_lower(test_microvm_with_ssh_and_balloon, network_config):
+    """Check inflating the balloon makes guest use less rss memory."""
+    test_microvm = test_microvm_with_ssh_and_balloon
+    test_microvm.spawn()
+    test_microvm.basic_config()
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    test_microvm.ssh_config['ssh_key_path'] = os.path.join(
+        test_microvm.fsfiles,
+        'debian.rootfs.id_rsa'
+    )
+
+    # Add a memory balloon.
+    response = test_microvm.balloon.put(
+        amount_mb=0,
+        deflate_on_oom=True,
+        stats_polling_interval_s=0
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Start the microvm.
+    test_microvm.start()
+
+    _test_rss_memory_lower(test_microvm)
 
 
 # pylint: disable=C0103
