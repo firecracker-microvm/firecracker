@@ -282,6 +282,66 @@ impl Env {
             .map_err(Error::CloseNetNsFd)
     }
 
+    #[cfg(target_arch = "aarch64")]
+    fn copy_cache_info(&self) -> Result<()> {
+        use crate::{readln_special, to_cstring, writeln_special};
+
+        const HOST_CACHE_INFO: &str = "/sys/devices/system/cpu/cpu0/cache";
+        // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
+        const MAX_CACHE_LEVEL: u8 = 7;
+        // These are the files that we need to copy in the chroot so that we can create the
+        // cache topology.
+        const FOLDER_HIERARCHY: [&str; 6] = [
+            "size",
+            "level",
+            "type",
+            "shared_cpu_map",
+            "coherency_line_size",
+            "number_of_sets",
+        ];
+
+        // We create the cache folder inside the chroot and then change its permissions.
+        let jailer_cache_dir =
+            Path::new(self.chroot_dir()).join("sys/devices/system/cpu/cpu0/cache/");
+        fs::create_dir_all(&jailer_cache_dir)
+            .map_err(|e| Error::CreateDir(jailer_cache_dir.to_owned(), e))?;
+
+        for index in 0..(MAX_CACHE_LEVEL + 1) {
+            let index_folder = format!("index{}", index);
+            let host_path = PathBuf::from(HOST_CACHE_INFO).join(&index_folder);
+
+            if fs::metadata(&host_path).is_err() {
+                // It means the folder does not exist, i.e we exhausted the number of cache levels
+                // existent on the host.
+                break;
+            }
+
+            // We now create the destination folder in the jailer.
+            let jailer_path = jailer_cache_dir.join(&index_folder);
+            fs::create_dir_all(&jailer_path)
+                .map_err(|e| Error::CreateDir(jailer_path.to_owned(), e))?;
+
+            // We now read the contents of the current directory and copy the files we are interested in
+            // to the destination path.
+            for entry in FOLDER_HIERARCHY.iter() {
+                let host_cache_file = host_path.join(&entry);
+                let jailer_cache_file = jailer_path.join(&entry);
+
+                let line = readln_special(&host_cache_file)?;
+                writeln_special(&jailer_cache_file, line)?;
+
+                // We now change the permissions.
+                let dest_path_cstr = to_cstring(&jailer_cache_file)?;
+                SyscallReturnCode(unsafe {
+                    libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
+                })
+                .into_empty_result()
+                .map_err(|e| Error::ChangeFileOwner(jailer_cache_file.to_owned(), e))?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn run(mut self) -> Result<()> {
         let exec_file_name = self.copy_exec_to_chroot()?;
         let chroot_exec_file = PathBuf::from("/").join(&exec_file_name);
@@ -320,6 +380,8 @@ impl Env {
         } else {
             None
         };
+        #[cfg(target_arch = "aarch64")]
+        self.copy_cache_info()?;
 
         // Jail self.
         chroot(self.chroot_dir())?;
