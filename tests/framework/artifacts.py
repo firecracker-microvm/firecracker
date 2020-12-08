@@ -376,6 +376,10 @@ class ArtifactCollection:
             keyword=keyword
         )
 
+    def firecracker_versions(self):
+        """Return fc/jailer artifacts' versions for the current arch."""
+        return [fc.base_name()[1:] for fc in self.firecrackers()]
+
     def kernels(self, keyword=None):
         """Return kernel artifacts for the current arch."""
         return self._fetch_artifacts(
