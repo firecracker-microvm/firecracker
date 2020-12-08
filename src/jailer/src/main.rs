@@ -322,7 +322,7 @@ fn sanitize_process() {
 /// Turns an AsRef<Path> into a CString (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
-fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
+pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
     let path_str = path
         .as_ref()
         .to_path_buf()
