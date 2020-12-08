@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::{Error, Result};
+use crate::aarch64::gic::{Error, Result};
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 

@@ -1,19 +1,17 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-mod dist_regs;
 mod gicv2;
 mod gicv3;
-mod icc_regs;
-mod redist_regs;
+mod regs;
 
 use std::{boxed::Box, result};
 
 use kvm_ioctls::{DeviceFd, VmFd};
 
-pub use self::dist_regs::{get_dist_regs, set_dist_regs};
-pub use self::icc_regs::{get_icc_regs, set_icc_regs};
-pub use self::redist_regs::{get_redist_regs, set_redist_regs};
+pub use self::regs::dist_regs::{get_dist_regs, set_dist_regs};
+pub use self::regs::icc_regs::{get_icc_regs, set_icc_regs};
+pub use self::regs::redist_regs::{get_redist_regs, set_redist_regs};
 use {super::layout, gicv2::GICv2, gicv3::GICv3};
 
 /// Errors thrown while setting up the GIC.
