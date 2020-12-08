@@ -4,12 +4,12 @@
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process;
 
 use regex::Regex;
 
-use super::{Error, Result};
+use crate::{readln_special, writeln_special, Error, Result};
 
 const PROC_MOUNTS: &str = "/proc/mounts";
 const NODE_TO_CPULIST: &str = "/sys/devices/system/node/node"; // This constant should be removed once the `--node` argument is removed.
@@ -18,27 +18,6 @@ pub struct Cgroup {
     file: String,      // file representing the cgroup (e.g cpuset.mems).
     value: String,     // value that will be written into the file.
     location: PathBuf, // microVM cgroup location for the specific controller.
-}
-
-// It's called writeln_special because we have to use this rather convoluted way of writing
-// to special cgroup files, to avoid getting errors. It would be nice to know why that happens :-s
-fn writeln_special<T, V>(file_path: &T, value: V) -> Result<()>
-where
-    T: AsRef<Path>,
-    V: ::std::fmt::Display,
-{
-    fs::write(file_path, format!("{}\n", value))
-        .map_err(|e| Error::Write(PathBuf::from(file_path.as_ref()), e))
-}
-
-fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
-    let mut line = fs::read_to_string(file_path)
-        .map_err(|e| Error::ReadToString(PathBuf::from(file_path.as_ref()), e))?;
-
-    // Remove the newline character at the end (if any).
-    line.pop();
-
-    Ok(line)
 }
 
 // If we call inherit_from_parent_aux(.../A/B/C, file, condition), the following will happen:
