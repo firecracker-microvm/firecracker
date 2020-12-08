@@ -10,47 +10,6 @@ import framework.utils_cpuid as utils
 import host_tools.network as net_tools
 
 
-def _check_guest_cmd_output(test_microvm, guest_cmd, expected_header,
-                            expected_separator,
-                            expected_key_value_store):
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-    _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
-
-    assert stderr.read() == ''
-    while True:
-        line = stdout.readline()
-        if line != '':
-            # All the keys have been matched. Stop.
-            if not expected_key_value_store:
-                break
-
-            # Try to match the header if needed.
-            if expected_header not in (None, ''):
-                if line.strip() == expected_header:
-                    expected_header = None
-                continue
-
-            # See if any key matches.
-            # We Use a try-catch block here since line.split() may fail.
-            try:
-                [key, value] = list(
-                    map(lambda x: x.strip(), line.split(expected_separator)))
-            except ValueError:
-                continue
-
-            if key in expected_key_value_store.keys():
-                assert value == expected_key_value_store[key], \
-                    "%s does not have the expected value" % key
-                del expected_key_value_store[key]
-
-        else:
-            break
-
-    assert not expected_key_value_store, \
-        "some keys in dictionary have not been found in the output: %s" \
-        % expected_key_value_store
-
-
 def _check_cpu_topology(test_microvm, expected_cpu_count,
                         expected_threads_per_core,
                         expected_cpus_list):
@@ -64,8 +23,8 @@ def _check_cpu_topology(test_microvm, expected_cpu_count,
         "NUMA node(s)": "1"
     }
 
-    _check_guest_cmd_output(test_microvm, "lscpu", None, ':',
-                            expected_cpu_topology)
+    utils.check_guest_cpuid_output(test_microvm, "lscpu", None, ':',
+                                   expected_cpu_topology)
 
 
 def _check_cpu_features(test_microvm, expected_cpu_count, expected_htt):
@@ -77,12 +36,13 @@ def _check_cpu_features(test_microvm, expected_cpu_count, expected_htt):
         "hyper-threading / multi-core supported": expected_htt
     }
 
-    _check_guest_cmd_output(test_microvm, "cpuid -1", None, '=',
-                            expected_cpu_features)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   expected_cpu_features)
 
 
 def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
                           num_vcpus_on_lvl_3_cache):
+    vm = test_microvm
     expected_lvl_1_str = '{} ({})'.format(hex(num_vcpus_on_lvl_1_cache),
                                           num_vcpus_on_lvl_1_cache)
     expected_lvl_3_str = '{} ({})'.format(hex(num_vcpus_on_lvl_3_cache),
@@ -108,14 +68,14 @@ def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
             "extra threads sharing this cache": expected_lvl_3_str,
         }
 
-    _check_guest_cmd_output(test_microvm, "cpuid -1", "--- cache 0 ---", '=',
-                            expected_level_1_topology)
-    _check_guest_cmd_output(test_microvm, "cpuid -1", "--- cache 1 ---", '=',
-                            expected_level_1_topology)
-    _check_guest_cmd_output(test_microvm, "cpuid -1", "--- cache 2 ---", '=',
-                            expected_level_1_topology)
-    _check_guest_cmd_output(test_microvm, "cpuid -1", "--- cache 3 ---", '=',
-                            expected_level_3_topology)
+    utils.check_guest_cpuid_output(vm, "cpuid -1", "--- cache 0 ---", '=',
+                                   expected_level_1_topology)
+    utils.check_guest_cpuid_output(vm, "cpuid -1", "--- cache 1 ---", '=',
+                                   expected_level_1_topology)
+    utils.check_guest_cpuid_output(vm, "cpuid -1", "--- cache 2 ---", '=',
+                                   expected_level_1_topology)
+    utils.check_guest_cpuid_output(vm, "cpuid -1", "--- cache 3 ---", '=',
+                                   expected_level_3_topology)
 
 
 @pytest.mark.skipif(
@@ -336,5 +296,5 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
         "XCR0 supported: PKRU state": "false"
     }
 
-    _check_guest_cmd_output(test_microvm, "cpuid -1", None, '=',
-                            expected_cpu_features)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   expected_cpu_features)
