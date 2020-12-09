@@ -75,12 +75,11 @@ enum Action<'a> {
     Get(&'a mut Vec<u32>),
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn access_icc_attr(fd: &DeviceFd, offset: u64, typer: u64, val: &u32, set: bool) -> Result<()> {
+fn access_icc_attr(fd: &DeviceFd, offset: u64, typer: u64, val: &mut u32, set: bool) -> Result<()> {
     let mut gic_icc_attr = kvm_bindings::kvm_device_attr {
         group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CPU_SYSREGS,
         attr: ((typer & KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64) | offset), // this needs the mpidr
-        addr: val as *const u32 as u64,
+        addr: val as *mut u32 as u64,
         flags: 0,
     };
     if set {
@@ -122,16 +121,16 @@ fn access_icc_reg_list(fd: &DeviceFd, gicr_typer: &[u64], action: &mut Action) -
             {
                 continue;
             }
-            let val;
+            let mut val;
             match action {
                 Action::Set(state, idx) => {
                     val = state[*idx];
-                    access_icc_attr(fd, *icc_offset, *i, &val, true)?;
+                    access_icc_attr(fd, *icc_offset, *i, &mut val, true)?;
                     *idx += 1;
                 }
                 Action::Get(state) => {
                     val = 0;
-                    access_icc_attr(fd, *icc_offset, *i, &val, false)?;
+                    access_icc_attr(fd, *icc_offset, *i, &mut val, false)?;
                     state.push(val);
                 }
             }
