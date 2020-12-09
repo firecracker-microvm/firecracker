@@ -515,6 +515,22 @@ mod tests {
         arg_vec
     }
 
+    fn get_major(dev: u64) -> u32 {
+        unsafe { libc::major(dev) }
+    }
+
+    fn get_minor(dev: u64) -> u32 {
+        unsafe { libc::minor(dev) }
+    }
+
+    fn create_env() -> Env {
+        // Create a standard environment.
+        let arg_parser = build_arg_parser();
+        let mut args = arg_parser.arguments().clone();
+        args.parse(&make_args(&ArgVals::new())).unwrap();
+        Env::new(&args, 0, 0).unwrap()
+    }
+
     #[test]
     fn test_new_env() {
         let good_arg_vals = ArgVals::new();
@@ -639,10 +655,7 @@ mod tests {
 
     #[test]
     fn test_setup_jailed_folder() {
-        let arg_parser = build_arg_parser();
-        let mut args = arg_parser.arguments().clone();
-        args.parse(&make_args(&ArgVals::new())).unwrap();
-        let env = Env::new(&args, 0, 0).unwrap();
+        let env = create_env();
 
         // Error case: non UTF-8 paths.
         let bad_string: &[u8] = &[0, 102, 111, 111, 0]; // A leading nul followed by 'f', 'o', 'o'
@@ -686,23 +699,11 @@ mod tests {
         // process management; it can't be isolated from side effects.
     }
 
-    fn get_major(dev: u64) -> u32 {
-        unsafe { libc::major(dev) }
-    }
-
-    fn get_minor(dev: u64) -> u32 {
-        unsafe { libc::minor(dev) }
-    }
-
     #[test]
     fn test_mknod_and_own_dev() {
         use std::os::unix::fs::FileTypeExt;
 
-        // Create a standard environment.
-        let arg_parser = build_arg_parser();
-        let mut args = arg_parser.arguments().clone();
-        args.parse(&make_args(&ArgVals::new())).unwrap();
-        let env = Env::new(&args, 0, 0).unwrap();
+        let env = create_env();
 
         // Ensure path buffers without NULL-termination are handled well.
         assert!(env.mknod_and_own_dev(b"/some/path", 0, 0).is_err());
@@ -891,5 +892,26 @@ mod tests {
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_ok());
+    }
+
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn test_copy_cache_info() {
+        let env = create_env();
+
+        // Create the required chroot dir hierarchy.
+        fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
+
+        assert!(env.copy_cache_info().is_ok());
+
+        // Make sure that the needed files truly exist.
+        const JAILER_CACHE_INFO: &str = "sys/devices/system/cpu/cpu0/cache";
+
+        let dest_path = env.chroot_dir.join(JAILER_CACHE_INFO);
+        assert!(fs::metadata(&dest_path).is_ok());
+        let index_dest_path = dest_path.join("index0");
+        assert!(fs::metadata(&index_dest_path).is_ok());
+        let entries = fs::read_dir(&index_dest_path).unwrap();
+        assert_eq!(entries.enumerate().count(), 6);
     }
 }
