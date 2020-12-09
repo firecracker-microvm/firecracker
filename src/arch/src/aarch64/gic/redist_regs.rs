@@ -75,12 +75,17 @@ enum Action<'a> {
     Get(&'a mut Vec<u32>),
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn access_redist_attr(fd: &DeviceFd, offset: u32, typer: u64, val: &u32, set: bool) -> Result<()> {
+fn access_redist_attr(
+    fd: &DeviceFd,
+    offset: u32,
+    typer: u64,
+    val: &mut u32,
+    set: bool,
+) -> Result<()> {
     let mut gic_dist_attr = kvm_device_attr {
         group: KVM_DEV_ARM_VGIC_GRP_REDIST_REGS,
         attr: (typer & KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64) | (offset as u64), // this needs the mpidr
-        addr: val as *const u32 as u64,
+        addr: val as *mut u32 as u64,
         flags: 0,
     };
     if set {
@@ -107,12 +112,13 @@ fn access_redist_reg_list(
             while base < end {
                 match action {
                     Action::Set(state, idx) => {
-                        access_redist_attr(fd, base, *i, &state[*idx], true)?;
+                        let mut val = state[*idx];
+                        access_redist_attr(fd, base, *i, &mut val, true)?;
                         *idx += 1;
                     }
                     Action::Get(state) => {
-                        let val = 0;
-                        access_redist_attr(fd, base, *i, &val, false)?;
+                        let mut val = 0;
+                        access_redist_attr(fd, base, *i, &mut val, false)?;
                         state.push(val);
                     }
                 }

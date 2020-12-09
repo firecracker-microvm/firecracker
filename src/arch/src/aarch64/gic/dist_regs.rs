@@ -108,12 +108,11 @@ impl DistReg {
         (start..end).step_by(U32_SIZE as usize)
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn access_dist_attr(&self, fd: &DeviceFd, offset: u32, val: &u32, set: bool) -> Result<()> {
+    fn access_dist_attr(&self, fd: &DeviceFd, offset: u32, val: &mut u32, set: bool) -> Result<()> {
         let mut gic_dist_attr = kvm_bindings::kvm_device_attr {
             group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS,
             attr: offset as u64,
-            addr: val as *const u32 as u64,
+            addr: val as *mut u32 as u64,
             flags: 0,
         };
         if set {
@@ -133,12 +132,13 @@ fn access_dist_reg_list(fd: &DeviceFd, action: &mut Action) -> Result<()> {
         for offset in dreg.mem_iter() {
             match action {
                 Action::Set(state, idx) => {
-                    dreg.access_dist_attr(fd, offset, &state[*idx], true)?;
+                    let mut val = state[*idx];
+                    dreg.access_dist_attr(fd, offset, &mut val, true)?;
                     *idx += 1;
                 }
                 Action::Get(state) => {
-                    let val: u32 = 0;
-                    dreg.access_dist_attr(fd, offset, &val, false)?;
+                    let mut val = 0;
+                    dreg.access_dist_attr(fd, offset, &mut val, false)?;
                     state.push(val);
                 }
             }
