@@ -13,13 +13,17 @@ use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 
 use super::cmdline::Error as CmdlineError;
-use utils::structs::read_struct;
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 #[allow(non_camel_case_types)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 // Add here any other architecture that uses as kernel image an ELF file.
 mod elf;
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+unsafe impl ByteValued for elf::Elf64_Ehdr {}
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+unsafe impl ByteValued for elf::Elf64_Phdr {}
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -80,15 +84,13 @@ pub fn load_kernel<F>(
 where
     F: Read + Seek,
 {
-    let mut ehdr: elf::Elf64_Ehdr = Default::default();
     kernel_image
         .seek(SeekFrom::Start(0))
         .map_err(|_| Error::SeekKernelImage)?;
-    unsafe {
-        // read_struct is safe when reading a POD struct.  It can be used and dropped without issue.
-        read_struct(kernel_image, &mut ehdr)
-            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF header"))?;
-    }
+    let mut ehdr = elf::Elf64_Ehdr::default();
+    ehdr.as_bytes()
+        .read_from(0, kernel_image, mem::size_of::<elf::Elf64_Ehdr>())
+        .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF header"))?;
 
     // Sanity checks
     if ehdr.e_ident[elf::EI_MAG0 as usize] != elf::ELFMAG0 as u8
@@ -115,11 +117,17 @@ where
     kernel_image
         .seek(SeekFrom::Start(ehdr.e_phoff))
         .map_err(|_| Error::SeekProgramHeader)?;
-    let phdrs: Vec<elf::Elf64_Phdr> = unsafe {
-        // Reading the structs is safe for a slice of POD structs.
-        utils::structs::read_struct_slice(kernel_image, ehdr.e_phnum as usize)
-            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF program header"))?
-    };
+    let phdr_sz = mem::size_of::<elf::Elf64_Phdr>();
+    let mut phdrs: Vec<elf::Elf64_Phdr> = vec![];
+    for _ in 0usize..ehdr.e_phnum as usize {
+        let mut phdr = elf::Elf64_Phdr::default();
+        phdr.as_bytes()
+            .read_from(0, kernel_image, phdr_sz)
+            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF program header"))?;
+        phdrs.push(phdr);
+    }
+
+
 
     // Read in each section pointed to by the program headers.
     for phdr in &phdrs {
@@ -181,10 +189,9 @@ where
         .seek(SeekFrom::Start(AARCH64_MAGIC_OFFSET_HEADER))
         .map_err(|_| Error::SeekKernelImage)?;
     let mut magic_number: u32 = 0;
-    unsafe {
-        read_struct(kernel_image, &mut magic_number)
-            .map_err(|_| Error::ReadKernelDataStruct("Failed to read magic number"))?
-    }
+    magic_number.as_bytes()
+        .read_from(0, kernel_image, mem::size_of::<u32>())
+        .map_err(|_| Error::ReadKernelDataStruct("Failed to read magic number"))?;
     if u32::from_le(magic_number) != AARCH64_MAGIC_NUMBER {
         return Err(Error::InvalidElfMagicNumber);
     }
@@ -194,12 +201,9 @@ where
         .seek(SeekFrom::Start(AARCH64_TEXT_OFFSET)) // This should total 8.
         .map_err(|_| Error::SeekKernelImage)?;
     let mut hdrvals: [u64; 2] = [0; 2];
-    unsafe {
-        /* `read_struct` is safe when reading a POD struct. It can be used and dropped without issue. */
-        read_struct(kernel_image, &mut hdrvals).map_err(|_| {
-            Error::ReadKernelDataStruct("Failed to read kernel offset and image size")
-        })?;
-    }
+    hdrvals.as_bytes()
+        .read_from(0, kernel_image, 2 * mem::size_of::<u64>())
+        .map_err(|_| Error::ReadKernelDataStruct("Failed to read kernel offset and image size"))?;
     /* Following the boot protocol mentioned above. */
     if u64::from_le(hdrvals[1]) != 0 {
         kernel_load_offset = u64::from_le(hdrvals[0]);
