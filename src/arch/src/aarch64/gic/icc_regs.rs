@@ -71,15 +71,15 @@ static VGIC_ICC_REGS: &[u64] = &[
 
 // Helps with triggering either a register fetch or a store.
 enum Action<'a> {
-    Set(&'a [u32], usize),
-    Get(&'a mut Vec<u32>),
+    Set(&'a [u64], usize),
+    Get(&'a mut Vec<u64>),
 }
 
-fn access_icc_attr(fd: &DeviceFd, offset: u64, typer: u64, val: &mut u32, set: bool) -> Result<()> {
+fn access_icc_attr(fd: &DeviceFd, offset: u64, typer: u64, val: &mut u64, set: bool) -> Result<()> {
     let mut gic_icc_attr = kvm_bindings::kvm_device_attr {
         group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CPU_SYSREGS,
         attr: ((typer & KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64) | offset), // this needs the mpidr
-        addr: val as *mut u32 as u64,
+        addr: val as *mut u64 as u64,
         flags: 0,
     };
     if set {
@@ -143,7 +143,7 @@ fn access_icc_reg_list(fd: &DeviceFd, gicr_typer: &[u64], action: &mut Action) -
                 // "Priority bits. Read-only and writes are ignored. The number of priority bits
                 // implemented, minus one."
                 num_priority_bits =
-                    ((val & ICC_CTLR_EL1_PRIBITS_MASK) >> ICC_CTLR_EL1_PRIBITS_SHIFT) + 1;
+                    ((val & ICC_CTLR_EL1_PRIBITS_MASK as u64) >> ICC_CTLR_EL1_PRIBITS_SHIFT) + 1;
             }
         }
     }
@@ -151,15 +151,15 @@ fn access_icc_reg_list(fd: &DeviceFd, gicr_typer: &[u64], action: &mut Action) -
 }
 
 /// Get ICC registers.
-pub fn get_icc_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u32>> {
-    let mut state: Vec<u32> = Vec::new();
+pub fn get_icc_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u64>> {
+    let mut state: Vec<u64> = Vec::new();
     let mut action = Action::Get(&mut state);
     access_icc_reg_list(fd, gicr_typer, &mut action)?;
     Ok(state)
 }
 
 /// Set ICC registers.
-pub fn set_icc_regs(fd: &DeviceFd, gicr_typer: &[u64], state: &[u32]) -> Result<()> {
+pub fn set_icc_regs(fd: &DeviceFd, gicr_typer: &[u64], state: &[u64]) -> Result<()> {
     let mut action = Action::Set(state, 0);
     access_icc_reg_list(fd, gicr_typer, &mut action)
 }
@@ -170,6 +170,24 @@ mod tests {
     use crate::aarch64::gic::create_gic;
     use kvm_ioctls::Kvm;
     use std::os::unix::io::AsRawFd;
+
+    #[test]
+    fn test_access_icc_regs_size() {
+        let kvm = Kvm::new().unwrap();
+        let vm = kvm.create_vm().unwrap();
+        let _ = vm.create_vcpu(0).unwrap();
+        let gic_fd = create_gic(&vm, 1).expect("Cannot create gic");
+        let fd = gic_fd.device_fd();
+
+        let gicr_typer = 123;
+        let icc_offset = SYS_ICC_SRE_EL1;
+
+        let mut val = [0xdead_beef; 3];
+        access_icc_attr(fd, icc_offset, gicr_typer, &mut val[1], false).unwrap();
+        assert_eq!(val[0], 0xdead_beef);
+        assert_ne!(val[1], 0xdead_beef);
+        assert_eq!(val[2], 0xdead_beef);
+    }
 
     #[test]
     fn test_access_icc_regs() {
