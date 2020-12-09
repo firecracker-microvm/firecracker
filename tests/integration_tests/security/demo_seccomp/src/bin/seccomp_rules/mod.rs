@@ -18,6 +18,7 @@ pub fn jailer_required_rules() -> Vec<SyscallRuleSet> {
         allow_syscall(libc::SYS_rt_sigaction),
         allow_syscall(libc::SYS_execve),
         allow_syscall(libc::SYS_mmap),
+        allow_syscall(libc::SYS_mprotect),
         #[cfg(target_arch = "x86_64")]
         allow_syscall(libc::SYS_arch_prctl),
         allow_syscall(libc::SYS_set_tid_address),
