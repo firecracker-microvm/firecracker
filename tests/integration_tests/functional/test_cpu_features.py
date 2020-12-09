@@ -9,11 +9,10 @@ import pytest
 import framework.utils_cpuid as utils
 import host_tools.network as net_tools
 
-TOPOLOGY_STR = {1: "0", 2: "0,1", 16: "0-15"}
 PLATFORM = platform.machine()
 
 
-def _check_cpu_features(test_microvm, expected_cpu_count, expected_htt):
+def _check_cpuid_x86(test_microvm, expected_cpu_count, expected_htt):
     expected_cpu_features = {
         "cpu count": '{} ({})'.format(hex(expected_cpu_count),
                                       expected_cpu_count),
@@ -26,9 +25,19 @@ def _check_cpu_features(test_microvm, expected_cpu_count, expected_htt):
                                    expected_cpu_features)
 
 
+def _check_cpu_features_arm(test_microvm):
+    expected_cpu_features = {
+        "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
+                 "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs",
+    }
+
+    utils.check_guest_cpuid_output(test_microvm, "lscpu", None, ':',
+                                   expected_cpu_features)
+
+
 @pytest.mark.skipif(
     PLATFORM != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
+    reason="CPUID is only supported on x86_64."
 )
 @pytest.mark.parametrize(
     "num_vcpus",
@@ -38,15 +47,28 @@ def _check_cpu_features(test_microvm, expected_cpu_count, expected_htt):
     "htt",
     [True, False],
 )
-def test_cpu_features(test_microvm_with_ssh, network_config, num_vcpus, htt):
-    """Check the CPU features for a microvm with the specified config."""
+def test_cpuid(test_microvm_with_ssh, network_config, num_vcpus, htt):
+    """Check the CPUID for a microvm with the specified config."""
     vm = test_microvm_with_ssh
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, ht_enabled=htt)
     _tap, _, _ = vm.ssh_network_config(network_config, '1')
     vm.start()
+    _check_cpuid_x86(vm, num_vcpus, "true" if num_vcpus > 1 else "false")
 
-    _check_cpu_features(vm, num_vcpus, "true" if num_vcpus > 1 else "false")
+
+@pytest.mark.skipif(
+    PLATFORM != "aarch64",
+    reason="The CPU features on x86 are tested as part of the CPU templates."
+)
+def test_cpu_features(test_microvm_with_ssh, network_config):
+    """Check the CPU features for a microvm with the specified config."""
+    vm = test_microvm_with_ssh
+    vm.spawn()
+    vm.basic_config()
+    _tap, _, _ = vm.ssh_network_config(network_config, '1')
+    vm.start()
+    _check_cpu_features_arm(vm)
 
 
 @pytest.mark.skipif(
