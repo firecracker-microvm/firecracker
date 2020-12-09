@@ -1,7 +1,8 @@
 use std::net::{TcpListener, TcpStream};
 
 pub use arch;
-pub use kernel::loader::{Elf64_Phdr, PT_LOAD};
+pub use arch::x86_64::regs::setup_sregs;
+pub use kernel::loader::elf::{Elf64_Phdr, PT_LOAD};
 pub use kvm_bindings;
 pub use kvm_ioctls::VcpuFd;
 pub use std::sync::mpsc::{Receiver, Sender};

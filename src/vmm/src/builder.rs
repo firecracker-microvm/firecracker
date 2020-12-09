@@ -10,7 +10,6 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
 use std::thread;
 
-
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
 #[cfg(target_arch = "x86_64")]
@@ -306,7 +305,6 @@ pub fn build_microvm_for_boot(
         track_dirty_pages,
     )?;
     let vcpu_config = vm_resources.vcpu_config();
-    let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let track_dirty_pages = vm_resources.track_dirty_pages();
     let (entry_addr, e_phdrs) = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
@@ -490,7 +488,7 @@ pub fn create_guest_memory(
 fn load_kernel(
     boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
-) -> std::result::Result<(GuestAddress, Vec<kernel::loader::Elf64_Phdr>), StartMicrovmError> {
+) -> std::result::Result<(GuestAddress, Vec<kernel::loader::elf::Elf64_Phdr>), StartMicrovmError> {
     let mut kernel_file = boot_config
         .kernel_file
         .try_clone()
@@ -862,7 +860,7 @@ fn vmm_run_gdb_server(
     vmm_mem: GuestMemoryMmap,
     receiver: Receiver<gdb_server::DebugEvent>,
     sender: Sender<gdb_server::DebugEvent>,
-    e_phdrs: Vec<kernel::loader::Elf64_Phdr>,
+    e_phdrs: Vec<kernel::loader::elf::Elf64_Phdr>,
     entry_point: GuestAddress,
     vcpus: &[Vcpu],
 ) -> Result<(), StartMicrovmError> {
