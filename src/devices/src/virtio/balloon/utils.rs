@@ -3,26 +3,26 @@
 
 use std::io;
 
-use super::{RemoveRegionError, MAX_PAGES_IN_DESC};
+use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// This takes a vector of page frame numbers, and compacts them
 /// into ranges of consecutive pages. The result is a vector
 /// of (start_page_frame_number, range_length) pairs.
-pub(crate) fn compact_page_frame_numbers(v: &mut Vec<u32>) -> Vec<(u32, u32)> {
+pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
     if v.is_empty() {
         return vec![];
     }
 
     // Since the total number of pages that can be
-    // received at once from a single descriptor is `MAX_PAGES_IN_DESC`,
+    // received at once is `MAX_PAGE_COMPACT_BUFFER`,
     // this sort does not change the complexity of handling
     // an inflation.
     v.sort_unstable();
 
-    // Since there are at most `MAX_PAGES_IN_DESC` pages, setting the
+    // Since there are at most `MAX_PAGE_COMPACT_BUFFER` pages, setting the
     // capacity of `result` to this makes sense.
-    let mut result = Vec::with_capacity(MAX_PAGES_IN_DESC);
+    let mut result = Vec::with_capacity(MAX_PAGE_COMPACT_BUFFER);
 
     // The most recent range of pages is [previous..previous + length).
     let mut previous = v[0];
@@ -115,17 +115,24 @@ mod tests {
     #[test]
     fn test_compact_page_indices() {
         // Test empty input.
-        assert!(compact_page_frame_numbers(&mut vec![]).is_empty());
+        assert!(compact_page_frame_numbers(&mut []).is_empty());
 
         // Test single compact range.
         assert_eq!(
-            compact_page_frame_numbers(&mut (0 as u32..100 as u32).collect()),
+            compact_page_frame_numbers(
+                &mut (0 as u32..100 as u32).collect::<Vec<u32>>().as_mut_slice()
+            ),
             vec![(0, 100)]
         );
 
         // `compact_page_frame_numbers` works even when given out of order input.
         assert_eq!(
-            compact_page_frame_numbers(&mut (0 as u32..100 as u32).rev().collect()),
+            compact_page_frame_numbers(
+                &mut (0 as u32..100 as u32)
+                    .rev()
+                    .collect::<Vec<u32>>()
+                    .as_mut_slice()
+            ),
             vec![(0, 100)]
         );
 
@@ -135,7 +142,7 @@ mod tests {
                 &mut (0 as u32..10000 as u32)
                     .step_by(100)
                     .flat_map(|x| (x..x + 10).rev())
-                    .collect()
+                    .collect::<Vec<u32>>()
             ),
             (0 as u32..10000 as u32)
                 .step_by(100)
