@@ -347,7 +347,7 @@ pub struct VmState {
 pub struct VmState {
     dist: Vec<u32>,
     rdist: Vec<u32>,
-    icc: Vec<u32>,
+    icc: Vec<u64>,
 }
 
 #[cfg(test)]
