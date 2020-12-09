@@ -120,6 +120,7 @@ impl Subscriber for ApiServerAdapter {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_with_api(
     seccomp_filter: BpfProgram,
     config_json: Option<String>,

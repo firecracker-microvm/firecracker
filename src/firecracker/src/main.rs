@@ -223,7 +223,7 @@ fn main() {
 
     let boot_timer_enabled = arguments.flag_present("boot-timer");
     let api_enabled = !arguments.flag_present("no-api");
-    let debugger_enabled = arguments.flag_present("debugger").unwrap_or(false);
+    let debugger_enabled = arguments.flag_present("debugger");
 
     if api_enabled {
         let bind_path = arguments

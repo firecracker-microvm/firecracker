@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use gdbstub::{arch, Actions, BreakOp, StopReason, Target, Tid, SINGLE_THREAD_TID};
 
-use super::{Bytes, Elf64_Phdr, GuestAddress, GuestMemoryMmap};
+use super::{Bytes, GuestAddress, GuestMemoryMmap};
 use super::{DebugEvent, Debugger, DebuggerError, FullVcpuState, Receiver, ResumeAction, Sender};
 use crate::DynResult;
+pub use kernel::loader::elf::Elf64_Phdr;
 
 pub struct FirecrackerGDBServer {
     pub guest_memory: GuestMemoryMmap,

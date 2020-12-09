@@ -40,7 +40,8 @@ pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>
     };
 
     (
-        build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter).unwrap(),
+        build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter, false)
+            .unwrap(),
         event_manager,
     )
 }

@@ -2,9 +2,11 @@ use std::fmt::{Display, Formatter};
 use vm_memory::Bytes;
 use vmm_sys_util::errno::Error;
 
-pub use super::arch::x86_64::regs::setup_sregs;
+pub use arch::x86_64::regs::setup_sregs;
+pub use kernel::loader::elf::{Elf64_Phdr, PT_LOAD};
+
 use super::kvm_bindings::*;
-use super::{Elf64_Phdr, GuestAddress, GuestMemoryMmap, VcpuFd, PT_LOAD};
+use super::{GuestAddress, GuestMemoryMmap, VcpuFd};
 
 // See Chapter 2.5 (Control Registers), Volume 3A in Intel Arch SW Developer's Manual.
 // Bit 0 of CR0 register on x86 architecture

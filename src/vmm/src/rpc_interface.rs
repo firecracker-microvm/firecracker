@@ -390,6 +390,7 @@ impl<'a> PrebootApiController<'a> {
             &self.vm_resources,
             &mut self.event_manager,
             &self.seccomp_filter,
+            self.vm_resources.debugger,
         )
         .map(|vmm| {
             self.built_vmm = Some(vmm);
@@ -706,6 +707,7 @@ mod tests {
         pub boot_timer: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
+        pub debugger: bool,
     }
 
     impl MockVmRes {
@@ -806,6 +808,7 @@ mod tests {
         pub update_net_rate_limiters_called: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
+        pub debugger: bool,
     }
 
     impl MockVmm {
@@ -911,6 +914,7 @@ mod tests {
         _: &VmResources,
         _: &mut EventManager,
         _: BpfProgramRef,
+        _: bool,
     ) -> Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
         Ok(Arc::new(Mutex::new(MockVmm::default())))
     }
@@ -1284,6 +1288,7 @@ mod tests {
             },
             commands,
             expected_resp,
+            false,
             false,
         );
     }
