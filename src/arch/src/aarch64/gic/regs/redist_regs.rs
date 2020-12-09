@@ -1,31 +1,32 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::aarch64::gic::{Error, Result};
+use crate::aarch64::gic::regs::{SimpleReg, VgicRegEngine};
+use crate::aarch64::gic::Result;
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
 // Relevant PPI redistributor registers that we want to save/restore.
-const GICR_CTLR: RedistReg = RedistReg::new(0x0000, 4);
-const GICR_STATUSR: RedistReg = RedistReg::new(0x0010, 4);
-const GICR_WAKER: RedistReg = RedistReg::new(0x0014, 4);
-const GICR_PROPBASER: RedistReg = RedistReg::new(0x0070, 8);
-const GICR_PENDBASER: RedistReg = RedistReg::new(0x0078, 8);
+const GICR_CTLR: SimpleReg = SimpleReg::new(0x0000, 4);
+const GICR_STATUSR: SimpleReg = SimpleReg::new(0x0010, 4);
+const GICR_WAKER: SimpleReg = SimpleReg::new(0x0014, 4);
+const GICR_PROPBASER: SimpleReg = SimpleReg::new(0x0070, 8);
+const GICR_PENDBASER: SimpleReg = SimpleReg::new(0x0078, 8);
 
 // Relevant SGI redistributor registers that we want to save/restore.
-const GICR_SGI_OFFSET: u32 = 0x0001_0000;
-const GICR_IGROUPR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0080, 4);
-const GICR_ISENABLER0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0100, 4);
-const GICR_ICENABLER0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0180, 4);
-const GICR_ISPENDR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0200, 4);
-const GICR_ICPENDR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0280, 4);
-const GICR_ISACTIVER0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0300, 4);
-const GICR_ICACTIVER0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0380, 4);
-const GICR_IPRIORITYR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0400, 32);
-const GICR_ICFGR0: RedistReg = RedistReg::new(GICR_SGI_OFFSET + 0x0C00, 8);
+const GICR_SGI_OFFSET: u64 = 0x0001_0000;
+const GICR_IGROUPR0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0080, 4);
+const GICR_ISENABLER0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0100, 4);
+const GICR_ICENABLER0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0180, 4);
+const GICR_ISPENDR0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0200, 4);
+const GICR_ICPENDR0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0280, 4);
+const GICR_ISACTIVER0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0300, 4);
+const GICR_ICACTIVER0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0380, 4);
+const GICR_IPRIORITYR0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0400, 32);
+const GICR_ICFGR0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0C00, 8);
 
 // List with relevant redistributor registers that we will be restoring.
-static VGIC_RDIST_REGS: &[RedistReg] = &[
+static VGIC_RDIST_REGS: &[SimpleReg] = &[
     GICR_CTLR,
     GICR_STATUSR,
     GICR_WAKER,
@@ -34,7 +35,7 @@ static VGIC_RDIST_REGS: &[RedistReg] = &[
 ];
 
 // List with relevant SGI associated redistributor registers that we will be restoring.
-static VGIC_SGI_REGS: &[RedistReg] = &[
+static VGIC_SGI_REGS: &[SimpleReg] = &[
     GICR_IGROUPR0,
     GICR_ICENABLER0,
     GICR_ISENABLER0,
@@ -46,101 +47,44 @@ static VGIC_SGI_REGS: &[RedistReg] = &[
     GICR_IPRIORITYR0,
 ];
 
-// All or at least the registers we are interested in are multiples of 32 bits.
-// So we access them in chunks of 4 bytes.
-const U32_SIZE: u8 = 4;
+struct RedistRegEngine {}
 
-/// This is how we represent the registers of a redistributor.
-/// It is relevant their offset from the base address of the redistributor.
-/// Each register has a different number of bits_per_irq and is therefore variable length.
-/// First 32 interrupts (0-32) are private to each CPU (SGIs and PPIs).
-/// and so we save the first irq to identify between the type of the interrupt
-/// that the respective register deals with.
-struct RedistReg {
-    /// Offset from redistributor address.
-    base: u32,
-    /// Length of the register.
-    length: u8,
-}
+impl VgicRegEngine for RedistRegEngine {
+    type Reg = SimpleReg;
+    type RegChunk = u32;
 
-impl RedistReg {
-    const fn new(base: u32, length: u8) -> RedistReg {
-        RedistReg { base, length }
+    fn group() -> u32 {
+        KVM_DEV_ARM_VGIC_GRP_REDIST_REGS
+    }
+
+    fn mpidr_mask() -> u64 {
+        KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64
     }
 }
 
-// Helps with differentiating between register fetching or storing in functions.
-enum Action<'a> {
-    Set(&'a [u32], usize),
-    Get(&'a mut Vec<u32>),
+fn redist_regs() -> Box<dyn Iterator<Item = &'static SimpleReg>> {
+    Box::new(VGIC_RDIST_REGS.iter().chain(VGIC_SGI_REGS))
 }
 
-fn access_redist_attr(
+pub(crate) fn get_redist_regs(fd: &DeviceFd, mpidrs: &[u64]) -> Result<Vec<Vec<Vec<u32>>>> {
+    let mut data = Vec::with_capacity(mpidrs.len());
+    for mpidr in mpidrs {
+        data.push(RedistRegEngine::get_regs_data(fd, redist_regs(), *mpidr)?);
+    }
+
+    Ok(data)
+}
+
+pub(crate) fn set_redist_regs(
     fd: &DeviceFd,
-    offset: u32,
-    typer: u64,
-    val: &mut u32,
-    set: bool,
+    mpidrs: &[u64],
+    state: &[Vec<Vec<u32>>],
 ) -> Result<()> {
-    let mut gic_dist_attr = kvm_device_attr {
-        group: KVM_DEV_ARM_VGIC_GRP_REDIST_REGS,
-        attr: (typer & KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64) | (offset as u64), // this needs the mpidr
-        addr: val as *mut u32 as u64,
-        flags: 0,
-    };
-    if set {
-        fd.set_device_attr(&gic_dist_attr)
-            .map_err(|e| Error::DeviceAttribute(e, true, KVM_DEV_ARM_VGIC_GRP_REDIST_REGS))?;
-    } else {
-        fd.get_device_attr(&mut gic_dist_attr)
-            .map_err(|e| Error::DeviceAttribute(e, false, KVM_DEV_ARM_VGIC_GRP_REDIST_REGS))?;
+    for (mpidr, data) in mpidrs.iter().zip(state) {
+        RedistRegEngine::set_regs_data(fd, redist_regs(), data, *mpidr)?;
     }
+
     Ok(())
-}
-
-fn access_redist_reg_list(
-    fd: &DeviceFd,
-    gicr_typer: &[u64],
-    reg_list: &'static [RedistReg],
-    action: &mut Action,
-) -> Result<()> {
-    for i in gicr_typer {
-        for redist_reg in reg_list {
-            let mut base = redist_reg.base;
-            let end = base + redist_reg.length as u32;
-
-            while base < end {
-                match action {
-                    Action::Set(state, idx) => {
-                        let mut val = state[*idx];
-                        access_redist_attr(fd, base, *i, &mut val, true)?;
-                        *idx += 1;
-                    }
-                    Action::Get(state) => {
-                        let mut val = 0;
-                        access_redist_attr(fd, base, *i, &mut val, false)?;
-                        state.push(val);
-                    }
-                }
-                base += U32_SIZE as u32;
-            }
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn get_redist_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u32>> {
-    let mut state = Vec::new();
-    let mut action = Action::Get(&mut state);
-    access_redist_reg_list(fd, gicr_typer, VGIC_RDIST_REGS, &mut action)?;
-    access_redist_reg_list(fd, gicr_typer, VGIC_SGI_REGS, &mut action)?;
-    Ok(state)
-}
-
-pub(crate) fn set_redist_regs(fd: &DeviceFd, gicr_typer: &[u64], state: &[u32]) -> Result<()> {
-    let mut action = Action::Set(state, 0);
-    access_redist_reg_list(fd, gicr_typer, VGIC_RDIST_REGS, &mut action)?;
-    access_redist_reg_list(fd, gicr_typer, VGIC_SGI_REGS, &mut action)
 }
 
 #[cfg(test)]
@@ -162,7 +106,7 @@ mod tests {
         let res = get_redist_regs(&gic_fd.device_fd(), &gicr_typer);
         assert!(res.is_ok());
         let state = res.unwrap();
-        assert_eq!(state.len(), 24);
+        assert_eq!(state.iter().flatten().count(), 14);
 
         assert!(set_redist_regs(&gic_fd.device_fd(), &gicr_typer, &state).is_ok());
 

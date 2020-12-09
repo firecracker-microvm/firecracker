@@ -2,17 +2,134 @@ mod dist_regs;
 mod icc_regs;
 mod redist_regs;
 
-use crate::aarch64::gic::Result;
-
+use crate::aarch64::gic::{Error, Result};
+use kvm_bindings::kvm_device_attr;
 use kvm_ioctls::DeviceFd;
+use std::iter::StepBy;
+use std::ops::Range;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+
+pub(crate) trait MmioReg {
+    fn range(&self) -> Range<u64>;
+
+    fn iter<T>(&self) -> StepBy<Range<u64>>
+    where
+        Self: Sized,
+    {
+        self.range().step_by(std::mem::size_of::<T>())
+    }
+}
+
+pub(crate) trait VgicRegEngine {
+    type Reg: MmioReg;
+    type RegChunk: Default + Clone;
+
+    fn group() -> u32;
+
+    fn mpidr_mask() -> u64;
+
+    fn kvm_device_attr(offset: u64, val: &mut Self::RegChunk, mpidr: u64) -> kvm_device_attr {
+        kvm_device_attr {
+            group: Self::group(),
+            attr: (mpidr & Self::mpidr_mask()) | offset,
+            addr: val as *mut Self::RegChunk as u64,
+            flags: 0,
+        }
+    }
+
+    #[inline]
+    fn get_reg_data(fd: &DeviceFd, reg: &Self::Reg, mpidr: u64) -> Result<Vec<Self::RegChunk>>
+    where
+        Self: Sized,
+    {
+        let mut data = Vec::with_capacity(reg.iter::<Self::RegChunk>().count());
+        for offset in reg.iter::<Self::RegChunk>() {
+            let mut val = Self::RegChunk::default();
+            fd.get_device_attr(&mut Self::kvm_device_attr(offset, &mut val, mpidr))
+                .map_err(|e| Error::DeviceAttribute(e, false, Self::group()))?;
+            data.push(val);
+        }
+
+        Ok(data)
+    }
+
+    fn get_regs_data(
+        fd: &DeviceFd,
+        regs: Box<dyn Iterator<Item = &Self::Reg>>,
+        mpidr: u64,
+    ) -> Result<Vec<Vec<Self::RegChunk>>>
+    where
+        Self: Sized,
+    {
+        let mut data = Vec::new();
+        for reg in regs {
+            data.push(Self::get_reg_data(fd, reg, mpidr)?);
+        }
+
+        Ok(data)
+    }
+
+    #[inline]
+    fn set_reg_data(
+        fd: &DeviceFd,
+        reg: &Self::Reg,
+        data: &[Self::RegChunk],
+        mpidr: u64,
+    ) -> Result<()>
+    where
+        Self: Sized,
+    {
+        for (offset, val) in reg.iter::<Self::RegChunk>().zip(data) {
+            fd.set_device_attr(&Self::kvm_device_attr(offset, &mut val.clone(), mpidr))
+                .map_err(|e| Error::DeviceAttribute(e, true, Self::group()))?;
+        }
+
+        Ok(())
+    }
+
+    fn set_regs_data(
+        fd: &DeviceFd,
+        regs: Box<dyn Iterator<Item = &Self::Reg>>,
+        data: &[Vec<Self::RegChunk>],
+        mpidr: u64,
+    ) -> Result<()>
+    where
+        Self: Sized,
+    {
+        for (reg, reg_data) in regs.zip(data) {
+            Self::set_reg_data(fd, reg, reg_data, mpidr)?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Structure representing a simple register.
+pub(crate) struct SimpleReg {
+    /// The offset from the component address. The register is memory mapped here.
+    offset: u64,
+    /// Size in bytes.
+    size: u16,
+}
+
+impl SimpleReg {
+    const fn new(offset: u64, size: u16) -> SimpleReg {
+        SimpleReg { offset, size }
+    }
+}
+
+impl MmioReg for SimpleReg {
+    fn range(&self) -> Range<u64> {
+        self.offset..self.offset + u64::from(self.size)
+    }
+}
 
 /// Structure used for serializing the state of the GIC registers
 #[derive(Debug, Default, Versionize)]
 pub struct GicState {
-    dist: Vec<u32>,
-    rdist: Vec<u32>,
+    dist: Vec<Vec<u32>>,
+    rdist: Vec<Vec<Vec<u32>>>,
     icc: Vec<u64>,
 }
 
@@ -79,10 +196,10 @@ mod tests {
         // The second value from the list of distributor registers is the value of the GICD_STATUSR register.
         // We assert that the one saved in the bitmap is the same with the one we obtain
         // with KVM_GET_DEVICE_ATTR.
-        let gicd_statusr = vm_state.dist[1];
+        let gicd_statusr = &vm_state.dist[1];
 
-        assert_eq!(gicd_statusr, val);
-        assert_eq!(vm_state.dist.len(), 245);
+        assert_eq!(gicd_statusr[0], val);
+        assert_eq!(vm_state.dist.len(), 12);
         assert!(restore_state(gic_fd, &mpidr, &vm_state).is_ok());
     }
 }
