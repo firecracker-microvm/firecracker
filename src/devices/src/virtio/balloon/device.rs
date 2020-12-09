@@ -157,6 +157,8 @@ pub struct Balloon {
     // it is acknowledged after the stats queue is processed.
     pub(crate) stats_desc_index: Option<u16>,
     pub(crate) latest_stats: BalloonStats,
+    // A buffer used as pfn accumulator during descriptor processing.
+    pub(crate) pfn_buffer: [u32; MAX_PAGE_COMPACT_BUFFER],
 }
 
 impl Balloon {
@@ -211,6 +213,7 @@ impl Balloon {
             stats_timer,
             stats_desc_index: None,
             latest_stats: BalloonStats::default(),
+            pfn_buffer: [0u32; MAX_PAGE_COMPACT_BUFFER],
         })
     }
 
@@ -256,56 +259,83 @@ impl Balloon {
         METRICS.balloon.inflate_count.inc();
 
         let queue = &mut self.queues[INFLATE_INDEX];
-        let mut pages = Vec::with_capacity(MAX_PAGES_IN_DESC);
+        // The pfn buffer index used during descriptor processing.
+        let mut pfn_buffer_idx = 0;
         let mut needs_interrupt = false;
 
-        while let Some(head) = queue.pop(&mem) {
-            let len = head.len;
-            if !head.is_write_only() && len % SIZE_OF_U32 as u32 == 0 {
-                for index in (0..len).step_by(SIZE_OF_U32) {
-                    let addr = head
-                        .addr
-                        .checked_add(index as u64)
-                        .ok_or(BalloonError::MalformedDescriptor)?;
+        // Loop until we consume the entire queue.
+        while !queue.is_empty(&mem) {
+            // Internal loop processes descriptors and acummulates the pfns in `pfn_buffer`.
+            // Breaks out when there is not enough space in `pfn_buffer` to completely process
+            // the next descriptor.
+            while let Some(head) = queue.pop(&mem) {
+                let len = head.len as usize;
+                let max_len = MAX_PAGES_IN_DESC * SIZE_OF_U32;
 
-                    let page_frame_number = mem
-                        .read_obj::<u32>(addr)
-                        .map_err(|_| BalloonError::MalformedDescriptor)?;
+                if !head.is_write_only() && len % SIZE_OF_U32 == 0 {
+                    // Check descriptor pfn count.
+                    if len > max_len {
+                        error!(
+                            "Inflate descriptor has bogus page count {} > {}, skipping.",
+                            len as usize / SIZE_OF_U32,
+                            MAX_PAGES_IN_DESC
+                        );
 
-                    pages.push(page_frame_number);
+                        // Skip descriptor.
+                        continue;
+                    }
+                    // Break loop if `pfn_buffer` will be overrun by adding all pfns from current desc.
+                    if MAX_PAGE_COMPACT_BUFFER - pfn_buffer_idx < len as usize / SIZE_OF_U32 {
+                        queue.undo_pop();
+                        break;
+                    }
+
+                    // This is safe, `len` was validated above.
+                    for index in (0..len).step_by(SIZE_OF_U32) {
+                        let addr = head
+                            .addr
+                            .checked_add(index as u64)
+                            .ok_or(BalloonError::MalformedDescriptor)?;
+
+                        let page_frame_number = mem
+                            .read_obj::<u32>(addr)
+                            .map_err(|_| BalloonError::MalformedDescriptor)?;
+
+                        self.pfn_buffer[pfn_buffer_idx] = page_frame_number;
+                        pfn_buffer_idx += 1;
+                    }
                 }
+
+                // Acknowledge the receipt of the descriptor.
+                // 0 is number of bytes the device has written to memory.
+                queue
+                    .add_used(&mem, head.index, 0)
+                    .map_err(BalloonError::Queue)?;
+                needs_interrupt = true;
             }
 
-            // Acknowledge the receipt of the descriptor.
-            // 0 is number of bytes the device has written to memory.
-            queue
-                .add_used(&mem, head.index, 0)
-                .map_err(BalloonError::Queue)?;
-            needs_interrupt = true;
+            // Compact pages into ranges.
+            let page_ranges = compact_page_frame_numbers(&mut self.pfn_buffer[..pfn_buffer_idx]);
+            pfn_buffer_idx = 0;
+
+            // Remove the page ranges.
+            for (page_frame_number, range_len) in page_ranges {
+                let guest_addr =
+                    GuestAddress((page_frame_number as u64) << VIRTIO_BALLOON_PFN_SHIFT);
+
+                if let Err(e) = remove_range(
+                    &mem,
+                    (guest_addr, u64::from(range_len) << VIRTIO_BALLOON_PFN_SHIFT),
+                    self.restored,
+                ) {
+                    error!("Error removing memory range: {:?}", e);
+                }
+            }
         }
 
         if needs_interrupt {
             self.signal_used_queue()
                 .unwrap_or_else(report_balloon_event_fail);
-        }
-
-        // Compact pages into ranges.
-        let page_ranges = compact_page_frame_numbers(&mut pages);
-
-        // Remove the page ranges.
-        for (page_frame_number, range_len) in page_ranges {
-            let guest_addr = GuestAddress((page_frame_number as u64) << VIRTIO_BALLOON_PFN_SHIFT);
-
-            match remove_range(
-                &mem,
-                (guest_addr, u64::from(range_len) << VIRTIO_BALLOON_PFN_SHIFT),
-                self.restored,
-            ) {
-                Ok(_) => continue,
-                Err(e) => {
-                    error!("Error removing memory range: {:?}", e);
-                }
-            };
         }
 
         Ok(())
