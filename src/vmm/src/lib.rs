@@ -708,7 +708,7 @@ fn construct_gicr_typer(vcpu_states: &[VcpuState]) -> Vec<u64> {
             }
         };
         //calculate affinity
-        let mut cpu_affid = state.mpidr & 1_0952_3343_7695;
+        let mut cpu_affid = state.mpidr & 0xFF_00FF_FFFF;
         cpu_affid = ((cpu_affid & 0xFF_0000_0000) >> 8) | (cpu_affid & 0xFF_FFFF);
         mpidrs.push((cpu_affid << 32) | (1 << 24) | (index as u64) << 8 | (last << 4));
     }
