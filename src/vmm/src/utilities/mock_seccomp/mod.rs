@@ -1,10 +1,9 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+#![allow(missing_docs)]
 
 use std::collections::BTreeMap;
 use std::convert::TryInto;
-
-use libc;
 
 use seccomp::{
     allow_syscall, allow_syscall_if, BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp::*,
@@ -293,11 +292,17 @@ impl MockSeccomp {
         )
     }
 
-    // Blacklist KVM_RUN.
+    /// Blacklist KVM_RUN.
     pub fn without_kvm_run(mut self) -> Self {
         self.rules
             .insert(libc::SYS_ioctl, Self::ioctl_rule_without_kvm_run().1);
         self
+    }
+}
+
+impl Default for MockSeccomp {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

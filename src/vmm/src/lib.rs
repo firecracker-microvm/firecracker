@@ -24,6 +24,8 @@ pub mod resources;
 pub mod rpc_interface;
 /// Signal handling utilities.
 pub mod signal_handler;
+/// Utility functions for integration and benchmark testing
+pub mod utilities;
 /// microVM state versions.
 pub mod version_map;
 /// Wrappers over structures used to configure the VMM.
