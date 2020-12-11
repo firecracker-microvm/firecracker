@@ -89,6 +89,16 @@ RUN mkdir "$TMP_BUILD_DIR" \
     && cd / \
     && rm -rf "$TMP_BUILD_DIR"
 
+# Build iperf3-vsock
+RUN mkdir "$TMP_BUILD_DIR" && cd "$TMP_BUILD_DIR" \
+    && git clone https://github.com/stefano-garzarella/iperf-vsock \
+    && cd iperf-vsock && git checkout 9245f9a \
+    && mkdir build && cd build \
+    && ../configure "LDFLAGS=--static" --disable-shared && make \
+    && cp src/iperf3 /usr/local/bin/iperf3-vsock \
+    && cd / \
+    && rm -rf "$TMP_BUILD_DIR"
+
 # Add the tini init binary.
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION_TAG}/tini-static-amd64 /sbin/tini
 RUN chmod +x /sbin/tini
