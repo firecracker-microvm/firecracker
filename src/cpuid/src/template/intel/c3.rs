@@ -123,6 +123,10 @@ fn update_xsave_features_entry(
         entry
             .eax
             .write_bits_in_range(&index0::eax::AVX512_STATE_BITRANGE, 0);
+
+        // OSPKE is masked in leaf_0x7 index 0 - RDPKRU/WRPKRU not exposed.
+        // Here we mask the XSAVE PKRU capabilities.
+        entry.eax.write_bit(index0::eax::PKRU_BITINDEX, false);
     }
 
     if entry.index == 1 {
