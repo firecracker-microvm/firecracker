@@ -106,6 +106,7 @@ pub(crate) trait VgicRegEngine {
 }
 
 /// Structure representing a simple register.
+#[derive(PartialEq)]
 pub(crate) struct SimpleReg {
     /// The offset from the component address. The register is memory mapped here.
     offset: u64,
@@ -130,7 +131,7 @@ impl MmioReg for SimpleReg {
 pub struct GicState {
     dist: Vec<Vec<u32>>,
     rdist: Vec<Vec<Vec<u32>>>,
-    icc: Vec<u64>,
+    icc: Vec<icc_regs::VgicSysRegsState>,
 }
 
 /// Save the state of the GIC device.

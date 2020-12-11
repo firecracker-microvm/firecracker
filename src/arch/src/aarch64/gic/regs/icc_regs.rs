@@ -1,57 +1,36 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::aarch64::gic::{Error, Result};
+use crate::aarch64::gic::regs::{SimpleReg, VgicRegEngine};
+use crate::aarch64::gic::Result;
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
-const ICC_CTLR_EL1_PRIBITS_SHIFT: u32 = 8;
-const ICC_CTLR_EL1_PRIBITS_MASK: u32 = 7 << ICC_CTLR_EL1_PRIBITS_SHIFT;
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 
-macro_rules! arm64_vgic_sys_reg {
-    ($name: tt, $op0: tt, $op1: tt, $crn: tt, $crm: tt, $op2: expr) => {
-        const $name: u64 = ((($op0 as u64) << KVM_REG_ARM64_SYSREG_OP0_SHIFT)
-            & KVM_REG_ARM64_SYSREG_OP0_MASK as u64)
-            | ((($op1 as u64) << KVM_REG_ARM64_SYSREG_OP1_SHIFT)
-                & KVM_REG_ARM64_SYSREG_OP1_MASK as u64)
-            | ((($crn as u64) << KVM_REG_ARM64_SYSREG_CRN_SHIFT)
-                & KVM_REG_ARM64_SYSREG_CRN_MASK as u64)
-            | ((($crm as u64) << KVM_REG_ARM64_SYSREG_CRM_SHIFT)
-                & KVM_REG_ARM64_SYSREG_CRM_MASK as u64)
-            | ((($op2 as u64) << KVM_REG_ARM64_SYSREG_OP2_SHIFT)
-                & KVM_REG_ARM64_SYSREG_OP2_MASK as u64);
-    };
-}
+const ICC_CTLR_EL1_PRIBITS_SHIFT: u64 = 8;
+const ICC_CTLR_EL1_PRIBITS_MASK: u64 = 7 << ICC_CTLR_EL1_PRIBITS_SHIFT;
 
-macro_rules! SYS_ICC_AP0Rn_EL1 {
-    ($name: tt, $n: tt) => {
-        arm64_vgic_sys_reg!($name, 3, 0, 12, 8, (4 | $n));
-    };
-}
+const SYS_ICC_SRE_EL1: SimpleReg = SimpleReg::vgic_sys_reg(3, 0, 12, 12, 5);
+const SYS_ICC_CTLR_EL1: SimpleReg = SimpleReg::vgic_sys_reg(3, 0, 12, 12, 4);
+const SYS_ICC_IGRPEN0_EL1: SimpleReg = SimpleReg::vgic_sys_reg(3, 0, 12, 12, 6);
+const SYS_ICC_IGRPEN1_EL1: SimpleReg = SimpleReg::vgic_sys_reg(3, 0, 12, 12, 7);
+const SYS_ICC_PMR_EL1: SimpleReg = SimpleReg::vgic_sys_reg(3, 0, 4, 6, 0);
+const SYS_ICC_BPR0_EL1: SimpleReg = SimpleReg::vgic_sys_reg(3, 0, 12, 8, 3);
+const SYS_ICC_BPR1_EL1: SimpleReg = SimpleReg::vgic_sys_reg(3, 0, 12, 12, 3);
 
-macro_rules! SYS_ICC_AP1Rn_EL1 {
-    ($name: tt, $n: tt) => {
-        arm64_vgic_sys_reg!($name, 3, 0, 12, 9, $n);
-    };
-}
+const SYS_ICC_AP0R0_EL1: SimpleReg = SimpleReg::sys_icc_ap0rn_el1(0);
+const SYS_ICC_AP0R1_EL1: SimpleReg = SimpleReg::sys_icc_ap0rn_el1(1);
+const SYS_ICC_AP0R2_EL1: SimpleReg = SimpleReg::sys_icc_ap0rn_el1(2);
+const SYS_ICC_AP0R3_EL1: SimpleReg = SimpleReg::sys_icc_ap0rn_el1(3);
 
-arm64_vgic_sys_reg!(SYS_ICC_SRE_EL1, 3, 0, 12, 12, 5);
-arm64_vgic_sys_reg!(SYS_ICC_CTLR_EL1, 3, 0, 12, 12, 4);
-arm64_vgic_sys_reg!(SYS_ICC_IGRPEN0_EL1, 3, 0, 12, 12, 6);
-arm64_vgic_sys_reg!(SYS_ICC_IGRPEN1_EL1, 3, 0, 12, 12, 7);
-arm64_vgic_sys_reg!(SYS_ICC_PMR_EL1, 3, 0, 4, 6, 0);
-arm64_vgic_sys_reg!(SYS_ICC_BPR0_EL1, 3, 0, 12, 8, 3);
-arm64_vgic_sys_reg!(SYS_ICC_BPR1_EL1, 3, 0, 12, 12, 3);
-SYS_ICC_AP0Rn_EL1!(SYS_ICC_AP0R0_EL1, 0);
-SYS_ICC_AP0Rn_EL1!(SYS_ICC_AP0R1_EL1, 1);
-SYS_ICC_AP0Rn_EL1!(SYS_ICC_AP0R2_EL1, 2);
-SYS_ICC_AP0Rn_EL1!(SYS_ICC_AP0R3_EL1, 3);
-SYS_ICC_AP1Rn_EL1!(SYS_ICC_AP1R0_EL1, 0);
-SYS_ICC_AP1Rn_EL1!(SYS_ICC_AP1R1_EL1, 1);
-SYS_ICC_AP1Rn_EL1!(SYS_ICC_AP1R2_EL1, 2);
-SYS_ICC_AP1Rn_EL1!(SYS_ICC_AP1R3_EL1, 3);
+const SYS_ICC_AP1R0_EL1: SimpleReg = SimpleReg::sys_icc_ap1rn_el1(0);
+const SYS_ICC_AP1R1_EL1: SimpleReg = SimpleReg::sys_icc_ap1rn_el1(1);
+const SYS_ICC_AP1R2_EL1: SimpleReg = SimpleReg::sys_icc_ap1rn_el1(2);
+const SYS_ICC_AP1R3_EL1: SimpleReg = SimpleReg::sys_icc_ap1rn_el1(3);
 
-static VGIC_ICC_REGS: &[u64] = &[
+static MAIN_VGIC_ICC_REGS: &[SimpleReg] = &[
     SYS_ICC_SRE_EL1,
     SYS_ICC_CTLR_EL1,
     SYS_ICC_IGRPEN0_EL1,
@@ -59,6 +38,9 @@ static VGIC_ICC_REGS: &[u64] = &[
     SYS_ICC_PMR_EL1,
     SYS_ICC_BPR0_EL1,
     SYS_ICC_BPR1_EL1,
+];
+
+static CONDITIONAL_VGIC_ICC_REGS: &[SimpleReg] = &[
     SYS_ICC_AP0R0_EL1,
     SYS_ICC_AP0R1_EL1,
     SYS_ICC_AP0R2_EL1,
@@ -69,97 +51,127 @@ static VGIC_ICC_REGS: &[u64] = &[
     SYS_ICC_AP1R3_EL1,
 ];
 
-// Helps with triggering either a register fetch or a store.
-enum Action<'a> {
-    Set(&'a [u64], usize),
-    Get(&'a mut Vec<u64>),
-}
+impl SimpleReg {
+    const fn vgic_sys_reg(op0: u64, op1: u64, crn: u64, crm: u64, op2: u64) -> SimpleReg {
+        let offset = (((op0 as u64) << KVM_REG_ARM64_SYSREG_OP0_SHIFT)
+            & KVM_REG_ARM64_SYSREG_OP0_MASK as u64)
+            | (((op1 as u64) << KVM_REG_ARM64_SYSREG_OP1_SHIFT)
+                & KVM_REG_ARM64_SYSREG_OP1_MASK as u64)
+            | (((crn as u64) << KVM_REG_ARM64_SYSREG_CRN_SHIFT)
+                & KVM_REG_ARM64_SYSREG_CRN_MASK as u64)
+            | (((crm as u64) << KVM_REG_ARM64_SYSREG_CRM_SHIFT)
+                & KVM_REG_ARM64_SYSREG_CRM_MASK as u64)
+            | (((op2 as u64) << KVM_REG_ARM64_SYSREG_OP2_SHIFT)
+                & KVM_REG_ARM64_SYSREG_OP2_MASK as u64);
 
-fn access_icc_attr(fd: &DeviceFd, offset: u64, typer: u64, val: &mut u64, set: bool) -> Result<()> {
-    let mut gic_icc_attr = kvm_bindings::kvm_device_attr {
-        group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CPU_SYSREGS,
-        attr: ((typer & KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64) | offset), // this needs the mpidr
-        addr: val as *mut u64 as u64,
-        flags: 0,
-    };
-    if set {
-        fd.set_device_attr(&gic_icc_attr).map_err(|e| {
-            Error::DeviceAttribute(e, true, kvm_bindings::KVM_DEV_ARM_VGIC_GRP_REDIST_REGS)
-        })?;
-    } else {
-        fd.get_device_attr(&mut gic_icc_attr).map_err(|e| {
-            Error::DeviceAttribute(e, false, kvm_bindings::KVM_DEV_ARM_VGIC_GRP_REDIST_REGS)
-        })?;
+        SimpleReg { offset, size: 8 }
     }
-    Ok(())
+
+    const fn sys_icc_ap0rn_el1(n: u64) -> SimpleReg {
+        Self::vgic_sys_reg(3, 0, 12, 8, 4 | n)
+    }
+
+    const fn sys_icc_ap1rn_el1(n: u64) -> SimpleReg {
+        Self::vgic_sys_reg(3, 0, 12, 9, n)
+    }
 }
 
-/// Get ICC registers.
-fn access_icc_reg_list(fd: &DeviceFd, gicr_typer: &[u64], action: &mut Action) -> Result<()> {
-    // We need this for the ICC_AP<m>R<n>_EL1 registers.
-    let mut num_priority_bits = 0;
+/// Structure for serializing the state of the Vgic ICC regs
+#[derive(Debug, Default, Versionize)]
+pub struct VgicSysRegsState {
+    main_icc_regs: Vec<Vec<u64>>,
+    conditional_icc_regs: Vec<Vec<u64>>,
+}
 
-    for i in gicr_typer {
-        for icc_offset in VGIC_ICC_REGS {
-            // As per ARMv8 documentation: https://static.docs.arm.com/ihi0069/c/IHI0069C_
-            // gic_architecture_specification.pdf
-            // page 178,
-            // ICC_AP0R1_EL1 is only implemented in implementations that support 6 or more bits of
-            // priority.
-            // ICC_AP0R2_EL1 and ICC_AP0R3_EL1 are only implemented in implementations that support
-            // 7 bits of priority.
-            if (*icc_offset == SYS_ICC_AP0R1_EL1 || *icc_offset == SYS_ICC_AP1R1_EL1)
-                && num_priority_bits < 6
-            {
-                continue;
-            }
-            if (*icc_offset == SYS_ICC_AP0R2_EL1
-                || *icc_offset == SYS_ICC_AP0R3_EL1
-                || *icc_offset == SYS_ICC_AP1R2_EL1
-                || *icc_offset == SYS_ICC_AP1R3_EL1)
-                && num_priority_bits != 7
-            {
-                continue;
-            }
-            let mut val;
-            match action {
-                Action::Set(state, idx) => {
-                    val = state[*idx];
-                    access_icc_attr(fd, *icc_offset, *i, &mut val, true)?;
-                    *idx += 1;
-                }
-                Action::Get(state) => {
-                    val = 0;
-                    access_icc_attr(fd, *icc_offset, *i, &mut val, false)?;
-                    state.push(val);
-                }
-            }
+struct VgicSysRegEngine {}
 
-            if *icc_offset == SYS_ICC_CTLR_EL1 {
-                // The priority bits are found in the ICC_CTLR_EL1 register (bits from  10:8).
-                // See page 194 from https://static.docs.arm.com/ihi0069/c/IHI0069C_gic_
-                // architecture_specification.pdf.
-                // Citation:
-                // "Priority bits. Read-only and writes are ignored. The number of priority bits
-                // implemented, minus one."
-                num_priority_bits =
-                    ((val & ICC_CTLR_EL1_PRIBITS_MASK as u64) >> ICC_CTLR_EL1_PRIBITS_SHIFT) + 1;
-            }
+impl VgicRegEngine for VgicSysRegEngine {
+    type Reg = SimpleReg;
+    type RegChunk = u64;
+
+    fn group() -> u32 {
+        KVM_DEV_ARM_VGIC_GRP_CPU_SYSREGS
+    }
+
+    fn mpidr_mask() -> u64 {
+        KVM_DEV_ARM_VGIC_V3_MPIDR_MASK as u64
+    }
+}
+
+fn num_priority_bits(fd: &DeviceFd, mpidr: u64) -> Result<u64> {
+    let reg_val = &VgicSysRegEngine::get_reg_data(fd, &SYS_ICC_CTLR_EL1, mpidr)?[0];
+
+    Ok(((reg_val & ICC_CTLR_EL1_PRIBITS_MASK) >> ICC_CTLR_EL1_PRIBITS_SHIFT) + 1)
+}
+
+fn conditional_icc_regs(num_priority_bits: u64) -> Box<dyn Iterator<Item = &'static SimpleReg>> {
+    Box::new(CONDITIONAL_VGIC_ICC_REGS.iter().filter(move |&reg| {
+        // As per ARMv8 documentation:
+        // https://static.docs.arm.com/ihi0069/c/IHI0069C_gic_architecture_specification.pdf
+        // page 178,
+        // ICC_AP0R1_EL1 is only implemented in implementations that support 6 or more bits of
+        // priority.
+        // ICC_AP0R2_EL1 and ICC_AP0R3_EL1 are only implemented in implementations that support
+        // 7 bits of priority.
+        if (reg == &SYS_ICC_AP0R1_EL1 || reg == &SYS_ICC_AP1R1_EL1) && num_priority_bits < 6 {
+            return false;
         }
-    }
-    Ok(())
+        if (reg == &SYS_ICC_AP0R2_EL1
+            || reg == &SYS_ICC_AP0R3_EL1
+            || reg == &SYS_ICC_AP1R2_EL1
+            || reg == &SYS_ICC_AP1R3_EL1)
+            && num_priority_bits != 7
+        {
+            return false;
+        }
+
+        true
+    }))
 }
 
-pub(crate) fn get_icc_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u64>> {
-    let mut state: Vec<u64> = Vec::new();
-    let mut action = Action::Get(&mut state);
-    access_icc_reg_list(fd, gicr_typer, &mut action)?;
+pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidrs: &[u64]) -> Result<Vec<VgicSysRegsState>> {
+    let mut state: Vec<VgicSysRegsState> = Vec::with_capacity(mpidrs.len());
+
+    for mpidr in mpidrs {
+        let main_icc_regs =
+            VgicSysRegEngine::get_regs_data(fd, Box::new(MAIN_VGIC_ICC_REGS.iter()), *mpidr)?;
+        let num_priority_bits = num_priority_bits(fd, *mpidr)?;
+
+        let conditional_icc_regs =
+            VgicSysRegEngine::get_regs_data(fd, conditional_icc_regs(num_priority_bits), *mpidr)?;
+
+        state.push(VgicSysRegsState {
+            main_icc_regs,
+            conditional_icc_regs,
+        });
+    }
+
     Ok(state)
 }
 
-pub(crate) fn set_icc_regs(fd: &DeviceFd, gicr_typer: &[u64], state: &[u64]) -> Result<()> {
-    let mut action = Action::Set(state, 0);
-    access_icc_reg_list(fd, gicr_typer, &mut action)
+pub(crate) fn set_icc_regs(
+    fd: &DeviceFd,
+    mpidrs: &[u64],
+    state: &[VgicSysRegsState],
+) -> Result<()> {
+    for (mpidr, regs) in mpidrs.iter().zip(state) {
+        VgicSysRegEngine::set_regs_data(
+            fd,
+            Box::new(MAIN_VGIC_ICC_REGS.iter()),
+            &regs.main_icc_regs,
+            *mpidr,
+        )?;
+        let num_priority_bits = num_priority_bits(fd, *mpidr)?;
+
+        VgicSysRegEngine::set_regs_data(
+            fd,
+            conditional_icc_regs(num_priority_bits),
+            &regs.conditional_icc_regs,
+            *mpidr,
+        )?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -168,24 +180,6 @@ mod tests {
     use crate::aarch64::gic::create_gic;
     use kvm_ioctls::Kvm;
     use std::os::unix::io::AsRawFd;
-
-    #[test]
-    fn test_access_icc_regs_size() {
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let _ = vm.create_vcpu(0).unwrap();
-        let gic_fd = create_gic(&vm, 1).expect("Cannot create gic");
-        let fd = gic_fd.device_fd();
-
-        let gicr_typer = 123;
-        let icc_offset = SYS_ICC_SRE_EL1;
-
-        let mut val = [0xdead_beef; 3];
-        access_icc_attr(fd, icc_offset, gicr_typer, &mut val[1], false).unwrap();
-        assert_eq!(val[0], 0xdead_beef);
-        assert_ne!(val[1], 0xdead_beef);
-        assert_eq!(val[2], 0xdead_beef);
-    }
 
     #[test]
     fn test_access_icc_regs() {
@@ -200,7 +194,7 @@ mod tests {
         assert!(res.is_ok());
         let state = res.unwrap();
         println!("{}", state.len());
-        assert_eq!(state.len(), 9);
+        assert_eq!(state.len(), 1);
 
         assert!(set_icc_regs(&gic_fd.device_fd(), &gicr_typer, &state).is_ok());
 
@@ -210,14 +204,14 @@ mod tests {
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
-            "DeviceAttribute(Error(9), true, 5)"
+            "DeviceAttribute(Error(9), true, 6)"
         );
 
         let res = get_icc_regs(&gic_fd.device_fd(), &gicr_typer);
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
-            "DeviceAttribute(Error(9), false, 5)"
+            "DeviceAttribute(Error(9), false, 6)"
         );
     }
 }
