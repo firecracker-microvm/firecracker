@@ -1,11 +1,12 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+#![allow(missing_docs)]
 
 use std::path::PathBuf;
 
-use vmm::resources::VmResources;
-use vmm::vmm_config::boot_source::BootSourceConfig;
-use vmm::vmm_config::machine_config::VmConfig;
+use crate::resources::VmResources;
+use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::machine_config::VmConfig;
 
 pub const DEFAULT_BOOT_ARGS: &str = "reboot=k panic=1 pci=off";
 #[cfg(target_arch = "x86_64")]
@@ -19,7 +20,7 @@ pub const NOISY_KERNEL_IMAGE: &str = "test_pe.bin";
 
 fn kernel_image_path(kernel_image: Option<&str>) -> String {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("tests/mock_resources");
+    path.push("src/utilities/mock_resources");
     path.push(kernel_image.unwrap_or(DEFAULT_KERNEL_IMAGE));
     path.as_os_str().to_str().unwrap().to_string()
 }
@@ -54,6 +55,12 @@ impl MockBootSourceConfig {
     pub fn with_kernel(mut self, kernel_image: &str) -> Self {
         self.0.kernel_image_path = kernel_image_path(Some(kernel_image));
         self
+    }
+}
+
+impl Default for MockBootSourceConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

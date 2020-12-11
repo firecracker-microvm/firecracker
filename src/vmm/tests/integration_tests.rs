@@ -1,13 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-mod mock_devices;
-mod mock_resources;
-mod mock_seccomp;
-mod test_utils;
-
 use std::io;
 use std::io::{Seek, SeekFrom};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -24,60 +18,16 @@ use vmm::resources::VmResources;
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
-use vmm::Vmm;
 
-use crate::mock_devices::MockSerialInput;
-use crate::mock_resources::NOISY_KERNEL_IMAGE;
-use crate::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
-use crate::mock_seccomp::MockSeccomp;
-use crate::test_utils::{restore_stdin, set_panic_hook};
-
-fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>>, EventManager) {
-    let mut event_manager = EventManager::new().unwrap();
-    let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
-
-    let boot_source_cfg = MockBootSourceConfig::new().with_default_boot_args();
-    #[cfg(target_arch = "aarch64")]
-    let boot_source_cfg: BootSourceConfig = boot_source_cfg.into();
-    #[cfg(target_arch = "x86_64")]
-    let boot_source_cfg: BootSourceConfig = match _kernel_image {
-        Some(kernel) => boot_source_cfg.with_kernel(kernel).into(),
-        None => boot_source_cfg.into(),
-    };
-    let mock_vm_res = MockVmResources::new().with_boot_source(boot_source_cfg);
-    let resources: VmResources = if is_diff {
-        mock_vm_res
-            .with_vm_config(MockVmConfig::new().with_dirty_page_tracking().into())
-            .into()
-    } else {
-        mock_vm_res.into()
-    };
-
-    (
-        build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter).unwrap(),
-        event_manager,
-    )
-}
-
-fn default_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, false)
-}
-
+use vmm::utilities::mock_devices::MockSerialInput;
+use vmm::utilities::mock_resources::NOISY_KERNEL_IMAGE;
+use vmm::utilities::mock_resources::{MockBootSourceConfig, MockVmResources};
+use vmm::utilities::mock_seccomp::MockSeccomp;
 #[cfg(target_arch = "x86_64")]
-fn dirty_tracking_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
-    create_vmm(kernel_image, true)
-}
-
-fn wait_vmm_child_process(vmm_pid: i32) {
-    // Parent process: wait for the vmm to exit.
-    let mut vmm_status: i32 = -1;
-    let pid_done = unsafe { libc::waitpid(vmm_pid, &mut vmm_status, 0) };
-    assert_eq!(pid_done, vmm_pid);
-    restore_stdin();
-    // If any panics occurred, its exit status will be != 0.
-    assert!(libc::WIFEXITED(vmm_status));
-    assert_eq!(libc::WEXITSTATUS(vmm_status), 0);
-}
+use vmm::utilities::test_utils::dirty_tracking_vmm;
+use vmm::utilities::test_utils::{
+    create_vmm, default_vmm, restore_stdin, set_panic_hook, wait_vmm_child_process,
+};
 
 #[test]
 fn test_setup_serial_device() {

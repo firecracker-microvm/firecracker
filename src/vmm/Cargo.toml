@@ -28,3 +28,10 @@ utils = { path = "../utils" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }
+
+[dev-dependencies]
+criterion = "0.3.0"
+
+[[bench]]
+name = "main"
+harness = false
