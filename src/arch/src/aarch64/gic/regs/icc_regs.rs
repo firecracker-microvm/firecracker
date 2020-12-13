@@ -150,16 +150,14 @@ fn access_icc_reg_list(fd: &DeviceFd, gicr_typer: &[u64], action: &mut Action) -
     Ok(())
 }
 
-/// Get ICC registers.
-pub fn get_icc_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u64>> {
+pub(crate) fn get_icc_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u64>> {
     let mut state: Vec<u64> = Vec::new();
     let mut action = Action::Get(&mut state);
     access_icc_reg_list(fd, gicr_typer, &mut action)?;
     Ok(state)
 }
 
-/// Set ICC registers.
-pub fn set_icc_regs(fd: &DeviceFd, gicr_typer: &[u64], state: &[u64]) -> Result<()> {
+pub(crate) fn set_icc_regs(fd: &DeviceFd, gicr_typer: &[u64], state: &[u64]) -> Result<()> {
     let mut action = Action::Set(state, 0);
     access_icc_reg_list(fd, gicr_typer, &mut action)
 }

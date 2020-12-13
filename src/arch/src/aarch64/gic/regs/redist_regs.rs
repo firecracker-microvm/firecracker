@@ -129,8 +129,7 @@ fn access_redist_reg_list(
     Ok(())
 }
 
-/// Get redistributor registers.
-pub fn get_redist_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u32>> {
+pub(crate) fn get_redist_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u32>> {
     let mut state = Vec::new();
     let mut action = Action::Get(&mut state);
     access_redist_reg_list(fd, gicr_typer, VGIC_RDIST_REGS, &mut action)?;
@@ -138,8 +137,7 @@ pub fn get_redist_regs(fd: &DeviceFd, gicr_typer: &[u64]) -> Result<Vec<u32>> {
     Ok(state)
 }
 
-/// Set redistributor registers.
-pub fn set_redist_regs(fd: &DeviceFd, gicr_typer: &[u64], state: &[u32]) -> Result<()> {
+pub(crate) fn set_redist_regs(fd: &DeviceFd, gicr_typer: &[u64], state: &[u32]) -> Result<()> {
     let mut action = Action::Set(state, 0);
     access_redist_reg_list(fd, gicr_typer, VGIC_RDIST_REGS, &mut action)?;
     access_redist_reg_list(fd, gicr_typer, VGIC_SGI_REGS, &mut action)

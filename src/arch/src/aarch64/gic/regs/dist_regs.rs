@@ -147,16 +147,14 @@ fn access_dist_reg_list(fd: &DeviceFd, action: &mut Action) -> Result<()> {
     Ok(())
 }
 
-/// Get distributor registers of the GIC.
-pub fn get_dist_regs(fd: &DeviceFd) -> Result<Vec<u32>> {
+pub(crate) fn get_dist_regs(fd: &DeviceFd) -> Result<Vec<u32>> {
     let mut state = Vec::new();
     let mut action = Action::Get(&mut state);
     access_dist_reg_list(fd, &mut action)?;
     Ok(state)
 }
 
-/// Set distributor registers of the GIC.
-pub fn set_dist_regs(fd: &DeviceFd, state: &[u32]) -> Result<()> {
+pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[u32]) -> Result<()> {
     let mut action = Action::Set(state, 0);
     access_dist_reg_list(fd, &mut action)
 }
