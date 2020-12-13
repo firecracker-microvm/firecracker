@@ -12,6 +12,8 @@ use std::{
 
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::gic::GICDevice;
+#[cfg(target_arch = "aarch64")]
+use arch::aarch64::gic::GicState;
 #[cfg(target_arch = "x86_64")]
 use kvm_bindings::{
     kvm_clock_data, kvm_irqchip, kvm_pit_config, kvm_pit_state2, CpuId, MsrList,
@@ -60,9 +62,9 @@ pub enum Error {
     /// Cannot configure the microvm.
     VmSetup(kvm_ioctls::Error),
     #[cfg(target_arch = "aarch64")]
-    SaveRegisters(&'static str, arch::aarch64::gic::Error),
+    SaveGic(arch::aarch64::gic::Error),
     #[cfg(target_arch = "aarch64")]
-    RestoreRegisters(&'static str, arch::aarch64::gic::Error),
+    RestoreGic(arch::aarch64::gic::Error),
 }
 
 impl Display for Error {
@@ -94,11 +96,9 @@ impl Display for Error {
             #[cfg(target_arch = "x86_64")]
             VmSetIrqChip(e) => write!(f, "Failed to set KVM vm irqchip: {}", e),
             #[cfg(target_arch = "aarch64")]
-            SaveRegisters(msg, e) => write!(f, "Failed to save the VM's GIC {}: {:?}", msg, e),
+            SaveGic(e) => write!(f, "Failed to save the VM's GIC state: {:?}", e),
             #[cfg(target_arch = "aarch64")]
-            RestoreRegisters(msg, e) => {
-                write!(f, "Failed to restore the VM's GIC {}: {:?}", msg, e)
-            }
+            RestoreGic(e) => write!(f, "Failed to restore the VM's GIC state: {:?}", e),
         }
     }
 }
@@ -271,34 +271,17 @@ impl Vm {
     pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState> {
         let irqchip_handle = self.irqchip_handle.as_ref().unwrap().device_fd();
 
-        // Flush redistributors pending tables to guest RAM.
-        arch::aarch64::gic::save_pending_tables(irqchip_handle)
-            .map_err(|e| Error::SaveRegisters("RAM pending tables", e))?;
-
-        let dist_state = arch::aarch64::gic::get_dist_regs(irqchip_handle)
-            .map_err(|e| Error::SaveRegisters("distributor registers", e))?;
-        let rdist_state = arch::aarch64::gic::get_redist_regs(irqchip_handle, &mpidrs)
-            .map_err(|e| Error::SaveRegisters("redistributor registers", e))?;
-        let icc_state = arch::aarch64::gic::get_icc_regs(irqchip_handle, &mpidrs)
-            .map_err(|e| Error::SaveRegisters("CPU interface registers", e))?;
-
         Ok(VmState {
-            dist: dist_state,
-            rdist: rdist_state,
-            icc: icc_state,
+            gic: arch::aarch64::gic::save_state(irqchip_handle, mpidrs).map_err(Error::SaveGic)?,
         })
     }
 
     #[cfg(target_arch = "aarch64")]
     pub fn restore_state(&self, mpidrs: &[u64], state: &VmState) -> Result<()> {
         let irqchip_handle = self.get_irqchip().device_fd();
+        arch::aarch64::gic::restore_state(irqchip_handle, mpidrs, &state.gic)
+            .map_err(Error::RestoreGic)?;
 
-        arch::aarch64::gic::set_dist_regs(irqchip_handle, &state.dist)
-            .map_err(|e| Error::RestoreRegisters("distributor registers", e))?;
-        arch::aarch64::gic::set_redist_regs(irqchip_handle, mpidrs, &state.rdist)
-            .map_err(|e| Error::RestoreRegisters("redistributor registers", e))?;
-        arch::aarch64::gic::set_icc_regs(irqchip_handle, &mpidrs, &state.icc)
-            .map_err(|e| Error::SaveRegisters("CPU interface registers", e))?;
         Ok(())
     }
 
@@ -346,9 +329,7 @@ pub struct VmState {
 #[cfg(target_arch = "aarch64")]
 #[derive(Default, Versionize)]
 pub struct VmState {
-    dist: Vec<u32>,
-    rdist: Vec<u32>,
-    icc: Vec<u64>,
+    gic: GicState,
 }
 
 #[cfg(test)]
@@ -433,49 +414,6 @@ pub(crate) mod tests {
         vm.setup_irqchip().unwrap();
 
         assert!(vm.restore_state(&vm_state).is_ok());
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    #[test]
-    fn test_vm_save_restore_state() {
-        let (mut vm, _mem) = setup_vm(0x1000);
-        vm.setup_irqchip(1).unwrap();
-
-        let mpidr = vec![1];
-        let res = vm.save_state(&mpidr);
-        // We will receive error if trying to call before creating vcpu.
-        assert!(res.is_err());
-        assert_eq!(
-            format!("{}", res.err().unwrap()),
-            "Failed to save the VM\'s GIC distributor registers: DeviceAttribute(Error(22), false, 1)"
-        );
-
-        let (mut vm, _mem) = setup_vm(0x1000);
-        let _vcpu = vm.fd().create_vcpu(0).unwrap();
-        vm.setup_irqchip(1).unwrap();
-
-        let vm_state = vm.save_state(&mpidr).unwrap();
-        let val: u32 = 0;
-        let gicd_statusr_off = 0x0010;
-        let mut gic_dist_attr = kvm_bindings::kvm_device_attr {
-            group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS,
-            attr: gicd_statusr_off as u64,
-            addr: &val as *const u32 as u64,
-            flags: 0,
-        };
-        vm.get_irqchip()
-            .device_fd()
-            .get_device_attr(&mut gic_dist_attr)
-            .unwrap();
-
-        // The second value from the list of distributor registers is the value of the GICD_STATUSR register.
-        // We assert that the one saved in the bitmap is the same with the one we obtain
-        // with KVM_GET_DEVICE_ATTR.
-        let gicd_statusr = vm_state.dist[1];
-
-        assert_eq!(gicd_statusr, val);
-        assert_eq!(vm_state.dist.len(), 245);
-        assert!(vm.restore_state(&mpidr, &vm_state).is_ok());
     }
 
     #[test]

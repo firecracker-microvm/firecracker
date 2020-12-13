@@ -9,10 +9,10 @@ use std::{boxed::Box, result};
 
 use kvm_ioctls::{DeviceFd, VmFd};
 
-pub use self::regs::dist_regs::{get_dist_regs, set_dist_regs};
-pub use self::regs::icc_regs::{get_icc_regs, set_icc_regs};
-pub use self::regs::redist_regs::{get_redist_regs, set_redist_regs};
-use {super::layout, gicv2::GICv2, gicv3::GICv3};
+use super::layout;
+use gicv2::GICv2;
+use gicv3::GICv3;
+pub use regs::{restore_state, save_state, GicState};
 
 /// Errors thrown while setting up the GIC.
 #[derive(Debug)]
