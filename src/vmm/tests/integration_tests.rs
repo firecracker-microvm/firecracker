@@ -24,7 +24,7 @@ use vmm::default_syscalls::get_seccomp_filter;
 #[cfg(target_arch = "x86_64")]
 use vmm::persist;
 #[cfg(target_arch = "x86_64")]
-use vmm::persist::MicrovmState;
+use vmm::persist::{snapshot_state_sanity_check, LoadSnapshotError, MicrovmState};
 use vmm::resources::VmResources;
 #[cfg(target_arch = "x86_64")]
 use vmm::version_map::VERSION_MAP;
@@ -484,6 +484,69 @@ fn test_snapshot_cpu_vendor() {
     // Check if the snapshot created above passes validation since
     // the snapshot was created locally.
     assert!(validate_x86_64_cpu_vendor(&microvm_state).is_ok());
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn test_snapshot_load_sanity_checks() {
+    use vmm::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
+
+    // Create a diff snapshot.
+    let (snapshot_file, _) = verify_create_snapshot(true);
+
+    // Deserialize the microVM state.
+    let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
+    let snapshot_len = snapshot_file_metadata.len() as usize;
+    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
+    let mut microvm_state: MicrovmState = Snapshot::load(
+        &mut snapshot_file.as_file(),
+        snapshot_len,
+        VERSION_MAP.clone(),
+    )
+    .unwrap();
+
+    assert!(snapshot_state_sanity_check(&microvm_state).is_ok());
+
+    // Remove memory regions.
+    microvm_state.memory_state.regions.clear();
+
+    // Validate sanity checks fail because there is no mem region in state.
+    let err = snapshot_state_sanity_check(&microvm_state).unwrap_err();
+    match err {
+        LoadSnapshotError::InvalidSnapshot(err_msg) => {
+            assert_eq!(err_msg, "No memory region defined.")
+        }
+        _ => unreachable!(),
+    }
+
+    // Create MAX_SUPPORTED_VCPUS vCPUs starting from 1 vCPU.
+    for _ in 0..(MAX_SUPPORTED_VCPUS as f64).log2() as usize {
+        microvm_state
+            .vcpu_states
+            .append(&mut microvm_state.vcpu_states.clone());
+    }
+
+    // After this line we will have 33 vCPUs, FC max si 32.
+    microvm_state
+        .vcpu_states
+        .push(microvm_state.vcpu_states[0].clone());
+
+    // Validate sanity checks fail because there are too many vCPUs.
+    let err = snapshot_state_sanity_check(&microvm_state).unwrap_err();
+    match err {
+        LoadSnapshotError::InvalidSnapshot(err_msg) => assert_eq!(err_msg, "Invalid vCPU count."),
+        _ => unreachable!(),
+    }
+
+    // Remove all vCPUs states from microvm state.
+    microvm_state.vcpu_states.clear();
+
+    // Validate sanity checks fail because there is no vCPU in state.
+    let err = snapshot_state_sanity_check(&microvm_state).unwrap_err();
+    match err {
+        LoadSnapshotError::InvalidSnapshot(err_msg) => assert_eq!(err_msg, "Invalid vCPU count."),
+        _ => unreachable!(),
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
