@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use crate::builder::{self, StartMicrovmError};
 use crate::device_manager::persist::Error as DevicePersistError;
 use crate::mem_size_mib;
+use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vstate::{self, vcpu::VcpuState, vm::VmState};
 
@@ -169,6 +170,8 @@ pub enum LoadSnapshotError {
     SnapshotBackingFileMetadata(io::Error),
     /// Snapshot cpu vendor differs than host cpu vendor.
     CpuVendorMismatch(String),
+    /// Snapshot failed sanity checks.
+    InvalidSnapshot(String),
 }
 
 impl Display for LoadSnapshotError {
@@ -183,6 +186,7 @@ impl Display for LoadSnapshotError {
             SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {}", err),
             SnapshotBackingFileMetadata(err) => write!(f, "Cannot retrieve file metadata: {}", err),
             CpuVendorMismatch(err) => write!(f, "Snapshot cpu vendor mismatch: {}", err),
+            InvalidSnapshot(err) => write!(f, "Snapshot sanity check failed: {}", err),
         }
     }
 }
@@ -303,6 +307,34 @@ pub fn validate_x86_64_cpu_vendor(
     Ok(())
 }
 
+/// Performs sanitychecks against the state file and returns specific errors.
+pub fn snapshot_state_sanity_check(
+    microvm_state: &MicrovmState,
+) -> std::result::Result<(), LoadSnapshotError> {
+    // Check if the snapshot contains at least 1 vCPU state entry.
+    if microvm_state.vcpu_states.is_empty()
+        || microvm_state.vcpu_states.len() > MAX_SUPPORTED_VCPUS.into()
+    {
+        return Err(LoadSnapshotError::InvalidSnapshot(
+            "Invalid vCPU count.".to_owned(),
+        ));
+    }
+
+    // Check if the snapshot contains at least 1 mem region.
+    // Upper bound check will be done when creating guest memory by comparing against
+    // KVM max supported value kvm_context.max_memslots().
+    if microvm_state.memory_state.regions.is_empty() {
+        return Err(LoadSnapshotError::InvalidSnapshot(
+            "No memory region defined.".to_owned(),
+        ));
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    validate_x86_64_cpu_vendor(&microvm_state)?;
+
+    Ok(())
+}
+
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
 pub fn restore_from_snapshot(
     event_manager: &mut EventManager,
@@ -313,8 +345,10 @@ pub fn restore_from_snapshot(
     use self::LoadSnapshotError::*;
     let track_dirty_pages = params.enable_diff_snapshots;
     let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
-    #[cfg(target_arch = "x86_64")]
-    validate_x86_64_cpu_vendor(&microvm_state)?;
+
+    // Some sanity checks before building the microvm.
+    snapshot_state_sanity_check(&microvm_state)?;
+
     let guest_memory = guest_memory_from_file(
         &params.mem_file_path,
         &microvm_state.memory_state,
