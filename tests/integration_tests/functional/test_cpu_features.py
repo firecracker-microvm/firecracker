@@ -329,3 +329,11 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     # Check that all features in `common_masked_features` are properly masked.
     for feature in common_masked_features:
         assert feature not in cpu_flags_output
+
+    # Check if XSAVE PKRU is masked for T3/C2.
+    expected_cpu_features = {
+        "XCR0 supported: PKRU state": "false"
+    }
+
+    _check_guest_cmd_output(test_microvm, "cpuid -1", None, '=',
+                            expected_cpu_features)
