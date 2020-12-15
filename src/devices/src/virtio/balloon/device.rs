@@ -262,15 +262,18 @@ impl Balloon {
         // The pfn buffer index used during descriptor processing.
         let mut pfn_buffer_idx = 0;
         let mut needs_interrupt = false;
+        let mut valid_descs_found = true;
 
-        // Loop until we consume the entire queue.
-        while !queue.is_empty(&mem) {
+        // Loop until there are no more valid DescriptorChains.
+        while valid_descs_found {
+            valid_descs_found = false;
             // Internal loop processes descriptors and acummulates the pfns in `pfn_buffer`.
             // Breaks out when there is not enough space in `pfn_buffer` to completely process
             // the next descriptor.
             while let Some(head) = queue.pop(&mem) {
                 let len = head.len as usize;
                 let max_len = MAX_PAGES_IN_DESC * SIZE_OF_U32;
+                valid_descs_found = true;
 
                 if !head.is_write_only() && len % SIZE_OF_U32 == 0 {
                     // Check descriptor pfn count.
