@@ -7,28 +7,32 @@ import logging
 import os
 import platform
 import pytest
-from conftest import _test_images_s3_bucket
+from conftest import _test_images_s3_bucket, DEFAULT_TEST_IMAGES_S3_BUCKET
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.microvms import VMMicro
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.utils import CpuMap
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
-
 
 # How many latencies do we sample per test.
 SAMPLE_COUNT = 3
 USEC_IN_MSEC = 1000
 
 # Latencies in milliseconds.
+# The latency for snapshot creation has high variance due to scheduler noise.
+# The issue is tracked here:
+# https://github.com/firecracker-microvm/firecracker/issues/2346
+# TODO: Update baseline values after fix.
 CREATE_LATENCY_BASELINES = {
     '2vcpu_256mb.json': {
-        'FULL':  1000,
-        'DIFF':  0,
+        'FULL':  180,
+        'DIFF':  50,
     },
     '2vcpu_512mb.json': {
-        'FULL':  1000,
-        'DIFF':  0,
+        'FULL':  280,
+        'DIFF':  50,
     }
 }
 
@@ -48,57 +52,84 @@ def _test_snapshot_create_latency(context):
     snapshot_type = context.custom['snapshot_type']
     enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
 
-    logger.info("""Measuring snapshot create({}) latency for microvm: \"{}\",
-kernel {}, disk {} """.format(snapshot_type,
-                              context.microvm.name(),
-                              context.kernel.name(),
-                              context.disk.name()))
-
     # Create a rw copy artifact.
     rw_disk = context.disk.copy()
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
 
-    # Measure a burst of snapshot create calls.
-    for i in range(SAMPLE_COUNT):
-        # Create a fresh microvm from aftifacts.
-        vm = vm_builder.build(kernel=context.kernel,
-                              disks=[rw_disk],
-                              ssh_key=ssh_key,
-                              config=context.microvm,
-                              enable_diff_snapshots=enable_diff_snapshots)
+    logger.info("Fetching firecracker/jailer versions from {}."
+                .format(DEFAULT_TEST_IMAGES_S3_BUCKET))
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    firecracker_versions = artifacts.firecracker_versions()
 
-        # Configure metrics system.
-        metrics_fifo_path = os.path.join(vm.path, 'metrics_fifo')
-        metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    # Test snapshot creation for every supported target version.
+    for target_version in firecracker_versions:
+        logger.info("""Measuring snapshot create({}) latency for target
+        version: {} and microvm: \"{}\", kernel {}, disk {} """
+                    .format(snapshot_type,
+                            target_version,
+                            context.microvm.name(),
+                            context.kernel.name(),
+                            context.disk.name()))
 
-        response = vm.metrics.put(
-            metrics_path=vm.create_jailed_resource(metrics_fifo.path)
-        )
-        assert vm.api_session.is_status_no_content(response.status_code)
+        # Measure a burst of snapshot create calls.
+        for i in range(SAMPLE_COUNT):
+            # Create a fresh microVM from artifacts.
+            vm = vm_builder.build(kernel=context.kernel,
+                                  disks=[rw_disk],
+                                  ssh_key=ssh_key,
+                                  config=context.microvm,
+                                  enable_diff_snapshots=enable_diff_snapshots)
 
-        vm.start()
+            # Configure metrics system.
+            metrics_fifo_path = os.path.join(vm.path, 'metrics_fifo')
+            metrics_fifo = log_tools.Fifo(metrics_fifo_path)
 
-        # Create a snapshot builder from a microvm.
-        snapshot_builder = SnapshotBuilder(vm)
-        snapshot_builder.create([rw_disk],
-                                ssh_key,
-                                snapshot_type)
-        metrics = vm.flush_metrics(metrics_fifo)
+            response = vm.metrics.put(
+                metrics_path=vm.create_jailed_resource(metrics_fifo.path)
+            )
+            assert vm.api_session.is_status_no_content(response.status_code)
 
-        if snapshot_type == SnapshotType.FULL:
-            value = metrics['latencies_us']['full_create_snapshot']
-            baseline = CREATE_LATENCY_BASELINES[context.microvm.name()]['FULL']
-        else:
-            value = metrics['latencies_us']['diff_create_snapshot']
-            baseline = CREATE_LATENCY_BASELINES[context.microvm.name()]['DIFF']
+            vm.start()
 
-        value = value / USEC_IN_MSEC
+            # Check if the needed CPU cores are available. We have the API
+            # thread, VMM thread and then one thread for each configured vCPU.
+            assert CpuMap.len() >= 2 + vm.vcpus_count
 
-        assert baseline > value, "CreateSnapshot latency degraded."
+            # Pin uVM threads to physical cores.
+            current_cpu_id = 0
+            assert vm.pin_vmm(current_cpu_id), \
+                "Failed to pin firecracker thread."
+            current_cpu_id += 1
+            assert vm.pin_api(current_cpu_id), \
+                "Failed to pin fc_api thread."
+            for idx_vcpu in range(vm.vcpus_count):
+                current_cpu_id += 1
+                assert vm.pin_vcpu(idx_vcpu, current_cpu_id + idx_vcpu), \
+                    f"Failed to pin fc_vcpu {idx_vcpu} thread."
 
-        logger.info("Latency {}/3: {} ms".format(i + 1, value))
-        vm.kill()
+            # Create a snapshot builder from a microVM.
+            snapshot_builder = SnapshotBuilder(vm)
+            snapshot_builder.create(disks=[rw_disk],
+                                    ssh_key=ssh_key,
+                                    snapshot_type=snapshot_type,
+                                    target_version=target_version)
+            metrics = vm.flush_metrics(metrics_fifo)
+            vm_name = context.microvm.name()
+
+            if snapshot_type == SnapshotType.FULL:
+                value = metrics['latencies_us']['full_create_snapshot']
+                baseline = CREATE_LATENCY_BASELINES[vm_name]['FULL']
+            else:
+                value = metrics['latencies_us']['diff_create_snapshot']
+                baseline = CREATE_LATENCY_BASELINES[vm_name]['DIFF']
+
+            value = value / USEC_IN_MSEC
+
+            assert baseline > value, "CreateSnapshot latency degraded."
+
+            logger.info("Latency {}/3: {} ms".format(i + 1, value))
+            vm.kill()
 
 
 def _test_snapshot_resume_latency(context):
@@ -175,9 +206,9 @@ kernel {}, disk {} """.format(snapshot_type,
     platform.machine() != "x86_64",
     reason="Not supported yet."
 )
-def test_snapshot_create_latency(network_config,
-                                 bin_cloner_path):
-    """Test scenario: Snapshot create performance measurement."""
+def test_snapshot_create_full_latency(network_config,
+                                      bin_cloner_path):
+    """Test scenario: Full snapshot create performance measurement."""
     logger = logging.getLogger("snapshot_sequence")
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     # Testing matrix:
@@ -197,6 +228,45 @@ def test_snapshot_create_latency(network_config,
         'network_config': network_config,
         'logger': logger,
         'snapshot_type': SnapshotType.FULL,
+    }
+
+    # Create the test matrix.
+    test_matrix = TestMatrix(context=test_context,
+                             artifact_sets=[
+                                 microvm_artifacts,
+                                 kernel_artifacts,
+                                 disk_artifacts
+                             ])
+
+    test_matrix.run_test(_test_snapshot_create_latency)
+
+
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="Not supported yet."
+)
+def test_snapshot_create_diff_latency(network_config,
+                                      bin_cloner_path):
+    """Test scenario: Diff snapshot create performance measurement."""
+    logger = logging.getLogger("snapshot_sequence")
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+    # Testing matrix:
+    # - Guest kernel: Linux 4.14
+    # - Rootfs: Ubuntu 18.04
+    # - Microvm: 2vCPU with 256/512 MB RAM
+    # TODO: Multiple microvm sizes must be tested in the async pipeline.
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
+    microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_256mb"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="4.14"))
+    disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
+
+    # Create a test context and add builder, logger, network.
+    test_context = TestContext()
+    test_context.custom = {
+        'builder': MicrovmBuilder(bin_cloner_path),
+        'network_config': network_config,
+        'logger': logger,
+        'snapshot_type': SnapshotType.DIFF,
     }
 
     # Create the test matrix.

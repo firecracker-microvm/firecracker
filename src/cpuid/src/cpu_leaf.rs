@@ -240,6 +240,7 @@ pub mod leaf_0xd {
 
             pub const MPX_STATE_BITRANGE: BitRange = bit_range!(4, 3);
             pub const AVX512_STATE_BITRANGE: BitRange = bit_range!(7, 5);
+            pub const PKRU_BITINDEX: u32 = 9;
         }
     }
 
