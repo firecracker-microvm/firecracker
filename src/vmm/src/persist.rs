@@ -16,13 +16,11 @@ use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vstate::{self, vcpu::VcpuState, vm::VmState};
 
-use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::DeviceStates;
 use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
 use crate::{Error as VmmError, Vmm};
-use arch::IRQ_BASE;
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 #[cfg(target_arch = "x86_64")]
@@ -36,10 +34,7 @@ use vm_memory::GuestMemoryMmap;
 
 const FC_V0_23_SNAP_VERSION: u16 = 1;
 #[cfg(target_arch = "x86_64")]
-const FC_V0_23_IRQ_NUMBER: u32 = 16;
-#[cfg(target_arch = "aarch64")]
-const FC_V0_23_IRQ_NUMBER: u32 = 128;
-const FC_V0_23_MAX_DEVICES: u32 = FC_V0_23_IRQ_NUMBER - IRQ_BASE;
+const FC_V0_23_MAX_DEVICES: u32 = 11;
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Debug, PartialEq, Versionize)]
@@ -205,12 +200,13 @@ pub fn create_snapshot(
 
     snapshot_memory_to_file(vmm, &params.mem_file_path, &params.snapshot_type)?;
 
+    let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, &vmm)?;
+
     snapshot_state_to_file(
         &microvm_state,
         &params.snapshot_path,
-        &params.version,
+        snapshot_data_version,
         version_map,
-        &vmm.mmio_device_manager,
     )?;
 
     Ok(())
@@ -219,9 +215,8 @@ pub fn create_snapshot(
 fn snapshot_state_to_file(
     microvm_state: &MicrovmState,
     snapshot_path: &PathBuf,
-    version: &Option<String>,
+    snapshot_data_version: u16,
     version_map: VersionMap,
-    device_manager: &MMIODeviceManager,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
     let mut snapshot_file = OpenOptions::new()
@@ -229,19 +224,6 @@ fn snapshot_state_to_file(
         .write(true)
         .open(snapshot_path)
         .map_err(SnapshotBackingFile)?;
-
-    // Translate the microVM version to its corresponding snapshot data format.
-    let snapshot_data_version = match version {
-        Some(version) => match FC_VERSION_TO_SNAP_VERSION.get(version) {
-            Some(&FC_V0_23_SNAP_VERSION) => {
-                validate_devices_number(device_manager.used_irqs_count())?;
-                Ok(FC_V0_23_SNAP_VERSION)
-            }
-            Some(data_version) => Ok(*data_version),
-            _ => Err(InvalidVersion),
-        },
-        _ => Ok(version_map.latest_version()),
-    }?;
 
     let mut snapshot = Snapshot::new(version_map, snapshot_data_version);
     snapshot
@@ -280,6 +262,26 @@ fn snapshot_memory_to_file(
     }
 }
 
+/// Validate the microVM version and translate it to its corresponding snapshot data format.
+pub fn get_snapshot_data_version(
+    version: &Option<String>,
+    version_map: &VersionMap,
+    vmm: &Vmm,
+) -> std::result::Result<u16, CreateSnapshotError> {
+    use self::CreateSnapshotError::InvalidVersion;
+    if version.is_none() {
+        return Ok(version_map.latest_version());
+    }
+    match FC_VERSION_TO_SNAP_VERSION.get(version.as_ref().unwrap()) {
+        Some(&FC_V0_23_SNAP_VERSION) => {
+            validate_devices_number(vmm.mmio_device_manager.used_irqs_count())?;
+            Ok(FC_V0_23_SNAP_VERSION)
+        }
+        Some(data_version) => Ok(*data_version),
+        _ => Err(InvalidVersion),
+    }
+}
+
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
 #[cfg(target_arch = "x86_64")]
 pub fn validate_x86_64_cpu_vendor(
@@ -309,7 +311,7 @@ pub fn validate_x86_64_cpu_vendor(
     Ok(())
 }
 
-/// Performs sanitychecks against the state file and returns specific errors.
+/// Performs sanity checks against the state file and returns specific errors.
 pub fn snapshot_state_sanity_check(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<(), LoadSnapshotError> {
@@ -405,6 +407,7 @@ mod tests {
         insert_net_device, insert_vsock_device, CustomBlockConfig,
     };
     use crate::memory_snapshot::SnapshotMemory;
+    use crate::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
@@ -414,7 +417,8 @@ mod tests {
     use snapshot::Persist;
     use utils::{errno, tempfile::TempFile};
 
-    fn default_vmm_with_devices(event_manager: &mut EventManager) -> Vmm {
+    fn default_vmm_with_devices() -> Vmm {
+        let mut event_manager = EventManager::new().expect("Cannot create EventManager");
         let mut vmm = default_vmm();
         let mut cmdline = default_kernel_cmdline();
 
@@ -424,12 +428,12 @@ mod tests {
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         };
-        insert_balloon_device(&mut vmm, &mut cmdline, event_manager, balloon_config);
+        insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_config);
 
         // Add a block device.
         let drive_id = String::from("root");
         let block_configs = vec![CustomBlockConfig::new(drive_id, true, None, true)];
-        insert_block_devices(&mut vmm, &mut cmdline, event_manager, block_configs);
+        insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
 
         // Add net device.
         let network_interface = NetworkInterfaceConfig {
@@ -440,22 +444,26 @@ mod tests {
             tx_rate_limiter: None,
             allow_mmds_requests: true,
         };
-        insert_net_device(&mut vmm, &mut cmdline, event_manager, network_interface);
+        insert_net_device(
+            &mut vmm,
+            &mut cmdline,
+            &mut event_manager,
+            network_interface,
+        );
 
         // Add vsock device.
         let mut tmp_sock_file = TempFile::new().unwrap();
         tmp_sock_file.remove().unwrap();
         let vsock_config = default_config(&tmp_sock_file);
 
-        insert_vsock_device(&mut vmm, &mut cmdline, event_manager, vsock_config);
+        insert_vsock_device(&mut vmm, &mut cmdline, &mut event_manager, vsock_config);
 
         vmm
     }
 
     #[test]
     fn test_microvmstate_versionize() {
-        let mut event_manager = EventManager::new().expect("Cannot create EventManager");
-        let vmm = default_vmm_with_devices(&mut event_manager);
+        let vmm = default_vmm_with_devices();
         let states = vmm.mmio_device_manager.save();
 
         // Only checking that all devices are saved, actual device state
@@ -500,6 +508,23 @@ mod tests {
             restored_microvm_state.device_states,
             microvm_state.device_states
         )
+    }
+
+    #[test]
+    fn test_get_snapshot_data_version() {
+        let vmm = default_vmm_with_devices();
+
+        assert_eq!(
+            VERSION_MAP.latest_version(),
+            get_snapshot_data_version(&None, &VERSION_MAP, &vmm).unwrap()
+        );
+        // Validate sanity checks fail because of invalid target version.
+        assert!(get_snapshot_data_version(&Some(String::from("foo")), &VERSION_MAP, &vmm).is_err());
+
+        for version in FC_VERSION_TO_SNAP_VERSION.keys() {
+            let res = get_snapshot_data_version(&Some(version.to_owned()), &VERSION_MAP, &vmm);
+            assert!(res.is_ok());
+        }
     }
 
     #[test]
