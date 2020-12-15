@@ -230,7 +230,6 @@ impl ApiServer {
             .expect("Failed to send VMM message");
         self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
         let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
-        #[cfg(target_arch = "x86_64")]
         self.check_for_fatal_error(&vmm_outcome);
         let response = ParsedRequest::convert_to_response(&vmm_outcome);
 
@@ -245,7 +244,6 @@ impl ApiServer {
         response
     }
 
-    #[cfg(target_arch = "x86_64")]
     fn check_for_fatal_error(&mut self, response: &std::result::Result<VmmData, VmmActionError>) {
         // Errors considered as fatal are added here
         if let Err(VmmActionError::LoadSnapshot(_)) = response {
