@@ -165,7 +165,7 @@ mod tests {
     fn test_init_logger() {
         let default_instance_info = InstanceInfo {
             id: "".to_string(),
-            started: false,
+            state: "Not started".to_string(),
             vmm_version: "some_version".to_string(),
             app_name: "".to_string(),
         };

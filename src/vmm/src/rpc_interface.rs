@@ -922,7 +922,7 @@ mod tests {
     ) -> PrebootApiController<'a> {
         let instance_info = InstanceInfo {
             id: String::new(),
-            started: false,
+            state: "Not started".to_string(),
             vmm_version: String::new(),
             app_name: String::new(),
         };
@@ -1256,7 +1256,7 @@ mod tests {
             &mut EventManager::new().unwrap(),
             InstanceInfo {
                 id: String::new(),
-                started: false,
+                state: "Not started".to_string(),
                 vmm_version: String::new(),
                 app_name: String::new(),
             },

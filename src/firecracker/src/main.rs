@@ -176,7 +176,7 @@ fn main() {
 
     let instance_info = InstanceInfo {
         id: instance_id.clone(),
-        started: false,
+        state: "Not started".to_string(),
         vmm_version: FIRECRACKER_VERSION.to_string(),
         app_name: "Firecracker".to_string(),
     };

@@ -5,7 +5,7 @@ use std::{
     os::unix::io::AsRawFd,
     path::PathBuf,
     sync::mpsc::{channel, Receiver, Sender, TryRecvError},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
     thread,
 };
 
@@ -138,8 +138,7 @@ pub(crate) fn run_with_api(
 
     // MMDS only supported with API.
     let mmds_info = MMDS.clone();
-    let api_shared_info = Arc::new(RwLock::new(instance_info.clone()));
-    let vmm_shared_info = api_shared_info.clone();
+    let api_server_instance_info = instance_info.clone();
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
@@ -151,7 +150,7 @@ pub(crate) fn run_with_api(
         .spawn(move || {
             match ApiServer::new(
                 mmds_info,
-                vmm_shared_info,
+                api_server_instance_info,
                 to_vmm,
                 from_vmm,
                 to_vmm_event_fd,
@@ -227,9 +226,6 @@ pub(crate) fn run_with_api(
         .lock()
         .expect("Poisoned lock")
         .start(super::metrics::WRITE_METRICS_PERIOD_MS);
-
-    // Update the api shared instance info.
-    api_shared_info.write().unwrap().started = true;
 
     ApiServerAdapter::run_microvm(
         api_event_fd,
