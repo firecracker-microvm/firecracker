@@ -10,10 +10,10 @@ import re
 import subprocess
 import threading
 import typing
-from collections import namedtuple, defaultdict
 import time
+from collections import namedtuple, defaultdict
 import psutil
-
+from retry import retry
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
@@ -461,3 +461,18 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
                     current_cpu_percentages[thread_name][task_id])
         time.sleep(1)  # 1 second granularity.
     return cpu_percentages
+
+
+@retry(delay=0.5, tries=5)
+def wait_process_termination(p_pid):
+    """Wait for a process to terminate.
+
+    Will return sucessfully if the process
+    got indeed killed or raises an exception if the process
+    is still alive after retrying several times.
+    """
+    try:
+        _, stdout, _ = run_cmd("ps --pid {} -o comm=".format(p_pid))
+    except ChildProcessError:
+        return
+    raise Exception("{} process is still alive: ".format(stdout.strip()))
