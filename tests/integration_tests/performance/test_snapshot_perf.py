@@ -39,11 +39,11 @@ CREATE_LATENCY_BASELINES = {
     'aarch64': {
         '2vcpu_256mb.json': {
             'FULL':  160,
-            'DIFF':  50,
+            'DIFF':  14,
         },
         '2vcpu_512mb.json': {
             'FULL':  300,
-            'DIFF':  50,
+            'DIFF':  20,
         }
     },
 }
@@ -256,10 +256,6 @@ def test_snapshot_create_full_latency(network_config,
     test_matrix.run_test(_test_snapshot_create_latency)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_snapshot_create_diff_latency(network_config,
                                       bin_cloner_path):
     """Test scenario: Diff snapshot create performance measurement."""
