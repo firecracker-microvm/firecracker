@@ -44,16 +44,17 @@ def check_log_message_format(log_str, instance_id, level, show_level,
     Parse the string representing the logs and look for the parts
     that should be there.
     The log line should look lie this:
-         YYYY-MM-DDTHH:MM:SS.NNNNNNNNN [ID:LEVEL:FILE:LINE] MESSAGE
+         YYYY-MM-DDTHH:MM:SS.NNNNNNNNN [ID:THREAD:LEVEL:FILE:LINE] MESSAGE
     where LEVEL and FILE:LINE are both optional.
-    e.g.:
-    `2018-09-09T12:52:00.123456789 [MYID:WARN:/path/to/file.rs:52] warning`
+    e.g. with THREAD NAME as TN
+    `2018-09-09T12:52:00.123456789 [MYID:TN:WARN:/path/to/file.rs:52] warning`
     """
     (timestamp, tag, _) = log_str.split(' ')[:3]
     timestamp = timestamp[:-10]
     strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
 
     pattern = "\\[(" + instance_id + ")"
+    pattern += ":(.*)"
     if show_level:
         pattern += ":(" + "|".join(LOG_LEVELS) + ")"
     if show_origin:
@@ -64,7 +65,7 @@ def check_log_message_format(log_str, instance_id, level, show_level,
     assert mo is not None
 
     if show_level:
-        tag_level = mo.group(2)
+        tag_level = mo.group(3)
         tag_level_no = LOG_LEVELS.index(tag_level)
         configured_level_no = LOG_LEVELS.index(to_formal_log_level(level))
         assert tag_level_no <= configured_level_no
