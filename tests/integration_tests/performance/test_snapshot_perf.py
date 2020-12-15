@@ -26,14 +26,26 @@ PLATFORM = platform.machine()
 # https://github.com/firecracker-microvm/firecracker/issues/2346
 # TODO: Update baseline values after fix.
 CREATE_LATENCY_BASELINES = {
-    '2vcpu_256mb.json': {
-        'FULL':  180,
-        'DIFF':  50,
+    'x86_64': {
+        '2vcpu_256mb.json': {
+            'FULL':  180,
+            'DIFF':  50,
+        },
+        '2vcpu_512mb.json': {
+            'FULL':  280,
+            'DIFF':  50,
+        }
     },
-    '2vcpu_512mb.json': {
-        'FULL':  280,
-        'DIFF':  50,
-    }
+    'aarch64': {
+        '2vcpu_256mb.json': {
+            'FULL':  160,
+            'DIFF':  50,
+        },
+        '2vcpu_512mb.json': {
+            'FULL':  300,
+            'DIFF':  50,
+        }
+    },
 }
 
 # The latencies are pretty high during integration tests and
@@ -67,6 +79,7 @@ def _test_snapshot_create_latency(context):
                 .format(DEFAULT_TEST_IMAGES_S3_BUCKET))
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     firecracker_versions = artifacts.firecracker_versions()
+    assert len(firecracker_versions) > 0
 
     # Test snapshot creation for every supported target version.
     for target_version in firecracker_versions:
@@ -125,10 +138,10 @@ def _test_snapshot_create_latency(context):
 
             if snapshot_type == SnapshotType.FULL:
                 value = metrics['latencies_us']['full_create_snapshot']
-                baseline = CREATE_LATENCY_BASELINES[vm_name]['FULL']
+                baseline = CREATE_LATENCY_BASELINES[PLATFORM][vm_name]['FULL']
             else:
                 value = metrics['latencies_us']['diff_create_snapshot']
-                baseline = CREATE_LATENCY_BASELINES[vm_name]['DIFF']
+                baseline = CREATE_LATENCY_BASELINES[PLATFORM][vm_name]['DIFF']
 
             value = value / USEC_IN_MSEC
 
@@ -208,10 +221,6 @@ kernel {}, disk {} """.format(snapshot_type,
         microvm.kill()
 
 
-@pytest.mark.skipif(
-    PLATFORM != "x86_64",
-    reason="Not supported yet."
-)
 def test_snapshot_create_full_latency(network_config,
                                       bin_cloner_path):
     """Test scenario: Full snapshot create performance measurement."""
