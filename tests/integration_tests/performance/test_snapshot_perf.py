@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import platform
-import pytest
 from conftest import _test_images_s3_bucket, DEFAULT_TEST_IMAGES_S3_BUCKET
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
@@ -19,6 +18,7 @@ import host_tools.logging as log_tools
 # How many latencies do we sample per test.
 SAMPLE_COUNT = 3
 USEC_IN_MSEC = 1000
+PLATFORM = platform.machine()
 
 # Latencies in milliseconds.
 # The latency for snapshot creation has high variance due to scheduler noise.
@@ -41,8 +41,14 @@ CREATE_LATENCY_BASELINES = {
 # https://github.com/firecracker-microvm/firecracker/issues/2027
 # TODO: Update the table after fix. Target is < 5ms.
 LOAD_LATENCY_BASELINES = {
-    '2vcpu_256mb.json': 8,
-    '2vcpu_512mb.json': 8,
+    'x86_64': {
+        '2vcpu_256mb.json': 8,
+        '2vcpu_512mb.json': 8,
+    },
+    'aarch64': {
+        '2vcpu_256mb.json': 3,
+        '2vcpu_512mb.json': 3,
+    }
 }
 
 
@@ -195,7 +201,7 @@ kernel {}, disk {} """.format(snapshot_type,
                 value = cur_value
                 break
 
-        baseline = LOAD_LATENCY_BASELINES[context.microvm.name()]
+        baseline = LOAD_LATENCY_BASELINES[PLATFORM][context.microvm.name()]
         logger.info("Latency {}/{}: {} ms".format(i + 1, SAMPLE_COUNT, value))
         assert baseline > value, "LoadSnapshot latency degraded."
 
@@ -203,7 +209,7 @@ kernel {}, disk {} """.format(snapshot_type,
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    PLATFORM != "x86_64",
     reason="Not supported yet."
 )
 def test_snapshot_create_full_latency(network_config,
@@ -317,10 +323,6 @@ def test_snapshot_resume_latency(network_config,
     test_matrix.run_test(_test_snapshot_resume_latency)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
 def test_older_snapshot_resume_latency(bin_cloner_path):
     """Test scenario: Older snapshot load performance measurement."""
     logger = logging.getLogger("old_snapshot_load")
@@ -330,6 +332,8 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
     # With each binary create a snapshot and try to restore in current
     # version.
     firecracker_artifacts = artifacts.firecrackers()
+    assert len(firecracker_artifacts) > 0
+
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()
@@ -382,7 +386,7 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
                     value = cur_value / USEC_IN_MSEC
                     break
 
-            baseline = LOAD_LATENCY_BASELINES['2vcpu_512mb.json']
+            baseline = LOAD_LATENCY_BASELINES[PLATFORM]['2vcpu_512mb.json']
             logger.info("Latency %s/%s: %s ms", i + 1, SAMPLE_COUNT, value)
             assert baseline > value, "LoadSnapshot latency degraded."
             microvm.kill()
