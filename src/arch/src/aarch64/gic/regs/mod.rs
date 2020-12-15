@@ -167,8 +167,14 @@ impl MmioReg for SimpleReg {
 #[derive(Debug, Default, Versionize)]
 pub struct GicState {
     dist: Vec<GicRegState<u32>>,
-    rdist: Vec<Vec<GicRegState<u32>>>,
-    icc: Vec<icc_regs::VgicSysRegsState>,
+    gic_vcpu_states: Vec<GicVcpuState>,
+}
+
+/// Structure used for serializing the state of the GIC registers for a specific vCPU
+#[derive(Debug, Default, Versionize)]
+pub struct GicVcpuState {
+    rdist: Vec<GicRegState<u32>>,
+    icc: icc_regs::VgicSysRegsState,
 }
 
 /// Save the state of the GIC device.
@@ -176,18 +182,31 @@ pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
     // Flush redistributors pending tables to guest RAM.
     super::save_pending_tables(fd)?;
 
+    let mut vcpu_states = Vec::with_capacity(mpidrs.len());
+    for mpidr in mpidrs {
+        vcpu_states.push(GicVcpuState {
+            rdist: redist_regs::get_redist_regs(fd, *mpidr)?,
+            icc: icc_regs::get_icc_regs(fd, *mpidr)?,
+        })
+    }
+
     Ok(GicState {
         dist: dist_regs::get_dist_regs(fd)?,
-        rdist: redist_regs::get_redist_regs(fd, mpidrs)?,
-        icc: icc_regs::get_icc_regs(fd, mpidrs)?,
+        gic_vcpu_states: vcpu_states,
     })
 }
 
 /// Restore the state of the GIC device.
 pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<()> {
     dist_regs::set_dist_regs(fd, &state.dist)?;
-    redist_regs::set_redist_regs(fd, mpidrs, &state.rdist)?;
-    icc_regs::set_icc_regs(fd, mpidrs, &state.icc)?;
+
+    if mpidrs.len() != state.gic_vcpu_states.len() {
+        return Err(Error::InconsistentVcpuCount);
+    }
+    for (mpidr, vcpu_state) in mpidrs.iter().zip(&state.gic_vcpu_states) {
+        redist_regs::set_redist_regs(fd, *mpidr, &vcpu_state.rdist)?;
+        icc_regs::set_icc_regs(fd, *mpidr, &vcpu_state.icc)?;
+    }
 
     Ok(())
 }
@@ -211,7 +230,7 @@ mod tests {
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
-            "DeviceAttribute(Error(22), false, 1)"
+            "DeviceAttribute(Error(22), false, 5)"
         );
 
         let kvm = Kvm::new().unwrap();
