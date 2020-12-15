@@ -5,19 +5,18 @@
 import filecmp
 import logging
 import os
-import subprocess
-import platform
 import tempfile
 from pathlib import Path
-import time
-import pytest
+
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
-from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
+from framework.matrix import TestMatrix, TestContext
+from framework.microvms import VMNano
+from framework.utils import wait_process_termination
 from framework.utils_vsock import make_blob, \
     check_host_connections, check_guest_connections
-from framework.microvms import VMNano
+
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.drive as drive_tools
 
@@ -343,23 +342,7 @@ def test_5_inc_snapshots(network_config,
     test_matrix.run_test(_test_seq_snapshots)
 
 
-def _get_process_start_time(p_pid):
-    # Helper function returning:
-    # - start time of process with provided PID
-    # - return code of stat -c%X /proc/$$ command
-    proc = subprocess.Popen(["stat -c%X /proc/{}".format(p_pid)],
-                            stdout=subprocess.PIPE,
-                            shell=True,
-                            encoding='ascii')
-    out = proc.communicate()[0].strip('\n')
-    return out, proc.returncode
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
-def test_load_snapshot_failure_handling(bin_cloner_path):
+def test_load_snapshot_failure_handling(test_microvm_with_api):
     """
     Test scenario.
 
@@ -369,7 +352,7 @@ def test_load_snapshot_failure_handling(bin_cloner_path):
     3. Verify that an error was shown and the FC process is terminated.
     """
     logger = logging.getLogger("snapshot_load_failure")
-    vm = MicrovmBuilder(bin_cloner_path).create_basevm()
+    vm = test_microvm_with_api
     vm.spawn(log_level='Info')
 
     # Create two empty files for snapshot state and snapshot memory
@@ -386,11 +369,6 @@ def test_load_snapshot_failure_handling(bin_cloner_path):
     jailed_mem = vm.create_jailed_resource(snapshot_mem)
     jailed_vmstate = vm.create_jailed_resource(snapshot_vmstate)
 
-    # Get the Firecracker process starting time
-    fc_time, err = _get_process_start_time(vm.jailer_clone_pid)
-    assert err == 0
-    logger.info("FC process time before snapshoat load: %s.", fc_time)
-
     # Load the snapshot
     response = vm.snapshot.load(mem_file_path=jailed_mem,
                                 snapshot_path=jailed_vmstate)
@@ -399,19 +377,10 @@ def test_load_snapshot_failure_handling(bin_cloner_path):
                 response.status_code,
                 response.text)
     assert vm.api_session.is_status_bad_request(response.status_code)
+    assert "Cannot deserialize MicrovmState" in response.text
 
     # Check if FC process is closed
-    pid_time, ret = _get_process_start_time(vm.jailer_clone_pid)
-    while True:
-        if ret != 0 or fc_time != pid_time:
-            break
-        time.sleep(0.1)
-        pid_time, ret = _get_process_start_time(vm.jailer_clone_pid)
-    # Check that either:
-    #  - pid no longer exists, or
-    #  - pid exists but is a different process (different process start time)
-    assert ret != 0 or fc_time != pid_time, "Firecracker process should \
-     have ended with error!"
+    wait_process_termination(vm.jailer_clone_pid)
 
 
 def test_cmp_full_and_first_diff_mem(network_config,
