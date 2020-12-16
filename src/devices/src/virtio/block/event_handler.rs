@@ -175,7 +175,7 @@ pub mod tests {
 
         assert_eq!(vq.used.idx.get(), 1);
         assert_eq!(vq.used.ring[0].get().id, 0);
-        assert_eq!(vq.used.ring[0].get().len, 0);
+        assert_eq!(vq.used.ring[0].get().len, 1);
         assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
     }
 }
