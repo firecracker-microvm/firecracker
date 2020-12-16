@@ -214,37 +214,40 @@ impl Request {
             .map_err(ExecuteError::Seek)?;
 
         match self.request_type {
-            RequestType::In => {
-                mem.read_from(self.data_addr, diskfile, self.data_len as usize)
-                    .map_err(ExecuteError::Read)?;
-                METRICS.block.read_bytes.add(self.data_len as usize);
-                METRICS.block.read_count.inc();
-                return Ok(self.data_len);
-            }
-            RequestType::Out => {
-                mem.write_to(self.data_addr, diskfile, self.data_len as usize)
-                    .map_err(ExecuteError::Write)?;
-                METRICS.block.write_bytes.add(self.data_len as usize);
-                METRICS.block.write_count.inc();
-            }
-            RequestType::Flush => match diskfile.flush() {
-                Ok(_) => {
+            RequestType::In => mem
+                .read_exact_from(self.data_addr, diskfile, self.data_len as usize)
+                .map(|_| {
+                    METRICS.block.read_bytes.add(self.data_len as usize);
+                    METRICS.block.read_count.inc();
+                    self.data_len
+                })
+                .map_err(ExecuteError::Read),
+            RequestType::Out => mem
+                .write_all_to(self.data_addr, diskfile, self.data_len as usize)
+                .map(|_| {
+                    METRICS.block.write_bytes.add(self.data_len as usize);
+                    METRICS.block.write_count.inc();
+                    0
+                })
+                .map_err(ExecuteError::Write),
+            RequestType::Flush => diskfile
+                .flush()
+                .map(|_| {
                     METRICS.block.flush_count.inc();
-                    return Ok(0);
-                }
-                Err(e) => return Err(ExecuteError::Flush(e)),
-            },
+                    0
+                })
+                .map_err(ExecuteError::Flush),
             RequestType::GetDeviceID => {
                 let disk_id = disk.image_id();
                 if (self.data_len as usize) < disk_id.len() {
                     return Err(ExecuteError::BadRequest(Error::InvalidOffset));
                 }
                 mem.write_slice(disk_id, self.data_addr)
-                    .map_err(ExecuteError::Write)?;
+                    .map(|_| VIRTIO_BLK_ID_BYTES)
+                    .map_err(ExecuteError::Write)
             }
-            RequestType::Unsupported(t) => return Err(ExecuteError::Unsupported(t)),
-        };
-        Ok(0)
+            RequestType::Unsupported(t) => Err(ExecuteError::Unsupported(t)),
+        }
     }
 }
 

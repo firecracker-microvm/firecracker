@@ -19,7 +19,7 @@ use logger::{error, warn, Metric, METRICS};
 use rate_limiter::{RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
-use vm_memory::{Bytes, GuestMemoryMmap};
+use vm_memory::{Bytes, GuestMemoryError, GuestMemoryMmap};
 
 use super::{
     super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING},
@@ -257,15 +257,46 @@ impl Block {
                             break;
                         }
                     }
+
                     let status = match request.execute(&mut self.disk, mem) {
                         Ok(l) => {
-                            len = l;
-                            VIRTIO_BLK_S_OK
+                            // Account for the status byte as well.
+                            // With a non-faulty driver, we shouldn't get to the point where we
+                            // overflow here (since data len must be a multiple of 512 bytes, so
+                            // it can't be u32::MAX). In the future, this should be fixed at the
+                            // request parsing level, so no data will actually be transferred in
+                            // scenarios like this one.
+                            if let Some(l) = l.checked_add(1) {
+                                len = l;
+                                VIRTIO_BLK_S_OK
+                            } else {
+                                len = l;
+                                VIRTIO_BLK_S_IOERR
+                            }
                         }
                         Err(e) => {
-                            error!("Failed to execute request: {:?}", e);
                             METRICS.block.invalid_reqs_count.inc();
-                            len = 1; // We need at least 1 byte for the status.
+                            match e {
+                                ExecuteError::Read(GuestMemoryError::PartialBuffer {
+                                    completed,
+                                    expected,
+                                }) => {
+                                    error!(
+                                        "Failed to execute virtio block read request: can only \
+                                        write {} of {} bytes.",
+                                        completed, expected
+                                    );
+                                    METRICS.block.read_bytes.add(completed);
+                                    // This can not overflow since `completed` < data len which is
+                                    // an u32.
+                                    len = completed as u32 + 1;
+                                }
+                                _ => {
+                                    error!("Failed to execute virtio block request: {:?}", e);
+                                    // Status byte only.
+                                    len = 1;
+                                }
+                            };
                             e.status()
                         }
                     };
@@ -766,7 +797,7 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
         }
 
@@ -789,9 +820,99 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get());
+            // Added status byte length.
+            assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get() + 1);
             assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+        }
+
+        // Read with error.
+        {
+            vq.used.idx.set(0);
+            block.set_queue(0, vq.create_queue());
+
+            mem.write_obj::<u32>(VIRTIO_BLK_T_IN, request_type_addr)
+                .unwrap();
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+
+            let size = block.disk.file.seek(SeekFrom::End(0)).unwrap();
+            block.disk.file.set_len(size / 2).unwrap();
+            mem.write_obj(10, GuestAddress(request_type_addr.0 + 8))
+                .unwrap();
+
+            invoke_handler_for_queue_event(&mut block);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+
+            // Only status byte length.
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                mem.read_obj::<u32>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR
+            );
             assert_eq!(mem.read_obj::<u64>(data_addr).unwrap(), 123_456_789);
+        }
+
+        // Partial buffer error on read.
+        {
+            vq.used.idx.set(0);
+            block.set_queue(0, vq.create_queue());
+
+            mem.write_obj::<u32>(VIRTIO_BLK_T_IN, request_type_addr)
+                .unwrap();
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+
+            let size = block.disk.file.seek(SeekFrom::End(0)).unwrap();
+            block.disk.file.set_len(size / 2).unwrap();
+            // Update sector number: stored at `request_type_addr.0 + 8`
+            mem.write_obj(5, GuestAddress(request_type_addr.0 + 8))
+                .unwrap();
+
+            // This will attempt to read past end of file.
+            invoke_handler_for_queue_event(&mut block);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+
+            // No data since can't read past end of file, only status byte length.
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                mem.read_obj::<u32>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR
+            );
+            assert_eq!(mem.read_obj::<u64>(data_addr).unwrap(), 123_456_789);
+        }
+
+        {
+            vq.used.idx.set(0);
+            block.set_queue(0, vq.create_queue());
+
+            mem.write_obj::<u32>(VIRTIO_BLK_T_IN, request_type_addr)
+                .unwrap();
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+            vq.dtable[1].len.set(1024);
+
+            mem.write_obj(1, GuestAddress(request_type_addr.0 + 8))
+                .unwrap();
+
+            invoke_handler_for_queue_event(&mut block);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+
+            // File has 2 sectors and we try to read from the second sector, which means we will
+            // read 512 bytes (instead of 1024).
+            assert_eq!(vq.used.ring[0].get().len, 513);
+            assert_eq!(
+                mem.read_obj::<u32>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR
+            );
         }
     }
 
@@ -817,7 +938,7 @@ pub(crate) mod tests {
             invoke_handler_for_queue_event(&mut block);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
         }
 
@@ -833,7 +954,8 @@ pub(crate) mod tests {
             invoke_handler_for_queue_event(&mut block);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 0);
+            // status byte length.
+            assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
         }
     }
@@ -862,7 +984,7 @@ pub(crate) mod tests {
             invoke_handler_for_queue_event(&mut block);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(vq.used.ring[0].get().len, 21);
             assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
 
             assert!(blk_metadata.is_ok());
@@ -973,7 +1095,7 @@ pub(crate) mod tests {
             // Make sure the data queue advanced.
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
         }
     }
@@ -1064,7 +1186,7 @@ pub(crate) mod tests {
             // Make sure the data queue advanced.
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
             assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
         }
     }
