@@ -15,6 +15,7 @@ isolation properties provided by hardware virtualization technology with the
 speed and flexibility of containers.
 
 ## Overview
+
 The main component of Firecracker is a virtual machine monitor (VMM) that uses
 the Linux Kernel Virtual Machine (KVM) to create and run microVMs. Firecracker
 has a minimalist design. It excludes unnecessary devices and guest-facing
@@ -122,24 +123,28 @@ The **API endpoint** can be used to:
 
 ## Supported platforms
 
-We continuously test Firecracker on machines with the following CPUs 
-micro-architectures: Intel Skylake, Intel Cascade Lake, AMD Zen2, ARM Cortex-A 
+We continuously test Firecracker on machines with the following CPUs
+micro-architectures: Intel Skylake, Intel Cascade Lake, AMD Zen2, ARM Cortex-A
 aarch64.
 
-Firecracker is [generally available](docs/RELEASE_POLICY.md) on Intel x86_64 
-and AMD x86_64 CPUs that offer hardware virtualization support, and that are 
-released starting with 2015. All production use cases should follow [these 
+Firecracker is [generally available](docs/RELEASE_POLICY.md) on Intel x86_64
+and AMD x86_64 CPUs that offer hardware virtualization support, and that are
+released starting with 2015. All production use cases should follow [these
 production host setup instructions](docs/prod-host-setup.md).
 
-Firecracker is in [developer preview](docs/RELEASE_POLICY.md) (and not 
+Firecracker is in [developer preview](docs/RELEASE_POLICY.md) (and not
 supported for production workloads) on CPUs based on Arm Cortex-A aarch64 cores
- that offer hardware virtualization support, and that are released starting 
+that offer hardware virtualization support, and that are released starting
 with 2015.
 
-Firecracker may work on other x86 and Arm 64-bit CPUs with support for hardware 
-virtualization, but any such platform is currently not supported and not fit 
-for production. If you want to run Firecracker on such platforms, please 
+Firecracker may work on other x86 and Arm 64-bit CPUs with support for hardware
+virtualization, but any such platform is currently not supported and not fit
+for production. If you want to run Firecracker on such platforms, please
 [open a feature request](https://github.com/firecracker-microvm/firecracker/issues/new?assignees=&labels=&template=feature_request.md&title=%5BFeature+Request%5D+Title).
+
+Firecracker currently only supports little-endian platforms, which includes x86_64
+and many aarch64 CPUs. Other systems and architectures may not provide a little-endian
+mode, and Firecracker may not work correctly on such systems.
 
 ## Performance
 
@@ -161,6 +166,7 @@ your disclosure.
 Frequently asked questions are collected in our [FAQ doc](FAQ.md).
 
 You can get in touch with the Firecracker community in the following ways:
+
 - Security-related issues, see our [security policy document](SECURITY.md).
 - Chat with us on our
   [Slack workspace](https://join.slack.com/t/firecracker-microvm/shared_invite/enQtNDY2NTUwMzQ3MDE1LWIwMzA0OWFkMTZhMTlmMDZiMmFkYjMyODMxMGQ1ZjliMzJjNjJiNWRhNWNkOGEyNmUxNmRkMjZhYTc3MmVjZjM).
