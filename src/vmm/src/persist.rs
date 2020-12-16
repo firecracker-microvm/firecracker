@@ -119,6 +119,7 @@ pub enum CreateSnapshotError {
     SerializeMicrovmState(snapshot::Error),
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(io::Error),
+    #[cfg(target_arch = "x86_64")]
     /// Number of devices exceeds the maximum supported devices for the snapshot data version.
     TooManyDevices(usize),
 }
@@ -138,6 +139,7 @@ impl Display for CreateSnapshotError {
             MicrovmState(err) => write!(f, "Cannot save microvm state: {}", err),
             SerializeMicrovmState(err) => write!(f, "Cannot serialize MicrovmState: {:?}", err),
             SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {:?}", err),
+            #[cfg(target_arch = "x86_64")]
             TooManyDevices(val) => write!(
                 f,
                 "Too many devices attached: {}. The maximum number allowed \
@@ -266,17 +268,20 @@ fn snapshot_memory_to_file(
 pub fn get_snapshot_data_version(
     version: &Option<String>,
     version_map: &VersionMap,
-    vmm: &Vmm,
+    _vmm: &Vmm,
 ) -> std::result::Result<u16, CreateSnapshotError> {
     use self::CreateSnapshotError::InvalidVersion;
     if version.is_none() {
         return Ok(version_map.latest_version());
     }
     match FC_VERSION_TO_SNAP_VERSION.get(version.as_ref().unwrap()) {
+        #[cfg(target_arch = "x86_64")]
         Some(&FC_V0_23_SNAP_VERSION) => {
-            validate_devices_number(vmm.mmio_device_manager.used_irqs_count())?;
+            validate_devices_number(_vmm.mmio_device_manager.used_irqs_count())?;
             Ok(FC_V0_23_SNAP_VERSION)
         }
+        #[cfg(target_arch = "aarch64")]
+        Some(&FC_V0_23_SNAP_VERSION) => Err(InvalidVersion),
         Some(data_version) => Ok(*data_version),
         _ => Err(InvalidVersion),
     }
@@ -391,6 +396,7 @@ fn guest_memory_from_file(
     GuestMemoryMmap::restore(&mem_file, mem_state, track_dirty_pages).map_err(DeserializeMemory)
 }
 
+#[cfg(target_arch = "x86_64")]
 fn validate_devices_number(device_number: usize) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::TooManyDevices;
     if device_number > FC_V0_23_MAX_DEVICES as usize {
@@ -416,6 +422,9 @@ mod tests {
     use polly::event_manager::EventManager;
     use snapshot::Persist;
     use utils::{errno, tempfile::TempFile};
+
+    #[cfg(target_arch = "aarch64")]
+    const FC_VERSION_0_23_0: &str = "0.23.0";
 
     fn default_vmm_with_devices() -> Vmm {
         let mut event_manager = EventManager::new().expect("Cannot create EventManager");
@@ -523,7 +532,17 @@ mod tests {
 
         for version in FC_VERSION_TO_SNAP_VERSION.keys() {
             let res = get_snapshot_data_version(&Some(version.to_owned()), &VERSION_MAP, &vmm);
+
+            #[cfg(target_arch = "x86_64")]
             assert!(res.is_ok());
+
+            #[cfg(target_arch = "aarch64")]
+            match version.as_str() {
+                // Validate sanity checks fail because aarch64 does not support "0.23.0"
+                // snapshot target version.
+                FC_VERSION_0_23_0 => assert!(res.is_err()),
+                _ => assert!(res.is_ok()),
+            }
         }
     }
 
@@ -558,8 +577,11 @@ mod tests {
         let err = SnapshotBackingFile(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = TooManyDevices(0);
-        let _ = format!("{}{:?}", err, err);
+        #[cfg(target_arch = "x86_64")]
+        {
+            let err = TooManyDevices(0);
+            let _ = format!("{}{:?}", err, err);
+        }
     }
 
     #[test]
