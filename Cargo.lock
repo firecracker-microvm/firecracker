@@ -808,6 +808,7 @@ version = "0.1.0"
 dependencies = [
  "arch 0.1.0",
  "cpuid 0.1.0",
+ "criterion 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "devices 0.1.0",
  "kernel 0.1.0",
  "kvm-bindings 0.3.0 (git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.3.0-3)",
