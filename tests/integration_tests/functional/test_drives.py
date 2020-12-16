@@ -12,6 +12,7 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 PARTUUID = {"x86_64": "0eaa91a0-01", "aarch64": "7bf14469-01"}
+MB = 1024 * 1024
 
 
 def test_rescan_file(test_microvm_with_ssh, network_config):
@@ -26,9 +27,11 @@ def test_rescan_file(test_microvm_with_ssh, network_config):
 
     _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
 
+    block_size = 2
     # Add a scratch block device.
     fs = drive_tools.FilesystemFile(
-        os.path.join(test_microvm.fsfiles, 'scratch')
+        os.path.join(test_microvm.fsfiles, 'scratch'),
+        size=block_size
     )
     test_microvm.add_drive(
         'scratch',
@@ -38,11 +41,18 @@ def test_rescan_file(test_microvm_with_ssh, network_config):
     test_microvm.start()
 
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-
     _check_block_size(ssh_connection, '/dev/vdb', fs.size())
 
-    # Resize the filesystem from 256 MiB (default) to 512 MiB.
-    fs.resize(512)
+    # Check if reading from the entire disk results in a file of the same size
+    # or errors out, after a truncate on the host.
+    truncated_size = block_size//2
+    utils.run_cmd(f"truncate --size {truncated_size}M {fs.path}")
+    block_copy_name = "dev_vdb_copy"
+    _, _, stderr = ssh_connection.execute_command(
+        f"dd if=/dev/vdb of={block_copy_name} bs=1M count={block_size}")
+    assert "dd: error reading '/dev/vdb': Input/output error" in stderr.read()
+    _check_file_size(ssh_connection, f'{block_copy_name}',
+                     truncated_size * MB)
 
     response = test_microvm.drive.patch(
         drive_id='scratch',
@@ -377,7 +387,7 @@ def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
         is_read_only=False,
         rate_limiter={
             'bandwidth': {
-                'size': 1024*1024*10,
+                'size': 10 * MB,
                 'refill_time': 100
             },
             'ops': {
@@ -401,7 +411,7 @@ def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
         drive_id='scratch',
         rate_limiter={
             'bandwidth': {
-                'size': 1024*1024*100,
+                'size': 100 * MB,
                 'refill_time': 100
             },
             'ops': {
@@ -434,6 +444,15 @@ def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
 def _check_block_size(ssh_connection, dev_path, size):
     _, stdout, stderr = ssh_connection.execute_command(
         'blockdev --getsize64 {}'.format(dev_path)
+    )
+
+    assert stderr.read() == ''
+    assert stdout.readline().strip() == str(size)
+
+
+def _check_file_size(ssh_connection, dev_path, size):
+    _, stdout, stderr = ssh_connection.execute_command(
+        'stat --format=%s {}'.format(dev_path)
     )
 
     assert stderr.read() == ''
