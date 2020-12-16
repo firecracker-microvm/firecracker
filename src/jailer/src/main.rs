@@ -352,7 +352,7 @@ fn main() {
                 println!("{}\n", arg_parser.formatted_help());
                 println!(
                     "Any arguments after the -- separator will be supplied to the jailed \
-                    binary.\n"
+                     binary.\n"
                 );
                 process::exit(0);
             }
