@@ -4,6 +4,7 @@
 
 import logging
 import os
+import platform
 import subprocess
 import time
 
@@ -667,19 +668,22 @@ def _test_snapshot_compatibility(context):
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     # Try to create a snapshot with a balloon on version 0.23.0.
-    response = microvm.snapshot.create(
-        mem_file_path='memfile',
-        snapshot_path='dummy',
-        diff=False,
-        version='0.23.0'
-    )
+    # This is skipped for aarch64, since the snapshotting feature
+    # was introduced in v0.24.0.
+    if platform.machine() == "x86_64":
+        response = microvm.snapshot.create(
+            mem_file_path='memfile',
+            snapshot_path='dummy',
+            diff=False,
+            version='0.23.0'
+        )
 
-    # This should fail as the balloon was introduced in 0.24.0.
-    assert microvm.api_session.is_status_bad_request(response.status_code)
-    assert (
-        'Target version does not implement the '
-        'virtio-balloon device'
-    ) in response.json()['fault_message']
+        # This should fail as the balloon was introduced in 0.24.0.
+        assert microvm.api_session.is_status_bad_request(response.status_code)
+        assert (
+                   'Target version does not implement the '
+                   'virtio-balloon device'
+               ) in response.json()['fault_message']
 
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(microvm)
