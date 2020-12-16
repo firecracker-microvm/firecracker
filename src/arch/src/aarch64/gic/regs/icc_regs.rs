@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::aarch64::gic::regs::{SimpleReg, VgicRegEngine};
+use crate::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
 use crate::aarch64::gic::Result;
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
@@ -79,8 +79,8 @@ impl SimpleReg {
 /// Structure for serializing the state of the Vgic ICC regs
 #[derive(Debug, Default, Versionize)]
 pub struct VgicSysRegsState {
-    main_icc_regs: Vec<Vec<u64>>,
-    conditional_icc_regs: Vec<Vec<u64>>,
+    main_icc_regs: Vec<GicRegState<u64>>,
+    conditional_icc_regs: Vec<GicRegState<u64>>,
 }
 
 struct VgicSysRegEngine {}
@@ -99,7 +99,7 @@ impl VgicRegEngine for VgicSysRegEngine {
 }
 
 fn num_priority_bits(fd: &DeviceFd, mpidr: u64) -> Result<u64> {
-    let reg_val = &VgicSysRegEngine::get_reg_data(fd, &SYS_ICC_CTLR_EL1, mpidr)?[0];
+    let reg_val = &VgicSysRegEngine::get_reg_data(fd, &SYS_ICC_CTLR_EL1, mpidr)?.chunks[0];
 
     Ok(((reg_val & ICC_CTLR_EL1_PRIBITS_MASK) >> ICC_CTLR_EL1_PRIBITS_SHIFT) + 1)
 }
