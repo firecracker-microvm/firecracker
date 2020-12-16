@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::aarch64::gic::regs::{MmioReg, SimpleReg, VgicRegEngine};
+use crate::aarch64::gic::regs::{GicRegState, MmioReg, SimpleReg, VgicRegEngine};
 use crate::aarch64::gic::Result;
 use crate::{IRQ_BASE, IRQ_MAX};
 use kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS;
@@ -112,7 +112,7 @@ impl VgicRegEngine for DistRegEngine {
     }
 }
 
-pub(crate) fn get_dist_regs(fd: &DeviceFd) -> Result<Vec<Vec<u32>>> {
+pub(crate) fn get_dist_regs(fd: &DeviceFd) -> Result<Vec<GicRegState<u32>>> {
     Ok(DistRegEngine::get_regs_data(
         fd,
         Box::new(VGIC_DIST_REGS.iter()),
@@ -120,7 +120,7 @@ pub(crate) fn get_dist_regs(fd: &DeviceFd) -> Result<Vec<Vec<u32>>> {
     )?)
 }
 
-pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[Vec<u32>]) -> Result<()> {
+pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[GicRegState<u32>]) -> Result<()> {
     DistRegEngine::set_regs_data(fd, Box::new(VGIC_DIST_REGS.iter()), state, 0)
 }
 
@@ -143,7 +143,7 @@ mod tests {
         let state = res.unwrap();
         assert_eq!(state.len(), 12);
         // Check GICD_CTLR size.
-        assert_eq!(state[0].len(), 1);
+        assert_eq!(state[0].chunks.len(), 1);
 
         let res = set_dist_regs(&gic_fd.device_fd(), &state);
         assert!(res.is_ok());
