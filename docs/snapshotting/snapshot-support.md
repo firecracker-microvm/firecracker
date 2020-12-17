@@ -18,6 +18,7 @@
     - [Resuming the microVM](#resuming-the-microvm)
     - [Loading snapshots](#loading-snapshots)
 - [Provisioning host disk space for snapshots](#provisioning-host-disk-space-for-snapshots)
+- [Ensure continued network connectivity for clones](#ensure-continued-network-connectivity-for-clones)
 - [Snapshot security and uniqueness](#snapshot-security-and-uniqueness)
     - [Secure and insecure usage examples](#usage-examples)
     - [Reusing snapshotted states securely](#reusing-snapshotted-states-securely)
@@ -87,7 +88,9 @@ target is under **8ms** with 5ms p90 for a microvm with this specs:
 
 - High snapshot latency on 5.4+ host kernels - 
 [#2129](https://github.com/firecracker-microvm/firecracker/issues/2129)
-- Guest network connectivity is not guaranteed to be preserved after resume
+- Guest network connectivity is not guaranteed to be preserved after resume.
+For recommendations related to guest network connectivity for clones please
+see [Network connectivity for clones](network-for-clones.md).
 - Vsock device does not have full snapshotting support. Please see [Vsock device limitations](#vsock-device-limitations)
 - Poor entropy and replayable randomness when resuming multiple microvms which 
 deal with cryptographic secrets. Please see [Snapshot security and uniqueness](#snapshot-security-and-uniqueness)
@@ -367,6 +370,11 @@ integrators **must** ensure that the provisioned disk space is sufficient for no
 operation of their service as well as during failure scenarios. If the service exposes
 the snapshot triggers to customers, integrators **must** enforce proper disk quotas to 
 avoid any DoS threats that would cause the service to fail or function abnormally.
+
+## Ensure continued network connectivity for clones
+
+For recomandations related to continued network connectivity for multiple clones created from
+a single Firecracker microVM snapshot please see [this doc](network-for-clones.md).
 
 ## Snapshot security and uniqueness
 
