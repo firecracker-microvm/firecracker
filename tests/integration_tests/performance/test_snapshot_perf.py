@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import platform
+import pytest
 from conftest import _test_images_s3_bucket, DEFAULT_TEST_IMAGES_S3_BUCKET
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
@@ -328,6 +329,10 @@ def test_snapshot_resume_latency(network_config,
     test_matrix.run_test(_test_snapshot_resume_latency)
 
 
+@pytest.mark.skipif(
+    platform.machine() != "x86_64",
+    reason="Snapshot format not final. No translations implemented."
+)
 def test_older_snapshot_resume_latency(bin_cloner_path):
     """Test scenario: Older snapshot load performance measurement."""
     logger = logging.getLogger("old_snapshot_load")
