@@ -137,6 +137,8 @@ pub enum VmmActionError {
     MmdsConfig(MmdsConfigError),
     /// The action `InsertNetworkDevice` failed because of bad user input.
     NetworkConfig(NetworkInterfaceError),
+    /// The requested operation is not supported.
+    NotSupported(String),
     /// The requested operation is not supported after starting the microVM.
     OperationNotSupportedPostBoot,
     /// The requested operation is not supported before starting the microVM.
@@ -170,6 +172,7 @@ impl Display for VmmActionError {
                 Metrics(err) => err.to_string(),
                 MmdsConfig(err) => err.to_string(),
                 NetworkConfig(err) => err.to_string(),
+                NotSupported(err) => format!("The requested operation is not supported: {}", err),
                 OperationNotSupportedPostBoot => {
                     "The requested operation is not supported after starting the microVM."
                         .to_string()
@@ -435,7 +438,7 @@ impl<'a> PrebootApiController<'a> {
 /// Enables RPC interaction with a running Firecracker VMM.
 pub struct RuntimeApiController {
     vmm: Arc<Mutex<Vmm>>,
-    vm_config: VmConfig,
+    vm_resources: VmResources,
 }
 
 impl RuntimeApiController {
@@ -460,7 +463,9 @@ impl RuntimeApiController {
                 .latest_balloon_stats()
                 .map(VmmData::BalloonStats)
                 .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
-            GetVmConfiguration => Ok(VmmData::MachineConfiguration(self.vm_config.clone())),
+            GetVmConfiguration => Ok(VmmData::MachineConfiguration(
+                self.vm_resources.vm_config().clone(),
+            )),
             Pause => self.pause(),
             Resume => self.resume(),
             #[cfg(target_arch = "x86_64")]
@@ -498,8 +503,8 @@ impl RuntimeApiController {
     }
 
     /// Creates a new `RuntimeApiController`.
-    pub fn new(vm_config: VmConfig, vmm: Arc<Mutex<Vmm>>) -> Self {
-        Self { vm_config, vmm }
+    pub fn new(vm_resources: VmResources, vmm: Arc<Mutex<Vmm>>) -> Self {
+        Self { vm_resources, vmm }
     }
 
     /// Pauses the microVM by pausing the vCPUs.
@@ -561,6 +566,15 @@ impl RuntimeApiController {
     }
 
     fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
+        // Diff snapshots are not allowed on uVMs with vsock device.
+        if create_params.snapshot_type == SnapshotType::Diff
+            && self.vm_resources.vsock.get().is_some()
+        {
+            return Err(VmmActionError::NotSupported(
+                "Diff snapshots are not allowed on uVMs with vsock device.".to_string(),
+            ));
+        }
+
         let mut locked_vmm = self.vmm.lock().unwrap();
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
@@ -640,6 +654,7 @@ mod tests {
     use super::*;
     use crate::vmm_config::balloon::BalloonBuilder;
     use crate::vmm_config::logger::LoggerLevel;
+    use crate::vmm_config::vsock::VsockBuilder;
     use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
     use devices::virtio::VsockError;
     use seccomp::BpfProgramRef;
@@ -662,6 +677,7 @@ mod tests {
                 (Metrics(_), Metrics(_)) => true,
                 (MmdsConfig(_), MmdsConfig(_)) => true,
                 (NetworkConfig(_), NetworkConfig(_)) => true,
+                (NotSupported(_), NotSupported(_)) => true,
                 (OperationNotSupportedPostBoot, OperationNotSupportedPostBoot) => true,
                 (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot) => true,
                 (StartMicrovm(_), StartMicrovm(_)) => true,
@@ -676,6 +692,7 @@ mod tests {
     pub struct MockVmRes {
         vm_config: VmConfig,
         pub balloon: BalloonBuilder,
+        pub vsock: VsockBuilder,
         balloon_config_called: bool,
         balloon_set: bool,
         boot_cfg_set: bool,
@@ -1271,7 +1288,7 @@ mod tests {
         F: FnOnce(ActionResult, &MockVmm),
     {
         let vmm = Arc::new(Mutex::new(MockVmm::default()));
-        let mut runtime = RuntimeApiController::new(VmConfig::default(), vmm.clone());
+        let mut runtime = RuntimeApiController::new(MockVmRes::default(), vmm.clone());
         let res = runtime.handle_request(request);
         check_success(res, &vmm.lock().unwrap());
     }
@@ -1282,7 +1299,7 @@ mod tests {
             force_errors: true,
             ..Default::default()
         }));
-        let mut runtime = RuntimeApiController::new(VmConfig::default(), vmm);
+        let mut runtime = RuntimeApiController::new(MockVmRes::default(), vmm);
         let err = runtime.handle_request(request).unwrap_err();
         assert_eq!(err, expected_err);
     }
