@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::aarch64::gic::regs::{SimpleReg, VgicRegEngine};
+use crate::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
 use crate::aarch64::gic::Result;
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
@@ -79,8 +79,8 @@ impl SimpleReg {
 /// Structure for serializing the state of the Vgic ICC regs
 #[derive(Debug, Default, Versionize)]
 pub struct VgicSysRegsState {
-    main_icc_regs: Vec<Vec<u64>>,
-    conditional_icc_regs: Vec<Vec<u64>>,
+    main_icc_regs: Vec<GicRegState<u64>>,
+    conditional_icc_regs: Vec<GicRegState<u64>>,
 }
 
 struct VgicSysRegEngine {}
@@ -99,7 +99,7 @@ impl VgicRegEngine for VgicSysRegEngine {
 }
 
 fn num_priority_bits(fd: &DeviceFd, mpidr: u64) -> Result<u64> {
-    let reg_val = &VgicSysRegEngine::get_reg_data(fd, &SYS_ICC_CTLR_EL1, mpidr)?[0];
+    let reg_val = &VgicSysRegEngine::get_reg_data(fd, &SYS_ICC_CTLR_EL1, mpidr)?.chunks[0];
 
     Ok(((reg_val & ICC_CTLR_EL1_PRIBITS_MASK) >> ICC_CTLR_EL1_PRIBITS_SHIFT) + 1)
 }
@@ -129,47 +129,35 @@ fn conditional_icc_regs(num_priority_bits: u64) -> Box<dyn Iterator<Item = &'sta
     }))
 }
 
-pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidrs: &[u64]) -> Result<Vec<VgicSysRegsState>> {
-    let mut state: Vec<VgicSysRegsState> = Vec::with_capacity(mpidrs.len());
+pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState> {
+    let main_icc_regs =
+        VgicSysRegEngine::get_regs_data(fd, Box::new(MAIN_VGIC_ICC_REGS.iter()), mpidr)?;
+    let num_priority_bits = num_priority_bits(fd, mpidr)?;
 
-    for mpidr in mpidrs {
-        let main_icc_regs =
-            VgicSysRegEngine::get_regs_data(fd, Box::new(MAIN_VGIC_ICC_REGS.iter()), *mpidr)?;
-        let num_priority_bits = num_priority_bits(fd, *mpidr)?;
+    let conditional_icc_regs =
+        VgicSysRegEngine::get_regs_data(fd, conditional_icc_regs(num_priority_bits), mpidr)?;
 
-        let conditional_icc_regs =
-            VgicSysRegEngine::get_regs_data(fd, conditional_icc_regs(num_priority_bits), *mpidr)?;
-
-        state.push(VgicSysRegsState {
-            main_icc_regs,
-            conditional_icc_regs,
-        });
-    }
-
-    Ok(state)
+    Ok(VgicSysRegsState {
+        main_icc_regs,
+        conditional_icc_regs,
+    })
 }
 
-pub(crate) fn set_icc_regs(
-    fd: &DeviceFd,
-    mpidrs: &[u64],
-    state: &[VgicSysRegsState],
-) -> Result<()> {
-    for (mpidr, regs) in mpidrs.iter().zip(state) {
-        VgicSysRegEngine::set_regs_data(
-            fd,
-            Box::new(MAIN_VGIC_ICC_REGS.iter()),
-            &regs.main_icc_regs,
-            *mpidr,
-        )?;
-        let num_priority_bits = num_priority_bits(fd, *mpidr)?;
+pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) -> Result<()> {
+    VgicSysRegEngine::set_regs_data(
+        fd,
+        Box::new(MAIN_VGIC_ICC_REGS.iter()),
+        &state.main_icc_regs,
+        mpidr,
+    )?;
+    let num_priority_bits = num_priority_bits(fd, mpidr)?;
 
-        VgicSysRegEngine::set_regs_data(
-            fd,
-            conditional_icc_regs(num_priority_bits),
-            &regs.conditional_icc_regs,
-            *mpidr,
-        )?;
-    }
+    VgicSysRegEngine::set_regs_data(
+        fd,
+        conditional_icc_regs(num_priority_bits),
+        &state.conditional_icc_regs,
+        mpidr,
+    )?;
 
     Ok(())
 }
@@ -188,26 +176,24 @@ mod tests {
         let _ = vm.create_vcpu(0).unwrap();
         let gic_fd = create_gic(&vm, 1).expect("Cannot create gic");
 
-        let mut gicr_typer = Vec::new();
-        gicr_typer.push(123);
-        let res = get_icc_regs(&gic_fd.device_fd(), &gicr_typer);
+        let gicr_typer = 123;
+        let res = get_icc_regs(&gic_fd.device_fd(), gicr_typer);
         assert!(res.is_ok());
         let state = res.unwrap();
-        println!("{}", state.len());
-        assert_eq!(state.len(), 1);
+        assert_eq!(state.main_icc_regs.len(), 7);
 
-        assert!(set_icc_regs(&gic_fd.device_fd(), &gicr_typer, &state).is_ok());
+        assert!(set_icc_regs(&gic_fd.device_fd(), gicr_typer, &state).is_ok());
 
         unsafe { libc::close(gic_fd.device_fd().as_raw_fd()) };
 
-        let res = set_icc_regs(&gic_fd.device_fd(), &gicr_typer, &state);
+        let res = set_icc_regs(&gic_fd.device_fd(), gicr_typer, &state);
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), true, 6)"
         );
 
-        let res = get_icc_regs(&gic_fd.device_fd(), &gicr_typer);
+        let res = get_icc_regs(&gic_fd.device_fd(), gicr_typer);
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
