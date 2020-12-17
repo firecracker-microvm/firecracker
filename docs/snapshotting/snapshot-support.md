@@ -12,8 +12,7 @@ guest workload at that particular point in time.
 ### Supported platforms
 
 The Firecracker snapshot feature is in [developer preview](../RELEASE_POLICY.md) 
-on all CPU micro-architectures listed in [README](../README.md#supported-platforms) 
-except ARM which is not supported.
+on all CPU micro-architectures listed in [README](../README.md#supported-platforms).
 
 ### Overview
 A Firecracker microVM snapshot can be used for loading it later in a different
@@ -55,9 +54,9 @@ resumed microVM.
 
 The Firecracker snapshot create/resume performance depends on the memory size,
 vCPU count and emulated devices count. The Firecracker CI runs snapshots tests 
-on AWS **m5d.metal** instances and the baseline for snapshot resume latency 
-target is under **8ms** with 5ms p90 for a microvm with this specs: 
-2vCPU/512MB/1 block/1 net device.
+on AWS **m5d.metal** instances for Intel and on AWS **m6g.metal** for ARM.
+The baseline for snapshot resume latency target on Intel is under **8ms** with 5ms p90,
+and on ARM is under **3ms** for a microvm with this specs: 2vCPU/512MB/1 block/1 net device.
 
 ## Known issues and limitations
 
