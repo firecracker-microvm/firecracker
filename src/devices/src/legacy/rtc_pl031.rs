@@ -33,7 +33,7 @@ const RTCICR: u64 = 0x1c; // Interrupt Clear Register.
                           // AMBA standard devices have CIDs (Cell IDs) and PIDs (Peripheral IDs). The linux kernel will look for these in order to assert the identity
                           // of these devices (i.e look at the `amba_device_try_add` function).
                           // We are putting the expected values (look at 'Reset value' column from above mentioned document) in an array.
-const PL031_ID: [u8; 8] = [0x31, 0x10, 0x14, 0x00, 0x0d, 0xf0, 0x05, 0xb1];
+const PL031_ID: [u8; 8] = [0x31, 0x10, 0x04, 0x00, 0x0d, 0xf0, 0x05, 0xb1];
 // We are only interested in the margins.
 const AMBA_ID_LOW: u64 = 0xFE0;
 const AMBA_ID_HIGH: u64 = 0x1000;
