@@ -64,7 +64,7 @@ target is under **8ms** with 5ms p90 for a microvm with this specs:
 - High snapshot latency on 5.4+ host kernels - 
 [#2129](https://github.com/firecracker-microvm/firecracker/issues/2129)
 - Guest network connectivity is not guaranteed to be preserved after resume
-- Restoring microVMs with vsock devices doesn't work.
+- Vsock device does not have full snapshotting support. Please see [Vsock device limitations](#vsock-device-limitations)
 - Poor entropy and replayable randomness when resuming multiple microvms which 
 deal with cryptographic secrets. Please see [Snapshot security and uniqueness](#snapshot-security-and-uniqueness)
 
@@ -411,17 +411,20 @@ handle being snapshotted [here](https://lkml.org/lkml/2020/10/16/629).
 
 ## Known Issues
 
-### Vsock must be inactive during snapshot
+### Vsock device limitations
 
-Vsock device can break if snapshotted while having active connections.
+1. Vsock must be inactive during snapshot:
+
+   Vsock device can break if snapshotted while having active connections.
 Firecracker snapshots do not capture any inflight network or vsock (through the
 linux unix domain socket backend) traffic that has left or not yet entered
 Firecracker.
 
-The above, coupled with the fact that Vsock control protocol is not resilient
-to vsock packet loss leads to Vsock device breakage when doing a snapshot while
+   The above, coupled with the fact that Vsock control protocol is not resilient
+to vsock packet loss, leads to Vsock device breakage when doing a snapshot while
 there are active Vsock connections.
 
-#### Workaround
+   _**Workaround**_: Close all active Vsock connections prior to snapshotting the VM.
 
-Close all active Vsock connections prior to snapshotting the VM.
+2. _Incremental/diff_ snapshots are not yet supported for Vsock devices. Creating a
+`diff` snapshot on a microVM with a `vsock` device configured is not allowed.
