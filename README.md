@@ -124,18 +124,13 @@ The **API endpoint** can be used to:
 ## Supported platforms
 
 We continuously test Firecracker on machines with the following CPUs
-micro-architectures: Intel Skylake, Intel Cascade Lake, AMD Zen2, ARM Cortex-A
-aarch64.
+micro-architectures: Intel Skylake, Intel Cascade Lake, AMD Zen2 and
+ARM64 Neoverse N1.
 
-Firecracker is [generally available](docs/RELEASE_POLICY.md) on Intel x86_64
-and AMD x86_64 CPUs that offer hardware virtualization support, and that are
-released starting with 2015. All production use cases should follow [these
-production host setup instructions](docs/prod-host-setup.md).
-
-Firecracker is in [developer preview](docs/RELEASE_POLICY.md) (and not
-supported for production workloads) on CPUs based on Arm Cortex-A aarch64 cores
-that offer hardware virtualization support, and that are released starting
-with 2015.
+Firecracker is [generally available](docs/RELEASE_POLICY.md) on Intel x86_64,
+AMD x86_64 and ARM64 CPUs (starting from release v0.24) that offer hardware
+virtualization support, and that are released starting with 2015.
+All production use cases should follow [these production host setup instructions](docs/prod-host-setup.md).
 
 Firecracker may work on other x86 and Arm 64-bit CPUs with support for hardware
 virtualization, but any such platform is currently not supported and not fit
