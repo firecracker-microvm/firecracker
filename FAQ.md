@@ -36,9 +36,8 @@ to integrate with container ecosystems.
 
 ### What processors does Firecracker support?
 
-The Firecracker VMM is built to be processor agnostic. Intel and AMD processors
-are supported for production workloads. Support for Arm processors is in
-developer preview.
+The Firecracker VMM is built to be processor agnostic. Intel, AMD and 64 bit ARM
+processors are supported for production workloads.
 
 You can find more details [here](README.md#supported-platforms).
 
