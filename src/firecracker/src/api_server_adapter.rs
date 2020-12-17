@@ -19,9 +19,9 @@ use utils::{
     eventfd::EventFd,
 };
 use vmm::{
+    resources::VmResources,
     rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction},
     vmm_config::instance_info::InstanceInfo,
-    vmm_config::machine_config::VmConfig,
     Vmm,
 };
 
@@ -39,7 +39,7 @@ impl ApiServerAdapter {
         api_event_fd: EventFd,
         from_api: Receiver<ApiRequest>,
         to_api: Sender<ApiResponse>,
-        vm_config: VmConfig,
+        vm_resources: VmResources,
         vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
     ) {
@@ -47,7 +47,7 @@ impl ApiServerAdapter {
             api_event_fd,
             from_api,
             to_api,
-            controller: RuntimeApiController::new(vm_config, vmm),
+            controller: RuntimeApiController::new(vm_resources, vmm),
         }));
         event_manager
             .add_subscriber(api_adapter)
@@ -231,7 +231,7 @@ pub(crate) fn run_with_api(
         api_event_fd,
         from_api,
         to_api,
-        vm_resources.vm_config().clone(),
+        vm_resources,
         vmm,
         &mut event_manager,
     );

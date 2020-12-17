@@ -6,6 +6,7 @@
 - [Firecracker Virtio-vsock Design](#firecracker-virtio-vsock-design)
 - [Setting up the Virtio-vsock Device](#setting-up-the-virtio-vsock-device)
 - [Examples](#examples)
+- [Known Issues](#known-issues)
 
 ## Prerequisites
 
@@ -160,3 +161,8 @@ chosen port on the host (CID=2):
 ```bash
 $ nc-vsock 2 52
 ```
+
+## Known issues
+
+Vsock snapshot support is currently limited. Please see
+[Snapshotting vsock limitations](snapshotting/snapshot-support.md#vsock-device-limitations).
