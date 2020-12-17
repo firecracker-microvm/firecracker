@@ -64,10 +64,17 @@ nosmt=force
 Verification can be done by running:
 
 ```bash
-(grep -q "^forceoff$\|^notsupported$" /sys/devices/system/cpu/smt/control && echo "Hyperthreading: DISABLED (OK)") || echo "Hyperthreading: ENABLED (Recommendation: DISABLED)"
+(grep -q "^forceoff$" /sys/devices/system/cpu/smt/control && \
+echo "Hyperthreading: DISABLED (OK)") || \
+(grep -q "^notsupported$\|^notimplemented$" /sys/devices/system/cpu/smt/control && \
+echo "Hyperthreading: Not Supported (OK)") || \
+echo "Hyperthreading: ENABLED (Recommendation: DISABLED)"
 ```
 
-#### [Intel only] Check Kernel Page-Table Isolation (KPTI) support
+**Note** There are some newer aarch64 CPUs that also implement SMT, however AWS Graviton
+processors do not implement it.
+
+#### [Intel and ARM only] Check Kernel Page-Table Isolation (KPTI) support
 
 KPTI is used to prevent certain side-channel issues that allow access to
 protected kernel memory pages that are normally inaccessible to guests. Some
@@ -76,8 +83,19 @@ variants of Meltdown can be mitigated by enabling this feature.
 Verification can be done by running:
 
 ```bash
-(grep -q "^Mitigation: PTI$" /sys/devices/system/cpu/vulnerabilities/meltdown && echo "KPTI: SUPPORTED (OK)") || echo "KPTI: NOT SUPPORTED (Recommendation: SUPPORTED)"
+(grep -q "^Mitigation: PTI$" /sys/devices/system/cpu/vulnerabilities/meltdown \
+&& echo "KPTI: SUPPORTED (OK)") || \
+(grep -q "^Not affected$" /sys/devices/system/cpu/vulnerabilities/meltdown \
+&& echo "KPTI: Not Affected (OK)") || \
+echo "KPTI: NOT SUPPORTED (Recommendation: SUPPORTED)"
 ```
+
+A full list of the ARM processors that are vulnerable to side-channel attacks and
+the mechanisms of these attacks can be found
+[here](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability).
+KPTI is implemented for ARM in version 4.16 and later of the Linux kernel.
+
+**Note** Graviton-enabled hardware is not affected by this.
 
 #### Disable Kernel Same-page Merging (KSM)
 
@@ -93,22 +111,48 @@ echo "0" > /sys/kernel/mm/ksm/run
 Verification can be done by running:
 
 ```bash
-(grep -q "^0$" /sys/kernel/mm/ksm/run && echo "KSM: DISABLED (OK)") || echo "KSM: ENABLED (Recommendation: DISABLED)"
+(grep -q "^0$" /sys/kernel/mm/ksm/run && echo "KSM: DISABLED (OK)") || \
+echo "KSM: ENABLED (Recommendation: DISABLED)"
 ```
 
-#### Check for speculative branch prediction issue mitigation
+#### Check for mitigations against Spectre Side Channels
 
-Use a kernel compiled with retpoline and run on hardware with microcode
-supporting conditional Indirect Branch Prediction Barriers (IBPB) and 
+##### Branch Target Injection mitigation (Spectre V2)
+
+**Intel and AMD** Use a kernel compiled with retpoline and run on hardware with microcode
+supporting conditional Indirect Branch Prediction Barriers (IBPB) and
 Indirect Branch Restricted Speculation (IBRS).
-
-These features provide side-channel mitigation for variants of Spectre such
-as the Branch Target Injection variant.
 
 Verification can be done by running:
 
 ```bash
-(grep -Eq '^Mitigation: Full [[:alpha:]]+ retpoline, IBPB: conditional, IBRS_FW' /sys/devices/system/cpu/vulnerabilities/spectre_v2 && echo "retpoline, IBPB, IBRS: ENABLED (OK)") || echo "retpoline, IBPB, IBRS: DISABLED (Recommendation: ENABLED)"
+(grep -Eq '^Mitigation: Full [[:alpha:]]+ retpoline, IBPB: conditional, IBRS_FW' \
+/sys/devices/system/cpu/vulnerabilities/spectre_v2 && \
+echo "retpoline, IBPB, IBRS: ENABLED (OK)") \
+|| echo "retpoline, IBPB, IBRS: DISABLED (Recommendation: ENABLED)"
+```
+
+**ARM** The mitigations for ARM systems are patched in all linux stable versions
+starting with 4.16. More information on the processors vulnerable to this type
+of attack and detailed information on the mitigations can be found in the
+[ARM security documentation](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability).
+
+Verification can be done by running:
+
+```bash
+(grep -q "^Mitigation:" /sys/devices/system/cpu/vulnerabilities/spectre_v2 || \
+grep -q "^Not affected$" /sys/devices/system/cpu/vulnerabilities/spectre_v2) && \
+echo "SPECTRE V2 -> OK" || echo "SPECTRE V2 -> NOT OK"
+```
+
+##### Bounds Check Bypass Store (Spectre V1)
+
+Verification for mitigation against Spectre V1 can be done:
+
+```bash
+(grep -q "^Mitigation:" /sys/devices/system/cpu/vulnerabilities/spectre_v1 || \
+grep -q "^Not affected$" /sys/devices/system/cpu/vulnerabilities/spectre_v1) && \
+echo "SPECTRE V1 -> OK" || echo "SPECTRE V1 -> NOT OK"
 ```
 
 #### [Intel only] Apply L1 Terminal Fault (L1TF) mitigation
@@ -129,7 +173,10 @@ Verification can be done by running:
 
 ```bash
 declare -a CONDITIONS=("Mitigation: PTE Inversion" "VMX: cache flushes")
-for cond in "${CONDITIONS[@]}"; do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf && echo "$cond: ENABLED (OK)") || echo "$cond: DISABLED (Recommendation: ENABLED)"; done
+for cond in "${CONDITIONS[@]}"; \
+do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf && \
+echo "$cond: ENABLED (OK)") || \
+echo "$cond: DISABLED (Recommendation: ENABLED)"; done
 ```
 
 See more details [here](https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html#guest-mitigation-mechanisms).
