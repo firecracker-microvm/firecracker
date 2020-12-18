@@ -156,7 +156,28 @@ Now that the microVM is paused, you can create a snapshot, which can be either a
 one or a `diff` one. Full snapshots always create a complete, resume-able snapshot of
 the current microVM state and memory. Diff snapshots save the current microVM state
 and the memory dirtied since the last snapshot (full or diff). Diff snapshots are not
-resume-able, but can be merged into a full snapshot using external (provided) tooling.
+resume-able, but can be merged into a full snapshot. In this context, we will refer to
+the base as the first memory file created by a `/snapshot/create` API call and the
+layer as a memory file created by a subsequent `/snapshot/create` API call. The
+order in which the snapshots were created matters and they should be merged in the
+same order in which they were created. To merge a `diff` snapshot memory file on
+top of a base, users should copy its content over the base, as the following
+example does:
+
+```bash
+dd bs=4096 if=path/to/layer of=path/to/base conv=sparse,notrunc
+```
+
+After executing the command above, the base would be a resumable snapshot memory
+file describing the state of the memory at the moment of creation of the layer.
+More layers which were created later can be merged on top of this base.
+
+This process needs to be repeated for each layer until the one describing the
+desired memory state is merged on top of the base, which is constantly updated
+with information from previously merged layers. Please note that users should
+not merge state files which resulted from `/snapshot/create` API calls and
+they should use the state file created in the same call as the memory file
+which was merged last on top of the base.
 
 #### Creating full snapshots
 
