@@ -96,7 +96,7 @@ The **API endpoint** can be used to:
 - Configure the microvm by:
   - Setting the number of vCPUs (the default is 1).
   - Setting the memory size (the default is 128 MiB).
-  - Choosing a CPU template (currently, C3 and T2 are available).
+  - [x86_64 only] Choosing a CPU template (currently, C3 and T2 are available).
 - Add one or more network interfaces to the microVM.
 - Add one or more read-write or read-only disks to the microVM, each represented
   by a file-backed block device.
@@ -111,7 +111,7 @@ The **API endpoint** can be used to:
 - Add a [vsock socket](docs/vsock.md) to the microVM.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
-- Stop the microVM.
+- [x86_64 only] Stop the microVM.
 
 **Built-in Capabilities**:
 
@@ -124,18 +124,13 @@ The **API endpoint** can be used to:
 ## Supported platforms
 
 We continuously test Firecracker on machines with the following CPUs
-micro-architectures: Intel Skylake, Intel Cascade Lake, AMD Zen2, ARM Cortex-A
-aarch64.
+micro-architectures: Intel Skylake, Intel Cascade Lake, AMD Zen2 and
+ARM64 Neoverse N1.
 
-Firecracker is [generally available](docs/RELEASE_POLICY.md) on Intel x86_64
-and AMD x86_64 CPUs that offer hardware virtualization support, and that are
-released starting with 2015. All production use cases should follow [these
-production host setup instructions](docs/prod-host-setup.md).
-
-Firecracker is in [developer preview](docs/RELEASE_POLICY.md) (and not
-supported for production workloads) on CPUs based on Arm Cortex-A aarch64 cores
-that offer hardware virtualization support, and that are released starting
-with 2015.
+Firecracker is [generally available](docs/RELEASE_POLICY.md) on Intel x86_64,
+AMD x86_64 and ARM64 CPUs (starting from release v0.24) that offer hardware
+virtualization support, and that are released starting with 2015.
+All production use cases should follow [these production host setup instructions](docs/prod-host-setup.md).
 
 Firecracker may work on other x86 and Arm 64-bit CPUs with support for hardware
 virtualization, but any such platform is currently not supported and not fit
@@ -145,6 +140,14 @@ for production. If you want to run Firecracker on such platforms, please
 Firecracker currently only supports little-endian platforms, which includes x86_64
 and many aarch64 CPUs. Other systems and architectures may not provide a little-endian
 mode, and Firecracker may not work correctly on such systems.
+
+## Known issues and Limitations
+
+- The [SendCtrlAltDel](docs/api_requests/actions.md#sendctrlaltdel) API request
+  is not supported for aarch64 enabled microVMs.
+- Configuring CPU templates is only supported for Intel enabled microVMs.
+- The ability of [snapshotting a microVM](docs/snapshotting/snapshot-support.md)
+  on aarch64 is only supported for GICv3 powered microVMs.
 
 ## Performance
 

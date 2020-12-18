@@ -126,6 +126,11 @@ if "AMD" not in proc.proc_type():
     collect_ignore = [os.path.join(SCRIPT_FOLDER, "integration_tests/style")]
 
 
+if proc.proc_type() == "AMD":
+    collect_ignore = [os.path.join(
+        SCRIPT_FOLDER, "integration_tests/performance/test_snapshot_perf.py")]
+
+
 def _test_images_s3_bucket():
     """Auxiliary function for getting this session's bucket name."""
     return os.environ.get(

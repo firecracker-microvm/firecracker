@@ -21,6 +21,10 @@ pub enum Error {
     CreateGIC(kvm_ioctls::Error),
     /// Error while setting or getting device attributes for the GIC.
     DeviceAttribute(kvm_ioctls::Error, bool, u32),
+    /// The number of vCPUs in the GicState doesn't match the number of vCPUs on the system
+    InconsistentVcpuCount,
+    /// The VgicSysRegsState is invalid
+    InvalidVgicSysRegState,
 }
 type Result<T> = result::Result<T, Error>;
 
