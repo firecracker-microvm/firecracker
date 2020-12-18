@@ -5,10 +5,43 @@ mod redist_regs;
 use crate::aarch64::gic::{Error, Result};
 use kvm_bindings::kvm_device_attr;
 use kvm_ioctls::DeviceFd;
+use std::fmt::Debug;
 use std::iter::StepBy;
 use std::ops::Range;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+
+#[derive(Debug)]
+pub struct GicRegState<T: Versionize> {
+    pub(crate) chunks: Vec<T>,
+}
+
+impl<T: Versionize> Versionize for GicRegState<T> {
+    fn serialize<W: std::io::Write>(
+        &self,
+        writer: &mut W,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> VersionizeResult<()> {
+        let chunks = &self.chunks;
+        assert_eq!(std::mem::size_of_val(chunks), std::mem::size_of::<Self>());
+        Versionize::serialize(chunks, writer, version_map, app_version)
+    }
+
+    fn deserialize<R: std::io::Read>(
+        reader: &mut R,
+        version_map: &VersionMap,
+        app_version: u16,
+    ) -> VersionizeResult<Self> {
+        let chunks = Versionize::deserialize(reader, version_map, app_version)?;
+        assert_eq!(std::mem::size_of_val(&chunks), std::mem::size_of::<Self>());
+        Ok(Self { chunks })
+    }
+
+    fn version() -> u16 {
+        1
+    }
+}
 
 pub(crate) trait MmioReg {
     fn range(&self) -> Range<u64>;
@@ -23,7 +56,7 @@ pub(crate) trait MmioReg {
 
 pub(crate) trait VgicRegEngine {
     type Reg: MmioReg;
-    type RegChunk: Default + Clone;
+    type RegChunk: Clone + Default + Versionize;
 
     fn group() -> u32;
 
@@ -39,7 +72,11 @@ pub(crate) trait VgicRegEngine {
     }
 
     #[inline]
-    fn get_reg_data(fd: &DeviceFd, reg: &Self::Reg, mpidr: u64) -> Result<Vec<Self::RegChunk>>
+    fn get_reg_data(
+        fd: &DeviceFd,
+        reg: &Self::Reg,
+        mpidr: u64,
+    ) -> Result<GicRegState<Self::RegChunk>>
     where
         Self: Sized,
     {
@@ -51,14 +88,14 @@ pub(crate) trait VgicRegEngine {
             data.push(val);
         }
 
-        Ok(data)
+        Ok(GicRegState { chunks: data })
     }
 
     fn get_regs_data(
         fd: &DeviceFd,
         regs: Box<dyn Iterator<Item = &Self::Reg>>,
         mpidr: u64,
-    ) -> Result<Vec<Vec<Self::RegChunk>>>
+    ) -> Result<Vec<GicRegState<Self::RegChunk>>>
     where
         Self: Sized,
     {
@@ -74,13 +111,13 @@ pub(crate) trait VgicRegEngine {
     fn set_reg_data(
         fd: &DeviceFd,
         reg: &Self::Reg,
-        data: &[Self::RegChunk],
+        data: &GicRegState<Self::RegChunk>,
         mpidr: u64,
     ) -> Result<()>
     where
         Self: Sized,
     {
-        for (offset, val) in reg.iter::<Self::RegChunk>().zip(data) {
+        for (offset, val) in reg.iter::<Self::RegChunk>().zip(&data.chunks) {
             fd.set_device_attr(&Self::kvm_device_attr(offset, &mut val.clone(), mpidr))
                 .map_err(|e| Error::DeviceAttribute(e, true, Self::group()))?;
         }
@@ -91,7 +128,7 @@ pub(crate) trait VgicRegEngine {
     fn set_regs_data(
         fd: &DeviceFd,
         regs: Box<dyn Iterator<Item = &Self::Reg>>,
-        data: &[Vec<Self::RegChunk>],
+        data: &[GicRegState<Self::RegChunk>],
         mpidr: u64,
     ) -> Result<()>
     where
@@ -129,9 +166,15 @@ impl MmioReg for SimpleReg {
 /// Structure used for serializing the state of the GIC registers
 #[derive(Debug, Default, Versionize)]
 pub struct GicState {
-    dist: Vec<Vec<u32>>,
-    rdist: Vec<Vec<Vec<u32>>>,
-    icc: Vec<icc_regs::VgicSysRegsState>,
+    dist: Vec<GicRegState<u32>>,
+    gic_vcpu_states: Vec<GicVcpuState>,
+}
+
+/// Structure used for serializing the state of the GIC registers for a specific vCPU
+#[derive(Debug, Default, Versionize)]
+pub struct GicVcpuState {
+    rdist: Vec<GicRegState<u32>>,
+    icc: icc_regs::VgicSysRegsState,
 }
 
 /// Save the state of the GIC device.
@@ -139,18 +182,31 @@ pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
     // Flush redistributors pending tables to guest RAM.
     super::save_pending_tables(fd)?;
 
+    let mut vcpu_states = Vec::with_capacity(mpidrs.len());
+    for mpidr in mpidrs {
+        vcpu_states.push(GicVcpuState {
+            rdist: redist_regs::get_redist_regs(fd, *mpidr)?,
+            icc: icc_regs::get_icc_regs(fd, *mpidr)?,
+        })
+    }
+
     Ok(GicState {
         dist: dist_regs::get_dist_regs(fd)?,
-        rdist: redist_regs::get_redist_regs(fd, mpidrs)?,
-        icc: icc_regs::get_icc_regs(fd, mpidrs)?,
+        gic_vcpu_states: vcpu_states,
     })
 }
 
 /// Restore the state of the GIC device.
 pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<()> {
     dist_regs::set_dist_regs(fd, &state.dist)?;
-    redist_regs::set_redist_regs(fd, mpidrs, &state.rdist)?;
-    icc_regs::set_icc_regs(fd, mpidrs, &state.icc)?;
+
+    if mpidrs.len() != state.gic_vcpu_states.len() {
+        return Err(Error::InconsistentVcpuCount);
+    }
+    for (mpidr, vcpu_state) in mpidrs.iter().zip(&state.gic_vcpu_states) {
+        redist_regs::set_redist_regs(fd, *mpidr, &vcpu_state.rdist)?;
+        icc_regs::set_icc_regs(fd, *mpidr, &vcpu_state.icc)?;
+    }
 
     Ok(())
 }
@@ -174,7 +230,7 @@ mod tests {
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
-            "DeviceAttribute(Error(22), false, 1)"
+            "DeviceAttribute(Error(22), false, 5)"
         );
 
         let kvm = Kvm::new().unwrap();
@@ -199,7 +255,7 @@ mod tests {
         // with KVM_GET_DEVICE_ATTR.
         let gicd_statusr = &vm_state.dist[1];
 
-        assert_eq!(gicd_statusr[0], val);
+        assert_eq!(gicd_statusr.chunks[0], val);
         assert_eq!(vm_state.dist.len(), 12);
         assert!(restore_state(gic_fd, &mpidr, &vm_state).is_ok());
     }
