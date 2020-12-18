@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
-use crate::aarch64::gic::Result;
+use crate::aarch64::gic::{Error, Result};
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
@@ -40,7 +40,7 @@ static MAIN_VGIC_ICC_REGS: &[SimpleReg] = &[
     SYS_ICC_BPR1_EL1,
 ];
 
-static CONDITIONAL_VGIC_ICC_REGS: &[SimpleReg] = &[
+static AP_VGIC_ICC_REGS: &[SimpleReg] = &[
     SYS_ICC_AP0R0_EL1,
     SYS_ICC_AP0R1_EL1,
     SYS_ICC_AP0R2_EL1,
@@ -80,7 +80,7 @@ impl SimpleReg {
 #[derive(Debug, Default, Versionize)]
 pub struct VgicSysRegsState {
     main_icc_regs: Vec<GicRegState<u64>>,
-    conditional_icc_regs: Vec<GicRegState<u64>>,
+    ap_icc_regs: Vec<Option<GicRegState<u64>>>,
 }
 
 struct VgicSysRegEngine {}
@@ -104,29 +104,27 @@ fn num_priority_bits(fd: &DeviceFd, mpidr: u64) -> Result<u64> {
     Ok(((reg_val & ICC_CTLR_EL1_PRIBITS_MASK) >> ICC_CTLR_EL1_PRIBITS_SHIFT) + 1)
 }
 
-fn conditional_icc_regs(num_priority_bits: u64) -> Box<dyn Iterator<Item = &'static SimpleReg>> {
-    Box::new(CONDITIONAL_VGIC_ICC_REGS.iter().filter(move |&reg| {
-        // As per ARMv8 documentation:
-        // https://static.docs.arm.com/ihi0069/c/IHI0069C_gic_architecture_specification.pdf
-        // page 178,
-        // ICC_AP0R1_EL1 is only implemented in implementations that support 6 or more bits of
-        // priority.
-        // ICC_AP0R2_EL1 and ICC_AP0R3_EL1 are only implemented in implementations that support
-        // 7 bits of priority.
-        if (reg == &SYS_ICC_AP0R1_EL1 || reg == &SYS_ICC_AP1R1_EL1) && num_priority_bits < 6 {
-            return false;
-        }
-        if (reg == &SYS_ICC_AP0R2_EL1
-            || reg == &SYS_ICC_AP0R3_EL1
-            || reg == &SYS_ICC_AP1R2_EL1
-            || reg == &SYS_ICC_AP1R3_EL1)
-            && num_priority_bits != 7
-        {
-            return false;
-        }
+fn is_ap_reg_available(reg: &SimpleReg, num_priority_bits: u64) -> bool {
+    // As per ARMv8 documentation:
+    // https://static.docs.arm.com/ihi0069/c/IHI0069C_gic_architecture_specification.pdf
+    // page 178,
+    // ICC_AP0R1_EL1 is only implemented in implementations that support 6 or more bits of
+    // priority.
+    // ICC_AP0R2_EL1 and ICC_AP0R3_EL1 are only implemented in implementations that support
+    // 7 bits of priority.
+    if (reg == &SYS_ICC_AP0R1_EL1 || reg == &SYS_ICC_AP1R1_EL1) && num_priority_bits < 6 {
+        return false;
+    }
+    if (reg == &SYS_ICC_AP0R2_EL1
+        || reg == &SYS_ICC_AP0R3_EL1
+        || reg == &SYS_ICC_AP1R2_EL1
+        || reg == &SYS_ICC_AP1R3_EL1)
+        && num_priority_bits != 7
+    {
+        return false;
+    }
 
-        true
-    }))
+    true
 }
 
 pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState> {
@@ -134,12 +132,18 @@ pub(crate) fn get_icc_regs(fd: &DeviceFd, mpidr: u64) -> Result<VgicSysRegsState
         VgicSysRegEngine::get_regs_data(fd, Box::new(MAIN_VGIC_ICC_REGS.iter()), mpidr)?;
     let num_priority_bits = num_priority_bits(fd, mpidr)?;
 
-    let conditional_icc_regs =
-        VgicSysRegEngine::get_regs_data(fd, conditional_icc_regs(num_priority_bits), mpidr)?;
+    let mut ap_icc_regs = Vec::with_capacity(AP_VGIC_ICC_REGS.len());
+    for reg in AP_VGIC_ICC_REGS {
+        if is_ap_reg_available(reg, num_priority_bits) {
+            ap_icc_regs.push(Some(VgicSysRegEngine::get_reg_data(fd, reg, mpidr)?));
+        } else {
+            ap_icc_regs.push(None);
+        }
+    }
 
     Ok(VgicSysRegsState {
         main_icc_regs,
-        conditional_icc_regs,
+        ap_icc_regs,
     })
 }
 
@@ -152,12 +156,15 @@ pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) 
     )?;
     let num_priority_bits = num_priority_bits(fd, mpidr)?;
 
-    VgicSysRegEngine::set_regs_data(
-        fd,
-        conditional_icc_regs(num_priority_bits),
-        &state.conditional_icc_regs,
-        mpidr,
-    )?;
+    for (reg, maybe_reg_data) in AP_VGIC_ICC_REGS.iter().zip(&state.ap_icc_regs) {
+        if is_ap_reg_available(reg, num_priority_bits) != maybe_reg_data.is_some() {
+            return Err(Error::InvalidVgicSysRegState);
+        }
+
+        if let Some(reg_data) = maybe_reg_data {
+            VgicSysRegEngine::set_reg_data(fd, reg, reg_data, mpidr)?;
+        }
+    }
 
     Ok(())
 }
@@ -179,10 +186,18 @@ mod tests {
         let gicr_typer = 123;
         let res = get_icc_regs(&gic_fd.device_fd(), gicr_typer);
         assert!(res.is_ok());
-        let state = res.unwrap();
+        let mut state = res.unwrap();
         assert_eq!(state.main_icc_regs.len(), 7);
+        assert_eq!(state.ap_icc_regs.len(), 8);
 
         assert!(set_icc_regs(&gic_fd.device_fd(), gicr_typer, &state).is_ok());
+
+        for reg in state.ap_icc_regs.iter_mut() {
+            *reg = None;
+        }
+        let res = set_icc_regs(&gic_fd.device_fd(), gicr_typer, &state);
+        assert!(res.is_err());
+        assert_eq!(format!("{:?}", res.unwrap_err()), "InvalidVgicSysRegState");
 
         unsafe { libc::close(gic_fd.device_fd().as_raw_fd()) };
 
