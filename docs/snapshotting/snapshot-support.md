@@ -406,6 +406,8 @@ strong mechanism that enables users to guarantee that unique things stay unique
 across snapshot restores, we consider resuming execution from the same state
 more than once insecure.
 
+For more information please see [this doc](random-for-clones.md)
+
 ### Usage examples
 
 #### Example 1: secure usage (currently in dev preview)
