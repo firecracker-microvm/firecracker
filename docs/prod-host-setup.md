@@ -39,6 +39,36 @@ To set up the jailer correctly, you'll need to:
 Additional details of Jailer features can be found in the
 [Jailer documentation](jailer.md).
 
+
+## Firecracker Configuration
+
+### 8250 Serial Device
+
+Firecracker implements the 8250 serial device, which is visible from the guest
+side and is tied to the Firecracker/non-daemonized jailer process stdout.
+Without proper handling, because the guest has access to the serial device,
+this can lead to unbound memory or storage usage on the host side. Firecracker
+does not offer users the option to limit serial data transfer, nor does it
+impose any restrictions on stdout handling. Users are responsible for handling
+the memory and storage usage of the Firecracker process stdout. We suggest
+using any upper-bounded forms of storage, such as fixed-size or ring buffers,
+using programs like `journald` or `logrotate`, or redirecting to `/dev/null`
+or a named pipe. Furthermore, we do not recommend that users enable the serial
+device in production. To disable it in the guest kernel, use the
+`8250.nr_uarts=0` boot argument when configuring the boot source. Please be
+aware that the device can be reactivated from within the guest even if it was
+disabled at boot.
+
+### Log files
+
+Firecracker outputs logging data into a named pipe, socket, or file using the
+path specified in the `log_path` field of logger configuration. Firecracker can
+generate log data as a result of guest operations and therefore the guest can
+influence the volume of data written in the logs. Users are responsible
+for consuming and storing this data safely. We suggest using any upper-bounded
+forms of storage, such as fixed-size or ring buffers, programs like `journald`
+or `logrotate`, or redirecting to a named pipe.
+
 ## Host Security Configuration
 
 ### Mitigating Side-Channel Issues
