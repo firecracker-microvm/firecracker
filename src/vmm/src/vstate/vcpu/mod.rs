@@ -509,6 +509,13 @@ impl Vcpu {
                         // Notify that this KVM_RUN was interrupted.
                         Ok(VcpuEmulation::Interrupted)
                     }
+                    libc::ENOSYS => {
+                        METRICS.vcpu.failures.inc();
+                        error!(
+                            "Received ENOSYS error because KVM failed to emulate an instruction."
+                        );
+                        Err(Error::FaultyKvmExit(format!("{}", e)))
+                    }
                     _ => {
                         METRICS.vcpu.failures.inc();
                         error!("Failure during vcpu run: {}", e);
