@@ -126,7 +126,7 @@ if "AMD" not in proc.proc_type():
     collect_ignore = [os.path.join(SCRIPT_FOLDER, "integration_tests/style")]
 
 
-if proc.proc_type() == "AMD":
+if "AMD" in proc.proc_type():
     collect_ignore = [os.path.join(
         SCRIPT_FOLDER, "integration_tests/performance/test_snapshot_perf.py")]
 
