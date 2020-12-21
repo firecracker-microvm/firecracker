@@ -5,69 +5,14 @@
 import platform
 import re
 import pytest
-from framework.utils import CpuVendor, get_cpu_vendor
-import host_tools.network as net_tools  # pylint: disable=import-error
+
+import framework.utils_cpuid as utils
+import host_tools.network as net_tools
+
+PLATFORM = platform.machine()
 
 
-def _check_guest_cmd_output(test_microvm, guest_cmd, expected_header,
-                            expected_separator,
-                            expected_key_value_store):
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-    _, stdout, stderr = ssh_connection.execute_command(guest_cmd)
-
-    assert stderr.read() == ''
-    while True:
-        line = stdout.readline()
-        if line != '':
-            # All the keys have been matched. Stop.
-            if not expected_key_value_store:
-                break
-
-            # Try to match the header if needed.
-            if expected_header not in (None, ''):
-                if line.strip() == expected_header:
-                    expected_header = None
-                continue
-
-            # See if any key matches.
-            # We Use a try-catch block here since line.split() may fail.
-            try:
-                [key, value] = list(
-                    map(lambda x: x.strip(), line.split(expected_separator)))
-            except ValueError:
-                continue
-
-            if key in expected_key_value_store.keys():
-                assert value == expected_key_value_store[key], \
-                    "%s does not have the expected value" % key
-                del expected_key_value_store[key]
-
-        else:
-            break
-
-    assert not expected_key_value_store, \
-        "some keys in dictionary have not been found in the output: %s" \
-        % expected_key_value_store
-
-
-def _check_cpu_topology(test_microvm, expected_cpu_count,
-                        expected_threads_per_core,
-                        expected_cpus_list):
-    expected_cpu_topology = {
-        "CPU(s)": str(expected_cpu_count),
-        "On-line CPU(s) list": expected_cpus_list,
-        "Thread(s) per core": str(expected_threads_per_core),
-        "Core(s) per socket": str(
-            int(expected_cpu_count / expected_threads_per_core)),
-        "Socket(s)": "1",
-        "NUMA node(s)": "1"
-    }
-
-    _check_guest_cmd_output(test_microvm, "lscpu", None, ':',
-                            expected_cpu_topology)
-
-
-def _check_cpu_features(test_microvm, expected_cpu_count, expected_htt):
+def _check_cpuid_x86(test_microvm, expected_cpu_count, expected_htt):
     expected_cpu_features = {
         "cpu count": '{} ({})'.format(hex(expected_cpu_count),
                                       expected_cpu_count),
@@ -76,145 +21,58 @@ def _check_cpu_features(test_microvm, expected_cpu_count, expected_htt):
         "hyper-threading / multi-core supported": expected_htt
     }
 
-    _check_guest_cmd_output(test_microvm, "cpuid -1", None, '=',
-                            expected_cpu_features)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   expected_cpu_features)
 
 
-def _check_cache_topology(test_microvm, num_vcpus_on_lvl_1_cache,
-                          num_vcpus_on_lvl_3_cache):
-    expected_lvl_1_str = '{} ({})'.format(hex(num_vcpus_on_lvl_1_cache),
-                                          num_vcpus_on_lvl_1_cache)
-    expected_lvl_3_str = '{} ({})'.format(hex(num_vcpus_on_lvl_3_cache),
-                                          num_vcpus_on_lvl_3_cache)
+def _check_cpu_features_arm(test_microvm):
+    expected_cpu_features = {
+        "Flags": "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp "
+                 "asimdhp cpuid asimdrdm lrcpc dcpop asimddp ssbs",
+    }
 
-    cpu_vendor = get_cpu_vendor()
-    if cpu_vendor == CpuVendor.AMD:
-        expected_level_1_topology = {
-            "level": '0x1 (1)',
-            "extra cores sharing this cache": expected_lvl_1_str
-        }
-        expected_level_3_topology = {
-            "level": '0x3 (3)',
-            "extra cores sharing this cache": expected_lvl_3_str
-        }
-    elif cpu_vendor == CpuVendor.INTEL:
-        expected_level_1_topology = {
-            "cache level": '0x1 (1)',
-            "extra threads sharing this cache": expected_lvl_1_str,
-        }
-        expected_level_3_topology = {
-            "cache level": '0x3 (3)',
-            "extra threads sharing this cache": expected_lvl_3_str,
-        }
-
-    _check_guest_cmd_output(test_microvm, "cpuid -1", "--- cache 0 ---", '=',
-                            expected_level_1_topology)
-    _check_guest_cmd_output(test_microvm, "cpuid -1", "--- cache 1 ---", '=',
-                            expected_level_1_topology)
-    _check_guest_cmd_output(test_microvm, "cpuid -1", "--- cache 2 ---", '=',
-                            expected_level_1_topology)
-    _check_guest_cmd_output(test_microvm, "cpuid -1", "--- cache 3 ---", '=',
-                            expected_level_3_topology)
+    utils.check_guest_cpuid_output(test_microvm, "lscpu", None, ':',
+                                   expected_cpu_features)
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
+    PLATFORM != "x86_64",
+    reason="CPUID is only supported on x86_64."
 )
-def test_1vcpu_ht_disabled(test_microvm_with_ssh, network_config):
-    """Check the CPUID for a microvm with the specified config."""
-    test_microvm_with_ssh.spawn()
-    test_microvm_with_ssh.basic_config(vcpu_count=1, ht_enabled=False)
-    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
-    test_microvm_with_ssh.start()
-
-    _check_cpu_topology(test_microvm_with_ssh, 1, 1, "0")
-    _check_cpu_features(test_microvm_with_ssh, 1, "false")
-    _check_cache_topology(test_microvm_with_ssh, 0, 0)
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
+@pytest.mark.parametrize(
+    "num_vcpus",
+    [1, 2, 16],
 )
-def test_1vcpu_ht_enabled(test_microvm_with_ssh, network_config):
-    """Check the CPUID for a microvm with the specified config."""
-    test_microvm_with_ssh.spawn()
-    test_microvm_with_ssh.basic_config(vcpu_count=1, ht_enabled=True)
-    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
-    test_microvm_with_ssh.start()
-
-    _check_cpu_topology(test_microvm_with_ssh, 1, 1, "0")
-    _check_cpu_features(test_microvm_with_ssh, 1, "false")
-    _check_cache_topology(test_microvm_with_ssh, 0, 0)
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
+@pytest.mark.parametrize(
+    "htt",
+    [True, False],
 )
-def test_2vcpu_ht_disabled(test_microvm_with_ssh, network_config):
+def test_cpuid(test_microvm_with_ssh, network_config, num_vcpus, htt):
     """Check the CPUID for a microvm with the specified config."""
-    test_microvm_with_ssh.spawn()
-    test_microvm_with_ssh.basic_config(vcpu_count=2, ht_enabled=False)
-    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
-    test_microvm_with_ssh.start()
-
-    _check_cpu_topology(test_microvm_with_ssh, 2, 1, "0,1")
-    _check_cpu_features(test_microvm_with_ssh, 2, "true")
-    _check_cache_topology(test_microvm_with_ssh, 0, 1)
+    vm = test_microvm_with_ssh
+    vm.spawn()
+    vm.basic_config(vcpu_count=num_vcpus, ht_enabled=htt)
+    _tap, _, _ = vm.ssh_network_config(network_config, '1')
+    vm.start()
+    _check_cpuid_x86(vm, num_vcpus, "true" if num_vcpus > 1 else "false")
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
+    PLATFORM != "aarch64",
+    reason="The CPU features on x86 are tested as part of the CPU templates."
 )
-def test_2vcpu_ht_enabled(test_microvm_with_ssh, network_config):
-    """Check the CPUID for a microvm with the specified config."""
-    test_microvm_with_ssh.spawn()
-    test_microvm_with_ssh.basic_config(vcpu_count=2, ht_enabled=True)
-    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
-    test_microvm_with_ssh.start()
-
-    _check_cpu_topology(test_microvm_with_ssh, 2, 2, "0,1")
-    _check_cpu_features(test_microvm_with_ssh, 2, "true")
-    _check_cache_topology(test_microvm_with_ssh, 1, 1)
+def test_cpu_features(test_microvm_with_ssh, network_config):
+    """Check the CPU features for a microvm with the specified config."""
+    vm = test_microvm_with_ssh
+    vm.spawn()
+    vm.basic_config()
+    _tap, _, _ = vm.ssh_network_config(network_config, '1')
+    vm.start()
+    _check_cpu_features_arm(vm)
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
-)
-def test_16vcpu_ht_disabled(test_microvm_with_ssh, network_config):
-    """Check the CPUID for a microvm with the specified config."""
-    test_microvm_with_ssh.spawn()
-    test_microvm_with_ssh.basic_config(vcpu_count=16, ht_enabled=False)
-    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
-    test_microvm_with_ssh.start()
-
-    _check_cpu_topology(test_microvm_with_ssh, 16, 1, "0-15")
-    _check_cpu_features(test_microvm_with_ssh, 16, "true")
-    _check_cache_topology(test_microvm_with_ssh, 0, 15)
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Firecracker supports topology and feature masking only on x86_64."
-)
-def test_16vcpu_ht_enabled(test_microvm_with_ssh, network_config):
-    """Check the CPUID for a microvm with the specified config."""
-    test_microvm_with_ssh.spawn()
-    test_microvm_with_ssh.basic_config(vcpu_count=16, ht_enabled=True)
-    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
-    test_microvm_with_ssh.start()
-
-    _check_cpu_topology(test_microvm_with_ssh, 16, 2, "0-15")
-    _check_cpu_features(test_microvm_with_ssh, 16, "true")
-    _check_cache_topology(test_microvm_with_ssh, 1, 15)
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    PLATFORM != "x86_64",
     reason="The CPU brand string is masked only on x86_64."
 )
 def test_brand_string(test_microvm_with_ssh, network_config):
@@ -260,11 +118,11 @@ def test_brand_string(test_microvm_with_ssh, network_config):
     guest_brand_string = mo.group(1)
     assert guest_brand_string
 
-    cpu_vendor = get_cpu_vendor()
+    cpu_vendor = utils.get_cpu_vendor()
     expected_guest_brand_string = ""
-    if cpu_vendor == CpuVendor.AMD:
+    if cpu_vendor == utils.CpuVendor.AMD:
         expected_guest_brand_string += "AMD EPYC"
-    elif cpu_vendor == CpuVendor.INTEL:
+    elif cpu_vendor == utils.CpuVendor.INTEL:
         expected_guest_brand_string = "Intel(R) Xeon(R) Processor"
         mo = re.search("[.0-9]+[MG]Hz", host_brand_string)
         if mo:
@@ -274,7 +132,7 @@ def test_brand_string(test_microvm_with_ssh, network_config):
 
 
 @pytest.mark.skipif(
-    platform.machine() != "x86_64",
+    PLATFORM != "x86_64",
     reason="CPU features are masked only on x86_64."
 )
 @pytest.mark.parametrize("cpu_template", ["T2", "C3"])
@@ -307,7 +165,7 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
 
     response = test_microvm.actions.put(action_type='InstanceStart')
-    if get_cpu_vendor() != CpuVendor.INTEL:
+    if utils.get_cpu_vendor() != utils.CpuVendor.INTEL:
         # We shouldn't be able to apply Intel templates on AMD hosts
         assert test_microvm.api_session.is_status_bad_request(
             response.status_code)
@@ -335,5 +193,5 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
         "XCR0 supported: PKRU state": "false"
     }
 
-    _check_guest_cmd_output(test_microvm, "cpuid -1", None, '=',
-                            expected_cpu_features)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   expected_cpu_features)

@@ -83,6 +83,7 @@ use std::io::{sink, stderr, stdout, Write};
 use std::result;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
+use std::thread;
 
 use crate::metrics::{IncMetric, METRICS};
 use lazy_static::lazy_static;
@@ -244,6 +245,11 @@ impl Logger {
         self
     }
 
+    /// Get the current thread's name.
+    fn get_thread_name(&self) -> String {
+        thread::current().name().unwrap_or("-").to_string()
+    }
+
     /// Creates the first portion (to the left of the separator)
     /// of the log statement based on the logger settings.
     fn create_prefix(&self, record: &Record) -> String {
@@ -253,6 +259,9 @@ impl Logger {
         if !instance_id.is_empty() {
             prefix.push(instance_id.to_string());
         }
+
+        // Attach current thread name to prefix.
+        prefix.push(self.get_thread_name());
 
         if self.show_level() {
             prefix.push(record.level().to_string());
@@ -527,6 +536,7 @@ mod tests {
     #[test]
     fn test_configure() {
         let logger = Logger::new();
+        let crnt_thread_name = logger.get_thread_name();
 
         // Assert that `configure()` can be called successfully any number of times.
         assert!(logger.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
@@ -546,14 +556,17 @@ mod tests {
         logger.mock_log(Level::Info, "info");
         validate_log(
             &mut Box::new(&mut reader),
-            "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
+            &format!(
+                "[TEST-INSTANCE-ID:{}:INFO:logger.rs:0] info\n",
+                crnt_thread_name
+            ),
         );
     }
 
     #[test]
     fn test_init() {
         let logger = Logger::new();
-
+        let crnt_thread_name = logger.get_thread_name();
         // Assert that the first call to `init()` is successful.
         let (writer, mut reader) = log_channel();
         logger.set_instance_id(TEST_INSTANCE_ID.to_string());
@@ -568,7 +581,10 @@ mod tests {
         logger.mock_log(Level::Info, "info");
         validate_log(
             &mut Box::new(&mut reader),
-            "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
+            &format!(
+                "[TEST-INSTANCE-ID:{}:INFO:logger.rs:0] info\n",
+                crnt_thread_name
+            ),
         );
 
         // Assert that initialization works only once.
@@ -580,7 +596,10 @@ mod tests {
         logger.mock_log(Level::Info, "info");
         validate_log(
             &mut Box::new(&mut reader),
-            "[TEST-INSTANCE-ID:INFO:logger.rs:0] info\n",
+            &format!(
+                "[TEST-INSTANCE-ID:{}:INFO:logger.rs:0] info\n",
+                crnt_thread_name
+            ),
         );
         validate_log(&mut Box::new(&mut reader_2), "");
     }
@@ -589,7 +608,7 @@ mod tests {
     fn test_create_prefix() {
         let logger = Logger::mock_new();
         let mut reader = logger.mock_init();
-
+        let crnt_thread_name = logger.get_thread_name();
         // Test with empty instance id.
         logger.set_instance_id("".to_string());
 
@@ -598,35 +617,50 @@ mod tests {
             .set_include_level(false)
             .set_include_origin(false, true);
         logger.mock_log(Level::Info, "msg");
-        validate_log(&mut Box::new(&mut reader), "[] msg\n");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[{}] msg\n", crnt_thread_name),
+        );
 
         // Check that the prefix is correctly shown when all flags are true.
         logger
             .set_include_level(true)
             .set_include_origin(true, true);
         logger.mock_log(Level::Info, "msg");
-        validate_log(&mut Box::new(&mut reader), "[INFO:logger.rs:0] msg\n");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[{}:INFO:logger.rs:0] msg\n", crnt_thread_name),
+        );
 
         // Check show_line_numbers=false.
         logger
             .set_include_level(true)
             .set_include_origin(true, false);
         logger.mock_log(Level::Debug, "msg");
-        validate_log(&mut Box::new(&mut reader), "[DEBUG:logger.rs] msg\n");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[{}:DEBUG:logger.rs] msg\n", crnt_thread_name),
+        );
 
         // Check show_file_path=false.
         logger
             .set_include_level(true)
             .set_include_origin(false, true);
         logger.mock_log(Level::Error, "msg");
-        validate_log(&mut Box::new(&mut reader), "[ERROR] msg\n");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[{}:ERROR] msg\n", crnt_thread_name),
+        );
 
         // Check show_level=false.
         logger
             .set_include_level(false)
             .set_include_origin(true, true);
         logger.mock_log(Level::Info, "msg");
-        validate_log(&mut Box::new(&mut reader), "[logger.rs:0] msg\n");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[{}:logger.rs:0] msg\n", crnt_thread_name),
+        );
 
         // Test with a mock instance id.
         logger.set_instance_id(TEST_INSTANCE_ID.to_string());
@@ -636,7 +670,10 @@ mod tests {
             .set_include_level(false)
             .set_include_origin(false, false);
         logger.mock_log(Level::Info, "msg");
-        validate_log(&mut Box::new(&mut reader), "[TEST-INSTANCE-ID] msg\n");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[TEST-INSTANCE-ID:{}] msg\n", crnt_thread_name),
+        );
 
         // Check that the prefix is correctly shown when all flags are true.
         logger
@@ -645,8 +682,30 @@ mod tests {
         logger.mock_log(Level::Warn, "msg");
         validate_log(
             &mut Box::new(&mut reader),
-            "[TEST-INSTANCE-ID:WARN:logger.rs:0] msg\n",
+            &format!(
+                "[TEST-INSTANCE-ID:{}:WARN:logger.rs:0] msg\n",
+                crnt_thread_name
+            ),
         );
+    }
+
+    #[test]
+    fn test_thread_name_custom() {
+        let custom_thread = thread::Builder::new()
+            .name("custom-thread".to_string())
+            .spawn(move || {
+                let logger = Logger::mock_new();
+                let mut reader = logger.mock_init();
+                logger
+                    .set_include_level(false)
+                    .set_include_origin(false, false);
+                logger.set_instance_id("".to_string());
+                logger.mock_log(Level::Info, "thread-msg");
+                validate_log(&mut Box::new(&mut reader), "[custom-thread] thread-msg\n");
+            })
+            .unwrap();
+        let r = custom_thread.join();
+        assert_eq!(r.is_ok(), true);
     }
 
     #[test]

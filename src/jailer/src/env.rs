@@ -221,7 +221,7 @@ impl Env {
             .map_err(|e| Error::ChangeFileOwner(PathBuf::from(dev_path.to_str().unwrap()), e))
     }
 
-    pub fn setup_jailed_folder(&self, folder: &[u8]) -> Result<()> {
+    fn setup_jailed_folder(&self, folder: &[u8]) -> Result<()> {
         let folder_cstr = CStr::from_bytes_with_nul(folder).map_err(Error::FromBytesWithNul)?;
 
         // Safe to unwrap as the byte sequence is UTF-8 validated above.
@@ -282,6 +282,66 @@ impl Env {
             .map_err(Error::CloseNetNsFd)
     }
 
+    #[cfg(target_arch = "aarch64")]
+    fn copy_cache_info(&self) -> Result<()> {
+        use crate::{readln_special, to_cstring, writeln_special};
+
+        const HOST_CACHE_INFO: &str = "/sys/devices/system/cpu/cpu0/cache";
+        // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
+        const MAX_CACHE_LEVEL: u8 = 7;
+        // These are the files that we need to copy in the chroot so that we can create the
+        // cache topology.
+        const FOLDER_HIERARCHY: [&str; 6] = [
+            "size",
+            "level",
+            "type",
+            "shared_cpu_map",
+            "coherency_line_size",
+            "number_of_sets",
+        ];
+
+        // We create the cache folder inside the chroot and then change its permissions.
+        let jailer_cache_dir =
+            Path::new(self.chroot_dir()).join("sys/devices/system/cpu/cpu0/cache/");
+        fs::create_dir_all(&jailer_cache_dir)
+            .map_err(|e| Error::CreateDir(jailer_cache_dir.to_owned(), e))?;
+
+        for index in 0..(MAX_CACHE_LEVEL + 1) {
+            let index_folder = format!("index{}", index);
+            let host_path = PathBuf::from(HOST_CACHE_INFO).join(&index_folder);
+
+            if fs::metadata(&host_path).is_err() {
+                // It means the folder does not exist, i.e we exhausted the number of cache levels
+                // existent on the host.
+                break;
+            }
+
+            // We now create the destination folder in the jailer.
+            let jailer_path = jailer_cache_dir.join(&index_folder);
+            fs::create_dir_all(&jailer_path)
+                .map_err(|e| Error::CreateDir(jailer_path.to_owned(), e))?;
+
+            // We now read the contents of the current directory and copy the files we are interested in
+            // to the destination path.
+            for entry in FOLDER_HIERARCHY.iter() {
+                let host_cache_file = host_path.join(&entry);
+                let jailer_cache_file = jailer_path.join(&entry);
+
+                let line = readln_special(&host_cache_file)?;
+                writeln_special(&jailer_cache_file, line)?;
+
+                // We now change the permissions.
+                let dest_path_cstr = to_cstring(&jailer_cache_file)?;
+                SyscallReturnCode(unsafe {
+                    libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
+                })
+                .into_empty_result()
+                .map_err(|e| Error::ChangeFileOwner(jailer_cache_file.to_owned(), e))?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn run(mut self) -> Result<()> {
         let exec_file_name = self.copy_exec_to_chroot()?;
         let chroot_exec_file = PathBuf::from("/").join(&exec_file_name);
@@ -320,6 +380,8 @@ impl Env {
         } else {
             None
         };
+        #[cfg(target_arch = "aarch64")]
+        self.copy_cache_info()?;
 
         // Jail self.
         chroot(self.chroot_dir())?;
@@ -453,6 +515,22 @@ mod tests {
         arg_vec
     }
 
+    fn get_major(dev: u64) -> u32 {
+        unsafe { libc::major(dev) }
+    }
+
+    fn get_minor(dev: u64) -> u32 {
+        unsafe { libc::minor(dev) }
+    }
+
+    fn create_env() -> Env {
+        // Create a standard environment.
+        let arg_parser = build_arg_parser();
+        let mut args = arg_parser.arguments().clone();
+        args.parse(&make_args(&ArgVals::new())).unwrap();
+        Env::new(&args, 0, 0).unwrap()
+    }
+
     #[test]
     fn test_new_env() {
         let good_arg_vals = ArgVals::new();
@@ -577,10 +655,7 @@ mod tests {
 
     #[test]
     fn test_setup_jailed_folder() {
-        let arg_parser = build_arg_parser();
-        let mut args = arg_parser.arguments().clone();
-        args.parse(&make_args(&ArgVals::new())).unwrap();
-        let env = Env::new(&args, 0, 0).unwrap();
+        let env = create_env();
 
         // Error case: non UTF-8 paths.
         let bad_string: &[u8] = &[0, 102, 111, 111, 0]; // A leading nul followed by 'f', 'o', 'o'
@@ -624,23 +699,11 @@ mod tests {
         // process management; it can't be isolated from side effects.
     }
 
-    fn get_major(dev: u64) -> u32 {
-        unsafe { libc::major(dev) }
-    }
-
-    fn get_minor(dev: u64) -> u32 {
-        unsafe { libc::minor(dev) }
-    }
-
     #[test]
     fn test_mknod_and_own_dev() {
         use std::os::unix::fs::FileTypeExt;
 
-        // Create a standard environment.
-        let arg_parser = build_arg_parser();
-        let mut args = arg_parser.arguments().clone();
-        args.parse(&make_args(&ArgVals::new())).unwrap();
-        let env = Env::new(&args, 0, 0).unwrap();
+        let env = create_env();
 
         // Ensure path buffers without NULL-termination are handled well.
         assert!(env.mknod_and_own_dev(b"/some/path", 0, 0).is_err());
@@ -829,5 +892,26 @@ mod tests {
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_ok());
+    }
+
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn test_copy_cache_info() {
+        let env = create_env();
+
+        // Create the required chroot dir hierarchy.
+        fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
+
+        assert!(env.copy_cache_info().is_ok());
+
+        // Make sure that the needed files truly exist.
+        const JAILER_CACHE_INFO: &str = "sys/devices/system/cpu/cpu0/cache";
+
+        let dest_path = env.chroot_dir.join(JAILER_CACHE_INFO);
+        assert!(fs::metadata(&dest_path).is_ok());
+        let index_dest_path = dest_path.join("index0");
+        assert!(fs::metadata(&index_dest_path).is_ok());
+        let entries = fs::read_dir(&index_dest_path).unwrap();
+        assert_eq!(entries.enumerate().count(), 6);
     }
 }

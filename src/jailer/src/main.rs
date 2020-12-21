@@ -277,6 +277,27 @@ pub fn build_arg_parser() -> ArgParser<'static> {
         )
 }
 
+// It's called writeln_special because we have to use this rather convoluted way of writing
+// to special cgroup files, to avoid getting errors. It would be nice to know why that happens :-s
+pub fn writeln_special<T, V>(file_path: &T, value: V) -> Result<()>
+where
+    T: AsRef<Path>,
+    V: ::std::fmt::Display,
+{
+    fs::write(file_path, format!("{}\n", value))
+        .map_err(|e| Error::Write(PathBuf::from(file_path.as_ref()), e))
+}
+
+pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
+    let mut line = fs::read_to_string(file_path)
+        .map_err(|e| Error::ReadToString(PathBuf::from(file_path.as_ref()), e))?;
+
+    // Remove the newline character at the end (if any).
+    line.pop();
+
+    Ok(line)
+}
+
 fn sanitize_process() {
     // First thing to do is make sure we don't keep any inherited FDs
     // other that IN, OUT and ERR.
@@ -301,7 +322,7 @@ fn sanitize_process() {
 /// Turns an AsRef<Path> into a CString (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
-fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
+pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
     let path_str = path
         .as_ref()
         .to_path_buf()
