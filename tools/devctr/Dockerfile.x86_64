@@ -67,6 +67,7 @@ RUN apt-get update \
         requests-unixsocket \
         retry \
         typing-extensions \
+        gitlint \
     && npm install -g @apidevtools/swagger-cli \
     && rm -rf /var/lib/apt/lists/*
 
