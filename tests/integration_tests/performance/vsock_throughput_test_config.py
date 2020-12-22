@@ -244,64 +244,64 @@ CONFIG = {
                         "baseline_bw": {
                             "vmlinux-4.14.bin/ubuntu-18.04.ext4": {
                                 "vsock-p1024K-1vcpu-g2h": {
-                                    "target": 5934,
-                                    "delta_percentage": 5
-                                },
-                                "vsock-pDEFAULT-1vcpu-g2h": {
-                                    "target": 5944,
-                                    "delta_percentage": 5
-                                },
-                                "vsock-p1024-1vcpu-g2h": {
-                                    "target": 946,
-                                    "delta_percentage": 13
-                                },
-                                "vsock-p1024K-1vcpu-h2g": {
-                                    "target": 3990,
-                                    "delta_percentage": 4
-                                },
-                                "vsock-pDEFAULT-1vcpu-h2g": {
-                                    "target": 3893,
-                                    "delta_percentage": 4
-                                },
-                                "vsock-p1024-1vcpu-h2g": {
-                                    "target": 301,
-                                    "delta_percentage": 4
-                                },
-                                "vsock-p1024K-2vcpu-g2h": {
-                                    "target": 6726,
+                                    "target": 5973,
                                     "delta_percentage": 6
                                 },
+                                "vsock-pDEFAULT-1vcpu-g2h": {
+                                    "target": 5993,
+                                    "delta_percentage": 6
+                                },
+                                "vsock-p1024-1vcpu-g2h": {
+                                    "target": 948,
+                                    "delta_percentage": 10
+                                },
+                                "vsock-p1024K-1vcpu-h2g": {
+                                    "target": 4041,
+                                    "delta_percentage": 5
+                                },
+                                "vsock-pDEFAULT-1vcpu-h2g": {
+                                    "target": 3934,
+                                    "delta_percentage": 5
+                                },
+                                "vsock-p1024-1vcpu-h2g": {
+                                    "target": 307,
+                                    "delta_percentage": 8
+                                },
+                                "vsock-p1024K-2vcpu-g2h": {
+                                    "target": 6775,
+                                    "delta_percentage": 7
+                                },
                                 "vsock-pDEFAULT-2vcpu-g2h": {
-                                    "target": 6644,
-                                    "delta_percentage": 9
+                                    "target": 6699,
+                                    "delta_percentage": 8
                                 },
                                 "vsock-p1024-2vcpu-g2h": {
-                                    "target": 2586,
+                                    "target": 2595,
                                     "delta_percentage": 6
                                 },
                                 "vsock-p1024K-2vcpu-h2g": {
-                                    "target": 4837,
-                                    "delta_percentage": 7
+                                    "target": 4883,
+                                    "delta_percentage": 6
                                 },
                                 "vsock-pDEFAULT-2vcpu-h2g": {
-                                    "target": 4746,
+                                    "target": 4801,
                                     "delta_percentage": 5
                                 },
                                 "vsock-p1024-2vcpu-h2g": {
-                                    "target": 1554,
-                                    "delta_percentage": 9
+                                    "target": 1669,
+                                    "delta_percentage": 18
                                 },
                                 "vsock-p1024K-2vcpu-bd": {
-                                    "target": 4497,
+                                    "target": 4544,
                                     "delta_percentage": 5
                                 },
                                 "vsock-pDEFAULT-2vcpu-bd": {
-                                    "target": 4473,
+                                    "target": 4517,
                                     "delta_percentage": 5
                                 },
                                 "vsock-p1024-2vcpu-bd": {
-                                    "target": 1280,
-                                    "delta_percentage": 10
+                                    "target": 1408,
+                                    "delta_percentage": 23
                                 }
                             }
                         },
@@ -318,7 +318,7 @@ CONFIG = {
                                     },
                                     "vsock-p1024-1vcpu-g2h": {
                                         "target": 44,
-                                        "delta_percentage": 9
+                                        "delta_percentage": 11
                                     },
                                     "vsock-p1024K-1vcpu-h2g": {
                                         "target": 66,
@@ -330,39 +330,39 @@ CONFIG = {
                                     },
                                     "vsock-p1024-1vcpu-h2g": {
                                         "target": 32,
-                                        "delta_percentage": 12
+                                        "delta_percentage": 14
                                     },
                                     "vsock-p1024K-2vcpu-g2h": {
                                         "target": 63,
-                                        "delta_percentage": 8
+                                        "delta_percentage": 9
                                     },
                                     "vsock-pDEFAULT-2vcpu-g2h": {
                                         "target": 63,
-                                        "delta_percentage": 9
+                                        "delta_percentage": 8
                                     },
                                     "vsock-p1024-2vcpu-g2h": {
-                                        "target": 65,
+                                        "target": 66,
                                         "delta_percentage": 9
                                     },
                                     "vsock-p1024K-2vcpu-h2g": {
                                         "target": 79,
-                                        "delta_percentage": 10
+                                        "delta_percentage": 9
                                     },
                                     "vsock-pDEFAULT-2vcpu-h2g": {
                                         "target": 79,
-                                        "delta_percentage": 8
+                                        "delta_percentage": 7
                                     },
                                     "vsock-p1024-2vcpu-h2g": {
                                         "target": 60,
                                         "delta_percentage": 9
                                     },
                                     "vsock-p1024K-2vcpu-bd": {
-                                        "target": 67,
-                                        "delta_percentage": 7
+                                        "target": 68,
+                                        "delta_percentage": 8
                                     },
                                     "vsock-pDEFAULT-2vcpu-bd": {
                                         "target": 68,
-                                        "delta_percentage": 7
+                                        "delta_percentage": 8
                                     },
                                     "vsock-p1024-2vcpu-bd": {
                                         "target": 65,
@@ -388,14 +388,14 @@ CONFIG = {
                                     },
                                     "vsock-pDEFAULT-1vcpu-h2g": {
                                         "target": 99,
-                                        "delta_percentage": 6
+                                        "delta_percentage": 5
                                     },
                                     "vsock-p1024-1vcpu-h2g": {
                                         "target": 99,
                                         "delta_percentage": 5
                                     },
                                     "vsock-p1024K-2vcpu-g2h": {
-                                        "target": 198,
+                                        "target": 197,
                                         "delta_percentage": 5
                                     },
                                     "vsock-pDEFAULT-2vcpu-g2h": {
@@ -403,11 +403,11 @@ CONFIG = {
                                         "delta_percentage": 5
                                     },
                                     "vsock-p1024-2vcpu-g2h": {
-                                        "target": 119,
+                                        "target": 120,
                                         "delta_percentage": 9
                                     },
                                     "vsock-p1024K-2vcpu-h2g": {
-                                        "target": 124,
+                                        "target": 125,
                                         "delta_percentage": 7
                                     },
                                     "vsock-pDEFAULT-2vcpu-h2g": {
@@ -419,8 +419,8 @@ CONFIG = {
                                         "delta_percentage": 6
                                     },
                                     "vsock-p1024K-2vcpu-bd": {
-                                        "target": 116,
-                                        "delta_percentage": 7
+                                        "target": 117,
+                                        "delta_percentage": 6
                                     },
                                     "vsock-pDEFAULT-2vcpu-bd": {
                                         "target": 118,
