@@ -263,9 +263,8 @@ impl Env {
     }
 
     fn join_netns(path: &str) -> Result<()> {
-        // This will take ownership of the raw fd.
-        // TODO: for some reason, if we use as_raw_fd here instead, the resulting fd cannot
-        // be used with setns, because we get an EBADFD error. I wonder why?
+        // Not used `as_raw_fd` as it will create a dangling fd (object will be freed immediately) instead
+        // used `into_raw_fd` which provides underlying fd ownership to caller.
         let netns_fd = File::open(path)
             .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
             .into_raw_fd();
