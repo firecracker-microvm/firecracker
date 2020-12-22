@@ -59,6 +59,10 @@ device in production. To disable it in the guest kernel, use the
 aware that the device can be reactivated from within the guest even if it was
 disabled at boot.
 
+If Firecracker's `stdout` buffer is non-blocking and full (assuming it has a
+bounded size), any subsequent writes will fail, resulting in data loss, until
+the buffer is freed.
+
 ### Log files
 
 Firecracker outputs logging data into a named pipe, socket, or file using the
