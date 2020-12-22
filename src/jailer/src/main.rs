@@ -267,7 +267,7 @@ pub fn build_arg_parser() -> ArgParser<'static> {
         ))
         .arg(Argument::new("cgroup").allow_multiple(true).help(
             "Cgroup and value to be set by the jailer. It must follow this format: \
-             <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used
+             <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used \
              multiple times to add multiple cgroups.",
         ))
         .arg(
