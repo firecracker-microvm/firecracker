@@ -432,7 +432,7 @@ impl<'a> Arguments<'a> {
                     .clone();
 
                 if argument.allow_multiple {
-                    match argument.user_value.clone() {
+                    match argument.user_value.take() {
                         Some(Value::Multiple(mut v)) => {
                             v.push(val);
                             Value::Multiple(v)
