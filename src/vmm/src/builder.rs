@@ -23,6 +23,7 @@ use crate::vstate::{
     vm::Vm,
 };
 use crate::{device_manager, Error, Vmm, VmmEventsObserver};
+use crate::guard_pages;
 
 use arch::InitrdConfig;
 use devices::legacy::Serial;
@@ -50,6 +51,8 @@ pub enum StartMicrovmError {
     CreateRateLimiter(io::Error),
     /// Memory regions are overlapping or mmap fails.
     GuestMemoryMmap(vm_memory::Error),
+    /// Memory regions are overlapping or mmap fails (page guard mechanism).
+    GuestMemoryMmapGuarded(guard_pages::GuardPageError),
     /// Cannot load initrd due to an invalid memory configuration.
     InitrdLoad,
     /// Cannot load initrd due to an invalid image.
@@ -106,6 +109,12 @@ impl Display for StartMicrovmError {
                 let mut err_msg = format!("{:?}", err);
                 err_msg = err_msg.replace("\"", "");
                 write!(f, "Invalid Memory Configuration: {}", err_msg)
+            },
+            GuestMemoryMmapGuarded(err) => {
+                // Remove imbricated quotes from error message.
+                let mut err_msg = format!("{:?}", err);
+                err_msg = err_msg.replace("\"", "");
+                write!(f, "Invalid Guarded Memory Configuration: {}", err_msg)
             }
             InitrdLoad => write!(
                 f,
@@ -456,15 +465,7 @@ pub fn create_guest_memory(
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
-    if !track_dirty_pages {
-        Ok(GuestMemoryMmap::from_ranges(&arch_mem_regions)
-            .map_err(StartMicrovmError::GuestMemoryMmap)?)
-    } else {
-        Ok(
-            GuestMemoryMmap::from_ranges_with_tracking(&arch_mem_regions)
-                .map_err(StartMicrovmError::GuestMemoryMmap)?,
-        )
-    }
+    Ok(guard_pages::create_guest_memory_guarded(&arch_mem_regions, track_dirty_pages).map_err(StartMicrovmError::GuestMemoryMmapGuarded)?)
 }
 
 fn load_kernel(

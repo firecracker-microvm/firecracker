@@ -12,6 +12,8 @@
 
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
+/// Guard paging mechanism
+pub mod guard_pages;
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
 pub(crate) mod device_manager;
