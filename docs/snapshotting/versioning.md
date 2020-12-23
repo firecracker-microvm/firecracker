@@ -113,9 +113,9 @@ new Firecracker process.
 
 ### CPU model
 
-Firecracker micromVMs can run on Intel/AMD CPU models that support the hardware virtualizations extensions. Snapshots are not compatible across CPU architectures and even across CPU models of the same architecture. They are only compatible if the CPU features exposed to the guest are an invariant when saving and restoring the snapshot. The trivial scenario is creating and restoring snapshots on hosts that have the same CPU model. 
+Firecracker micromVMs snapshot functionality is available for Intel/AMD/ARM64 CPU models that support the hardware virtualizations extensions, more details are available [here](../../README.md#supported-platforms). Snapshots are not compatible across CPU architectures and even across CPU models of the same architecture. They are only compatible if the CPU features exposed to the guest are an invariant when saving and restoring the snapshot. The trivial scenario is creating and restoring snapshots on hosts that have the same CPU model. 
 
-To make snapshots more portable across Intel CPUs Firecracker provides an API to select a CPU template which is only available for Intel - T2 and C3. These templates are mapped as close as possible to AWS T2/C3 instances in terms of CPU features. There are no templates available for AMD. Firecracker CPU templates mask CPUID to restrict the exposed features to a common denominator of multiple CPU models. 
+To make snapshots more portable across Intel CPUs Firecracker provides an API to select a CPU template which is only available for Intel - T2 and C3. Firecracker CPU templates mask CPUID to restrict the exposed features to a common denominator of multiple CPU models. These templates are mapped as close as possible to AWS T2/C3 instances in terms of CPU features. There are no templates available for AMD or ARM64. 
 
 It is important to note that guest workloads can still execute instructions that are being masked by CPUID and restoring and saving of such workloads will lead to undefined result. Firecracker retrieves the state of a discrete list MSRs from KVM, more specificically the MSRs corresponding to the guest exposed features.
 

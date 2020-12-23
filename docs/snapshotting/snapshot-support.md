@@ -6,6 +6,7 @@
 - [Snapshotting in Firecracker](#snapshotting-in-firecracker)
     - [Supported platforms](#supported-platforms)
     - [Overview](#overview)
+    - [Snapshot files management](#snapshot-files-management)
     - [Performance](#performance)
     - [Known issues and limitations](#known-issues-and-limitations)
 - [Firecracker Snapshotting characteristics](#firecracker-snapshotting-characteristics)
@@ -74,6 +75,27 @@ memory writes go to a copy-on-write anonymous memory mapping.
 This has the advantage of very fast snapshot loading times, but comes with the cost
 of having to keep the guest memory file around for the entire lifetime of the
 resumed microVM.
+
+### Snapshot files management
+
+The Firecracker snapshot design offers a very simple interface to interact with 
+snapshots but provides no functionality to package or manage them on the host.
+Using snapshots in production is currently not recommended as there are open 
+[Known issues and limitations](#known-issues-and-limitations).
+
+The [threat containment model](../design.md#threat-containment) model states
+that the host, host/API communication and snapshot files are trusted by Firecracker. 
+
+To ensure a secure integration with the snapshot functionality, users need to secure 
+snapshot files by implementing authentication and encryption schemes while managing their 
+lifecycle or moving them across the trust boundary, like for example when provisioning 
+them from a respository to a host over the network.
+
+Firecracker is optimized for fast load/resume and it's designed to do some very basic 
+sanity checks only on the vm state file. It only verifies integrity using a 64 bit CRC 
+value embedded in the vm state file, but this is only as a partial measure to protect 
+against accidental corruption, as the disk files and memory file need to be secured as 
+well.
 
 ### Performance
 
