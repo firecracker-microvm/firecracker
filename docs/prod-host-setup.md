@@ -316,3 +316,14 @@ The fix was integrated in the mainline kernel and in 4.19.103, 5.4.19, 5.5.3
 stable kernel releases. Please follow [kernel.org](https://www.kernel.org/) and
 once the fix is available in your stable release please update the host kernel. 
 If you are not using a vanilla kernel, please check with Linux distro provider.
+
+#### [ARM only] Physical counter directly passed through to the guest
+
+On ARM, the physical counter (i.e `CNTPCT`) it is returning the
+[actual EL1 physical counter value of the host][1]. From the discussions before
+merging this change [upstream][2], this seems like a conscious design decision
+of the ARM code contributors, giving precedence to performance over the ability
+to trap and control this in the hypervisor.
+
+[1]: https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/hyp/timer-sr.c#L63
+[2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html
