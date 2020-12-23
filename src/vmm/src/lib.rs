@@ -372,7 +372,7 @@ impl Vmm {
             }
             #[cfg(target_arch = "aarch64")]
             {
-                let mpidrs = construct_gicr_typer(&vcpu_states);
+                let mpidrs = construct_kvm_mpidrs(&vcpu_states);
 
                 self.vm.save_state(&mpidrs).map_err(SaveVmState)?
             }
@@ -684,35 +684,29 @@ impl Vmm {
     }
 }
 
+/// Process the content of the MPIDR_EL1 register in order to be able to pass it to KVM
+///
+/// The kernel expects to find the four affinity levels of the MPIDR in the first 32 bits of the
+/// VGIC register attribute:
+/// https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/vgic/vgic-kvm-device.c#L445.
+///
+/// The format of the MPIDR_EL1 register is:
+/// | 39 .... 32 | 31 .... 24 | 23 .... 16 | 15 .... 8 | 7 .... 0 |
+/// |    Aff3    |    Other   |    Aff2    |    Aff1   |   Aff0   |
+///
+/// The KVM mpidr format is:
+/// | 63 .... 56 | 55 .... 48 | 47 .... 40 | 39 .... 32 |
+/// |    Aff3    |    Aff2    |    Aff1    |    Aff0    |
+/// As specified in the linux kernel: Documentation/virt/kvm/devices/arm-vgic-v3.rst
 #[cfg(target_arch = "aarch64")]
-fn construct_gicr_typer(vcpu_states: &[VcpuState]) -> Vec<u64> {
-    /* Pre-construct the GICR_TYPER:
-     * For our implementation:
-     *  Top 32 bits are the affinity value of the associated CPU
-     *  CommonLPIAff == 01 (redistributors with same Aff3 share LPI table)
-     *  Processor_Number == CPU index starting from 0
-     *  DPGS == 0 (GICR_CTLR.DPG* not supported)
-     *  Last == 1 if this is the last redistributor in a series of
-     *            contiguous redistributor pages
-     *  DirectLPI == 0 (direct injection of LPIs not supported)
-     *  VLPIS == 0 (virtual LPIs not supported)
-     *  PLPIS == 0 (physical LPIs not supported)
-     */
-    let mut mpidrs: Vec<u64> = Vec::new();
-    for (index, state) in vcpu_states.iter().enumerate() {
-        let last = {
-            if index == vcpu_states.len() - 1 {
-                1
-            } else {
-                0
-            }
-        };
-        //calculate affinity
-        let mut cpu_affid = state.mpidr & 0xFF_00FF_FFFF;
-        cpu_affid = ((cpu_affid & 0xFF_0000_0000) >> 8) | (cpu_affid & 0xFF_FFFF);
-        mpidrs.push((cpu_affid << 32) | (1 << 24) | (index as u64) << 8 | (last << 4));
-    }
-    mpidrs
+fn construct_kvm_mpidrs(vcpu_states: &[VcpuState]) -> Vec<u64> {
+    vcpu_states
+        .iter()
+        .map(|state| {
+            let cpu_affid = ((state.mpidr & 0xFF_0000_0000) >> 8) | (state.mpidr & 0xFF_FFFF);
+            cpu_affid << 32
+        })
+        .collect()
 }
 
 impl Drop for Vmm {
