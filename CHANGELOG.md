@@ -12,6 +12,8 @@
   run.
 - Added the virtio traditional memory ballooning device.
 - Added a mechanism to handle vCPU/VMM errors that result in process termination.
+- Added incremental guest memory snapshot support.
+- Added aarch64 snapshot support.
 
 ### Changed
 
