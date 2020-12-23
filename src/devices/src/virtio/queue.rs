@@ -267,6 +267,13 @@ impl Queue {
         } else if used_ring.raw_value() & 0x3 != 0 {
             error!("virtio queue used ring breaks alignment constraints");
             false
+        } else if self.len(mem) > self.max_size {
+            error!(
+                "virtio queue number of available descriptors {} is greater than queue max size {}",
+                self.len(mem),
+                self.max_size
+            );
+            false
         } else {
             true
         }
