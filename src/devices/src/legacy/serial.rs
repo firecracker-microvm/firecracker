@@ -374,6 +374,18 @@ impl BusDevice for Serial {
             return;
         }
         if let Err(e) = self.handle_write(offset as u8, data[0]) {
+            // If the error kind is `WouldBlock`, we also want to trigger an interrupt,
+            // in order to not block the output of the serial device.
+            if e.kind() == io::ErrorKind::WouldBlock {
+                // Sending the interrupt may also fail.
+                if let Err(interrupt_err) = self.thr_empty_interrupt() {
+                    error!("Failed the raise serial IRQ: {}", interrupt_err);
+                    // Counter incremented for irq error.
+                    METRICS.uart.error_count.inc();
+                }
+            }
+
+            // Counter incremented for any handle_write() error.
             error!("Failed the write to serial: {}", e);
             METRICS.uart.error_count.inc();
         }
@@ -536,6 +548,25 @@ mod tests {
         }
     }
     impl ReadableFd for SharedBuffer {}
+
+    #[derive(Clone)]
+    // Dummy struct used for simulating a full buffer.
+    struct FullDummyBuffer;
+
+    impl io::Write for FullDummyBuffer {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Resource temporarily unavailable",
+            ))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Resource temporarily unavailable",
+            ))
+        }
+    }
 
     static RAW_INPUT_BUF: [u8; 3] = [b'a', b'b', b'c'];
 
@@ -902,5 +933,22 @@ mod tests {
 
         // This should panic since it tries to
         serial.avail_buffer_capacity();
+    }
+
+    #[test]
+    fn serial_output_full_destination_buffer() {
+        let intr_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let serial_out = FullDummyBuffer {};
+
+        let mut serial = Serial::new_out(intr_evt.try_clone().unwrap(), Box::new(serial_out));
+        // write 1 to the interrupt event fd, so that read doesn't return an error in
+        // case the event fd counter is 0
+        assert!(intr_evt.write(1).is_ok());
+        serial.write(u64::from(IER), &[IER_THR_BIT]);
+        // this write will fail
+        serial.write(u64::from(DATA), &[b'a']);
+
+        // verify the interrupt has been triggered even though write fails
+        assert_eq!(intr_evt.read().unwrap(), 2);
     }
 }

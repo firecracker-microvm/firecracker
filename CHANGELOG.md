@@ -26,6 +26,9 @@
 - Increased the maximum number of virtio devices from 11 to 19.
 - Added a new check that prevents creating v0.23 snapshots when more than 11
   devices are attached.
+- If the stdout buffer is full and non-blocking, the serial writes no longer block.
+  Any new bytes will be lost, until the buffer is freed. The device also logs these
+  errors and increments the `uart.error_count` metric for each lost byte.
 
 ### Fixed
 
