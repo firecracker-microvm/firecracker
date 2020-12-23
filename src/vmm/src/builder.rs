@@ -10,7 +10,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_arch = "aarch64")]
-use crate::construct_gicr_typer;
+use crate::construct_kvm_mpidrs;
 #[cfg(target_arch = "x86_64")]
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
@@ -400,7 +400,7 @@ pub fn build_microvm_from_snapshot(
 
     #[cfg(target_arch = "aarch64")]
     {
-        let mpidrs = construct_gicr_typer(&microvm_state.vcpu_states);
+        let mpidrs = construct_kvm_mpidrs(&microvm_state.vcpu_states);
         // Restore kvm vm state.
         vmm.vm
             .restore_state(&mpidrs, &microvm_state.vm_state)
