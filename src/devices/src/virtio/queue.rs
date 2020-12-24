@@ -267,6 +267,13 @@ impl Queue {
         } else if used_ring.raw_value() & 0x3 != 0 {
             error!("virtio queue used ring breaks alignment constraints");
             false
+        } else if self.len(mem) > self.max_size {
+            error!(
+                "virtio queue number of available descriptors {} is greater than queue max size {}",
+                self.len(mem),
+                self.max_size
+            );
+            false
         } else {
             true
         }
@@ -475,6 +482,24 @@ pub(crate) mod tests {
         q.size = 11;
         assert!(!q.is_valid(m));
         q.size = q.max_size;
+
+        // or when avail_idx - next_avail > max_size
+        q.next_avail = Wrapping(5);
+        assert!(!q.is_valid(m));
+        // avail_ring + 2 is the address of avail_idx in guest mem
+        m.write_obj::<u16>(64 as u16, q.avail_ring.unchecked_add(2))
+            .unwrap();
+        assert!(!q.is_valid(m));
+        m.write_obj::<u16>(5 as u16, q.avail_ring.unchecked_add(2))
+            .unwrap();
+        q.max_size = 2;
+        assert!(!q.is_valid(m));
+
+        // reset dirtied values
+        q.max_size = 16;
+        q.next_avail = Wrapping(0);
+        m.write_obj::<u16>(0, q.avail_ring.unchecked_add(2))
+            .unwrap();
 
         // or if the various addresses are off
 
