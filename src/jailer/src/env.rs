@@ -134,11 +134,8 @@ impl Env {
                 .parse::<u32>()
                 .map_err(|_| Error::NumaNode(numa_node_str.to_owned()))?;
 
-            if let Ok(mut numa_cgroups) =
-                cgroup::cgroups_from_numa_node(numa_node, id, &exec_file_name)
-            {
-                cgroups.append(&mut numa_cgroups);
-            }
+            let mut numa_cgroups = cgroup::cgroups_from_numa_node(numa_node, id, &exec_file_name)?;
+            cgroups.append(&mut numa_cgroups);
         }
 
         // cgroup format: <cgroup_controller>.<cgroup_property>=<value>,...
@@ -463,7 +460,7 @@ mod tests {
     impl ArgVals<'_> {
         pub fn new() -> ArgVals<'static> {
             ArgVals {
-                node: "1",
+                node: "0",
                 id: "bd65600d-8669-4903-8a14-af88203add38",
                 exec_file: "/proc/cpuinfo",
                 uid: "1001",
@@ -762,7 +759,7 @@ mod tests {
         let some_dir_path = some_dir.as_path().to_str().unwrap();
 
         let some_arg_vals = ArgVals {
-            node: "1",
+            node: "0",
             id: "bd65600d-8669-4903-8a14-af88203add38",
             exec_file: some_file_path,
             uid: "1001",
