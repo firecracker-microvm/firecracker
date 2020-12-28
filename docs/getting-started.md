@@ -55,19 +55,13 @@ latest=$(basename $(curl -fsSLI -o /dev/null -w  %{url_effective} https://github
 ```
 
 ```wrap
-curl -LOJ https://github.com/firecracker-microvm/firecracker/releases/download/${latest}/firecracker-${latest}-$(uname -m)
+curl -L https://github.com/firecracker-microvm/firecracker/releases/download/${latest}/firecracker-${latest}-$(uname -m).tgz | tar -xz
 ```
 
 Rename the binary to "firecracker":
 
 ```
 mv firecracker-${latest}-$(uname -m) firecracker
-```
-
-Make the binary executable:
-
-```
-chmod +x firecracker
 ```
 
 If, instead, you'd like to build Firecracker yourself, you should check out
