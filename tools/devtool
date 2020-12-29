@@ -73,7 +73,7 @@
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
 # (Yet another step on our way to reproducible builds.)
-DEVCTR_IMAGE="public.ecr.aws/firecracker/fcuvm:v26"
+DEVCTR_IMAGE="public.ecr.aws/firecracker/fcuvm:v27"
 
 # Naming things is hard
 MY_NAME="Firecracker $(basename "$0")"
