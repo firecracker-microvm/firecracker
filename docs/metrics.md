@@ -42,12 +42,12 @@ The metrics get flushed in two ways:
 
 * without user intervention every 60 seconds;
 * upon user demand, by issuing a `FlushMetrics` request. You can
-find how to use this request in the [actions API](api_requests/actions.md).
+  find how to use this request in the [actions API](api_requests/actions.md).
 
 If the path provided is a named pipe, you can use the script below to
 read from it:
 
-```shell script
+```shell
 metrics=metrics.fifo
 
 while true

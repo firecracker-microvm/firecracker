@@ -8,12 +8,12 @@ customers effectively plan their Firecracker based operations.
 
 Firecracker uses [semantic versioning](http://semver.org/) for all releases.
 Semantic versions are comprised of three fields in the form:
-
-    vMAJOR.MINOR.PATCH
+`vMAJOR.MINOR.PATCH`.
 
 For example: v0.20.0, v0.22.0-beta5, and v99.123.77+foo.bar.baz.5.
 
 Firecracker publishes major, minor and patch releases:
+
 * Patch release - The `PATCH` field is incremented whenever critical bugs and/or
   security issues are found in a supported release. The fixes in a PATCH release
   do not change existing behavior or the user interface. Upgrade is recommended.
@@ -37,7 +37,7 @@ Firecracker publishes major, minor and patch releases:
 ## Release support
 
 The Firecracker maintainers will only provide support for Firecracker releases
-under https://github.com/firecracker-microvm/firecracker/releases.
+under our [repository's release page](https://github.com/firecracker-microvm/firecracker/releases).
 
 The Firecracker maintainers will provide patch releases for critical bugs and
 security issues when they are found, for:
@@ -47,35 +47,34 @@ security issues when they are found, for:
 * any Firecracker `vMAJOR.MINOR` release for at least 6 months from release date;
 * for each `vMAJOR`, the latest `MINOR` for 1 year since release date;
 
-#### Examples:
+### Examples
 
 1. Considering an example where the last Firecracker releases are:
-    * v2.10.0 released on 2022-05-01
-    * v2.11.0 released on 2022-07-10
-    * v2.12.0 released on 2022-09-11
+  * v2.10.0 released on 2022-05-01
+  * v2.11.0 released on 2022-07-10
+  * v2.12.0 released on 2022-09-11
 
-    In case of an event occurring in 2022-10-03, all three releases will be
-    patched since less than 6 months elapsed from their MINOR release time.
-
-1. Considering an example where the last Firecracker releases are:
-    * v2.10.0 released on 2022-05-01
-    * v2.11.0 released on 2022-07-10
-    * v2.12.0 released on 2022-09-11
-
-    In case of of an event occurring in 2023-05-04, v2.11 and v2.12 will be
-    patched since those were the last 2 Firecracker major releases and less than
-    an year passed since their release time.
+  In case of an event occurring in 2022-10-03, all three releases will be
+  patched since less than 6 months elapsed from their MINOR release time.
 
 1. Considering an example where the last Firecracker releases are:
-    * v2.14.0 released on 2022-05-01
-    * v3.0.0 released on 2022-07-10
-    * v3.1.0 released on 2022-09-11
+  * v2.10.0 released on 2022-05-01
+  * v2.11.0 released on 2022-07-10
+  * v2.12.0 released on 2022-09-11
 
-    In case of of an event occurring in 2023-01-13, v2.14 will be patched since
-    is the last minor of v2 and has less than one year since release while v3.0
-    and v3.1 will be patched since were the last two Firecracker releases and
-    less than 6 months have passed since release time.
+  In case of of an event occurring in 2023-05-04, v2.11 and v2.12 will be
+  patched since those were the last 2 Firecracker major releases and less than
+  an year passed since their release time.
 
+1. Considering an example where the last Firecracker releases are:
+  * v2.14.0 released on 2022-05-01
+  * v3.0.0 released on 2022-07-10
+  * v3.1.0 released on 2022-09-11
+
+  In case of of an event occurring in 2023-01-13, v2.14 will be patched since
+  is the last minor of v2 and has less than one year since release while v3.0
+  and v3.1 will be patched since were the last two Firecracker releases and
+  less than 6 months have passed since release time.
 
 ## Developer preview features
 

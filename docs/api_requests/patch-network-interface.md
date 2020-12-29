@@ -6,7 +6,7 @@ call.
 
 E.g. for a network interface created with:
 
-```
+```console
 PUT /network-interfaces/iface_1 HTTP/1.1
 Host: localhost
 Content-Type: application/json
@@ -36,7 +36,7 @@ Accept: application/json
 A `PATCH` request can be sent at any future time, to update the rate
 limiters:
 
-```
+```console
 PATCH /network-interfaces/iface_1 HTTP/1.1
 Host: localhost
 Content-Type: application/json
@@ -64,14 +64,12 @@ found in our [OpenAPI spec](../../src/api_server/swagger/firecracker.yaml).
 In the above example, the RX rate limit is updated, but the TX rate limit
 remains unchanged.
 
-
-# Removing Rate Limiting
+## Removing Rate Limiting
 
 A rate limit can be disabled by providing a 0-sized token bucket. E.g.,
 following the above example, the TX rate limit can be disabled with:
 
-
-```
+```console
 PATCH /network-interfaces/iface_1 HTTP/1.1
 Host: localhost
 Content-Type: application/json

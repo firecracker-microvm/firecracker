@@ -1,4 +1,4 @@
-# Device-API Functionality
+# Device
 
 The Device-API following functionality matrix indicates which devices are
 required for an API call to be usable.
@@ -28,14 +28,14 @@ depends on the device (see [issue #2173](https://github.com/firecracker-microvm/
 | `machine-config`          |    O     |       O        |      O       |       O        |      O       |
 | `metrics`                 |    O     |       O        |      O       |       O        |      O       |
 | `mmds`                    |    O     |       O        |      O       |     **R**      |      O       |
-| `mmds/config`             |    O     |       O        |      O       | O<sup>\*</sup> |      O       |
+| `mmds/config`             |    O     |       O        |      O       | O<sup>*</sup> |      O       |
 | `network-interfaces/{id}` |    O     |       O        |      O       |     **R**      |      O       |
 | `snapshot/create`         |    O     |       O        |      O       |       O        |      O       |
 | `snapshot/load`           |    O     |       O        |      O       |       O        |      O       |
 | `vm`                      |    O     |       O        |      O       |       O        |      O       |
 | `vsock`                   |    O     |       O        |      O       |       O        |      O       |
 
-<sup>\*</sup>: See [issue #2174](https://github.com/firecracker-microvm/firecracker/issues/2174)
+<sup>*</sup>: See [issue #2174](https://github.com/firecracker-microvm/firecracker/issues/2174)
 
 ## Input Schema
 
@@ -97,7 +97,8 @@ specification: [firecracker.yaml](./../src/api_server/swagger/firecracker.yaml).
 |                            | uds_path              |    O     |       O        |      O       |     O      |    **R**     |
 |                            | vsock_id              |    O     |       O        |      O       |     O      |    **R**     |
 
-<sup>\*</sup>: The `TokenBucket` can be configured with either the virtio-net or virtio-block drivers, or both.
+<sup>\*</sup>: The `TokenBucket` can be configured with either the virtio-net
+or virtio-block drivers, or both.
 
 ## Output Schema
 

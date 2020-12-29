@@ -1,3 +1,5 @@
+# Entropy for Clones
+
 This document provides a high level perspective on the implications
 of restoring multiple VM clones from a single snapshot.
 We start with an overview of the Linux random number generation (RNG)
@@ -118,10 +120,10 @@ the read result via bind mounting another file on top of
   customer code continues its run in the clone):
   1. Open one of the special devices files (either `/dev/random` or
      `/dev/urandom`).
-  2. Issue an `RNDCLEARPOOL ioctl` (requires `CAP_SYS_ADMIN`). This
+  1. Issue an `RNDCLEARPOOL ioctl` (requires `CAP_SYS_ADMIN`). This
      clears and sets the entropy pools to the initial state. Should also
      cause the reinitialization of the `/dev/urandom` `CSPRNG`.
-  3. Issue an `RNDADDENTROPY ioctl` (requires `CAP_SYS_ADMIN`) to mix
+  1. Issue an `RNDADDENTROPY ioctl` (requires `CAP_SYS_ADMIN`) to mix
      the provided bytes into the input entropy pool and increase the
      entropy count. This should also cause the `/dev/urandom` `CSPRNG`
      to be reseeded. The bytes can be generated locally in the guest,
@@ -213,20 +215,7 @@ int main(int argc, char ** argv) {
 }
 ```
 
-## References
-
-[1] http://man7.org/linux/man-pages/man7/random.7.html (please note the
-    online man pages are specific to a particular version, mentioned at
-    the end; also, for some reason, this man page is not available by
-    default on all distros)
-
-[2] https://www.2uo.de/myths-about-urandom
-
-[3] https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/Studies/LinuxRNG/LinuxRNG_EN.pdf
-
-[4] http://man7.org/linux/man-pages/man4/random.4.html
-
-[1]: http://man7.org/linux/man-pages/man7/random.7.html
+[1]: <http://man7.org/linux/man-pages/man7/random.7.html> "Lala"
 [2]: https://www.2uo.de/myths-about-urandom
 [3]: https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/Studies/LinuxRNG/LinuxRNG_EN.pdf
 [4]: http://man7.org/linux/man-pages/man4/random.4.html

@@ -9,7 +9,7 @@ execution of container and function workloads.
 
 These tenets guide Firecracker's development:
 
-1. **Built-In Security**: We provide compute security barriers that 
+1. **Built-In Security**: We provide compute security barriers that
    enable multi-tenant workloads, and cannot be mistakenly disabled by
    customers. Customer workloads are simultaneously considered sacred
    (shall not be touched) and malicious (shall be defended against).

@@ -72,6 +72,7 @@ cargo test --test integration_tests
 
 Unlike unit tests, Rust integration tests are each run in a separate process.
 `Cargo` also packages them in a new crate. This has several known side effects:
+
 1. Only the `pub` functions can be called. This is fine, as it allows the VMM
    to be consumed as a programmatic user would. If any function is necessary
    but not `pub`, please consider carefully whether it conceptually *needs* to
@@ -270,12 +271,11 @@ Accessing **pytest.ini** will allow you to modify logger settings.
    will not need to rebuild everything.
    If any Rust source file is changed, the build is done incrementally.
 
-2. Pass the `-k substring` option to Pytest to only run a subset of tests by
+1. Pass the `-k substring` option to Pytest to only run a subset of tests by
    specifying a part of their name.
 
-3. Only run the tests contained in a file or directory, as specified in the
+1. Only run the tests contained in a file or directory, as specified in the
    **Running** section.
-
 
 ## Implementation Goals
 

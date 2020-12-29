@@ -1,6 +1,6 @@
 # Publishing a New Container Image
 
-## What's the Container Image?
+## About the Container Image
 
 Firecracker uses a [Docker container](https://www.docker.com/) to standardize
 the build process. This also fixes the build tools and dependencies to specific
@@ -25,7 +25,8 @@ registry. The Firecracker CI suite must also be updated to use the new image.
    access to the repository:
 
     ```bash
-    aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
+    aws ecr-public get-login-password --region us-east-1 \
+   | docker login --username AWS --password-stdin public.ecr.aws
     ```
 
 1. Navigate to the Firecracker directory. Verify that you have the latest
@@ -33,8 +34,8 @@ registry. The Firecracker CI suite must also be updated to use the new image.
 
     ```bash
     docker images
-    REPOSITORY                         TAG                 IMAGE ID            CREATED             SIZE
-    public.ecr.aws/firecracker/fcuvm   v26                 8d00deb17f7a        2 weeks ago         2.41GB
+    REPOSITORY                         TAG     IMAGE ID        CREATED         SIZE
+    public.ecr.aws/firecracker/fcuvm   v26     8d00deb17f7a    2 weeks ago     2.41GB
     ```
 
 1. Make your necessary changes, if any, to the
@@ -53,9 +54,9 @@ registry. The Firecracker CI suite must also be updated to use the new image.
 
     ```bash
     docker images
-    REPOSITORY                         TAG                 IMAGE ID            CREATED             SIZE
-    fcuvm                              latest              1f9852368efb        2 minutes ago       2.36GB
-    public.ecr.aws/firecracker/fcuvm   v26                 8d00deb17f7a        2 weeks ago         2.41GB
+    REPOSITORY                         TAG       IMAGE ID         CREATED       SIZE
+    fcuvm                              latest    1f9852368efb     2 weeks ago   2.36GB
+    public.ecr.aws/firecracker/fcuvm   v26       8d00deb17f7a     2 weeks ago   2.41GB
     ```
 
 1. Tag the new image with the next available version and the architecture
@@ -65,10 +66,10 @@ registry. The Firecracker CI suite must also be updated to use the new image.
     docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v26_x86_64
 
     docker images
-    REPOSITORY                         TAG                 IMAGE ID            CREATED             SIZE
-    fcuvm                              latest              1f9852368efb        5 minutes ago       2.36GB
-    public.ecr.aws/firecracker/fcuvm   v27_x86_64          1f9852368efb        5 minutes ago       2.36GB
-    public.ecr.aws/firecracker/fcuvm   v26                 8d00deb17f7a        2 weeks ago         2.41GB
+    REPOSITORY                         TAG          IMAGE ID       CREATED
+    fcuvm                              latest       1f9852368efb   1 week ago
+    public.ecr.aws/firecracker/fcuvm   v27_x86_64   1f9852368efb   1 week ago
+    public.ecr.aws/firecracker/fcuvm   v26          8d00deb17f7a   2 weeks ago
     ```
 
 1. Push the image.
@@ -83,56 +84,61 @@ Login to the `aarch64` build machine.
 
 Steps 1-4 are identical across architectures, change `x86_64` to `aarch64`.
 
-Then:
+Then continue with the above steps:
 
-5. Build a new container image with the updated Dockerfile.
+1. Build a new container image with the updated Dockerfile.
 
     ```bash
     docker build -t fcuvm -f tools/devctr/Dockerfile.aarch64  .
     ```
 
-5. Verify that the new image exists.
+1. Verify that the new image exists.
 
     ```bash
     docker images
-    REPOSITORY                         TAG                 IMAGE ID            CREATED             SIZE
-    fcuvm                              latest              1f9852368efb        2 minutes ago       2.36GB
-    public.ecr.aws/firecracker/fcuvm   v26                 8d00deb17f7a        2 weeks ago         2.41GB
+    REPOSITORY                         TAG        IMAGE ID            CREATED
+    fcuvm                              latest     1f9852368efb        2 minutes ago
+    public.ecr.aws/firecracker/fcuvm   v26        8d00deb17f7a        2 weeks ago
     ```
 
-5. Tag the new image with the next available version and the architecture
+1. Tag the new image with the next available version and the architecture
    you're on.
 
     ```bash
     docker tag 1f9852368efb public.ecr.aws/firecracker/fcuvm:v26_aarch64
 
     docker images
-    REPOSITORY                         TAG                 IMAGE ID            CREATED             SIZE
-    fcuvm                              latest              1f9852368efb        5 minutes ago       2.36GB
-    public.ecr.aws/firecracker/fcuvm   v27_aarch64         1f9852368efb        5 minutes ago       2.36GB
-    public.ecr.aws/firecracker/fcuvm   v26                 8d00deb17f7a        2 weeks ago         2.41GB
+    REPOSITORY                         TAG            IMAGE ID
+    fcuvm                              latest         1f9852368efb
+    public.ecr.aws/firecracker/fcuvm   v27_aarch64    1f9852368efb
+    public.ecr.aws/firecracker/fcuvm   v26            8d00deb17f7a
     ```
 
-5. Push the image.
+1. Push the image.
 
     ```bash
     docker push public.ecr.aws/firecracker/fcuvm:v27_aarch64
     ```
 
-5. Create a manifest to point the latest container version to each specialized
+1. Create a manifest to point the latest container version to each specialized
    image, per architecture.
 
     ```bash
-    docker manifest create public.ecr.aws/firecracker/fcuvm/dev:v27 public.ecr.aws/firecracker/fcuvm/dev:v27_x86_64 public.ecr.aws/firecracker/fcuvm/dev:v27_aarch64
+    docker manifest create public.ecr.aws/firecracker/fcuvm/dev:v27 \
+    public.ecr.aws/firecracker/fcuvm/dev:v27_x86_64 public.ecr.aws/firecracker/fcuvm/dev:v27_aarch64
+
     docker manifest push public.ecr.aws/firecracker/fcuvm/dev:v27
     ```
 
-5. Update the image tag in the
+1. Update the image tag in the
    [`devtool` script](https://github.com/firecracker-microvm/firecracker/blob/master/tools/devtool).
    Commit and push the change.
 
     ```bash
-    sed -i 's%DEVCTR_IMAGE="public.ecr.aws/firecracker/fcuvm:v26"%DEVCTR_IMAGE="public.ecr.aws/firecracker/fcuvm:v27"%' tools/devtool
+    PREV_IMAGE=public.ecr.aws/firecracker/fcuvm:v26
+    CURR_IMAGE=public.ecr.aws/firecracker/fcuvm:v27
+    sed -i "s%DEVCTR_IMAGE=\"$PREV_IMAGE\"%DEVCTR_IMAGE=\"$CURR_IMAGE\"%" \
+    tools/devtool
     ```
 
 ## Troubleshooting
@@ -151,7 +157,7 @@ See
 [this article](https://medium.com/@mauridb/docker-multi-architecture-images-365a44c26be6)
 for explanations and fix.
 
-### How can I test the image after pushing it to the Docker registry?
+### How to test the image after pushing it to the Docker registry
 
 Either fetch and run it locally on another machine than the one you used to
 build it, or clean up any artifacts from the build machine and fetch.
@@ -217,8 +223,8 @@ Let's say you want to update
 
     ```bash
     docker ps
-    CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
-    e9f0487fdcb9        fcuvm/dev:v14       "bash"              53 seconds ago      Up 52 seconds                           zen_beaver
+    CONTAINER ID        IMAGE               COMMAND             CREATED
+    e9f0487fdcb9        fcuvm/dev:v14       "bash"              53 seconds ago
     ```
 
 1. Commit the modified container to a new image. Use the `container ID`.
@@ -229,9 +235,9 @@ Let's say you want to update
 
     ```bash
     docker image ls
-    REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
-    fcuvm/dev           v15_x86_64          514581e654a6        18 seconds ago      2.31GB
-    fcuvm/dev           v14                 c8581789ead3        2 months ago        2.31GB
+    REPOSITORY          TAG                 IMAGE ID            CREATED
+    fcuvm/dev           v15_x86_64          514581e654a6        18 seconds ago
+    fcuvm/dev           v14                 c8581789ead3        2 months ago
     ```
 
 1. Repeat for `aarch64`.

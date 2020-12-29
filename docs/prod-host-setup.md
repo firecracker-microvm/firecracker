@@ -14,34 +14,6 @@ option, and the recommended setting for production workloads.
 This can also be explicitly requested by supplying `--seccomp-level=2` to the
 Firecracker executable.
 
-## Jailer Configuration
-
-Using Jailer in a production Firecracker deployment is highly recommended,
-as it provides additional security boundaries for the microVM.
-The Jailer process applies
-[cgroup](https://www.kernel.org/doc/Documentation/cgroup-v1/cgroups.txt),
-namespace isolation and drops privileges of the Firecracker process.
-
-To set up the jailer correctly, you'll need to:
-
-- Create a dedicated non-privileged POSIX user and group to run Firecracker
-  under. Use the created POSIX user and group IDs in Jailer's ``--uid <uid>``
-  and ``--gid <gid>`` flags, respectively. This will run the Firecracker as
-  the created non-privileged user and group. All file system resources used for
-  Firecracker should be owned by this user and group. Apply least privilege to
-  the resource files owned by this user and group to prevent other accounts from
-  unauthorized file access.
-  When running multiple Firecracker instances it is recommended that each runs
-  with its unique `uid` and `gid` to provide an extra layer of security for
-  their individually owned resources in the unlikely case where any one of the
-  jails is broken out of.
-
-Additional details of Jailer features can be found in the
-[Jailer documentation](jailer.md).
-
-
-## Firecracker Configuration
-
 ### 8250 Serial Device
 
 Firecracker implements the 8250 serial device, which is visible from the guest
@@ -73,6 +45,31 @@ for consuming and storing this data safely. We suggest using any upper-bounded
 forms of storage, such as fixed-size or ring buffers, programs like `journald`
 or `logrotate`, or redirecting to a named pipe.
 
+## Jailer Configuration
+
+Using Jailer in a production Firecracker deployment is highly recommended,
+as it provides additional security boundaries for the microVM.
+The Jailer process applies
+[cgroup](https://www.kernel.org/doc/Documentation/cgroup-v1/cgroups.txt),
+namespace isolation and drops privileges of the Firecracker process.
+
+To set up the jailer correctly, you'll need to:
+
+- Create a dedicated non-privileged POSIX user and group to run Firecracker
+  under. Use the created POSIX user and group IDs in Jailer's ``--uid <uid>``
+  and ``--gid <gid>`` flags, respectively. This will run the Firecracker as
+  the created non-privileged user and group. All file system resources used for
+  Firecracker should be owned by this user and group. Apply least privilege to
+  the resource files owned by this user and group to prevent other accounts from
+  unauthorized file access.
+  When running multiple Firecracker instances it is recommended that each runs
+  with its unique `uid` and `gid` to provide an extra layer of security for
+  their individually owned resources in the unlikely case where any one of the
+  jails is broken out of.
+
+Additional details of Jailer features can be found in the
+[Jailer documentation](jailer.md).
+
 ## Host Security Configuration
 
 ### Mitigating Side-Channel Issues
@@ -81,8 +78,8 @@ When deploying Firecracker microVMs to handle multi-tenant workloads, the
 following host environment configurations are strongly recommended to guard
 against side-channel security issues.
 
-Some of the mitigations are platform specific. When applicable, this information 
-will be specified between brackets.
+Some of the mitigations are platform specific. When applicable, this
+information will be specified between brackets.
 
 #### Disable Simultaneous Multithreading (SMT)
 
@@ -91,7 +88,7 @@ threads on the same physical core.
 
 SMT can be disabled by adding the following Kernel boot parameter to the host:
 
-```
+```console
 nosmt=force
 ````
 
@@ -100,7 +97,8 @@ Verification can be done by running:
 ```bash
 (grep -q "^forceoff$" /sys/devices/system/cpu/smt/control && \
 echo "Hyperthreading: DISABLED (OK)") || \
-(grep -q "^notsupported$\|^notimplemented$" /sys/devices/system/cpu/smt/control && \
+(grep -q "^notsupported$\|^notimplemented$" \
+/sys/devices/system/cpu/smt/control && \
 echo "Hyperthreading: Not Supported (OK)") || \
 echo "Hyperthreading: ENABLED (Recommendation: DISABLED)"
 ```
@@ -138,7 +136,7 @@ reveal what memory line was accessed by another process.
 
 KSM can be disabled by executing the following as root:
 
-```
+```console
 echo "0" > /sys/kernel/mm/ksm/run
 ```
 
@@ -160,7 +158,8 @@ Indirect Branch Restricted Speculation (IBRS).
 Verification can be done by running:
 
 ```bash
-(grep -Eq '^Mitigation: Full [[:alpha:]]+ retpoline, IBPB: conditional, IBRS_FW' \
+(grep -Eq '^Mitigation: Full [[:alpha:]]+ retpoline, \
+IBPB: conditional, IBRS_FW' \
 /sys/devices/system/cpu/vulnerabilities/spectre_v2 && \
 echo "retpoline, IBPB, IBRS: ENABLED (OK)") \
 || echo "retpoline, IBPB, IBRS: DISABLED (Recommendation: ENABLED)"
@@ -196,7 +195,7 @@ affected hardware.
 
 They can be enabled by adding the following Linux kernel boot parameter:
 
-```
+```console
 l1tf=full,force
 ```
 
@@ -222,7 +221,7 @@ Speculative Store Bypass and SpectreNG.
 
 It can be enabled by adding the following Linux kernel boot parameter:
 
-```
+```console
 spec_store_bypass_disable=seccomp
 ```
 
@@ -261,7 +260,9 @@ having guest memory contents on microVM storage devices.
 Verify that swap is disabled by running:
 
 ```bash
-grep -q "/dev" /proc/swaps && echo "swap partitions present (Recommendation: no swap)" || echo "no swap partitions (OK)"
+grep -q "/dev" /proc/swaps && \
+echo "swap partitions present (Recommendation: no swap)" \
+|| echo "no swap partitions (OK)"
 ```
 
 ### Known kernel issues
@@ -272,13 +273,13 @@ General recommendation: Keep the host and the guest kernels up to date.
 
 ##### Description
 
-In a Linux KVM guest that has PV TLB enabled, a process in the guest kernel 
+In a Linux KVM guest that has PV TLB enabled, a process in the guest kernel
 may be able to read memory locations from another process in the same guest.
 
 ##### Impact
 
-Under certain conditions the TLB will contain invalid entries. A malicious 
-attacker running on the guest can get access to the memory of other running 
+Under certain conditions the TLB will contain invalid entries. A malicious
+attacker running on the guest can get access to the memory of other running
 process on that guest.
 
 ##### Vulnerable systems
@@ -289,9 +290,9 @@ are present:
 - the host kernel >= 4.10.
 - the guest kernel >= 4.16.
 - the `KVM_FEATURE_PV_TLB_FLUSH` is set in the CPUID of the
-guest. This is the `EAX` bit 9 in the `KVM_CPUID_FEATURES (0x40000001)` entry. 
+  guest. This is the `EAX` bit 9 in the `KVM_CPUID_FEATURES (0x40000001)` entry.
 
-This can be checked by running 
+This can be checked by running
 
 ```bash
 cpuid -r
@@ -301,20 +302,20 @@ and by searching for the entry corresponding to the leaf `0x40000001`.
 
 Example output:
 
-```
+```console
 0x40000001 0x00: eax=0x200 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 EAX 010004fb = 0010 0000 0000
-EAX Bit 9: KVM_FEATURE_PV_TLB_FLUSH = 1 
+EAX Bit 9: KVM_FEATURE_PV_TLB_FLUSH = 1
 ```
 
 ##### Mitigation
 
-The vulnerability is fixed by the following host kernel 
+The vulnerability is fixed by the following host kernel
 [patches](https://lkml.org/lkml/2020/1/30/482).
 
 The fix was integrated in the mainline kernel and in 4.19.103, 5.4.19, 5.5.3
 stable kernel releases. Please follow [kernel.org](https://www.kernel.org/) and
-once the fix is available in your stable release please update the host kernel. 
+once the fix is available in your stable release please update the host kernel.
 If you are not using a vanilla kernel, please check with Linux distro provider.
 
 #### [ARM only] Physical counter directly passed through to the guest
