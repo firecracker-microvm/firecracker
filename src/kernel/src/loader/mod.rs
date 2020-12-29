@@ -15,8 +15,8 @@ use std::mem;
 use super::cmdline::Error as CmdlineError;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
-#[allow(non_camel_case_types)]
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+// #[allow(non_camel_case_types)]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
 // Add here any other architecture that uses as kernel image an ELF file.
 pub mod elf;
 

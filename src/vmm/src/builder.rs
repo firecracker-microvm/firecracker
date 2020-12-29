@@ -7,7 +7,9 @@ use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
+#[allow(unused_imports)]
 use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
+#[allow(unused_imports)]
 use std::thread;
 
 #[cfg(target_arch = "aarch64")]
@@ -306,7 +308,13 @@ pub fn build_microvm_for_boot(
     )?;
     let vcpu_config = vm_resources.vcpu_config();
     let track_dirty_pages = vm_resources.track_dirty_pages();
+
+    #[cfg(target_arch = "aarch64")]
+    let (entry_addr, _e_phdrs) = load_kernel(boot_config, &guest_memory)?;
+
+    #[cfg(target_arch = "x86_64")]
     let (entry_addr, e_phdrs) = load_kernel(boot_config, &guest_memory)?;
+
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -360,6 +368,7 @@ pub fn build_microvm_for_boot(
         &initrd,
         boot_cmdline,
     )?;
+    #[cfg(target_arch = "x86_64")]
     if debugger_enabled {
         let dbg_event_receiver = vcpus[0].dbg_event_receiver.take().unwrap();
         let dbg_event_sender = vcpus[0].dbg_response_sender.take().unwrap();
@@ -367,12 +376,17 @@ pub fn build_microvm_for_boot(
             vmm.guest_memory().clone(),
             dbg_event_receiver,
             dbg_event_sender,
-            e_phdrs,
+            e_phdrs.unwrap(),
             entry_addr,
             &vcpus,
         ) {
             return Err(err);
         }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    if debugger_enabled {
+        // do nothing
     }
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
@@ -488,7 +502,10 @@ pub fn create_guest_memory(
 fn load_kernel(
     boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
-) -> std::result::Result<(GuestAddress, Vec<kernel::loader::elf::Elf64_Phdr>), StartMicrovmError> {
+) -> std::result::Result<
+    (GuestAddress, Option<Vec<kernel::loader::elf::Elf64_Phdr>>),
+    StartMicrovmError,
+> {
     let mut kernel_file = boot_config
         .kernel_file
         .try_clone()
@@ -498,11 +515,17 @@ fn load_kernel(
         kernel::loader::load_kernel(guest_memory, &mut kernel_file, arch::get_kernel_start())
             .map_err(StartMicrovmError::KernelLoader)?;
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        Ok((entry_addr, None))
+    }
     // The program headers of the kernel image are necessary in the address translation
     // mechanism in the GDB Server thread
-    let phdrs = kernel::loader::extract_phdrs(&mut kernel_file).unwrap();
-
-    Ok((entry_addr, phdrs))
+    #[cfg(target_arch = "x86_64")]
+    {
+        let phdrs = Some(kernel::loader::extract_phdrs(&mut kernel_file).unwrap());
+        Ok((entry_addr, phdrs))
+    }
 }
 
 fn load_initrd_from_config(
@@ -856,6 +879,7 @@ fn attach_balloon_device(
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
 }
 
+#[cfg(target_arch = "x86_64")]
 fn vmm_run_gdb_server(
     vmm_mem: GuestMemoryMmap,
     receiver: Receiver<gdb_server::DebugEvent>,
