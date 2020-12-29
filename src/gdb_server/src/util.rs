@@ -2,7 +2,9 @@ use std::fmt::{Display, Formatter};
 use vm_memory::Bytes;
 use vmm_sys_util::errno::Error;
 
+#[cfg(target_arch = "x86_64")]
 pub use arch::x86_64::regs::setup_sregs;
+#[cfg(target_arch = "x86_64")]
 pub use kernel::loader::elf::{Elf64_Phdr, PT_LOAD};
 
 use super::kvm_bindings::*;
@@ -120,6 +122,7 @@ impl Display for DebuggerError {
 
 pub struct Debugger;
 
+#[cfg(target_arch = "x86_64")]
 impl Debugger {
     /// Enables KVM support for debugging. We make use of the capability
     /// of KVM to generate a KVM_EXIT either when encountering a breakpoint
@@ -344,6 +347,7 @@ impl Debugger {
 }
 
 #[cfg(test)]
+#[cfg(target_arch = "x86_64")]
 mod tests {
     use super::setup_sregs;
     use kvm_ioctls::Kvm;

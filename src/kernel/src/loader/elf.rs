@@ -10,6 +10,8 @@
  * From upstream linux include/uapi/linux/elf.h at commit:
  * 806276b7f07a39a1cc3f38bb1ef5c573d4594a38
  */
+#[allow(non_camel_case_types)]
+
 pub const EI_MAG0: ::std::os::raw::c_uint = 0;
 pub const EI_MAG1: ::std::os::raw::c_uint = 1;
 pub const EI_MAG2: ::std::os::raw::c_uint = 2;
@@ -25,23 +27,37 @@ pub const ELFMAG1: u8 = b'E';
 pub const ELFMAG2: u8 = b'L';
 pub const ELFMAG3: u8 = b'F';
 
+#[allow(non_camel_case_types)]
 type Elf64_Addr = __u64;
+#[allow(non_camel_case_types)]
 type Elf64_Half = __u16;
+#[allow(non_camel_case_types)]
 type Elf64_Off = __u64;
+#[allow(non_camel_case_types)]
 type Elf64_Word = __u32;
+#[allow(non_camel_case_types)]
 type Elf64_Xword = __u64;
 
+#[allow(non_camel_case_types)]
 type __s8 = ::std::os::raw::c_schar;
+#[allow(non_camel_case_types)]
 type __u8 = ::std::os::raw::c_uchar;
+#[allow(non_camel_case_types)]
 type __s16 = ::std::os::raw::c_short;
+#[allow(non_camel_case_types)]
 type __u16 = ::std::os::raw::c_ushort;
+#[allow(non_camel_case_types)]
 type __s32 = ::std::os::raw::c_int;
+#[allow(non_camel_case_types)]
 type __u32 = ::std::os::raw::c_uint;
+#[allow(non_camel_case_types)]
 type __s64 = ::std::os::raw::c_longlong;
+#[allow(non_camel_case_types)]
 type __u64 = ::std::os::raw::c_ulonglong;
 
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
+#[allow(non_camel_case_types)]
 pub struct elf64_hdr {
     pub e_ident: [::std::os::raw::c_uchar; 16usize],
     pub e_type: Elf64_Half,
@@ -63,10 +79,10 @@ impl Clone for elf64_hdr {
         *self
     }
 }
-pub type Elf64_Ehdr = elf64_hdr;
 
 #[repr(C)]
 #[derive(Debug, Default, Copy)]
+#[allow(non_camel_case_types)]
 pub struct elf64_phdr {
     pub p_type: Elf64_Word,
     pub p_flags: Elf64_Word,
@@ -83,6 +99,11 @@ impl Clone for elf64_phdr {
         *self
     }
 }
+
+#[allow(non_camel_case_types)]
+pub type Elf64_Ehdr = elf64_hdr;
+
+#[allow(non_camel_case_types)]
 pub type Elf64_Phdr = elf64_phdr;
 
 #[cfg(test)]

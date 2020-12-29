@@ -5,6 +5,7 @@ use gdbstub::{arch, Actions, BreakOp, StopReason, Target, Tid, SINGLE_THREAD_TID
 use super::{Bytes, GuestAddress, GuestMemoryMmap};
 use super::{DebugEvent, Debugger, DebuggerError, FullVcpuState, Receiver, ResumeAction, Sender};
 use crate::DynResult;
+#[cfg(target_arch = "x86_64")]
 pub use kernel::loader::elf::Elf64_Phdr;
 
 pub struct FirecrackerGDBServer {
@@ -24,10 +25,12 @@ pub struct FirecrackerGDBServer {
     pub guest_state: FullVcpuState,
     pub single_step_en: bool,
 
+    #[cfg(target_arch = "x86_64")]
     pub e_phdrs: Vec<Elf64_Phdr>,
     pub entry_addr: GuestAddress,
 }
 
+#[cfg(target_arch = "x86_64")]
 impl FirecrackerGDBServer {
     pub fn new(
         guest_memory: GuestMemoryMmap,
@@ -179,6 +182,7 @@ impl FirecrackerGDBServer {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 impl Target for FirecrackerGDBServer {
     type Arch = arch::x86::X86_64;
     type Error = DebuggerError;
@@ -307,6 +311,7 @@ impl Target for FirecrackerGDBServer {
     }
 
     /// Called when the user or the GDB client requests the guest state
+    #[cfg(target_arch = "x86_64")]
     fn read_registers(
         &mut self,
         regs: &mut arch::x86::reg::X86_64CoreRegs,
@@ -335,6 +340,7 @@ impl Target for FirecrackerGDBServer {
         Ok(())
     }
 
+    #[cfg(target_arch = "x86_64")]
     fn write_registers(
         &mut self,
         regs: &arch::x86::reg::X86_64CoreRegs,

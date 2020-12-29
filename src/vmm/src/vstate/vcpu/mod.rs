@@ -5,7 +5,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+#[allow(unused_imports)]
+use crate::gdb_server::{DebugEvent, FullVcpuState};
+use crate::{
+    vmm_config::machine_config::CpuFeaturesTemplate, vstate::vm::Vm, FC_EXIT_CODE_GENERIC_ERROR,
+    FC_EXIT_CODE_OK,
+};
+use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
+use kvm_ioctls::VcpuExit;
 use libc::{c_int, c_void, siginfo_t};
+use logger::{error, info, IncMetric, METRICS};
+use seccomp::{BpfProgram, SeccompFilter};
 #[cfg(not(test))]
 use std::sync::Barrier;
 #[cfg(test)]
@@ -18,16 +28,6 @@ use std::{
     sync::mpsc::{channel, Receiver, Sender, TryRecvError},
     thread,
 };
-
-use crate::gdb_server::{DebugEvent, FullVcpuState};
-use crate::{
-    vmm_config::machine_config::CpuFeaturesTemplate, vstate::vm::Vm, FC_EXIT_CODE_GENERIC_ERROR,
-    FC_EXIT_CODE_OK,
-};
-use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
-use kvm_ioctls::VcpuExit;
-use logger::{error, info, IncMetric, METRICS};
-use seccomp::{BpfProgram, SeccompFilter};
 use utils::{
     errno,
     eventfd::EventFd,
@@ -123,6 +123,7 @@ pub struct Vcpu {
     pub dbg_event_receiver: Option<Receiver<DebugEvent>>,
     // The transmitting end of the responses channel owned by the vcpu side and
     // used to communicate to the gdb server instances
+    #[allow(dead_code)]
     dbg_event_sender: Sender<DebugEvent>,
 
     pub dbg_response_receiver: Receiver<DebugEvent>,
@@ -531,6 +532,7 @@ impl Vcpu {
                     }
                 },
                 // Either a breakpoint was reached or we are single-stepping
+                #[cfg(target_arch = "x86_64")]
                 VcpuExit::Debug => {
                     let regular_regs = self.kvm_vcpu.fd.get_regs().unwrap();
                     let special_regs = self.kvm_vcpu.fd.get_sregs().unwrap();

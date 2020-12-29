@@ -1,7 +1,9 @@
 use std::net::{TcpListener, TcpStream};
 
 pub use arch;
+#[cfg(target_arch = "x86_64")]
 pub use arch::x86_64::regs::setup_sregs;
+#[cfg(target_arch = "x86_64")]
 pub use kernel::loader::elf::{Elf64_Phdr, PT_LOAD};
 pub use kvm_bindings;
 pub use kvm_ioctls::VcpuFd;
@@ -11,20 +13,26 @@ pub use vm_memory::{
 };
 
 pub use gdbstub::GdbStubError;
+#[allow(unused_imports)]
 use gdbstub::{Connection, DisconnectReason, GdbStub, ResumeAction};
 
 extern crate vm_memory;
 
+#[allow(dead_code, unused_imports)]
 mod target;
+#[allow(dead_code, unused_imports)]
 mod util;
 
+#[allow(unused_imports)]
 use target::*;
 pub use util::*;
 
 pub type DynResult<T> = Result<T, Box<dyn std::error::Error>>;
 
+#[allow(dead_code)]
 const PORT_NUM: u16 = 8443;
 
+#[allow(dead_code)]
 fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
     let sockaddr = format!("0.0.0.0:{}", port);
     eprintln!("Waiting for a GDB connection on {:?}...", sockaddr);
@@ -35,6 +43,7 @@ fn wait_for_tcp(port: u16) -> DynResult<TcpStream> {
     Ok(stream)
 }
 
+#[cfg(target_arch = "x86_64")]
 pub fn run_gdb_server(
     vmm_gm: GuestMemoryMmap,
     entry_addr: GuestAddress,
