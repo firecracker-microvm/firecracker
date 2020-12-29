@@ -56,7 +56,9 @@ the guest OS. For Linux, that means the guest kernel needs
 a few tens of milliseconds probing the device. This can be disabled by using
 these kernel command line parameters:
 
-```i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd```
+```console
+i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd
+```
 
 **Note2** This action is only supported on `x86_64` architecture.
 

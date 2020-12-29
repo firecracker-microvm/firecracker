@@ -7,7 +7,7 @@ assignees: ''
 
 ---
 
-## Describe the bug
+# Describe the bug
 
 `[Author TODO: A clear and concise description of what the bug is.]`
 
@@ -40,6 +40,7 @@ assignees: ''
 `[Author TODO: Do you have any idea of what the solution might be?]`
 
 ## Checks
+
 - [ ] Have you searched the Firecracker Issues database for similar problems?
 - [ ] Have you read the existing relevant Firecracker documentation?
 - [ ] Are you certain the bug being reported is a Firecracker issue?

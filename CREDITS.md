@@ -15,7 +15,6 @@ written in Rust with a focus on safety and security. Thanks go to:
 * [Jason D. Clinton](https://github.com/jclinton) <jclinton@chromium.org>
 * Sonny Rao <sonnyrao@chromium.org>
 
-
 Contributors to the Firecracker repository:
 
 * Aaron Hill <aa1ronham@gmail.com>

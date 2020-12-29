@@ -2,31 +2,31 @@
 
 ## Table of Contents
 
-- [What is microVM snapshotting?](#what-is-microvm-snapshotting)
+- [What is microVM snapshotting?](#about-microvm-snapshotting)
 - [Snapshotting in Firecracker](#snapshotting-in-firecracker)
-    - [Supported platforms](#supported-platforms)
-    - [Overview](#overview)
-    - [Snapshot files management](#snapshot-files-management)
-    - [Performance](#performance)
-    - [Known issues and limitations](#known-issues-and-limitations)
+  - [Supported platforms](#supported-platforms)
+  - [Overview](#overview)
+  - [Snapshot files management](#snapshot-files-management)
+  - [Performance](#performance)
+  - [Known issues and limitations](#known-issues-and-limitations)
 - [Firecracker Snapshotting characteristics](#firecracker-snapshotting-characteristics)
 - [Snapshot versioning](#snapshot-versioning)
 - [Snapshot API](#snapshot-api)
-    - [Pausing the microVM](#pausing-the-microvm)
-    - [Creating snapshots](#creating-snapshots)
-        - [Creating full snapshots](#creating-full-snapshots)
-        - [Creating diff snapshots](#creating-diff-snapshots)
-    - [Resuming the microVM](#resuming-the-microvm)
-    - [Loading snapshots](#loading-snapshots)
+  - [Pausing the microVM](#pausing-the-microvm)
+  - [Creating snapshots](#creating-snapshots)
+    - [Creating full snapshots](#creating-full-snapshots)
+    - [Creating diff snapshots](#creating-diff-snapshots)
+  - [Resuming the microVM](#resuming-the-microvm)
+  - [Loading snapshots](#loading-snapshots)
 - [Provisioning host disk space for snapshots](#provisioning-host-disk-space-for-snapshots)
 - [Ensure continued network connectivity for clones](#ensure-continued-network-connectivity-for-clones)
 - [Snapshot security and uniqueness](#snapshot-security-and-uniqueness)
-    - [Secure and insecure usage examples](#usage-examples)
-    - [Reusing snapshotted states securely](#reusing-snapshotted-states-securely)
+  - [Secure and insecure usage examples](#usage-examples)
+  - [Reusing snapshotted states securely](#reusing-snapshotted-states-securely)
 - [Known Issues](#known-issues)
-    - [Vsock device limitations](#vsock-device-limitations)
+  - [Vsock device limitations](#vsock-device-limitations)
 
-## What is microVM snapshotting?
+## About microVM snapshotting
 
 MicroVM snapshotting is a mechanism through which a running microVM and its
 resources can be serialized and saved to an external medium in the form of a
@@ -37,10 +37,11 @@ guest workload at that particular point in time.
 
 ### Supported platforms
 
-The Firecracker snapshot feature is in [developer preview](../RELEASE_POLICY.md) 
+The Firecracker snapshot feature is in [developer preview](../RELEASE_POLICY.md)
 on all CPU micro-architectures listed in [README](../README.md#supported-platforms).
 
 ### Overview
+
 A Firecracker microVM snapshot can be used for loading it later in a different
 Firecracker process, and the original guest workload is being simply resumed.
 
@@ -55,16 +56,18 @@ the process.
 
 In order to make restoring possible, Firecracker snapshots save the full state
 of the following resources:
+
 - the guest memory,
 - the emulated HW state (both KVM and Firecracker emulated HW).
 
 The state of the components listed above is generated independently, which brings
 flexibility to our snapshotting support. This means that taking a snapshot results
 in multiple files that are composing the full microVM snapshot:
+
 - the guest memory file,
 - the microVM state file,
-- zero or more disk files (depending on how many the guest had; these are  
-**managed by the users**).
+- zero or more disk files (depending on how many the guest had; these are
+  **managed by the users**).
 
 The design allows sharing of memory pages and read only disks between multiple
 microVMs. When loading a snapshot, instead of loading at resume time the full
@@ -78,43 +81,44 @@ resumed microVM.
 
 ### Snapshot files management
 
-The Firecracker snapshot design offers a very simple interface to interact with 
+The Firecracker snapshot design offers a very simple interface to interact with
 snapshots but provides no functionality to package or manage them on the host.
-Using snapshots in production is currently not recommended as there are open 
+Using snapshots in production is currently not recommended as there are open
 [Known issues and limitations](#known-issues-and-limitations).
 
 The [threat containment model](../design.md#threat-containment) model states
-that the host, host/API communication and snapshot files are trusted by Firecracker. 
+that the host, host/API communication and snapshot files are trusted by Firecracker.
 
-To ensure a secure integration with the snapshot functionality, users need to secure 
-snapshot files by implementing authentication and encryption schemes while managing their 
-lifecycle or moving them across the trust boundary, like for example when provisioning 
-them from a respository to a host over the network.
+To ensure a secure integration with the snapshot functionality, users need to secure
+snapshot files by implementing authentication and encryption schemes while
+managing their lifecycle or moving them across the trust boundary, like for
+example when provisioning them from a respository to a host over the network.
 
-Firecracker is optimized for fast load/resume and it's designed to do some very basic 
-sanity checks only on the vm state file. It only verifies integrity using a 64 bit CRC 
-value embedded in the vm state file, but this is only as a partial measure to protect 
-against accidental corruption, as the disk files and memory file need to be secured as 
-well.
+Firecracker is optimized for fast load/resume and it's designed to do some very basic
+sanity checks only on the vm state file. It only verifies integrity using a 64
+bit CRC value embedded in the vm state file, but this is only as a partial
+measure to protect against accidental corruption, as the disk files and memory
+file need to be secured as well.
 
 ### Performance
 
 The Firecracker snapshot create/resume performance depends on the memory size,
-vCPU count and emulated devices count. The Firecracker CI runs snapshots tests 
+vCPU count and emulated devices count. The Firecracker CI runs snapshots tests
 on AWS **m5d.metal** instances for Intel and on AWS **m6g.metal** for ARM.
-The baseline for snapshot resume latency target on Intel is under **8ms** with 5ms p90,
-and on ARM is under **3ms** for a microvm with this specs: 2vCPU/512MB/1 block/1 net device.
+The baseline for snapshot resume latency target on Intel is under **8ms** with
+5ms p90, and on ARM is under **3ms** for a microVM with the following specs:
+2vCPU/512MB/1 block/1 net device.
 
 ### Known issues and limitations
 
-- High snapshot latency on 5.4+ host kernels - 
-[#2129](https://github.com/firecracker-microvm/firecracker/issues/2129)
+- High snapshot latency on 5.4+ host kernels - [#2129](https://github.com/firecracker-microvm/firecracker/issues/2129)
 - Guest network connectivity is not guaranteed to be preserved after resume.
-For recommendations related to guest network connectivity for clones please
-see [Network connectivity for clones](network-for-clones.md).
-- Vsock device does not have full snapshotting support. Please see [Vsock device limitations](#vsock-device-limitations)
-- Poor entropy and replayable randomness when resuming multiple microvms which 
-deal with cryptographic secrets. Please see [Snapshot security and uniqueness](#snapshot-security-and-uniqueness)
+  For recommendations related to guest network connectivity for clones please
+  see [Network connectivity for clones](network-for-clones.md).
+- Vsock device does not have full snapshotting support.
+  Please see [Vsock device limitations](#vsock-device-limitations).
+- Poor entropy and replayable randomness when resuming multiple microvms which
+  deal with cryptographic secrets. Please see [Snapshot security and uniqueness](#snapshot-security-and-uniqueness).
 
 ## Firecracker Snapshotting characteristics
 
@@ -130,15 +134,18 @@ deal with cryptographic secrets. Please see [Snapshot security and uniqueness](#
   creation. The disk contents are _not_ explicitly flushed to their backing files.
 - The API calls exposing the snapshotting functionality have clear **Prerequisites**
   that describe the requirements on when/how they should be used.
- 
+
 ## Snapshot versioning
 
 Firecracker snapshotting implementation offers support for microVM versioning
 (`cross-version snapshots`) in the following contexts:
-- saving snapshots at older versions (being able to create a snapshot with any version
-in the `[N, N + o]` interval, while being in Firecracker version `N+o`),
-- loading snapshots from older versions (being able to load a snapshot created by any
-Firecracker version in the `[N, N + o]` interval, in a Firecracker version `N+o`).
+
+- saving snapshots at older versions (being able to create a snapshot with any
+  version in the `[N, N + o]` interval, while being in Firecracker
+  version `N+o`),
+- loading snapshots from older versions (being able to load a snapshot created
+  by any Firecracker version in the `[N, N + o]` interval, in a Firecracker
+  version `N+o`).
 
 The design supports an unlimited number of versions, the value of `o` (maximum number
 of older versions that we can restore from / save a snapshot to, from the current
@@ -169,20 +176,22 @@ curl --unix-socket /tmp/firecracker.socket -i \
                    Successive calls of this request keep the microVM in the `Paused`
                    state.
 **Effects**:
+
 - _on success_: microVM is guaranteed to be `Paused`.
 - _on failure_: no side-effects.
 
 ### Creating snapshots
 
-Now that the microVM is paused, you can create a snapshot, which can be either a `full`
-one or a `diff` one. Full snapshots always create a complete, resume-able snapshot of
-the current microVM state and memory. Diff snapshots save the current microVM state
-and the memory dirtied since the last snapshot (full or diff). Diff snapshots are not
-resume-able, but can be merged into a full snapshot. In this context, we will refer to
-the base as the first memory file created by a `/snapshot/create` API call and the
-layer as a memory file created by a subsequent `/snapshot/create` API call. The
-order in which the snapshots were created matters and they should be merged in the
-same order in which they were created. To merge a `diff` snapshot memory file on
+Now that the microVM is paused, you can create a snapshot, which can be either
+a `full`one or a `diff` one. Full snapshots always create a complete,
+resume-able snapshot of the current microVM state and memory. Diff snapshots
+save the current microVM state and the memory dirtied since the last snapshot
+(full or diff). Diff snapshots are not resume-able, but can be merged into a
+full snapshot. In this context, we will refer to the base as the first memory
+file created by a `/snapshot/create` API call and the layer as a memory file
+created by a subsequent `/snapshot/create` API call. The order in which the
+snapshots were created matters and they should be merged in the same order
+in which they were created. To merge a `diff` snapshot memory file on
 top of a base, users should copy its content over the base, as the following
 example does:
 
@@ -220,31 +229,36 @@ curl --unix-socket /tmp/firecracker.socket -i \
 
 Details about the required and optional fields can be found in the
 [swagger definition](../../src/api_server/swagger/firecracker.yaml).
-*Note*: If the files indicated by `snapshot_path` and `mem_file_path` don't exist at
-        the specified paths, then they will be created right before generating the
-        snapshot.
+
+*Note*: If the files indicated by `snapshot_path` and `mem_file_path` don't
+exist at the specified paths, then they will be created right before generating
+the snapshot.
 
 **Prerequisites**: The microVM is `Paused`.
+
 **Effects**:
+
 - _on success_:
-  - The file indicated by `snapshot_path` (e.g. `/path/to/snapshot_file`) contains the
-    devices' model state and emulation state. The one indicated by `mem_file_path`
-    (e.g. `/path/to/mem_file`) contains a full copy of the guest memory.
+  - The file indicated by `snapshot_path` (e.g. `/path/to/snapshot_file`)
+    contains the devices' model state and emulation state. The one indicated
+    by `mem_file_path`(e.g. `/path/to/mem_file`) contains a full copy of the
+    guest memory.
   - The generated snapshot files are immediately available to be used (current process
     releases ownership). At this point, the block devices backing files should be
     backed up externally by the user.
     Please note that block device contents are only guaranteed to be committed/flushed
     to the host FS, but not necessarily to the underlying persistent storage
     (could still live in host FS cache).
-  - If diff snapshots were enabled, the snapshot creation resets then the dirtied page
-    bitmap and marks all pages clean (from a diff snapshot point of view).
-
-If a `version` is specified, the new snapshot is saved at that version, otherwise
-it will be saved at the same version of the running Firecracker. The version is only
-used for the microVM state file as it contains internal state structures for device
-emulation, vCPUs and others that can change their format from a Firecracker version
-to another. Versioning is not required for the block and memory files. The separate
-block device file components of the snapshot have to be handled by the user.
+  - If diff snapshots were enabled, the snapshot creation resets then the
+    dirtied page bitmap and marks all pages clean (from a diff snapshot point
+    of view).
+  - If a `version` is specified, the new snapshot is saved at that version,
+    otherwise it will be saved at the same version of the running Firecracker.
+    The version is only used for the microVM state file as it contains internal
+    state structures for device emulation, vCPUs and others that can change
+    their format from a Firecracker version to another. Versioning is not
+    required for the block and memory files. The separate block device file
+    components of the snapshot have to be handled by the user.
 
 - _on failure_: no side-effects.
 
@@ -252,6 +266,7 @@ block device file components of the snapshot have to be handled by the user.
 
 For creating a diff snapshot, you should use the same API command, but with
 `snapshot_type` field set to `Diff`.
+
 *Note*: If not specified, `snapshot_type` is by default `Full`.
 
 ```bash
@@ -268,18 +283,21 @@ curl --unix-socket /tmp/firecracker.socket -i \
 ```
 
 **Prerequisites**: The microVM is `Paused`.
-                   On a fresh microVM, `track_dirty_pages` field should be set to `true`,
-                   when configuring the `/machine-config` resource, while on a snapshot
-                   loaded microVM, `enable_diff_snapshots` from `PUT /snapshot/load`
-                   request body, should be set.
+
+*Note*: On a fresh microVM, `track_dirty_pages` field should be set to `true`,
+when configuring the `/machine-config` resource, while on a snapshot loaded
+microVM, `enable_diff_snapshots` from `PUT /snapshot/load`request body,
+should be set.
 
 **Effects**:
+
 - _on success_:
   - The file indicated by `snapshot_path` contains the devices' model state and
     emulation state, same as when creating a full snapshot. The one indicated by
-    `mem_file_path` contains this time a **diff copy** of the guest memory - the diff
-    consists of the memory pages which have been dirtied since the last snapshot creation
-    or since the creation of the microVM, whichever of these events was the most recent.
+    `mem_file_path` contains this time a **diff copy** of the guest memory; the
+    diff consists of the memory pages which have been dirtied since the last
+    snapshot creation or since the creation of the microVM, whichever of these
+    events was the most recent.
   - All the other effects mentioned in the **Effects** paragraph from
     **Creating full snapshots** section apply here.
 - _on failure_: no side-effects.
@@ -300,13 +318,14 @@ curl --unix-socket /tmp/firecracker.socket -i  \
 ```
 
 Enabling this support enables KVM dirty page tracking, so it comes at a cost
-(which consists of CPU cycles spent by KVM accounting for dirtied pages); it should only
-be used when needed.
+(which consists of CPU cycles spent by KVM accounting for dirtied pages); it
+should only be used when needed.
 
 Creating a snapshot will **not** influence state, will **not** stop or end the microVM,
-it can be used as before, so the microVM can be resumed if you still want to use it.
-At this point, in case you plan to continue using the current microVM, you should make
-sure to also copy the disk backing files.
+it can be used as before, so the microVM can be resumed if you still want to
+use it.
+At this point, in case you plan to continue using the current microVM, you
+should make sure to also copy the disk backing files.
 
 ### Resuming the microVM
 
@@ -326,6 +345,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
                    Successive calls of this request are ignored (microVM remains
                    in the running state).
 **Effects**:
+
 - _on success_: microVM is guaranteed to be `Resumed`.
 - _on failure_: no side-effects.
 
@@ -351,72 +371,79 @@ curl --unix-socket /tmp/firecracker.socket -i \
 Details about the required and optional fields can be found in the
 [swagger definition](../../src/api_server/swagger/firecracker.yaml).
 
-**Prerequisites**: A full memory snapshot and a microVM state file **must** be provided.
-                   The disk backing files, network interfaces backing TAPs and/or vsock
-                   backing socket that were used for the original microVM's configuration
-                   should be set up and accessible to the new Firecracker process (in
-                   which the microVM is resumed). These host-resources need to be
-                   accessible at the same relative paths to the new Firecracker process
-                   as they were to the original one.
+**Prerequisites**: A full memory snapshot and a microVM state file **must** be
+provided. The disk backing files, network interfaces backing TAPs and/or vsock
+backing socket that were used for the original microVM's configuration
+should be set up and accessible to the new Firecracker process (in
+which the microVM is resumed). These host-resources need to be
+accessible at the same relative paths to the new Firecracker process
+as they were to the original one.
+
 **Effects:**
+
 - _on success_:
   - The complete microVM state is loaded from snapshot into the current Firecracker
     process.
-  - It then resets the dirtied page bitmap and marks all pages clean (from a diff
-    snapshot point of view).
-  - The loaded microVM is now in the `Paused` state, so it needs to be resumed for it
-    to run.
-  - The memory file pointed by `mem_file_path` **must** be considered immutable from
-    Firecracker and host point of view. It backs the guest OS memory for read access
-    through the page cache. External modification to this file corrupts the guest
-    memory and leads to undefined behavior.
-  - The file indicated by `snapshot_path`, that is used to load from, is released and no
-    longer used by this process.
-  - If `enable_diff_snapshots` is set, then diff snapshots can be taken afterwards.
-  - If `resume_vm` is set, the vm is automatically resumed if load is successful.
+  - It then resets the dirtied page bitmap and marks all pages clean (from a
+    diff snapshot point of view).
+  - The loaded microVM is now in the `Paused` state, so it needs to be resumed
+    for it to run.
+  - The memory file pointed by `mem_file_path` **must** be considered immutable
+    from Firecracker and host point of view. It backs the guest OS memory for
+    read access through the page cache. External modification to this file
+    corrupts the guest memory and leads to undefined behavior.
+  - The file indicated by `snapshot_path`, that is used to load from, is
+    released and no longer used by this process.
+  - If `enable_diff_snapshots` is set, then diff snapshots can be taken
+    afterwards.
+  - If `resume_vm` is set, the vm is automatically resumed if load is
+    successful.
 - _on failure_: A specific error is reported and then the current Firecracker process
                 is ended (as it might be in an invalid state).
 
 *Notes*:
-Please, keep in mind that only by setting to true `enable_diff_snapshots`, when loading a
-snapshot, or `track_dirty_pages`, when configuring the machine on a fresh microVM, you can
-then create a `diff` snapshot. Also, `track_dirty_pages` is not saved when creating a
-snapshot, so you need to explicitly set `enable_diff_snapshots` when sending `LoadSnapshot`
-command if you want to be able to do diff snapshots from a loaded microVM.
-Another thing that you should be aware of is the following: if a fresh microVM can create
-diff snapshots, then if you create a **full** snapshot, the memory file contains
-the whole guest memory, while if you create a **diff** one, that file is sparse and only
-contains the guest dirtied pages.
+Please, keep in mind that only by setting to true `enable_diff_snapshots`, when
+loading a snapshot, or `track_dirty_pages`, when configuring the machine on a
+fresh microVM, you can then create a `diff` snapshot. Also, `track_dirty_pages`
+is not saved when creating a snapshot, so you need to explicitly set
+`enable_diff_snapshots` when sending `LoadSnapshot`command if you want to be
+able to do diff snapshots from a loaded microVM.
+Another thing that you should be aware of is the following: if a fresh microVM
+can create diff snapshots, then if you create a **full** snapshot, the memory
+file contains the whole guest memory, while if you create a **diff** one, that
+file is sparse and only contains the guest dirtied pages.
 With these in mind, some possible snapshotting scenarios are the following:
-- `Boot from a fresh microVM` -> `Pause` -> `Create snapshot` -> `Resume` -> `Pause` ->
-  `Create snapshot` -> ... ;
-- `Boot from a fresh microVM` -> `Pause` -> `Create snapshot` -> `Resume` -> `Pause` ->
-  `Resume` -> ... -> `Pause` -> `Create snapshot` -> ... ;
-- `Load snapshot` -> `Resume` -> `Pause` -> `Create snapshot` -> `Resume` -> `Pause` ->
-  `Create snapshot` -> ... ;
-- `Load snapshot` -> `Resume` -> `Pause` -> `Create snapshot` -> `Resume` -> `Pause` ->
-  `Resume` -> ... -> `Pause` -> `Create snapshot` -> ... ;
-  where `Create snapshot` can refer to either a full or a diff snapshot for all the
-  aforementioned flows.
 
-It is also worth knowing, a microVM that is restored from snapshot will be resumed with
-the guest OS wall-clock continuing from the moment of the snapshot creation. For this
-reason, the wall-clock should be updated to the current time, on the guest-side.
-More details on how you could do this can be found at a
-[related FAQ](../../FAQ.md#my-guest-wall-clock-is-drifting-how-can-i-fix-it).
+- `Boot from a fresh microVM` -> `Pause` -> `Create snapshot` -> `Resume` ->
+  `Pause` -> `Create snapshot` -> ... ;
+- `Boot from a fresh microVM` -> `Pause` -> `Create snapshot` -> `Resume` ->
+  `Pause` -> `Resume` -> ... -> `Pause` -> `Create snapshot` -> ... ;
+- `Load snapshot` -> `Resume` -> `Pause` -> `Create snapshot` -> `Resume` ->
+  `Pause` -> `Create snapshot` -> ... ;
+- `Load snapshot` -> `Resume` -> `Pause` -> `Create snapshot` -> `Resume` ->
+  `Pause` -> `Resume` -> ... -> `Pause` -> `Create snapshot` -> ... ;
+  where `Create snapshot` can refer to either a full or a diff snapshot for
+  all the aforementioned flows.
+
+It is also worth knowing, a microVM that is restored from snapshot will be
+resumed with the guest OS wall-clock continuing from the moment of the
+snapshot creation. For this reason, the wall-clock should be updated to the
+current time, on the guest-side. More details on how you could do this can
+be found at a [related FAQ](../../FAQ.md#my-guest-wall-clock-is-drifting-how-can-i-fix-it).
 
 ## Provisioning host disk space for snapshots
 
-Depending on VM memory size, snapshots can consume a lot of disk space. Firecracker 
+Depending on VM memory size, snapshots can consume a lot of disk space. Firecracker
 integrators **must** ensure that the provisioned disk space is sufficient for normal
 operation of their service as well as during failure scenarios. If the service exposes
-the snapshot triggers to customers, integrators **must** enforce proper disk quotas to 
-avoid any DoS threats that would cause the service to fail or function abnormally.
+the snapshot triggers to customers, integrators **must** enforce proper disk
+quotas to avoid any DoS threats that would cause the service to fail or
+function abnormally.
 
 ## Ensure continued network connectivity for clones
 
-For recomandations related to continued network connectivity for multiple clones created from
-a single Firecracker microVM snapshot please see [this doc](network-for-clones.md).
+For recomandations related to continued network connectivity for multiple
+clones created from a single Firecracker microVM snapshot please see [this doc](network-for-clones.md).
 
 ## Snapshot security and uniqueness
 
@@ -434,7 +461,7 @@ For more information please see [this doc](random-for-clones.md)
 
 #### Example 1: secure usage (currently in dev preview)
 
-```
+```console
 Boot microVM A -> ... -> Create snapshot S -> Terminate
                                            -> Load S in microVM B -> Resume -> ...
 ```
@@ -447,7 +474,7 @@ secure.
 
 #### Example 2: potentially insecure usage
 
-```
+```console
 Boot microVM A -> ... -> Create snapshot S -> Resume -> ...
                                            -> Load S in microVM B -> Resume -> ...
 ```
@@ -459,7 +486,8 @@ before microVM B resumes execution from snapshot S or not. In this example, we
 consider both microVMs insecure as soon as microVM A resumes execution.
 
 #### Example 3: potentially insecure usage
-```
+
+```console
 Boot microVM A -> ... -> Create snapshot S -> ...
                                            -> Load S in microVM B -> Resume -> ...
                                            -> Load S in microVM C -> Resume -> ...
@@ -500,7 +528,9 @@ Firecracker.
 to vsock packet loss, leads to Vsock device breakage when doing a snapshot while
 there are active Vsock connections.
 
-   _**Workaround**_: Close all active Vsock connections prior to snapshotting the VM.
+   _**Workaround**_: Close all active Vsock connections prior to snapshotting
+   the VM.
 
-2. _Incremental/diff_ snapshots are not yet supported for Vsock devices. Creating a
-`diff` snapshot on a microVM with a `vsock` device configured is not allowed.
+1. _Incremental/diff_ snapshots are not yet supported for Vsock devices.
+   Creating a `diff` snapshot on a microVM with a `vsock` device configured
+   is not allowed.

@@ -68,7 +68,7 @@ warnings etc.(depending on the level).
 If the path provided is a named pipe, you can use the script below to
 read from it:
 
-```shell script
+```shell
 logs=logs.fifo
 
 while true

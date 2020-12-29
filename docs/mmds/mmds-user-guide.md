@@ -4,7 +4,7 @@ The Firecracker microVM Metadata Service (MMDS) is a mutable data store which
 can be used for sharing information between host and guests, in a secure and
 easy at hand way.
 
-# Activating the microVM Metadata Service
+## Activating the microVM Metadata Service
 
 By default, MMDS is not reachable from the guest operating system. At microVM
 runtime, MMDS is tightly coupled with a network interface, which allows MMDS
@@ -29,11 +29,11 @@ curl --unix-socket /tmp/firecracker.socket -i                 \
     }'
 ```
 
-# Configuring the microVM Metadata Service
+## Configuring the microVM Metadata Service
 
 MMDS can be configured pre-boot only, using the Firecracker API server. This
 can be achieved through an HTTP `PUT` request to `/mmds/config` resource. The
-complete MMDS configuration API is described in the 
+complete MMDS configuration API is described in the
 [firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
 
 At the moment, MMDS is configurable with respect to the IPv4 address used by
@@ -41,7 +41,7 @@ guest applications when issuing requests to MMDS. If MMDS configuration is not
 provided before booting up the guest, the MMDS IPv4 address defaults to
 `169.254.169.254`.
 
-### Example
+The Ipv4 address for issuing requests to the MMDS can be configured like this:
 
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
@@ -56,9 +56,8 @@ curl --unix-socket /tmp/firecracker.socket -i \
 MMDS is tightly coupled with a network interface which is used to route MMDS
 packets. To send MMDS intended packets, guest applications must insert a new
 rule into the routing table of the guest OS. This new rule must forward MMDS
-intended packets to a network interface which allows MMDS requests.
-
-### Example
+intended packets to a network interface which allows MMDS requests. For
+example:
 
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
@@ -66,21 +65,20 @@ MMDS_NET_IF=eth0
 ip route add ${MMDS_IPV4_ADDR} dev ${MMDS_NET_IF}
 ```
 
-# Inserting and updating metadata
+## Inserting and updating metadata
 
 Inserting and updating metadata is possible through the Firecracker API server.
 The metadata inserted in MMDS must be any valid JSON. An user can create or update
 the MMDS data store before the microVM is started or during its operation. To
 insert metadata into MMDS, an HTTP `PUT` request to the `/mmds` resource has to be
 issued. This request must have a payload with metadata structured in
-[JSON](https://tools.ietf.org/html/rfc7159) format. To replace existing metadata, a
-subsequent HTTP `PUT` request to the `/mmds` resource must be issued, using as a
-payload the new metadata. A complete description of metadata insertion firecracker
-API can be found in the
+[JSON](https://tools.ietf.org/html/rfc7159) format. To replace existing
+metadata, a subsequent HTTP `PUT` request to the `/mmds` resource must be
+issued, using as a payload the new metadata. A complete description of
+metadata insertion firecracker API can be found in the
 [firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
 
-
-### Example
+An example of an API request for inserting metadata is provided below:
 
 ```bash
 curl --unix-socket /tmp/firecracker.socket -i \
@@ -115,7 +113,7 @@ resource has to be issued, using as a payload the metadata patch, as
 describes. A complete description of updating metadata Firecracker API can be
 found in the [firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
 
-### Example
+An example API for how to update existing metadata is offered below:
 
 ```bash
 curl --unix-socket /tmp/firecracker.socket -i \
@@ -131,7 +129,7 @@ curl --unix-socket /tmp/firecracker.socket -i \
     }'
 ```
 
-# Retrieving metadata
+## Retrieving metadata
 
 MicroVM metadata can be retrieved both from host and guest operating systems.
 For the scope of this chapter, let's assume the data store content is the JSON
@@ -148,7 +146,7 @@ below:
 }
 ```
 
-## Retrieving metadata in the host operating system
+### Retrieving metadata in the host operating system
 
 To retrieve existing MMDS metadata from host operating system, an HTTP `GET`
 request to the `/mmds` resource must be issued. The HTTP response returns the
@@ -156,7 +154,7 @@ existing metadata, as a JSON formatted text. A complete description of
 retrieving metadata Firecracker API can be found in the
 [firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
 
-### Example
+Below you can see how to retrieve metadata from the host:
 
 ```bash
 curl -s --unix-socket /tmp/firecracker.socket http://localhost/mmds
@@ -175,7 +173,7 @@ Output:
 }
 ```
 
-## Retrieving metadata in the guest operating system
+### Retrieving metadata in the guest operating system
 
 To retrieve existing MMDS metadata from guest operating system, an HTTP `GET`
 request must be issued. The requested resource can be referenced by its
@@ -193,9 +191,9 @@ the output to IMDS.
 Retrieving MMDS resources in IMDS format, other than JSON `string` and `object` types,
 is not supported.
 
-### Example
+Below is an example on how to retrieve the `latest/meta-data` resource in
+JSON format:
 
-Retrieving the `latest/meta-data` resource in JSON format:
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
 RESOURCE_POINTER_OBJ=latest/meta-data
@@ -220,11 +218,13 @@ curl -s -H "Accept: application/json" "http://${MMDS_IPV4_ADDR}/${RESOURCE_POINT
 ```
 
 Output:
+
 ```json
 "ami-87654321"
 ```
 
 Retrieving the `latest` resource in IMDS format:
+
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
 RESOURCE_POINTER=latest
@@ -238,6 +238,7 @@ meta-data/
 ```
 
 Retrieving the `latest/meta-data/` resource in IMDS format:
+
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
 RESOURCE_POINTER=latest/meta-data
@@ -252,6 +253,7 @@ reservation-id
 ```
 
 Retrieving the `latest/meta-data/ami-id` resource in IMDS format:
+
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
 RESOURCE_POINTER=latest/meta-data/ami-id
@@ -264,7 +266,7 @@ Output:
 ami-87654321
 ```
 
-### Errors
+## Errors
 
 *200* - `Ok`
 
@@ -288,9 +290,9 @@ header was formed.
 The requested HTTP functionality is not supported by MMDS or the requested
 resource is not supported in IMDS format.
 
-# Appendix
+## Appendix
 
-#### Example use case: credential rotation
+### Example use case: credential rotation
 
 For this example, the guest expects to find some sort of credentials (say, a
 secret access key) by issuing a `GET` request to

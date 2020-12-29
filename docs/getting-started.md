@@ -17,7 +17,7 @@ instance using Ubuntu 18.04 on EC2. Firecracker uses
 [KVM](https://www.linux-kvm.org) and needs read/write access that can be
 granted as shown below:
 
-```
+```console
 sudo setfacl -m u:${USER}:rw /dev/kvm
 ```
 
@@ -51,16 +51,16 @@ and run it on your x86_64 or aarch64 Linux machine.
 On the EC2 instance, this binary can be downloaded as:
 
 ```wrap
-latest=$(basename $(curl -fsSLI -o /dev/null -w  %{url_effective} https://github.com/firecracker-microvm/firecracker/releases/latest))
-```
-
-```wrap
-curl -L https://github.com/firecracker-microvm/firecracker/releases/download/${latest}/firecracker-${latest}-$(uname -m).tgz | tar -xz
+release_url="https://github.com/firecracker-microvm/firecracker/releases"
+latest=$(basename $(curl -fsSLI -o /dev/null -w  %{url_effective} ${release_url}/latest))
+arch=`uname -m`
+curl -L ${release_url}/download/${latest}/firecracker-${latest}-${arch}.tgz \
+| tar -xz
 ```
 
 Rename the binary to "firecracker":
 
-```
+```console
 mv firecracker-${latest}-$(uname -m) firecracker
 ```
 
@@ -274,9 +274,13 @@ git checkout tags/v0.10.1
 
 Within the Firecracker repository root directory:
 
-1. with the __default__ musl target: ```tools/devtool build```
-1. (__Experimental only__) using the gnu target: 
-```tools/devtool build -l gnu```
+1. With the __default__ musl target:
+
+   ```tools/devtool build```
+
+1. (__Experimental only__) using the gnu target:
+
+   ```tools/devtool build -l gnu```
 
 This will build and place the two Firecracker binaries at:
 

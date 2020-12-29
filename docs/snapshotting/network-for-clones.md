@@ -126,14 +126,18 @@ which is unique on the host for each VM. In the demo, we use
 `clone 0`):
 
 ```bash
-# for packets that leave the namespace and have the source IP address of the original guest,
-# rewrite the source address to clone address 192.168.0.3)
-sudo ip netns exec fc0 iptables -t nat -A POSTROUTING -o veth0 -s 192.168.241.2 -j SNAT --to 192.168.0.3
+# for packets that leave the namespace and have the source IP address of the
+# original guest, rewrite the source address to clone address 192.168.0.3
+sudo ip netns exec fc0 iptables -t nat -A POSTROUTING -o veth0 \
+-s 192.168.241.2 -j SNAT --to 192.168.0.3
 
 # do the reverse operation; rewrites the destination address of packets
 # heading towards the clone address to 192.168.241.2
-sudo ip netns exec fc0 iptables -t nat -A PREROUTING -i veth0 -d 192.168.0.3 -j DNAT —to 192.168.241.2
-sudo ip route add 192.168.0.3 via 10.0.0.2 # (adds a route on the host for the clone address)
+sudo ip netns exec fc0 iptables -t nat -A PREROUTING -i veth0 \
+-d 192.168.0.3 -j DNAT —to 192.168.241.2
+
+# (adds a route on the host for the clone address)
+sudo ip route add 192.168.0.3 via 10.0.0.2
 ```
 
 **Full connectivity to/from the clone should be present at this point.**

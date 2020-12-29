@@ -89,7 +89,7 @@ to resolve DNS names. In production, you'd want to use the right DNS server for
 your environment. For testing, you can add a public DNS server to
 `/etc/resolv.conf` by adding a line like this:
 
-```
+```console
 nameserver 8.8.8.8
 ```
 

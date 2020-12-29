@@ -7,17 +7,20 @@ assignees: ''
 
 ---
 
-## Why is this feature request important?  What are the use cases?  Please describe.
+# Feature Request
 
-`[Author TODO: A clear and concise description of what the problem is.]`
+`[Author TODO: Why is this feature request important? What are the use cases?
+Please describe.]`
 
 ## Describe the desired solution
 
-`[Author TODO: A clear and concise description of how you would like the feature to work.]`
+`[Author TODO: A clear and concise description of how you would like
+the feature to work.]`
 
 ## Describe possible alternatives
 
-`[Author TODO: A clear and concise description of any alternative solutions or features you have considered.]`
+`[Author TODO: A clear and concise description of any alternative solutions
+or features you have considered.]`
 
 `[Author TODO: How do you work around not having this feature?]`
 
@@ -26,6 +29,7 @@ assignees: ''
 `[Author TODO: Add additional context about this feature request here.]`
 
 ## Checks
+
 - [ ] Have you searched the Firecracker Issues database for similar requests?
 - [ ] Have you read all the existing relevant Firecracker documentation?
 - [ ] Have you read and understood Firecracker's core tenets?

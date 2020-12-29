@@ -36,9 +36,9 @@ jailer --id <id> \
   `<cgroup_file>=<value>` (e.g cpuset.cpus=0). This argument can be used multiple
   times to set multiple cgroups. This is useful to avoid providing privileged permissions
   to another process for setting the cgroups before or after the jailer is executed.
-  The `--cgroup` flag can help as well to set Firecracker process cgroups before the
-  VM starts running, with no need to create the entire cgroup hierarchy manually (which
-  requires privileged permissions).
+  The `--cgroup` flag can help as well to set Firecracker process cgroups
+  before the VM starts running, with no need to create the entire cgroup
+  hierarchy manually (which requires privileged permissions).
 - `chroot_base` represents the base folder where chroot jails are built. The
   default is `/srv/jailer`.
 - `netns` represents the path to a network namespace handle. If present, the
@@ -195,7 +195,7 @@ STDERR)`. Close `dev_null_fd`, because it is no longer necessary.
 
 Finally, the jailer switches the `uid` to `123`, and `gid` to `100`, and execs
 
-```
+```console
 ./firecracker \
   --id="551e7604-e35c-42b3-b825-416853441234" \
   --start-time-us=<opaque> \
@@ -206,7 +206,7 @@ Now firecracker creates the socket at
 `/srv/jailer/firecracker/551e7604-e35c-42b3-b825-416853441234/root/<api-sock>`
 to interact with the VM.
 
-Note: default value for <api-sock> is `/run/firecracker.socket`
+Note: default value for `<api-sock>` is `/run/firecracker.socket`.
 
 ### Observations
 

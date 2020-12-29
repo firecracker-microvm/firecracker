@@ -43,10 +43,10 @@ Patch functionality, based on [RFC 7396](https://tools.ietf.org/html/rfc7396). M
 related API requests come from the host, which is considered a trusted environment,
 so there are no checks beside the kind of validation done by HTTP server and
 `serde-json` (the crate used to de/serialize JSON). There is no maximum limit for
- the stored metadata size, but one might consider that storing and retrieving large
- amount of data may induce bottlenecks for the HTTP REST API processing, which is 
- based on `micro-http` crate. MMDS contents can be retrieved using the Firecracker
- API, via a `GET` request to the `/mmds` resource.
+the stored metadata size, but one might consider that storing and retrieving large
+amount of data may induce bottlenecks for the HTTP REST API processing, which is
+based on `micro-http` crate. MMDS contents can be retrieved using the Firecracker
+API, via a `GET` request to the `/mmds` resource.
 
 ## The data store
 
@@ -108,9 +108,10 @@ a reply.
 ### MMDS Network Stack
 
 Somewhat confusingly, this is the name of the component which taps the device
-model. It has a user-configured IPv4 address (see 
+model. It has a user-configured IPv4 address (see
 [Firecracker MMDS configuration API](../../src/api_server/swagger/firecracker.yaml))
-and MAC (`06:01:23:45:67:01`) addresses. The latter is also used to respond to ARP requests.
+and MAC (`06:01:23:45:67:01`) addresses. The latter is also used to respond to
+ARP requests.
 For every frame coming from the guest, the following steps take place:
 
 1. Apply a heuristic to determine whether the frame may contain an ARP request
