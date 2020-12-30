@@ -134,11 +134,8 @@ impl Env {
                 .parse::<u32>()
                 .map_err(|_| Error::NumaNode(numa_node_str.to_owned()))?;
 
-            if let Ok(mut numa_cgroups) =
-                cgroup::cgroups_from_numa_node(numa_node, id, &exec_file_name)
-            {
-                cgroups.append(&mut numa_cgroups);
-            }
+            let mut numa_cgroups = cgroup::cgroups_from_numa_node(numa_node, id, &exec_file_name)?;
+            cgroups.append(&mut numa_cgroups);
         }
 
         // cgroup format: <cgroup_controller>.<cgroup_property>=<value>,...
@@ -263,9 +260,8 @@ impl Env {
     }
 
     fn join_netns(path: &str) -> Result<()> {
-        // This will take ownership of the raw fd.
-        // TODO: for some reason, if we use as_raw_fd here instead, the resulting fd cannot
-        // be used with setns, because we get an EBADFD error. I wonder why?
+        // Not used `as_raw_fd` as it will create a dangling fd (object will be freed immediately) instead
+        // used `into_raw_fd` which provides underlying fd ownership to caller.
         let netns_fd = File::open(path)
             .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
             .into_raw_fd();
@@ -464,7 +460,7 @@ mod tests {
     impl ArgVals<'_> {
         pub fn new() -> ArgVals<'static> {
             ArgVals {
-                node: "1",
+                node: "0",
                 id: "bd65600d-8669-4903-8a14-af88203add38",
                 exec_file: "/proc/cpuinfo",
                 uid: "1001",
@@ -763,7 +759,7 @@ mod tests {
         let some_dir_path = some_dir.as_path().to_str().unwrap();
 
         let some_arg_vals = ArgVals {
-            node: "1",
+            node: "0",
             id: "bd65600d-8669-4903-8a14-af88203add38",
             exec_file: some_file_path,
             uid: "1001",
