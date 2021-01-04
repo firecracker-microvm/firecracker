@@ -102,6 +102,14 @@ to create new Firecracker releases.
 
 ## Technical FAQ & Troubleshooting
 
+### Can I emulate a different architecture in the guest than the one on the host?
+
+Guest operating systems must be built for the same CPU architecture as the
+host on which it will run. Firecracker does not support running microVMs on
+any architecture other than the one the host is running on. In other words,
+running an OS built for a `x86_64` on an `aarch64` system will not work, and
+vice versa.
+
 ### I tried using an initrd for boot but it doesn't seem to be used. Is initrd supported?
 
 Initrds are only recently supported in Firecracker. If your release predates
