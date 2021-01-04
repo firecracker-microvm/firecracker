@@ -1,10 +1,14 @@
 # Changelog
 
+### Changed
+
+- Changed Docker images repository from DockerHub to Amazon ECR.
+
 ## [0.24.2]
 
 ### Fixed
 
-- Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal 
+- Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal
 is still recorded in metrics and logs.
 
 ## [0.24.1]
