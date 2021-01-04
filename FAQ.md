@@ -199,9 +199,10 @@ Firecracker process remains unaware of the guest shutdown so it lives on.
 Running the `reboot` command in a Linux guest will gracefully bring down the guest
 system and also bring a graceful end to the Firecracker process.
 
-Issuing a `SendCtrlAltDel` action command through the Firecracker API will generate a
-`Ctrl + Alt + Del` keyboard event in the guest resulting in a clean reboot on most
-guest Linux systems.
+On `x86_64` systems, issuing a `SendCtrlAltDel` action command through the
+Firecracker API will generate a `Ctrl + Alt + Del` keyboard event in the guest
+which triggers a behavior identical to running the `reboot` command. This is,
+however, not supported on `aarch64` systems.
 
 ### How can I create my own rootfs or kernel images?
 
