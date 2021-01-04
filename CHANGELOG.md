@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Changed Docker images repository from DockerHub to Amazon ECR.
+
 ## [0.23.3]
 
 ### Fixed
