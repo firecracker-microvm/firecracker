@@ -1,0 +1,16 @@
+boto3
+botocore
+dataclasses
+nsenter
+psutil
+pycodestyle
+pydocstyle
+pylint
+pytest
+pytest-timeout
+pyyaml
+requests
+requests-unixsocket
+retry
+typing-extensions
+gitlint
