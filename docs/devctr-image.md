@@ -124,10 +124,10 @@ Then continue with the above steps:
    image, per architecture.
 
     ```bash
-    docker manifest create public.ecr.aws/firecracker/fcuvm/dev:v27 \
-    public.ecr.aws/firecracker/fcuvm/dev:v27_x86_64 public.ecr.aws/firecracker/fcuvm/dev:v27_aarch64
+    docker manifest create public.ecr.aws/firecracker/fcuvm:v27 \
+    public.ecr.aws/firecracker/fcuvm:v27_x86_64 public.ecr.aws/firecracker/fcuvm:v27_aarch64
 
-    docker manifest push public.ecr.aws/firecracker/fcuvm/dev:v27
+    docker manifest push public.ecr.aws/firecracker/fcuvm:v27
     ```
 
 1. Update the image tag in the
@@ -169,7 +169,7 @@ docker images
 REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
 
 tools/devtool shell
-[Firecracker devtool] About to pull docker image public.ecr.aws/firecracker/fcuvm/dev:v15
+[Firecracker devtool] About to pull docker image public.ecr.aws/firecracker/fcuvm:v15
 [Firecracker devtool] Continue?
 ```
 
@@ -224,20 +224,20 @@ Let's say you want to update
     ```bash
     docker ps
     CONTAINER ID        IMAGE               COMMAND             CREATED
-    e9f0487fdcb9        fcuvm/dev:v14       "bash"              53 seconds ago
+    e9f0487fdcb9        fcuvm:v14       "bash"              53 seconds ago
     ```
 
 1. Commit the modified container to a new image. Use the `container ID`.
 
     ```bash
-    docker commit e9f0487fdcb9 fcuvm/dev:v15_x86_64
+    docker commit e9f0487fdcb9 fcuvm:v15_x86_64
     ```
 
     ```bash
     docker image ls
-    REPOSITORY          TAG                 IMAGE ID            CREATED
-    fcuvm/dev           v15_x86_64          514581e654a6        18 seconds ago
-    fcuvm/dev           v14                 c8581789ead3        2 months ago
+    REPOSITORY      TAG                 IMAGE ID            CREATED
+    fcuvm           v15_x86_64          514581e654a6        18 seconds ago
+    fcuvm           v14                 c8581789ead3        2 months ago
     ```
 
 1. Repeat for `aarch64`.
