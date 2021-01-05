@@ -53,22 +53,11 @@ RUN apt-get update \
     && python3 -m pip install \
         setuptools \
         wheel \
-    && python3 -m pip install \
-        boto3 \
-        dataclasses \
-        nsenter \
-        psutil \
-        pycodestyle \
-        pydocstyle \
-        pylint \
-        pytest \
-        pytest-timeout \
-        pyyaml \
-        requests \
-        requests-unixsocket \
-        retry \
-        typing-extensions \
+    && python3 -m pip install --upgrade pip \ 
     && rm -rf /var/lib/apt/lists/*
+
+COPY tools/devctr/requirements/aarch64-requirements-freeze.txt /tmp/requirements-freeze.txt
+RUN python3 -m pip install --requirement /tmp/requirements-freeze.txt
 
 # Install the Rust toolchain
 #

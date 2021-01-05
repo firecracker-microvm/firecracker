@@ -65,8 +65,6 @@
 #   - Add a `./devtool run` command to set up and run Firecracker.
 #   - Add a `./devtool diag` command to help with troubleshooting, by checking
 #     the most common failure conditions.
-#   - Add a `./devtool build-devctr` command to build the development container
-#     from its Dockerfile.
 #   - Look into caching the Cargo registry within the container and if that
 #     would help with reproducible builds (in addition to pinning Cargo.lock)
 
@@ -86,6 +84,10 @@ FC_ROOT_DIR=$(cd "${FC_TOOLS_DIR}/.." && pwd)
 
 # Full path to the build dir on the host.
 FC_BUILD_DIR="${FC_ROOT_DIR}/build"
+
+# Full path to devctr dir on the host. This contains docker definition
+# files and requirements files to build a dev container.
+FC_DEVCTR_DIR="${FC_ROOT_DIR}/tools/devctr"
 
 # Full path to the cargo registry dir on the host. This appears on the host
 # because we want to persist the cargo registry across container invocations.
@@ -117,7 +119,6 @@ CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
 # Global options received by $0
 # These options are not command-specific, so we store them as global vars
 OPT_UNATTENDED=false
-
 
 # Send a decorated message to stdout, followed by a new line
 #
@@ -260,6 +261,18 @@ cmd_fix_perms() {
         chown -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR"
 }
 
+# Builds the development container from its Dockerfile.
+# 
+cmd_build_devctr() {
+    arch=$(uname -m)
+    requirements_freeze_file_location="$FC_DEVCTR_DIR/requirements/"$arch"-requirements-freeze.txt"
+    docker_file_name="Dockerfile.$arch"
+    
+    update_packages "$requirements_freeze_file_location"
+    docker build -t fcuvm -f "$FC_DEVCTR_DIR/$docker_file_name" .
+    upgrade_version "$requirements_freeze_file_location"
+}
+
 # Prompt the user for confirmation before proceeding.
 # Args:
 #   $1  prompt text.
@@ -375,6 +388,102 @@ run_devctr() {
         "$DEVCTR_IMAGE" "${ctr_args[@]}"
 }
 
+# Given a list of packages it adds them to {arch-based}-requirements_freeze.txt
+#
+# Args:
+#   $1  path to the {arch-based}-requirements-freeze file.
+#
+perform_update() {
+    declare requirements_freeze_file_location="$1"
+    shift
+    for package_name in "$@"; do
+        echo "$package_name" >>$requirements_freeze_file_location
+    done
+    echo "" >> $requirements_freeze_file_location
+}
+
+# Looks for any package which are present in requirements.txt file but
+# not in {arch-based}-requirements-freeze.txt file. Prompts the user if they want
+# to install and add freeze their version in {arch-based}-requirements_freeze.txt
+# 
+# Args:
+#   $1  path to the {arch-based}-requirements-freeze file.
+# 
+update_packages() {
+    declare requirements_freeze_file_location="$1"  
+    declare parsed_package_location=$(mktemp)
+    say "Checking for newly added requirements..."
+    while IFS= read -r line; do
+        echo "${line%%=*}" >>$parsed_package_location
+    done <"$requirements_freeze_file_location"
+    unset IFS
+
+    diff=($(grep -v -f $parsed_package_location $FC_DEVCTR_DIR/requirements/requirements.txt))    
+    rm $parsed_package_location
+
+    if [ "${#diff[@]}" -ne 0 ]; then
+        say "List of newly added packages"
+        printf '%s\n' "${diff[@]}"
+        say "Would you like to install and freeze versions of these packages?"
+        get_user_confirmation || return
+        perform_update $requirements_freeze_file_location ${diff[@]}
+    else
+       say "Eveything up-to-date..."
+    fi
+}
+
+# Given an image-id, launches a new docker container.
+# It then runs a version upgrade of outdated packages on container, freezes
+# the new version to a requirements file and copies it back to the host.
+# 
+# Args:
+#   $1  image id 
+#   $2  path to the {arch-based}-requirements-freeze file.
+# 
+perform_upgrade() {
+    declare image_id="$1"
+    declare requirements_freeze_file_location="$2"
+
+    dummy_container_name=$(uuidgen)
+    dummy_container_id=$(docker create -ti --name "$dummy_container_name" "$image_id" bash)    
+    docker start "$dummy_container_id"
+    
+    cmd="python3 -m pip list --outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1 | xargs -n 1 python3 -m pip install -U; python3 -m pip freeze > /tmp/requirements-freeze.txt;"
+    docker exec -ti "$dummy_container_id" /bin/bash -c "${cmd}"
+    docker cp "$dummy_container_id":/tmp/requirements-freeze.txt /tmp/requirements-freeze.txt
+    docker commit "$dummy_container_id" fcuvm
+    cp /tmp/requirements-freeze.txt $requirements_freeze_file_location
+    
+    docker stop "$dummy_container_id"
+    docker rm -f "$dummy_container_name"
+    rm -f /tmp/requirements-freeze.txt
+}
+
+# Looks for outdated python packages and prompts user if they want to
+# run a version upgrade for all outdated packages.
+# 
+# Args:
+#   $1  path to the {arch-based}-requirements-freeze file.
+# 
+upgrade_version() {
+    declare requirements_freeze_file_location="$1"
+    say "Checking for newer package versions..."     
+    
+    image_id=$(docker images | grep fcuvm | awk '{print $3}' | head -n 1)
+    echo $image_id
+    outdated_packages=($(docker run -it $image_id python3 -m pip list --outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1))
+
+    if [ "${#outdated_packages[@]}" -ne 0 ]; then
+        say "List of outdated packages"
+        printf '%s\n' "${outdated_packages[@]}"
+        say "Would you like to upgrade these packages?"
+        get_user_confirmation || return
+        perform_upgrade $image_id $requirements_freeze_file_location
+    else
+       say "Eveything up-to-date..."
+    fi
+}
+
 # `$0 help`
 # Show the detailed devtool usage information.
 #
@@ -441,6 +550,8 @@ cmd_help() {
     echo "        Performs prerequisites checks needed to execute firecracker."
     echo "    fix_perms"
     echo "        Fixes permissions when devtool dies in the middle of a privileged session."
+    echo "    build_devctr"
+    echo "        Builds the development container from its Dockerfile."
     echo ""
 }
 

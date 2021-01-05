@@ -46,9 +46,31 @@ registry. The Firecracker CI suite must also be updated to use the new image.
 
 1. Build a new container image with the updated Dockerfile.
 
+   The below script is used to build a docker image.
+
    ```bash
-    docker build -t fcuvm -f tools/devctr/Dockerfile.x86_64 .
-    ```
+   tools/devtool build_devctr
+   ```
+
+   The script uses two files -
+
+    a) ```requirements.txt``` - This contains list of python packages
+    with their unbounded versions.
+
+    b) {arch-based}-requirements-freeze.txt
+    (eg ```x86-requirements-freeze.txt```) - This contains exhaustive
+    list of python dependencies based on dependencies defined in
+    requirements.txt. Unlike requirements.txt, package
+    version in this file are bounded.
+
+   #### How does requirements-freeze.txt gets updated?
+
+   In every run the script finds if new packages are added in
+   requirements.txt and adds newly added packages in
+   {arch-based}-requirements-freeze.txt.
+
+   The script also looks for all outdated packages on the container,
+   runs a version update and copies back the updated versions to the host.
 
 1. Verify that the new image exists.
 
@@ -89,7 +111,7 @@ Then continue with the above steps:
 1. Build a new container image with the updated Dockerfile.
 
     ```bash
-    docker build -t fcuvm -f tools/devctr/Dockerfile.aarch64  .
+    tools/devtool build_devctr
     ```
 
 1. Verify that the new image exists.
