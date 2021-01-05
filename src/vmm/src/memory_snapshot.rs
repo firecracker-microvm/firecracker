@@ -15,6 +15,7 @@ use vm_memory::{
 };
 
 use crate::DirtyBitmap;
+use utils::errno;
 
 /// State of a guest memory region saved to file/buffer.
 #[derive(Debug, PartialEq, Versionize)]
@@ -69,6 +70,8 @@ pub enum Error {
     CreateMemory(vm_memory::Error),
     /// Cannot create region.
     CreateRegion(vm_memory::mmap::MmapRegionError),
+    /// Cannot fetch system's page size.
+    PageSize(errno::Error),
     /// Cannot dump memory.
     WriteMemory(GuestMemoryError),
 }
@@ -80,6 +83,7 @@ impl Display for Error {
             FileHandle(err) => write!(f, "Cannot access file: {:?}", err),
             CreateMemory(err) => write!(f, "Cannot create memory: {:?}", err),
             CreateRegion(err) => write!(f, "Cannot create memory region: {:?}", err),
+            PageSize(err) => write!(f, "Cannot fetch system's page size: {:?}", err),
             WriteMemory(err) => write!(f, "Cannot dump memory: {:?}", err),
         }
     }
@@ -117,8 +121,8 @@ impl SnapshotMemory for GuestMemoryMmap {
         writer: &mut T,
         dirty_bitmap: &DirtyBitmap,
     ) -> std::result::Result<(), Error> {
-        let page_size = sysconf::page::pagesize();
         let mut writer_offset = 0;
+        let page_size = get_page_size()?;
 
         self.with_regions_mut(|slot, region| {
             let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
@@ -200,6 +204,13 @@ impl SnapshotMemory for GuestMemoryMmap {
     }
 }
 
+fn get_page_size() -> Result<usize, Error> {
+    match unsafe { libc::sysconf(libc::_SC_PAGESIZE) } {
+        -1 => Err(Error::PageSize(errno::Error::last())),
+        ps => Ok(ps as usize),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -211,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_describe_state() {
-        let page_size: usize = sysconf::page::pagesize();
+        let page_size: usize = get_page_size().unwrap();
 
         // Two regions of one page each, with a one page gap between them.
         let mem_regions = [
@@ -266,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_restore_memory() {
-        let page_size: usize = sysconf::page::pagesize();
+        let page_size: usize = get_page_size().unwrap();
 
         // Two regions of two pages each, with a one page gap between them.
         let mem_regions = [
