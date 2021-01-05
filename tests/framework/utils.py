@@ -252,18 +252,19 @@ def get_files_from(find_path: str, pattern: str, exclude_names: list = None,
     :return: list of found files
     """
     found = []
-
     # For each directory in the given path
     for path_dir in os.scandir(find_path):
         # Check if it should be skipped
         if path_dir.name in exclude_names or os.path.isfile(path_dir):
             continue
-
         # Run glob inside the folder with the given pattern
         found.extend(
             glob.glob(f"{find_path}/{path_dir.name}/**/{pattern}",
                       recursive=recursive))
-
+    # scandir will not look at the files matching the pattern in the
+    # current directory.
+    found.extend(
+        glob.glob(f"{find_path}/./{pattern}"))
     return found
 
 
