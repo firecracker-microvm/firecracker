@@ -15,6 +15,5 @@ pub mod byte_order;
 pub mod net;
 pub mod signal;
 pub mod sm;
-pub mod structs;
 pub mod time;
 pub mod validators;
