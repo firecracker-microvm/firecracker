@@ -13,8 +13,10 @@
 //! This implementation is mmap-ing the memory of the guest into the current process.
 
 use std::borrow::Borrow;
-use std::io::{Read, Write};
+use std::io::{Error as IoError, Read, Write};
 use std::ops::Deref;
+use std::os::unix::io::AsRawFd;
+use std::ptr::null_mut;
 use std::result;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -40,6 +42,9 @@ pub use vm_memory_upstream::mmap::{check_file_offset, Error};
 
 // The maximum number of bytes that can be read/written at a time.
 static MAX_ACCESS_CHUNK: usize = 4096;
+
+// The number of guard pages per region is a multiple of 2.
+const GUARD_NUMBER: usize = 2;
 
 /// [`GuestMemoryRegion`](trait.GuestMemoryRegion.html) implementation that mmaps the guest's
 /// memory region in the current process.
@@ -98,6 +103,73 @@ impl GuestRegionMmap {
         // It's safe to unwrap because we're starting at offset 0 and specify the exact
         // length of the mapping.
         self.mapping.get_slice(0, self.mapping.len()).unwrap()
+    }
+
+    /// Creates a guarded mapping based on the provided arguments.
+    /// Guard pages will be created at the beginning and the end of the range.
+    ///
+    /// # Arguments
+    /// * `file_offset` - if provided, the method will create a file mapping at offset
+    ///                   `file_offset.start` in the file referred to by `file_offset.file`.
+    /// * `size` - The size of the memory region in bytes.
+    /// * `prot` - The desired memory protection of the mapping.
+    /// * `flags` - This argument determines whether updates to the mapping are visible to other
+    ///             processes mapping the same region, and whether updates are carried through to
+    ///             the underlying file.
+    pub fn build_guarded(
+        file_offset: Option<FileOffset>,
+        size: usize,
+        prot: i32,
+        flags: i32,
+    ) -> Result<MmapRegion, MmapRegionError> {
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+        // Create the guarded range size (received size + X pages),
+        // where X is defined as a constant GUARD_NUMBER.
+        let guarded_size = size + GUARD_NUMBER * page_size;
+
+        // Map the guarded range to PROT_NONE
+        let guard_addr = unsafe {
+            libc::mmap(
+                null_mut(),
+                guarded_size,
+                libc::PROT_NONE,
+                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_NORESERVE,
+                -1,
+                0,
+            )
+        };
+
+        if guard_addr == libc::MAP_FAILED {
+            return Err(MmapRegionError::Mmap(IoError::last_os_error()));
+        }
+
+        let (fd, offset) = if let Some(ref f_off) = file_offset {
+            check_file_offset(f_off, size)?;
+            (f_off.file().as_raw_fd(), f_off.start())
+        } else {
+            (-1, 0)
+        };
+
+        let map_addr = guard_addr as usize + page_size * (GUARD_NUMBER / 2);
+
+        // Inside the protected range, starting with guard_addr + PAGE_SIZE,
+        // map the requested range with received protection and flags
+        let addr = unsafe {
+            libc::mmap(
+                map_addr as *mut libc::c_void,
+                size,
+                prot,
+                flags | libc::MAP_FIXED,
+                fd,
+                offset as libc::off_t,
+            )
+        };
+
+        if addr == libc::MAP_FAILED {
+            return Err(MmapRegionError::Mmap(IoError::last_os_error()));
+        }
+
+        Ok(unsafe { MmapRegion::build_raw(addr as *mut u8, size, prot, flags)? })
     }
 }
 
@@ -349,6 +421,65 @@ impl GuestMemoryMmap {
         Self::from_ranges_with_files(ranges.iter().map(|r| (r.0, r.1, None)), true)
     }
 
+    /// Creates a container and allocates anonymous memory for guest memory regions. Each region is surrounded by
+    /// page guards. Allows the setting of dirty page tracking.
+    ///
+    /// Valid memory regions are specified as a slice of (Address, Size) tuples sorted by Address. It is imporant
+    /// to note that Size has to be a page size multiple.
+    pub fn from_ranges_guarded(
+        ranges: &[(GuestAddress, usize)],
+        track_dirty_pages: bool,
+    ) -> result::Result<Self, Error> {
+        Self::from_ranges_with_files_guarded(
+            ranges.iter().map(|r| (r.0, r.1, None)),
+            track_dirty_pages,
+        )
+    }
+
+    /// Helper function for from_ranges_with_files.
+    /// Allows setting a custom memory range build function.
+    ///
+    /// Creates a container and allocates anonymous memory for guest memory regions.
+    ///
+    /// # Arguments
+    ///
+    /// * 'ranges' - Iterator over a sequence of (Address, Size, Option<FileOffset>)
+    ///              tuples sorted by Address.
+    /// * 'track_dirty_pages' - Whether or not dirty page tracking is enabled.
+    ///                         If set, it creates a dedicated bitmap for tracing memory writes
+    ///                         specific to every region.
+    /// * 'build_fn' - A function that builds and returns a MmapRegion.
+    fn from_ranges_with_files_helper<A, T, F>(
+        ranges: T,
+        track_dirty_pages: bool,
+        mut build_fn: F,
+    ) -> result::Result<Self, Error>
+    where
+        A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
+        T: IntoIterator<Item = A>,
+        F: FnMut(Option<FileOffset>, usize) -> Result<MmapRegion, MmapRegionError>,
+    {
+        Self::from_regions(
+            ranges
+                .into_iter()
+                .map(|x| {
+                    let guest_base = x.borrow().0;
+                    let size = x.borrow().1;
+
+                    build_fn(x.borrow().2.clone(), size)
+                        .map_err(Error::MmapRegion)
+                        .and_then(|r| {
+                            let mut mmap = GuestRegionMmap::new(r, guest_base)?;
+                            if track_dirty_pages {
+                                mmap.enable_dirty_page_tracking();
+                            }
+                            Ok(mmap)
+                        })
+                })
+                .collect::<result::Result<Vec<_>, Error>>()?,
+        )
+    }
+
     /// Creates a container and allocates anonymous memory for guest memory regions.
     ///
     /// # Arguments
@@ -366,28 +497,53 @@ impl GuestMemoryMmap {
         A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
         T: IntoIterator<Item = A>,
     {
-        Self::from_regions(
-            ranges
-                .into_iter()
-                .map(|x| {
-                    let guest_base = x.borrow().0;
-                    let size = x.borrow().1;
+        Self::from_ranges_with_files_helper(
+            ranges,
+            track_dirty_pages,
+            |file_offset: Option<FileOffset>, size: usize| -> Result<MmapRegion, MmapRegionError> {
+                if let Some(ref f_off) = file_offset {
+                    MmapRegion::from_file(f_off.clone(), size)
+                } else {
+                    MmapRegion::new(size)
+                }
+            },
+        )
+    }
 
-                    if let Some(ref f_off) = x.borrow().2 {
-                        MmapRegion::from_file(f_off.clone(), size)
-                    } else {
-                        MmapRegion::new(size)
-                    }
-                    .map_err(Error::MmapRegion)
-                    .and_then(|r| {
-                        let mut mmap = GuestRegionMmap::new(r, guest_base)?;
-                        if track_dirty_pages {
-                            mmap.enable_dirty_page_tracking();
-                        }
-                        Ok(mmap)
-                    })
-                })
-                .collect::<result::Result<Vec<_>, Error>>()?,
+    /// Creates a container and allocates anonymous memory for guest memory regions.
+    /// Each region is surrounded by guard pages.
+    ///
+    /// The size of each guest memory region has to be a multiple of page size.
+    ///
+    /// # Arguments
+    ///
+    /// * 'ranges' - Iterator over a sequence of (Address, Size, Option<FileOffset>)
+    ///              tuples sorted by Address.
+    /// * 'track_dirty_pages' - Whether or not dirty page tracking is enabled.
+    ///                         If set, it creates a dedicated bitmap for tracing memory writes
+    ///                         specific to every region.
+    pub fn from_ranges_with_files_guarded<A, T>(
+        ranges: T,
+        track_dirty_pages: bool,
+    ) -> result::Result<Self, Error>
+    where
+        A: Borrow<(GuestAddress, usize, Option<FileOffset>)>,
+        T: IntoIterator<Item = A>,
+    {
+        Self::from_ranges_with_files_helper(
+            ranges,
+            track_dirty_pages,
+            |file_offset: Option<FileOffset>, size: usize| -> Result<MmapRegion, MmapRegionError> {
+                let prot = libc::PROT_READ | libc::PROT_WRITE;
+                let file_flags = libc::MAP_NORESERVE | libc::MAP_SHARED;
+                let create_flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
+
+                if let Some(ref f_off) = file_offset {
+                    GuestRegionMmap::build_guarded(Some(f_off.clone()), size, prot, file_flags)
+                } else {
+                    GuestRegionMmap::build_guarded(None, size, prot, create_flags)
+                }
+            },
         )
     }
 
@@ -1522,5 +1678,161 @@ mod tests {
         // dirty page tracking not enabled for all
         gm.regions.append(&mut dirty_tracking_gm.regions);
         assert!(!gm.is_dirty_tracking_enabled());
+    }
+
+    enum AddrOp {
+        Read,
+        Write,
+    }
+
+    fn apply_operation_on_address(addr: *mut u8, op: AddrOp) {
+        let pid = unsafe { libc::fork() };
+        match pid {
+            0 => {
+                match op {
+                    AddrOp::Read => {
+                        let value = unsafe { std::ptr::read(addr) };
+                        // We have to do something with the value, else,
+                        // the Release version will optimize it out, making the test fail
+                        println!("SIGSEGV: {}", value);
+                    }
+                    AddrOp::Write => unsafe {
+                        std::ptr::write(addr, 0xFF);
+                    },
+                }
+                unreachable!();
+            }
+            child_pid => {
+                let mut child_status: i32 = -1;
+                let pid_done = unsafe { libc::waitpid(child_pid, &mut child_status, 0) };
+                assert_eq!(pid_done, child_pid);
+
+                // Asserts that the child process terminated because
+                // it received a signal that was not handled.
+                assert!(libc::WIFSIGNALED(child_status));
+                // Signal code should be a SIGSEGV (11)
+                assert_eq!(libc::WTERMSIG(child_status), 11);
+            }
+        };
+    }
+
+    fn validate_guard_region(region: &MmapRegion) {
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+
+        // Check that the created range allows us to write inside it
+        let addr = region.as_ptr();
+
+        unsafe {
+            std::ptr::write(addr, 0xFF);
+            assert_eq!(std::ptr::read(addr), 0xFF);
+        }
+
+        // Try a read/write operation against the left guard border of the range
+        let left_border = (addr as usize - page_size) as *mut u8;
+        apply_operation_on_address(left_border, AddrOp::Read);
+        apply_operation_on_address(left_border, AddrOp::Write);
+
+        // Try a read/write operation against the right guard border of the range
+        let right_border = (addr as usize + region.size()) as *mut u8;
+        apply_operation_on_address(right_border, AddrOp::Read);
+        apply_operation_on_address(right_border, AddrOp::Write);
+    }
+
+    #[test]
+    fn test_create_guard_region() {
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+        let size = page_size * 10;
+        let prot = libc::PROT_READ | libc::PROT_WRITE;
+        let flags = libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE;
+
+        let region = GuestRegionMmap::build_guarded(None, size, prot, flags).unwrap();
+
+        // Verify that the region was built correctly
+        assert_eq!(region.size(), size);
+        assert!(region.file_offset().is_none());
+        assert_eq!(region.prot(), prot);
+        assert_eq!(region.flags(), flags);
+
+        validate_guard_region(&region);
+    }
+
+    #[test]
+    fn test_create_guard_region_from_file() {
+        let file = TempFile::new().unwrap().into_file();
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+
+        let prot = libc::PROT_READ | libc::PROT_WRITE;
+        let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
+        let offset = 0;
+        let size = 10 * page_size;
+        assert_eq!(unsafe { libc::ftruncate(file.as_raw_fd(), 4096 * 10) }, 0);
+
+        let region =
+            GuestRegionMmap::build_guarded(Some(FileOffset::new(file, offset)), size, prot, flags)
+                .unwrap();
+
+        // Verify that the region was built correctly
+        assert_eq!(region.size(), size);
+        // assert_eq!(region.file_offset().unwrap().start(), offset as u64);
+        assert_eq!(region.prot(), prot);
+        assert_eq!(region.flags(), flags);
+
+        validate_guard_region(&region);
+    }
+
+    fn loop_guard_region_to_segvfault(region: &MmapRegion) {
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+
+        let pid = unsafe { libc::fork() };
+        match pid {
+            0 => {
+                let mut addr = region.as_ptr() as usize;
+                let right_page_guard = addr + region.size();
+                loop {
+                    unsafe {
+                        std::ptr::write(addr as *mut u8, 0xFF);
+                    }
+
+                    if addr == right_page_guard {
+                        break;
+                    }
+                    addr += page_size;
+                }
+                unsafe {
+                    libc::exit(0);
+                }
+            }
+            child_pid => {
+                let mut child_status: i32 = -1;
+                let pid_done = unsafe { libc::waitpid(child_pid, &mut child_status, 0) };
+                assert_eq!(pid_done, child_pid);
+
+                // Asserts that the child process terminated because
+                // it received a signal that was not handled.
+                assert!(libc::WIFSIGNALED(child_status));
+                // Signal code should be a SIGSEGV (11)
+                assert_eq!(libc::WTERMSIG(child_status), 11);
+            }
+        };
+    }
+
+    #[test]
+    fn test_regions_guarded() {
+        let region_size = 0x10000;
+        let regions = vec![
+            (GuestAddress(0x0), region_size),
+            (GuestAddress(0x10000), region_size),
+            (GuestAddress(0x20000), region_size),
+            (GuestAddress(0x30000), region_size),
+        ];
+
+        let guest_memory = GuestMemoryMmap::from_ranges_guarded(&regions, false).unwrap();
+        guest_memory
+            .with_regions(|_, region| -> Result<(), Error> {
+                validate_guard_region(region);
+                loop_guard_region_to_segvfault(region);
+                Ok(())
+            })
+            .unwrap();
     }
 }
