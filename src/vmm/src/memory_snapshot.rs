@@ -11,7 +11,7 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{
     Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
-    GuestMemoryRegion, GuestRegionMmap, MemoryRegionAddress, MmapRegion,
+    GuestMemoryRegion, GuestRegionMmap, MemoryRegionAddress,
 };
 
 use crate::DirtyBitmap;
@@ -174,7 +174,7 @@ impl SnapshotMemory for GuestMemoryMmap {
     ) -> std::result::Result<Self, Error> {
         let mut mmap_regions = Vec::new();
         for region in state.regions.iter() {
-            let mmap_region = MmapRegion::build(
+            let mmap_region = GuestRegionMmap::build_guarded(
                 Some(FileOffset::new(
                     file.try_clone().map_err(Error::FileHandle)?,
                     region.offset,

@@ -456,15 +456,10 @@ pub fn create_guest_memory(
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
-    if !track_dirty_pages {
-        Ok(GuestMemoryMmap::from_ranges(&arch_mem_regions)
-            .map_err(StartMicrovmError::GuestMemoryMmap)?)
-    } else {
-        Ok(
-            GuestMemoryMmap::from_ranges_with_tracking(&arch_mem_regions)
-                .map_err(StartMicrovmError::GuestMemoryMmap)?,
-        )
-    }
+    Ok(
+        GuestMemoryMmap::from_ranges_guarded(&arch_mem_regions, track_dirty_pages)
+            .map_err(StartMicrovmError::GuestMemoryMmap)?,
+    )
 }
 
 fn load_kernel(
