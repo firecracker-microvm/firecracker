@@ -8,6 +8,8 @@
 use libc::{c_int, c_void, siginfo_t};
 #[cfg(not(test))]
 use std::sync::Barrier;
+#[cfg(test)]
+use std::sync::Mutex;
 use std::{
     cell::Cell,
     fmt::{Display, Formatter},
@@ -26,6 +28,7 @@ use kvm_ioctls::VcpuExit;
 use logger::{error, info, IncMetric, METRICS};
 use seccomp::{BpfProgram, SeccompFilter};
 use utils::{
+    errno,
     eventfd::EventFd,
     signal::{register_signal_handler, sigrtmin, Killable},
     sm::StateMachine,
@@ -38,6 +41,7 @@ pub(crate) mod x86_64;
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) use aarch64::{Error as VcpuError, *};
+
 #[cfg(target_arch = "x86_64")]
 pub(crate) use x86_64::{Error as VcpuError, *};
 
@@ -110,6 +114,10 @@ pub struct Vcpu {
     response_receiver: Option<Receiver<VcpuResponse>>,
     // The transmitting end of the responses channel owned by the vcpu side.
     response_sender: Sender<VcpuResponse>,
+
+    // Exit reason used to test run_emulation function.
+    #[cfg(test)]
+    vcpu_exit_reason: Mutex<Option<std::result::Result<VcpuExit<'static>, errno::Error>>>,
 }
 
 impl Vcpu {
@@ -215,6 +223,8 @@ impl Vcpu {
             response_receiver: Some(response_receiver),
             response_sender,
             kvm_vcpu,
+            #[cfg(test)]
+            vcpu_exit_reason: Mutex::new(None),
         })
     }
 
@@ -429,11 +439,16 @@ impl Vcpu {
         StateMachine::finish()
     }
 
+    #[cfg(not(test))]
+    pub fn emulate(&self) -> std::result::Result<VcpuExit, errno::Error> {
+        self.kvm_vcpu.fd.run()
+    }
+
     /// Runs the vCPU in KVM context and handles the kvm exit reason.
     ///
     /// Returns error or enum specifying whether emulation was handled or interrupted.
     pub fn run_emulation(&self) -> Result<VcpuEmulation> {
-        match self.kvm_vcpu.fd.run() {
+        match self.emulate() {
             Ok(run) => match run {
                 VcpuExit::MmioRead(addr, data) => {
                     if let Some(mmio_bus) = &self.kvm_vcpu.mmio_bus {
@@ -516,7 +531,8 @@ impl Vcpu {
                         );
                         Err(Error::FaultyKvmExit(
                             "Received ENOSYS error because KVM failed to emulate an instruction."
-                                .to_string()))
+                                .to_string(),
+                        ))
                     }
                     _ => {
                         METRICS.vcpu.failures.inc();
@@ -610,6 +626,7 @@ impl VcpuHandle {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum VcpuEmulation {
     Handled,
     Interrupted,
@@ -621,14 +638,144 @@ mod tests {
     use std::{
         convert::TryInto,
         fmt,
+        sync::Mutex,
         sync::{Arc, Barrier},
         time::Duration,
     };
 
     use super::*;
+    use crate::vstate::vcpu::Error as EmulationError;
     use crate::vstate::vm::{tests::setup_vm, Vm};
+    use utils::errno;
     use utils::signal::validate_signal_num;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
+
+    struct DummyDevice;
+    impl devices::BusDevice for DummyDevice {}
+
+    impl Vcpu {
+        pub fn emulate(&self) -> std::result::Result<VcpuExit, errno::Error> {
+            self.vcpu_exit_reason
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap_or_else(|| Err(errno::Error::new(libc::SIGILL)))
+        }
+    }
+
+    #[test]
+    fn test_run_emulation() {
+        let (_vm, mut vcpu, _vm_mem) = setup_vcpu(0x1000);
+        vcpu.vcpu_exit_reason = Mutex::new(Some(Ok(VcpuExit::Hlt)));
+        let res = vcpu.run_emulation();
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
+
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::Shutdown));
+        let res = vcpu.run_emulation();
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
+
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::FailEntry));
+        let res = vcpu.run_emulation();
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{:?}", res.unwrap_err()),
+            format!(
+                "{:?}",
+                EmulationError::FaultyKvmExit("FailEntry".to_string())
+            )
+        );
+
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::InternalError));
+        let res = vcpu.run_emulation();
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{:?}", res.unwrap_err()),
+            format!(
+                "{:?}",
+                EmulationError::FaultyKvmExit("InternalError".to_string())
+            )
+        );
+
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(2, 0)));
+        let res = vcpu.run_emulation();
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
+
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(1, 0)));
+        let res = vcpu.run_emulation();
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
+
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(3, 0)));
+        let res = vcpu.run_emulation();
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{:?}", res.unwrap_err()),
+            format!(
+                "{:?}",
+                EmulationError::FaultyKvmExit("SystemEvent(3, 0)".to_string())
+            )
+        );
+
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EAGAIN)));
+        let res = vcpu.run_emulation();
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), VcpuEmulation::Handled);
+
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::ENOSYS)));
+        let res = vcpu.run_emulation();
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{:?}", res.unwrap_err()),
+            format!(
+                "{:?}",
+                EmulationError::FaultyKvmExit(
+                    "Received ENOSYS error because KVM failed to emulate an instruction."
+                        .to_string()
+                )
+            )
+        );
+
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EINTR)));
+        let res = vcpu.run_emulation();
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), VcpuEmulation::Interrupted);
+
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EINVAL)));
+        let res = vcpu.run_emulation();
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{:?}", res.unwrap_err()),
+            format!(
+                "{:?}",
+                EmulationError::FaultyKvmExit("Invalid argument (os error 22)".to_string())
+            )
+        );
+
+        let mut bus = devices::Bus::new();
+        let dummy = Arc::new(Mutex::new(DummyDevice));
+        bus.insert(dummy, 0x10, 0x10).unwrap();
+        vcpu.set_mmio_bus(bus);
+        let addr = 0x10;
+        static mut DATA: [u8; 4] = [0, 0, 0, 0];
+
+        unsafe {
+            *(vcpu.vcpu_exit_reason.lock().unwrap()) =
+                Some(Ok(VcpuExit::MmioRead(addr, &mut DATA)));
+        }
+        let res = vcpu.run_emulation();
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), VcpuEmulation::Handled);
+
+        unsafe {
+            *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::MmioWrite(addr, &DATA)));
+        }
+        let res = vcpu.run_emulation();
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), VcpuEmulation::Handled);
+    }
 
     impl PartialEq for VcpuResponse {
         fn eq(&self, other: &Self) -> bool {
