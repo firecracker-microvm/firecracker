@@ -514,7 +514,9 @@ impl Vcpu {
                         error!(
                             "Received ENOSYS error because KVM failed to emulate an instruction."
                         );
-                        Err(Error::FaultyKvmExit(format!("{}", e)))
+                        Err(Error::FaultyKvmExit(
+                            "Received ENOSYS error because KVM failed to emulate an instruction."
+                                .to_string()))
                     }
                     _ => {
                         METRICS.vcpu.failures.inc();
