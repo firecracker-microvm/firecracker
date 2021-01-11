@@ -5,6 +5,7 @@
 ### Changed
 
 - Changed Docker images repository from DockerHub to Amazon ECR.
+- Fixed off-by-one error in virtio-block descriptor address validation.
 
 ## [0.24.0]
 
