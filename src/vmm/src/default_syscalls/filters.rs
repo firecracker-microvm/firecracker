@@ -33,16 +33,10 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             ),
             // Called for expanding the heap
             allow_syscall(libc::SYS_brk),
-            // Used for metrics, via the helpers in utils/src/time.rs
-            allow_syscall_if(
-                libc::SYS_clock_gettime,
-                or![and![Cond::new(
-                    0,
-                    ArgLen::DWORD,
-                    Eq,
-                    libc::CLOCK_PROCESS_CPUTIME_ID as u64
-                )?],],
-            ),
+            // Used for metrics and logging, via the helpers in utils/src/time.rs
+            // It's not called on some platforms, because of vdso optimisations. In those cases,
+            // musl falls back to the regular syscall.
+            allow_syscall(libc::SYS_clock_gettime),
             allow_syscall(libc::SYS_close),
             // Needed for vsock
             allow_syscall(libc::SYS_connect),
