@@ -155,7 +155,6 @@ pub(crate) fn run_with_api(
                 from_vmm,
                 to_vmm_event_fd,
             )
-            .expect("Cannot create API server")
             .bind_and_run(
                 bind_path,
                 start_time_us,
