@@ -23,18 +23,25 @@ class StatisticFunction(ABC):
     def __call__(self) -> Any:
         """Builtin function needs to be implemented."""
 
+    @classmethod
+    @abstractmethod
+    def name(cls) -> str:
+        """Return the name identifier for the class."""
+
 
 # pylint: disable=R0903
-class Identity(StatisticFunction):
-    """A function which extracts the last observation from a list of...
-
-    ...observations.
-    """
+class GetFirstObservation(StatisticFunction):
+    """A function which return the first observation."""
 
     def __call__(self) -> Any:
-        """Get the last result only."""
-        assert len(self.results) == 1
+        """Get the first result only."""
+        assert len(self.results) > 0
         return self.results[0]
+
+    @classmethod
+    def name(cls) -> str:
+        """Return an identifier for `GetFirstObservation`."""
+        return "get_first_observation"
 
 
 # pylint: disable=R0903
@@ -48,6 +55,11 @@ class Min(StatisticFunction):
         """Get the minimum observation."""
         return min(self.results)
 
+    @classmethod
+    def name(cls) -> str:
+        """Return an identifier for `Min`."""
+        return "min"
+
 
 # pylint: disable=R0903
 class Max(StatisticFunction):
@@ -60,6 +72,11 @@ class Max(StatisticFunction):
         """Get the maximum observation."""
         return max(self.results)
 
+    @classmethod
+    def name(cls) -> str:
+        """Return an identifier for `Max`."""
+        return "max"
+
 
 # pylint: disable=R0903
 class Avg(StatisticFunction):
@@ -69,6 +86,11 @@ class Avg(StatisticFunction):
         """Get the average."""
         return mean(self.results)
 
+    @classmethod
+    def name(cls) -> str:
+        """Return an identifier for `Avg`."""
+        return "avg"
+
 
 # pylint: disable=R0903
 class Sum(StatisticFunction):
@@ -77,6 +99,11 @@ class Sum(StatisticFunction):
     def __call__(self) -> Any:
         """Get the sum."""
         return sum(self.results)
+
+    @classmethod
+    def name(cls) -> str:
+        """Return identifier for `Sum`."""
+        return "sum"
 
 
 # pylint: disable=R0903
@@ -94,9 +121,14 @@ class Stddev(StatisticFunction):
             return self.results[0]
         return stdev(self.results)
 
+    @classmethod
+    def name(cls) -> str:
+        """Return an identifier for `Stddev`."""
+        return "stddev"
+
 
 # pylint: disable=R0903
-class Percentile(StatisticFunction):
+class Percentile(StatisticFunction, ABC):
     """A function which computes the kth percentile of a list of...
 
     ...observations.
@@ -132,6 +164,11 @@ class Percentile50(Percentile):
         """Initialize the function."""
         super().__init__(results, 50)
 
+    @classmethod
+    def name(cls) -> str:
+        """Return an identifier for `Percentile50`."""
+        return "p50"
+
 
 class Percentile90(Percentile):
     """A function which computes the 90th percentile of a list of...
@@ -143,6 +180,11 @@ class Percentile90(Percentile):
         """Initialize the function."""
         super().__init__(results, 90)
 
+    @classmethod
+    def name(cls) -> str:
+        """Return an identifier for `Percentile90`."""
+        return "p90"
+
 
 class Percentile99(Percentile):
     """A function which computes the 99th percentile of a list of...
@@ -153,3 +195,8 @@ class Percentile99(Percentile):
     def __init__(self, results: List):
         """Initialize the function."""
         super().__init__(results, 99)
+
+    @classmethod
+    def name(cls) -> str:
+        """Return an identifier for `Percentile99`."""
+        return "p99"
