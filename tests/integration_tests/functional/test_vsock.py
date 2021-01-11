@@ -29,7 +29,7 @@ def test_vsock(
         test_microvm_with_ssh,
         network_config,
         bin_vsock_path,
-        test_session_root_path
+        test_fc_session_root_path
 ):
     """Vsock tests. See the module docstring for a high-level description."""
     vm = test_microvm_with_ssh
@@ -46,7 +46,7 @@ def test_vsock(
     vm.start()
 
     # Generate the random data blob file.
-    blob_path, blob_hash = make_blob(test_session_root_path)
+    blob_path, blob_hash = make_blob(test_fc_session_root_path)
     vm_blob_path = "/tmp/vsock/test.blob"
 
     # Set up a tmpfs drive on the guest, so we can copy the blob there.

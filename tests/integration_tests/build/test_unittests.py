@@ -17,7 +17,7 @@ TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
     "target",
     TARGETS
 )
-def test_unittests(test_session_root_path, target):
+def test_unittests(test_fc_session_root_path, target):
     """Run unit and doc tests for all supported targets."""
     extra_args = "--release --target {} ".format(target)
 
@@ -27,6 +27,6 @@ def test_unittests(test_session_root_path, target):
                     " code-coverage.")
 
     host.cargo_test(
-        test_session_root_path,
+        test_fc_session_root_path,
         extra_args=extra_args
     )
