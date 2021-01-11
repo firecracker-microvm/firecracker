@@ -1,5 +1,11 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
+#![deny(missing_docs)]
+//! Implements the interface for intercepting API requests, forwarding them to the VMM
+//! and responding to the user.
+//! It is constructed on top of an HTTP Server that uses Unix Domain Sockets and `EPOLL` to
+//! handle multiple connections on the same thread.
 mod parsed_request;
 mod request;
 
@@ -31,8 +37,11 @@ pub type ApiRequest = Box<VmmAction>;
 /// Shorthand type for a response containing a boxed Result.
 pub type ApiResponse = Box<std::result::Result<VmmData, VmmActionError>>;
 
+/// Errors thrown when binding the API server to the socket path.
 pub enum Error {
+    /// IO related error.
     Io(io::Error),
+    /// EventFD related error.
     Eventfd(io::Error),
 }
 
@@ -54,8 +63,9 @@ impl fmt::Debug for Error {
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+type Result<T> = std::result::Result<T, Error>;
 
+/// Structure associated with the API server implementation.
 pub struct ApiServer {
     /// MMDS info directly accessible from the API thread.
     mmds_info: Arc<Mutex<Mmds>>,
@@ -74,23 +84,92 @@ pub struct ApiServer {
 }
 
 impl ApiServer {
+    /// Constructor for `ApiServer`.
+    ///
+    /// Returns the newly formed `ApiServer`.
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
         instance_info: InstanceInfo,
         api_request_sender: mpsc::Sender<ApiRequest>,
         vmm_response_receiver: mpsc::Receiver<ApiResponse>,
         to_vmm_fd: EventFd,
-    ) -> Result<Self> {
-        Ok(ApiServer {
+    ) -> Self {
+        ApiServer {
             mmds_info,
             instance_info,
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
             vmm_fatal_error: false,
-        })
+        }
     }
 
+    /// Starts the HTTP Server by binding to the socket path provided as
+    /// an argument.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - the socket path on which the server will wait for requests.
+    /// * `start_time_us` - the timestamp for when the process was started in us.
+    /// * `start_time_cpu_us` - the timestamp for when the process was started in CPU us.
+    /// * `seccomp_filter` - the seccomp filter to apply.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use api_server::ApiServer;
+    /// use mmds::MMDS;
+    /// use seccomp::SeccompFilter;
+    /// use std::{
+    ///     convert::TryInto, io::Read, io::Write, os::unix::net::UnixStream, path::PathBuf,
+    ///     sync::mpsc::channel, thread, time::Duration,
+    /// };
+    /// use utils::{eventfd::EventFd, tempfile::TempFile};
+    /// use vmm::vmm_config::instance_info::InstanceInfo;
+    ///
+    /// let mut tmp_socket = TempFile::new().unwrap();
+    /// tmp_socket.remove().unwrap();
+    /// let path_to_socket = tmp_socket.as_path().to_str().unwrap().to_owned();
+    /// let api_thread_path_to_socket = path_to_socket.clone();
+    /// let instance_info = InstanceInfo {
+    ///     state: "Not started".to_string(),
+    ///     id: "test_serve_action_req".to_string(),
+    ///     vmm_version: "version 0.1.0".to_string(),
+    ///     app_name: "app name".to_string(),
+    /// };
+    ///
+    /// let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+    /// let (api_request_sender, _from_api) = channel();
+    /// let (to_api, vmm_response_receiver) = channel();
+    /// let mmds_info = MMDS.clone();
+    ///
+    /// thread::Builder::new()
+    ///     .name("fc_api_test".to_owned())
+    ///     .spawn(move || {
+    ///         ApiServer::new(
+    ///             mmds_info,
+    ///             instance_info,
+    ///             api_request_sender,
+    ///             vmm_response_receiver,
+    ///             to_vmm_fd,
+    ///         )
+    ///         .bind_and_run(
+    ///             PathBuf::from(api_thread_path_to_socket),
+    ///             Some(1),
+    ///             Some(1),
+    ///             SeccompFilter::empty().try_into().unwrap(),
+    ///         )
+    ///         .unwrap();
+    ///     })
+    ///     .unwrap();
+    ///
+    /// thread::sleep(Duration::new(0, 10_000_000));
+    /// let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
+    /// // Send a GET instance-info request.
+    /// assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
+    /// let mut buf: [u8; 100] = [0; 100];
+    /// assert!(sock.read(&mut buf[..]).unwrap() > 0);
+    /// ```
     pub fn bind_and_run(
         &mut self,
         path: PathBuf,
@@ -175,6 +254,7 @@ impl ApiServer {
         }
     }
 
+    /// Handles an API request received through the associated socket.
     pub fn handle_request(
         &mut self,
         request: &Request,
@@ -392,9 +472,7 @@ mod tests {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
-        )
-        .unwrap();
-
+        );
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
                 StartMicrovmError::MissingKernelConfig,
@@ -462,8 +540,7 @@ mod tests {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
-        )
-        .unwrap();
+        );
 
         let response = api_server.get_instance_info();
         assert_eq!(response.status(), StatusCode::OK);
@@ -489,8 +566,7 @@ mod tests {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
-        )
-        .unwrap();
+        );
 
         let response = api_server.get_mmds();
         assert_eq!(response.status(), StatusCode::OK);
@@ -516,9 +592,7 @@ mod tests {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
-        )
-        .unwrap();
-
+        );
         let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
         assert_eq!(response.status(), StatusCode::NoContent);
     }
@@ -543,8 +617,7 @@ mod tests {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
-        )
-        .unwrap();
+        );
 
         // MMDS data store is not yet initialized.
         let response = api_server.patch_mmds(serde_json::Value::Bool(true));
@@ -579,8 +652,7 @@ mod tests {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
-        )
-        .unwrap();
+        );
         to_api
             .send(Box::new(Err(VmmActionError::StartMicrovm(
                 StartMicrovmError::MissingKernelConfig,
@@ -688,7 +760,6 @@ mod tests {
                     vmm_response_receiver,
                     to_vmm_fd,
                 )
-                .expect("Cannot create API server")
                 .bind_and_run(
                     PathBuf::from(api_thread_path_to_socket),
                     Some(1),
