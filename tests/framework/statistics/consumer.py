@@ -57,7 +57,11 @@ class Consumer(ABC):
         """Aggregate custom information."""
         if not self._custom.get(self._iteration):
             self._custom[self._iteration] = dict()
-        self._custom[self._iteration][name] = value
+
+        if not self._custom[self._iteration].get(name):
+            self._custom[self._iteration][name] = list()
+
+        self._custom[self._iteration][name].append(value)
 
     def set_stat_def(self, value: StatisticDef):
         """Set statistics definition."""
@@ -77,37 +81,40 @@ class Consumer(ABC):
         """
         for ms_name in self._statistics_defs:
             if ms_name not in self._measurements_defs:
-                return False
+                assert False, f"'{ms_name}' can not be found in measurements" \
+                              " definitions."
 
         if self._consume_stats:
             # Verify if the gathered results for a measurement are
             # backed by measurements definitions.
             for ms_name in self._results:
                 if ms_name not in self._measurements_defs:
-                    return False
+                    assert False, f"'{ms_name}' can not be found in " \
+                                  "measurements definitions."
                 # Verify if the gathered statistics are backed by
                 # statistics definitions.
                 for st_name in self._results[ms_name]:
                     if st_name not in self._statistics_defs[ms_name]:
-                        return False
+                        assert False, f"'{st_name}' can not be found in " \
+                                      "statistics definitions."
         else:
             # Verify if the gathered measurements are backed by
             # measurements definitions.
             for ms_name in self._results:
                 if ms_name not in self._measurements_defs:
-                    return False
+                    assert False, f"'{ms_name}' can not be found in " \
+                                  "measurements definitions."
 
             # Verify if the defined statistics have corresponding
             # gathered measurements.
             for ms_name in self._statistics_defs:
                 if ms_name not in self._results:
-                    return False
+                    assert False, f"'{ms_name}' can not be found in " \
+                                  "the consumed measurements."
 
-        return True
-
-    def process(self) -> (dict, dict):
+    def process(self, verify_criteria=True) -> (dict, dict):
         """Generate statistics as a dictionary."""
-        assert self._validate()
+        self._validate()
         # Generate consumer stats.
         for ms_name in self._statistics_defs:
             self._statistics.setdefault(ms_name, {})[self.UNIT_KEY] \
@@ -124,7 +131,7 @@ class Consumer(ABC):
                         stat.func_cls(self._results[ms_name][self.DATA_KEY])()
 
                 # Check pass criteria.
-                if stat.criteria:
+                if stat.criteria and verify_criteria:
                     res = self._statistics[ms_name][st_name]
                     try:
                         stat.criteria.check(res)

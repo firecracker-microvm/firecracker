@@ -3,97 +3,149 @@
 
 """Module for common types definitions."""
 
-from collections import namedtuple, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from typing import List
 from .criteria import ComparisonCriteria
 from .function import StatisticFunction, Max, Min, \
-    Stddev, Percentile50, Percentile90, Percentile99, Avg
+    Stddev, Percentile50, Percentile90, Percentile99, Avg, Sum, \
+    GetFirstObservation
 
-MeasurementDef = namedtuple("MeasurementDefinition", "name unit")
+
+class DefaultMeasurement(Enum):
+    """Default measurements."""
+
+    CPU_UTILIZATION_VMM = 1
+    CPU_UTILIZATION_VCPUS_TOTAL = 2
 
 
-class DefaultStat(Enum):
-    """Default statistics."""
+@dataclass
+class MeasurementDef:
+    """Measurement definition data class."""
 
-    MAX = (1, "max")
-    MIN = (2, "min")
-    AVG = (3, "avg")
-    STDDEV = (4, "stddev")
-    P50 = (5, "p50")
-    P90 = (6, "p90")
-    P99 = (7, "p99")
+    name: str
+    unit: str
+
+    @classmethod
+    def cpu_utilization_vmm(cls):
+        """Return vmm cpu utilization measurement definition."""
+        return MeasurementDef(
+            DefaultMeasurement.CPU_UTILIZATION_VMM.name.lower(),
+            "percentage"
+        )
+
+    @classmethod
+    def cpu_utilization_vcpus_total(cls):
+        """Return vcpus total cpu utilization measurement definition."""
+        return MeasurementDef(
+            DefaultMeasurement.CPU_UTILIZATION_VCPUS_TOTAL.name.lower(),
+            "percentage"
+        )
 
 
 @dataclass
 class StatisticDef:
     """Statistic definition data class."""
 
-    name: str
+    _name: str
     measurement_name: str
     func_cls: StatisticFunction
     criteria: ComparisonCriteria = None
 
     @classmethod
-    def max(cls, measurement_name: str, criteria: ComparisonCriteria):
+    def max(cls, ms_name: str,
+            st_name: str = None,
+            criteria: ComparisonCriteria = None):
         """Return max statistics definition."""
-        return StatisticDef(DefaultStat.MAX.name,
-                            measurement_name,
+        return StatisticDef(st_name,
+                            ms_name,
                             Max,
                             criteria)
 
     @classmethod
-    def min(cls, measurement_name: str, criteria: ComparisonCriteria):
+    def min(cls, ms_name: str,
+            st_name: str = None,
+            criteria: ComparisonCriteria = None):
         """Return min statistics definition."""
-        return StatisticDef(DefaultStat.MIN.name,
-                            measurement_name,
+        return StatisticDef(st_name,
+                            ms_name,
                             Min,
                             criteria)
 
     @classmethod
-    def avg(cls, measurement_name, criteria):
+    def avg(cls, ms_name: str,
+            st_name: str = None,
+            criteria: ComparisonCriteria = None):
         """Return average statistics definition."""
-        return StatisticDef(DefaultStat.AVG.name,
-                            measurement_name,
+        return StatisticDef(st_name,
+                            ms_name,
                             Avg,
                             criteria)
 
     @classmethod
-    def stddev(cls, measurement_name: str, criteria: ComparisonCriteria):
+    def sum(cls, ms_name: str,
+            st_name: str = None,
+            criteria: ComparisonCriteria = None):
+        """Return average statistics definition."""
+        return StatisticDef(st_name,
+                            ms_name,
+                            Sum,
+                            criteria)
+
+    @classmethod
+    def stddev(cls, ms_name: str,
+               st_name: str = None,
+               criteria: ComparisonCriteria = None):
         """Return standard deviation statistics definition."""
-        return StatisticDef(DefaultStat.STDDEV.name,
-                            measurement_name,
+        return StatisticDef(st_name,
+                            ms_name,
                             Stddev,
                             criteria)
 
     @classmethod
-    def p50(cls, measurement_name: str, criteria: ComparisonCriteria):
+    def p50(cls, ms_name: str,
+            st_name: str = None,
+            criteria: ComparisonCriteria = None):
         """Return 50th percentile statistics definition."""
-        return StatisticDef(DefaultStat.P50.name,
-                            measurement_name,
+        return StatisticDef(st_name,
+                            ms_name,
                             Percentile50,
                             criteria)
 
     @classmethod
-    def p90(cls, measurement_name: str, criteria: ComparisonCriteria):
+    def p90(cls, ms_name: str,
+            st_name: str = None,
+            criteria: ComparisonCriteria = None):
         """Return 90th percentile statistics definition."""
-        return StatisticDef(DefaultStat.P90.name,
-                            measurement_name,
+        return StatisticDef(st_name,
+                            ms_name,
                             Percentile90,
                             criteria)
 
     @classmethod
-    def p99(cls, measurement_name: str, criteria: ComparisonCriteria):
+    def p99(cls, ms_name: str, st_name: str = None,
+            criteria: ComparisonCriteria = None):
         """Return 99th percentile statistics definition."""
-        return StatisticDef(DefaultStat.P99.name,
-                            measurement_name,
+        return StatisticDef(st_name,
+                            ms_name,
                             Percentile99,
+                            criteria)
+
+    @classmethod
+    def get_first_observation(cls, ms_name: str,
+                              st_name: str = None,
+                              criteria: ComparisonCriteria = None):
+        """Return first observation of the exercise."""
+        return StatisticDef(st_name,
+                            ms_name,
+                            GetFirstObservation,
                             criteria)
 
     @classmethod
     def defaults(cls,
                  measurement_name: str,
+                 functions: List[StatisticFunction],
                  pass_criteria: dict = None) \
             -> List['StatisticDef']:
         """Return list with default statistics definitions."""
@@ -102,19 +154,19 @@ class StatisticDef:
         else:
             pass_criteria = defaultdict(None, pass_criteria)
 
-        return [
-            cls.max(measurement_name,
-                    pass_criteria.get(DefaultStat.MAX.name)),
-            cls.min(measurement_name,
-                    pass_criteria.get(DefaultStat.MIN.name)),
-            cls.avg(measurement_name,
-                    pass_criteria.get(DefaultStat.AVG.name)),
-            cls.stddev(measurement_name,
-                       pass_criteria.get(DefaultStat.STDDEV.name)),
-            cls.p50(measurement_name,
-                    pass_criteria.get(DefaultStat.P50.name)),
-            cls.p90(measurement_name,
-                    pass_criteria.get(DefaultStat.P90.name)),
-            cls.p99(measurement_name,
-                    pass_criteria.get(DefaultStat.P99.name))
-        ]
+        default_stats = list()
+        for function in functions:
+            function_name = function.name()
+            default_stats.append(
+                getattr(StatisticDef, function_name)(
+                    ms_name=measurement_name,
+                    criteria=pass_criteria.get(function_name)
+                ))
+        return default_stats
+
+    @property
+    def name(self):
+        """Return the name used to identify the statistic definition."""
+        if not self._name:
+            self._name = self.func_cls.name()
+        return self._name
