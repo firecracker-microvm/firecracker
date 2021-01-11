@@ -26,6 +26,7 @@ BASELINES = {
 }
 
 PKT_LOSS = "pkt_loss"
+PKT_LOSS_STAT_KEY = "value"
 LATENCY = "latency"
 
 
@@ -35,7 +36,7 @@ def pass_criteria():
     target = BASELINES[platform.machine()]["target"]
 
     return {
-        types.DefaultStat.AVG.name: criteria.EqualWith(target, delta)
+        function.Avg.name(): criteria.EqualWith(target, delta)
     }
 
 
@@ -48,10 +49,16 @@ def measurements():
 def stats():
     """Define statistics based on the measurements."""
     # Add default statistics for "latency" measurement.
-    stats_defs = types.StatisticDef.defaults(LATENCY, pass_criteria())
-    stats_defs.append(consumer.StatisticDef(PKT_LOSS,
+    stats_defs = types.StatisticDef.defaults(LATENCY,
+                                             [function.Min, function.Stddev,
+                                              function.Max, function.Avg,
+                                              function.Percentile50,
+                                              function.Percentile90,
+                                              function.Percentile99],
+                                             pass_criteria())
+    stats_defs.append(consumer.StatisticDef(PKT_LOSS_STAT_KEY,
                                             PKT_LOSS,
-                                            function.Identity))
+                                            function.GetFirstObservation))
     return stats_defs
 
 
@@ -72,10 +79,10 @@ def consume_ping_output(cons, raw_data, requests):
     eager_map(cons.set_measurement_def, measurements())
     eager_map(cons.set_stat_def, stats())
 
-    st_keys = [types.DefaultStat.MIN.name,
-               types.DefaultStat.AVG.name,
-               types.DefaultStat.MAX.name,
-               types.DefaultStat.STDDEV.name]
+    st_keys = [function.Min.name(),
+               function.Avg.name(),
+               function.Max.name(),
+               function.Stddev.name()]
 
     output = raw_data.strip().split('\n')
     assert len(output) > 2
@@ -97,7 +104,7 @@ def consume_ping_output(cons, raw_data, requests):
                      " (.+)% packet loss"
     pkt_loss = re.findall(pattern_packet, packet_stats)[0]
     assert len(pkt_loss) == 1
-    cons.consume_stat(st_name=PKT_LOSS,
+    cons.consume_stat(st_name=PKT_LOSS_STAT_KEY,
                       ms_name=PKT_LOSS,
                       value=pkt_loss[0])
 
@@ -111,13 +118,13 @@ def consume_ping_output(cons, raw_data, requests):
         times.append(time[0])
 
     times.sort()
-    cons.consume_stat(st_name=types.DefaultStat.P50.name,
+    cons.consume_stat(st_name=function.Percentile50.name(),
                       ms_name=LATENCY,
                       value=times[int(requests * 0.5)])
-    cons.consume_stat(st_name=types.DefaultStat.P90.name,
+    cons.consume_stat(st_name=function.Percentile90.name(),
                       ms_name=LATENCY,
                       value=times[int(requests * 0.9)])
-    cons.consume_stat(st_name=types.DefaultStat.P99.name,
+    cons.consume_stat(st_name=function.Percentile99.name(),
                       ms_name=LATENCY,
                       value=times[int(requests * 0.99)])
 
