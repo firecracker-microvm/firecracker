@@ -7,12 +7,11 @@
 
 use std::convert::From;
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::mem;
 use std::result;
 
 use logger::{Metric, METRICS};
 use virtio_gen::virtio_blk::*;
-use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 use super::super::DescriptorChain;
 use super::{Error, SECTOR_SHIFT, SECTOR_SIZE};
@@ -158,13 +157,6 @@ impl Request {
                 return Err(Error::UnexpectedReadOnlyDescriptor);
             }
 
-            // Check that the address of the data descriptor is valid in guest memory.
-            let _ = mem
-                .checked_offset(data_desc.addr, data_desc.len as usize)
-                .ok_or(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(
-                    data_desc.addr,
-                )))?;
-
             req.data_addr = data_desc.addr;
             req.data_len = data_desc.len;
         }
@@ -177,14 +169,6 @@ impl Request {
         if status_desc.len < 1 {
             return Err(Error::DescriptorLengthTooSmall);
         }
-
-        // Check that the address of the status descriptor is valid in guest memory.
-        // We will write an u32 status here after executing the request.
-        let _ = mem
-            .checked_offset(status_desc.addr, mem::size_of::<u32>())
-            .ok_or(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(
-                status_desc.addr,
-            )))?;
 
         req.status_addr = status_desc.addr;
 
@@ -253,7 +237,7 @@ impl Request {
 mod tests {
     use super::*;
     use crate::virtio::queue::tests::*;
-    use vm_memory::{Address, GuestAddress};
+    use vm_memory::{Address, GuestAddress, GuestMemory};
 
     #[test]
     fn test_read_request_header() {
@@ -436,13 +420,12 @@ mod tests {
             // Fix status descriptor length.
             vq.dtable[status_descriptor].len.set(0x1000);
             // Invalid guest address for the status descriptor.
+            // Parsing will still succeed as the operation that
+            // will fail happens when executing the request.
             vq.dtable[status_descriptor]
                 .addr
                 .set(m.last_addr().raw_value());
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(_))) => true,
-                _ => false,
-            });
+            assert!(Request::parse(&q.pop(m).unwrap(), m).is_ok());
         }
 
         {
@@ -450,13 +433,12 @@ mod tests {
             // Restore status descriptor.
             vq.dtable[status_descriptor].set(0x3000, 0x1000, VIRTQ_DESC_F_WRITE, 0);
             // Invalid guest address for the data descriptor.
+            // Parsing will still succeed as the operation that
+            // will fail happens when executing the request.
             vq.dtable[data_descriptor]
                 .addr
                 .set(m.last_addr().raw_value());
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(_))) => true,
-                _ => false,
-            });
+            assert!(Request::parse(&q.pop(m).unwrap(), m).is_ok());
         }
 
         {
