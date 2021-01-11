@@ -87,29 +87,15 @@ import pytest
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
 import host_tools.proc as proc
-
-from framework.artifacts import ArtifactCollection
 import framework.utils as utils
+import framework.defs as defs
+from framework.artifacts import ArtifactCollection
 from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
 from framework.scheduler import PytestScheduler
 
-
-SPEC_S3_BUCKET = 'spec.ccfc.min'
-"""The s3 bucket that holds global Firecracker specifications."""
-
-DEFAULT_TEST_IMAGES_S3_BUCKET = 'spec.ccfc.min'
-"""The default s3 bucket that holds Firecracker microvm test images."""
-
-ENV_TEST_IMAGES_S3_BUCKET = 'TEST_MICROVM_IMAGES_S3_BUCKET'
-"""Environment variable for configuring the test microvm s3 bucket.
-
-If variable exists in `os.environ`, its value will be used as the s3 bucket
-for microvm test images.
-"""
-
+# Tests root directory.
 SCRIPT_FOLDER = os.path.dirname(os.path.realpath(__file__))
-
 
 # This codebase uses Python features available in Python 3.6 or above
 if sys.version_info < (3, 6):
@@ -134,8 +120,8 @@ if "AMD" in proc.proc_type():
 def _test_images_s3_bucket():
     """Auxiliary function for getting this session's bucket name."""
     return os.environ.get(
-        ENV_TEST_IMAGES_S3_BUCKET,
-        DEFAULT_TEST_IMAGES_S3_BUCKET
+        defs.ENV_TEST_IMAGES_S3_BUCKET,
+        defs.DEFAULT_TEST_IMAGES_S3_BUCKET
     )
 
 
@@ -188,28 +174,38 @@ def pytest_addoption(parser):
     return PytestScheduler.instance().do_pytest_addoption(parser)
 
 
-@pytest.fixture(autouse=True, scope='session')
 def test_session_root_path():
-    """Ensure and yield the testrun root directory.
+    """Create and return the testrun session root directory.
 
-    Created at session initialization time, this directory will be
-    session-unique. This is important, since the scheduler will run
-    multiple pytest sessions concurrently.
+    Testrun session root directory confines any other test temporary file.
+    If it exists, consider this as a noop.
     """
-    root_path = tempfile.mkdtemp(prefix="fctest-")
+    os.makedirs(defs.DEFAULT_TEST_SESSION_ROOT_PATH, exist_ok=True)
+    return defs.DEFAULT_TEST_SESSION_ROOT_PATH
 
-    yield root_path
 
-    shutil.rmtree(root_path)
+@pytest.fixture(autouse=True, scope='session')
+def test_fc_session_root_path():
+    """Ensure and yield the fc session root directory.
+
+    Create a unique temporary session directory. This is important, since the
+    scheduler will run multiple pytest sessions concurrently.
+    """
+    fc_session_root_path = tempfile.mkdtemp(
+        prefix="fctest-",
+        dir=f"{test_session_root_path()}"
+    )
+    yield fc_session_root_path
+    shutil.rmtree(fc_session_root_path)
 
 
 @pytest.fixture
-def test_session_tmp_path(test_session_root_path):
+def test_session_tmp_path(test_fc_session_root_path):
     """Yield a random temporary directory. Destroyed on teardown."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
-    tmp_path = tempfile.mkdtemp(prefix=test_session_root_path)
+    tmp_path = tempfile.mkdtemp(prefix=test_fc_session_root_path)
     yield tmp_path
     shutil.rmtree(tmp_path)
 
@@ -225,7 +221,7 @@ def _gcc_compile(src_file, output_file, extra_flags="-static -O3"):
 
 
 @pytest.fixture(scope='session')
-def bin_cloner_path(test_session_root_path):
+def bin_cloner_path(test_fc_session_root_path):
     """Build a binary that `clone`s into the jailer.
 
     It's necessary because Python doesn't interface well with the `clone()`
@@ -233,7 +229,7 @@ def bin_cloner_path(test_session_root_path):
     """
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
-    cloner_bin_path = os.path.join(test_session_root_path, 'newpid_cloner')
+    cloner_bin_path = os.path.join(test_fc_session_root_path, 'newpid_cloner')
     _gcc_compile(
         'host_tools/newpid_cloner.c',
         cloner_bin_path
@@ -242,12 +238,12 @@ def bin_cloner_path(test_session_root_path):
 
 
 @pytest.fixture(scope='session')
-def bin_vsock_path(test_session_root_path):
+def bin_vsock_path(test_fc_session_root_path):
     """Build a simple vsock client/server application."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
     vsock_helper_bin_path = os.path.join(
-        test_session_root_path,
+        test_fc_session_root_path,
         'vsock_helper'
     )
     _gcc_compile(
@@ -258,11 +254,11 @@ def bin_vsock_path(test_session_root_path):
 
 
 @pytest.fixture(scope='session')
-def change_net_config_space_bin(test_session_root_path):
+def change_net_config_space_bin(test_fc_session_root_path):
     """Build a binary that changes the MMIO config space."""
     # pylint: disable=redefined-outer-name
     change_net_config_space_bin = os.path.join(
-        test_session_root_path,
+        test_fc_session_root_path,
         'change_net_config_space'
     )
     _gcc_compile(
@@ -274,7 +270,7 @@ def change_net_config_space_bin(test_session_root_path):
 
 
 @pytest.fixture(scope='session')
-def bin_seccomp_paths(test_session_root_path):
+def bin_seccomp_paths(test_fc_session_root_path):
     """Build jailers and jailed binaries to test seccomp.
 
     They currently consist of:
@@ -287,7 +283,7 @@ def bin_seccomp_paths(test_session_root_path):
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
     seccomp_build_path = os.path.join(
-        test_session_root_path,
+        test_fc_session_root_path,
         build_tools.CARGO_RELEASE_REL_PATH
     )
 
@@ -298,7 +294,7 @@ def bin_seccomp_paths(test_session_root_path):
                             src_dir='integration_tests/security/demo_seccomp')
 
     release_binaries_path = os.path.join(
-        test_session_root_path,
+        test_fc_session_root_path,
         build_tools.CARGO_RELEASE_REL_PATH,
         build_tools.RELEASE_BINARIES_REL_PATH
     )
@@ -337,17 +333,17 @@ def bin_seccomp_paths(test_session_root_path):
 
 
 @pytest.fixture()
-def microvm(test_session_root_path, bin_cloner_path):
+def microvm(test_fc_session_root_path, bin_cloner_path):
     """Instantiate a microvm."""
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
 
     # Make sure the necessary binaries are there before instantiating the
     # microvm.
-    vm = init_microvm(test_session_root_path, bin_cloner_path)
+    vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
     yield vm
     vm.kill()
-    shutil.rmtree(os.path.join(test_session_root_path, vm.id))
+    shutil.rmtree(os.path.join(test_fc_session_root_path, vm.id))
 
 
 @pytest.fixture
@@ -382,7 +378,7 @@ def test_microvm_any(request, microvm):
 
 @pytest.fixture
 def test_multiple_microvms(
-        test_session_root_path,
+        test_fc_session_root_path,
         context,
         bin_cloner_path
 ):
@@ -400,7 +396,7 @@ def test_multiple_microvms(
 
     # When the context specifies multiple microvms, we use the first vm to
     # populate the other ones by hardlinking its resources.
-    first_vm = init_microvm(test_session_root_path, bin_cloner_path)
+    first_vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
     MICROVM_S3_FETCHER.init_vm_resources(
         microvm_resources,
         first_vm
@@ -411,7 +407,7 @@ def test_multiple_microvms(
     # asserts that the `how_many` parameter is always positive
     # (i.e strictly greater than 0).
     for _ in range(how_many - 1):
-        vm = init_microvm(test_session_root_path, bin_cloner_path)
+        vm = init_microvm(test_fc_session_root_path, bin_cloner_path)
         MICROVM_S3_FETCHER.hardlink_vm_resources(
             microvm_resources,
             first_vm,
@@ -423,7 +419,7 @@ def test_multiple_microvms(
 
     for i in range(how_many):
         microvms[i].kill()
-        shutil.rmtree(os.path.join(test_session_root_path, microvms[i].id))
+        shutil.rmtree(os.path.join(test_fc_session_root_path, microvms[i].id))
 
 
 def pytest_generate_tests(metafunc):

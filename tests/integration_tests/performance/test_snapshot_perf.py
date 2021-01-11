@@ -6,8 +6,9 @@ import json
 import logging
 import os
 import platform
-from conftest import _test_images_s3_bucket, DEFAULT_TEST_IMAGES_S3_BUCKET
+from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
+from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
 from framework.matrix import TestMatrix, TestContext
 from framework.microvms import VMMicro
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
