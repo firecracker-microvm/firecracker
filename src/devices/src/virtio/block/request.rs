@@ -160,7 +160,7 @@ impl Request {
 
             // Check that the address of the data descriptor is valid in guest memory.
             let _ = mem
-                .checked_offset(data_desc.addr, data_desc.len as usize)
+                .checked_offset(data_desc.addr, (data_desc.len - 1) as usize)
                 .ok_or(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(
                     data_desc.addr,
                 )))?;
@@ -181,7 +181,7 @@ impl Request {
         // Check that the address of the status descriptor is valid in guest memory.
         // We will write an u32 status here after executing the request.
         let _ = mem
-            .checked_offset(status_desc.addr, mem::size_of::<u32>())
+            .checked_offset(status_desc.addr, (mem::size_of::<u32>() - 1) as usize)
             .ok_or(Error::GuestMemory(GuestMemoryError::InvalidGuestAddress(
                 status_desc.addr,
             )))?;
