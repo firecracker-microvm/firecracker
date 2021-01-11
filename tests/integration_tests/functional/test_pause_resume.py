@@ -4,6 +4,7 @@
 
 import os
 from framework.microvms import VMNano
+from framework.resources import DescribeInstance
 import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 
@@ -96,5 +97,45 @@ def test_pause_resume(bin_cloner_path):
     # Verify guest is still active.
     exit_code, _, _ = ssh_connection.execute_command("ls")
     assert exit_code == 0
+
+    microvm.kill()
+
+
+def test_describe_instance(bin_cloner_path):
+    """Test scenario: DescribeInstance different states."""
+    vm_instance = VMNano.spawn(bin_cloner_path)
+    microvm = vm_instance.vm
+    descr_inst = DescribeInstance(microvm.api_socket, microvm.api_session)
+
+    # Check MicroVM state is "Not started"
+    response = descr_inst.get()
+    assert microvm.api_session.is_status_ok(response.status_code)
+    assert "Not started" in response.text
+
+    # Start MicroVM
+    microvm.start()
+
+    # Check MicroVM state is "Running"
+    response = descr_inst.get()
+    assert microvm.api_session.is_status_ok(response.status_code)
+    assert "Running" in response.text
+
+    # Pause MicroVM
+    response = microvm.vm.patch(state='Paused')
+    assert microvm.api_session.is_status_no_content(response.status_code)
+
+    # Check MicroVM state is "Paused"
+    response = descr_inst.get()
+    assert microvm.api_session.is_status_ok(response.status_code)
+    assert "Paused" in response.text
+
+    # Resume MicroVM
+    response = microvm.vm.patch(state='Resumed')
+    assert microvm.api_session.is_status_no_content(response.status_code)
+
+    # Check MicroVM state is "Running" after VM is resumed
+    response = descr_inst.get()
+    assert microvm.api_session.is_status_ok(response.status_code)
+    assert "Running" in response.text
 
     microvm.kill()
