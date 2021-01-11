@@ -9,11 +9,6 @@ use seccomp::{
 };
 use utils::signal::sigrtmin;
 
-#[cfg(target_arch = "aarch64")]
-pub const SYS_FTRUNCATE: libc::c_long = 46;
-#[cfg(target_arch = "x86_64")]
-pub const SYS_FTRUNCATE: libc::c_long = 77;
-
 /// The default filter containing the white listed syscall rules required by `Firecracker` to
 /// function.
 /// Any non-trivial modification to this allow list needs a proper comment to specify its source
@@ -33,16 +28,10 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             ),
             // Called for expanding the heap
             allow_syscall(libc::SYS_brk),
-            // Used for metrics, via the helpers in utils/src/time.rs
-            allow_syscall_if(
-                libc::SYS_clock_gettime,
-                or![and![Cond::new(
-                    0,
-                    ArgLen::DWORD,
-                    Eq,
-                    libc::CLOCK_PROCESS_CPUTIME_ID as u64
-                )?],],
-            ),
+            // Used for metrics and logging, via the helpers in utils/src/time.rs
+            // It's not called on some platforms, because of vdso optimisations. In those cases,
+            // musl falls back to the regular syscall.
+            allow_syscall(libc::SYS_clock_gettime),
             allow_syscall(libc::SYS_close),
             // Needed for vsock
             allow_syscall(libc::SYS_connect),
@@ -63,7 +52,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             // Used for drive patching & rescanning, for reading the local timezone
             allow_syscall(libc::SYS_fstat),
             // Used for snapshotting
-            allow_syscall(SYS_FTRUNCATE),
+            allow_syscall(libc::SYS_ftruncate),
             // Used for synchronization
             allow_syscall_if(
                 libc::SYS_futex,
@@ -100,11 +89,12 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall(libc::SYS_mremap),
             // Used for freeing memory
             allow_syscall(libc::SYS_munmap),
-            // Used for reading the timezone in LocalTime::now()
             allow_syscall_if(
                 libc::SYS_mmap,
                 or![
+                    // Used for reading the timezone in LocalTime::now()
                     and![Cond::new(3, ArgLen::DWORD, Eq, libc::MAP_SHARED as u64)?],
+                    // Used by the balloon device
                     and![Cond::new(
                         3,
                         ArgLen::DWORD,
