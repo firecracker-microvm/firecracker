@@ -230,9 +230,10 @@ impl Block {
                             e.status()
                         }
                     };
-                    // We use unwrap because the request parsing process already checked that the
-                    // status_addr was valid.
-                    mem.write_obj(status, request.status_addr).unwrap();
+
+                    if let Err(e) = mem.write_obj(status, request.status_addr) {
+                        error!("Failed to write virtio block status: {:?}", e)
+                    }
                 }
                 Err(e) => {
                     error!("Failed to parse available descriptor chain: {:?}", e);
@@ -585,6 +586,39 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_addr_out_of_bounds() {
+        let mut block = default_block();
+        // Default mem size is 0x10000
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        block.set_queue(0, vq.create_queue());
+        block.activate(mem.clone()).unwrap();
+        initialize_virtqueue(&vq);
+        vq.dtable[1].set(0xff00, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
+
+        let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
+
+        // Mark the next available descriptor.
+        vq.avail.idx.set(1);
+        // Read.
+        {
+            vq.used.idx.set(0);
+
+            mem.write_obj::<u32>(VIRTIO_BLK_T_IN, request_type_addr)
+                .unwrap();
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+
+            check_metric_after_block!(
+                &METRICS.block.execute_fails,
+                1,
+                invoke_handler_for_queue_event(&mut block)
+            );
+        }
+    }
+
+    #[test]
     fn test_request_execute_failures() {
         let mut block = default_block();
         let mem = default_mem();
@@ -670,6 +704,38 @@ pub(crate) mod tests {
             mem.read_obj::<u32>(status_addr).unwrap(),
             VIRTIO_BLK_S_UNSUPP
         );
+    }
+    #[test]
+    fn test_end_of_region() {
+        let mut block = default_block();
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        block.set_queue(0, vq.create_queue());
+        block.activate(mem.clone()).unwrap();
+        initialize_virtqueue(&vq);
+        vq.dtable[1].set(0xf000, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
+
+        let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
+        let status_addr = GuestAddress(vq.dtable[2].addr.get());
+
+        vq.used.idx.set(0);
+
+        mem.write_obj::<u32>(VIRTIO_BLK_T_IN, request_type_addr)
+            .unwrap();
+        vq.dtable[1]
+            .flags
+            .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+
+        check_metric_after_block!(
+            &METRICS.block.read_count,
+            1,
+            invoke_handler_for_queue_event(&mut block)
+        );
+
+        assert_eq!(vq.used.idx.get(), 1);
+        assert_eq!(vq.used.ring[0].get().id, 0);
+        assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get());
+        assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
     }
 
     #[test]
