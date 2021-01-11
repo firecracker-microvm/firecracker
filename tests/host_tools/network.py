@@ -59,6 +59,23 @@ class SSHConnection:
         else:
             utils.run_cmd(cmd)
 
+    def scp_get_file(self, remote_path, local_path):
+        """Copy files from the VM using scp."""
+        cmd = ('scp -o StrictHostKeyChecking=no'
+               ' -o UserKnownHostsFile=/dev/null'
+               ' -i {} {}@{}:{} {}').format(
+            self.ssh_config['ssh_key_path'],
+            self.ssh_config['username'],
+            self.ssh_config['hostname'],
+            remote_path,
+            local_path
+        )
+        if self.netns_file_path:
+            with Namespace(self.netns_file_path, 'net'):
+                utils.run_cmd(cmd)
+        else:
+            utils.run_cmd(cmd)
+
     @retry(ConnectionError, delay=0.1, tries=20)
     def _init_connection(self):
         """Create an initial SSH client connection (retry until it works).
