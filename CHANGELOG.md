@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed off-by-one error in virtio-block descriptor address validation.
+
 ## [0.22.2]
 
 ### Fixed
