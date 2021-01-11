@@ -89,11 +89,12 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall(libc::SYS_mremap),
             // Used for freeing memory
             allow_syscall(libc::SYS_munmap),
-            // Used for reading the timezone in LocalTime::now()
             allow_syscall_if(
                 libc::SYS_mmap,
                 or![
+                    // Used for reading the timezone in LocalTime::now()
                     and![Cond::new(3, ArgLen::DWORD, Eq, libc::MAP_SHARED as u64)?],
+                    // Used by the balloon device
                     and![Cond::new(
                         3,
                         ArgLen::DWORD,
