@@ -86,7 +86,7 @@ snapshots but provides no functionality to package or manage them on the host.
 Using snapshots in production is currently not recommended as there are open
 [Known issues and limitations](#known-issues-and-limitations).
 
-The [threat containment model](../design.md#threat-containment) model states
+The [threat containment model](../design.md#threat-containment) states
 that the host, host/API communication and snapshot files are trusted by Firecracker.
 
 To ensure a secure integration with the snapshot functionality, users need to secure
@@ -98,7 +98,9 @@ Firecracker is optimized for fast load/resume and it's designed to do some very 
 sanity checks only on the vm state file. It only verifies integrity using a 64
 bit CRC value embedded in the vm state file, but this is only as a partial
 measure to protect against accidental corruption, as the disk files and memory
-file need to be secured as well.
+file need to be secured as well. It is important to note that CRC computation
+is validated before trying to load the snapshot. Should it encounter failure,
+an error will be shown to the user and the Firecracker process will be terminated.
 
 ### Performance
 
