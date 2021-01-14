@@ -123,6 +123,14 @@ impl DiskProperties {
     }
 }
 
+impl Drop for DiskProperties {
+    fn drop(&mut self) {
+        if let Err(e) = self.file.sync_all() {
+            error!("File sync_all error: {:?}", e);
+        }
+    }
+}
+
 /// Virtio device for exposing block level read/write operations on a host file.
 pub struct Block {
     // Host file and properties.
