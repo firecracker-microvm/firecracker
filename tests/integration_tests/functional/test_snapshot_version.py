@@ -9,6 +9,7 @@ from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.microvms import C3micro
+from framework.utils import get_firecracker_version_from_toml
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 
@@ -24,7 +25,8 @@ def test_restore_from_past_versions(bin_cloner_path):
     # Fetch all firecracker binaries.
     # With each binary create a snapshot and try to restore in current
     # version.
-    firecracker_artifacts = artifacts.firecrackers()
+    firecracker_artifacts = artifacts.firecrackers(
+        older_than=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()
@@ -90,12 +92,13 @@ def test_restore_in_past_versions(bin_cloner_path):
     logger = logging.getLogger("snapshot_version")
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
-    # Fetch all snapshots artifacts.
+    # Fetch all snapshots artifacts of past versions.
     # "fc_release" is the key that should be used for per release snapshot
     # artifacts. Such snapshots are created at release time and target the
     # current version. We are going to restore all these snapshots with current
     # testing build.
-    firecracker_artifacts = artifacts.firecrackers()
+    firecracker_artifacts = artifacts.firecrackers(
+        older_than=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()

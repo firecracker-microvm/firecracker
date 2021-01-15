@@ -12,6 +12,7 @@ from shutil import copyfile
 import boto3
 import botocore.client
 from host_tools.snapshot_helper import merge_memory_bitmaps
+from framework.utils import compare_release_versions
 
 
 ARTIFACTS_LOCAL_ROOT = "/tmp/ci-artifacts"
@@ -316,9 +317,9 @@ class ArtifactCollection:
                 # Filter by userprovided keyword if any.
                 and (keyword is None or keyword in file.key)
             ):
-                artifacts.append(artifact_class(self.bucket,
-                                                file.key,
-                                                artifact_type=artifact_type))
+                artifacts.append(artifact_class(
+                    self.bucket, file.key, artifact_type=artifact_type)
+                )
         return artifacts
 
     def snapshots(self, keyword=None):
@@ -347,7 +348,7 @@ class ArtifactCollection:
             # Filter out the snapshot artifacts root folder.
             # Select only files with specified keyword.
             if (key[-1] == "/" and key != prefix and
-               (keyword is None or keyword in snapshot_dir.key)):
+                    (keyword is None or keyword in snapshot_dir.key)):
                 artifact_type = ArtifactType.SNAPSHOT
                 artifacts.append(SnapshotArtifact(self.bucket,
                                                   key,
@@ -365,15 +366,28 @@ class ArtifactCollection:
             keyword=keyword
         )
 
-    def firecrackers(self, keyword=None):
+    def firecrackers(self, keyword=None, older_than=None):
         """Return fc/jailer artifacts for the current arch."""
-        return self._fetch_artifacts(
+        firecrackers = self._fetch_artifacts(
             ArtifactCollection.ARTIFACTS_BINARIES,
             ArtifactCollection.FC_EXTENSION,
             ArtifactType.FC,
             FirecrackerArtifact,
             keyword=keyword
         )
+
+        if older_than is not None:
+            return filter(
+                lambda fc:
+                    compare_release_versions(
+                        os.path.basename(fc.key).replace(
+                            ArtifactCollection.FC_EXTENSION, '')[1:],
+                        older_than
+                    ) < 0,
+                firecrackers
+            )
+
+        return firecrackers
 
     def kernels(self, keyword=None):
         """Return kernel artifacts for the current arch."""
