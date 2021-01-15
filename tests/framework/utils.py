@@ -206,3 +206,44 @@ def get_cpu_vendor():
     if 'AuthenticAMD' in brand_str:
         return CpuVendor.AMD
     return CpuVendor.INTEL
+
+
+def get_firecracker_version_from_toml():
+    """
+    Return the version of the firecracker crate, from Cargo.toml.
+
+    Usually different from the output of `./firecracker --version`, if
+    the code has not been released.
+    """
+    cmd = "cd ../src/firecracker && cargo pkgid | cut -d# -f2 | cut -d: -f2"
+
+    rc, stdout, _ = run_cmd(cmd)
+    assert rc == 0
+
+    return stdout
+
+
+def compare_release_versions(first, second):
+    """
+    Compare two versions with format `X.Y.Z`.
+
+    :param first: first version string
+    :param second: second version string
+    :returns: 0 if equal, <0 if first < second, >0 if second < first
+    """
+    first = first.split('.')
+    second = second.split('.')
+
+    first = list(map(int, first))
+    second = list(map(int, second))
+
+    if first[0] == second[0]:
+        if first[1] == second[1]:
+            if first[2] == second[2]:
+                return 0
+
+            return first[2] - second[2]
+
+        return first[1] - second[1]
+
+    return first[0] - second[0]
