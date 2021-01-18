@@ -7,11 +7,9 @@ use crate::virtio::test_utils::VirtQueue as GuestQ;
 use crate::virtio::vsock::device::{RXQ_INDEX, TXQ_INDEX};
 use crate::virtio::vsock::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use crate::virtio::{
-    QueueError, VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
+    VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
     VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
 };
-use crate::Error as DeviceError;
-use core::result;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
@@ -199,29 +197,19 @@ impl<B> Vsock<B>
 where
     B: VsockBackend,
 {
-    pub fn write_element_in_queue(
-        vsock: &Vsock<B>,
-        idx: usize,
-        val: u64,
-    ) -> result::Result<(), DeviceError> {
-        if idx > vsock.queue_events.len() {
-            return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-                idx as u16,
-            )));
+    pub fn write_element_in_queue(vsock: &Vsock<B>, idx: usize, val: u64) {
+        if idx > vsock.queue_events.len() - 1 {
+            panic!("Index bigger than the number of queues of this device");
         }
         vsock.queue_events[idx].write(val).unwrap();
-        Ok(())
     }
 
-    pub fn get_element_from_queue(
-        vsock: &Vsock<B>,
-        idx: usize,
-    ) -> result::Result<u64, DeviceError> {
-        if idx > vsock.queue_events.len() {
-            return Err(DeviceError::QueueError(QueueError::DescIndexOutOfBounds(
-                idx as u16,
-            )));
+    pub fn get_element_from_interest_list(vsock: &Vsock<B>, idx: usize) -> u64 {
+        match idx {
+            0..=2 => vsock.queue_events[idx].as_raw_fd() as u64,
+            3 => vsock.backend.as_raw_fd() as u64,
+            4 => vsock.activate_evt.as_raw_fd() as u64,
+            _ => panic!("Index bigger than interest list"),
         }
-        Ok(vsock.queue_events[idx].as_raw_fd() as u64)
     }
 }
