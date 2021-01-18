@@ -11,7 +11,7 @@ from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.microvms import VMMicro
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.utils import CpuMap
+from framework.utils import CpuMap, get_firecracker_version_from_toml
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
 
@@ -78,7 +78,8 @@ def _test_snapshot_create_latency(context):
     logger.info("Fetching firecracker/jailer versions from {}."
                 .format(DEFAULT_TEST_IMAGES_S3_BUCKET))
     artifacts = ArtifactCollection(_test_images_s3_bucket())
-    firecracker_versions = artifacts.firecracker_versions()
+    firecracker_versions = artifacts.firecracker_versions(
+        older_than=get_firecracker_version_from_toml())
     assert len(firecracker_versions) > 0
 
     # Test snapshot creation for every supported target version.
@@ -193,9 +194,9 @@ kernel {}, disk {} """.format(snapshot_type,
 
     for i in range(SAMPLE_COUNT):
         microvm, metrics_fifo = vm_builder.build_from_snapshot(
-                                                snapshot,
-                                                True,
-                                                enable_diff_snapshots)
+            snapshot,
+            True,
+            enable_diff_snapshots)
 
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
@@ -336,7 +337,8 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
     # Fetch all firecracker binaries.
     # With each binary create a snapshot and try to restore in current
     # version.
-    firecracker_artifacts = artifacts.firecrackers()
+    firecracker_artifacts = artifacts.firecrackers(
+        older_than=get_firecracker_version_from_toml())
     assert len(firecracker_artifacts) > 0
 
     for firecracker in firecracker_artifacts:

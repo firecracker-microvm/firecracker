@@ -11,6 +11,7 @@ from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.microvms import VMNano
+from framework.utils import get_firecracker_version_from_toml
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.drive as drive_tools
 
@@ -46,7 +47,8 @@ def test_restore_old_snapshot_all_devices(bin_cloner_path):
     # Fetch all firecracker binaries.
     # With each binary create a snapshot and try to restore in current
     # version.
-    firecracker_artifacts = artifacts.firecrackers()
+    firecracker_artifacts = artifacts.firecrackers(
+        older_than=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()
@@ -96,7 +98,8 @@ def test_restore_old_version_all_devices(bin_cloner_path):
     # Fetch all firecracker binaries.
     # Create a snapshot with current build and restore with each FC binary
     # artifact.
-    firecracker_artifacts = artifacts.firecrackers()
+    firecracker_artifacts = artifacts.firecrackers(
+        older_than=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()
