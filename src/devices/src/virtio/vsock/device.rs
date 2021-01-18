@@ -75,11 +75,7 @@ impl<B> Vsock<B>
 where
     B: VsockBackend,
 {
-    pub(crate) fn with_queues(
-        cid: u64,
-        backend: B,
-        queues: Vec<VirtQueue>,
-    ) -> super::Result<Vsock<B>> {
+    pub fn with_queues(cid: u64, backend: B, queues: Vec<VirtQueue>) -> super::Result<Vsock<B>> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
             queue_events.push(EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?);
