@@ -144,11 +144,11 @@ def init_microvm(root_path, bin_cloner_path,
     assert jailer_binary
 
     vm = Microvm(
-         resource_path=root_path,
-         fc_binary_path=fc_binary,
-         jailer_binary_path=jailer_binary,
-         microvm_id=microvm_id,
-         bin_cloner_path=bin_cloner_path)
+        resource_path=root_path,
+        fc_binary_path=fc_binary,
+        jailer_binary_path=jailer_binary,
+        microvm_id=microvm_id,
+        bin_cloner_path=bin_cloner_path)
     vm.setup()
     return vm
 
@@ -166,11 +166,12 @@ def pytest_configure(config):
 
 
 def pytest_addoption(parser):
-    """Pytest hook. Add concurrency command line option.
-
-    For some reason, pytest doesn't properly pick up this hook in our plugin
-    class, so we need to call it from here.
-    """
+    """Pytest hook. Add command line options."""
+    parser.addoption(
+        "--dump-results-to-file",
+        action="store_true",
+        help="Flag to dump test results to the test_results folder.",
+    )
     return PytestScheduler.instance().do_pytest_addoption(parser)
 
 
@@ -208,6 +209,15 @@ def test_session_tmp_path(test_fc_session_root_path):
     tmp_path = tempfile.mkdtemp(prefix=test_fc_session_root_path)
     yield tmp_path
     shutil.rmtree(tmp_path)
+
+
+@pytest.fixture
+def results_file_dumper(request):
+    """Yield the custom --dump-results-to-file test flag."""
+    if request.config.getoption("--dump-results-to-file"):
+        return utils.ResultsFileDumper(request.node.originalname)
+
+    return None
 
 
 def _gcc_compile(src_file, output_file, extra_flags="-static -O3"):

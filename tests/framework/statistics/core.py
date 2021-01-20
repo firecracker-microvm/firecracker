@@ -31,14 +31,14 @@ class Core:
     """Base class for statistics core driver."""
 
     # pylint: disable=W0102
-    def __init__(self, name, iterations, custom={}, check=True):
+    def __init__(self, name, iterations, custom={}, check_criteria=True):
         """Core constructor."""
         self._pipes = defaultdict(Pipe)
         self._statistics = Statistics(name=name,
                                       iterations=iterations,
                                       results={},
                                       custom=custom)
-        self._check = check
+        self._check_criteria = check_criteria
 
     def add_pipe(self, producer: Producer, consumer: Consumer, tag=None):
         """Add a new producer-consumer pipe."""
@@ -59,7 +59,7 @@ class Core:
                 else:
                     pipe.consumer.ingest(iteration, raw_data)
             try:
-                stats, custom = pipe.consumer.process(self._check)
+                stats, custom = pipe.consumer.process(self._check_criteria)
             except Failed as err:
                 assert False, f"Failed on '{tag}': {err.msg}"
 
@@ -68,9 +68,6 @@ class Core:
             # Custom information extracted from all the iterations.
             if len(custom) > 0:
                 self._statistics['custom'][tag] = custom
-
-        if not self._check:
-            print(self._statistics)
 
         return self._statistics
 
