@@ -42,7 +42,7 @@ KCOV_TOTAL_LINES_REGEX = r'"total_lines" : "(\d+)"'
 
 
 @pytest.mark.timeout(400)
-def test_coverage(test_session_root_path, test_session_tmp_path):
+def test_coverage(test_fc_session_root_path, test_session_tmp_path):
     """Test line coverage with kcov.
 
     The result is extracted from the $KCOV_COVERAGE_FILE file created by kcov
@@ -75,7 +75,7 @@ def test_coverage(test_session_root_path, test_session_tmp_path):
         '--exclude-region={} --verify'
     ).format(
         host.get_rustflags(),
-        os.path.join(test_session_root_path, CARGO_KCOV_REL_PATH),
+        os.path.join(test_fc_session_root_path, CARGO_KCOV_REL_PATH),
         target,
         test_session_tmp_path,
         exclude_pattern,

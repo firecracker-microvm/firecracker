@@ -8,12 +8,13 @@ import stat
 from pathlib import Path
 from retry.api import retry_call
 import framework.utils as utils
+import framework.defs as defs
 from framework.defs import FC_BINARY_NAME
 
 # Default name for the socket used for API calls.
 DEFAULT_USOCKET_NAME = 'run/firecracker.socket'
 # The default location for the chroot.
-DEFAULT_CHROOT_PATH = '/srv/jailer'
+DEFAULT_CHROOT_PATH = f'{defs.DEFAULT_TEST_SESSION_ROOT_PATH}/jailer'
 
 
 class JailerContext:

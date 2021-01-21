@@ -5,17 +5,18 @@
 import os
 import platform
 import tempfile
-from enum import Enum
-from pathlib import Path
-from stat import S_IREAD, S_IWRITE
 from shutil import copyfile
+from enum import Enum
+from stat import S_IREAD, S_IWRITE
+from pathlib import Path
 import boto3
 import botocore.client
-from host_tools.snapshot_helper import merge_memory_bitmaps
+from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.utils import compare_versions
+from host_tools.snapshot_helper import merge_memory_bitmaps
 
 
-ARTIFACTS_LOCAL_ROOT = "/tmp/ci-artifacts"
+ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts"
 
 
 class ArtifactType(Enum):
@@ -36,7 +37,7 @@ class ArtifactType(Enum):
 class Artifact:
     """A generic read-only artifact manipulation class."""
 
-    LOCAL_ARTIFACT_DIR = "/tmp/local-artifacts"
+    LOCAL_ARTIFACT_DIR = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/local-artifacts"
 
     def __init__(self,
                  bucket,
