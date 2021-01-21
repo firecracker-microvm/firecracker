@@ -78,7 +78,7 @@ impl KvmContext {
 
         #[cfg(target_arch = "aarch64")]
         let capabilities = vec![
-            Irqchip, Ioeventfd, Irqfd, UserMemory, ArmPsci02, DeviceCtrl, MpState,
+            Irqchip, Ioeventfd, Irqfd, UserMemory, ArmPsci02, DeviceCtrl, MpState, OneReg,
         ];
 
         // Check that all desired capabilities are supported.
