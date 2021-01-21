@@ -53,40 +53,43 @@ def no_criteria_stats():
 
 def criteria_stats(cpu_baselines: str, iperf3_id: str, env_id: str):
     """Return statistics tailored to the platform cpu model."""
-    baseline_bw = cpu_baselines["baseline_bw"][env_id][iperf3_id]
+    [kernel, rootfs] = env_id.split("/")
+
+    baseline_bw = cpu_baselines["throughput"][kernel][rootfs][iperf3_id]
     delta_throughput = \
         baseline_bw[test_cfg.DELTA_PERCENTAGE_TAG] * baseline_bw[
             test_cfg.TARGET_TAG] / 100
-    baseline_cpu_util = cpu_baselines["baseline_cpu_utilization"][env_id]
     baseline_cpu_host = \
-        baseline_cpu_util["vmm"][iperf3_id]
+        cpu_baselines["cpu_utilization_vmm"][kernel][rootfs][iperf3_id]
     baseline_host_target = baseline_cpu_host[test_cfg.TARGET_TAG]
     baseline_host_delta = \
         baseline_cpu_host[test_cfg.DELTA_PERCENTAGE_TAG] * \
         baseline_host_target / 100
     baseline_cpu_guest = \
-        baseline_cpu_util["vcpus_total"][iperf3_id]
+        cpu_baselines["cpu_utilization_vcpus_total"][kernel][rootfs][iperf3_id]
     baseline_guest_target = baseline_cpu_guest[test_cfg.TARGET_TAG]
     baseline_guest_delta = \
         baseline_guest_target * baseline_guest_target / 100
 
-    return [types.StatisticDef.sum(
-                st_name=test_cfg.THROUGHPUT_TOTAL,
-                ms_name=test_cfg.THROUGHPUT,
-                criteria=criteria.EqualWith(baseline_bw[test_cfg.TARGET_TAG],
-                                            delta_throughput)),
-            types.StatisticDef.avg(test_cfg.DURATION),
-            types.StatisticDef.get_first_observation(
-                st_name="value",
-                ms_name=test_cfg.CPU_UTILIZATION_VMM,
-                criteria=criteria.EqualWith(baseline_host_target,
-                                            baseline_host_delta)),
-            types.StatisticDef.get_first_observation(
-                st_name="value",
-                ms_name=test_cfg.CPU_UTILIZATION_VCPUS_TOTAL,
-                criteria=criteria.EqualWith(baseline_guest_target,
-                                            baseline_guest_delta)
-            )]
+    return [
+        types.StatisticDef.sum(
+            st_name=test_cfg.THROUGHPUT_TOTAL,
+            ms_name=test_cfg.THROUGHPUT,
+            criteria=criteria.EqualWith(baseline_bw[test_cfg.TARGET_TAG],
+                                        delta_throughput)),
+        types.StatisticDef.avg(test_cfg.DURATION),
+        types.StatisticDef.get_first_observation(
+            st_name="value",
+            ms_name=test_cfg.CPU_UTILIZATION_VMM,
+            criteria=criteria.EqualWith(baseline_host_target,
+                                        baseline_host_delta)),
+        types.StatisticDef.get_first_observation(
+            st_name="value",
+            ms_name=test_cfg.CPU_UTILIZATION_VCPUS_TOTAL,
+            criteria=criteria.EqualWith(baseline_guest_target,
+                                        baseline_guest_delta)
+        )
+    ]
 
 
 def produce_iperf_output(basevm,
@@ -238,8 +241,6 @@ def pipes(basevm, current_avail_cpu, env_id):
             continue
 
         for protocol in test_cfg.CONFIG["protocols"]:
-            host_cpu_model_name = get_cpu_model_name()
-
             for payload_length in protocol["payload_length"]:
                 iperf_guest_cmd_builder = CmdBuilder(test_cfg.IPERF3) \
                     .with_arg("--vsock") \
@@ -285,7 +286,7 @@ def pipes(basevm, current_avail_cpu, env_id):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(600)
-def test_vsock_throughput(bin_cloner_path):
+def test_vsock_throughput(bin_cloner_path, results_file_dumper):
     """Test vsock throughput driver for multiple artifacts."""
     logger = logging.getLogger("vsock_throughput")
     artifacts = ArtifactCollection(_test_images_s3_bucket())
@@ -300,10 +301,9 @@ def test_vsock_throughput(bin_cloner_path):
     test_context.custom = {
         'builder': MicrovmBuilder(bin_cloner_path),
         'logger': logger,
-        'name': 'vsock_throughput'
+        'name': 'vsock_throughput',
+        'results_file_dumper': results_file_dumper
     }
-
-    print(get_cpu_model_name())
 
     test_matrix = TestMatrix(context=test_context,
                              artifact_sets=[
@@ -318,6 +318,7 @@ def iperf_workload(context):
     """Run a statistic exercise."""
     vm_builder = context.custom['builder']
     logger = context.custom["logger"]
+    file_dumper = context.custom['results_file_dumper']
 
     # Create a rw copy artifact.
     rw_disk = context.disk.copy()
@@ -339,7 +340,9 @@ def iperf_workload(context):
     basevm.start()
 
     st_core = core.Core(name="vsock_throughput",
-                        iterations=1)
+                        iterations=1,
+                        check_criteria=file_dumper is None,
+                        custom={'cpu_model': get_cpu_model_name()})
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
     # thread and then one thread for each configured vCPU.
@@ -370,7 +373,9 @@ def iperf_workload(context):
 
     # Start running the commands on guest, gather results and verify pass
     # criteria.
-    st_core.run_exercise()
+    results = st_core.run_exercise()
+    if file_dumper:
+        file_dumper.writeln(json.dumps(results))
 
     basevm.kill()
 
