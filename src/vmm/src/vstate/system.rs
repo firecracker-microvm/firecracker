@@ -59,10 +59,27 @@ impl KvmContext {
 
         // A list of KVM capabilities we want to check.
         #[cfg(target_arch = "x86_64")]
-        let capabilities = vec![Irqchip, Ioeventfd, Irqfd, UserMemory, SetTssAddr];
+        let capabilities = vec![
+            Irqchip,
+            Ioeventfd,
+            Irqfd,
+            UserMemory,
+            SetTssAddr,
+            Pit2,
+            PitState2,
+            AdjustClock,
+            Debugregs,
+            MpState,
+            VcpuEvents,
+            Xcrs,
+            Xsave,
+            ExtCpuid,
+        ];
 
         #[cfg(target_arch = "aarch64")]
-        let capabilities = vec![Irqchip, Ioeventfd, Irqfd, UserMemory, ArmPsci02];
+        let capabilities = vec![
+            Irqchip, Ioeventfd, Irqfd, UserMemory, ArmPsci02, DeviceCtrl, MpState,
+        ];
 
         // Check that all desired capabilities are supported.
         match capabilities
