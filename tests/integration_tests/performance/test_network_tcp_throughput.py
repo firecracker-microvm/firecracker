@@ -33,19 +33,20 @@ def measurements():
 
 def criteria_stats(cpu_baseline: dict, iperf3_id: str, env_id: str):
     """Return statistics definitions based with pass criteria."""
-    baseline_bw = cpu_baseline["baseline_bw"][env_id][iperf3_id]
+    [kernel, rootfs] = env_id.split("/")
+
+    baseline_bw = cpu_baseline["throughput"][kernel][rootfs][iperf3_id]
     delta_throughput = \
         baseline_bw[test_cfg.DELTA_PERCENTAGE_TAG] * \
         baseline_bw[test_cfg.TARGET_TAG] / 100
-    baseline_cpu_util = cpu_baseline["baseline_cpu_utilization"][env_id]
-    baseline_cpu_host = baseline_cpu_util["vmm"][
+    baseline_cpu_host = cpu_baseline["cpu_utilization_vmm"][kernel][rootfs][
         iperf3_id]
     baseline_vmm_target = baseline_cpu_host[test_cfg.TARGET_TAG]
     baseline_vmm_delta = \
         baseline_cpu_host[test_cfg.DELTA_PERCENTAGE_TAG] * \
         baseline_vmm_target / 100
     baseline_cpu_vcpus_total = \
-        baseline_cpu_util["vcpus_total"][iperf3_id]
+        cpu_baseline["cpu_utilization_vcpus_total"][kernel][rootfs][iperf3_id]
     baseline_vcpus_total_target = baseline_cpu_vcpus_total[test_cfg.TARGET_TAG]
     baseline_vcpus_total_delta = \
         baseline_cpu_vcpus_total[test_cfg.DELTA_PERCENTAGE_TAG] * \
@@ -103,7 +104,7 @@ def produce_iperf_output(basevm,
     # Check if we have enough CPUs to pin the servers on the host.
     # The available CPUs are the total minus vcpus, vmm and API threads.
     assert load_factor * basevm.vcpus_count < CpuMap.len() - \
-           basevm.vcpus_count - 2
+        basevm.vcpus_count - 2
 
     # Start the servers.
     for server_idx in range(load_factor*basevm.vcpus_count):
@@ -336,7 +337,7 @@ def pipes(basevm, host_ip, current_avail_cpu, env_id):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(3600)
-def test_network_throughput(bin_cloner_path):
+def test_network_tcp_throughput(bin_cloner_path, results_file_dumper):
     """Test network throughput driver for multiple artifacts."""
     logger = logging.getLogger("network_tcp_throughput")
     artifacts = ArtifactCollection(_test_images_s3_bucket())
@@ -350,7 +351,8 @@ def test_network_throughput(bin_cloner_path):
     test_context.custom = {
         'builder': MicrovmBuilder(bin_cloner_path),
         'logger': logger,
-        'name': 'network_tcp_throughput'
+        'name': 'network_tcp_throughput',
+        'results_file_dumper': results_file_dumper
     }
 
     test_matrix = TestMatrix(context=test_context,
@@ -366,6 +368,7 @@ def iperf_workload(context):
     """Iperf between guest and host in both directions for TCP workload."""
     vm_builder = context.custom['builder']
     logger = context.custom["logger"]
+    file_dumper = context.custom['results_file_dumper']
 
     # Create a rw copy artifact.
     rw_disk = context.disk.copy()
@@ -378,12 +381,15 @@ def iperf_workload(context):
                               config=context.microvm)
 
     basevm.start()
-    custom = {"microvm": context.microvm.name(),
-              "kernel": context.kernel.name(),
-              "disk": context.disk.name()}
+    custom = {
+        "microvm": context.microvm.name(),
+        "kernel": context.kernel.name(),
+        "disk": context.disk.name(),
+        "cpu_model": get_cpu_model_name()
+    }
     st_core = core.Core(name="network_tcp_throughput",
                         iterations=1,
-                        check=True,
+                        check_criteria=file_dumper is None,
                         custom=custom)
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
@@ -416,4 +422,6 @@ def iperf_workload(context):
 
     # Start running the commands on guest, gather results and verify pass
     # criteria.
-    st_core.run_exercise()
+    results = st_core.run_exercise()
+    if file_dumper:
+        file_dumper.writeln(json.dumps(results))
