@@ -7,6 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 from conftest import init_microvm
+from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.artifacts import (
     Artifact, DiskArtifact, Snapshot, SnapshotType, NetIfaceConfig
 )
@@ -43,7 +44,9 @@ class MicrovmBuilder:
 
     def init_root_path(self):
         """Initialize microvm root path."""
-        self._root_path = tempfile.mkdtemp(MicrovmBuilder.ROOT_PREFIX)
+        self._root_path = tempfile.mkdtemp(
+            MicrovmBuilder.ROOT_PREFIX,
+            dir=f"{DEFAULT_TEST_SESSION_ROOT_PATH}")
 
     def build(self,
               kernel: Artifact,

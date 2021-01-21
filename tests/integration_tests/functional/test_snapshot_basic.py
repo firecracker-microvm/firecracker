@@ -97,11 +97,11 @@ def _test_seq_snapshots(context):
     assert exit_code == 0
 
     if snapshot_type == SnapshotType.FULL:
-        test_session_root_path = context.custom['test_session_root_path']
+        test_fc_session_root_path = context.custom['test_fc_session_root_path']
         vsock_helper = context.custom['bin_vsock_path']
         vm_blob_path = "/tmp/vsock/test.blob"
         # Generate a random data file for vsock.
-        blob_path, blob_hash = make_blob(test_session_root_path)
+        blob_path, blob_hash = make_blob(test_fc_session_root_path)
         # Copy the data file and a vsock helper to the guest.
         _copy_vsock_data_to_guest(ssh_connection,
                                   blob_path,
@@ -269,7 +269,7 @@ def test_patch_drive_snapshot(bin_cloner_path):
 def test_5_full_snapshots(network_config,
                           bin_cloner_path,
                           bin_vsock_path,
-                          test_session_root_path):
+                          test_fc_session_root_path):
     """Test scenario: 5 full sequential snapshots."""
     logger = logging.getLogger("snapshot_sequence")
 
@@ -292,7 +292,7 @@ def test_5_full_snapshots(network_config,
         'snapshot_type': SnapshotType.FULL,
         'seq_len': 5,
         'bin_vsock_path': bin_vsock_path,
-        'test_session_root_path': test_session_root_path
+        'test_fc_session_root_path': test_fc_session_root_path
     }
 
     # Create the test matrix.
