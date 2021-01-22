@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests checking against the existence of licenses in each file."""
 
+import datetime
 import framework.utils as utils
 
-AMAZON_COPYRIGHT_YEARS = (2018, 2019, 2020)
+AMAZON_COPYRIGHT_YEARS = range(2018, datetime.datetime.now().year + 1)
 AMAZON_COPYRIGHT = (
     "Copyright {} Amazon.com, Inc. or its affiliates. All Rights Reserved."
 )
@@ -62,29 +63,29 @@ def _validate_license(filename):
         copyright_info = file.readline()
 
         has_amazon_copyright = (
-                _has_amazon_copyright(copyright_info) and
-                _look_for_license(file, AMAZON_LICENSE)
+            _has_amazon_copyright(copyright_info) and
+            _look_for_license(file, AMAZON_LICENSE)
         )
 
         has_chromium_copyright = (
-                CHROMIUM_COPYRIGHT in copyright_info and
-                _look_for_license(file, CHROMIUM_LICENSE)
+            CHROMIUM_COPYRIGHT in copyright_info and
+            _look_for_license(file, CHROMIUM_LICENSE)
         )
 
         has_tuntap_copyright = (
-                TUNTAP_COPYRIGHT in copyright_info and
-                _look_for_license(file, CHROMIUM_LICENSE)
+            TUNTAP_COPYRIGHT in copyright_info and
+            _look_for_license(file, CHROMIUM_LICENSE)
         )
 
         has_alibaba_copyright = (
-                ALIBABA_COPYRIGHT in copyright_info and
-                _look_for_license(file, ALIBABA_LICENSE)
+            ALIBABA_COPYRIGHT in copyright_info and
+            _look_for_license(file, ALIBABA_LICENSE)
         )
         return (
-                has_amazon_copyright or
-                has_chromium_copyright or
-                has_tuntap_copyright or
-                has_alibaba_copyright
+            has_amazon_copyright or
+            has_chromium_copyright or
+            has_tuntap_copyright or
+            has_alibaba_copyright
         )
     return True
 
