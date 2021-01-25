@@ -162,7 +162,7 @@ impl Block {
     ) -> io::Result<Block> {
         let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only)?;
 
-        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
+        let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
 
         if is_disk_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
@@ -513,7 +513,7 @@ pub(crate) mod tests {
 
         assert_eq!(block.device_type(), TYPE_BLOCK);
 
-        let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
+        let features: u64 = 1u64 << VIRTIO_F_VERSION_1;
 
         assert_eq!(block.avail_features_by_page(0), features as u32);
         assert_eq!(block.avail_features_by_page(1), (features >> 32) as u32);
@@ -708,7 +708,7 @@ pub(crate) mod tests {
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
         // Currently only VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT,
-        // VIRTIO_BLK_T_FLUSH and VIRTIO_BLK_T_GET_ID  are supported.
+        // VIRTIO_BLK_T_GET_ID  are supported.
         // Generate an unsupported request.
         let request_header = RequestHeader::new(42, 0);
         mem.write_obj::<RequestHeader>(request_header, request_type_addr)
@@ -904,50 +904,6 @@ pub(crate) mod tests {
                 mem.read_obj::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_IOERR
             );
-        }
-    }
-
-    #[test]
-    fn test_flush() {
-        let mut block = default_block();
-        let mem = default_mem();
-        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
-        set_queue(&mut block, 0, vq.create_queue());
-        block.activate(mem.clone()).unwrap();
-        initialize_virtqueue(&vq);
-
-        let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
-        let status_addr = GuestAddress(vq.dtable[2].addr.get());
-
-        // Flush completes successfully without a data descriptor.
-        {
-            vq.dtable[0].next.set(2);
-
-            mem.write_obj::<u32>(VIRTIO_BLK_T_FLUSH, request_type_addr)
-                .unwrap();
-
-            invoke_handler_for_queue_event(&mut block);
-            assert_eq!(vq.used.idx.get(), 1);
-            assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
-        }
-
-        // Flush completes successfully even with a data descriptor.
-        {
-            vq.used.idx.set(0);
-            set_queue(&mut block, 0, vq.create_queue());
-            vq.dtable[0].next.set(1);
-
-            mem.write_obj::<u32>(VIRTIO_BLK_T_FLUSH, request_type_addr)
-                .unwrap();
-
-            invoke_handler_for_queue_event(&mut block);
-            assert_eq!(vq.used.idx.get(), 1);
-            assert_eq!(vq.used.ring[0].get().id, 0);
-            // status byte length.
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
         }
     }
 

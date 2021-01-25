@@ -6,7 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use std::convert::From;
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{self, Seek, SeekFrom};
 use std::result;
 
 use logger::{IncMetric, METRICS};
@@ -20,7 +20,6 @@ use super::{Error, SECTOR_SHIFT, SECTOR_SIZE};
 #[derive(Debug)]
 pub enum ExecuteError {
     BadRequest(Error),
-    Flush(io::Error),
     Read(GuestMemoryError),
     Seek(io::Error),
     Write(GuestMemoryError),
@@ -31,7 +30,6 @@ impl ExecuteError {
     pub fn status(&self) -> u32 {
         match *self {
             ExecuteError::BadRequest(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
@@ -44,7 +42,6 @@ impl ExecuteError {
 pub enum RequestType {
     In,
     Out,
-    Flush,
     GetDeviceID,
     Unsupported(u32),
 }
@@ -54,7 +51,6 @@ impl From<u32> for RequestType {
         match value {
             VIRTIO_BLK_T_IN => RequestType::In,
             VIRTIO_BLK_T_OUT => RequestType::Out,
-            VIRTIO_BLK_T_FLUSH => RequestType::Flush,
             VIRTIO_BLK_T_GET_ID => RequestType::GetDeviceID,
             t => RequestType::Unsupported(t),
         }
@@ -137,11 +133,7 @@ impl Request {
             .ok_or(Error::DescriptorChainTooShort)?;
 
         if !desc.has_next() {
-            status_desc = desc;
-            // Only flush requests are allowed to skip the data descriptor.
-            if req.request_type != RequestType::Flush {
-                return Err(Error::DescriptorChainTooShort);
-            }
+            return Err(Error::DescriptorChainTooShort);
         } else {
             data_desc = desc;
             status_desc = data_desc
@@ -214,13 +206,6 @@ impl Request {
                     0
                 })
                 .map_err(ExecuteError::Write),
-            RequestType::Flush => diskfile
-                .flush()
-                .map(|_| {
-                    METRICS.block.flush_count.inc();
-                    0
-                })
-                .map_err(ExecuteError::Flush),
             RequestType::GetDeviceID => {
                 let disk_id = disk.image_id();
                 if (self.data_len as usize) < disk_id.len() {
@@ -250,12 +235,7 @@ mod tests {
         let sector = 123_454_321;
 
         // Test that all supported request types are read correctly from memory.
-        let supported_request_types = vec![
-            VIRTIO_BLK_T_IN,
-            VIRTIO_BLK_T_OUT,
-            VIRTIO_BLK_T_FLUSH,
-            VIRTIO_BLK_T_GET_ID,
-        ];
+        let supported_request_types = vec![VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT, VIRTIO_BLK_T_GET_ID];
 
         for request_type in supported_request_types {
             let expected_header = RequestHeader::new(request_type, sector);
@@ -276,7 +256,6 @@ mod tests {
     fn test_request_type_from() {
         assert_eq!(RequestType::from(VIRTIO_BLK_T_IN), RequestType::In);
         assert_eq!(RequestType::from(VIRTIO_BLK_T_OUT), RequestType::Out);
-        assert_eq!(RequestType::from(VIRTIO_BLK_T_FLUSH), RequestType::Flush);
         assert_eq!(
             RequestType::from(VIRTIO_BLK_T_GET_ID),
             RequestType::GetDeviceID
@@ -288,10 +267,6 @@ mod tests {
     fn test_execute_error_status() {
         assert_eq!(
             ExecuteError::BadRequest(Error::InvalidOffset).status(),
-            VIRTIO_BLK_S_IOERR
-        );
-        assert_eq!(
-            ExecuteError::Flush(io::Error::from_raw_os_error(42)).status(),
             VIRTIO_BLK_S_IOERR
         );
         assert_eq!(
