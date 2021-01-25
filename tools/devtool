@@ -192,6 +192,38 @@ ensure_docker() {
         "https://docs.docker.com/install/linux/linux-postinstall/"
 }
 
+# Run a command and retry multiple times if it fails. Once it stops
+# failing return to normal execution. If there are "retry count" 
+# failures, set the last error code.
+# $1 - command
+# $2 - retry count
+# $3 - sleep interval between retries
+retry_cmd() {
+    command=$1
+    retry_cnt=$2
+    sleep_int=$3
+
+    {
+        $command
+    } || {
+        # Save error code
+        err_code=$?
+
+        # Command failed, substract one from retry_cnt
+        retry_cnt=$((retry_cnt - 1))
+
+        # If retry_cnt is larger than 0, sleep and call again
+        if [ "$retry_cnt" -gt 0 ]; then
+            echo "$command failed, retrying..."
+            sleep "$sleep_int"
+            retry_cmd "$command" "$retry_cnt" "$sleep_int"
+        fi
+
+        # Set what error code docker returned
+        $(exit "$err_code")
+    }
+}
+
 # Attempt to download our Docker image. Exit if that fails.
 # Upon returning from this call, the caller can be certain our Docker image is
 # available on this system.
@@ -207,7 +239,9 @@ ensure_devctr() {
         say "About to pull docker image $DEVCTR_IMAGE"
         get_user_confirmation || die "Aborted."
 
-        docker pull "${DEVCTR_IMAGE}"
+        # Run docker pull 5 times in case it fails - sleep 3 seconds
+        # between attempts
+        retry_cmd "docker pull $DEVCTR_IMAGE" 5 3
 
         ok_or_die "Error pulling docker image. Aborting."
     }
