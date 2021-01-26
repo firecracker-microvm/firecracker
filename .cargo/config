@@ -10,3 +10,6 @@ rustflags = [
 	"-C", "link-arg=-lgcc",
 	"-C", "link-arg=-lfdt",
 ]
+
+[net]
+git-fetch-with-cli = true

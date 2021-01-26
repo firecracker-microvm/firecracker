@@ -13,7 +13,7 @@
 #   building: `./devtool build`
 #     Then find the binaries under build/debug/
 #   testing: `./devtool test`
-#     Will run the entire test battery; will take serveral minutes to complete.
+#     Will run the entire test battery; will take several minutes to complete.
 #   deep-dive: `./devtool shell`
 #     Open a shell prompt inside the container. Then build or test (or do
 #     anything, really) manually.
@@ -113,6 +113,12 @@ CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
 
 # Full path to the microVM images cache dir
 CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
+
+# Full path to the public key mapping on the guest
+PUB_KEY_PATH=/root/.ssh/id_rsa.pub
+
+# Full path to the private key mapping on the guest
+PRIV_KEY_PATH=/root/.ssh/id_rsa
 
 # Global options received by $0
 # These options are not command-specific, so we store them as global vars
@@ -279,13 +285,13 @@ ensure_release_binaries_exist() {
     firecracker_bin_path="$CARGO_TARGET_DIR/$target/$profile/firecracker"
     jailer_bin_path="$CARGO_TARGET_DIR/$target/$profile/jailer"
 
-    # Both binaries must exist for the stripping to be succesgitsful.
+    # Both binaries must exist for the stripping to be successful.
     [ -f $firecracker_bin_path ] && [ -f $jailer_bin_path ] || \
     die "Missing release binaries. Needed files:\n* $firecracker_bin_path\n* $jailer_bin_path."
 }
 
 # Fix build/ dir permissions after a privileged container run.
-# Since the privileged cotainer runs as root, any files it creates will be
+# Since the privileged container runs as root, any files it creates will be
 # owned by root. This fixes that by recursively changing the ownership of build/
 # to the current user.
 #
@@ -412,6 +418,14 @@ run_devctr() {
         "$DEVCTR_IMAGE" "${ctr_args[@]}"
 }
 
+# Helper function to test that the argument provided is a valid path to a SSH key.
+#
+test_key() {
+    ssh-keygen -lf "$1" &>/dev/null
+    ret=$?
+    [ $ret -ne 0 ] && die "$1 is not a valid key file."
+}
+
 # `$0 help`
 # Show the detailed devtool usage information.
 #
@@ -434,6 +448,9 @@ cmd_help() {
     echo "        --release             Build the release binaries."
     echo "        -l, --libc musl|gnu   Choose the libc flavor against which Firecracker will"
     echo "                              be linked. Default is musl."
+    echo "        --ssh-keys            Provide the paths to the public and private SSH keys on the host"
+    echo "                              (in this particular order) required for the git authentication."
+    echo "                              It is mandatory that both keys are specified."
     echo ""
     echo "    strip [--target-libc musl|gnu]"
     echo "        Strip debug symbols from the Firecracker release binaries."
@@ -501,6 +518,20 @@ cmd_build() {
             "-h"|"--help")  { cmd_help; exit 1;     } ;;
             "--debug")      { profile="debug";      } ;;
             "--release")    { profile="release";    } ;;
+            "--ssh-keys")
+                shift
+                [[ -z "$1" ]] && \
+                    die "Please provide the path to the public SSH key."
+                [[ ! -f "$1" ]]  && die "The public key file does not exist: $1."
+                test_key "$1"
+                host_pub_key_path="$1"
+                shift
+                [[ -z "$1" ]] && \
+                    die "Please provide the path to the private SSH key."
+                [[ ! -f "$1" ]]  && die "The private key file does not exist: $1."
+                test_key "$1"
+                host_priv_key_path="$1"
+                ;;
             "-l"|"--libc")
                 shift
                 [[ "$1" =~ ^(musl|gnu)$ ]] || \
@@ -543,7 +574,12 @@ cmd_build() {
 
     [ $profile = "release" ] && cargo_args+=("--release")
 
-    # artificially trigger a re-run of the build script,
+    # Map the public and private keys to the guest if they are specified.
+    [ ! -z "$host_pub_key_path" ] && [ ! -z "$host_priv_key_path" ] &&
+        extra_args="--volume $host_pub_key_path:$PUB_KEY_PATH:z \
+                    --volume $host_priv_key_path:$PRIV_KEY_PATH:z"
+
+    # Artificially trigger a re-run of the build script,
     # to make sure that `firecracker --version` reports the latest changes.
     touch "$FC_ROOT_DIR/build.rs"
 
@@ -553,6 +589,7 @@ cmd_build() {
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
+        ${extra_args} \
         -- \
         cargo build \
             --target-dir "$CTR_CARGO_TARGET_DIR" \
@@ -566,6 +603,7 @@ cmd_build() {
         run_devctr \
             --user "$(id -u):$(id -g)" \
             --workdir "$CTR_FC_ROOT_DIR" \
+            ${extra_args} \
             -- \
             cargo build -p jailer \
                 --target-dir "$CTR_CARGO_TARGET_DIR" \

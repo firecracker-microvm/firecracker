@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added devtool build `--ssh-keys` flag to support fetching from private
+  git repositories.
+
 ### Changed
 
 - Changed Docker images repository from DockerHub to Amazon ECR.
