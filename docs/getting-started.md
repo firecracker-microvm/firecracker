@@ -287,6 +287,20 @@ This will build and place the two Firecracker binaries at:
 - `build/cargo_target/${toolchain}/debug/firecracker` and
 - `build/cargo_target/${toolchain}/debug/jailer`.
 
+If you would like to test a new feature and work with
+dependencies on libraries located in private git repos, you
+can use the `--ssh-keys` flag to specify the paths to your
+public and private SSH keys on the host. Both of them are
+required for git authentication when fetching the repositories.
+
+```bash
+tools/devtool build --ssh-keys ~/.ssh/id_rsa.pub ~/.ssh/id_rsa
+```
+
+Please note that only a single set of credentials is supported.
+`devtool` cannot fetch multiple private repos which rely on
+different credentials.
+
 The default build profile is `debug`. If you want to build
 the release binaries (optimized and stripped of debug info),
 use the `--release` option:
