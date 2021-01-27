@@ -393,13 +393,21 @@ run_devctr() {
 # Args:
 #   $1  path to the {arch-based}-requirements-freeze file.
 #
-perform_update() {
+perform_addition() {
     declare requirements_freeze_file_location="$1"
     shift
     for package_name in "$@"; do
         echo "$package_name" >>$requirements_freeze_file_location
     done
     echo "" >> $requirements_freeze_file_location
+}
+
+perform_deletion() {
+    declare requirements_freeze_file_location="$1"
+    shift
+    for package_name in "$@"; do
+        sed -i -e "/^${package_name}==/d" $requirements_freeze_file_location
+    done
 }
 
 # Looks for any package which are present in requirements.txt file but
@@ -412,21 +420,37 @@ perform_update() {
 update_packages() {
     declare requirements_freeze_file_location="$1"  
     declare parsed_package_location=$(mktemp)
-    say "Checking for newly added requirements..."
+    say "Checking for removed requirements..."
     while IFS= read -r line; do
         echo "${line%%=*}" >>$parsed_package_location
     done <"$requirements_freeze_file_location"
     unset IFS
 
-    diff=($(grep -v -f $parsed_package_location $FC_DEVCTR_DIR/requirements/requirements.txt))    
+    deletions=($(grep -v -i -f \
+        $FC_DEVCTR_DIR/requirements/requirements.txt \
+        $parsed_package_location))
+    additons=($(grep -v -i -f \
+        $parsed_package_location \
+        $FC_DEVCTR_DIR/requirements/requirements.txt))    
+
     rm $parsed_package_location
 
-    if [ "${#diff[@]}" -ne 0 ]; then
+    if [ "${#deletions[@]}" -ne 0 ]; then
+        say "List of requested packages to delete"
+        printf '%s\n' "${deletions[@]}"
+        say "Would you like to delete these packages?"
+        get_user_confirmation || return
+        perform_deletion $requirements_freeze_file_location ${deletions[@]}
+    else
+       say "No package requested for deletion"
+    fi
+
+    if [ "${#additons[@]}" -ne 0 ]; then
         say "List of newly added packages"
-        printf '%s\n' "${diff[@]}"
+        printf '%s\n' "${additons[@]}"
         say "Would you like to install and freeze versions of these packages?"
         get_user_confirmation || return
-        perform_update $requirements_freeze_file_location ${diff[@]}
+        perform_addition $requirements_freeze_file_location ${additons[@]}
     else
        say "Eveything up-to-date..."
     fi
@@ -443,19 +467,33 @@ update_packages() {
 perform_upgrade() {
     declare image_id="$1"
     declare requirements_freeze_file_location="$2"
-
+    
     dummy_container_name=$(uuidgen)
-    dummy_container_id=$(docker create -ti --name "$dummy_container_name" "$image_id" bash)    
+    dummy_container_id=$(docker create -ti --name \
+        "$dummy_container_name" \
+        "$image_id" \
+        bash)    
     docker start "$dummy_container_id"
     
-    cmd="python3 -m pip list --outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1 | xargs -n 1 python3 -m pip install -U; python3 -m pip freeze > /tmp/requirements-freeze.txt;"
+    cmd="sed -i -e 's/==/>=/g' /tmp/requirements-freeze.txt; \
+        python3 -m pip install -U -r /tmp/requirements-freeze.txt; \
+        python3 -m pip freeze > /tmp/requirements-freeze.txt;"
     docker exec -ti "$dummy_container_id" /bin/bash -c "${cmd}"
-    docker cp "$dummy_container_id":/tmp/requirements-freeze.txt /tmp/requirements-freeze.txt
+    docker cp \
+        "$dummy_container_id":/tmp/requirements-freeze.txt \
+        /tmp/requirements-freeze.txt
     docker commit "$dummy_container_id" fcuvm
-    cp /tmp/requirements-freeze.txt $requirements_freeze_file_location
+    
+    # remove package sub-dependencies
+    grep -F -i -f \
+        $FC_DEVCTR_DIR/requirements/requirements.txt \
+        /tmp/requirements-freeze.txt \
+        > /tmp/trimmed-requirements-freeze.txt
+    cp /tmp/trimmed-requirements-freeze.txt $requirements_freeze_file_location
     
     docker stop "$dummy_container_id"
     docker rm -f "$dummy_container_name"
+    rm -f /tmp/trimmed-requirements-freeze.txt
     rm -f /tmp/requirements-freeze.txt
 }
 
@@ -467,11 +505,20 @@ perform_upgrade() {
 # 
 upgrade_version() {
     declare requirements_freeze_file_location="$1"
+    declare outdated_package_location=$(mktemp)
     say "Checking for newer package versions..."     
     
     image_id=$(docker images | grep fcuvm | awk '{print $3}' | head -n 1)
     echo $image_id
-    outdated_packages=($(docker run -it $image_id python3 -m pip list --outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1))
+    docker run -it \
+       "$image_id" \
+       python3 -m pip list --outdated --format=freeze \
+       | grep -v '^\-e' \
+       | cut -d = -f 1 \
+       > "$outdated_package_location"
+    outdated_packages=($(grep -i -F -f \
+        $FC_DEVCTR_DIR/requirements/requirements.txt \
+        $outdated_package_location))
 
     if [ "${#outdated_packages[@]}" -ne 0 ]; then
         say "List of outdated packages"
@@ -482,6 +529,8 @@ upgrade_version() {
     else
        say "Eveything up-to-date..."
     fi
+
+    rm -f $outdated_package_location
 }
 
 # `$0 help`

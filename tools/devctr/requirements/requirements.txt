@@ -9,7 +9,6 @@ pylint
 pytest
 pytest-timeout
 pyyaml
-requests
 requests-unixsocket
 retry
 typing-extensions
