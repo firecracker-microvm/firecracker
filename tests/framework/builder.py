@@ -45,7 +45,7 @@ class MicrovmBuilder:
     def init_root_path(self):
         """Initialize microvm root path."""
         self._root_path = tempfile.mkdtemp(
-            MicrovmBuilder.ROOT_PREFIX,
+            prefix=MicrovmBuilder.ROOT_PREFIX,
             dir=f"{DEFAULT_TEST_SESSION_ROOT_PATH}")
 
     def build(self,
