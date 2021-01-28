@@ -65,7 +65,13 @@ def check_guest_cpuid_output(vm, guest_cmd, expected_header,
                 assert value == expected_key_value_store[key], \
                     "%s does not have the expected value" % key
                 del expected_key_value_store[key]
-
+            else:
+                for given_key in expected_key_value_store.keys():
+                    if given_key in key:
+                        assert value == expected_key_value_store[given_key], \
+                            "%s does not have the expected value" % given_key
+                        del expected_key_value_store[given_key]
+                        break
         else:
             break
 
