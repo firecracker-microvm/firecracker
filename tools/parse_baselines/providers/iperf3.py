@@ -7,7 +7,6 @@ import statistics
 import math
 from collections import defaultdict, Iterator
 from typing import List
-
 from providers.types import DataParser
 
 # We add a small extra percentage margin, to account for small variations
@@ -17,9 +16,9 @@ from providers.types import DataParser
 DELTA_EXTRA_MARGIN = 3
 
 
-def nesteddict():
+def nested_dict():
     """Create an infinitely nested dictionary."""
-    return defaultdict(nesteddict)
+    return defaultdict(nested_dict)
 
 
 # pylint: disable=R0903
@@ -36,7 +35,7 @@ class Iperf3DataParser(DataParser):
             "cpu_utilization_vmm/value",
         ]
         # This object will hold the parsed data.
-        self._data = nesteddict()
+        self._data = nested_dict()
 
     # pylint: disable=R0201
     def _calculate_baseline(self, data: List[float]) -> dict:
@@ -88,7 +87,7 @@ class Iperf3DataParser(DataParser):
         while line:
             json_line = json.loads(line)
             measurements = json_line['results']
-            cpu_model = json_line['custom']['cpu_model']
+            cpu_model_name = json_line['custom']['cpu_model_name']
 
             # Consume the data and aggregate into lists.
             for tag in measurements.keys():
@@ -98,11 +97,12 @@ class Iperf3DataParser(DataParser):
 
                     st_data = ms_data.get(st_name)
 
-                    [kernel_version, rootfs_type,
-                        iperf_config] = tag.split("/")
+                    [kernel_version,
+                     rootfs_type,
+                     iperf_config] = tag.split("/")
 
-                    data = self._data[cpu_model][ms_name]
-                    data = data[kernel_version][rootfs_type]
+                    data = self._data[cpu_model_name][ms_name]
+                    data = data[kernel_version][rootfs_type][st_name]
                     if isinstance(data[iperf_config], list):
                         data[iperf_config].append(st_data)
                     else:
