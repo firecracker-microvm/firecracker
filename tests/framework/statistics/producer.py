@@ -85,7 +85,7 @@ class HostCommand(Producer):
 class LambdaProducer(Producer):
     """Producer from calling python functions."""
 
-    def __init__(self, func, func_kwargs=None):
+    def __init__(self, func: Callable, func_kwargs=None):
         """Initialize the raw data producer."""
         super().__init__()
         assert callable(func)

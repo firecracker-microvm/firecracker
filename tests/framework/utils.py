@@ -216,6 +216,51 @@ class StoppableThread(threading.Thread):
         return self._should_stop
 
 
+# pylint: disable=R0903
+class DictQuery:
+    """Utility class to query python dicts key paths.
+
+    The keys from the path must be `str`s.
+    Example:
+    > d = {
+            "a": {
+                "b": {
+                    "c": 0
+                }
+            },
+            "d": 1
+      }
+    > dq = DictQuery(d)
+    > print(dq.get("a/b/c"))
+    0
+    > print(dq.get("d"))
+    1
+    """
+
+    def __init__(self, d: dict):
+        """Initialize the dict query."""
+        self._inner = d
+
+    def get(self, keys_path: str, default=None):
+        """Retrieve value corresponding to the key path."""
+        keys = keys_path.strip().split("/")
+        if len(keys) < 1:
+            return default
+
+        result = self._inner
+        for key in keys:
+            if not result:
+                return default
+
+            result = result.get(key)
+
+        return result
+
+    def __str__(self):
+        """Representation as a string."""
+        return str(self._inner)
+
+
 def search_output_from_cmd(cmd: str,
                            find_regex: typing.Pattern) -> typing.Match:
     """
