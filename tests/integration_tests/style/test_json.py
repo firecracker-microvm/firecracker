@@ -2,13 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for JSON linter checks."""
 
-import framework.utils as utils
 import json
+import framework.utils as utils
 
 
 def test_json_style():
-    """Fail if the repository contains malformed JSON in .json files"""
-
+    """Fail if the repository contains malformed JSON in .json files."""
     # Get all *.json files from the project
     json_files = utils.get_files_from(
         find_path="..",
@@ -19,13 +18,13 @@ def test_json_style():
 
     # for each .json file we find, check that
     # it can be parsed as JSON
-    for file_name in json_files:
-        assert is_json_file_valid(file_name)
+    invalid_files = [f for f in json_files if not is_json_file_valid(f)]
+    if len(invalid_files) > 0:
+        assert False, "Invalid JSON files: {}".format(", ".join(invalid_files))
 
 
 def is_json_file_valid(file_path):
     """returns whether or not the file at the specified path contains valid JSON"""
-
     with open(file_path, 'r') as file_stream:
         try:
             json.load(file_stream)
