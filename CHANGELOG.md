@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed the reported used bytes for any virtio-block request.
+- Fixed all virtio-block read/write operations to valid guest addresses
+  with buffer length of 0 to result in no-op.
+
 ## [0.22.3]
 
 ### Fixed
