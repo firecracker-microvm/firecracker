@@ -186,7 +186,7 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement):
 
     for job_id in range(numjobs):
         file_path = f"results/{env_id}/{mode}{bs}/{mode}{bs}_{measurement}" \
-                  f".{job_id + 1}.log"
+            f".{job_id + 1}.log"
         file = open(file_path)
         lines = file.readlines()
 
