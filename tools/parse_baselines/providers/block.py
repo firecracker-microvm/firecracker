@@ -1,6 +1,6 @@
 # Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Implement the DataParser for iperf3 throughput tests."""
+"""Implement the DataParser for block device performance tests."""
 
 import statistics
 import math
@@ -12,18 +12,21 @@ from providers.types import DataParser
 # that were not caught while gathering baselines. This provides
 # slightly better reliability, while not affecting regression
 # detection.
-DELTA_EXTRA_MARGIN = 3
+DELTA_EXTRA_MARGIN = 4
 
 
 # pylint: disable=R0903
-class Iperf3DataParser(DataParser):
-    """Parse the data provided by the iperf3 throughput tests."""
+class BlockDataParser(DataParser):
+    """Parse the data provided by the block performance tests."""
 
     # pylint: disable=W0102
     def __init__(self, data_provider: Iterator):
         """Initialize the data parser."""
         super().__init__(data_provider, [
-            "throughput/total",
+            "iops_read/Avg",
+            "iops_write/Avg",
+            "bw_read/Avg",
+            "bw_write/Avg",
             "cpu_utilization_vcpus_total/value",
             "cpu_utilization_vmm/value",
         ])
@@ -36,5 +39,5 @@ class Iperf3DataParser(DataParser):
         return {
             'target': math.ceil(round(avg, 2)),
             'delta_percentage':
-                math.ceil(round(3 * stddev/avg * 100, 2)) + DELTA_EXTRA_MARGIN
+                math.ceil(3 * stddev/avg * 100) + DELTA_EXTRA_MARGIN
         }
