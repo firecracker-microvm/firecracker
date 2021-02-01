@@ -68,6 +68,8 @@ class BlockBaselinesProvider(BaselineProvider):
 
 def run_fio(env_id, basevm, ssh_conn, mode, bs):
     """Run a fio test in the specified mode with block size bs."""
+    logs_path = f"{basevm.jailer.chroot_base_with_id()}/{env_id}/{mode}{bs}"
+
     # Compute the fio command. Pin it to the first guest CPU.
     cmd = CmdBuilder(FIO) \
         .with_arg(f"--name={mode}-{bs}") \
@@ -113,12 +115,12 @@ def run_fio(env_id, basevm, ssh_conn, mode, bs):
         assert rc == 0, stderr.read()
         assert stderr.read() == ""
 
-        if os.path.isdir(f"results/{env_id}/{mode}{bs}"):
-            shutil.rmtree(f"results/{env_id}/{mode}{bs}")
+        if os.path.isdir(logs_path):
+            shutil.rmtree(logs_path)
 
-        os.makedirs(f"results/{env_id}/{mode}{bs}")
+        os.makedirs(logs_path)
 
-        ssh_conn.scp_get_file("*.log", f"results/{env_id}/{mode}{bs}/")
+        ssh_conn.scp_get_file("*.log", logs_path)
         rc, _, stderr = ssh_conn.execute_command("rm *.log")
         assert rc == 0, stderr.read()
 
@@ -175,7 +177,7 @@ class DataDirection(Enum):
         return ""
 
 
-def read_values(cons, numjobs, env_id, mode, bs, measurement):
+def read_values(cons, numjobs, env_id, mode, bs, measurement, logs_path):
     """Read the values for each measurement.
 
     The values are logged once every second. The time resolution is in msec.
@@ -185,8 +187,8 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement):
     values = dict()
 
     for job_id in range(numjobs):
-        file_path = f"results/{env_id}/{mode}{bs}/{mode}{bs}_{measurement}" \
-            f".{job_id + 1}.log"
+        file_path = f"{logs_path}/{env_id}/{mode}{bs}/{mode}" \
+            f"{bs}_{measurement}.{job_id + 1}.log"
         file = open(file_path)
         lines = file.readlines()
 
@@ -220,7 +222,7 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement):
             cons.consume_data(measurement_id, value)
 
 
-def consume_fio_output(cons, result, numjobs, mode, bs, env_id):
+def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
     """Consumer function."""
     cpu_utilization_vmm = result[CPU_UTILIZATION_VMM]
     cpu_utilization_vcpus = result[CPU_UTILIZATION_VCPUS_TOTAL]
@@ -230,11 +232,8 @@ def consume_fio_output(cons, result, numjobs, mode, bs, env_id):
                       CPU_UTILIZATION_VCPUS_TOTAL,
                       cpu_utilization_vcpus)
 
-    read_values(cons, numjobs, env_id, mode, bs, "iops")
-    read_values(cons, numjobs, env_id, mode, bs, "bw")
-
-    # clean the results directory.
-    shutil.rmtree(f"results/{env_id}/{mode}{bs}")
+    read_values(cons, numjobs, env_id, mode, bs, "iops", logs_path)
+    read_values(cons, numjobs, env_id, mode, bs, "bw", logs_path)
 
 
 @pytest.mark.nonci
@@ -329,7 +328,8 @@ def fio_workload(context):
                                            fio_id)),
                 func=consume_fio_output,
                 func_kwargs={"numjobs": basevm.vcpus_count, "mode": mode,
-                             "bs": bs, "env_id": env_id})
+                             "bs": bs, "env_id": env_id,
+                             "logs_path": basevm.jailer.chroot_base_with_id()})
             st_core.add_pipe(st_prod, st_cons, tag=f"{env_id}/{fio_id}")
 
     result = st_core.run_exercise(file_dumper is None)
