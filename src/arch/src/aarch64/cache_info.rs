@@ -5,6 +5,8 @@ use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::{fs, io, result};
 
+use logger::warn;
+
 // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
 const MAX_CACHE_LEVEL: u8 = 7;
 
@@ -12,26 +14,44 @@ const MAX_CACHE_LEVEL: u8 = 7;
 pub enum Error {
     FailedToReadCacheInfo(io::Error),
     InvalidCacheAttr(String, String),
-    NoMoreCacheLevels(u8),
+    MissingCacheConfig,
+    MissingOptionalAttr(String),
 }
 
 type Result<T> = result::Result<T, Error>;
 
-#[derive(Default)]
-pub struct CacheInfo {
+#[derive(Clone)]
+pub(crate) struct CacheInfo {
     // Cache Level: 1, 2, 3..
     pub level: u8,
-    pub size_: usize,
     // Type of cache: Unified, Data, Instruction.
     pub type_: CacheType,
-    pub number_of_sets: u16,
-    pub line_size: u16,
+    pub size_: Option<usize>,
+    pub number_of_sets: Option<u16>,
+    pub line_size: Option<u16>,
     // How many CPUS share this cache.
     pub cpus_per_unit: u16,
+    // The directory from which to read cache info.
+    // In tests this gets modified.
+    pub cache_dir: PathBuf,
 }
 
+impl Default for CacheInfo {
+    fn default() -> Self {
+        CacheInfo {
+            level: 0,
+            type_: CacheType::Unified,
+            size_: None,
+            number_of_sets: None,
+            line_size: None,
+            cpus_per_unit: 1,
+            cache_dir: PathBuf::from("/sys/devices/system/cpu/cpu0/cache"),
+        }
+    }
+}
+
+#[derive(Clone)]
 // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/include/linux/cacheinfo.h#L11.
-#[derive(Debug)]
 pub enum CacheType {
     Instruction,
     Data,
@@ -45,11 +65,10 @@ impl Display for Error {
                 write!(f, "Failed to read cache information: {}", err)
             }
             Error::InvalidCacheAttr(ref attr, ref err) => {
-                write!(f, "Invalid \"{}\" cache attribute: {}", attr, err)
+                write!(f, "Invalid cache configuration found for {}: {}", attr, err)
             }
-            Error::NoMoreCacheLevels(ref index) => {
-                write!(f, "Reached maximum cache index: {}", index)
-            }
+            Error::MissingCacheConfig => write!(f, "Cannot proceed with reading cache info"),
+            Error::MissingOptionalAttr(ref msg) => write!(f, "{}", msg),
         }
     }
 }
@@ -61,7 +80,7 @@ impl CacheType {
             "Data" => Ok(Self::Data),
             "Unified" => Ok(Self::Unified),
             cache_type => Err(Error::InvalidCacheAttr(
-                "Type".to_string(),
+                "type".to_string(),
                 cache_type.to_string(),
             )),
         }
@@ -101,9 +120,91 @@ impl CacheType {
     }
 }
 
-impl Default for CacheType {
-    fn default() -> CacheType {
-        CacheType::Unified
+impl CacheInfo {
+    fn sysfs_cache(&self, index: u8, file_name: &str) -> Result<String> {
+        readln_special(&PathBuf::from(format!(
+            "{}/index{}/{}",
+            self.cache_dir.as_path().display(),
+            index,
+            file_name
+        )))
+    }
+
+    pub fn populate(&mut self, index: u8) -> Result<()> {
+        let mut err_str = String::new();
+
+        // If the cache level or the type cannot be retrieved we stop the process
+        // of populating the cache levels.
+        match self.sysfs_cache(index, "level") {
+            Ok(level) => {
+                self.level = level
+                    .parse::<u8>()
+                    .map_err(|e| Error::InvalidCacheAttr("level".to_string(), e.to_string()))?;
+            }
+            Err(e) => {
+                // If we cannot read the cache level even for the first level of cache, we will
+                // stop processing anymore cache info and log an error.
+                warn!("Could not read cache level for index {}: {}", index, e);
+                return Err(Error::MissingCacheConfig);
+            }
+        }
+        match self.sysfs_cache(index, "type") {
+            Ok(cache_type) => self.type_ = CacheType::try_from(&cache_type)?,
+            Err(e) => {
+                warn!("Could not read type for cache level {}: {}", self.level, e);
+                return Err(Error::MissingCacheConfig);
+            }
+        }
+
+        if let Ok(shared_cpu_map) = self.sysfs_cache(index, "shared_cpu_map") {
+            self.cpus_per_unit = mask_str2bit_count(shared_cpu_map.trim_end())?;
+        } else {
+            err_str += "shared cpu map";
+            err_str += ", ";
+        }
+
+        if let Ok(coherency_line_size) = self.sysfs_cache(index, "coherency_line_size") {
+            self.line_size = Some(coherency_line_size.parse::<u16>().map_err(|e| {
+                Error::InvalidCacheAttr("coherency_line_size".to_string(), e.to_string())
+            })?);
+        } else {
+            err_str += "coherency line size";
+            err_str += ", ";
+        }
+
+        if let Ok(mut size) = self.sysfs_cache(index, "size") {
+            self.size_ = Some(to_bytes(&mut size)?);
+        } else {
+            err_str += "size";
+            err_str += ", ";
+        }
+
+        if let Ok(number_of_sets) = self.sysfs_cache(index, "number_of_sets") {
+            self.number_of_sets = Some(number_of_sets.parse::<u16>().map_err(|e| {
+                Error::InvalidCacheAttr("number_of_sets".to_string(), e.to_string())
+            })?);
+        } else {
+            err_str += "number of sets";
+            err_str += ", ";
+        }
+
+        // Pop the last 2 chars if a comma and space are present.
+        // The unwrap is safe since we check that the string actually
+        // ends with those 2 chars.
+        if err_str.ends_with(", ") {
+            err_str.pop().unwrap();
+            err_str.pop().unwrap();
+        }
+
+        if err_str != "" {
+            return Err(Error::MissingOptionalAttr(err_str));
+        }
+
+        Ok(())
+    }
+
+    pub fn level(&self) -> u8 {
+        self.level
     }
 }
 
@@ -112,33 +213,26 @@ fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
     Ok(line.trim_end().to_string())
 }
 
-fn sysfs_cache(index: u8, file_name: &str) -> Result<String> {
-    readln_special(&PathBuf::from(format!(
-        "/sys/devices/system/cpu/cpu0/cache/index{}/{}",
-        index, file_name
-    )))
-}
-
 fn to_bytes(cache_size_pretty: &mut String) -> Result<usize> {
     match cache_size_pretty.pop() {
         Some('K') => Ok(cache_size_pretty
             .parse::<usize>()
-            .map_err(|e| Error::InvalidCacheAttr("Size".to_string(), e.to_string()))?
+            .map_err(|e| Error::InvalidCacheAttr("size".to_string(), e.to_string()))?
             * 1024),
         Some('M') => Ok(cache_size_pretty
             .parse::<usize>()
-            .map_err(|e| Error::InvalidCacheAttr("Size".to_string(), e.to_string()))?
+            .map_err(|e| Error::InvalidCacheAttr("size".to_string(), e.to_string()))?
             * 1024
             * 1024),
         Some(letter) => {
             cache_size_pretty.push(letter);
             Err(Error::InvalidCacheAttr(
-                "Size".to_string(),
+                "size".to_string(),
                 (*cache_size_pretty).to_string(),
             ))
         }
         _ => Err(Error::InvalidCacheAttr(
-            "Size".to_string(),
+            "size".to_string(),
             "Empty string was provided".to_string(),
         )),
     }
@@ -159,73 +253,54 @@ fn mask_str2bit_count(mask_str: &str) -> Result<u16> {
             s_zero_free = "0";
         }
         bit_count += u32::from_str_radix(s_zero_free, 16)
-            .map_err(|e| Error::InvalidCacheAttr("Shared Cpu Map".to_string(), e.to_string()))?
+            .map_err(|e| Error::InvalidCacheAttr("shared_cpu_map".to_string(), e.to_string()))?
             .count_ones() as u16;
     }
     if bit_count == 0 {
         return Err(Error::InvalidCacheAttr(
-            "Shared Cpu Map".to_string(),
+            "shared_cpu_map".to_string(),
             mask_str.to_string(),
         ));
     }
     Ok(bit_count)
 }
 
-fn populate_cache_info(index: u8) -> Result<CacheInfo> {
-    let mut cache: CacheInfo = CacheInfo::default();
-
-    // If the cache type cannot be retrieved it means that we exhausted all cache levels
-    // and so we return the result.
-    let cache_type;
-    match sysfs_cache(index, "type") {
-        Ok(t) => cache_type = t,
-        Err(e) => {
-            if index == 0 {
-                return Err(e);
-            } else {
-                return Err(Error::NoMoreCacheLevels(index));
-            }
-        }
-    }
-
-    let level = sysfs_cache(index, "level").unwrap_or_else(|_| "".to_string());
-    let shared_cpu_map = sysfs_cache(index, "shared_cpu_map").unwrap_or_else(|_| "".to_string());
-    let coherency_line_size =
-        sysfs_cache(index, "coherency_line_size").unwrap_or_else(|_| "".to_string());
-    let number_of_sets = sysfs_cache(index, "number_of_sets").unwrap_or_else(|_| "".to_string());
-    let mut size = sysfs_cache(index, "size").unwrap_or_else(|_| "".to_string());
-
-    cache.type_ = CacheType::try_from(&cache_type)?;
-    cache.level = level
-        .parse::<u8>()
-        .map_err(|e| Error::InvalidCacheAttr("Level".to_string(), e.to_string()))?;
-    cache.line_size = coherency_line_size
-        .parse::<u16>()
-        .map_err(|e| Error::InvalidCacheAttr("Line Size".to_string(), e.to_string()))?;
-    cache.size_ = to_bytes(&mut size)
-        .map_err(|e| Error::InvalidCacheAttr("Size".to_string(), e.to_string()))?;
-    cache.number_of_sets = number_of_sets
-        .parse::<u16>()
-        .map_err(|e| Error::InvalidCacheAttr("Number of Sets".to_string(), e.to_string()))?;
-    // calculating the number of cpus that share the same cache unit.
-    cache.cpus_per_unit = mask_str2bit_count(shared_cpu_map.trim_end())?;
-    Ok(cache)
-}
-
-pub fn sysfs_read_caches(
+pub(crate) fn sysfs_read_caches(
     cache_l1: &mut Vec<CacheInfo>,
     cache_non_l1: &mut Vec<CacheInfo>,
 ) -> Result<()> {
+    let mut cache: CacheInfo = CacheInfo::default();
+    // These variables are used to make sure we log warnings for missing files only for one level because
+    // if an attribute is missing for a level for sure it will be missing for other levels too.
+    // Also without this mechanism we would be logging the warnings for each level which pollutes
+    // a lot the logs.
+    let mut logged_missing_attr = false;
+
     for index in 0..(MAX_CACHE_LEVEL + 1) {
-        match populate_cache_info(index) {
-            Ok(cache_info) => {
-                if cache_info.level == 1 {
+        match cache.populate(index) {
+            Ok(()) => {
+                let cache_info = cache.clone();
+                if cache.level() == 1 {
                     cache_l1.push(cache_info);
                 } else {
                     cache_non_l1.push(cache_info);
                 }
             }
-            Err(Error::NoMoreCacheLevels(_)) => return Ok(()),
+            // Missing cache files is not necessary an error so we
+            // do not propagate it upwards. We were prudent enough to log a warning.
+            Err(Error::MissingCacheConfig) => return Ok(()),
+            Err(Error::MissingOptionalAttr(ref msg)) => {
+                if msg != "" && !logged_missing_attr {
+                    warn!(
+                        "{}",
+                        format!(
+                            "Could not read the {} for cache level {}.",
+                            msg, cache.level
+                        )
+                    );
+                    logged_missing_attr = true;
+                }
+            }
             Err(e) => return Err(e),
         }
     }
