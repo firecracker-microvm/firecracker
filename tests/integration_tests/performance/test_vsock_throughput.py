@@ -8,88 +8,73 @@ import json
 import logging
 import time
 import concurrent.futures
+
 import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
-from framework.statistics import core, consumer, producer, criteria, types
-from framework.utils import CpuMap, CmdBuilder, run_cmd, eager_map, \
-    get_cpu_percent
+from framework.statistics import core, consumer, producer
+from framework.statistics.baseline import Provider as BaselineProvider
+from framework.statistics.metadata import DictProvider as DictMetadataProvider
+from framework.utils import CpuMap, CmdBuilder, run_cmd, get_cpu_percent, \
+    DictQuery
 from framework.utils_cpuid import get_cpu_model_name
 import host_tools.network as net_tools
-import integration_tests.performance.configs.vsock_throughput_test_config as\
-    test_cfg
+from integration_tests.performance.configs import defs
 
 
-SERVER_STARTUP_TIME = test_cfg.CONFIG["server_startup_time"]
+CONFIG = json.load(open(defs.CFG_LOCATION /
+                        "vsock_throughput_test_config.json"))
+SERVER_STARTUP_TIME = CONFIG["server_startup_time"]
 VSOCK_UDS_PATH = "v.sock"
+IPERF3 = "iperf3-vsock"
+THROUGHPUT = "throughput"
+DURATION = "duration"
+BASE_PORT = 5201
+CPU_UTILIZATION_VMM = "cpu_utilization_vmm"
+CPU_UTILIZATION_VCPUS_TOTAL = "cpu_utilization_vcpus_total"
+IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG = "cpu_utilization_percent"
+IPERF3_END_RESULTS_TAG = "end"
+TARGET_TAG = "target"
+DELTA_PERCENTAGE_TAG = "delta_percentage"
+THROUGHPUT_UNIT = "Mbps"
+DURATION_UNIT = "seconds"
+CPU_UTILIZATION_UNIT = "percentage"
 
 
-def measurements():
-    """Define the produced measurements for VSOCK workloads."""
-    return [types.MeasurementDef(test_cfg.THROUGHPUT,
-                                 test_cfg.THROUGHPUT_UNIT),
-            types.MeasurementDef(test_cfg.DURATION, test_cfg.DURATION_UNIT),
-            types.MeasurementDef.cpu_utilization_vmm(),
-            types.MeasurementDef.cpu_utilization_vcpus_total()]
+# pylint: disable=R0903
+class VsockThroughputBaselineProvider(BaselineProvider):
+    """Implementation of a baseline provider for the vsock throughput...
 
-
-def no_criteria_stats():
-    """Return statistics without pass criteria.
-
-    Useful for baselines gathering.
+    ...performance test.
     """
-    return [types.StatisticDef.sum(st_name=test_cfg.THROUGHPUT_TOTAL,
-                                   ms_name=test_cfg.THROUGHPUT),
-            types.StatisticDef.avg(test_cfg.DURATION),
-            types.StatisticDef.get_first_observation(
-                st_name="value",
-                ms_name=test_cfg.CPU_UTILIZATION_VMM),
-            types.StatisticDef.get_first_observation(
-                st_name="value",
-                ms_name=test_cfg.CPU_UTILIZATION_VCPUS_TOTAL)]
 
+    def __init__(self, env_id, iperf_id):
+        """Vsock throughput baseline provider initialization."""
+        cpu_model_name = get_cpu_model_name()
+        baselines = list(filter(
+            lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
+            CONFIG["hosts"]["instances"]["m5d.metal"]["cpus"]))
 
-def criteria_stats(cpu_baselines: str, iperf3_id: str, env_id: str):
-    """Return statistics tailored to the platform cpu model."""
-    [kernel, rootfs] = env_id.split("/")
+        super().__init__(DictQuery(dict()))
+        if len(baselines) > 0:
+            super().__init__(DictQuery(baselines[0]))
 
-    baseline_bw = cpu_baselines["throughput"][kernel][rootfs][iperf3_id]
-    delta_throughput = \
-        baseline_bw[test_cfg.DELTA_PERCENTAGE_TAG] * baseline_bw[
-            test_cfg.TARGET_TAG] / 100
-    baseline_cpu_host = \
-        cpu_baselines["cpu_utilization_vmm"][kernel][rootfs][iperf3_id]
-    baseline_host_target = baseline_cpu_host[test_cfg.TARGET_TAG]
-    baseline_host_delta = \
-        baseline_cpu_host[test_cfg.DELTA_PERCENTAGE_TAG] * \
-        baseline_host_target / 100
-    baseline_cpu_guest = \
-        cpu_baselines["cpu_utilization_vcpus_total"][kernel][rootfs][iperf3_id]
-    baseline_guest_target = baseline_cpu_guest[test_cfg.TARGET_TAG]
-    baseline_guest_delta = \
-        baseline_guest_target * baseline_guest_target / 100
+        self._tag = "baseline_{}/" + env_id + "/{}/" + iperf_id
 
-    return [
-        types.StatisticDef.sum(
-            st_name=test_cfg.THROUGHPUT_TOTAL,
-            ms_name=test_cfg.THROUGHPUT,
-            criteria=criteria.EqualWith(baseline_bw[test_cfg.TARGET_TAG],
-                                        delta_throughput)),
-        types.StatisticDef.avg(test_cfg.DURATION),
-        types.StatisticDef.get_first_observation(
-            st_name="value",
-            ms_name=test_cfg.CPU_UTILIZATION_VMM,
-            criteria=criteria.EqualWith(baseline_host_target,
-                                        baseline_host_delta)),
-        types.StatisticDef.get_first_observation(
-            st_name="value",
-            ms_name=test_cfg.CPU_UTILIZATION_VCPUS_TOTAL,
-            criteria=criteria.EqualWith(baseline_guest_target,
-                                        baseline_guest_delta)
-        )
-    ]
+    def get(self, ms_name: str, st_name: str) -> dict:
+        """Return the baseline corresponding to the key."""
+        key = self._tag.format(ms_name, st_name)
+        baseline = self._baselines.get(key)
+        if baseline:
+            target = baseline.get("target")
+            delta_percentage = baseline.get("delta_percentage")
+            return {
+                "target": target,
+                "delta": delta_percentage * target / 100,
+            }
+        return None
 
 
 def produce_iperf_output(basevm,
@@ -115,11 +100,11 @@ def produce_iperf_output(basevm,
         assigned_cpu = CpuMap(current_avail_cpu)
         iperf_server = \
             CmdBuilder(f"taskset --cpu-list {assigned_cpu}") \
-            .with_arg(test_cfg.IPERF3) \
+            .with_arg(IPERF3) \
             .with_arg("-sD") \
             .with_arg("--vsock") \
             .with_arg("-B", host_uds_path) \
-            .with_arg("-p", f"{test_cfg.BASE_PORT + server_idx}") \
+            .with_arg("-p", f"{BASE_PORT + server_idx}") \
             .with_arg("-1") \
             .build()
 
@@ -134,13 +119,12 @@ def produce_iperf_output(basevm,
     def spawn_iperf_client(conn, client_idx, mode):
         # Add the port where the iperf3 client is going to send/receive.
         cmd = guest_cmd_builder.with_arg(
-            "-p", test_cfg.BASE_PORT + client_idx).with_arg(mode).build()
+            "-p", BASE_PORT + client_idx).with_arg(mode).build()
 
         # Bind the UDS in the jailer's root.
         basevm.create_jailed_resource(os.path.join(
             basevm.path,
-            _make_host_port_path(VSOCK_UDS_PATH,
-                                 test_cfg.BASE_PORT + client_idx)))
+            _make_host_port_path(VSOCK_UDS_PATH, BASE_PORT + client_idx)))
 
         pinned_cmd = f"taskset --cpu-list {client_idx % basevm.vcpus_count}" \
             f" {cmd}"
@@ -169,8 +153,8 @@ def produce_iperf_output(basevm,
         cpu_load = cpu_load_future.result()
         for future in futures[:-1]:
             res = json.loads(future.result())
-            res[test_cfg.IPERF3_END_RESULTS_TAG][
-                test_cfg.IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG] = None
+            res[IPERF3_END_RESULTS_TAG][
+                IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG] = None
             yield res
 
         # Attach the real CPU utilization vmm/vcpus to
@@ -183,9 +167,9 @@ def produce_iperf_output(basevm,
         thread_id = list(cpu_load[tag])[0]
         data = cpu_load[tag][thread_id]
         vmm_util = sum(data)/len(data)
-        cpu_util_perc = res[test_cfg.IPERF3_END_RESULTS_TAG][
-            test_cfg.IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG] = dict()
-        cpu_util_perc[test_cfg.CPU_UTILIZATION_VMM] = vmm_util
+        cpu_util_perc = res[IPERF3_END_RESULTS_TAG][
+            IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG] = dict()
+        cpu_util_perc[CPU_UTILIZATION_VMM] = vmm_util
 
         vcpus_util = 0
         for vcpu in range(basevm.vcpus_count):
@@ -197,87 +181,72 @@ def produce_iperf_output(basevm,
             data = cpu_load[tag][thread_id]
             vcpus_util += (sum(data)/len(data))
 
-        cpu_util_perc[test_cfg.CPU_UTILIZATION_VCPUS_TOTAL] = vcpus_util
+        cpu_util_perc[CPU_UTILIZATION_VCPUS_TOTAL] = vcpus_util
 
         yield res
 
 
 def consume_iperf_output(cons, result):
     """Consume iperf3 output result for TCP workload."""
-    total_received = result[test_cfg.IPERF3_END_RESULTS_TAG]['sum_received']
+    total_received = result[IPERF3_END_RESULTS_TAG]['sum_received']
     duration = float(total_received['seconds'])
-    cons.consume_measurement(test_cfg.DURATION, duration)
+    cons.consume_data(DURATION, duration)
 
     # Computed at the receiving end.
     total_recv_bytes = int(total_received['bytes'])
     tput = round((total_recv_bytes*8) / (1024*1024*duration), 2)
-    cons.consume_measurement(test_cfg.THROUGHPUT, tput)
+    cons.consume_data(THROUGHPUT, tput)
 
-    cpu_util = result[test_cfg.IPERF3_END_RESULTS_TAG][
-        test_cfg.IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG]
+    cpu_util = result[IPERF3_END_RESULTS_TAG][
+        IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG]
     if cpu_util:
-        cpu_util_host = cpu_util[test_cfg.CPU_UTILIZATION_VMM]
-        cpu_util_guest = cpu_util[test_cfg.CPU_UTILIZATION_VCPUS_TOTAL]
+        cpu_util_host = cpu_util[CPU_UTILIZATION_VMM]
+        cpu_util_guest = cpu_util[CPU_UTILIZATION_VCPUS_TOTAL]
 
-        cons.consume_measurement(test_cfg.CPU_UTILIZATION_VMM, cpu_util_host)
-        cons.consume_measurement(test_cfg.CPU_UTILIZATION_VCPUS_TOTAL,
-                                 cpu_util_guest)
+        cons.consume_stat("value", CPU_UTILIZATION_VMM, cpu_util_host)
+        cons.consume_stat("value", CPU_UTILIZATION_VCPUS_TOTAL, cpu_util_guest)
 
 
 def pipes(basevm, current_avail_cpu, env_id):
     """Producer/Consumer pipes generator."""
-    host_cpu_model_name = get_cpu_model_name()
-    cpus_baselines = test_cfg.CONFIG["hosts"]["instances"]["m5d.metal"]["cpus"]
-    stats = no_criteria_stats()
-    baselines = list(filter(
-        lambda baseline: baseline["model"] == host_cpu_model_name,
-        cpus_baselines))
-
-    for mode in test_cfg.CONFIG["modes"]:
+    for mode in CONFIG["modes"]:
         # We run bi-directional tests only on uVM with more than 2 vCPus
         # because we need to pin one iperf3/direction per vCPU, and since we
         # have two directions, we need at least two vCPUs.
         if mode == "bd" and basevm.vcpus_count < 2:
             continue
 
-        for protocol in test_cfg.CONFIG["protocols"]:
+        for protocol in CONFIG["protocols"]:
             for payload_length in protocol["payload_length"]:
-                iperf_guest_cmd_builder = CmdBuilder(test_cfg.IPERF3) \
+                iperf_guest_cmd_builder = CmdBuilder(IPERF3) \
                     .with_arg("--vsock") \
                     .with_arg("-c", 2)       \
                     .with_arg("--json") \
                     .with_arg("--omit", protocol["omit"]) \
-                    .with_arg("--time", test_cfg.CONFIG["time"])
+                    .with_arg("--time", CONFIG["time"])
 
-                if payload_length:
+                if payload_length != "DEFAULT":
                     iperf_guest_cmd_builder = iperf_guest_cmd_builder \
                         .with_arg("--len", f"{payload_length}")
-                    iperf3_id_payload_len = payload_length
-                else:
-                    iperf3_id_payload_len = "DEFAULT"
 
-                iperf3_id = f"vsock-p{iperf3_id_payload_len}" \
+                iperf3_id = f"vsock-p{payload_length}" \
                     f"-{basevm.vcpus_count}vcpu-{mode}"
 
                 cons = consumer.LambdaConsumer(
-                    consume_stats=False,
+                    metadata_provider=DictMetadataProvider(
+                        CONFIG["measurements"],
+                        VsockThroughputBaselineProvider(env_id, iperf3_id)),
                     func=consume_iperf_output
                 )
-
-                if len(baselines) > 0:
-                    stats = criteria_stats(baselines[0], iperf3_id, env_id)
-
-                eager_map(cons.set_measurement_def, measurements())
-                eager_map(cons.set_stat_def, stats)
 
                 prod_kwargs = {
                     "guest_cmd_builder": iperf_guest_cmd_builder,
                     "basevm": basevm,
                     "current_avail_cpu": current_avail_cpu,
-                    "runtime": test_cfg.CONFIG["time"],
+                    "runtime": CONFIG["time"],
                     "omit": protocol["omit"],
-                    "load_factor": test_cfg.CONFIG["load_factor"],
-                    "modes": test_cfg.CONFIG["modes"][mode],
+                    "load_factor": CONFIG["load_factor"],
+                    "modes": CONFIG["modes"][mode],
                 }
                 prod = producer.LambdaProducer(produce_iperf_output,
                                                prod_kwargs)
@@ -341,8 +310,7 @@ def iperf_workload(context):
 
     st_core = core.Core(name="vsock_throughput",
                         iterations=1,
-                        check_criteria=file_dumper is None,
-                        custom={'cpu_model': get_cpu_model_name()})
+                        custom={'cpu_model_name': get_cpu_model_name()})
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
     # thread and then one thread for each configured vCPU.
@@ -373,7 +341,7 @@ def iperf_workload(context):
 
     # Start running the commands on guest, gather results and verify pass
     # criteria.
-    results = st_core.run_exercise()
+    results = st_core.run_exercise(file_dumper is None)
     if file_dumper:
         file_dumper.writeln(json.dumps(results))
 
