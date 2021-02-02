@@ -281,6 +281,13 @@ fn append_property(fdt: &mut Vec<u8>, name: &str, val: &[u8]) -> Result<()> {
     Ok(())
 }
 
+fn append_cache_property_u32(fdt: &mut Vec<u8>, name: &str, val: Option<u32>) -> Result<()> {
+    if let Some(cache_attr) = val {
+        append_property_u32(fdt, name, cache_attr)?;
+    }
+    Ok(())
+}
+
 // Auxiliary functions for writing u32/u64 numbers in big endian order.
 fn to_be32(input: u32) -> [u8; 4] {
     u32::to_be_bytes(input)
@@ -338,16 +345,20 @@ fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &[u64]) -> Result<()> {
             // Please check out
             // https://github.com/devicetree-org/devicetree-specification/releases/download/v0.3/devicetree-specification-v0.3.pdf,
             // section 3.8.
-            append_property_u32(fdt, cache.type_.of_cache_size(), cache.size_ as u32)?;
-            append_property_u32(
+            append_cache_property_u32(
+                fdt,
+                cache.type_.of_cache_size(),
+                cache.size_.map(|s| s as u32),
+            )?;
+            append_cache_property_u32(
                 fdt,
                 cache.type_.of_cache_line_size(),
-                cache.line_size as u32,
+                cache.line_size.map(|l| l as u32),
             )?;
-            append_property_u32(
+            append_cache_property_u32(
                 fdt,
                 cache.type_.of_cache_sets(),
-                cache.number_of_sets as u32,
+                cache.number_of_sets.map(|s| s as u32),
             )?;
         }
 
@@ -364,7 +375,7 @@ fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &[u64]) -> Result<()> {
             //      next-level-cache = <&l3-cache> ---> second iteration
             // }
             // The cpus per unit cannot be 0 since the sysfs will also include the current cpu
-            // in the list of shared cpus so it need to be at least 1. Firecracker trusts the host.
+            // in the list of shared cpus so it needs to be at least 1. Firecracker trusts the host.
             // The operation is safe since we already checked when creating cache attributes that
             // cpus_per_unit is not 0 (.e look for mask_str2bit_count function).
             let cache_phandle = LAST_CACHE_PHANDLE
@@ -392,17 +403,21 @@ fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &[u64]) -> Result<()> {
                 append_property_u32(fdt, "phandle", cache_phandle)?;
                 append_property_string(fdt, "compatible", "cache")?;
                 append_property_u32(fdt, "cache-level", cache.level as u32)?;
+                append_cache_property_u32(
+                    fdt,
+                    cache.type_.of_cache_size(),
+                    cache.size_.map(|s| s as u32),
+                )?;
 
-                append_property_u32(fdt, cache.type_.of_cache_size(), cache.size_ as u32)?;
-                append_property_u32(
+                append_cache_property_u32(
                     fdt,
                     cache.type_.of_cache_line_size(),
-                    cache.line_size as u32,
+                    cache.line_size.map(|l| l as u32),
                 )?;
-                append_property_u32(
+                append_cache_property_u32(
                     fdt,
                     cache.type_.of_cache_sets(),
-                    cache.number_of_sets as u32,
+                    cache.number_of_sets.map(|s| s as u32),
                 )?;
                 if let Some(cache_type) = cache.type_.of_cache_type() {
                     append_property_null(fdt, cache_type)?;
