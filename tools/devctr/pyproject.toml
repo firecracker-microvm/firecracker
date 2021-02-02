@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "tool.poetry"
+version = "0.1.0"
+description = "Firecracker python dependencies"
+authors = ["Your Name <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = "3.6.9"
+boto3 = "*"
+botocore = "*"
+dataclasses = "*"
+nsenter = "*"
+psutil = "5.7.0"
+pycodestyle = "*"
+pydocstyle = "*"
+pylint = "*"
+pytest = "*"
+pytest-timeout = "*"
+PyYAML = "*"
+requests = "*"
+requests-unixsocket = "*"
+retry = "*"
+typing-extensions = "*"
+gitlint = "*"
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
