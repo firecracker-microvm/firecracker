@@ -31,14 +31,13 @@ class Core:
     """Base class for statistics core driver."""
 
     # pylint: disable=W0102
-    def __init__(self, name, iterations, custom={}, check_criteria=True):
+    def __init__(self, name, iterations, custom={}):
         """Core constructor."""
         self._pipes = defaultdict(Pipe)
         self._statistics = Statistics(name=name,
                                       iterations=iterations,
                                       results={},
                                       custom=custom)
-        self._check_criteria = check_criteria
 
     def add_pipe(self, producer: Producer, consumer: Consumer, tag=None):
         """Add a new producer-consumer pipe."""
@@ -47,7 +46,7 @@ class Core:
                 str(datetime.timestamp(datetime.now()))
         self._pipes[tag] = Pipe(producer, consumer)
 
-    def run_exercise(self) -> Statistics:
+    def run_exercise(self, check_criteria=True) -> Statistics:
         """Drive the statistics producers until completion."""
         iterations = self._statistics['iterations']
         for tag, pipe in self._pipes.items():
@@ -59,7 +58,7 @@ class Core:
                 else:
                     pipe.consumer.ingest(iteration, raw_data)
             try:
-                stats, custom = pipe.consumer.process(self._check_criteria)
+                stats, custom = pipe.consumer.process(check_criteria)
             except Failed as err:
                 assert False, f"Failed on '{tag}': {err.msg}"
 

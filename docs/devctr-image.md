@@ -46,9 +46,20 @@ registry. The Firecracker CI suite must also be updated to use the new image.
 
 1. Build a new container image with the updated Dockerfile.
 
+   a: Additionally also checks for any outdated python packages
+   and tries to update them. This makes sure that python packages
+   versions are up to date with latest versions.
+
    ```bash
-    docker build -t fcuvm -f tools/devctr/Dockerfile.x86_64 .
-    ```
+    tools/devtool build_devctr
+   ```
+
+   b: Builds a container image but skips performing updates of python
+   packages. The container image will use the locked versions of python packages.
+
+   ```bash
+    tools/devtool build_devctr --no-python-package-update
+   ```
 
 1. Verify that the new image exists.
 
@@ -89,7 +100,7 @@ Then continue with the above steps:
 1. Build a new container image with the updated Dockerfile.
 
     ```bash
-    docker build -t fcuvm -f tools/devctr/Dockerfile.aarch64  .
+    tools/devtool build_devctr
     ```
 
 1. Verify that the new image exists.

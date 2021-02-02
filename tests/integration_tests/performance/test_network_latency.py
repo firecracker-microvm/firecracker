@@ -1,7 +1,7 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests the network latency of a Firecracker guest."""
-
+import json
 import logging
 import platform
 import re
@@ -15,10 +15,10 @@ from framework.statistics import core, consumer, producer, types, criteria,\
     function
 from framework.utils import eager_map, CpuMap
 from framework.artifacts import DEFAULT_HOST_IP
-
+from framework.utils_cpuid import get_cpu_model_name
 
 PING = "ping -c {} -i {} {}"
-BASELINES = {
+LATENCY_AVG_BASELINES = {
     "x86_64": {
         "target": 0.250,  # milliseconds
         "delta": 0.020  # milliseconds
@@ -32,34 +32,30 @@ LATENCY = "latency"
 
 def pass_criteria():
     """Define pass criteria for the statistics."""
-    delta = BASELINES[platform.machine()]["delta"]
-    target = BASELINES[platform.machine()]["target"]
-
     return {
-        function.Avg.name(): criteria.EqualWith(target, delta)
+        "Avg": criteria.EqualWith(LATENCY_AVG_BASELINES[platform.machine()])
     }
 
 
 def measurements():
-    """Define the produced measurements."""
-    return [types.MeasurementDef(LATENCY, "millisecond"),
-            types.MeasurementDef(PKT_LOSS, "percentage")]
+    """Define measurements."""
+    latency = types.MeasurementDef.create_measurement(
+        LATENCY,
+        "ms",
+        [function.ValuePlaceholder("Avg"),
+         function.ValuePlaceholder("Min"),
+         function.ValuePlaceholder("Max"),
+         function.ValuePlaceholder("Stddev"),
+         function.ValuePlaceholder("Percentile99"),
+         function.ValuePlaceholder("Percentile90"),
+         function.ValuePlaceholder("Percentile50")],
+        pass_criteria())
+    pkt_loss = types.MeasurementDef.create_measurement(
+        PKT_LOSS,
+        "percentage",
+        [function.ValuePlaceholder(PKT_LOSS_STAT_KEY)])
 
-
-def stats():
-    """Define statistics based on the measurements."""
-    # Add default statistics for "latency" measurement.
-    stats_defs = types.StatisticDef.defaults(LATENCY,
-                                             [function.Min, function.Stddev,
-                                              function.Max, function.Avg,
-                                              function.Percentile50,
-                                              function.Percentile90,
-                                              function.Percentile99],
-                                             pass_criteria())
-    stats_defs.append(consumer.StatisticDef(PKT_LOSS_STAT_KEY,
-                                            PKT_LOSS,
-                                            function.GetFirstObservation))
-    return stats_defs
+    return [latency, pkt_loss]
 
 
 def consume_ping_output(cons, raw_data, requests):
@@ -77,12 +73,11 @@ def consume_ping_output(cons, raw_data, requests):
     rtt min/avg/max/mdev = 17.478/17.705/17.808/0.210 ms
     """
     eager_map(cons.set_measurement_def, measurements())
-    eager_map(cons.set_stat_def, stats())
 
-    st_keys = [function.Min.name(),
-               function.Avg.name(),
-               function.Max.name(),
-               function.Stddev.name()]
+    st_keys = ["Min",
+               "Avg",
+               "Max",
+               "Stddev"]
 
     output = raw_data.strip().split('\n')
     assert len(output) > 2
@@ -118,13 +113,13 @@ def consume_ping_output(cons, raw_data, requests):
         times.append(time[0])
 
     times.sort()
-    cons.consume_stat(st_name=function.Percentile50.name(),
+    cons.consume_stat(st_name="Percentile50",
                       ms_name=LATENCY,
                       value=times[int(requests * 0.5)])
-    cons.consume_stat(st_name=function.Percentile90.name(),
+    cons.consume_stat(st_name="Percentile90",
                       ms_name=LATENCY,
                       value=times[int(requests * 0.9)])
-    cons.consume_stat(st_name=function.Percentile99.name(),
+    cons.consume_stat(st_name="Percentile99",
                       ms_name=LATENCY,
                       value=times[int(requests * 0.99)])
 
@@ -134,7 +129,7 @@ def consume_ping_output(cons, raw_data, requests):
                     reason="This test was observed only on x86_64. Further "
                            "support need to be added for aarch64 and amd64.")
 @pytest.mark.timeout(3600)
-def test_network_latency(bin_cloner_path):
+def test_network_latency(bin_cloner_path, results_file_dumper):
     """Test network latency driver for multiple artifacts."""
     logger = logging.getLogger("network_latency")
     microvm_artifacts = ArtifactSet(
@@ -150,7 +145,8 @@ def test_network_latency(bin_cloner_path):
         'logger': logger,
         'requests': 1000,
         'interval': 0.2,  # Seconds.
-        'name': 'network_latency'
+        'name': 'network_latency',
+        'results_file_dumper': results_file_dumper
     }
 
     # Create the test matrix.
@@ -170,6 +166,7 @@ def _g2h_send_ping(context):
     vm_builder = context.custom['builder']
     interval_between_req = context.custom['interval']
     name = context.custom['name']
+    file_dumper = context.custom['results_file_dumper']
 
     logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
                 .format(name,
@@ -207,10 +204,11 @@ def _g2h_send_ping(context):
 
     custom = {"microvm": context.microvm.name(),
               "kernel": context.kernel.name(),
-              "disk": context.disk.name()}
+              "disk": context.disk.name(),
+              "cpu_model_name": get_cpu_model_name()}
+
     st_core = core.Core(name="network_latency", iterations=1, custom=custom)
     cons = consumer.LambdaConsumer(
-        consume_stats=True,
         func=consume_ping_output,
         func_kwargs={"requests": context.custom['requests']}
     )
@@ -222,4 +220,6 @@ def _g2h_send_ping(context):
     st_core.add_pipe(producer=prod, consumer=cons, tag="ping")
 
     # Gather results and verify pass criteria.
-    st_core.run_exercise()
+    result = st_core.run_exercise(file_dumper is None)
+    if file_dumper:
+        file_dumper.writeln(json.dumps(result))
