@@ -14,7 +14,6 @@ import time
 from collections import namedtuple, defaultdict
 import psutil
 from retry import retry
-from framework import defs
 
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
@@ -259,6 +258,33 @@ class DictQuery:
     def __str__(self):
         """Representation as a string."""
         return str(self._inner)
+
+
+class ExceptionAggregator(Exception):
+    """Abstraction over an exception with message formatter."""
+
+    def __init__(self, add_newline=False):
+        """Initialize the exception aggregator."""
+        super().__init__()
+        self.failures = list()
+
+        # If `add_newline` is True then the failures will start one row below,
+        # in the logs. This is useful for having the failures starting on an
+        # empty line, keeping the formatting nice and clean.
+        if add_newline:
+            self.failures.append("")
+
+    def add_row(self, failure: str):
+        """Add a failure entry."""
+        self.failures.append(f"{failure}")
+
+    def has_any(self) -> bool:
+        """Return whether there are failures or not."""
+        return len(self.failures) > 1
+
+    def __str__(self):
+        """Return custom as string implementation."""
+        return "\n".join(self.failures)
 
 
 def search_output_from_cmd(cmd: str,
@@ -561,27 +587,3 @@ def compare_versions(first, second):
         return first[1] - second[1]
 
     return first[0] - second[0]
-
-
-class ResultsFileDumper:
-    """Class responsible with outputting test results to files."""
-
-    def __init__(self, test_name: str, append=True):
-        """Initialize the instance."""
-        if not append:
-            flags = "w"
-        else:
-            flags = "a"
-
-        self._root_path = defs.TEST_RESULTS_DIR
-
-        # Create the root directory, if it doesn't exist.
-        self._root_path.mkdir(exist_ok=True)
-
-        self._file = open(self._root_path / test_name, flags)
-
-    def writeln(self, data: str):
-        """Write the `data` string to the output file, appending a newline."""
-        self._file.write(data)
-        self._file.write("\n")
-        self._file.flush()
