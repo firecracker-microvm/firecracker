@@ -3,6 +3,8 @@
 """Module for common statistic tests metadata providers."""
 
 from abc import ABC, abstractmethod
+from typing import Dict
+
 from framework.statistics.criteria import CriteriaFactory
 from framework.statistics.function import FunctionFactory
 from framework.statistics.types import MeasurementDef, StatisticDef
@@ -16,14 +18,19 @@ class Provider(ABC):
     Metadata consists from measurements and statistics definitions.
     """
 
-    def __init__(self):
+    def __init__(self, baseline_provider: BaselineProvider):
         """Initialize the metadata provider."""
-        self._measurements = dict()
+        self._baseline_provider = baseline_provider
 
     @property
     @abstractmethod
-    def measurements(self):
+    def measurements(self) -> Dict[str, MeasurementDef]:
         """Return measurement dictionary."""
+
+    @property
+    def baseline_provider(self) -> BaselineProvider:
+        """Return the baseline provider."""
+        return self._baseline_provider
 
 
 # pylint: disable=R0903
@@ -104,7 +111,9 @@ class DictProvider(Provider):
         }
         ```
         """
-        super().__init__()
+        super().__init__(baseline_provider)
+
+        self._measurements = dict()
         for ms_name in measurements:
             assert DictProvider.UNIT_KEY in measurements[ms_name], \
                 f"'{DictProvider.UNIT_KEY}' field is required for '" \

@@ -7,23 +7,8 @@ from abc import ABC, abstractmethod
 from pydoc import locate
 
 
-class Failed(Exception):
-    """Exception to be raised when criteria fails."""
-
-    def __init__(self, msg=""):
-        """Initialize the exception."""
-        super().__init__()
-        self._msg = msg
-
-    @property
-    def msg(self):
-        """Return the exception message."""
-        return self._msg
-
-    @msg.setter
-    def msg(self, msg):
-        """Set the exception message."""
-        self._msg = msg
+class CriteriaException(Exception):
+    """Exception returned by failure of check criteria."""
 
 
 # pylint: disable=R0903
@@ -71,9 +56,14 @@ class ComparisonCriteria(ABC):
         """Return criteria target."""
         target = self._baseline.get("target")
         if not target:
-            raise Failed("Baseline target not defined.")
+            raise CriteriaException("Baseline target not defined.")
 
         return target
+
+    @property
+    def baseline(self) -> dict:
+        """Return the baseline."""
+        return self._baseline
 
     def fail_msg(self, actual):
         """Return the default fail message."""
@@ -92,7 +82,7 @@ class GreaterThan(ComparisonCriteria):
     def check(self, actual):
         """Compare the target and the actual."""
         if actual < self.target:
-            raise Failed(msg=self.fail_msg(actual))
+            raise CriteriaException(self.fail_msg(actual))
 
 
 # pylint: disable=R0903
@@ -106,7 +96,7 @@ class LowerThan(ComparisonCriteria):
     def check(self, actual):
         """Compare the target and the actual."""
         if actual > self.target:
-            raise Failed(msg=self.fail_msg(actual))
+            raise CriteriaException(self.fail_msg(actual))
 
 
 # pylint: disable=R0903
@@ -135,7 +125,7 @@ class EqualWith(ComparisonCriteria):
         """Return the `delta` field of the baseline."""
         delta = self._baseline.get("delta")
         if not delta:
-            raise Failed("Baseline delta not defined.")
+            raise CriteriaException("Baseline delta not defined.")
         return delta
 
     def fail_msg(self, actual):
@@ -146,4 +136,4 @@ class EqualWith(ComparisonCriteria):
     def check(self, actual):
         """Compare the target and the actual."""
         if abs(self.target - actual) > self.delta:
-            raise Failed(msg=self.fail_msg(actual))
+            raise CriteriaException(self.fail_msg(actual))

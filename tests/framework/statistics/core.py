@@ -8,14 +8,25 @@ from datetime import datetime
 from collections import namedtuple, defaultdict
 import types
 from typing_extensions import TypedDict
-
-from framework.statistics.criteria import Failed
 from framework.statistics.producer import Producer
-from framework.statistics.consumer import Consumer
-
-
+from framework.statistics.consumer import Consumer, ProcessingException
 # pylint: disable=R0903
-class Statistics(TypedDict):
+from framework.utils import ExceptionAggregator
+
+
+class CoreException(ExceptionAggregator):
+    """Exception used to return core messages.
+
+    The caller should handle the exception accordingly.
+    """
+
+    def __init__(self, result=None):
+        """Initialize the exception."""
+        super().__init__()
+        self.result = result
+
+
+class Result(TypedDict):
     """Data class for aggregated statistic results."""
 
     name: str
@@ -34,21 +45,23 @@ class Core:
     def __init__(self, name, iterations, custom={}):
         """Core constructor."""
         self._pipes = defaultdict(Pipe)
-        self._statistics = Statistics(name=name,
-                                      iterations=iterations,
-                                      results={},
-                                      custom=custom)
+        self._result = Result(name=name,
+                              iterations=iterations,
+                              results={},
+                              custom=custom)
+        self._failure_aggregator = CoreException()
 
     def add_pipe(self, producer: Producer, consumer: Consumer, tag=None):
         """Add a new producer-consumer pipe."""
         if tag is None:
-            tag = self._statistics['name'] + "_" + \
-                str(datetime.timestamp(datetime.now()))
+            tag = self._result['name'] + "_" + \
+                  str(datetime.timestamp(datetime.now()))
         self._pipes[tag] = Pipe(producer, consumer)
 
-    def run_exercise(self, check_criteria=True) -> Statistics:
+    def run_exercise(self, fail_fast=False) -> Result:
         """Drive the statistics producers until completion."""
-        iterations = self._statistics['iterations']
+        iterations = self._result['iterations']
+        # This is used for identation purposes.
         for tag, pipe in self._pipes.items():
             for iteration in range(iterations):
                 raw_data = pipe.producer.produce()
@@ -58,49 +71,58 @@ class Core:
                 else:
                     pipe.consumer.ingest(iteration, raw_data)
             try:
-                stats, custom = pipe.consumer.process(check_criteria)
-            except Failed as err:
-                assert False, f"Failed on '{tag}': {err.msg}"
+                stats, custom = pipe.consumer.process(fail_fast)
+            except ProcessingException as err:
+                self._failure_aggregator.add_row(f"Failed on '{tag}':")
+                self._failure_aggregator.add_row(err)
+                stats = err.stats
+                custom = err.custom
+                if fail_fast:
+                    raise self._failure_aggregator
 
-            self._statistics['results'][tag] = stats
+            self._result['results'][tag] = stats
 
             # Custom information extracted from all the iterations.
             if len(custom) > 0:
-                self._statistics['custom'][tag] = custom
+                self._result['custom'][tag] = custom
 
-        return self._statistics
+        if self._failure_aggregator.has_any():
+            self._failure_aggregator.result = self._result
+            raise self._failure_aggregator
+
+        return self._result
 
     @property
     def name(self):
         """Return statistics name."""
-        return self._statistics.name
+        return self._result.name
 
     @name.setter
     def name(self, name):
         """Set statistics name."""
-        self._statistics.name = name
+        self._result.name = name
 
     @property
     def iterations(self):
         """Return statistics iterations count."""
-        return self._statistics.iterations
+        return self._result.iterations
 
     @iterations.setter
     def iterations(self, iterations):
         """Set statistics iterations count."""
-        self._statistics.iterations = iterations
+        self._result.iterations = iterations
 
     @property
     def custom(self):
         """Return statistics custom information."""
-        return self._statistics.custom
+        return self._result.custom
 
     @custom.setter
     def custom(self, custom):
         """Set statistics custom information."""
-        self._statistics.custom = custom
+        self._result.custom = custom
 
     @property
     def statistics(self):
         """Return statistics gathered so far."""
-        return self._statistics
+        return self._result

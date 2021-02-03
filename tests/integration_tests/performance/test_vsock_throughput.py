@@ -22,7 +22,8 @@ from framework.utils import CpuMap, CmdBuilder, run_cmd, get_cpu_percent, \
 from framework.utils_cpuid import get_cpu_model_name
 import host_tools.network as net_tools
 from integration_tests.performance.configs import defs
-
+from integration_tests.performance.utils import handle_failure, \
+    dump_test_result
 
 CONFIG = json.load(open(defs.CFG_LOCATION /
                         "vsock_throughput_test_config.json"))
@@ -56,12 +57,11 @@ class VsockThroughputBaselineProvider(BaselineProvider):
         baselines = list(filter(
             lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
             CONFIG["hosts"]["instances"]["m5d.metal"]["cpus"]))
-
         super().__init__(DictQuery(dict()))
         if len(baselines) > 0:
             super().__init__(DictQuery(baselines[0]))
 
-        self._tag = "baseline_{}/" + env_id + "/{}/" + iperf_id
+        self._tag = "baselines/{}/" + env_id + "/{}/" + iperf_id
 
     def get(self, ms_name: str, st_name: str) -> dict:
         """Return the baseline corresponding to the key."""
@@ -203,8 +203,8 @@ def consume_iperf_output(cons, result):
         cpu_util_host = cpu_util[CPU_UTILIZATION_VMM]
         cpu_util_guest = cpu_util[CPU_UTILIZATION_VCPUS_TOTAL]
 
-        cons.consume_stat("value", CPU_UTILIZATION_VMM, cpu_util_host)
-        cons.consume_stat("value", CPU_UTILIZATION_VCPUS_TOTAL, cpu_util_guest)
+        cons.consume_stat("Avg", CPU_UTILIZATION_VMM, cpu_util_host)
+        cons.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, cpu_util_guest)
 
 
 def pipes(basevm, current_avail_cpu, env_id):
@@ -229,8 +229,7 @@ def pipes(basevm, current_avail_cpu, env_id):
                     iperf_guest_cmd_builder = iperf_guest_cmd_builder \
                         .with_arg("--len", f"{payload_length}")
 
-                iperf3_id = f"vsock-p{payload_length}" \
-                    f"-{basevm.vcpus_count}vcpu-{mode}"
+                iperf3_id = f"vsock-p{payload_length}-{mode}"
 
                 cons = consumer.LambdaConsumer(
                     metadata_provider=DictMetadataProvider(
@@ -336,16 +335,18 @@ def iperf_workload(context):
     for cons, prod, tag in \
             pipes(basevm,
                   current_avail_cpu + 1,
-                  f"{context.kernel.name()}/{context.disk.name()}"):
+                  f"{context.kernel.name()}/{context.disk.name()}/"
+                  f"{context.microvm.name()}"):
         st_core.add_pipe(prod, cons, tag)
 
     # Start running the commands on guest, gather results and verify pass
     # criteria.
-    results = st_core.run_exercise(file_dumper is None)
-    if file_dumper:
-        file_dumper.writeln(json.dumps(results))
+    try:
+        result = st_core.run_exercise()
+    except core.CoreException as err:
+        handle_failure(file_dumper, err)
 
-    basevm.kill()
+    dump_test_result(file_dumper, result)
 
 
 def _make_host_port_path(uds_path, port):
