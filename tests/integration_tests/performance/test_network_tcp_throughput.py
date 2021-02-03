@@ -2,14 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the network throughput of Firecracker uVMs."""
 
-
 import json
 import logging
 import time
 import concurrent.futures
 import pytest
+
 from conftest import _test_images_s3_bucket
 from integration_tests.performance.configs import defs
+from integration_tests.performance.utils import handle_failure, \
+    dump_test_result
 from framework.artifacts import ArtifactCollection, ArtifactSet, \
     DEFAULT_HOST_IP
 from framework.matrix import TestMatrix, TestContext
@@ -59,7 +61,7 @@ class NetTCPThroughputBaselineProvider(BaselineProvider):
         if len(baselines) > 0:
             super().__init__(DictQuery(baselines[0]))
 
-        self._tag = "baseline_{}/" + env_id + "/{}/" + iperf_id
+        self._tag = "baselines/{}/" + env_id + "/{}/" + iperf_id
 
     def get(self, ms_name: str, st_name: str) -> dict:
         """Return the baseline value corresponding to the key."""
@@ -120,6 +122,7 @@ def produce_iperf_output(basevm,
 
     # Remove inaccurate readings from the workloads end.
     cpu_load_runtime = runtime - 2
+    assert cpu_load_runtime > 0
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = list()
         cpu_load_future = executor.submit(get_cpu_percent,
@@ -207,8 +210,8 @@ def consume_iperf_tcp_output(cons,
         cpu_util_host = cpu_util[CPU_UTILIZATION_VMM]
         cpu_util_guest = cpu_util[CPU_UTILIZATION_VCPUS_TOTAL]
 
-        cons.consume_stat("value", CPU_UTILIZATION_VMM, cpu_util_host)
-        cons.consume_stat("value", CPU_UTILIZATION_VCPUS_TOTAL, cpu_util_guest)
+        cons.consume_stat("Avg", CPU_UTILIZATION_VMM, cpu_util_host)
+        cons.consume_stat("Avg", CPU_UTILIZATION_VCPUS_TOTAL, cpu_util_guest)
 
     if DEBUG:
         if DEBUG_CPU_UTILIZATION_VMM_SAMPLES_TAG in result['end']:
@@ -250,8 +253,7 @@ def create_pipes_generator(basevm,
                 iperf_guest_cmd_builder = iperf_guest_cmd_builder \
                     .with_arg("--len", f"{payload_length}")
 
-            iperf3_id = f"tcp-p{payload_length}-ws{ws}-" \
-                        f"{basevm.vcpus_count}vcpu-{mode}"
+            iperf3_id = f"tcp-p{payload_length}-ws{ws}-{mode}"
 
             cons = consumer.LambdaConsumer(
                 metadata_provider=DictMetadataProvider(
@@ -379,11 +381,15 @@ def iperf_workload(context):
             pipes(basevm,
                   DEFAULT_HOST_IP,
                   current_avail_cpu + 1,
-                  f"{context.kernel.name()}/{context.disk.name()}"):
+                  f"{context.kernel.name()}/{context.disk.name()}/"
+                  f"{context.microvm.name()}"):
         st_core.add_pipe(prod, cons, tag)
 
     # Start running the commands on guest, gather results and verify pass
     # criteria.
-    results = st_core.run_exercise(check_criteria=file_dumper is None)
-    if file_dumper:
-        file_dumper.writeln(json.dumps(results))
+    try:
+        result = st_core.run_exercise()
+    except core.CoreException as err:
+        handle_failure(file_dumper, err)
+
+    dump_test_result(file_dumper, result)

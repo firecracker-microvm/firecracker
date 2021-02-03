@@ -22,6 +22,8 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 import framework.statistics as st
 from integration_tests.performance.configs import defs
+from integration_tests.performance.utils import handle_failure, \
+    dump_test_result
 
 DEBUG = False
 TEST_ID = "block_device_performance"
@@ -227,8 +229,8 @@ def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
     cpu_utilization_vmm = result[CPU_UTILIZATION_VMM]
     cpu_utilization_vcpus = result[CPU_UTILIZATION_VCPUS_TOTAL]
 
-    cons.consume_stat("value", CPU_UTILIZATION_VMM, cpu_utilization_vmm)
-    cons.consume_stat("value",
+    cons.consume_stat("Avg", CPU_UTILIZATION_VMM, cpu_utilization_vmm)
+    cons.consume_stat("Avg",
                       CPU_UTILIZATION_VCPUS_TOTAL,
                       cpu_utilization_vcpus)
 
@@ -311,11 +313,12 @@ def fio_workload(context):
                         context.disk.name()))
 
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
-    env_id = f"{context.kernel.name()}/{context.disk.name()}"
+    env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
+             f"{context.microvm.name()}"
 
     for mode in CONFIG["fio_modes"]:
         for bs in CONFIG["fio_blk_sizes"]:
-            fio_id = f"{mode}-bs{bs}-{basevm.vcpus_count}vcpu"
+            fio_id = f"{mode}-bs{bs}"
             st_prod = st.producer.LambdaProducer(
                 func=run_fio,
                 func_kwargs={"env_id": env_id, "basevm": basevm,
@@ -332,7 +335,10 @@ def fio_workload(context):
                              "logs_path": basevm.jailer.chroot_base_with_id()})
             st_core.add_pipe(st_prod, st_cons, tag=f"{env_id}/{fio_id}")
 
-    result = st_core.run_exercise(file_dumper is None)
-    if file_dumper:
-        file_dumper.writeln(json.dumps(result))
-    basevm.kill()
+    # Gather results and verify pass criteria.
+    try:
+        result = st_core.run_exercise()
+    except core.CoreException as err:
+        handle_failure(file_dumper, err)
+
+    dump_test_result(file_dumper, result)

@@ -49,7 +49,7 @@ class ValuePlaceholder(Function):
     retain only the result corresponding to the last iteration.
     """
 
-    def __init__(self, name="value"):
+    def __init__(self, name="result"):
         """Initialize the statistic function."""
         super().__init__(name)
 

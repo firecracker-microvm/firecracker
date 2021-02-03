@@ -8,6 +8,7 @@ of the cartesian product of all artifact sets.
 
 import os
 from framework.artifacts import ARTIFACTS_LOCAL_ROOT
+from framework.utils import ExceptionAggregator
 
 
 class TestContext:
@@ -92,6 +93,7 @@ class TestMatrix:
         if not os.path.exists(cache_dir):
             os.mkdir(cache_dir)
         self._cache_dir = cache_dir
+        self._failure_aggregator = ExceptionAggregator(add_newline=True)
 
     @property
     def sets(self):
@@ -111,7 +113,10 @@ class TestMatrix:
         # Validate solution: tuple element count is equal to
         # set stack size.
         if len(self._sets) == len(cartesian_product):
-            self._run_test_fn(cartesian_product, test_fn)
+            try:
+                self._run_test_fn(cartesian_product, test_fn)
+            except Exception as err:  # pylint: disable=W0703
+                self._failure_aggregator.add_row(err)
             return
 
         current_set = self._sets[self._set_index]
@@ -148,3 +153,6 @@ class TestMatrix:
         # Recursive backtracking will generate the cartesian product of
         # the artifact sets.
         self._backtrack(test_fn, [])
+
+        if self._failure_aggregator.has_any():
+            raise self._failure_aggregator

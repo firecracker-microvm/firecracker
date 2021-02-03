@@ -1,7 +1,6 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests the network latency of a Firecracker guest."""
-import json
 import logging
 import platform
 import re
@@ -16,6 +15,8 @@ from framework.statistics import core, consumer, producer, types, criteria,\
 from framework.utils import eager_map, CpuMap
 from framework.artifacts import DEFAULT_HOST_IP
 from framework.utils_cpuid import get_cpu_model_name
+from integration_tests.performance.utils import handle_failure, \
+    dump_test_result
 
 PING = "ping -c {} -i {} {}"
 LATENCY_AVG_BASELINES = {
@@ -220,6 +221,9 @@ def _g2h_send_ping(context):
     st_core.add_pipe(producer=prod, consumer=cons, tag="ping")
 
     # Gather results and verify pass criteria.
-    result = st_core.run_exercise(file_dumper is None)
-    if file_dumper:
-        file_dumper.writeln(json.dumps(result))
+    try:
+        result = st_core.run_exercise()
+    except core.CoreException as err:
+        handle_failure(file_dumper, err)
+
+    dump_test_result(file_dumper, result)

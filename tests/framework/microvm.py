@@ -768,6 +768,10 @@ class Microvm:
             daemon=True)
         self.logging_thread.start()
 
+    def __del__(self):
+        """Teardown the object."""
+        self.kill()
+
 
 class Serial:
     """Class for serial console communication with a Microvm."""
