@@ -129,6 +129,30 @@ ARTIFACTS_COLLECTION = ArtifactCollection(_test_images_s3_bucket())
 MICROVM_S3_FETCHER = MicrovmImageS3Fetcher(_test_images_s3_bucket())
 
 
+class ResultsFileDumper:  # pylint: disable=too-few-public-methods
+    """Class responsible with outputting test results to files."""
+
+    def __init__(self, test_name: str, append=True):
+        """Initialize the instance."""
+        if not append:
+            flags = "w"
+        else:
+            flags = "a"
+
+        self._root_path = defs.TEST_RESULTS_DIR
+
+        # Create the root directory, if it doesn't exist.
+        self._root_path.mkdir(exist_ok=True)
+
+        self._file = open(self._root_path / test_name, flags)
+
+    def writeln(self, data: str):
+        """Write the `data` string to the output file, appending a newline."""
+        self._file.write(data)
+        self._file.write("\n")
+        self._file.flush()
+
+
 def init_microvm(root_path, bin_cloner_path,
                  fc_binary=None, jailer_binary=None):
     """Auxiliary function for instantiating a microvm and setting it up."""
@@ -215,7 +239,7 @@ def test_session_tmp_path(test_fc_session_root_path):
 def results_file_dumper(request):
     """Yield the custom --dump-results-to-file test flag."""
     if request.config.getoption("--dump-results-to-file"):
-        return utils.ResultsFileDumper(request.node.originalname)
+        return ResultsFileDumper(request.node.originalname)
 
     return None
 
