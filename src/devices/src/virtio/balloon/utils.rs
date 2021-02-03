@@ -4,6 +4,7 @@
 use std::io;
 
 use super::{RemoveRegionError, MAX_PAGE_COMPACT_BUFFER};
+use logger::error;
 use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// This takes a vector of page frame numbers, and compacts them
@@ -25,25 +26,40 @@ pub(crate) fn compact_page_frame_numbers(v: &mut [u32]) -> Vec<(u32, u32)> {
     let mut result = Vec::with_capacity(MAX_PAGE_COMPACT_BUFFER);
 
     // The most recent range of pages is [previous..previous + length).
-    let mut previous = v[0];
+    let mut previous = 0;
     let mut length = 1;
 
-    for page_frame_number in &v[1..] {
+    for pfn_index in 1..v.len() {
+        let page_frame_number = v[pfn_index];
+
+        // Skip duplicate pages. This will ensure we only consider
+        // distinct PFNs.
+        if page_frame_number == v[pfn_index - 1] {
+            error!("Skipping duplicate PFN {}.", page_frame_number);
+            continue;
+        }
+
         // Check if the current page frame number is adjacent to the most recent page range.
-        if *page_frame_number == previous + length {
+        // This operation will never overflow because for whatever value `v[previous]`
+        // has in the u32 range, we know there are at least `length` consecutive numbers
+        // greater than it in the array (the greatest so far being `page_frame_number`),
+        // since `v[previous]` is before all of them in the sorted array and `length`
+        // was incremented for each consecutive one. This is true only because we skip
+        // duplicates.
+        if page_frame_number == v[previous] + length {
             // If so, extend that range.
             length += 1;
         } else {
             // Otherwise, push (previous, length) to the result vector.
-            result.push((previous, length));
+            result.push((v[previous], length));
             // And update the most recent range of pages.
-            previous = *page_frame_number;
+            previous = pfn_index;
             length = 1;
         }
     }
 
     // Don't forget to push the last range to the result.
-    result.push((previous, length));
+    result.push((v[previous], length));
 
     result
 }
@@ -148,6 +164,22 @@ mod tests {
                 .step_by(100)
                 .map(|x| (x, 10 as u32))
                 .collect::<Vec<(u32, u32)>>()
+        );
+
+        // Test range with duplicates.
+        assert_eq!(
+            compact_page_frame_numbers(
+                &mut (0 as u32..10000 as u32)
+                    .map(|x| x / 2)
+                    .collect::<Vec<u32>>()
+            ),
+            vec![(0, 5000)]
+        );
+
+        // Test there is no overflow when there are duplicate max values.
+        assert_eq!(
+            compact_page_frame_numbers(&mut [u32::MAX, u32::MAX]),
+            vec![(u32::MAX, 1)]
         );
     }
 

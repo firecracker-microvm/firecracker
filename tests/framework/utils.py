@@ -584,3 +584,4 @@ class ResultsFileDumper:
         """Write the `data` string to the output file, appending a newline."""
         self._file.write(data)
         self._file.write("\n")
+        self._file.flush()

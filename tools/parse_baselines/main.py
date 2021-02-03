@@ -10,15 +10,18 @@ from typing import List
 
 from providers.types import FileDataProvider
 from providers.iperf3 import Iperf3DataParser
+from providers.block import BlockDataParser
 
 OUTPUT_FILENAMES = {
     'vsock_throughput': 'test_vsock_throughput',
-    'network_tcp_throughput': 'test_network_tcp_throughput'
+    'network_tcp_throughput': 'test_network_tcp_throughput',
+    'block_performance': 'test_block_performance'
 }
 
 DATA_PARSERS = {
     'vsock_throughput': Iperf3DataParser,
-    'network_tcp_throughput': Iperf3DataParser
+    'network_tcp_throughput': Iperf3DataParser,
+    'block_performance': BlockDataParser
 }
 
 
@@ -62,7 +65,9 @@ def main():
                         help="Performance test for which baselines \
                             are calculated.",
                         action="store",
-                        choices=['vsock_throughput', 'network_tcp_throughput'],
+                        choices=['vsock_throughput',
+                                 'network_tcp_throughput',
+                                 'block_performance'],
                         required=True)
     args = parser.parse_args()
 
