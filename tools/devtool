@@ -213,9 +213,6 @@ retry_cmd() {
     {
         $command
     } || {
-        # Save error code
-        err_code=$?
-
         # Command failed, substract one from retry_cnt
         retry_cnt=$((retry_cnt - 1))
 
@@ -225,9 +222,6 @@ retry_cmd() {
             sleep "$sleep_int"
             retry_cmd "$command" "$retry_cnt" "$sleep_int"
         fi
-
-        # Set what error code docker returned
-        $(exit "$err_code")
     }
 }
 
@@ -456,13 +450,13 @@ test_key() {
     [ $ret -ne 0 ] && die "$1 is not a valid key file."
 }
 
-# Tries to update any outdated python packages on the container, 
+# Tries to update any outdated python packages on the container,
 # locks the new versions and copies back the ```poetry.lock```
-# file to the host. 
+# file to the host.
 #
 update_python_package_version() {
     say "Updating python packages..."
-    
+
     # defined in Dockerfile
     poetry_dir_on_container="/tmp/poetry"
     lock_file_location_on_host="$FC_DEVCTR_DIR/poetry.lock"
@@ -472,7 +466,7 @@ update_python_package_version() {
         "$dummy_container_name" \
         "$image_id" \
         bash)
-    
+
     docker start "$dummy_container_id"
     cmd="cd "$poetry_dir_on_container"; poetry update"
     docker exec -ti "$dummy_container_id" /bin/bash -c "${cmd}"
