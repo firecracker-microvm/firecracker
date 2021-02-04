@@ -32,8 +32,6 @@ pub enum Error {
     RestoreState(arch::aarch64::regs::Error),
     /// Failed to fetch value for some arm specific register.
     SaveState(arch::aarch64::regs::Error),
-    /// Operation not supported.
-    UnsupportedAction(&'static str),
 }
 
 impl Display for Error {
@@ -41,19 +39,14 @@ impl Display for Error {
         use self::Error::*;
 
         match self {
-            ConfigureRegisters(e) => write!(
-                f,
-                "Error configuring the general purpose registers: {:?}",
-                e
-            ),
+            ConfigureRegisters(e) => {
+                write!(f, "Error configuring the general purpose registers: {}", e)
+            }
             CreateFd(e) => write!(f, "Error in opening the VCPU file descriptor: {}", e),
             GetPreferredTarget(e) => write!(f, "Error retrieving the vcpu preferred target: {}", e),
             Init(e) => write!(f, "Error initializing the vcpu: {}", e),
             RestoreState(e) => write!(f, "Failed to restore the state of the vcpu: {}", e),
             SaveState(e) => write!(f, "Failed to save the state of the vcpu: {}", e),
-            UnsupportedAction(msg) => {
-                write!(f, "{} is not yet supported on this architecture", msg)
-            }
         }
     }
 }
@@ -194,6 +187,7 @@ mod tests {
 
     use super::*;
     use crate::vstate::vm::{tests::setup_vm, Vm};
+    use kvm_bindings::kvm_one_reg;
     use vm_memory::GuestMemoryMmap;
 
     fn setup_vcpu(mem_size: usize) -> (Vm, KvmVcpu, GuestMemoryMmap) {
@@ -240,7 +234,7 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
-            "Error configuring the general purpose registers: SetCoreRegister(Error(9), \"processor state\")"
+            "Error configuring the general purpose registers: Failed to set processor state register: Bad file descriptor (os error 9)"
                 .to_string()
         );
 
@@ -250,7 +244,20 @@ mod tests {
         assert!(err.is_err());
         assert_eq!(
             err.err().unwrap().to_string(),
-            "Error configuring the general purpose registers: SetCoreRegister(Error(9), \"processor state\")"
+            "Error configuring the general purpose registers: Failed to set processor state register: Bad file descriptor (os error 9)"
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn test_faulty_init_vcpu() {
+        let (vm, vcpu, _) = setup_vcpu(0x10000);
+        unsafe { libc::close(vm.fd().as_raw_fd()) };
+        let err = vcpu.init(vm.fd());
+        assert!(err.is_err());
+        assert_eq!(
+            err.err().unwrap().to_string(),
+            "Error retrieving the vcpu preferred target: Bad file descriptor (os error 9)"
                 .to_string()
         );
     }
@@ -269,6 +276,17 @@ mod tests {
             "Failed to save the state of the vcpu: Failed to get X0 register: Exec format error (os error 8)".to_string()
         );
 
+        // Try to restore the register using a faulty state.
+        let mut faulty_vcpu_state = VcpuState::default();
+        faulty_vcpu_state.regs = vec![kvm_one_reg { id: 0, addr: 0 }];
+
+        let res = vcpu.restore_state(&faulty_vcpu_state);
+        assert!(res.is_err());
+        assert_eq!(
+                res.err().unwrap().to_string(),
+                "Failed to restore the state of the vcpu: Failed to set register: Exec format error (os error 8)".to_string()
+            );
+
         init_vcpu(&vcpu.fd, &vm.fd());
         let state = vcpu.save_state().expect("Cannot save state of vcpu");
         assert!(!state.regs.is_empty());
@@ -282,5 +300,14 @@ mod tests {
             id: 0x6030_0000_0010_003E,
             addr
         }));
+    }
+
+    #[test]
+    fn test_setup_non_boot_vcpu() {
+        let (vm, _) = setup_vm(0x1000);
+        let vcpu1 = KvmVcpu::new(0, &vm).unwrap();
+        assert!(vcpu1.init(vm.fd()).is_ok());
+        let vcpu2 = KvmVcpu::new(1, &vm).unwrap();
+        assert!(vcpu2.init(vm.fd()).is_ok());
     }
 }
