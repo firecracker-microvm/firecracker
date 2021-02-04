@@ -27,8 +27,8 @@ class BlockDataParser(DataParser):
             "iops_write/Avg",
             "bw_read/Avg",
             "bw_write/Avg",
-            "cpu_utilization_vcpus_total/value",
-            "cpu_utilization_vmm/value",
+            "cpu_utilization_vcpus_total/Avg",
+            "cpu_utilization_vmm/Avg",
         ])
 
     # pylint: disable=R0201
