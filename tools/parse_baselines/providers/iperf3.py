@@ -24,8 +24,8 @@ class Iperf3DataParser(DataParser):
         """Initialize the data parser."""
         super().__init__(data_provider, [
             "throughput/total",
-            "cpu_utilization_vcpus_total/value",
-            "cpu_utilization_vmm/value",
+            "cpu_utilization_vcpus_total/Avg",
+            "cpu_utilization_vmm/Avg",
         ])
 
     # pylint: disable=R0201

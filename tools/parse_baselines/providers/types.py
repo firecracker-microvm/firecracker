@@ -84,7 +84,7 @@ class DataParser(ABC):
         """Parse the rows and return baselines."""
         line = next(self._data_provider)
         while line:
-            json_line = json.loads(line)
+            json_line = json.loads(line.strip())
             measurements = json_line['results']
             cpu_model = json_line['custom']['cpu_model_name']
 
@@ -97,14 +97,16 @@ class DataParser(ABC):
                     if ms_data is None:
                         continue
 
-                    st_data = ms_data.get(st_name)
+                    st_data = ms_data.get(st_name)['value']
 
                     [kernel_version,
                      rootfs_type,
+                     microvm_config,
                      test_config] = tag.split("/")
 
                     data = self._data[cpu_model][ms_name]
-                    data = data[kernel_version][rootfs_type][st_name]
+                    data = data[kernel_version][rootfs_type]
+                    data = data[microvm_config][st_name]
                     if isinstance(data[test_config], list):
                         data[test_config].append(st_data)
                     else:
