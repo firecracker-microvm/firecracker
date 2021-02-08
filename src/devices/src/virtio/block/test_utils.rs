@@ -3,7 +3,7 @@
 
 use std::os::unix::io::AsRawFd;
 
-use crate::virtio::{Block, Queue};
+use crate::virtio::{Block, CacheType, Queue};
 use polly::event_manager::{EventManager, Subscriber};
 use rate_limiter::RateLimiter;
 use utils::epoll::{EpollEvent, EventSet};
@@ -25,7 +25,16 @@ pub fn default_block_with_path(path: String) -> Block {
 
     let id = "test".to_string();
     // The default block device is read-write and non-root.
-    Block::new(id, None, path, false, false, rate_limiter).unwrap()
+    Block::new(
+        id,
+        None,
+        CacheType::Unsafe,
+        path,
+        false,
+        false,
+        rate_limiter,
+    )
+    .unwrap()
 }
 
 pub fn invoke_handler_for_queue_event(b: &mut Block) {
