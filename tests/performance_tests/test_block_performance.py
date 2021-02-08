@@ -21,7 +21,7 @@ from framework.utils_cpuid import get_cpu_model_name
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 import framework.statistics as st
-from integration_tests.performance.configs import defs
+from performance_tests.configs import defs
 
 DEBUG = False
 TEST_ID = "block_device_performance"
@@ -236,7 +236,6 @@ def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
     read_values(cons, numjobs, env_id, mode, bs, "bw", logs_path)
 
 
-@pytest.mark.nonci
 @pytest.mark.timeout(CONFIG["time"] * 1000)  # 1.40 hours
 def test_block_performance(bin_cloner_path, results_file_dumper):
     """Test network throughput driver for multiple artifacts."""

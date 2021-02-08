@@ -30,3 +30,6 @@ ENV_TEST_IMAGES_S3_BUCKET = 'TEST_MICROVM_IMAGES_S3_BUCKET'
 DEFAULT_TEST_SESSION_ROOT_PATH = "/srv"
 """Absolute path to the test results folder"""
 TEST_RESULTS_DIR = Path(FC_WORKSPACE_DIR) / "test_results"
+
+# Prefix given to the microvm fixtures that are built dynamically
+MICROVM_PREFIX_NAME = "test_microvm_with"

@@ -17,6 +17,7 @@ TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
     "target",
     TARGETS
 )
+@pytest.mark.concurrency(1)
 def test_unittests(test_fc_session_root_path, target):
     """Run unit and doc tests for all supported targets."""
     extra_args = "--release --target {} ".format(target)

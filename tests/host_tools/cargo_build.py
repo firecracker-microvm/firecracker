@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Functionality for a shared binary build and release path for all tests."""
 
+import multiprocessing
 import os
 import platform
 
@@ -25,6 +26,9 @@ DEFAULT_BUILD_TARGET = '{}-unknown-linux-musl'.format(platform.machine())
 RELEASE_BINARIES_REL_PATH = '{}/release/'.format(DEFAULT_BUILD_TARGET)
 
 CARGO_UNITTEST_REL_PATH = os.path.join(CARGO_BUILD_REL_PATH, "test")
+
+# If multiple processes are trying to build the binary it could get truncated
+BUILD_SEM = multiprocessing.Semaphore(1)
 
 
 def cargo_build(path, extra_args='', src_dir='', extra_env=''):
@@ -62,7 +66,9 @@ def get_firecracker_binaries():
     fc_bin_path = "{}/{}".format(out_dir, FC_BINARY_NAME)
     jailer_bin_path = "{}/{}".format(out_dir, JAILER_BINARY_NAME)
 
+    BUILD_SEM.acquire()
     if getattr(get_firecracker_binaries, 'binaries_built', False):
+        BUILD_SEM.release()
         return fc_bin_path, jailer_bin_path
 
     cd_cmd = "cd {}".format(FC_WORKSPACE_DIR)
@@ -88,6 +94,7 @@ def get_firecracker_binaries():
     )
 
     setattr(get_firecracker_binaries, 'binaries_built', True)
+    BUILD_SEM.release()
 
     return fc_bin_path, jailer_bin_path
 

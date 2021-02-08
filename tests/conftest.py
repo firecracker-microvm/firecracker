@@ -86,7 +86,6 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
-import host_tools.proc as proc
 import framework.utils as utils
 import framework.defs as defs
 from framework.artifacts import ArtifactCollection
@@ -105,16 +104,6 @@ if sys.version_info < (3, 6):
 # Some tests create system-level resources; ensure we run as root.
 if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
-
-
-# Style related tests are run only on AMD.
-if "AMD" not in proc.proc_type():
-    collect_ignore = [os.path.join(SCRIPT_FOLDER, "integration_tests/style")]
-
-
-if "AMD" in proc.proc_type():
-    collect_ignore = [os.path.join(
-        SCRIPT_FOLDER, "integration_tests/performance/test_snapshot_perf.py")]
 
 
 def _test_images_s3_bucket():
@@ -158,7 +147,7 @@ def pytest_configure(config):
 
     Initialize the test scheduler and IPC services.
     """
-    config.addinivalue_line("markers", "nonci: mark test as nonci.")
+    config.addinivalue_line("markers", "concurrency(): concurrency limit")
     PytestScheduler.instance().register_mp_singleton(
         net_tools.UniqueIPv4Generator.instance()
     )
@@ -481,11 +470,11 @@ TEST_MICROVM_CAP_FIXTURE_TEMPLATE = (
     "        capability_filter=['CAP']\n"
     "    )\n"
     ")\n"
-    "def test_microvm_with_CAP(request, microvm):\n"
+    "def {microvm_prefix_name}_CAP(request, microvm):\n"
     "    MICROVM_S3_FETCHER.init_vm_resources(\n"
     "        request.param, microvm\n"
     "    )\n"
-    "    yield microvm"
+    "    yield microvm".format(microvm_prefix_name=defs.MICROVM_PREFIX_NAME)
 )
 
 # To make test writing easy, we want to dynamically create fixtures with all

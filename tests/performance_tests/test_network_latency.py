@@ -124,7 +124,6 @@ def consume_ping_output(cons, raw_data, requests):
                       value=times[int(requests * 0.99)])
 
 
-@pytest.mark.nonci
 @pytest.mark.skipif(platform.machine() != "x86_64",
                     reason="This test was observed only on x86_64. Further "
                            "support need to be added for aarch64 and amd64.")
