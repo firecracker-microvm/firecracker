@@ -753,6 +753,11 @@ definitions:
     properties:
       drive_id:
         type: string
+      cache_type:
+        type: string
+        description:
+          Represents the caching strategy for the block device.
+        default: "Unsafe"
       is_read_only:
         type: boolean
       is_root_device:
