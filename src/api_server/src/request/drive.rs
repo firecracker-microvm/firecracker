@@ -216,20 +216,33 @@ mod tests {
         assert!(parse_put_drive(&Body::new("invalid_payload"), None).is_err());
         assert!(parse_put_drive(&Body::new("invalid_payload"), Some(&"id")).is_err());
 
-        // PATCH with invalid fields.
+        // PUT with invalid fields.
         let body = r#"{
                 "drive_id": "bar",
                 "is_read_only": false
               }"#;
         assert!(parse_put_drive(&Body::new(body), Some(&"2")).is_err());
 
-        // PATCH with invalid types on fields. Adding a drive_id as number instead of string.
+        // PUT with missing all optional fields.
+        let body = r#"{
+            "drive_id": "1000",
+            "path_on_host": "dummy",
+            "is_root_device": true,
+            "is_read_only": true
+        }"#;
+        assert!(parse_put_drive(&Body::new(body), Some(&"1000")).is_ok());
+
+        // PUT with invalid types on fields. Adding a drive_id as number instead of string.
+        assert!(parse_put_drive(&Body::new(body), Some(&"foo")).is_err());
+
+        // PUT with the complete configuration.
         let body = r#"{
                 "drive_id": "1000",
                 "path_on_host": "dummy",
                 "is_root_device": true,
                 "partuuid": "string",
                 "is_read_only": true,
+                "cache_type": "Unsafe",
                 "rate_limiter": {
                     "bandwidth": {
                         "size": 0,
@@ -244,7 +257,5 @@ mod tests {
                 }
             }"#;
         assert!(parse_put_drive(&Body::new(body), Some(&"1000")).is_ok());
-
-        assert!(parse_put_drive(&Body::new(body), Some(&"foo")).is_err());
     }
 }
