@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use crate::device_manager::persist::DeviceStates;
+use devices::virtio::block::persist::BlockState;
 
 use lazy_static::lazy_static;
 use versionize::VersionMap;
@@ -17,6 +18,7 @@ lazy_static! {
     pub static ref VERSION_MAP: VersionMap = {
         let mut version_map = VersionMap::new();
         version_map.new_version().set_type_version(DeviceStates::type_id(), 2);
+        version_map.new_version().set_type_version(BlockState::type_id(), 2);
         version_map
     };
 
@@ -26,6 +28,7 @@ lazy_static! {
         let mut mapping = HashMap::new();
         mapping.insert(String::from("0.23.0"), 1);
         mapping.insert(String::from("0.24.0"), 2);
+        mapping.insert(String::from("0.25.0"), 3);
 
         mapping
     };

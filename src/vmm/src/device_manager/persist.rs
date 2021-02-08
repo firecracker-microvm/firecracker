@@ -401,6 +401,7 @@ mod tests {
     use crate::vmm_config::balloon::BalloonDeviceConfig;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
+    use devices::virtio::block::CacheType;
     use polly::event_manager::EventManager;
     use utils::tempfile::TempFile;
 
@@ -547,7 +548,13 @@ mod tests {
             insert_balloon_device(&mut vmm, &mut cmdline, &mut event_manager, balloon_cfg);
             // Add a block device.
             let drive_id = String::from("root");
-            let block_configs = vec![CustomBlockConfig::new(drive_id, true, None, true)];
+            let block_configs = vec![CustomBlockConfig::new(
+                drive_id,
+                true,
+                None,
+                true,
+                CacheType::Unsafe,
+            )];
             _block_files =
                 insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             // Add a net device.

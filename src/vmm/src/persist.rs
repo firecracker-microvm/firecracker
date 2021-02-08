@@ -415,6 +415,7 @@ mod tests {
     use crate::memory_snapshot::SnapshotMemory;
     use crate::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
     use crate::vmm_config::balloon::BalloonDeviceConfig;
+    use crate::vmm_config::drive::CacheType;
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::tests::default_config;
     use crate::Vmm;
@@ -441,7 +442,13 @@ mod tests {
 
         // Add a block device.
         let drive_id = String::from("root");
-        let block_configs = vec![CustomBlockConfig::new(drive_id, true, None, true)];
+        let block_configs = vec![CustomBlockConfig::new(
+            drive_id,
+            true,
+            None,
+            true,
+            CacheType::Unsafe,
+        )];
         insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
 
         // Add net device.
