@@ -6,6 +6,7 @@
 
 - Added devtool build `--ssh-keys` flag to support fetching from private
   git repositories.
+- Added option to configure block device flush.
 
 ### Changed
 
