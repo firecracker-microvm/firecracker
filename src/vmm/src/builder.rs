@@ -835,7 +835,7 @@ pub mod tests {
     use super::*;
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
@@ -850,6 +850,7 @@ pub mod tests {
         is_root_device: bool,
         partuuid: Option<String>,
         is_read_only: bool,
+        cache_type: CacheType,
     }
 
     impl CustomBlockConfig {
@@ -858,12 +859,14 @@ pub mod tests {
             is_root_device: bool,
             partuuid: Option<String>,
             is_read_only: bool,
+            cache_type: CacheType,
         ) -> Self {
             CustomBlockConfig {
                 drive_id,
                 is_root_device,
                 partuuid,
                 is_read_only,
+                cache_type,
             }
         }
     }
@@ -946,6 +949,7 @@ pub mod tests {
                 is_root_device: custom_block_cfg.is_root_device,
                 partuuid: custom_block_cfg.partuuid.clone(),
                 is_read_only: custom_block_cfg.is_read_only,
+                cache_type: custom_block_cfg.cache_type,
                 rate_limiter: None,
             };
             block_dev_configs.insert(block_device_config).unwrap();
@@ -1137,7 +1141,13 @@ pub mod tests {
         // Use case 1: root block device is not specified through PARTUUID.
         {
             let drive_id = String::from("root");
-            let block_configs = vec![CustomBlockConfig::new(drive_id.clone(), true, None, true)];
+            let block_configs = vec![CustomBlockConfig::new(
+                drive_id.clone(),
+                true,
+                None,
+                true,
+                CacheType::Unsafe,
+            )];
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
@@ -1156,6 +1166,7 @@ pub mod tests {
                 true,
                 Some("0eaa91a0-01".to_string()),
                 false,
+                CacheType::Unsafe,
             )];
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
@@ -1175,6 +1186,7 @@ pub mod tests {
                 false,
                 Some("0eaa91a0-01".to_string()),
                 false,
+                CacheType::Unsafe,
             )];
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
@@ -1195,9 +1207,22 @@ pub mod tests {
                     true,
                     Some("0eaa91a0-01".to_string()),
                     false,
+                    CacheType::Unsafe,
                 ),
-                CustomBlockConfig::new(String::from("secondary"), false, None, true),
-                CustomBlockConfig::new(String::from("third"), false, None, false),
+                CustomBlockConfig::new(
+                    String::from("secondary"),
+                    false,
+                    None,
+                    true,
+                    CacheType::Unsafe,
+                ),
+                CustomBlockConfig::new(
+                    String::from("third"),
+                    false,
+                    None,
+                    false,
+                    CacheType::Unsafe,
+                ),
             ];
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
@@ -1227,7 +1252,13 @@ pub mod tests {
         // Use case 5: root block device is rw.
         {
             let drive_id = String::from("root");
-            let block_configs = vec![CustomBlockConfig::new(drive_id.clone(), true, None, false)];
+            let block_configs = vec![CustomBlockConfig::new(
+                drive_id.clone(),
+                true,
+                None,
+                false,
+                CacheType::Unsafe,
+            )];
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
@@ -1246,11 +1277,32 @@ pub mod tests {
                 true,
                 Some("0eaa91a0-01".to_string()),
                 true,
+                CacheType::Unsafe,
             )];
             let mut vmm = default_vmm();
             let mut cmdline = default_kernel_cmdline();
             insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
             assert!(cmdline.as_str().contains("root=PARTUUID=0eaa91a0-01 ro"));
+            assert!(vmm
+                .mmio_device_manager
+                .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())
+                .is_some());
+        }
+
+        // Use case 7: root block device is rw with flush enabled
+        {
+            let drive_id = String::from("root");
+            let block_configs = vec![CustomBlockConfig::new(
+                drive_id.clone(),
+                true,
+                None,
+                false,
+                CacheType::Writeback,
+            )];
+            let mut vmm = default_vmm();
+            let mut cmdline = default_kernel_cmdline();
+            insert_block_devices(&mut vmm, &mut cmdline, &mut event_manager, block_configs);
+            assert!(cmdline.as_str().contains("root=/dev/vda rw"));
             assert!(vmm
                 .mmio_device_manager
                 .get_device(DeviceType::Virtio(TYPE_BLOCK), drive_id.as_str())

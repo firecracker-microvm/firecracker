@@ -13,6 +13,8 @@ use super::RateLimiterConfig;
 use crate::Error as VmmError;
 use devices::virtio::Block;
 
+pub use devices::virtio::CacheType;
+
 use serde::Deserialize;
 
 type Result<T> = result::Result<T, DriveError>;
@@ -79,6 +81,10 @@ pub struct BlockDeviceConfig {
     /// If set to true, the drive is opened in read-only mode. Otherwise, the
     /// drive is opened as read-write.
     pub is_read_only: bool,
+    /// If set to true, the drive will ignore flush requests coming from
+    /// the guest driver.
+    #[serde(default = "CacheType::default")]
+    pub cache_type: CacheType,
     /// Rate Limiter for I/O operations.
     pub rate_limiter: Option<RateLimiterConfig>,
 }
@@ -189,6 +195,7 @@ impl BlockBuilder {
         devices::virtio::Block::new(
             block_device_config.drive_id,
             block_device_config.partuuid,
+            block_device_config.cache_type,
             block_device_config.path_on_host,
             block_device_config.is_read_only,
             block_device_config.is_root_device,
@@ -218,6 +225,7 @@ mod tests {
                 path_on_host: self.path_on_host.clone(),
                 is_root_device: self.is_root_device,
                 partuuid: self.partuuid.clone(),
+                cache_type: self.cache_type,
                 is_read_only: self.is_read_only,
                 drive_id: self.drive_id.clone(),
                 rate_limiter: None,
@@ -240,6 +248,7 @@ mod tests {
             path_on_host: dummy_path,
             is_root_device: false,
             partuuid: None,
+            cache_type: CacheType::Writeback,
             is_read_only: false,
             drive_id: dummy_id.clone(),
             rate_limiter: None,
@@ -269,6 +278,7 @@ mod tests {
             path_on_host: dummy_path,
             is_root_device: true,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: true,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -295,6 +305,7 @@ mod tests {
             path_on_host: dummy_path_1,
             is_root_device: true,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -306,6 +317,7 @@ mod tests {
             path_on_host: dummy_path_2,
             is_root_device: true,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
@@ -328,6 +340,7 @@ mod tests {
             path_on_host: dummy_path_1,
             is_root_device: true,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -339,6 +352,7 @@ mod tests {
             path_on_host: dummy_path_2,
             is_root_device: false,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
@@ -350,6 +364,7 @@ mod tests {
             path_on_host: dummy_path_3,
             is_root_device: false,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("3"),
             rate_limiter: None,
@@ -386,6 +401,7 @@ mod tests {
             path_on_host: dummy_path_1,
             is_root_device: true,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -397,6 +413,7 @@ mod tests {
             path_on_host: dummy_path_2,
             is_root_device: false,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
@@ -408,6 +425,7 @@ mod tests {
             path_on_host: dummy_path_3,
             is_root_device: false,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("3"),
             rate_limiter: None,
@@ -445,6 +463,7 @@ mod tests {
             path_on_host: dummy_path_1.clone(),
             is_root_device: true,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -456,6 +475,7 @@ mod tests {
             path_on_host: dummy_path_2.clone(),
             is_root_device: false,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
@@ -514,6 +534,7 @@ mod tests {
             path_on_host: dummy_path_1,
             is_root_device: true,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
@@ -525,6 +546,7 @@ mod tests {
             path_on_host: dummy_path_2,
             is_root_device: true,
             partuuid: Some("0eaa91a0-01".to_string()),
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
@@ -548,6 +570,7 @@ mod tests {
             path_on_host: dummy_block_file.as_path().to_str().unwrap().to_string(),
             is_root_device: false,
             partuuid: Some("0eaa91a0-01".to_string()),
+            cache_type: CacheType::Unsafe,
             is_read_only: true,
             rate_limiter: None,
         };
