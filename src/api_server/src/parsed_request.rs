@@ -643,6 +643,7 @@ pub(crate) mod tests {
             \"is_root_device\": true, \
             \"partuuid\": \"string\", \
             \"is_read_only\": true, \
+            \"cache_type\": \"Unsafe\", \
             \"rate_limiter\": { \
                 \"bandwidth\": { \
                     \"size\": 0, \
