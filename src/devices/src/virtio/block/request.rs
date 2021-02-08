@@ -14,7 +14,7 @@ use virtio_gen::virtio_blk::*;
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 use super::super::DescriptorChain;
-use super::device::DiskProperties;
+use super::device::{CacheType, DiskProperties};
 use super::{Error, SECTOR_SHIFT, SECTOR_SIZE};
 
 #[derive(Debug)]
@@ -23,6 +23,7 @@ pub enum ExecuteError {
     Flush(io::Error),
     Read(GuestMemoryError),
     Seek(io::Error),
+    SyncAll(io::Error),
     Write(GuestMemoryError),
     Unsupported(u32),
 }
@@ -34,6 +35,7 @@ impl ExecuteError {
             ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::SyncAll(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
         }
@@ -192,6 +194,7 @@ impl Request {
             return Err(ExecuteError::BadRequest(Error::InvalidOffset));
         }
 
+        let cache_type = disk.cache_type();
         let diskfile = disk.file_mut();
         diskfile
             .seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
@@ -214,13 +217,21 @@ impl Request {
                     0
                 })
                 .map_err(ExecuteError::Write),
-            RequestType::Flush => diskfile
-                .flush()
-                .map(|_| {
-                    METRICS.block.flush_count.inc();
-                    0
-                })
-                .map_err(ExecuteError::Flush),
+            RequestType::Flush => {
+                match cache_type {
+                    CacheType::Writeback => {
+                        // flush() first to force any cached data out.
+                        diskfile.flush().map_err(ExecuteError::Flush)?;
+                        // Sync data out to physical media on host.
+                        diskfile.sync_all().map_err(ExecuteError::SyncAll)?;
+                        METRICS.block.flush_count.inc();
+                    }
+                    CacheType::Unsafe => {
+                        // This is a noop.
+                    }
+                };
+                Ok(0)
+            }
             RequestType::GetDeviceID => {
                 let disk_id = disk.image_id();
                 if (self.data_len as usize) < disk_id.len() {

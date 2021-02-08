@@ -7,7 +7,7 @@ pub mod persist;
 pub mod request;
 pub mod test_utils;
 
-pub use self::device::Block;
+pub use self::device::{Block, CacheType};
 pub use self::event_handler::*;
 pub use self::request::*;
 

@@ -30,8 +30,29 @@ use super::{
 use crate::virtio::VIRTIO_MMIO_INT_CONFIG;
 use crate::Error as DeviceError;
 
+use serde::{Deserialize, Serialize};
+
+/// Configuration options for disk caching.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum CacheType {
+    /// Flushing mechanic will be advertised to the guest driver, but
+    /// the operation will be a noop.
+    Unsafe,
+    /// Flushing mechanic will be advertised to the guest driver and
+    /// flush requests coming from the guest will be performed using
+    /// `fsync`.
+    Writeback,
+}
+
+impl Default for CacheType {
+    fn default() -> CacheType {
+        CacheType::Unsafe
+    }
+}
+
 /// Helper object for setting up all `Block` fields derived from its backing file.
 pub(crate) struct DiskProperties {
+    cache_type: CacheType,
     file_path: String,
     file: File,
     nsectors: u64,
@@ -39,7 +60,11 @@ pub(crate) struct DiskProperties {
 }
 
 impl DiskProperties {
-    pub fn new(disk_image_path: String, is_disk_read_only: bool) -> io::Result<Self> {
+    pub fn new(
+        disk_image_path: String,
+        is_disk_read_only: bool,
+        cache_type: CacheType,
+    ) -> io::Result<Self> {
         let mut disk_image = OpenOptions::new()
             .read(true)
             .write(!is_disk_read_only)
@@ -57,6 +82,7 @@ impl DiskProperties {
         }
 
         Ok(Self {
+            cache_type,
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id: Self::build_disk_image_id(&disk_image),
             file_path: disk_image_path,
@@ -121,6 +147,31 @@ impl DiskProperties {
         }
         config
     }
+
+    pub fn cache_type(&self) -> CacheType {
+        self.cache_type
+    }
+}
+
+impl Drop for DiskProperties {
+    fn drop(&mut self) {
+        match self.cache_type {
+            CacheType::Writeback => {
+                // flush() first to force any cached data out.
+                if self.file.flush().is_err() {
+                    error!("Failed to flush block data on drop.");
+                }
+                // Sync data out to physical media on host.
+                if self.file.sync_all().is_err() {
+                    error!("Failed to sync block data on drop.")
+                }
+                METRICS.block.flush_count.inc();
+            }
+            CacheType::Unsafe => {
+                // This is a noop.
+            }
+        };
+    }
 }
 
 /// Virtio device for exposing block level read/write operations on a host file.
@@ -155,12 +206,13 @@ impl Block {
     pub fn new(
         id: String,
         partuuid: Option<String>,
+        cache_type: CacheType,
         disk_image_path: String,
         is_disk_read_only: bool,
         is_disk_root: bool,
         rate_limiter: RateLimiter,
     ) -> io::Result<Block> {
-        let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only)?;
+        let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only, cache_type)?;
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
 
@@ -343,7 +395,8 @@ impl Block {
 
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> io::Result<()> {
-        let disk_properties = DiskProperties::new(disk_image_path, self.is_read_only())?;
+        let disk_properties =
+            DiskProperties::new(disk_image_path, self.is_read_only(), self.cache_type())?;
         self.disk = disk_properties;
         self.config_space = self.disk.virtio_block_config_space();
 
@@ -379,6 +432,10 @@ impl Block {
     /// Specifies if this block device is read only.
     pub fn is_root_device(&self) -> bool {
         self.root_device
+    }
+
+    pub fn cache_type(&self) -> CacheType {
+        self.disk.cache_type()
     }
 }
 
@@ -491,8 +548,12 @@ pub(crate) mod tests {
         let size = SECTOR_SIZE * num_sectors;
         f.as_file().set_len(size).unwrap();
 
-        let disk_properties =
-            DiskProperties::new(String::from(f.as_path().to_str().unwrap()), true).unwrap();
+        let disk_properties = DiskProperties::new(
+            String::from(f.as_path().to_str().unwrap()),
+            true,
+            CacheType::Unsafe,
+        )
+        .unwrap();
 
         assert_eq!(size, SECTOR_SIZE * num_sectors);
         assert_eq!(disk_properties.nsectors, num_sectors);
@@ -504,7 +565,9 @@ pub(crate) mod tests {
         // Testing `backing_file.virtio_block_disk_image_id()` implies
         // duplicating that logic in tests, so skipping it.
 
-        assert!(DiskProperties::new("invalid-disk-path".to_string(), true).is_err());
+        assert!(
+            DiskProperties::new("invalid-disk-path".to_string(), true, CacheType::Unsafe).is_err()
+        );
     }
 
     #[test]

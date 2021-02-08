@@ -158,6 +158,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                 libc::SYS_timerfd_settime,
                 or![and![Cond::new(1, ArgLen::DWORD, Eq, 0u64)?],],
             ),
+            allow_syscall(libc::SYS_fsync),
             allow_syscall(libc::SYS_write),
         ]
         .into_iter()
