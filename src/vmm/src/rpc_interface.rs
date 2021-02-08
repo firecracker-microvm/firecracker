@@ -653,6 +653,7 @@ impl RuntimeApiController {
 mod tests {
     use super::*;
     use crate::vmm_config::balloon::BalloonBuilder;
+    use crate::vmm_config::drive::CacheType;
     use crate::vmm_config::logger::LoggerLevel;
     use crate::vmm_config::vsock::VsockBuilder;
     use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
@@ -1052,6 +1053,7 @@ mod tests {
             path_on_host: String::new(),
             is_root_device: false,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::new(),
             rate_limiter: None,
@@ -1065,6 +1067,7 @@ mod tests {
             path_on_host: String::new(),
             is_root_device: false,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::new(),
             rate_limiter: None,
@@ -1498,6 +1501,7 @@ mod tests {
                 path_on_host: String::new(),
                 is_root_device: false,
                 partuuid: None,
+                cache_type: CacheType::Unsafe,
                 is_read_only: false,
                 drive_id: String::new(),
                 rate_limiter: None,
@@ -1587,6 +1591,7 @@ mod tests {
             path_on_host: String::new(),
             is_root_device: false,
             partuuid: None,
+            cache_type: CacheType::Unsafe,
             is_read_only: false,
             drive_id: String::new(),
             rate_limiter: None,
