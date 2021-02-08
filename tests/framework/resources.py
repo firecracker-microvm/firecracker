@@ -231,7 +231,8 @@ class Drive():
             is_root_device=None,
             partuuid=None,
             is_read_only=None,
-            rate_limiter=None):
+            rate_limiter=None,
+            cache_type=None):
         """Compose the json associated to this type of API request."""
         datax = {}
 
@@ -249,6 +250,9 @@ class Drive():
 
         if is_read_only is not None:
             datax['is_read_only'] = is_read_only
+
+        if cache_type is not None:
+            datax['cache_type'] = cache_type
 
         if rate_limiter is not None:
             datax['rate_limiter'] = rate_limiter

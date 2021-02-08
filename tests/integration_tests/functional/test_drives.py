@@ -10,6 +10,7 @@ import framework.utils as utils
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
+import host_tools.logging as log_tools
 
 PARTUUID = {"x86_64": "0eaa91a0-01", "aarch64": "7bf14469-01"}
 MB = 1024 * 1024
@@ -335,6 +336,134 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     assert stderr.read() == ''
     stdout.readline()  # skip "SIZE"
     assert stdout.readline().strip() == size_bytes_str
+
+
+def test_no_flush(test_microvm_with_ssh, network_config):
+    """Verify default block ignores flush."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    test_microvm.basic_config(
+        vcpu_count=1,
+        add_root_device=False
+    )
+
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+
+    # Add the block device
+    test_microvm.add_drive(
+        'rootfs',
+        test_microvm.rootfs_file,
+        root_device=True,
+    )
+
+    # Configure the metrics.
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    response = test_microvm.metrics.put(
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    test_microvm.start()
+
+    # Verify all flush commands were ignored during boot.
+    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    assert fc_metrics['block']['flush_count'] == 0
+
+    # Have the guest drop the caches to generate flush requests.
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    cmd = "sync; echo 1 > /proc/sys/vm/drop_caches"
+    _, _, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read() == ''
+
+    # Verify all flush commands were ignored even after
+    # dropping the caches.
+    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    assert fc_metrics['block']['flush_count'] == 0
+
+
+def test_flush(test_microvm_with_ssh, network_config):
+    """Verify block with flush actually flushes."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    test_microvm.basic_config(
+        vcpu_count=1,
+        add_root_device=False
+    )
+
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+
+    # Add the block device with explicitly enabling flush.
+    test_microvm.add_drive(
+        'rootfs',
+        test_microvm.rootfs_file,
+        root_device=True,
+        cache_type="Writeback",
+    )
+
+    # Configure metrics, to get later the `flush_count`.
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    response = test_microvm.metrics.put(
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    test_microvm.start()
+
+    # Have the guest drop the caches to generate flush requests.
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    cmd = "sync; echo 1 > /proc/sys/vm/drop_caches"
+    _, _, stderr = ssh_connection.execute_command(cmd)
+    assert stderr.read() == ''
+
+    # On average, dropping the caches right after boot generates
+    # about 6 block flush requests.
+    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    assert fc_metrics['block']['flush_count'] > 0
+
+
+def test_block_default_cache_old_version(test_microvm_with_ssh):
+    """Verify that saving a snapshot for old versions works correctly."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    test_microvm.basic_config(
+        vcpu_count=1,
+        add_root_device=False
+    )
+
+    # Add the block device with explicitly enabling flush.
+    test_microvm.add_drive(
+        'rootfs',
+        test_microvm.rootfs_file,
+        root_device=True,
+        cache_type="Writeback",
+    )
+
+    test_microvm.start()
+
+    # Pause the VM to create the snapshot.
+    response = test_microvm.vm.patch(state='Paused')
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Create the snapshot for a version without block cache type.
+    response = test_microvm.snapshot.create(
+            mem_file_path='memfile',
+            snapshot_path='snapsfile',
+            diff=False,
+            version='0.24.0'
+        )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # We should find a warning in the logs for this case as this
+    # cache type was not supported in 0.24.0 and we should default
+    # to "Unsafe" mode.
+    log_data = test_microvm.log_data
+    assert "Target version does not implement the current cache type. "\
+        "Defaulting to \"unsafe\" mode." in log_data
 
 
 def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
