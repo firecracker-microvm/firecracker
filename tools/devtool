@@ -68,10 +68,16 @@
 #   - Look into caching the Cargo registry within the container and if that
 #     would help with reproducible builds (in addition to pinning Cargo.lock)
 
+# Development container image (without tag)
+DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
+
+# Development container tag
+DEVCTR_IMAGE_TAG="v28"
+
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
 # (Yet another step on our way to reproducible builds.)
-DEVCTR_IMAGE="public.ecr.aws/firecracker/fcuvm:v28"
+DEVCTR_IMAGE="${DEVCTR_IMAGE_NO_TAG}:${DEVCTR_IMAGE_TAG}"
 
 # Naming things is hard
 MY_NAME="Firecracker $(basename "$0")"
@@ -320,7 +326,7 @@ cmd_build_devctr() {
         shift
     done
 
-    docker build -t "$DEVCTR_IMAGE" -f "$FC_DEVCTR_DIR/$docker_file_name" .
+    docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$FC_DEVCTR_DIR/$docker_file_name" .
 
     if [ "$should_update_python_packages" = true ]; then
         update_python_package_version
@@ -460,7 +466,7 @@ update_python_package_version() {
     # defined in Dockerfile
     poetry_dir_on_container="/tmp/poetry"
     lock_file_location_on_host="$FC_DEVCTR_DIR/poetry.lock"
-    image_id=$(docker images -q "$DEVCTR_IMAGE" | head -n 1)
+    image_id=$(docker images -q "$DEVCTR_IMAGE_NO_TAG" | head -n 1)
     dummy_container_name=$(uuidgen)
     dummy_container_id=$(docker create -ti --name \
         "$dummy_container_name" \
@@ -473,7 +479,7 @@ update_python_package_version() {
     docker cp \
         "$dummy_container_id":/tmp/poetry/poetry.lock \
         "$lock_file_location_on_host"
-    docker commit "$dummy_container_id" "$DEVCTR_IMAGE"
+    docker commit "$dummy_container_id" "$DEVCTR_IMAGE_NO_TAG"
 
     docker stop "$dummy_container_id"
     docker rm -f "$dummy_container_name"
