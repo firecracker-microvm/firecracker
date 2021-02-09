@@ -66,7 +66,7 @@ registry. The Firecracker CI suite must also be updated to use the new image.
     ```bash
     docker images
     REPOSITORY                         TAG       IMAGE ID         CREATED       SIZE
-    fcuvm                              latest    1f9852368efb     2 weeks ago   2.36GB
+    public.ecr.aws/firecracker/fcuvm   latest    1f9852368efb     2 weeks ago   2.36GB
     public.ecr.aws/firecracker/fcuvm   v26       8d00deb17f7a     2 weeks ago   2.41GB
     ```
 
@@ -78,7 +78,7 @@ registry. The Firecracker CI suite must also be updated to use the new image.
 
     docker images
     REPOSITORY                         TAG          IMAGE ID       CREATED
-    fcuvm                              latest       1f9852368efb   1 week ago
+    public.ecr.aws/firecracker/fcuvm   latest       1f9852368efb   1 week ago
     public.ecr.aws/firecracker/fcuvm   v27_x86_64   1f9852368efb   1 week ago
     public.ecr.aws/firecracker/fcuvm   v26          8d00deb17f7a   2 weeks ago
     ```
@@ -108,7 +108,7 @@ Then continue with the above steps:
     ```bash
     docker images
     REPOSITORY                         TAG        IMAGE ID            CREATED
-    fcuvm                              latest     1f9852368efb        2 minutes ago
+    public.ecr.aws/firecracker/fcuvm   latest     1f9852368efb        2 minutes ago
     public.ecr.aws/firecracker/fcuvm   v26        8d00deb17f7a        2 weeks ago
     ```
 
@@ -120,7 +120,7 @@ Then continue with the above steps:
 
     docker images
     REPOSITORY                         TAG            IMAGE ID
-    fcuvm                              latest         1f9852368efb
+    public.ecr.aws/firecracker/fcuvm   latest         1f9852368efb
     public.ecr.aws/firecracker/fcuvm   v27_aarch64    1f9852368efb
     public.ecr.aws/firecracker/fcuvm   v26            8d00deb17f7a
     ```
@@ -136,7 +136,7 @@ Then continue with the above steps:
 
     ```bash
     docker manifest create public.ecr.aws/firecracker/fcuvm:v27 \
-    public.ecr.aws/firecracker/fcuvm:v27_x86_64 public.ecr.aws/firecracker/fcuvm:v27_aarch64
+        public.ecr.aws/firecracker/fcuvm:v27_x86_64 public.ecr.aws/firecracker/fcuvm:v27_aarch64
 
     docker manifest push public.ecr.aws/firecracker/fcuvm:v27
     ```
@@ -146,10 +146,9 @@ Then continue with the above steps:
    Commit and push the change.
 
     ```bash
-    PREV_IMAGE=public.ecr.aws/firecracker/fcuvm:v26
-    CURR_IMAGE=public.ecr.aws/firecracker/fcuvm:v27
-    sed -i "s%DEVCTR_IMAGE=\"$PREV_IMAGE\"%DEVCTR_IMAGE=\"$CURR_IMAGE\"%" \
-    tools/devtool
+    PREV_TAG=v26
+    CURR_TAG=v27
+    sed -i "s%DEVCTR_IMAGE_TAG=\"$PREV_TAG\"%DEVCTR_IMAGE_TAG=\"$CURR_TAG\"%" tools/devtool
     ```
 
 ## Troubleshooting
