@@ -278,6 +278,7 @@ impl ApiServer {
             }
             Ok(ParsedRequest::GetInstanceInfo) => self.get_instance_info(),
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
+            Ok(ParsedRequest::GetConfigChanges) => self.get_config_changes(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
             Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
             Err(e) => {
@@ -368,6 +369,23 @@ impl ApiServer {
                 .expect("Failed to acquire lock on MMDS info")
                 .get_data_str(),
         )
+    }
+
+    fn get_config_changes(&self) -> Response {
+        let changes = self.config_changes.clone();
+        // Serialize it to a JSON string.
+        let body_result = serde_json::to_string(&changes);
+        match body_result {
+            Ok(body) => ApiServer::json_response(StatusCode::OK, body),
+            Err(e) => {
+                // This is an api server metrics as the shared info is obtained internally.
+                METRICS.get_api_requests.instance_info_fails.inc();
+                ApiServer::json_response(
+                    StatusCode::BadRequest,
+                    ApiServer::json_fault_message(e.to_string()),
+                )
+            }
+        }
     }
 
     fn patch_mmds(&self, value: serde_json::Value) -> Response {

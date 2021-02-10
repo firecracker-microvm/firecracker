@@ -7,6 +7,7 @@ use super::VmmData;
 use crate::request::actions::parse_put_actions;
 use crate::request::balloon::{parse_get_balloon, parse_patch_balloon, parse_put_balloon};
 use crate::request::boot_source::parse_put_boot_source;
+use crate::request::config_changes::parse_get_config_changes;
 use crate::request::drive::{parse_patch_drive, parse_put_drive};
 use crate::request::instance_info::parse_get_instance_info;
 use crate::request::logger::parse_put_logger;
@@ -28,6 +29,7 @@ use vmm::rpc_interface::{VmmAction, VmmActionError};
 pub(crate) enum ParsedRequest {
     GetInstanceInfo,
     GetMMDS,
+    GetConfigChanges,
     PatchMMDS(Value),
     PutMMDS(Value),
     Sync(Box<VmmAction>),
@@ -60,6 +62,7 @@ impl ParsedRequest {
             (Method::Get, "balloon", None) => parse_get_balloon(path_tokens.get(1)),
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
+            (Method::Get, "config-changes", None) => parse_get_config_changes(),
             (Method::Get, _, Some(_)) => method_to_error(Method::Get),
             (Method::Put, "actions", Some(body)) => parse_put_actions(body),
             (Method::Put, "balloon", Some(body)) => parse_put_balloon(body),

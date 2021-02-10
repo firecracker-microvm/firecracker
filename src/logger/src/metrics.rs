@@ -297,6 +297,10 @@ pub struct GetRequestsMetrics {
     pub machine_cfg_count: SharedIncMetric,
     /// Number of failures during GETs for getting information on the instance.
     pub machine_cfg_fails: SharedIncMetric,
+    /// Number of GETs for getting config changes.
+    pub config_changes_count: SharedIncMetric,
+    /// Number of failures during GETs for getting config changes.
+    pub config_changes_fails: SharedIncMetric,
 }
 
 /// Metrics specific to PUT API Requests for counting user triggered actions and/or failures.
