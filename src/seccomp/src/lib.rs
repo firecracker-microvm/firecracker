@@ -237,6 +237,7 @@
 //! [`SeccompFilter`]: struct.SeccompFilter.html
 //! [`action`]: struct.SeccompRule.html#action
 use bincode::Error as BincodeError;
+use bincode::{DefaultOptions, Options};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::convert::{Into, TryInto};
@@ -1249,14 +1250,25 @@ impl Display for DeserializationError {
 /// Deserialize a BPF file into a collection of usable BPF filters.
 pub fn deserialize_binary(
     reader: &mut dyn Read,
+    bytes_limit: Option<u64>,
 ) -> std::result::Result<BpfThreadMap, DeserializationError> {
-    Ok(
-        bincode::deserialize_from::<&mut dyn Read, BpfThreadMap>(reader)
-            .map_err(DeserializationError::Bincode)?
-            .into_iter()
-            .map(|(k, v)| (k.to_lowercase(), v))
-            .collect(),
-    )
+    let result = match bytes_limit {
+        // Also add the default options. These are not part of the DefaultOptions due to
+        // this issue: https://github.com/servo/bincode/issues/333
+        Some(limit) => DefaultOptions::new()
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .with_limit(limit)
+            .deserialize_from::<&mut dyn Read, BpfThreadMap>(reader),
+        // No limit is the default.
+        None => bincode::deserialize_from::<&mut dyn Read, BpfThreadMap>(reader),
+    };
+
+    Ok(result
+        .map_err(DeserializationError::Bincode)?
+        .into_iter()
+        .map(|(k, v)| (k.to_lowercase(), v))
+        .collect())
 }
 
 #[cfg(test)]
@@ -2106,34 +2118,69 @@ mod tests {
 
     #[test]
     fn test_deserialize_binary() {
-        // malformed bincode binary
-        let mut data = "adassafvc".to_string();
-        let data = unsafe { data.as_bytes_mut() };
-        assert!(deserialize_binary(&mut &data[..]).is_err());
+        // Malformed bincode binary.
+        {
+            let mut data = "adassafvc".to_string();
+            let data = unsafe { data.as_bytes_mut() };
+            assert!(deserialize_binary(&mut &data[..], None).is_err());
+        }
 
         // Test that the binary deserialization is correct, and that the thread keys
         // have been lowercased.
-        let bpf_prog = vec![
-            sock_filter {
+        {
+            let bpf_prog = vec![
+                sock_filter {
+                    code: 32,
+                    jt: 0,
+                    jf: 0,
+                    k: 0,
+                },
+                sock_filter {
+                    code: 32,
+                    jt: 0,
+                    jf: 0,
+                    k: 4,
+                },
+            ];
+            let mut filter_map = BpfThreadMap::new();
+            filter_map.insert("VcpU".to_string(), bpf_prog.clone());
+            let bytes = bincode::serialize(&filter_map).unwrap();
+
+            let mut expected_res = BpfThreadMap::new();
+            expected_res.insert("vcpu".to_string(), bpf_prog);
+            assert_eq!(
+                deserialize_binary(&mut &bytes[..], None).unwrap(),
+                expected_res
+            );
+        }
+
+        // Test deserialization with binary_limit.
+        {
+            let bpf_prog = vec![sock_filter {
                 code: 32,
                 jt: 0,
                 jf: 0,
                 k: 0,
-            },
-            sock_filter {
-                code: 32,
-                jt: 0,
-                jf: 0,
-                k: 4,
-            },
-        ];
-        let mut filter_map = BpfThreadMap::new();
-        filter_map.insert("VcpU".to_string(), bpf_prog.clone());
-        let bytes = bincode::serialize(&filter_map).unwrap();
+            }];
 
-        let mut expected_res = BpfThreadMap::new();
-        expected_res.insert("vcpu".to_string(), bpf_prog);
-        assert_eq!(deserialize_binary(&mut &bytes[..]).unwrap(), expected_res);
+            let mut filter_map = BpfThreadMap::new();
+            filter_map.insert("t1".to_string(), bpf_prog);
+
+            let bytes = bincode::serialize(&filter_map).unwrap();
+
+            // Binary limit too low.
+            assert!(matches!(
+                deserialize_binary(&mut &bytes[..], Some(20)).unwrap_err(),
+                DeserializationError::Bincode(error)
+                    if error.to_string() == "the size limit has been reached"
+            ));
+
+            // Correct binary limit.
+            assert_eq!(
+                deserialize_binary(&mut &bytes[..], Some(50)).unwrap(),
+                filter_map
+            );
+        }
     }
 
     #[test]
