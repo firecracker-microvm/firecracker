@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 use std::{fmt, io};
 
-use crate::parsed_request::ParsedRequest;
+use crate::parsed_request::{describe, ParsedRequest};
 use logger::{
     debug, error, info, update_metric_with_elapsed_time, IncMetric, StoreMetric, METRICS,
 };
@@ -81,6 +81,8 @@ pub struct ApiServer {
     /// If this flag is set, the process encountered a fatal error
     /// and it is going to exit once it sends any pending API response.
     vmm_fatal_error: bool,
+    /// Vector to hold vmm configuration change descriptions
+    config_changes: Vec<String>,
 }
 
 impl ApiServer {
@@ -101,6 +103,7 @@ impl ApiServer {
             vmm_response_receiver,
             to_vmm_fd,
             vmm_fatal_error: false,
+            config_changes: Vec::new(),
         }
     }
 
@@ -260,6 +263,15 @@ impl ApiServer {
         request: &Request,
         request_processing_start_us: u64,
     ) -> Response {
+        if request.method() == Method::Patch || request.method() == Method::Put {
+            let request_uri = request.uri().get_abs_path().to_string();
+            self.config_changes.push(describe(
+                request.method(),
+                request_uri.as_str(),
+                request.body.as_ref(),
+            ));
+        }
+
         match ParsedRequest::try_from_request(request) {
             Ok(ParsedRequest::Sync(vmm_action)) => {
                 self.serve_vmm_action_request(vmm_action, request_processing_start_us)
