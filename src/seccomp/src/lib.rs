@@ -1026,9 +1026,15 @@ impl SeccompFilter {
     ///
     /// * `filters` - BPF program containing the seccomp rules.
     pub fn apply(bpf_filter: BpfProgramRef) -> Result<()> {
-        // If the program is empty, skip this step.
+        // If the program is empty, don't install the filter.
         if bpf_filter.is_empty() {
             return Ok(());
+        }
+
+        // If the program length is greater than the limit allowed by the kernel,
+        // fail quickly. Otherwise, `prctl` will give a more cryptic error code.
+        if bpf_filter.len() > BPF_MAX_LEN {
+            return Err(Error::FilterTooLarge);
         }
 
         unsafe {
@@ -2063,6 +2069,30 @@ mod tests {
             }];
             assert_eq!(ret, instructions);
         }
+    }
+
+    #[test]
+    fn test_filter_apply() {
+        // Test filter too large.
+        thread::spawn(|| {
+            let filter: BpfProgram = vec![
+                sock_filter {
+                    code: 6,
+                    jt: 0,
+                    jf: 0,
+                    k: 0,
+                };
+                5000 // Limit is 4096
+            ];
+
+            // Apply seccomp filter.
+            assert_eq!(
+                SeccompFilter::apply(&filter).unwrap_err(),
+                Error::FilterTooLarge
+            );
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
