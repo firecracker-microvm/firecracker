@@ -325,7 +325,7 @@ mod tests {
                 },
             ];
 
-            assert!(SeccompFilter::apply(bpf_filter).is_ok());
+            assert!(SeccompFilter::apply(&bpf_filter).is_ok());
             assert_eq!(METRICS.seccomp.num_faults.count(), 0);
             // Call the forbidden `SYS_mkdirat`.
             unsafe { syscall(libc::SYS_mkdirat, "/foo/bar\0") };

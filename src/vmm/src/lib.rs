@@ -37,6 +37,7 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::sync::mpsc::RecvTimeoutError;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -270,6 +271,8 @@ impl Vmm {
 
         self.vcpus_handles.reserve(vcpu_count as usize);
 
+        let filter = Arc::new(vcpu_seccomp_filter);
+
         for mut vcpu in vcpus.drain(..) {
             vcpu.set_mmio_bus(self.mmio_device_manager.bus.clone());
             #[cfg(target_arch = "x86_64")]
@@ -277,7 +280,7 @@ impl Vmm {
                 .set_pio_bus(self.pio_device_manager.io_bus.clone());
 
             self.vcpus_handles.push(
-                vcpu.start_threaded(vcpu_seccomp_filter.clone())
+                vcpu.start_threaded(filter.clone())
                     .map_err(Error::VcpuHandle)?,
             );
         }

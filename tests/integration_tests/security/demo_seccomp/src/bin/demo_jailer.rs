@@ -16,7 +16,7 @@ fn main() {
     let mut map = deserialize_binary(&mut filter_file).unwrap();
 
     // Loads filters.
-    SeccompFilter::apply(map.remove("main").unwrap()).unwrap();
+    SeccompFilter::apply(map.get("main").unwrap()).unwrap();
 
     Command::new(exec_file)
         .stdin(Stdio::inherit())

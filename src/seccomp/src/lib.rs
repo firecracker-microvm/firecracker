@@ -48,7 +48,7 @@
 //! use std::env::consts::ARCH;
 //!
 //! let buf = "Hello, world!";
-//! let filter = SeccompFilter::new(
+//! let filter: BpfProgram = SeccompFilter::new(
 //!     vec![
 //!         allow_syscall(libc::SYS_close),
 //!         allow_syscall(libc::SYS_execve),
@@ -65,7 +65,7 @@
 //!         ARCH,
 //! )
 //!     .unwrap().try_into().unwrap();
-//!     SeccompFilter::apply(filter).unwrap();
+//!     SeccompFilter::apply(&filter).unwrap();
 //! unsafe {
 //!     libc::syscall(
 //!         libc::SYS_write,
@@ -190,8 +190,10 @@
 //!             )],
 //!         )
 //!         .unwrap();
+//!     
+//!     let filter: BpfProgram = filter.try_into().unwrap();
 //!
-//!     SeccompFilter::apply(filter.try_into().unwrap()).unwrap();
+//!     SeccompFilter::apply(&filter).unwrap();
 //!
 //!     unsafe {
 //!         libc::syscall(
@@ -1022,7 +1024,7 @@ impl SeccompFilter {
     /// # Arguments
     ///
     /// * `filters` - BPF program containing the seccomp rules.
-    pub fn apply(bpf_filter: BpfProgram) -> Result<()> {
+    pub fn apply(bpf_filter: BpfProgramRef) -> Result<()> {
         // If the program is empty, skip this step.
         if bpf_filter.is_empty() {
             return Ok(());
@@ -1314,8 +1316,10 @@ mod tests {
         // We need to run the validation inside another thread in order to avoid setting
         // the seccomp filter for the entire unit tests process.
         let errno = thread::spawn(move || {
+            let filter: BpfProgram = filter.try_into().unwrap();
+
             // Apply seccomp filter.
-            SeccompFilter::apply(filter.try_into().unwrap()).unwrap();
+            SeccompFilter::apply(&filter).unwrap();
 
             // Call the validation fn.
             validation_fn();
@@ -2094,7 +2098,8 @@ mod tests {
     fn test_seccomp_empty() {
         let rc1 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
         assert_eq!(rc1, 0);
-        SeccompFilter::apply(SeccompFilter::empty(ARCH).unwrap().try_into().unwrap()).unwrap();
+        let filter: BpfProgram = SeccompFilter::empty(ARCH).unwrap().try_into().unwrap();
+        SeccompFilter::apply(&filter).unwrap();
         let rc2 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
         assert_eq!(rc2, 0);
     }
