@@ -199,6 +199,19 @@ mod tests {
         let mut rtc = RTC::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
         let mut data = [0; 4];
 
+        // Read and write to the DR register. Since this is a RO register, the write
+        // function should fail.
+        byte_order::write_le_u32(&mut data, 0);
+        let err_cnt_before_write = METRICS.rtc.error_count.count();
+        rtc.write(RTCDR, &data);
+        let err_cnt_after_write = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write - err_cnt_before_write, 1);
+        rtc.read(RTCDR, &mut data);
+        let err_cnt_after_read = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write, err_cnt_after_read);
+        let v_read = byte_order::read_le_u32(&data[..]);
+        assert_ne!(v_read, 0);
+
         // Read and write to the MR register.
         byte_order::write_le_u32(&mut data, 123);
         rtc.write(RTCMR, &data);
@@ -235,6 +248,30 @@ mod tests {
         rtc.read(RTCIMSC, &mut data);
         let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(0, v);
+
+        // Read and write to the RIS RO register.
+        byte_order::write_le_u32(&mut data, 1);
+        let err_cnt_before_write = METRICS.rtc.error_count.count();
+        rtc.write(RTCRIS, &data);
+        let err_cnt_after_write = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write - err_cnt_before_write, 1);
+        rtc.read(RTCRIS, &mut data);
+        let err_cnt_after_read = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write, err_cnt_after_read);
+        let v_read = byte_order::read_le_u32(&data[..]);
+        assert_ne!(v_read, 1);
+
+        // Read and write to the MIS RO register.
+        byte_order::write_le_u32(&mut data, 1);
+        let err_cnt_before_write = METRICS.rtc.error_count.count();
+        rtc.write(RTCMIS, &data);
+        let err_cnt_after_write = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write - err_cnt_before_write, 1);
+        rtc.read(RTCMIS, &mut data);
+        let err_cnt_after_read = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write, err_cnt_after_read);
+        let v_read = byte_order::read_le_u32(&data[..]);
+        assert_ne!(v_read, 1);
 
         // Read and write to the ICR register.
         byte_order::write_le_u32(&mut data, 1);
