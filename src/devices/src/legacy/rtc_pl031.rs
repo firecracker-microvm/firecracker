@@ -38,16 +38,15 @@ const PL031_ID: [u8; 8] = [0x31, 0x10, 0x04, 0x00, 0x0d, 0xf0, 0x05, 0xb1];
 const AMBA_ID_LOW: u64 = 0xFE0;
 const AMBA_ID_HIGH: u64 = 0x1000;
 
-#[derive(Debug)]
 pub enum Error {
-    BadWriteOffset(u64),
+    BadOffset(u64, &'static str),
     InterruptFailure(io::Error),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::BadWriteOffset(offset) => write!(f, "Bad Write Offset: {}", offset),
+            Error::BadOffset(offset, ops) => write!(f, "Bad {} offset: {}", ops, offset),
             Error::InterruptFailure(e) => write!(f, "Failed to trigger interrupt: {}", e),
         }
     }
@@ -92,6 +91,33 @@ impl RTC {
         (ts / utils::time::NANOS_PER_SECOND as i128) as u32
     }
 
+    fn handle_read(&mut self, offset: u64) -> Result<u32> {
+        let val;
+
+        if offset < AMBA_ID_HIGH && offset >= AMBA_ID_LOW {
+            let index = ((offset - AMBA_ID_LOW) >> 2) as usize;
+            val = u32::from(PL031_ID[index]);
+        } else {
+            val = match offset {
+                RTCDR => self.get_time(),
+                RTCMR => {
+                    METRICS.rtc.missed_read_count.inc();
+                    // Even though we are not implementing RTC alarm we return the last value
+                    self.match_value
+                }
+                RTCLR => self.load,
+                RTCCR => 1, // RTC is always enabled.
+                RTCIMSC => self.imsc,
+                RTCRIS => self.ris,
+                RTCMIS => self.ris & self.imsc,
+                off => {
+                    return Err(Error::BadOffset(off, "read"));
+                }
+            };
+        }
+        Ok(val)
+    }
+
     fn handle_write(&mut self, offset: u64, val: u32) -> Result<()> {
         match offset {
             RTCMR => {
@@ -122,8 +148,8 @@ impl RTC {
                 self.trigger_interrupt()?;
             }
             RTCCR => (), // ignore attempts to turn off the timer.
-            o => {
-                return Err(Error::BadWriteOffset(o));
+            off => {
+                return Err(Error::BadOffset(off, "write"));
             }
         }
         Ok(())
@@ -136,39 +162,16 @@ impl RTC {
 
 impl BusDevice for RTC {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
-        let v;
-        let mut read_ok = true;
-
-        if offset < AMBA_ID_HIGH && offset >= AMBA_ID_LOW {
-            let index = ((offset - AMBA_ID_LOW) >> 2) as usize;
-            v = u32::from(PL031_ID[index]);
-        } else {
-            v = match offset {
-                RTCDR => self.get_time(),
-                RTCMR => {
-                    METRICS.rtc.missed_read_count.inc();
-                    // Even though we are not implementing RTC alarm we return the last value
-                    self.match_value
+        if data.len() <= 4 {
+            match self.handle_read(offset) {
+                Ok(val) => byte_order::write_le_u32(data, val),
+                Err(e) => {
+                    warn!("Failed to read from the RTC PL031 device: {}", e);
+                    METRICS.rtc.error_count.inc();
                 }
-                RTCLR => self.load,
-                RTCCR => 1, // RTC is always enabled.
-                RTCIMSC => self.imsc,
-                RTCRIS => self.ris,
-                RTCMIS => self.ris & self.imsc,
-                _ => {
-                    read_ok = false;
-                    0
-                }
-            };
-        }
-        if read_ok && data.len() <= 4 {
-            byte_order::write_le_u32(data, v);
+            }
         } else {
-            warn!(
-                "Invalid RTC PL031 read: offset {}, data length {}",
-                offset,
-                data.len()
-            );
+            warn!("Invalid RTC PL031 data length {}", data.len());
             METRICS.rtc.error_count.inc();
         }
     }
@@ -177,15 +180,11 @@ impl BusDevice for RTC {
         if data.len() <= 4 {
             let v = byte_order::read_le_u32(&data[..]);
             if let Err(e) = self.handle_write(offset, v) {
-                warn!("Failed to write to RTC PL031 device: {}", e);
+                warn!("Failed to write to the RTC PL031 device: {}", e);
                 METRICS.rtc.error_count.inc();
             }
         } else {
-            warn!(
-                "Invalid RTC PL031 write: offset {}, data length {}",
-                offset,
-                data.len()
-            );
+            warn!("Invalid RTC PL031 data length {}", data.len());
             METRICS.rtc.error_count.inc();
         }
     }
