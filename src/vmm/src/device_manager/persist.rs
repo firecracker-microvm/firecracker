@@ -276,7 +276,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 if state.type_ == DeviceType::RTC {
                     let rtc = crate::builder::setup_rtc_device().map_err(Error::Legacy)?;
                     dev_manager
-                        .register_mmio_rtc(vm, rtc, Some(state.mmio_slot.clone()))
+                        .register_mmio_rtc(rtc, Some(state.mmio_slot.clone()))
                         .map_err(Error::DeviceManager)?;
                 }
             }
