@@ -162,29 +162,35 @@ impl RTC {
 
 impl BusDevice for RTC {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
-        if data.len() <= 4 {
+        if data.len() == 4 {
             match self.handle_read(offset) {
                 Ok(val) => byte_order::write_le_u32(data, val),
                 Err(e) => {
-                    warn!("Failed to read from the RTC PL031 device: {}", e);
+                    warn!("Failed to read from the RTC: {}", e);
                     METRICS.rtc.error_count.inc();
                 }
             }
         } else {
-            warn!("Invalid RTC PL031 data length {}", data.len());
+            warn!(
+                "Found invalid data length while trying to read from the RTC: {}",
+                data.len()
+            );
             METRICS.rtc.error_count.inc();
         }
     }
 
     fn write(&mut self, offset: u64, data: &[u8]) {
-        if data.len() <= 4 {
+        if data.len() == 4 {
             let v = byte_order::read_le_u32(&data[..]);
             if let Err(e) = self.handle_write(offset, v) {
-                warn!("Failed to write to the RTC PL031 device: {}", e);
+                warn!("Failed to write to the RTC: {}", e);
                 METRICS.rtc.error_count.inc();
             }
         } else {
-            warn!("Invalid RTC PL031 data length {}", data.len());
+            warn!(
+                "Found invalid data length while trying to write to the RTC: {}",
+                data.len()
+            );
             METRICS.rtc.error_count.inc();
         }
     }
@@ -308,5 +314,19 @@ mod tests {
         rtc.read(AMBA_ID_LOW, &mut data);
         let index = AMBA_ID_LOW + 3;
         assert_eq!(data[0], PL031_ID[((index - AMBA_ID_LOW) >> 2) as usize]);
+    }
+
+    #[test]
+    fn test_rtc_invalid_buf_len() {
+        let mut rtc = RTC::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
+        let mut data = [1; 2];
+
+        let err_cnt_before_write = METRICS.rtc.error_count.count();
+        rtc.write(RTCLR, &data);
+        let err_cnt_after_write = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write - err_cnt_before_write, 1);
+        rtc.read(RTCLR, &mut data);
+        let err_cnt_after_read = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_read - err_cnt_after_write, 1);
     }
 }
