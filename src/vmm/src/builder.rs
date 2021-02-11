@@ -599,8 +599,7 @@ pub fn setup_serial_device(
 #[cfg(target_arch = "aarch64")]
 /// Sets up the RTC device.
 pub fn setup_rtc_device() -> super::Result<Arc<Mutex<devices::legacy::RTC>>> {
-    let rtc_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-    let rtc = Arc::new(Mutex::new(devices::legacy::RTC::new(rtc_evt)));
+    let rtc = Arc::new(Mutex::new(devices::legacy::RTC::default()));
     Ok(rtc)
 }
 
@@ -641,7 +640,7 @@ fn attach_legacy_devices_aarch64(
 
     let rtc = setup_rtc_device()?;
     vmm.mmio_device_manager
-        .register_mmio_rtc(vmm.vm.fd(), rtc, None)
+        .register_mmio_rtc(rtc, None)
         .map_err(Error::RegisterMMIODevice)
 }
 
