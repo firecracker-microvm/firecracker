@@ -5,7 +5,7 @@ use std::fs::File;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
-use seccomp::{deserialize_binary, SeccompFilter};
+use seccomp::{apply_filter, deserialize_binary};
 
 fn main() {
     let args: Vec<String> = args().collect();
@@ -16,7 +16,7 @@ fn main() {
     let mut map = deserialize_binary(&mut filter_file, None).unwrap();
 
     // Loads filters.
-    SeccompFilter::apply(map.get("main").unwrap()).unwrap();
+    apply_filter(map.get("main").unwrap()).unwrap();
 
     Command::new(exec_file)
         .stdin(Stdio::inherit())

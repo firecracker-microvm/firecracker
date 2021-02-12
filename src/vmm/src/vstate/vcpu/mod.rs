@@ -27,7 +27,7 @@ use crate::{
 use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
 use kvm_ioctls::VcpuExit;
 use logger::{error, info, IncMetric, METRICS};
-use seccomp::{BpfProgram, BpfProgramRef, SeccompFilter};
+use seccomp::{BpfProgram, BpfProgramRef};
 use utils::{
     errno,
     eventfd::EventFd,
@@ -266,7 +266,7 @@ impl Vcpu {
         // Load seccomp filters for this vCPU thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = SeccompFilter::apply(seccomp_filter) {
+        if let Err(e) = seccomp::apply_filter(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on vCPU {}: Error: {}",
                 self.kvm_vcpu.index, e
@@ -637,8 +637,6 @@ pub enum VcpuEmulation {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryInto;
-    use std::env::consts::ARCH;
     use std::{
         fmt,
         sync::Mutex,
@@ -647,6 +645,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::seccomp_filters;
     use crate::vstate::vcpu::Error as EmulationError;
     use crate::vstate::vm::{tests::setup_vm, Vm};
     use utils::errno;
@@ -903,12 +902,9 @@ mod tests {
                 .expect("failed to configure vcpu");
         }
 
-        let seccomp_filter = seccomp::SeccompFilter::empty(ARCH)
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let mut seccomp_filters = seccomp_filters::get_empty_filters();
         let vcpu_handle = vcpu
-            .start_threaded(Arc::new(seccomp_filter))
+            .start_threaded(Arc::new(seccomp_filters.remove("vcpu").unwrap()))
             .expect("failed to start vcpu");
 
         (vcpu_handle, vcpu_exit_evt)
