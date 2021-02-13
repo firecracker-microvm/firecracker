@@ -14,3 +14,4 @@
 /// Provides IPv4 address utility methods.
 pub mod ipv4addr;
 pub mod mac;
+pub mod macvtap;
