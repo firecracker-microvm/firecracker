@@ -5,11 +5,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use std::{fmt, mem, result};
+use std::{fmt, fs, mem, result, u32};
 
 use super::get_fdt_addr;
 use kvm_bindings::*;
 use kvm_ioctls::VcpuFd;
+use std::path::PathBuf;
 use vm_memory::GuestMemoryMmap;
 
 /// Errors thrown while setting aarch64 registers.
@@ -29,6 +30,8 @@ pub enum Error {
     SetMP(kvm_ioctls::Error),
     /// Failed to get a system register.
     SetRegister(kvm_ioctls::Error),
+    /// Failed to get midr_el1 from host.
+    GetMidrEl1(String),
 }
 type Result<T> = result::Result<T, Error>;
 
@@ -48,6 +51,7 @@ impl fmt::Display for Error {
             }
             self::Error::SetMP(ref e) => write!(f, "Failed to set multiprocessor state: {}", e),
             self::Error::SetRegister(ref e) => write!(f, "Failed to set register: {}", e),
+            self::Error::GetMidrEl1(ref e) => write!(f, "{}", e),
         }
     }
 }
@@ -123,7 +127,8 @@ macro_rules! arm64_core_reg_id {
 // https://elixir.bootlin.com/linux/v4.20.17/source/arch/arm64/include/uapi/asm/kvm.h#L203
 macro_rules! arm64_sys_reg {
     ($name: tt, $op0: tt, $op1: tt, $crn: tt, $crm: tt, $op2: tt) => {
-        const $name: u64 = KVM_REG_ARM64 as u64
+        /// System register constant
+        pub const $name: u64 = KVM_REG_ARM64 as u64
             | KVM_REG_SIZE_U64 as u64
             | KVM_REG_ARM64_SYSREG as u64
             | ((($op0 as u64) << KVM_REG_ARM64_SYSREG_OP0_SHIFT)
@@ -142,6 +147,44 @@ macro_rules! arm64_sys_reg {
 // Constant imported from the Linux kernel:
 // https://elixir.bootlin.com/linux/v4.20.17/source/arch/arm64/include/asm/sysreg.h#L135
 arm64_sys_reg!(MPIDR_EL1, 3, 0, 0, 0, 5);
+arm64_sys_reg!(MIDR_EL1, 3, 0, 0, 0, 0);
+
+/// Extract the Manufacturer ID from a VCPU state's registers.
+/// The ID is found between bits 24-31 of MIDR_EL1 register.
+///
+/// # Arguments
+///
+/// * `state` - Array slice of kvm_one_reg structures, representing
+///             the registers of a VCPU state.
+pub fn get_manufacturer_id_from_state(state: &[kvm_one_reg]) -> Result<u32> {
+    let midr_el1 = state.iter().find(|reg| reg.id == MIDR_EL1);
+    match midr_el1 {
+        Some(value) => Ok(value.addr as u32 >> 24),
+        None => Err(Error::GetMidrEl1(
+            "Failed to find MIDR_EL1 in vCPU state!".to_string(),
+        )),
+    }
+}
+
+/// Extract the Manufacturer ID from the host.
+/// The ID is found between bits 24-31 of MIDR_EL1 register.
+pub fn get_manufacturer_id_from_host() -> Result<u32> {
+    let midr_el1_path =
+        &PathBuf::from("/sys/devices/system/cpu/cpu0/regs/identification/midr_el1".to_string());
+
+    let midr_el1 = fs::read_to_string(midr_el1_path).map_err(|e| {
+        Error::GetMidrEl1(format!(
+            "Failed to get MIDR_EL1 from host path: {}",
+            e.to_string()
+        ))
+    })?;
+    let midr_el1_trimmed = midr_el1.trim_end().trim_start_matches("0x");
+    let manufacturer_id = u32::from_str_radix(midr_el1_trimmed, 16).map_err(|e| {
+        Error::GetMidrEl1(format!("Invalid MIDR_EL1 found on host: {}", e.to_string()))
+    })?;
+
+    Ok(manufacturer_id >> 24)
+}
 
 /// Configure relevant boot registers for a given vCPU.
 ///
