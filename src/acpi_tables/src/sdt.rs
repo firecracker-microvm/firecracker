@@ -1,4 +1,7 @@
-// Copyright © 2019 Intel Corporation
+// Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Portions Copyright © 2019 Intel Corporation
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -48,7 +51,7 @@ impl SDT {
         data.extend_from_slice(&oem_id);
         data.extend_from_slice(&oem_table);
         data.extend_from_slice(&oem_revision.to_le_bytes());
-        data.extend_from_slice(b"CLDH");
+        data.extend_from_slice(b"FCVM");
         data.extend_from_slice(&0u32.to_le_bytes());
         assert_eq!(data.len(), 36);
 
@@ -121,7 +124,7 @@ mod tests {
 
     #[test]
     fn test_sdt() {
-        let mut sdt = SDT::new(*b"TEST", 40, 1, *b"CLOUDH", *b"TESTTEST", 1);
+        let mut sdt = SDT::new(*b"TEST", 40, 1, *b"FIRECR", *b"TESTTEST", 1);
         let sum: u8 = sdt
             .as_slice()
             .iter()
