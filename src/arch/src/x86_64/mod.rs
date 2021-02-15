@@ -107,6 +107,7 @@ pub fn configure_system(
     guest_mem: &GuestMemoryMmap,
     cmdline_addr: GuestAddress,
     cmdline_size: usize,
+    rsdp_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
     num_cpus: u8,
 ) -> super::Result<()> {
@@ -169,6 +170,8 @@ pub fn configure_system(
         }
     }
 
+    params.0.acpi_rsdp_addr = rsdp_addr.0;
+
     let zero_page_addr = GuestAddress(layout::ZERO_PAGE_START);
     guest_mem
         .write_obj(params, zero_page_addr)
@@ -202,11 +205,13 @@ mod tests {
     use super::*;
     use arch_gen::x86::bootparam::e820entry;
 
+    const ZERO_ADDR: GuestAddress = GuestAddress(0);
+
     #[test]
     fn regions_lt_4gb() {
         let regions = arch_memory_regions(1usize << 29);
         assert_eq!(1, regions.len());
-        assert_eq!(GuestAddress(0), regions[0].0);
+        assert_eq!(ZERO_ADDR, regions[0].0);
         assert_eq!(1usize << 29, regions[0].1);
     }
 
@@ -214,15 +219,15 @@ mod tests {
     fn regions_gt_4gb() {
         let regions = arch_memory_regions((1usize << 32) + 0x8000);
         assert_eq!(2, regions.len());
-        assert_eq!(GuestAddress(0), regions[0].0);
+        assert_eq!(ZERO_ADDR, regions[0].0);
         assert_eq!(GuestAddress(1u64 << 32), regions[1].0);
     }
 
     #[test]
     fn test_system_configuration() {
         let no_vcpus = 4;
-        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let config_err = configure_system(&gm, GuestAddress(0), 0, &None, 1);
+        let gm = GuestMemoryMmap::from_ranges(&[(ZERO_ADDR, 0x10000)]).unwrap();
+        let config_err = configure_system(&gm, ZERO_ADDR, 0, ZERO_ADDR, &None, 1);
         assert!(config_err.is_err());
         assert_eq!(
             config_err.unwrap_err(),
@@ -233,19 +238,19 @@ mod tests {
         let mem_size = 128 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemoryMmap::from_ranges(&arch_mem_regions).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(&gm, ZERO_ADDR, 0, ZERO_ADDR, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that is equal to the start of the 32bit memory hole.
         let mem_size = 3328 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemoryMmap::from_ranges(&arch_mem_regions).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(&gm, ZERO_ADDR, 0, ZERO_ADDR, &None, no_vcpus).unwrap();
 
         // Now assigning some memory that falls after the 32bit memory hole.
         let mem_size = 3330 << 20;
         let arch_mem_regions = arch_memory_regions(mem_size);
         let gm = GuestMemoryMmap::from_ranges(&arch_mem_regions).unwrap();
-        configure_system(&gm, GuestAddress(0), 0, &None, no_vcpus).unwrap();
+        configure_system(&gm, ZERO_ADDR, 0, ZERO_ADDR, &None, no_vcpus).unwrap();
     }
 
     #[test]

@@ -692,12 +692,15 @@ pub fn configure_system_for_boot(
             &boot_cmdline.as_cstring().map_err(LoadCommandline)?,
         )
         .map_err(LoadCommandline)?;
+        let num_cpus = vcpus.len() as u8;
+        let rsdp_addr = super::acpi::create_acpi_tables(vmm.guest_memory(), num_cpus);
         arch::x86_64::configure_system(
             &vmm.guest_memory,
             vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
             boot_cmdline.len() + 1,
+            rsdp_addr,
             initrd,
-            vcpus.len() as u8,
+            num_cpus,
         )
         .map_err(ConfigureSystem)?;
     }
