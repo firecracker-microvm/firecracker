@@ -16,6 +16,8 @@ pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
+pub use mptable::{APIC_DEFAULT_PHYS_BASE, IO_APIC_DEFAULT_PHYS_BASE};
+
 use crate::InitrdConfig;
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
 use vm_memory::{

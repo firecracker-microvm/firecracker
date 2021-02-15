@@ -97,8 +97,10 @@ const MPC_SPEC: i8 = 4;
 const MPC_OEM: [c_char; 8] = char_array!(c_char; 'F', 'C', ' ', ' ', ' ', ' ', ' ', ' ');
 const MPC_PRODUCT_ID: [c_char; 12] = ['0' as c_char; 12];
 const BUS_TYPE_ISA: [u8; 6] = char_array!(u8; 'I', 'S', 'A', ' ', ' ', ' ');
-const IO_APIC_DEFAULT_PHYS_BASE: u32 = 0xfec0_0000; // source: linux/arch/x86/include/asm/apicdef.h
-const APIC_DEFAULT_PHYS_BASE: u32 = 0xfee0_0000; // source: linux/arch/x86/include/asm/apicdef.h
+/// IOAPIC default phys addr; source: linux/arch/x86/include/asm/apicdef.h
+pub const IO_APIC_DEFAULT_PHYS_BASE: u32 = 0xfec0_0000;
+/// APIC default phys addr; source: linux/arch/x86/include/asm/apicdef.h
+pub const APIC_DEFAULT_PHYS_BASE: u32 = 0xfee0_0000;
 const APIC_VERSION: u8 = 0x14;
 const CPU_STEPPING: u32 = 0x600;
 const CPU_FEATURE_APIC: u32 = 0x200;
