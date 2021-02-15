@@ -1,4 +1,7 @@
-// Copyright © 2019 Intel Corporation
+// Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Portions Copyright © 2019 Intel Corporation
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -52,7 +55,7 @@ mod tests {
 
     #[test]
     fn test_rsdp() {
-        let rsdp = RSDP::new(*b"CHYPER", 0xdead_beef);
+        let rsdp = RSDP::new(*b"FIRECR", 0xdead_beef);
         let sum = rsdp
             .as_slice()
             .iter()
