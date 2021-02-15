@@ -401,46 +401,11 @@ fn test_create_and_load_snapshot() {
     verify_load_snapshot(snapshot_file, memory_file);
 }
 
-#[cfg(target_arch = "x86_64")]
-#[test]
-fn test_snapshot_cpu_vendor() {
-    use vmm::persist::validate_x86_64_cpu_vendor;
-    // Create a diff snapshot.
-    let (snapshot_file, _) = verify_create_snapshot(true);
-
-    // Deserialize the microVM state.
-    let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
-    let snapshot_len = snapshot_file_metadata.len() as usize;
-    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-    let microvm_state: MicrovmState = Snapshot::load(
-        &mut snapshot_file.as_file(),
-        snapshot_len,
-        VERSION_MAP.clone(),
-    )
-    .unwrap();
-
-    // Check if the snapshot created above passes validation since
-    // the snapshot was created locally.
-    assert!(validate_x86_64_cpu_vendor(&microvm_state).is_ok());
-}
-
 #[test]
 fn test_snapshot_load_sanity_checks() {
     use vmm::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 
-    // Create a diff snapshot.
-    let (snapshot_file, _) = verify_create_snapshot(true);
-
-    // Deserialize the microVM state.
-    let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
-    let snapshot_len = snapshot_file_metadata.len() as usize;
-    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-    let mut microvm_state: MicrovmState = Snapshot::load(
-        &mut snapshot_file.as_file(),
-        snapshot_len,
-        VERSION_MAP.clone(),
-    )
-    .unwrap();
+    let mut microvm_state = get_microvm_state_from_snapshot();
 
     assert!(snapshot_state_sanity_check(&microvm_state).is_ok());
 
@@ -486,23 +451,38 @@ fn test_snapshot_load_sanity_checks() {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
-#[test]
-fn test_snapshot_cpu_vendor_mismatch() {
-    use vmm::persist::validate_x86_64_cpu_vendor;
-    // Create a diff snapshot.
+fn get_microvm_state_from_snapshot() -> MicrovmState {
+    // Create a diff snapshot
     let (snapshot_file, _) = verify_create_snapshot(true);
 
     // Deserialize the microVM state.
     let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
     let snapshot_len = snapshot_file_metadata.len() as usize;
     snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-    let mut microvm_state: MicrovmState = Snapshot::load(
+    Snapshot::load(
         &mut snapshot_file.as_file(),
         snapshot_len,
         VERSION_MAP.clone(),
     )
-    .unwrap();
+    .unwrap()
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn test_snapshot_cpu_vendor() {
+    use vmm::persist::validate_x86_64_cpu_vendor;
+    let microvm_state = get_microvm_state_from_snapshot();
+
+    // Check if the snapshot created above passes validation since
+    // the snapshot was created locally.
+    assert!(validate_x86_64_cpu_vendor(&microvm_state).is_ok());
+}
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn test_snapshot_cpu_vendor_mismatch() {
+    use vmm::persist::validate_x86_64_cpu_vendor;
+    let mut microvm_state = get_microvm_state_from_snapshot();
 
     // Check if the snapshot created above passes validation since
     // the snapshot was created locally.
@@ -538,19 +518,7 @@ fn test_snapshot_cpu_vendor_mismatch() {
 #[test]
 fn test_snapshot_cpu_vendor_missing() {
     use vmm::persist::validate_x86_64_cpu_vendor;
-    // Create a diff snapshot.
-    let (snapshot_file, _) = verify_create_snapshot(true);
-
-    // Deserialize the microVM state.
-    let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
-    let snapshot_len = snapshot_file_metadata.len() as usize;
-    snapshot_file.as_file().seek(SeekFrom::Start(0)).unwrap();
-    let mut microvm_state: MicrovmState = Snapshot::load(
-        &mut snapshot_file.as_file(),
-        snapshot_len,
-        VERSION_MAP.clone(),
-    )
-    .unwrap();
+    let mut microvm_state = get_microvm_state_from_snapshot();
 
     // Check if the snapshot created above passes validation since
     // the snapshot was created locally.
@@ -565,4 +533,63 @@ fn test_snapshot_cpu_vendor_missing() {
 
     // This must fail as the cpu vendor entry does not exist.
     assert!(validate_x86_64_cpu_vendor(&microvm_state).is_err());
+}
+
+#[cfg(target_arch = "aarch64")]
+#[test]
+fn test_snapshot_cpu_vendor() {
+    use vmm::persist::validate_aarch64_cpu_manufacturer_id;
+
+    let microvm_state = get_microvm_state_from_snapshot();
+
+    // Check if the snapshot created above passes validation since
+    // the snapshot was created locally.
+    assert!(validate_aarch64_cpu_manufacturer_id(&microvm_state).is_ok());
+}
+
+#[cfg(target_arch = "aarch64")]
+#[test]
+fn test_snapshot_cpu_vendor_missing() {
+    use arch::regs::MIDR_EL1;
+    use vmm::persist::validate_aarch64_cpu_manufacturer_id;
+
+    let mut microvm_state = get_microvm_state_from_snapshot();
+
+    // Check if the snapshot created above passes validation since
+    // the snapshot was created locally.
+    assert!(validate_aarch64_cpu_manufacturer_id(&microvm_state).is_ok());
+
+    // Remove the MIDR_EL1 value from the VCPU states, by setting it to 0
+    for state in microvm_state.vcpu_states.as_mut_slice().iter_mut() {
+        for reg in state.regs.as_mut_slice().iter_mut() {
+            if reg.id == MIDR_EL1 {
+                reg.id = 0;
+            }
+        }
+    }
+    assert!(validate_aarch64_cpu_manufacturer_id(&microvm_state).is_err());
+}
+
+#[cfg(target_arch = "aarch64")]
+#[test]
+fn test_snapshot_cpu_vendor_mismatch() {
+    use arch::regs::MIDR_EL1;
+    use vmm::persist::validate_aarch64_cpu_manufacturer_id;
+
+    let mut microvm_state = get_microvm_state_from_snapshot();
+
+    // Check if the snapshot created above passes validation since
+    // the snapshot was created locally.
+    assert!(validate_aarch64_cpu_manufacturer_id(&microvm_state).is_ok());
+
+    // Change the MIDR_EL1 value from the VCPU states, to contain an
+    // invalid manufacturer ID
+    for state in microvm_state.vcpu_states.as_mut_slice().iter_mut() {
+        for reg in state.regs.as_mut_slice().iter_mut() {
+            if reg.id == MIDR_EL1 {
+                reg.addr = 0x710FD081;
+            }
+        }
+    }
+    assert!(validate_aarch64_cpu_manufacturer_id(&microvm_state).is_err());
 }
