@@ -338,6 +338,33 @@ impl Env {
         Ok(())
     }
 
+    #[cfg(target_arch = "aarch64")]
+    fn copy_midr_el1_info(&self) -> Result<()> {
+        use crate::{readln_special, to_cstring, writeln_special};
+
+        const HOST_MIDR_EL1_INFO: &str = "/sys/devices/system/cpu/cpu0/regs/identification";
+
+        let jailer_midr_el1_directory =
+            Path::new(self.chroot_dir()).join("sys/devices/system/cpu/cpu0/regs/identification/");
+        fs::create_dir_all(&jailer_midr_el1_directory)
+            .map_err(|e| Error::CreateDir(jailer_midr_el1_directory.to_owned(), e))?;
+
+        let host_midr_el1_file = PathBuf::from(format!("{}/midr_el1", HOST_MIDR_EL1_INFO));
+        let jailer_midr_el1_file = jailer_midr_el1_directory.join("midr_el1");
+
+        // Read and copy the MIDR_EL1 file to Jailer
+        let line = readln_special(&host_midr_el1_file)?;
+        writeln_special(&jailer_midr_el1_file, line)?;
+
+        // Change the permissions.
+        let dest_path_cstr = to_cstring(&jailer_midr_el1_file)?;
+        SyscallReturnCode(unsafe { libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid()) })
+            .into_empty_result()
+            .map_err(|e| Error::ChangeFileOwner(jailer_midr_el1_file.to_owned(), e))?;
+
+        Ok(())
+    }
+
     pub fn run(mut self) -> Result<()> {
         let exec_file_name = self.copy_exec_to_chroot()?;
         let chroot_exec_file = PathBuf::from("/").join(&exec_file_name);
@@ -378,6 +405,8 @@ impl Env {
         };
         #[cfg(target_arch = "aarch64")]
         self.copy_cache_info()?;
+        #[cfg(target_arch = "aarch64")]
+        self.copy_midr_el1_info()?;
 
         // Jail self.
         chroot(self.chroot_dir())?;

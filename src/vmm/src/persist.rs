@@ -23,7 +23,9 @@ use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
 use crate::{Error as VmmError, Vmm};
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
-#[cfg(target_arch = "x86_64")]
+
+#[cfg(target_arch = "aarch64")]
+use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use logger::{error, info};
 use polly::event_manager::EventManager;
 use seccomp::BpfProgramRef;
@@ -316,6 +318,36 @@ pub fn validate_x86_64_cpu_vendor(
     Ok(())
 }
 
+/// Validate that Snapshot Manufacturer ID matches
+/// the one from the Host
+///
+/// The manufacturer ID for the Snapshot is taken from each VCPU state.
+#[cfg(target_arch = "aarch64")]
+pub fn validate_aarch64_cpu_manufacturer_id(
+    microvm_state: &MicrovmState,
+) -> std::result::Result<(), LoadSnapshotError> {
+    let host_man_id = get_manufacturer_id_from_host()
+        .map_err(|e| LoadSnapshotError::CpuVendorMismatch(e.to_string()))?;
+
+    for state in &microvm_state.vcpu_states {
+        let state_man_id = get_manufacturer_id_from_state(state.regs.as_slice())
+            .map_err(|e| LoadSnapshotError::CpuVendorMismatch(e.to_string()))?;
+
+        if host_man_id != state_man_id {
+            let error_string = format!(
+                "Host CPU manufacturer ID: {:?}, Snapshot CPU manufacturer ID: {:?}",
+                &host_man_id, &state_man_id
+            );
+            error!("{}", error_string);
+            return Err(LoadSnapshotError::CpuVendorMismatch(error_string));
+        } else {
+            info!("Snapshot CPU manufacturer ID: {:?}", &state_man_id);
+        }
+    }
+
+    Ok(())
+}
+
 /// Performs sanity checks against the state file and returns specific errors.
 pub fn snapshot_state_sanity_check(
     microvm_state: &MicrovmState,
@@ -340,6 +372,8 @@ pub fn snapshot_state_sanity_check(
 
     #[cfg(target_arch = "x86_64")]
     validate_x86_64_cpu_vendor(&microvm_state)?;
+    #[cfg(target_arch = "aarch64")]
+    validate_aarch64_cpu_manufacturer_id(&microvm_state)?;
 
     Ok(())
 }
