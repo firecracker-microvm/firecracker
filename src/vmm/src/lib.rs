@@ -10,6 +10,7 @@
 //! machine (microVM).
 #![deny(missing_docs)]
 
+mod acpi;
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
 pub(crate) mod device_manager;

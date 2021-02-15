@@ -5,5 +5,4 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 
 [dependencies]
-vm-memory = "0.4.0"
-
+vm-memory = { path = "../vm-memory" }

@@ -16,6 +16,8 @@ pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
+pub use mptable::{APIC_DEFAULT_PHYS_BASE, IO_APIC_DEFAULT_PHYS_BASE};
+
 use crate::InitrdConfig;
 use linux_loader::configurator::linux::LinuxBootConfigurator;
 use linux_loader::configurator::{BootConfigurator, BootParams};

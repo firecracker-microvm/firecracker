@@ -17,7 +17,8 @@ serde_json = ">=1.0.9"
 versionize = ">=0.1.6"
 versionize_derive = ">=0.1.3"
 vm-superio = ">=0.4.0"
-
+vm-memory = { path = "../vm-memory" }
+acpi_tables = { path = "../acpi_tables" }
 arch = { path = "../arch" }
 devices = { path = "../devices" }
 logger = { path = "../logger" }
@@ -27,7 +28,6 @@ seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
-vm-memory = { path = "../vm-memory" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }
