@@ -10,7 +10,7 @@ from conftest import ARTIFACTS_COLLECTION
 from framework.artifacts import ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
-from framework.statistics import core, consumer, producer, types, criteria,\
+from framework.stats import core, consumer, producer, types, criteria,\
     function
 from framework.utils import eager_map, CpuMap
 from framework.artifacts import DEFAULT_HOST_IP

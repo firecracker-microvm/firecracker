@@ -18,7 +18,7 @@ class CriteriaFactory:
     @classmethod
     def get(cls, criteria_cls_name) -> 'ComparisonCriteria':
         """`criteria_cls_name` must be a valid criteria class name."""
-        return locate(f"framework.statistics.criteria.{criteria_cls_name}")
+        return locate(f"framework.stats.criteria.{criteria_cls_name}")
 
 
 # pylint: disable=R0903

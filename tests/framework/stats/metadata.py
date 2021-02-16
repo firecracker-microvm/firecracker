@@ -5,10 +5,10 @@
 from abc import ABC, abstractmethod
 from typing import Dict
 
-from framework.statistics.criteria import CriteriaFactory
-from framework.statistics.function import FunctionFactory
-from framework.statistics.types import MeasurementDef, StatisticDef
-from framework.statistics.baseline import Provider as BaselineProvider
+from .criteria import CriteriaFactory
+from .function import FunctionFactory
+from .types import MeasurementDef, StatisticDef
+from .baseline import Provider as BaselineProvider
 
 
 # pylint: disable=R0903

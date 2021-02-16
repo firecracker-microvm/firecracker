@@ -14,9 +14,9 @@ from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
-from framework.statistics import core, consumer, producer
-from framework.statistics.baseline import Provider as BaselineProvider
-from framework.statistics.metadata import DictProvider as DictMetadataProvider
+from framework.stats import core, consumer, producer
+from framework.stats.baseline import Provider as BaselineProvider
+from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import CpuMap, CmdBuilder, run_cmd, get_cpu_percent, \
     DictQuery
 from framework.utils_cpuid import get_cpu_model_name
