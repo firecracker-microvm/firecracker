@@ -5,7 +5,7 @@
 import json
 import os
 from signal import \
-    (SIGBUS, SIGRTMIN, SIGSEGV, SIGXFSZ,
+    (SIGBUS, SIGSEGV, SIGXFSZ,
      SIGXCPU, SIGPIPE, SIGHUP, SIGILL)
 from time import sleep
 import resource as res
@@ -58,6 +58,10 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
     assert len(line_metrics) == 1
 
     os.kill(firecracker_pid, signum)
+
+    # Ensure that the process was terminated.
+    utils.wait_process_termination(firecracker_pid)
+
     msg = 'Shutting down VM after intercepting signal {}'.format(signum)
 
     microvm.check_log_message(msg)
@@ -90,7 +94,6 @@ def test_sigxfsz_handler(test_microvm_with_api):
                                      metrics_path)
     metrics_fd = open(metrics_jail_path)
     line_metrics = metrics_fd.readlines()
-    print(line_metrics)
     assert len(line_metrics) == 1
 
     firecracker_pid = int(microvm.jailer_clone_pid)
@@ -139,7 +142,10 @@ def test_handled_signals(test_microvm_with_ssh, network_config):
     assert int(stdout.read()) == 2
 
     # We have a handler installed for this signal.
-    os.kill(firecracker_pid, SIGRTMIN+1)
+    # The 35 is the SIGRTMIN for musl libc.
+    # We hardcode this value since the SIGRTMIN python reports
+    # is 34, which is likely the one for glibc.
+    os.kill(firecracker_pid, 35)
 
     # Validate the microVM is still up and running.
     _, stdout, stderr = ssh_connection.execute_command(cmd)
