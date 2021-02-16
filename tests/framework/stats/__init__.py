@@ -37,7 +37,7 @@ This producer needs a function which produces the raw data.
 
 ```
 from random import randint
-from framework.statistics.producer import LambdaProducer
+from framework.stats.producer import LambdaProducer
 
 st_prod_func = lambda llimit, ulimit: randint(llimit, ulimit)
 st_prod = LambdaProducer(
@@ -130,8 +130,8 @@ measurements definitions from the global configuration dictionary
 will be processed by the `DictProvider` metadata provider. The measurements
 definitions schema can be found in the `DictProvider` documentation.
 ```
-from framework.statistics.metadata import DictProvider as DictMetadataProvider
-from framework.statistics.baseline import Provider as BaselineProvider
+from framework.stats.metadata import DictProvider as DictMetadataProvider
+from framework.stats.baseline import Provider as BaselineProvider
 from framework.utils import DictQuery
 
 # The baseline provider is a requirement for the `DictProvider`.
@@ -172,9 +172,9 @@ the exercise, this alternative might be preffered over the other. Here's how
 it can be done:
 ```
 from framework.utils import DictQuery
-from framework.statistics.function import FunctionFactory
-from framework.statistics.criteria import CriteriaFactory
-from framework.statistics.types import MeasurementDef, StatisticDef
+from framework.stats.function import FunctionFactory
+from framework.stats.criteria import CriteriaFactory
+from framework.stats.types import MeasurementDef, StatisticDef
 
 def baseline(ms_name: str, st_name: str, exercise_id: str):
     baselines = DictQuery(CONFIG["baselines"][exercise_id])
@@ -219,7 +219,7 @@ We can define now our `LambdaConsumer`s for both exercices:
 
 1. Through the metadata and baseline providers.
 ```
-from framework.statistics.consumer import LambdaConsumer
+from framework.stats.consumer import LambdaConsumer
 
 st_cons_sum = LambdaConsumer(
         st_cons_sum_func,
@@ -231,7 +231,7 @@ st_cons_10th = LambdaConsumer(
 
 2. By setting the measurements definitions separately:
 ```
-from framework.statistics.consumer import LambdaConsumer
+from framework.stats.consumer import LambdaConsumer
 from framework.utils import eager_map
 
 st_cons_sum = LambdaConsumer(st_cons_sum_func)
@@ -245,7 +245,7 @@ eager_map(st_cons_10th.set_measurement_def, measurements(id_10th))
 Once we have defined our producers and consumers, we will continue by
 defining the statistics `Core`.
 ```
-from framework.statistics.core import Core
+from framework.stats.core import Core
 
 # Both exercises require the core to drive both producers and consumers for
 # 10 iterations to achieve the wanted result.
@@ -321,7 +321,7 @@ might want to produce as well information specific to the PRNG state. Let's
 modify the producer to do this as well:
 ```
 import random
-from framework.statistics.producer import LambdaProducer
+from framework.stats.producer import LambdaProducer
 
 def st_prod_func(llimit, ulimit):
     return {
@@ -349,7 +349,7 @@ def st_cons_10th_func(cons, res):
 
 Next, let's define our consumers, based on metadata providers:
 ```
-from framework.statistics.consumer import LambdaConsumer
+from framework.stats.consumer import LambdaConsumer
 
 st_cons_sum = LambdaConsumer(
         st_cons_sum_func,
@@ -361,7 +361,7 @@ st_cons_10th = LambdaConsumer(
 
 In the end, we redefine the statistics core:
 ```
-from framework.statistics.core import Core
+from framework.stats.core import Core
 
 # Both exercises require the core to drive both producers and consumers for
 # 10 iterations to achieve the wanted result.

@@ -17,7 +17,7 @@ class FunctionFactory:
     @classmethod
     def get(cls, func_cls_name) -> 'Function':
         """`func_cls_name` must be a valid function class name."""
-        return locate(f"framework.statistics.function.{func_cls_name}")
+        return locate(f"framework.stats.function.{func_cls_name}")
 
 
 # pylint: disable=R0903

@@ -13,14 +13,14 @@ from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.builder import MicrovmBuilder
 from framework.matrix import TestContext, TestMatrix
-from framework.statistics import core
-from framework.statistics.baseline import Provider as BaselineProvider
-from framework.statistics.metadata import DictProvider as DictMetadataProvider
+from framework.stats import core
+from framework.stats.baseline import Provider as BaselineProvider
+from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import get_cpu_percent, CmdBuilder, DictQuery, run_cmd
 from framework.utils_cpuid import get_cpu_model_name
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
-import framework.statistics as st
+import framework.stats as st
 from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure, \
     dump_test_result

@@ -8,10 +8,10 @@ from datetime import datetime
 from collections import namedtuple, defaultdict
 import types
 from typing_extensions import TypedDict
-from framework.statistics.producer import Producer
-from framework.statistics.consumer import Consumer, ProcessingException
-# pylint: disable=R0903
 from framework.utils import ExceptionAggregator
+
+from .producer import Producer
+from .consumer import Consumer, ProcessingException
 
 
 class CoreException(ExceptionAggregator):
