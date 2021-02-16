@@ -24,21 +24,21 @@ BASELINES = {
         "serialize": {
             "no-crc": {
                 "target": 0.146,  # milliseconds
-                "delta": 0.020  # milliseconds
+                "delta": 0.025  # milliseconds
             },
             "crc": {
                 "target": 0.213,  # milliseconds
-                "delta": 0.020  # milliseconds
+                "delta": 0.025  # milliseconds
             }
         },
         "deserialize": {
             "no-crc": {
                 "target": 0.034,  # milliseconds
-                "delta": 0.010  # milliseconds
+                "delta": 0.015  # milliseconds
             },
             "crc": {
                 "target": 0.042,  # milliseconds
-                "delta": 0.010  # milliseconds
+                "delta": 0.015  # milliseconds
             }
         }
     },
@@ -46,21 +46,21 @@ BASELINES = {
         "serialize": {
             "no-crc": {
                 "target": 0.096,  # milliseconds
-                "delta": 0.020  # milliseconds
+                "delta": 0.025  # milliseconds
             },
             "crc": {
                 "target": 0.122,  # milliseconds
-                "delta": 0.020  # milliseconds
+                "delta": 0.025  # milliseconds
             }
         },
         "deserialize": {
             "no-crc": {
                 "target": 0.034,  # milliseconds
-                "delta": 0.010  # milliseconds
+                "delta": 0.015  # milliseconds
             },
             "crc": {
                 "target": 0.042,  # milliseconds
-                "delta": 0.010  # milliseconds
+                "delta": 0.015  # milliseconds
             }
         }
     },
@@ -68,21 +68,21 @@ BASELINES = {
         "serialize": {
             "no-crc": {
                 "target": 0.096,  # milliseconds
-                "delta": 0.020  # milliseconds
+                "delta": 0.025  # milliseconds
             },
             "crc": {
                 "target": 0.186,  # milliseconds
-                "delta": 0.020  # milliseconds
+                "delta": 0.025  # milliseconds
             }
         },
         "deserialize": {
             "no-crc": {
                 "target": 0.034,  # milliseconds
-                "delta": 0.010  # milliseconds
+                "delta": 0.015  # milliseconds
             },
             "crc": {
                 "target": 0.042,  # milliseconds
-                "delta": 0.010  # milliseconds
+                "delta": 0.015  # milliseconds
             }
         }
     }
