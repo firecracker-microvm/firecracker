@@ -18,7 +18,7 @@ use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::default_syscalls::get_seccomp_filter;
 use vmm::resources::VmResources;
-use vmm::signal_handler::register_signal_handlers;
+use vmm::signal_handler::{mask_handled_signals, SignalManager};
 use vmm::version_map::FC_VERSION_TO_SNAP_VERSION;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
@@ -34,11 +34,6 @@ fn main() {
     LOGGER
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
-
-    if let Err(e) = register_signal_handlers() {
-        error!("Failed to register signal handlers: {}", e);
-        process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
-    }
 
     // We need this so that we can reset terminal to canonical mode if panic occurs.
     let stdin = io::stdin();
@@ -311,6 +306,18 @@ fn run_without_api(
     bool_timer_enabled: bool,
 ) {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+
+    // Right before creating the signalfd,
+    // mask the handled signals so that the default handlers are bypassed.
+    mask_handled_signals().expect("Unable to install signal mask on VMM thread.");
+    let signal_manager = Arc::new(Mutex::new(
+        SignalManager::new().expect("Unable to create SignalManager."),
+    ));
+
+    // Register the signal handler event fd.
+    event_manager
+        .add_subscriber(signal_manager)
+        .expect("Cannot register the signal handler fd to the event manager.");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(metrics::PeriodicMetrics::new()));

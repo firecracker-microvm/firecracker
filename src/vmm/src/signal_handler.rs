@@ -1,38 +1,95 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
 use libc::{
-    _exit, c_int, c_void, siginfo_t, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU,
-    SIGXFSZ,
+    _exit, c_int, signalfd_siginfo, sigset_t, SFD_CLOEXEC, SFD_NONBLOCK, SIGBUS, SIGHUP, SIGILL,
+    SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ, SIG_BLOCK,
 };
-
 use logger::{error, IncMetric, METRICS};
-use utils::signal::register_signal_handler;
+use polly::event_manager::{EventManager, Subscriber};
+use std::fs::File;
+use std::io::Read;
+use std::mem;
+use std::os::unix::io::{AsRawFd, FromRawFd};
+use std::ptr;
+use utils::epoll::{EpollEvent, EventSet};
+use utils::errno::Error as ErrnoError;
+use utils::signal::{create_sigset, validate_signal_num};
+use utils::syscall::SyscallReturnCode;
+use vm_memory::ByteValued;
 
-// The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
-// expressed as an `(u)int*`.
-// Offset `6` for an `i32` field means that the needed information is located at `6 * sizeof(i32)`.
-// See /usr/include/linux/signal.h for the C struct definition.
-// See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
-const SI_OFF_SYSCALL: isize = 6;
+// We need this wrapper in order to be able to implement the `ByteValued` trait,
+// since the `signalfd_siginfo` type is foreign.
+// We need repr(transparent) so that the wrapper has the same ABI as the inner value.
+#[derive(Copy, Clone)]
+#[repr(transparent)]
+struct SignalInfoWrapper(signalfd_siginfo);
+
+// This is a requirement for the `ByteValued` trait and unfortunately the `signalfd_siginfo`
+// type does not implement it, so we provide an implementation that initializes all fields
+// with 0. This is ok since all fields are integer types.
+impl Default for SignalInfoWrapper {
+    fn default() -> SignalInfoWrapper {
+        let inner: signalfd_siginfo = unsafe { mem::zeroed() };
+        SignalInfoWrapper(inner)
+    }
+}
+
+unsafe impl ByteValued for SignalInfoWrapper {}
+
+const HANDLED_SIGNALS: [c_int; 8] = [
+    SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ,
+];
 
 const SYS_SECCOMP_CODE: i32 = 1;
 
+#[derive(Debug)]
+/// Error manipulating signal handlers.
+pub enum Error {
+    /// A syscall returning negative value.
+    SyscallError(std::io::Error),
+    /// Error wrapping an error number.
+    Errno(ErrnoError),
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
+/// Install the default signal mask so that the signals are no longer picked up by any default handlers.
+/// This must be installed on the VMM thread because otherwise, the default signal handler will run before
+/// we get to wait for any epoll events.
+/// On the API thread, this is installed to make sure that the VMM thread is the only one handling the
+/// signal.
+/// On VPCU threads, this mask is automatically inherited from the VMM thread, since at the time they
+/// are spawned, the mask was already installed on their parent. The API thread is however spawned before
+/// that and needs explicit masking.
+pub fn mask_handled_signals() -> Result<()> {
+    let mask = get_mask()?;
+
+    // Install the block mask.
+    SyscallReturnCode(
+        // Safe because we check the return code.
+        unsafe { libc::pthread_sigmask(SIG_BLOCK, &mask as *const sigset_t, ptr::null_mut()) },
+    )
+    .into_empty_result()
+    .map_err(Error::SyscallError)?;
+
+    Ok(())
+}
+
+/// Struct responsible for processing signalfd events.
+pub struct SignalManager {
+    /// The file associated to the current signalfd.
+    signal_fd: File,
+}
+
 macro_rules! generate_handler {
     ($fn_name:ident ,$signal_name:ident, $exit_code:ident, $signal_metric:expr, $body:ident) => {
-        #[inline(always)]
-        extern "C" fn $fn_name(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
-            // Safe because we're just reading some fields from a supposedly valid argument.
-            let si_signo = unsafe { (*info).si_signo };
-            let si_code = unsafe { (*info).si_code };
+        fn $fn_name(info: signalfd_siginfo) {
+            let si_signo = info.ssi_signo as i32;
+            let si_code = info.ssi_code;
 
-            if num != si_signo || num != $signal_name {
-                // Safe because we're terminating the process anyway.
-                unsafe { _exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
-            }
             $signal_metric.inc();
 
-            $body(si_code, info);
+            $body(info);
 
             error!(
                 "Shutting down VM after intercepting signal {}, code {}.",
@@ -56,22 +113,20 @@ macro_rules! generate_handler {
     };
 }
 
-fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
-    if si_code != SYS_SECCOMP_CODE as i32 {
+fn log_sigsys_err(info: signalfd_siginfo) {
+    if info.ssi_code != SYS_SECCOMP_CODE {
         // Safe because we're terminating the process anyway.
         unsafe { _exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
     }
 
-    // Other signals which might do async unsafe things incompatible with the rest of this
-    // function are blocked due to the sa_mask used when registering the signal handler.
-    let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) as usize };
+    let syscall = info.ssi_syscall;
     error!(
         "Shutting down VM after intercepting a bad syscall ({}).",
         syscall
     );
 }
 
-fn empty_fn(_si_code: c_int, _info: *mut siginfo_t) {}
+fn empty_fn(_info: signalfd_siginfo) {}
 
 generate_handler!(
     sigxfsz_handler,
@@ -128,6 +183,7 @@ generate_handler!(
     METRICS.signals.sighup,
     empty_fn
 );
+
 generate_handler!(
     sigill_handler,
     SIGILL,
@@ -135,34 +191,115 @@ generate_handler!(
     METRICS.signals.sigill,
     empty_fn
 );
-/// Registers all the required signal handlers.
-///
-/// Custom handlers are installed for: `SIGBUS`, `SIGSEGV`, `SIGSYS`
-/// `SIGXFSZ` `SIGXCPU` `SIGPIPE` `SIGHUP` and `SIGILL`.
-pub fn register_signal_handlers() -> utils::errno::Result<()> {
-    // Call to unsafe register_signal_handler which is considered unsafe because it will
-    // register a signal handler which will be called in the current thread and will interrupt
-    // whatever work is done on the current thread, so we have to keep in mind that the registered
-    // signal handler must only do async-signal-safe operations.
-    register_signal_handler(SIGSYS, sigsys_handler)?;
-    register_signal_handler(SIGBUS, sigbus_handler)?;
-    register_signal_handler(SIGSEGV, sigsegv_handler)?;
-    register_signal_handler(SIGXFSZ, sigxfsz_handler)?;
-    register_signal_handler(SIGXCPU, sigxcpu_handler)?;
-    register_signal_handler(SIGPIPE, sigpipe_handler)?;
-    register_signal_handler(SIGHUP, sighup_handler)?;
-    register_signal_handler(SIGILL, sigill_handler)?;
-    Ok(())
+
+/// Create and return the signal mask corresponding to the signals we want to handle.
+fn get_mask() -> Result<sigset_t> {
+    // Validate that all signals are valid.
+    for signal in HANDLED_SIGNALS.iter() {
+        validate_signal_num(*signal).map_err(Error::Errno)?;
+    }
+
+    let mask = create_sigset(&HANDLED_SIGNALS).map_err(Error::Errno)?;
+
+    Ok(mask)
+}
+
+impl SignalManager {
+    /// Create a SignalManager instance, wrapping a new signalfd.
+    pub fn new() -> Result<Self> {
+        let mask = get_mask()?;
+
+        // Create a new signalfd. Safe because we are checking the return code.
+        let sfd = SyscallReturnCode(unsafe {
+            libc::signalfd(-1, &mask as *const sigset_t, SFD_CLOEXEC | SFD_NONBLOCK)
+        })
+        .into_result()
+        .map_err(Error::SyscallError)?;
+
+        Ok(Self {
+            // Create a File instance so that we can leverage safe Read abstractions.
+            // Safe because the fd is valid.
+            signal_fd: unsafe { File::from_raw_fd(sfd) },
+        })
+    }
+
+    /// Handle the signal according to its signal number.
+    fn handle_signal(siginfo: signalfd_siginfo) {
+        match siginfo.ssi_signo as i32 {
+            SIGXFSZ => sigxfsz_handler(siginfo),
+            SIGXCPU => sigxcpu_handler(siginfo),
+            SIGBUS => sigbus_handler(siginfo),
+            SIGSEGV => sigsegv_handler(siginfo),
+            SIGPIPE => sigpipe_handler(siginfo),
+            SIGSYS => sigsys_handler(siginfo),
+            SIGHUP => sighup_handler(siginfo),
+            SIGILL => sigill_handler(siginfo),
+            // This should never be reached since we'll only receive the signals in the signalfd mask.
+            // Safe because we're terminating the process anyway.
+            other => {
+                error!("Received unexpected signal: {}", other);
+                unsafe { _exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) }
+            }
+        }
+    }
+}
+
+impl Subscriber for SignalManager {
+    fn process(&mut self, event: &EpollEvent, _evmgr: &mut EventManager) {
+        let event_set = event.event_set();
+        let source_fd = event.fd();
+
+        if event_set != EventSet::IN || source_fd != self.signal_fd.as_raw_fd() {
+            error!("Spurious EventManager event for handler: SignalManager");
+            return;
+        }
+
+        let siginfo_size = mem::size_of::<signalfd_siginfo>();
+        let mut read_buf: Vec<u8> = vec![0; siginfo_size];
+
+        // Even though we currently kill the process during signal handling, we should in theory
+        // read from the signalfd all the signals for future-proofing.
+        loop {
+            match self.signal_fd.read(&mut read_buf[..]) {
+                Ok(size) if size == siginfo_size => {
+                    match SignalInfoWrapper::from_slice(&read_buf) {
+                        Some(wrapper) => Self::handle_signal(wrapper.0),
+                        None => {
+                            error!("Error reading signalfd_siginfo data.");
+                            break;
+                        }
+                    }
+                }
+                Ok(_) => {
+                    error!("Signalfd read operation returned wrong amount of bytes.");
+                    break;
+                }
+                Err(error) => {
+                    error!("Signalfd read error: {}", error);
+                    break;
+                }
+            }
+        }
+    }
+
+    fn interest_list(&self) -> Vec<EpollEvent> {
+        vec![EpollEvent::new(
+            EventSet::IN,
+            self.signal_fd.as_raw_fd() as u64,
+        )]
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use libc::{cpu_set_t, syscall};
-    use std::{convert::TryInto, mem, process, thread};
-
-    use seccomp::{allow_syscall, SeccompAction, SeccompFilter};
+    use libc::{c_void, cpu_set_t, siginfo_t};
+    use seccomp::{SeccompAction, SeccompFilter, SeccompRule, SyscallRuleSet};
+    use std::convert::TryInto;
+    use std::mem;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use utils::signal::register_signal_handler;
 
     // This function is used when running unit tests, so all the unsafes are safe.
     fn cpu_count() -> usize {
@@ -188,94 +325,72 @@ mod tests {
         num
     }
 
+    pub fn trap_syscall(syscall_number: i64) -> SyscallRuleSet {
+        (
+            syscall_number,
+            vec![SeccompRule::new(vec![], SeccompAction::Trap)],
+        )
+    }
+
     #[test]
     fn test_signal_handler() {
-        let child = thread::spawn(move || {
-            assert!(register_signal_handlers().is_ok());
+        // Test all signal handlers (except for SIGSYS, which has its own test),
+        // by running an EventManager loop, similar to how the VMM thread operates.
+        thread::spawn(|| {
+            let mut event_manager = EventManager::new().unwrap();
 
-            let filter = SeccompFilter::new(
-                vec![
-                    allow_syscall(libc::SYS_brk),
-                    allow_syscall(libc::SYS_exit),
-                    allow_syscall(libc::SYS_futex),
-                    allow_syscall(libc::SYS_getpid),
-                    allow_syscall(libc::SYS_munmap),
-                    allow_syscall(libc::SYS_kill),
-                    allow_syscall(libc::SYS_rt_sigprocmask),
-                    allow_syscall(libc::SYS_rt_sigreturn),
-                    allow_syscall(libc::SYS_sched_getaffinity),
-                    allow_syscall(libc::SYS_set_tid_address),
-                    allow_syscall(libc::SYS_sigaltstack),
-                    allow_syscall(libc::SYS_write),
-                ]
-                .into_iter()
-                .collect(),
-                SeccompAction::Trap,
-            )
-            .unwrap();
+            // Right before creating the signalfd,
+            // mask the handled signals so that the default handlers are bypassed.
+            mask_handled_signals().unwrap();
+            let signal_manager = Arc::new(Mutex::new(SignalManager::new().unwrap()));
 
-            assert!(SeccompFilter::apply(filter.try_into().unwrap()).is_ok());
-            assert_eq!(METRICS.seccomp.num_faults.count(), 0);
+            // Register the signal handler event fd.
+            event_manager
+                .add_subscriber(signal_manager)
+                .expect("Cannot register the signal handler fd to the event manager.");
 
-            // Call the blacklisted `SYS_mkdirat`.
-            unsafe { syscall(libc::SYS_mkdirat, "/foo/bar\0") };
+            let thread_id = unsafe { libc::pthread_self() };
 
-            // Call SIGBUS signal handler.
             assert_eq!(METRICS.signals.sigbus.count(), 0);
             unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGBUS);
+                libc::pthread_kill(thread_id, SIGBUS);
             }
 
-            // Call SIGSEGV signal handler.
             assert_eq!(METRICS.signals.sigsegv.count(), 0);
             unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGSEGV);
+                libc::pthread_kill(thread_id, SIGSEGV);
             }
 
-            // Call SIGXFSZ signal handler.
             assert_eq!(METRICS.signals.sigxfsz.count(), 0);
             unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGXFSZ);
+                libc::pthread_kill(thread_id, SIGXFSZ);
             }
 
-            // Call SIGXCPU signal handler.
             assert_eq!(METRICS.signals.sigxcpu.count(), 0);
             unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGXCPU);
+                libc::pthread_kill(thread_id, SIGXCPU);
             }
 
-            // Call SIGPIPE signal handler.
             assert_eq!(METRICS.signals.sigpipe.count(), 0);
             unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGPIPE);
+                libc::pthread_kill(thread_id, SIGPIPE);
             }
 
-            // Call SIGHUP signal handler.
             assert_eq!(METRICS.signals.sighup.count(), 0);
             unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGHUP);
+                libc::pthread_kill(thread_id, SIGHUP);
             }
 
-            // Call SIGILL signal handler.
             assert_eq!(METRICS.signals.sigill.count(), 0);
             unsafe {
-                syscall(libc::SYS_kill, process::id(), SIGILL);
+                libc::pthread_kill(thread_id, SIGILL);
             }
-        });
-        assert!(child.join().is_ok());
 
-        // Sanity check.
-        assert!(cpu_count() > 0);
-        // Kcov somehow messes with our handler getting the SIGSYS signal when a bad syscall
-        // is caught, so the following assertion no longer holds. Ideally, we'd have a surefire
-        // way of either preventing this behaviour, or detecting for certain whether this test is
-        // run by kcov or not. The best we could do so far is to look at the perceived number of
-        // available CPUs. Kcov seems to make a single CPU available to the process running the
-        // tests, so we use this as an heuristic to decide if we check the assertion.
-        if cpu_count() > 1 {
-            // The signal handler should let the program continue during unit tests.
-            assert!(METRICS.seccomp.num_faults.count() >= 1);
-        }
+            event_manager.run_with_timeout(2000).unwrap();
+        })
+        .join()
+        .unwrap();
+
         assert!(METRICS.signals.sigbus.count() >= 1);
         assert!(METRICS.signals.sigsegv.count() >= 1);
         assert!(METRICS.signals.sigxfsz.count() >= 1);
@@ -285,5 +400,63 @@ mod tests {
         // Workaround to GitHub issue 2216.
         #[cfg(not(target_arch = "aarch64"))]
         assert!(METRICS.signals.sigill.count() >= 1);
+    }
+
+    // The `cargo test` process somehow receives the SIGSYS, before we get a chance to listen on the signalfd
+    // (even if we explicitly direct it to the current thread).
+    // This is likely because the test process does a `wait4()` for the test thread, and looks for a potentia
+    // SIGSYS exit reason. This is why we have to test SIGSYS handling differently.
+    // In order to be able to test the behaviour, we install a regular signal handler, that calls
+    // under the hood the same function that the SignalManager would call.
+    #[test]
+    fn test_sigsys_handler() {
+        // Sanity check.
+        assert!(cpu_count() > 0);
+        // Kcov somehow messes with our handler getting the SIGSYS signal when a bad syscall
+        // is caught, so the following test no longer holds. Ideally, we'd have a surefire
+        // way of either preventing this behaviour, or detecting for certain whether this test is
+        // run by kcov or not. The best we could do so far is to look at the perceived number of
+        // available CPUs. Kcov seems to make a single CPU available to the process running the
+        // tests, so we use this as an heuristic to decide if we run the test.
+        if cpu_count() == 1 {
+            // The signal handler should let the program continue during unit tests.
+            return;
+        }
+
+        let child = thread::spawn(move || {
+            extern "C" fn signal_handler(_: c_int, siginfo: *mut siginfo_t, _: *mut c_void) {
+                // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
+                // expressed as an `(u)int*`.
+                // Offset `6` for an `i32` field means that the needed information is located at `6 * sizeof(i32)`.
+                // See /usr/include/linux/signal.h for the C struct definition.
+                // See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
+                const SI_OFF_SYSCALL: isize = 6;
+
+                // Transfer the important information from the siginfo_t struct to a signalfd_siginfo struct.
+                let mut signalfd_info: signalfd_siginfo = unsafe { mem::zeroed() };
+                signalfd_info.ssi_signo = unsafe { (*siginfo).si_signo.try_into().unwrap() };
+                signalfd_info.ssi_code = unsafe { (*siginfo).si_code };
+                signalfd_info.ssi_syscall =
+                    unsafe { *(siginfo as *const i32).offset(SI_OFF_SYSCALL) as i32 };
+
+                sigsys_handler(signalfd_info);
+            }
+            assert!(register_signal_handler(SIGSYS, signal_handler).is_ok());
+
+            let filter = SeccompFilter::new(
+                vec![trap_syscall(libc::SYS_mkdirat)].into_iter().collect(),
+                SeccompAction::Allow,
+            )
+            .unwrap();
+
+            assert!(SeccompFilter::apply(filter.try_into().unwrap()).is_ok());
+            assert_eq!(METRICS.seccomp.num_faults.count(), 0);
+
+            // Call the forbidden `SYS_mkdirat`.
+            unsafe { libc::syscall(libc::SYS_mkdirat, "/foo/bar\0") };
+        });
+        assert!(child.join().is_ok());
+
+        assert!(METRICS.seccomp.num_faults.count() >= 1);
     }
 }
