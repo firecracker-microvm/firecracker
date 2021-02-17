@@ -13,6 +13,14 @@
 - Changed Docker images repository from DockerHub to Amazon ECR.
 - Fixed off-by-one error in virtio-block descriptor address validation.
 
+### Fixed
+
+- Fixed non-compliant check for the RTC device ensuring a fixed
+  4-sized data buffer.
+- Unnecessary interrupt assertion was removed from the RTC.
+  However, a dummy interrupt is still allocated for snapshot
+  compatibility reasons.
+
 ## [0.24.0]
 
 ### Added
