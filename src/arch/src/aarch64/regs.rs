@@ -28,7 +28,7 @@ pub enum Error {
     /// Failed to Set multiprocessor state.
     SetMP(kvm_ioctls::Error),
     /// Failed to get a system register.
-    SetSysRegister(kvm_ioctls::Error),
+    SetRegister(kvm_ioctls::Error),
 }
 type Result<T> = result::Result<T, Error>;
 
@@ -47,7 +47,7 @@ impl fmt::Display for Error {
                 write!(f, "Failed to set {} register: {}", desc, e)
             }
             self::Error::SetMP(ref e) => write!(f, "Failed to set multiprocessor state: {}", e),
-            self::Error::SetSysRegister(ref e) => write!(f, "Failed to set system register: {}", e),
+            self::Error::SetRegister(ref e) => write!(f, "Failed to set register: {}", e),
         }
     }
 }
@@ -383,7 +383,7 @@ pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Res
 pub fn restore_registers(vcpu: &VcpuFd, state: &[kvm_one_reg]) -> Result<()> {
     for reg in state {
         vcpu.set_one_reg(reg.id, reg.addr)
-            .map_err(Error::SetSysRegister)?;
+            .map_err(Error::SetRegister)?;
     }
     Ok(())
 }
@@ -466,6 +466,12 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn test_is_not_system_register() {
+        assert!(is_system_register(0));
+    }
+
+    #[test]
     fn test_save_restore_regs() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
@@ -480,6 +486,13 @@ mod tests {
         assert_eq!(
             format!("{}", res.unwrap_err()),
             "Failed to get X0 register: Exec format error (os error 8)"
+        );
+
+        let res = save_system_registers(&vcpu, &mut state);
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Failed to retrieve list of registers: Exec format error (os error 8)"
         );
 
         vcpu.vcpu_init(&kvi).unwrap();

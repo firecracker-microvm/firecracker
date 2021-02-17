@@ -99,7 +99,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher
     gic_device: &dyn GICDevice,
     initrd: &Option<InitrdConfig>,
 ) -> Result<Vec<u8>> {
-    // Alocate stuff necessary for the holding the blob.
+    // Allocate stuff necessary for storing the blob.
     let mut fdt = vec![0; FDT_MAX_SIZE];
 
     allocate_fdt(&mut fdt)?;

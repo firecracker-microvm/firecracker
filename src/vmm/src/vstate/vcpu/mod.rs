@@ -719,6 +719,15 @@ mod tests {
             )
         );
 
+        // Check what happens with an unhandled exit reason.
+        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::Unknown));
+        let res = vcpu.run_emulation();
+        assert!(res.is_err());
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            "Unexpected kvm exit received: Unknown".to_string()
+        );
+
         *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EAGAIN)));
         let res = vcpu.run_emulation();
         assert!(res.is_ok());
