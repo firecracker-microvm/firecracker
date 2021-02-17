@@ -4,12 +4,15 @@
 
 import fcntl
 import os
+import subprocess
 import termios
 import time
 
 from framework.microvm import Serial
 from framework.state_machine import TestState
 import framework.utils as utils
+import host_tools.logging as log_tools
+import host_tools.network as net_tools  # pylint: disable=import-error
 
 
 class WaitLogin(TestState):  # pylint: disable=too-few-public-methods
@@ -128,3 +131,65 @@ def test_serial_dos(test_microvm_with_ssh):
                                       "changed from {} to {}." \
                                       .format(before_size,
                                               after_size)
+
+
+def test_serial_block(test_microvm_with_ssh, network_config):
+    """Test that writing to stdout never blocks the vCPU thread."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.jailer.daemonize = False
+    test_microvm.spawn()
+    # Set up the microVM with 1 vCPU so we make sure the vCPU thread
+    # responsible for the SSH connection will also run the serial.
+    test_microvm.basic_config(
+        vcpu_count=1,
+        mem_size_mib=512,
+        boot_args='console=ttyS0 reboot=k panic=1 pci=off'
+    )
+
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+
+    # Configure the metrics.
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    response = test_microvm.metrics.put(
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    test_microvm.start()
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    # Get an initial reading of missed writes to the serial.
+    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    init_count = fc_metrics['uart']['missed_write_count']
+
+    screen_pid = test_microvm.screen_pid
+    # Stop `screen` process which captures stdout so we stop consuming stdout.
+    subprocess.check_call(
+        "kill -s STOP {}".format(screen_pid),
+        shell=True
+    )
+
+    # Generate a random text file.
+    exit_code, _, _ = ssh_connection.execute_command(
+        "base64 /dev/urandom | head -c 100000 > file.txt"
+    )
+
+    # Dump output to terminal
+    exit_code, _, _ = ssh_connection.execute_command(
+        "cat file.txt > /dev/ttyS0"
+    )
+    assert exit_code == 0
+
+    # Check that the vCPU isn't blocked.
+    exit_code, _, _ = ssh_connection.execute_command(
+        "cd /"
+    )
+    assert exit_code == 0
+
+    # Check the metrics to see if the serial missed bytes.
+    fc_metrics = test_microvm.flush_metrics(metrics_fifo)
+    last_count = fc_metrics['uart']['missed_write_count']
+
+    # Should be significantly more than before the `cat` command.
+    assert last_count - init_count > 10000

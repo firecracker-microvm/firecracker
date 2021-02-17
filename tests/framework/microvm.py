@@ -118,6 +118,7 @@ class Microvm:
         # Initialize the logging subsystem.
         self.logging_thread = None
         self._log_data = ""
+        self._screen_pid = None
 
         # The ssh config dictionary is populated with information about how
         # to connect to a microVM that has ssh capability. The path of the
@@ -365,6 +366,11 @@ class Microvm:
         return self._screen_log
 
     @property
+    def screen_pid(self):
+        """Get the screen PID."""
+        return self._screen_pid
+
+    @property
     def vcpus_count(self):
         """Get the vcpus count."""
         return self._vcpus_count
@@ -481,6 +487,8 @@ class Microvm:
                 exceptions=RuntimeError,
                 tries=30,
                 delay=1).group(1)
+
+            self._screen_pid = screen_pid
 
             self.jailer_clone_pid = int(open('/proc/{0}/task/{0}/children'
                                              .format(screen_pid)
