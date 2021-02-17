@@ -28,7 +28,7 @@ use arch::InitrdConfig;
 use devices::legacy::Serial;
 use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
 use kernel::cmdline::Cmdline as KernelCmdline;
-use logger::warn;
+use logger::{error, warn};
 use polly::event_manager::{Error as EventManagerError, EventManager, Subscriber};
 use seccomp::{BpfProgramRef, SeccompFilter};
 use snapshot::Persist;
@@ -232,6 +232,9 @@ fn create_vmm_and_vcpus(
     let pio_device_manager = {
         setup_interrupt_controller(&mut vm)?;
         vcpus = create_vcpus(&vm, vcpu_count, &exit_evt).map_err(Internal)?;
+
+        // Make stdout non blocking.
+        set_stdout_nonblocking();
 
         // Serial device setup.
         let serial_device = setup_serial_device(
@@ -625,6 +628,8 @@ fn attach_legacy_devices_aarch64(
 ) -> super::Result<()> {
     // Serial device setup.
     if cmdline.as_str().contains("console=") {
+        // Make stdout non-blocking.
+        set_stdout_nonblocking();
         let serial = setup_serial_device(
             event_manager,
             Box::new(SerialStdin::get()),
@@ -825,6 +830,18 @@ fn attach_balloon_device(
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
+}
+
+// Adds `O_NONBLOCK` to the stdout flags.
+pub(crate) fn set_stdout_nonblocking() {
+    let flags = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL, 0) };
+    if flags < 0 {
+        error!("Could not get Firecracker stdout flags.");
+    }
+    let rc = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    if rc < 0 {
+        error!("Could not set Firecracker stdout to non-blocking.");
+    }
 }
 
 #[cfg(test)]

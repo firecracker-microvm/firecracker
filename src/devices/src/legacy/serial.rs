@@ -199,8 +199,16 @@ impl Serial {
                     }
                 } else {
                     if let Some(out) = self.out.as_mut() {
-                        out.write_all(&[value])?;
-                        METRICS.uart.write_count.inc();
+                        let res = out.write(&[value]);
+                        match res {
+                            Ok(_) => {
+                                METRICS.uart.write_count.inc();
+                            }
+                            Err(e) => {
+                                METRICS.uart.missed_write_count.inc();
+                                return Err(e);
+                            }
+                        }
                         out.flush()?;
                         METRICS.uart.flush_count.inc();
                     }
