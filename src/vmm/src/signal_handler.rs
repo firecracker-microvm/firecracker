@@ -115,6 +115,11 @@ macro_rules! generate_handler {
 
 fn log_sigsys_err(info: signalfd_siginfo) {
     if info.ssi_code != SYS_SECCOMP_CODE {
+        // We received a SIGSYS for a reason other than `bad syscall`.
+        error!(
+            "Shutting down VM after intercepting signal {}, code {}.",
+            info.ssi_signo, info.ssi_code
+        );
         // Safe because we're terminating the process anyway.
         unsafe { _exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
     }

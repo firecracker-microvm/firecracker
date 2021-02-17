@@ -6,7 +6,7 @@ import json
 import os
 from signal import \
     (SIGBUS, SIGSEGV, SIGXFSZ,
-     SIGXCPU, SIGPIPE, SIGHUP, SIGILL)
+     SIGXCPU, SIGPIPE, SIGHUP, SIGILL, SIGSYS)
 from time import sleep
 import resource as res
 import pytest
@@ -22,12 +22,13 @@ signum_str = {
     SIGPIPE: "sigpipe",
     SIGHUP: "sighup",
     SIGILL: "sigill",
+    SIGSYS: "sigsys"
 }
 
 
 @pytest.mark.parametrize(
     "signum",
-    [SIGBUS, SIGSEGV, SIGXFSZ, SIGXCPU, SIGPIPE, SIGHUP, SIGILL]
+    [SIGBUS, SIGSEGV, SIGXFSZ, SIGXCPU, SIGPIPE, SIGHUP, SIGILL, SIGSYS]
 )
 def test_generic_signal_handler(test_microvm_with_api, signum):
     """Test signal handling for all handled signals."""
@@ -66,8 +67,9 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
 
     microvm.check_log_message(msg)
 
-    metric_line = json.loads(metrics_fd.readlines()[0])
-    assert metric_line["signals"][signum_str[signum]] == 1
+    if signum != SIGSYS:
+        metric_line = json.loads(metrics_fd.readlines()[0])
+        assert metric_line["signals"][signum_str[signum]] == 1
 
 
 def test_sigxfsz_handler(test_microvm_with_api):
