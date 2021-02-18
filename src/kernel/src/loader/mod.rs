@@ -274,24 +274,26 @@ pub fn extract_phdrs<F>(kernel_image: &mut F) -> Result<Vec<elf::Elf64_Phdr>>
 where
     F: Read + Seek,
 {
-    let mut ehdr: elf::Elf64_Ehdr = Default::default();
     kernel_image
         .seek(SeekFrom::Start(0))
         .map_err(|_| Error::SeekKernelImage)?;
-    unsafe {
-        // read_struct is safe when reading a POD struct.  It can be used and dropped without issue.
-        read_struct(kernel_image, &mut ehdr)
-            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF header"))?;
-    }
+    let mut ehdr = elf::Elf64_Ehdr::default();
+    ehdr.as_bytes()
+        .read_from(0, kernel_image, mem::size_of::<elf::Elf64_Ehdr>())
+        .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF header"))?;
 
     kernel_image
         .seek(SeekFrom::Start(ehdr.e_phoff))
         .map_err(|_| Error::SeekProgramHeader)?;
-    let phdrs: Vec<elf::Elf64_Phdr> = unsafe {
-        // Reading the structs is safe for a slice of POD structs.
-        utils::structs::read_struct_slice(kernel_image, ehdr.e_phnum as usize)
-            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF program header"))?
-    };
+    let phdr_sz = mem::size_of::<elf::Elf64_Phdr>();
+    let mut phdrs: Vec<elf::Elf64_Phdr> = vec![];
+    for _ in 0usize..ehdr.e_phnum as usize {
+        let mut phdr = elf::Elf64_Phdr::default();
+        phdr.as_bytes()
+            .read_from(0, kernel_image, phdr_sz)
+            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF program header"))?;
+        phdrs.push(phdr);
+    }
 
     Ok(phdrs)
 }
