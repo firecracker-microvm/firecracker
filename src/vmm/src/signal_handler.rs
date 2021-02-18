@@ -106,14 +106,6 @@ generate_handler!(
 );
 
 generate_handler!(
-    sigpipe_handler,
-    SIGPIPE,
-    FC_EXIT_CODE_SIGPIPE,
-    METRICS.signals.sigpipe,
-    empty_fn
-);
-
-generate_handler!(
     sigsys_handler,
     SIGSYS,
     FC_EXIT_CODE_BAD_SYSCALL,
@@ -128,6 +120,7 @@ generate_handler!(
     METRICS.signals.sighup,
     empty_fn
 );
+
 generate_handler!(
     sigill_handler,
     SIGILL,
@@ -135,6 +128,26 @@ generate_handler!(
     METRICS.signals.sigill,
     empty_fn
 );
+
+#[inline(always)]
+extern "C" fn sigpipe_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
+    // Just record the metric and allow the process to continue, the EPIPE error needs
+    // to be handled at caller level.
+
+    // Safe because we're just reading some fields from a supposedly valid argument.
+    let si_signo = unsafe { (*info).si_signo };
+    let si_code = unsafe { (*info).si_code };
+
+    if num != si_signo || num != SIGPIPE {
+        error!("Received invalid signal {}, code {}.", si_signo, si_code);
+        return;
+    }
+
+    METRICS.signals.sigpipe.inc();
+
+    error!("Received signal {}, code {}.", si_signo, si_code);
+}
+
 /// Registers all the required signal handlers.
 ///
 /// Custom handlers are installed for: `SIGBUS`, `SIGSEGV`, `SIGSYS`
