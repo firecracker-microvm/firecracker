@@ -81,38 +81,31 @@ pub struct SignalManager {
     signal_fd: File,
 }
 
-macro_rules! generate_handler {
-    ($fn_name:ident ,$signal_name:ident, $exit_code:ident, $signal_metric:expr, $body:ident) => {
-        fn $fn_name(info: signalfd_siginfo) {
-            let si_signo = info.ssi_signo as i32;
-            let si_code = info.ssi_code;
-
-            $signal_metric.inc();
-
-            $body(info);
-
-            error!(
-                "Shutting down VM after intercepting signal {}, code {}.",
-                si_signo, si_code
-            );
-            // Write the metrics before exiting.
-            if let Err(e) = METRICS.write() {
-                error!("Failed to write metrics while stopping: {}", e);
-            }
-
-            // Safe because we're terminating the process anyway. We don't actually do anything when
-            // running unit tests.
-            #[cfg(not(test))]
-            unsafe {
-                _exit(i32::from(match si_signo {
-                    $signal_name => super::$exit_code,
-                    _ => super::FC_EXIT_CODE_UNEXPECTED_ERROR,
-                }))
-            };
-        }
-    };
+#[inline]
+fn exit_unexpected() {
+    // Safe because we're terminating the process anyway.
+    unsafe { _exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
 }
 
+// Given a signal number, return the respective metric and exit code.
+fn get_metric_and_exitcode(signo: c_int) -> Option<(&'static dyn IncMetric, i32)> {
+    match signo {
+        SIGXFSZ => Some((&METRICS.signals.sigxfsz, super::FC_EXIT_CODE_SIGXFSZ as i32)),
+        SIGXCPU => Some((&METRICS.signals.sigxcpu, super::FC_EXIT_CODE_SIGXCPU as i32)),
+        SIGBUS => Some((&METRICS.signals.sigbus, super::FC_EXIT_CODE_SIGBUS as i32)),
+        SIGSEGV => Some((&METRICS.signals.sigsegv, super::FC_EXIT_CODE_SIGSEGV as i32)),
+        SIGPIPE => Some((&METRICS.signals.sigpipe, super::FC_EXIT_CODE_SIGPIPE as i32)),
+        SIGSYS => Some((
+            &METRICS.seccomp.num_faults,
+            super::FC_EXIT_CODE_BAD_SYSCALL as i32,
+        )),
+        SIGHUP => Some((&METRICS.signals.sighup, super::FC_EXIT_CODE_SIGHUP as i32)),
+        SIGILL => Some((&METRICS.signals.sigill, super::FC_EXIT_CODE_SIGILL as i32)),
+        _ => None,
+    }
+}
+
+// Special handling of logging for the SIGSYS signal.
 fn log_sigsys_err(info: signalfd_siginfo) {
     if info.ssi_code != SYS_SECCOMP_CODE {
         // We received a SIGSYS for a reason other than `bad syscall`.
@@ -120,8 +113,7 @@ fn log_sigsys_err(info: signalfd_siginfo) {
             "Shutting down VM after intercepting signal {}, code {}.",
             info.ssi_signo, info.ssi_code
         );
-        // Safe because we're terminating the process anyway.
-        unsafe { _exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
+        exit_unexpected();
     }
 
     let syscall = info.ssi_syscall;
@@ -131,73 +123,7 @@ fn log_sigsys_err(info: signalfd_siginfo) {
     );
 }
 
-fn empty_fn(_info: signalfd_siginfo) {}
-
-generate_handler!(
-    sigxfsz_handler,
-    SIGXFSZ,
-    FC_EXIT_CODE_SIGXFSZ,
-    METRICS.signals.sigxfsz,
-    empty_fn
-);
-
-generate_handler!(
-    sigxcpu_handler,
-    SIGXCPU,
-    FC_EXIT_CODE_SIGXCPU,
-    METRICS.signals.sigxcpu,
-    empty_fn
-);
-
-generate_handler!(
-    sigbus_handler,
-    SIGBUS,
-    FC_EXIT_CODE_SIGBUS,
-    METRICS.signals.sigbus,
-    empty_fn
-);
-
-generate_handler!(
-    sigsegv_handler,
-    SIGSEGV,
-    FC_EXIT_CODE_SIGSEGV,
-    METRICS.signals.sigsegv,
-    empty_fn
-);
-
-generate_handler!(
-    sigpipe_handler,
-    SIGPIPE,
-    FC_EXIT_CODE_SIGPIPE,
-    METRICS.signals.sigpipe,
-    empty_fn
-);
-
-generate_handler!(
-    sigsys_handler,
-    SIGSYS,
-    FC_EXIT_CODE_BAD_SYSCALL,
-    METRICS.seccomp.num_faults,
-    log_sigsys_err
-);
-
-generate_handler!(
-    sighup_handler,
-    SIGHUP,
-    FC_EXIT_CODE_SIGHUP,
-    METRICS.signals.sighup,
-    empty_fn
-);
-
-generate_handler!(
-    sigill_handler,
-    SIGILL,
-    FC_EXIT_CODE_SIGILL,
-    METRICS.signals.sigill,
-    empty_fn
-);
-
-/// Create and return the signal mask corresponding to the signals we want to handle.
+// Create and return the signal mask corresponding to the signals we want to handle.
 fn get_mask() -> Result<sigset_t> {
     // Validate that all signals are valid.
     for signal in HANDLED_SIGNALS.iter() {
@@ -229,23 +155,47 @@ impl SignalManager {
     }
 
     /// Handle the signal according to its signal number.
-    fn handle_signal(siginfo: signalfd_siginfo) {
-        match siginfo.ssi_signo as i32 {
-            SIGXFSZ => sigxfsz_handler(siginfo),
-            SIGXCPU => sigxcpu_handler(siginfo),
-            SIGBUS => sigbus_handler(siginfo),
-            SIGSEGV => sigsegv_handler(siginfo),
-            SIGPIPE => sigpipe_handler(siginfo),
-            SIGSYS => sigsys_handler(siginfo),
-            SIGHUP => sighup_handler(siginfo),
-            SIGILL => sigill_handler(siginfo),
-            // This should never be reached since we'll only receive the signals in the signalfd mask.
-            // Safe because we're terminating the process anyway.
-            other => {
-                error!("Received unexpected signal: {}", other);
-                unsafe { _exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) }
-            }
+    fn handle_signal(info: signalfd_siginfo) {
+        let si_signo = info.ssi_signo as i32;
+        let si_code = info.ssi_code;
+
+        // For SIGSYS, we have some special logging.
+        if si_signo == SIGSYS {
+            log_sigsys_err(info);
+        } else {
+            error!(
+                "Shutting down VM after intercepting signal {}, code {}.",
+                si_signo, si_code
+            );
         }
+
+        let result = get_metric_and_exitcode(si_signo);
+        if result.is_none() {
+            // This should never be reached since we'll only receive the signals in the signalfd mask.
+            error!(
+                "Received unexpected signal: {} which is not in signalfd mask.",
+                si_signo
+            );
+            exit_unexpected();
+        }
+
+        // This `unwrap` is safe because we would have exited the process if it was a None value.
+        let (metric, _exit_code) = result.unwrap();
+
+        // Increment the right metric.
+        metric.inc();
+
+        // Write the metrics before exiting.
+        if let Err(e) = METRICS.write() {
+            error!("Failed to write metrics while stopping: {}", e);
+        }
+
+        // Safe because we're terminating the process anyway. We don't actually do anything when
+        // running unit tests.
+        #[cfg(not(test))]
+        unsafe {
+            _exit(_exit_code)
+        };
     }
 }
 
@@ -409,7 +359,7 @@ mod tests {
 
     // The `cargo test` process somehow receives the SIGSYS, before we get a chance to listen on the signalfd
     // (even if we explicitly direct it to the current thread).
-    // This is likely because the test process does a `wait4()` for the test thread, and looks for a potentia
+    // This is likely because the test process does a `wait4()` for the test thread, and looks for a potential
     // SIGSYS exit reason. This is why we have to test SIGSYS handling differently.
     // In order to be able to test the behaviour, we install a regular signal handler, that calls
     // under the hood the same function that the SignalManager would call.
@@ -424,7 +374,7 @@ mod tests {
         // available CPUs. Kcov seems to make a single CPU available to the process running the
         // tests, so we use this as an heuristic to decide if we run the test.
         if cpu_count() == 1 {
-            // The signal handler should let the program continue during unit tests.
+            // We are running under kcov so don't run the test.
             return;
         }
 
@@ -444,7 +394,7 @@ mod tests {
                 signalfd_info.ssi_syscall =
                     unsafe { *(siginfo as *const i32).offset(SI_OFF_SYSCALL) as i32 };
 
-                sigsys_handler(signalfd_info);
+                SignalManager::handle_signal(signalfd_info);
             }
             assert!(register_signal_handler(SIGSYS, signal_handler).is_ok());
 
