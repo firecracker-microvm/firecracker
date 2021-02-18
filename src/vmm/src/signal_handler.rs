@@ -88,19 +88,38 @@ fn exit_unexpected() {
 }
 
 // Given a signal number, return the respective metric and exit code.
-fn get_metric_and_exitcode(signo: c_int) -> Option<(&'static dyn IncMetric, i32)> {
+fn get_metric_and_exitcode(signo: c_int) -> Option<(&'static dyn IncMetric, Option<i32>)> {
     match signo {
-        SIGXFSZ => Some((&METRICS.signals.sigxfsz, super::FC_EXIT_CODE_SIGXFSZ as i32)),
-        SIGXCPU => Some((&METRICS.signals.sigxcpu, super::FC_EXIT_CODE_SIGXCPU as i32)),
-        SIGBUS => Some((&METRICS.signals.sigbus, super::FC_EXIT_CODE_SIGBUS as i32)),
-        SIGSEGV => Some((&METRICS.signals.sigsegv, super::FC_EXIT_CODE_SIGSEGV as i32)),
-        SIGPIPE => Some((&METRICS.signals.sigpipe, super::FC_EXIT_CODE_SIGPIPE as i32)),
+        SIGXFSZ => Some((
+            &METRICS.signals.sigxfsz,
+            Some(super::FC_EXIT_CODE_SIGXFSZ as i32),
+        )),
+        SIGXCPU => Some((
+            &METRICS.signals.sigxcpu,
+            Some(super::FC_EXIT_CODE_SIGXCPU as i32),
+        )),
+        SIGBUS => Some((
+            &METRICS.signals.sigbus,
+            Some(super::FC_EXIT_CODE_SIGBUS as i32),
+        )),
+        SIGSEGV => Some((
+            &METRICS.signals.sigsegv,
+            Some(super::FC_EXIT_CODE_SIGSEGV as i32),
+        )),
+        // Dummy entry, never going to exit due to SIGPIPE.
+        SIGPIPE => Some((&METRICS.signals.sigpipe, None)),
         SIGSYS => Some((
             &METRICS.seccomp.num_faults,
-            super::FC_EXIT_CODE_BAD_SYSCALL as i32,
+            Some(super::FC_EXIT_CODE_BAD_SYSCALL as i32),
         )),
-        SIGHUP => Some((&METRICS.signals.sighup, super::FC_EXIT_CODE_SIGHUP as i32)),
-        SIGILL => Some((&METRICS.signals.sigill, super::FC_EXIT_CODE_SIGILL as i32)),
+        SIGHUP => Some((
+            &METRICS.signals.sighup,
+            Some(super::FC_EXIT_CODE_SIGHUP as i32),
+        )),
+        SIGILL => Some((
+            &METRICS.signals.sigill,
+            Some(super::FC_EXIT_CODE_SIGILL as i32),
+        )),
         _ => None,
     }
 }
@@ -154,19 +173,20 @@ impl SignalManager {
         })
     }
 
-    /// Handle the signal according to its signal number.
+    /// Generic signal handler: log signal, inc metric and exit.
     fn handle_signal(info: signalfd_siginfo) {
         let si_signo = info.ssi_signo as i32;
         let si_code = info.ssi_code;
 
-        // For SIGSYS, we have some special logging.
-        if si_signo == SIGSYS {
-            log_sigsys_err(info);
-        } else {
-            error!(
+        match si_signo {
+            // For SIGSYS, we have some special logging.
+            SIGSYS => log_sigsys_err(info),
+            // For SIGPIPE we just log the signal and code.
+            SIGPIPE => error!("Received signal {}, code {}.", si_signo, si_code),
+            _ => error!(
                 "Shutting down VM after intercepting signal {}, code {}.",
                 si_signo, si_code
-            );
+            ),
         }
 
         let result = get_metric_and_exitcode(si_signo);
@@ -180,10 +200,15 @@ impl SignalManager {
         }
 
         // This `unwrap` is safe because we would have exited the process if it was a None value.
-        let (metric, _exit_code) = result.unwrap();
+        let (metric, exit_code) = result.unwrap();
 
         // Increment the right metric.
         metric.inc();
+
+        if exit_code.is_none() {
+            // No exit_code means we need to bail out before flushing metrics & terminating.
+            return;
+        }
 
         // Write the metrics before exiting.
         if let Err(e) = METRICS.write() {
@@ -194,7 +219,8 @@ impl SignalManager {
         // running unit tests.
         #[cfg(not(test))]
         unsafe {
-            _exit(_exit_code)
+            // Unwrap will not panic as we checked it above.
+            _exit(exit_code.unwrap())
         };
     }
 }
