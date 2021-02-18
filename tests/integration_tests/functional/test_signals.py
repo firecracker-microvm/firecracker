@@ -59,11 +59,17 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
     assert len(line_metrics) == 1
 
     os.kill(firecracker_pid, signum)
-
-    # Ensure that the process was terminated.
-    utils.wait_process_termination(firecracker_pid)
-
-    msg = 'Shutting down VM after intercepting signal {}'.format(signum)
+    # Firecracker gracefully handles SIGPIPE (doesn't terminate).
+    if signum == int(SIGPIPE):
+        msg = 'Received signal 13'
+        # Flush metrics to file, so we can see the SIGPIPE at bottom assert.
+        # This is going to fail if process has exited.
+        response = microvm.actions.put(action_type='FlushMetrics')
+        assert microvm.api_session.is_status_no_content(response.status_code)
+    else:
+        # Ensure that the process was terminated.
+        utils.wait_process_termination(firecracker_pid)
+        msg = 'Shutting down VM after intercepting signal {}'.format(signum)
 
     microvm.check_log_message(msg)
 
