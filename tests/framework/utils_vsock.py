@@ -104,6 +104,7 @@ class HostEchoWorker(Thread):
         self.blob_path = blob_path
         self.hash = None
         self.error = None
+        self.sock = _vsock_connect_to_guest(self.uds_path, ECHO_SERVER_PORT)
 
     def run(self):
         """Thread code payload.
@@ -118,9 +119,11 @@ class HostEchoWorker(Thread):
         except Exception as err:
             self.error = err
 
-    def _run(self):
+    def close_uds(self):
+        """Close vsock UDS connection."""
+        self.sock.close()
 
-        sock = _vsock_connect_to_guest(self.uds_path, ECHO_SERVER_PORT)
+    def _run(self):
         blob_file = open(self.blob_path, 'rb')
         hash_obj = hashlib.md5()
 
@@ -130,13 +133,13 @@ class HostEchoWorker(Thread):
             if not buf:
                 break
 
-            sent = sock.send(buf)
+            sent = self.sock.send(buf)
             while sent < len(buf):
-                sent += sock.send(buf[sent:])
+                sent += self.sock.send(buf[sent:])
 
-            buf = sock.recv(sent)
+            buf = self.sock.recv(sent)
             while len(buf) < sent:
-                buf += sock.recv(sent - len(buf))
+                buf += self.sock.recv(sent - len(buf))
 
             hash_obj.update(buf)
 
