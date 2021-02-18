@@ -285,18 +285,13 @@ impl MMIODeviceManager {
     /// otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_rtc(
         &mut self,
-        vm: &VmFd,
         rtc: Arc<Mutex<devices::legacy::RTC>>,
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         // Create and attach a new RTC device.
+        // We allocate an IRQ even though we do not need it so that
+        // we do not break snapshot compatibility.
         let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(1)?);
-
-        vm.register_irqfd(
-            &rtc.lock().expect("Poisoned lock").interrupt_evt(),
-            slot.irqs[0],
-        )
-        .map_err(Error::RegisterIrqFd)?;
 
         let identifier = (DeviceType::RTC, DeviceType::RTC.to_string());
         self.register_mmio_device(identifier, slot, rtc)

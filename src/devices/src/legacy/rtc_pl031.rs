@@ -7,15 +7,11 @@
 //! This is achieved by generating an interrupt signal after counting for a programmed number of cycles of
 //! a real-time clock input.
 //!
-use std::fmt;
-use std::time::Instant;
-use std::{io, result};
+use std::{fmt, result, time::Instant};
 
 use crate::BusDevice;
 use logger::{warn, IncMetric, METRICS};
 use utils::byte_order;
-use utils::eventfd::EventFd;
-//use bus::Error;
 
 // As you can see in https://static.docs.arm.com/ddi0224/c/real_time_clock_pl031_r1p3_technical_reference_manual_DDI0224C.pdf
 // at section 3.2 Summary of RTC registers, the total size occupied by this device is 0x000 -> 0xFFC + 4 = 0x1000.
@@ -38,17 +34,14 @@ const PL031_ID: [u8; 8] = [0x31, 0x10, 0x04, 0x00, 0x0d, 0xf0, 0x05, 0xb1];
 const AMBA_ID_LOW: u64 = 0xFE0;
 const AMBA_ID_HIGH: u64 = 0x1000;
 
-#[derive(Debug)]
 pub enum Error {
-    BadWriteOffset(u64),
-    InterruptFailure(io::Error),
+    BadOffset(u64, &'static str),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::BadWriteOffset(offset) => write!(f, "Bad Write Offset: {}", offset),
-            Error::InterruptFailure(e) => write!(f, "Failed to trigger interrupt: {}", e),
+            Error::BadOffset(offset, ops) => write!(f, "Bad {} offset: {}", ops, offset),
         }
     }
 }
@@ -64,32 +57,55 @@ pub struct RTC {
     load: u32,
     imsc: u32,
     ris: u32,
-    interrupt_evt: EventFd,
 }
 
 impl RTC {
     /// Constructs an AMBA PL031 RTC device.
-    pub fn new(interrupt_evt: EventFd) -> RTC {
+    fn new() -> RTC {
         RTC {
             // This is used only for duration measuring purposes.
             previous_now: Instant::now(),
             tick_offset: utils::time::get_time_ns(utils::time::ClockType::Real) as i64,
             match_value: 0,
             load: 0,
+            // The interrupt mask is initialised as not set.
             imsc: 0,
+            // The raw interrupt is initialised as not asserted.
             ris: 0,
-            interrupt_evt,
         }
-    }
-
-    fn trigger_interrupt(&mut self) -> Result<()> {
-        self.interrupt_evt.write(1).map_err(Error::InterruptFailure)
     }
 
     fn get_time(&self) -> u32 {
         let ts = (self.tick_offset as i128)
             + (Instant::now().duration_since(self.previous_now).as_nanos() as i128);
         (ts / utils::time::NANOS_PER_SECOND as i128) as u32
+    }
+
+    fn handle_read(&mut self, offset: u64) -> Result<u32> {
+        let val;
+
+        if offset < AMBA_ID_HIGH && offset >= AMBA_ID_LOW {
+            let index = ((offset - AMBA_ID_LOW) >> 2) as usize;
+            val = u32::from(PL031_ID[index]);
+        } else {
+            val = match offset {
+                RTCDR => self.get_time(),
+                RTCMR => {
+                    METRICS.rtc.missed_read_count.inc();
+                    // Even though we are not implementing RTC alarm we return the last value.
+                    self.match_value
+                }
+                RTCLR => self.load,
+                RTCCR => 1, // RTC is always enabled.
+                RTCIMSC => self.imsc,
+                RTCRIS => self.ris,
+                RTCMIS => self.ris & self.imsc,
+                off => {
+                    return Err(Error::BadOffset(off, "read"));
+                }
+            };
+        }
+        Ok(val)
     }
 
     fn handle_write(&mut self, offset: u64, val: u32) -> Result<()> {
@@ -113,60 +129,37 @@ impl RTC {
             }
             RTCIMSC => {
                 self.imsc = val & 1;
-                self.trigger_interrupt()?;
             }
             RTCICR => {
-                // As per above mentioned doc, the interrupt is cleared by writing any data value to
-                // the Interrupt Clear Register.
-                self.ris = 0;
-                self.trigger_interrupt()?;
+                // The RTCICR is used together with the RTCMR register to implement a basic time alarm function.
+                // As per the above comment, we do not implement this functionality in firecracker, so self.ris
+                // never gets asserted. Just like we do
+                // for the RTCMR, we set the expected value and we increment a missed metric.
+                self.ris &= !val;
+                METRICS.rtc.missed_write_count.inc();
             }
             RTCCR => (), // ignore attempts to turn off the timer.
-            o => {
-                return Err(Error::BadWriteOffset(o));
+            off => {
+                return Err(Error::BadOffset(off, "write"));
             }
         }
         Ok(())
-    }
-    /// Provides a reference to the interrupt event fd.
-    pub fn interrupt_evt(&self) -> &EventFd {
-        &self.interrupt_evt
     }
 }
 
 impl BusDevice for RTC {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
-        let v;
-        let mut read_ok = true;
-
-        if offset < AMBA_ID_HIGH && offset >= AMBA_ID_LOW {
-            let index = ((offset - AMBA_ID_LOW) >> 2) as usize;
-            v = u32::from(PL031_ID[index]);
-        } else {
-            v = match offset {
-                RTCDR => self.get_time(),
-                RTCMR => {
-                    METRICS.rtc.missed_read_count.inc();
-                    // Even though we are not implementing RTC alarm we return the last value
-                    self.match_value
+        if data.len() == 4 {
+            match self.handle_read(offset) {
+                Ok(val) => byte_order::write_le_u32(data, val),
+                Err(e) => {
+                    warn!("Failed to read from the RTC: {}", e);
+                    METRICS.rtc.error_count.inc();
                 }
-                RTCLR => self.load,
-                RTCCR => 1, // RTC is always enabled.
-                RTCIMSC => self.imsc,
-                RTCRIS => self.ris,
-                RTCMIS => self.ris & self.imsc,
-                _ => {
-                    read_ok = false;
-                    0
-                }
-            };
-        }
-        if read_ok && data.len() <= 4 {
-            byte_order::write_le_u32(data, v);
+            }
         } else {
             warn!(
-                "Invalid RTC PL031 read: offset {}, data length {}",
-                offset,
+                "Found invalid data length while trying to read from the RTC: {}",
                 data.len()
             );
             METRICS.rtc.error_count.inc();
@@ -174,20 +167,25 @@ impl BusDevice for RTC {
     }
 
     fn write(&mut self, offset: u64, data: &[u8]) {
-        if data.len() <= 4 {
+        if data.len() == 4 {
             let v = byte_order::read_le_u32(&data[..]);
             if let Err(e) = self.handle_write(offset, v) {
-                warn!("Failed to write to RTC PL031 device: {}", e);
+                warn!("Failed to write to the RTC: {}", e);
                 METRICS.rtc.error_count.inc();
             }
         } else {
             warn!(
-                "Invalid RTC PL031 write: offset {}, data length {}",
-                offset,
+                "Found invalid data length while trying to write to the RTC: {}",
                 data.len()
             );
             METRICS.rtc.error_count.inc();
         }
+    }
+}
+
+impl Default for RTC {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -196,16 +194,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rtc_read_write_and_event() {
-        let mut rtc = RTC::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
+    fn test_rtc_read_write() {
+        let mut rtc = RTC::new();
         let mut data = [0; 4];
+
+        // Read and write to the DR register. Since this is a RO register, the write
+        // function should fail.
+        byte_order::write_le_u32(&mut data, 0);
+        let err_cnt_before_write = METRICS.rtc.error_count.count();
+        rtc.write(RTCDR, &data);
+        let err_cnt_after_write = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write - err_cnt_before_write, 1);
+        rtc.read(RTCDR, &mut data);
+        let err_cnt_after_read = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write, err_cnt_after_read);
+        let v_read = byte_order::read_le_u32(&data[..]);
+        assert_ne!(v_read, 0);
 
         // Read and write to the MR register.
         byte_order::write_le_u32(&mut data, 123);
+        let missed_writes_before = METRICS.rtc.missed_write_count.count();
+        let missed_reads_before = METRICS.rtc.missed_read_count.count();
         rtc.write(RTCMR, &data);
         rtc.read(RTCMR, &mut data);
         let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(v, 123);
+        assert_eq!(
+            METRICS.rtc.missed_write_count.count() - missed_writes_before,
+            1
+        );
+        assert_eq!(
+            METRICS.rtc.missed_read_count.count() - missed_reads_before,
+            1
+        );
 
         // Read and write to the LR register.
         let v = utils::time::get_time_ns(utils::time::ClockType::Real);
@@ -224,8 +245,6 @@ mod tests {
         let non_zero = 1;
         byte_order::write_le_u32(&mut data, non_zero);
         rtc.write(RTCIMSC, &data);
-        // The interrupt line should be on.
-        assert!(rtc.interrupt_evt.read().unwrap() == 1);
         rtc.read(RTCIMSC, &mut data);
         let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(non_zero & 1, v);
@@ -237,14 +256,41 @@ mod tests {
         let v = byte_order::read_le_u32(&data[..]);
         assert_eq!(0, v);
 
+        // Read and write to the RIS RO register.
+        byte_order::write_le_u32(&mut data, 1);
+        let err_cnt_before_write = METRICS.rtc.error_count.count();
+        rtc.write(RTCRIS, &data);
+        let err_cnt_after_write = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write - err_cnt_before_write, 1);
+        rtc.read(RTCRIS, &mut data);
+        let err_cnt_after_read = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write, err_cnt_after_read);
+        let v_read = byte_order::read_le_u32(&data[..]);
+        assert_ne!(v_read, 1);
+
+        // Read and write to the MIS RO register.
+        byte_order::write_le_u32(&mut data, 1);
+        let err_cnt_before_write = METRICS.rtc.error_count.count();
+        rtc.write(RTCMIS, &data);
+        let err_cnt_after_write = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write - err_cnt_before_write, 1);
+        rtc.read(RTCMIS, &mut data);
+        let err_cnt_after_read = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write, err_cnt_after_read);
+        let v_read = byte_order::read_le_u32(&data[..]);
+        assert_ne!(v_read, 1);
+
         // Read and write to the ICR register.
         byte_order::write_le_u32(&mut data, 1);
+        let missed_writes_before = METRICS.rtc.missed_write_count.count();
         rtc.write(RTCICR, &data);
-        // The interrupt line should be on.
-        assert!(rtc.interrupt_evt.read().unwrap() > 1);
+        assert_eq!(
+            METRICS.rtc.missed_write_count.count() - missed_writes_before,
+            1
+        );
+
         let v_before = byte_order::read_le_u32(&data[..]);
         let no_errors_before = METRICS.rtc.error_count.count();
-
         rtc.read(RTCICR, &mut data);
         let no_errors_after = METRICS.rtc.error_count.count();
         let v = byte_order::read_le_u32(&data[..]);
@@ -272,5 +318,19 @@ mod tests {
         rtc.read(AMBA_ID_LOW, &mut data);
         let index = AMBA_ID_LOW + 3;
         assert_eq!(data[0], PL031_ID[((index - AMBA_ID_LOW) >> 2) as usize]);
+    }
+
+    #[test]
+    fn test_rtc_invalid_buf_len() {
+        let mut rtc = RTC::new();
+        let mut data = [1; 2];
+
+        let err_cnt_before_write = METRICS.rtc.error_count.count();
+        rtc.write(RTCLR, &data);
+        let err_cnt_after_write = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_write - err_cnt_before_write, 1);
+        rtc.read(RTCLR, &mut data);
+        let err_cnt_after_read = METRICS.rtc.error_count.count();
+        assert_eq!(err_cnt_after_read - err_cnt_after_write, 1);
     }
 }
