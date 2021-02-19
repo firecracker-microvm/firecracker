@@ -16,3 +16,4 @@ polly = { path = "../polly" }
 seccomp = { path = "../seccomp" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
+gdb_server = { path = "../gdb_server" }

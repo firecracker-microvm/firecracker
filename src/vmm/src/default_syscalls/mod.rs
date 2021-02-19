@@ -47,6 +47,7 @@ const KVM_GET_MP_STATE: u64 = 0x8004_ae98;
 const KVM_SET_MP_STATE: u64 = 0x4004_ae99;
 const KVM_GET_VCPU_EVENTS: u64 = 0x8040_ae9f;
 const KVM_SET_VCPU_EVENTS: u64 = 0x4040_aea0;
+const KVM_SET_GUEST_DEBUG: u64 = 0x4048_ae9b;
 
 // Use this mod to define ioctl params that are architecture specific.
 // To add other architectures, add another module declaration with the right cfg attribute.
@@ -140,6 +141,7 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_MP_STATE)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_VCPU_EVENTS)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_VCPU_EVENTS)?],
+        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_GUEST_DEBUG)?],
     ];
 
     rule.append(&mut create_arch_specific_ioctl_conditions()?);

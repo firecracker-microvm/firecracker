@@ -1,0 +1,16 @@
+[package]
+name = "gdb_server"
+version = "0.1.0"
+authors = ["Marius-Cristian Baciu <baciumar@amazon.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+vm-memory = { path = "../vm-memory" }
+kvm-bindings = { version = "0.3.0", features = ["fam-wrappers"] }
+kvm-ioctls = { version = "0.6.0" }
+kernel = { path = "../kernel" }
+gdbstub = "0.3.0"
+vmm-sys-util = ">=0.2.1"
+arch = { path = "../arch" }

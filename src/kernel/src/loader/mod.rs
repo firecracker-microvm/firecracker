@@ -15,10 +15,10 @@ use std::mem;
 use super::cmdline::Error as CmdlineError;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
-#[allow(non_camel_case_types)]
+// #[allow(non_camel_case_types)]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 // Add here any other architecture that uses as kernel image an ELF file.
-mod elf;
+pub mod elf;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 unsafe impl ByteValued for elf::Elf64_Ehdr {}
@@ -260,6 +260,42 @@ pub fn load_cmdline(
         .map_err(|_| CmdlineError::CommandLineCopy)?;
 
     Ok(())
+}
+
+/// Extract program headers from a kernel image
+///
+/// # Arguments
+///
+/// * `kernel image` - An object containing the data of a vmlinux kernel binary
+///
+/// Returns a vector of program header objects
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn extract_phdrs<F>(kernel_image: &mut F) -> Result<Vec<elf::Elf64_Phdr>>
+where
+    F: Read + Seek,
+{
+    kernel_image
+        .seek(SeekFrom::Start(0))
+        .map_err(|_| Error::SeekKernelImage)?;
+    let mut ehdr = elf::Elf64_Ehdr::default();
+    ehdr.as_bytes()
+        .read_from(0, kernel_image, mem::size_of::<elf::Elf64_Ehdr>())
+        .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF header"))?;
+
+    kernel_image
+        .seek(SeekFrom::Start(ehdr.e_phoff))
+        .map_err(|_| Error::SeekProgramHeader)?;
+    let phdr_sz = mem::size_of::<elf::Elf64_Phdr>();
+    let mut phdrs: Vec<elf::Elf64_Phdr> = vec![];
+    for _ in 0usize..ehdr.e_phnum as usize {
+        let mut phdr = elf::Elf64_Phdr::default();
+        phdr.as_bytes()
+            .read_from(0, kernel_image, phdr_sz)
+            .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF program header"))?;
+        phdrs.push(phdr);
+    }
+
+    Ok(phdrs)
 }
 
 #[cfg(test)]

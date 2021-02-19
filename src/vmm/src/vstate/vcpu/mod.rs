@@ -5,7 +5,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+#[allow(unused_imports)]
+use crate::gdb_server::{DebugEvent, FullVcpuState};
+use crate::{
+    vmm_config::machine_config::CpuFeaturesTemplate, vstate::vm::Vm, FC_EXIT_CODE_GENERIC_ERROR,
+    FC_EXIT_CODE_OK,
+};
+use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
+use kvm_ioctls::VcpuExit;
 use libc::{c_int, c_void, siginfo_t};
+use logger::{error, info, IncMetric, METRICS};
+use seccomp::{BpfProgram, SeccompFilter};
 #[cfg(not(test))]
 use std::sync::Barrier;
 #[cfg(test)]
@@ -18,15 +28,6 @@ use std::{
     sync::mpsc::{channel, Receiver, Sender, TryRecvError},
     thread,
 };
-
-use crate::{
-    vmm_config::machine_config::CpuFeaturesTemplate, vstate::vm::Vm, FC_EXIT_CODE_GENERIC_ERROR,
-    FC_EXIT_CODE_OK,
-};
-use kvm_bindings::{KVM_SYSTEM_EVENT_RESET, KVM_SYSTEM_EVENT_SHUTDOWN};
-use kvm_ioctls::VcpuExit;
-use logger::{error, info, IncMetric, METRICS};
-use seccomp::{BpfProgram, SeccompFilter};
 use utils::{
     errno,
     eventfd::EventFd,
@@ -65,6 +66,8 @@ pub enum Error {
     VcpuTlsInit,
     /// Vcpu not present in TLS.
     VcpuTlsNotPresent,
+    /// An error occurred on the GDB server side
+    GDBServer(String),
 }
 
 impl Display for Error {
@@ -79,6 +82,7 @@ impl Display for Error {
             VcpuSpawn(e) => write!(f, "Cannot spawn a new vCPU thread: {}", e),
             VcpuTlsInit => write!(f, "Cannot clean init vcpu TLS"),
             VcpuTlsNotPresent => write!(f, "Vcpu not present in TLS"),
+            GDBServer(ref e) => write!(f, "GDB server session terminated due to error: {}", e),
         }
     }
 }
@@ -114,6 +118,16 @@ pub struct Vcpu {
     response_receiver: Option<Receiver<VcpuResponse>>,
     // The transmitting end of the responses channel owned by the vcpu side.
     response_sender: Sender<VcpuResponse>,
+    // The receiving end of the response channel which will be given to the handler
+    // and used by gdb server instances
+    pub dbg_event_receiver: Option<Receiver<DebugEvent>>,
+    // The transmitting end of the responses channel owned by the vcpu side and
+    // used to communicate to the gdb server instances
+    #[allow(dead_code)]
+    dbg_event_sender: Sender<DebugEvent>,
+
+    pub dbg_response_receiver: Receiver<DebugEvent>,
+    pub dbg_response_sender: Option<Sender<DebugEvent>>,
 
     // Exit reason used to test run_emulation function.
     #[cfg(test)]
@@ -214,6 +228,8 @@ impl Vcpu {
     pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self> {
         let (event_sender, event_receiver) = channel();
         let (response_sender, response_receiver) = channel();
+        let (dbg_event_sender, dbg_event_receiver) = channel();
+        let (dbg_response_sender, dbg_response_receiver) = channel();
         let kvm_vcpu = KvmVcpu::new(index, vm).unwrap();
 
         Ok(Vcpu {
@@ -222,6 +238,10 @@ impl Vcpu {
             event_sender: Some(event_sender),
             response_receiver: Some(response_receiver),
             response_sender,
+            dbg_event_receiver: Some(dbg_event_receiver),
+            dbg_event_sender,
+            dbg_response_receiver,
+            dbg_response_sender: Some(dbg_response_sender),
             kvm_vcpu,
             #[cfg(test)]
             vcpu_exit_reason: Mutex::new(None),
@@ -511,6 +531,88 @@ impl Vcpu {
                         )))
                     }
                 },
+                // Either a breakpoint was reached or we are single-stepping
+                #[cfg(target_arch = "x86_64")]
+                VcpuExit::Debug => {
+                    let regular_regs = self.kvm_vcpu.fd.get_regs().unwrap();
+                    let special_regs = self.kvm_vcpu.fd.get_sregs().unwrap();
+                    // For now we don't differentiate between a kvm exit caused
+                    // by a breakpoint and one caused by single-stepping
+                    if self
+                        .dbg_event_sender
+                        .send(DebugEvent::Notify(Box::new(FullVcpuState {
+                            regular_regs,
+                            special_regs,
+                        })))
+                        .is_err()
+                    {
+                        return Err(Error::GDBServer("Invalid state".to_string()));
+                    }
+                    loop {
+                        match self.dbg_response_receiver.recv() {
+                            Ok(DebugEvent::GetRegs) => {
+                                self.dbg_event_sender
+                                    .send(DebugEvent::PeekRegs(Box::new(FullVcpuState {
+                                        regular_regs,
+                                        special_regs,
+                                    })))
+                                    .unwrap();
+                                continue;
+                            }
+                            Ok(DebugEvent::SetRegs(state)) => {
+                                if let Err(err) = self.kvm_vcpu.fd.set_regs(&state.regular_regs) {
+                                    return Err(Error::GDBServer(format!(
+                                        "Ioctl call failed: {}",
+                                        err
+                                    )));
+                                }
+                                if let Err(err) = self.kvm_vcpu.fd.set_sregs(&state.special_regs) {
+                                    return Err(Error::GDBServer(format!(
+                                        "Ioctl call failed: {}",
+                                        err
+                                    )));
+                                }
+                                continue;
+                            }
+                            Ok(DebugEvent::Continue(single_step_en)) => {
+                                if single_step_en {
+                                    if let Err(err) = gdb_server::Debugger::enable_kvm_debug(
+                                        &self.kvm_vcpu.fd,
+                                        false,
+                                    ) {
+                                        return Err(Error::GDBServer(format!(
+                                            "Ioctl call failed: {}",
+                                            err
+                                        )));
+                                    }
+                                }
+                                break;
+                            }
+                            Ok(DebugEvent::StepInto(single_step_en)) => {
+                                if !single_step_en {
+                                    if let Err(err) = gdb_server::Debugger::enable_kvm_debug(
+                                        &self.kvm_vcpu.fd,
+                                        true,
+                                    ) {
+                                        return Err(Error::GDBServer(format!(
+                                            "Ioctl call failed: {}",
+                                            err
+                                        )));
+                                    }
+                                }
+                                break;
+                            }
+                            Ok(_) => return Err(Error::GDBServer("Invalid state".to_string())),
+                            Err(_) => {
+                                return Err(Error::GDBServer(
+                                    "Communication terminated".to_string(),
+                                ))
+                            }
+                        }
+                    }
+
+                    Ok(VcpuEmulation::Handled)
+                }
                 arch_specific_reason => {
                     // run specific architecture emulation.
                     self.kvm_vcpu.run_arch_emulation(arch_specific_reason)

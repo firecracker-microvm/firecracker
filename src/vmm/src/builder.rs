@@ -7,7 +7,10 @@ use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::sync::{Arc, Mutex};
+#[allow(unused_imports)]
+use std::sync::{mpsc::Receiver, mpsc::Sender, Arc, Mutex};
+#[allow(unused_imports)]
+use std::thread;
 
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
@@ -76,6 +79,8 @@ pub enum StartMicrovmError {
     RegisterMmioDevice(device_manager::mmio::Error),
     /// Cannot restore microvm state.
     RestoreMicrovmState(MicrovmStateError),
+    /// The GDB server thread terminated abruptly
+    GDBServer,
 }
 
 /// It's convenient to automatically convert `kernel::cmdline::Error`s
@@ -153,6 +158,7 @@ impl Display for StartMicrovmError {
                 )
             }
             RestoreMicrovmState(err) => write!(f, "Cannot restore microvm state. Error: {}", err),
+            GDBServer => write!(f, "GDB session ended due to an error"),
         }
     }
 }
@@ -287,6 +293,7 @@ pub fn build_microvm_for_boot(
     vm_resources: &super::resources::VmResources,
     event_manager: &mut EventManager,
     seccomp_filter: BpfProgramRef,
+    debugger_enabled: bool,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     use self::StartMicrovmError::*;
     let boot_config = vm_resources.boot_source().ok_or(MissingKernelConfig)?;
@@ -301,6 +308,8 @@ pub fn build_microvm_for_boot(
     )?;
     let vcpu_config = vm_resources.vcpu_config();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
+    #[cfg(target_arch = "x86_64")]
+    let e_phdrs = get_phdrs(boot_config);
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -354,6 +363,26 @@ pub fn build_microvm_for_boot(
         &initrd,
         boot_cmdline,
     )?;
+    #[cfg(target_arch = "x86_64")]
+    if debugger_enabled {
+        let dbg_event_receiver = vcpus[0].dbg_event_receiver.take().unwrap();
+        let dbg_event_sender = vcpus[0].dbg_response_sender.take().unwrap();
+        if let Err(err) = vmm_run_gdb_server(
+            vmm.guest_memory().clone(),
+            dbg_event_receiver,
+            dbg_event_sender,
+            e_phdrs.unwrap(),
+            entry_addr,
+            &vcpus,
+        ) {
+            return Err(err);
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    if debugger_enabled {
+        // do nothing
+    }
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(vcpus, seccomp_filter).map_err(Internal)?;
@@ -463,6 +492,22 @@ pub fn create_guest_memory(
         GuestMemoryMmap::from_ranges_guarded(&arch_mem_regions, track_dirty_pages)
             .map_err(StartMicrovmError::GuestMemoryMmap)?,
     )
+}
+
+#[cfg(any(target_arch = "x86_64"))]
+fn get_phdrs(
+    boot_config: &BootConfig,
+) -> std::result::Result<Vec<kernel::loader::elf::Elf64_Phdr>, StartMicrovmError> {
+    let mut kernel_file = boot_config
+        .kernel_file
+        .try_clone()
+        .map_err(|e| StartMicrovmError::Internal(Error::KernelFile(e)))?;
+
+    // The program headers of the kernel image are necessary in the address translation
+    // mechanism in the GDB Server thread
+    let e_phdrs = kernel::loader::extract_phdrs(&mut kernel_file).unwrap();
+
+    Ok(e_phdrs)
 }
 
 fn load_kernel(
@@ -830,6 +875,36 @@ fn attach_balloon_device(
     let id = String::from(balloon.lock().expect("Poisoned lock").id());
     // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_virtio_device(event_manager, vmm, id, balloon.clone(), cmdline)
+}
+
+#[cfg(target_arch = "x86_64")]
+fn vmm_run_gdb_server(
+    vmm_mem: GuestMemoryMmap,
+    receiver: Receiver<gdb_server::DebugEvent>,
+    sender: Sender<gdb_server::DebugEvent>,
+    e_phdrs: Vec<kernel::loader::elf::Elf64_Phdr>,
+    entry_point: GuestAddress,
+    vcpus: &[Vcpu],
+) -> Result<(), StartMicrovmError> {
+    // For now we assume there's one vcpu only
+    if gdb_server::Debugger::enable_kvm_debug(&vcpus[0].kvm_vcpu.fd, false).is_err() {
+        return Err(StartMicrovmError::GDBServer);
+    }
+    let join_handle = thread::Builder::new().spawn(move || -> Result<(), StartMicrovmError> {
+        if gdb_server::run_gdb_server(vmm_mem, entry_point, e_phdrs, receiver, sender).is_err() {
+            return Err(StartMicrovmError::GDBServer);
+        }
+        Ok(())
+    });
+    if join_handle.is_err() {
+        return Err(StartMicrovmError::GDBServer);
+    }
+    // Block until the GDB server is ready to handle vcpus execution
+    if vcpus[0].dbg_response_receiver.recv().is_err() {
+        return Err(StartMicrovmError::GDBServer);
+    }
+
+    Ok(())
 }
 
 // Adds `O_NONBLOCK` to the stdout flags.
