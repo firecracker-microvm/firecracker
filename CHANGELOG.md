@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.2]
+
+### Fixed
+
+- Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal 
+is still recorded in metrics and logs.
+
 ## [0.24.1]
 
 ### Fixed
