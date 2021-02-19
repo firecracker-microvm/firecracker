@@ -3,6 +3,7 @@ use std::net::{TcpListener, TcpStream};
 pub use arch;
 #[cfg(target_arch = "x86_64")]
 pub use arch::x86_64::regs::setup_sregs;
+#[cfg(target_arch = "x86_64")]
 pub use kernel::loader::elf::{Elf64_Phdr, PT_LOAD};
 pub use kvm_bindings;
 pub use kvm_ioctls::VcpuFd;

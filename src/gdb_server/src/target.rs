@@ -5,6 +5,7 @@ use gdbstub::{arch, Actions, BreakOp, StopReason, Target, Tid, SINGLE_THREAD_TID
 use super::{Bytes, GuestAddress, GuestMemoryMmap};
 use super::{DebugEvent, Debugger, DebuggerError, FullVcpuState, Receiver, ResumeAction, Sender};
 use crate::DynResult;
+#[cfg(target_arch = "x86_64")]
 pub use kernel::loader::elf::Elf64_Phdr;
 
 pub struct FirecrackerGDBServer {
@@ -24,6 +25,7 @@ pub struct FirecrackerGDBServer {
     pub guest_state: FullVcpuState,
     pub single_step_en: bool,
 
+    #[cfg(target_arch = "x86_64")]
     pub e_phdrs: Vec<Elf64_Phdr>,
     pub entry_addr: GuestAddress,
 }

@@ -16,7 +16,7 @@ use super::cmdline::Error as CmdlineError;
 use vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 // #[allow(non_camel_case_types)]
-#[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 // Add here any other architecture that uses as kernel image an ELF file.
 pub mod elf;
 
@@ -281,7 +281,6 @@ where
     ehdr.as_bytes()
         .read_from(0, kernel_image, mem::size_of::<elf::Elf64_Ehdr>())
         .map_err(|_| Error::ReadKernelDataStruct("Failed to read ELF header"))?;
-
 
     kernel_image
         .seek(SeekFrom::Start(ehdr.e_phoff))

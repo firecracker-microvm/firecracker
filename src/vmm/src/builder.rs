@@ -307,14 +307,9 @@ pub fn build_microvm_for_boot(
         track_dirty_pages,
     )?;
     let vcpu_config = vm_resources.vcpu_config();
-    let track_dirty_pages = vm_resources.track_dirty_pages();
-
-    #[cfg(target_arch = "aarch64")]
-    let (entry_addr, _e_phdrs) = load_kernel(boot_config, &guest_memory)?;
-
+    let entry_addr = load_kernel(boot_config, &guest_memory)?;
     #[cfg(target_arch = "x86_64")]
-    let (entry_addr, e_phdrs) = load_kernel(boot_config, &guest_memory)?;
-
+    let e_phdrs = get_phdrs(boot_config);
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
@@ -499,13 +494,26 @@ pub fn create_guest_memory(
     )
 }
 
+#[cfg(any(target_arch = "x86_64"))]
+fn get_phdrs(
+    boot_config: &BootConfig,
+) -> std::result::Result<Vec<kernel::loader::elf::Elf64_Phdr>, StartMicrovmError> {
+    let mut kernel_file = boot_config
+        .kernel_file
+        .try_clone()
+        .map_err(|e| StartMicrovmError::Internal(Error::KernelFile(e)))?;
+
+    // The program headers of the kernel image are necessary in the address translation
+    // mechanism in the GDB Server thread
+    let e_phdrs = kernel::loader::extract_phdrs(&mut kernel_file).unwrap();
+
+    Ok(e_phdrs)
+}
+
 fn load_kernel(
     boot_config: &BootConfig,
     guest_memory: &GuestMemoryMmap,
-) -> std::result::Result<
-    (GuestAddress, Option<Vec<kernel::loader::elf::Elf64_Phdr>>),
-    StartMicrovmError,
-> {
+) -> std::result::Result<GuestAddress, StartMicrovmError> {
     let mut kernel_file = boot_config
         .kernel_file
         .try_clone()
@@ -515,17 +523,7 @@ fn load_kernel(
         kernel::loader::load_kernel(guest_memory, &mut kernel_file, arch::get_kernel_start())
             .map_err(StartMicrovmError::KernelLoader)?;
 
-    #[cfg(target_arch = "aarch64")]
-    {
-        Ok((entry_addr, None))
-    }
-    // The program headers of the kernel image are necessary in the address translation
-    // mechanism in the GDB Server thread
-    #[cfg(target_arch = "x86_64")]
-    {
-        let phdrs = Some(kernel::loader::extract_phdrs(&mut kernel_file).unwrap());
-        Ok((entry_addr, phdrs))
-    }
+    Ok(entry_addr)
 }
 
 fn load_initrd_from_config(
