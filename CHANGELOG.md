@@ -8,6 +8,11 @@
   git repositories.
 - Added option to configure block device flush.
 
+### Fixed
+
+- Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal
+  is still recorded in metrics and logs.
+
 ### Changed
 
 - Changed Docker images repository from DockerHub to Amazon ECR.
