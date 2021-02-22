@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-pub fn make_syscall_table(map: &mut HashMap<String, i64>) {
+pub(crate) fn make_syscall_table(map: &mut HashMap<String, i64>) {
     map.insert("accept4".to_string(), 288);
     map.insert("accept".to_string(), 43);
     map.insert("access".to_string(), 21);

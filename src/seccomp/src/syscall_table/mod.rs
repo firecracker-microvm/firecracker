@@ -4,7 +4,7 @@
 mod aarch64;
 mod x86_64;
 
-use seccomp::TargetArch;
+use crate::backend::TargetArch;
 use std::collections::HashMap;
 
 /// Creates and owns a mapping from the arch-specific syscall name to the right number.
@@ -14,7 +14,7 @@ pub(crate) struct SyscallTable {
     arch: TargetArch,
 }
 
-/// Number of syscalls for x86_64 (upper bound).
+/// Number of syscalls for x86_64 (rough upper bound).
 const MAP_CAPACITY: usize = 351;
 
 impl SyscallTable {
@@ -46,7 +46,7 @@ impl SyscallTable {
 #[cfg(test)]
 mod tests {
     use super::SyscallTable;
-    use seccomp::TargetArch;
+    use crate::backend::TargetArch;
 
     #[test]
     fn test_get_syscall_nr() {
