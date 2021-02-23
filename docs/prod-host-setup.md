@@ -9,10 +9,11 @@ Firecracker uses
 filters to limit the system calls allowed by the host OS to the required
 minimum.
 
-By default, Firecracker uses advanced filtering, which is the most restrictive
-option, and the recommended setting for production workloads.
-This can also be explicitly requested by supplying `--seccomp-level=2` to the
-Firecracker executable.
+By default, Firecracker uses the most restrictive filters, which is the
+recommended option for production usage.
+
+Production usage of the `--seccomp-filter` or `--no-seccomp` parameters is not
+recommended.
 
 ### 8250 Serial Device
 
