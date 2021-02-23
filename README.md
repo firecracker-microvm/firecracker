@@ -116,7 +116,7 @@ The **API endpoint** can be used to:
 **Built-in Capabilities**:
 
 - Demand fault paging and CPU oversubscription enabled by default.
-- Advanced seccomp filters for enhanced security.
+- Advanced, thread-specific seccomp filters for enhanced security.
 - [Jailer](docs/jailer.md) process for starting Firecracker in production
   scenarios; applies a cgroup/namespace isolation barrier and then
   drops privileges.
