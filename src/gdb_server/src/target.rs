@@ -1,3 +1,6 @@
+// Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::collections::HashMap;
 
 use gdbstub::{arch, Actions, BreakOp, StopReason, Target, Tid, SINGLE_THREAD_TID};
