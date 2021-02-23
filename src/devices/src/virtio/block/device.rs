@@ -21,14 +21,14 @@ use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
 use vm_memory::GuestMemoryMmap;
 
+use super::io as block_io;
 use super::{
     super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK},
     request::*,
     Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
 };
-
 use crate::virtio::{IrqTrigger, IrqType};
-
+use block_io::FileEngine;
 use serde::{Deserialize, Serialize};
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
@@ -54,7 +54,7 @@ impl Default for CacheType {
 pub(crate) struct DiskProperties {
     cache_type: CacheType,
     file_path: String,
-    file: File,
+    file_engine: FileEngine<PendingRequest>,
     nsectors: u64,
     image_id: [u8; VIRTIO_BLK_ID_BYTES as usize],
 }
@@ -86,16 +86,16 @@ impl DiskProperties {
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id: Self::build_disk_image_id(&disk_image),
             file_path: disk_image_path,
-            file: disk_image,
+            file_engine: FileEngine::from_file(disk_image)?,
         })
     }
 
-    pub fn file(&self) -> &File {
-        &self.file
+    pub fn file_engine_mut(&mut self) -> &mut FileEngine<PendingRequest> {
+        &mut self.file_engine
     }
 
-    pub fn file_mut(&mut self) -> &mut File {
-        &mut self.file
+    pub fn file(&self) -> &File {
+        &self.file_engine.file()
     }
 
     pub fn nsectors(&self) -> u64 {
@@ -154,27 +154,6 @@ impl DiskProperties {
 
     pub fn cache_type(&self) -> CacheType {
         self.cache_type
-    }
-}
-
-impl Drop for DiskProperties {
-    fn drop(&mut self) {
-        match self.cache_type {
-            CacheType::Writeback => {
-                // flush() first to force any cached data out.
-                if self.file.flush().is_err() {
-                    error!("Failed to flush block data on drop.");
-                }
-                // Sync data out to physical media on host.
-                if self.file.sync_all().is_err() {
-                    error!("Failed to sync block data on drop.")
-                }
-                METRICS.block.flush_count.inc();
-            }
-            CacheType::Unsafe => {
-                // This is a noop.
-            }
-        };
     }
 }
 
@@ -299,7 +278,7 @@ impl Block {
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
         while let Some(head) = queue.pop_or_enable_notification(mem) {
-            let len = match Request::parse(&head, mem, self.disk.nsectors()) {
+            let maybe_len = match Request::parse(&head, mem, self.disk.nsectors()) {
                 Ok(request) => {
                     if request.rate_limit(&mut self.rate_limiter) {
                         // Stop processing the queue and return this descriptor chain to the
@@ -309,20 +288,21 @@ impl Block {
                         break;
                     }
 
+                    used_any = true;
                     request
                         .execute(&mut self.disk, head.index, mem)
-                        .num_bytes_to_mem
+                        .map(|req| req.num_bytes_to_mem)
                 }
                 Err(e) => {
                     error!("Failed to parse available descriptor chain: {:?}", e);
                     METRICS.block.execute_fails.inc();
-                    0
+                    Some(0)
                 }
             };
 
-            Self::add_used_descriptor(queue, head.index, len, mem, &self.irq_trigger);
-
-            used_any = true;
+            if let Some(len) = maybe_len {
+                Self::add_used_descriptor(queue, head.index, len, mem, &self.irq_trigger);
+            }
         }
 
         if !used_any {
@@ -467,6 +447,18 @@ impl VirtioDevice for Block {
         }
         self.device_state = DeviceState::Activated(mem);
         Ok(())
+    }
+}
+
+impl Drop for Block {
+    fn drop(&mut self) {
+        let flush = match self.disk.cache_type {
+            CacheType::Unsafe => false,
+            CacheType::Writeback => true,
+        };
+        if let Err(e) = self.disk.file_engine_mut().drain(flush) {
+            error!("Failed to drain ops and flush block data on drop: {:?}", e);
+        }
     }
 }
 
@@ -795,8 +787,8 @@ pub(crate) mod tests {
 
             // Check that the data wasn't written to the file
             let mut buf = [0u8; 512];
-            block.disk.file.seek(SeekFrom::Start(0)).unwrap();
-            block.disk.file.read_exact(&mut buf).unwrap();
+            block.disk.file().seek(SeekFrom::Start(0)).unwrap();
+            block.disk.file().read_exact(&mut buf).unwrap();
             assert_eq!(buf, empty_data.as_slice());
         }
 
@@ -893,8 +885,8 @@ pub(crate) mod tests {
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             mem.write_slice(empty_data.as_slice(), data_addr).unwrap();
 
-            let size = block.disk.file.seek(SeekFrom::End(0)).unwrap();
-            block.disk.file.set_len(size / 2).unwrap();
+            let size = block.disk.file().seek(SeekFrom::End(0)).unwrap();
+            block.disk.file().set_len(size / 2).unwrap();
             mem.write_obj(10, GuestAddress(request_type_addr.0 + 8))
                 .unwrap();
 
@@ -922,8 +914,8 @@ pub(crate) mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
-            let size = block.disk.file.seek(SeekFrom::End(0)).unwrap();
-            block.disk.file.set_len(size / 2).unwrap();
+            let size = block.disk.file().seek(SeekFrom::End(0)).unwrap();
+            block.disk.file().set_len(size / 2).unwrap();
             // Update sector number: stored at `request_type_addr.0 + 8`
             mem.write_obj(5, GuestAddress(request_type_addr.0 + 8))
                 .unwrap();
@@ -961,8 +953,8 @@ pub(crate) mod tests {
             mem.write_obj(1, GuestAddress(request_type_addr.0 + 8))
                 .unwrap();
 
-            block.disk.file.seek(SeekFrom::Start(512)).unwrap();
-            block.disk.file.write_all(&rand_data[512..]).unwrap();
+            block.disk.file().seek(SeekFrom::Start(512)).unwrap();
+            block.disk.file().write_all(&rand_data[512..]).unwrap();
 
             invoke_handler_for_queue_event(&mut block);
 
@@ -1040,7 +1032,7 @@ pub(crate) mod tests {
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
-        let blk_metadata = block.disk.file.metadata();
+        let blk_metadata = block.disk.file().metadata();
 
         // Test that the driver receives the correct device id.
         {
@@ -1263,7 +1255,10 @@ pub(crate) mod tests {
             .update_disk_image(String::from(path.to_str().unwrap()))
             .unwrap();
 
-        assert_eq!(block.disk.file.metadata().unwrap().st_ino(), mdata.st_ino());
+        assert_eq!(
+            block.disk.file().metadata().unwrap().st_ino(),
+            mdata.st_ino()
+        );
         assert_eq!(block.disk.image_id, id.as_slice());
     }
 }

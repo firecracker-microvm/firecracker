@@ -3,6 +3,7 @@
 
 pub mod device;
 pub mod event_handler;
+mod io;
 pub mod persist;
 pub mod request;
 pub mod test_utils;
