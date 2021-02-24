@@ -46,6 +46,12 @@ workspace. The code is located at `firecracker/src/seccomp/src`.
 Seccompiler is supported on the
 [same platforms as Firecracker](../README.md#supported-platforms).
 
+## Release policy
+
+Seccompiler follows Firecracker's [release policy](RELEASE_POLICY.md) and
+version (it's released at the same time, with the same version number and
+adheres to the same support window).
+
 ## JSON file format
 
 A JSON file expresses the seccomp policy for the entire Firecracker process. It
