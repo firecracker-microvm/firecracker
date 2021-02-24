@@ -72,8 +72,8 @@ impl Display for InstallationError {
 /// Has an optional `bytes_limit` that is passed to bincode to constrain the maximum amount of memory
 /// that we can allocate while performing the deserialization.
 /// It's recommended that the integrator of the library uses this to prevent memory allocations DOS-es.
-pub fn deserialize_binary(
-    reader: &mut dyn Read,
+pub fn deserialize_binary<R: Read>(
+    reader: R,
     bytes_limit: Option<u64>,
 ) -> std::result::Result<BpfThreadMap, DeserializationError> {
     let result = match bytes_limit {
@@ -83,9 +83,9 @@ pub fn deserialize_binary(
             .with_fixint_encoding()
             .allow_trailing_bytes()
             .with_limit(limit)
-            .deserialize_from::<&mut dyn Read, BpfThreadMap>(reader),
+            .deserialize_from::<R, BpfThreadMap>(reader),
         // No limit is the default.
-        None => bincode::deserialize_from::<&mut dyn Read, BpfThreadMap>(reader),
+        None => bincode::deserialize_from::<R, BpfThreadMap>(reader),
     };
 
     Ok(result
@@ -145,9 +145,8 @@ mod tests {
     fn test_deserialize_binary() {
         // Malformed bincode binary.
         {
-            let mut data = "adassafvc".to_string();
-            let data = unsafe { data.as_bytes_mut() };
-            assert!(deserialize_binary(&mut &data[..], None).is_err());
+            let data = "adassafvc".to_string();
+            assert!(deserialize_binary(&data.as_bytes()[..], None).is_err());
         }
 
         // Test that the binary deserialization is correct, and that the thread keys
@@ -173,10 +172,7 @@ mod tests {
 
             let mut expected_res = BpfThreadMap::new();
             expected_res.insert("vcpu".to_string(), bpf_prog);
-            assert_eq!(
-                deserialize_binary(&mut &bytes[..], None).unwrap(),
-                expected_res
-            );
+            assert_eq!(deserialize_binary(&bytes[..], None).unwrap(), expected_res);
         }
 
         // Test deserialization with binary_limit.
@@ -195,14 +191,14 @@ mod tests {
 
             // Binary limit too low.
             assert!(matches!(
-                deserialize_binary(&mut &bytes[..], Some(20)).unwrap_err(),
+                deserialize_binary(&bytes[..], Some(20)).unwrap_err(),
                 DeserializationError::Bincode(error)
                     if error.to_string() == "the size limit has been reached"
             ));
 
             // Correct binary limit.
             assert_eq!(
-                deserialize_binary(&mut &bytes[..], Some(50)).unwrap(),
+                deserialize_binary(&bytes[..], Some(50)).unwrap(),
                 filter_map
             );
         }
