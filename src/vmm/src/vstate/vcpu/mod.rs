@@ -264,7 +264,7 @@ impl Vcpu {
     /// anything useful.
     pub fn run(&mut self, seccomp_filter: BpfProgramRef) {
         // Load seccomp filters for this vCPU thread.
-        // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
+        // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
         // altogether is the desired behaviour.
         if let Err(e) = seccomp::apply_filter(seccomp_filter) {
             panic!(
