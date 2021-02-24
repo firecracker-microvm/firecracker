@@ -3,6 +3,7 @@
 use seccomp::{deserialize_binary, BpfThreadMap, DeserializationError, InstallationError};
 use std::fmt;
 use std::fs::File;
+use std::io::BufReader;
 
 const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 
@@ -91,8 +92,9 @@ pub fn get_empty_filters() -> BpfThreadMap {
 }
 
 /// Retrieve custom seccomp filters.
-pub fn get_custom_filters(mut file: File) -> Result<BpfThreadMap, FilterError> {
-    let map = deserialize_binary(&mut file, DESERIALIZATION_BYTES_LIMIT)
+pub fn get_custom_filters(file: File) -> Result<BpfThreadMap, FilterError> {
+    let mut reader = BufReader::new(file);
+    let map = deserialize_binary(&mut reader, DESERIALIZATION_BYTES_LIMIT)
         .map_err(FilterError::Deserialization)?;
     filter_thread_categories(map)
 }
