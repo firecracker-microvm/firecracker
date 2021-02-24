@@ -30,6 +30,12 @@ ALIBABA_COPYRIGHT = (
 ALIBABA_LICENSE = (
     "SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause"
 )
+GEOFF_COPYRIGHT = (
+    "Copyright 2021 Geoff Johnstone. All Rights Reserved."
+)
+GEOFF_LICENSE = (
+    "SPDX-License-Identifier: Apache-2.0"
+)
 
 
 def _has_amazon_copyright(string):
@@ -81,11 +87,16 @@ def _validate_license(filename):
             ALIBABA_COPYRIGHT in copyright_info and
             _look_for_license(file, ALIBABA_LICENSE)
         )
+        has_geoff_copyright = (
+                GEOFF_COPYRIGHT in copyright_info and
+                _look_for_license(file, GEOFF_LICENSE)
+        )
         return (
             has_amazon_copyright or
             has_chromium_copyright or
             has_tuntap_copyright or
-            has_alibaba_copyright
+            has_alibaba_copyright or
+            has_geoff_copyright
         )
     return True
 
