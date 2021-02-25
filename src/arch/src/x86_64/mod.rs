@@ -49,11 +49,11 @@ pub enum Error {
 }
 
 // Where BIOS/VGA magic would live on a real PC.
-const EBDA_START: u64 = 0x9fc00;
+const EBDA_START: u64 = 0xa0000;
 const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
 const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
 /// The start of the memory area reserved for MMIO devices.
-pub const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
+pub const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE; // 0xD0000000
 
 /// Returns a Vec of the valid memory addresses.
 /// These should be used to configure the GuestMemoryMmap structure for the platform.
@@ -171,6 +171,7 @@ pub fn configure_system(
     }
 
     params.0.acpi_rsdp_addr = rsdp_addr.0;
+    println!("setting acpi RSDP to {:x}", params.0.acpi_rsdp_addr);
 
     let zero_page_addr = GuestAddress(layout::ZERO_PAGE_START);
     guest_mem
