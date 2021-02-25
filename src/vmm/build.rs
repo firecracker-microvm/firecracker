@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::env;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const BINARY_FILTER_FILE_NAME: &str = "seccomp_filter.bpf";
 const JSON_DIR: &str = "../../resources/seccomp";
 const SECCOMPILER_BUILD_DIR: &str = "../../build/seccompiler";
+const SECCOMPILER_SRC_DIR: &str = "../seccomp/src";
 
 // This script is run on every modification in the target-specific JSON file in `resources/seccomp`.
 // It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler.
@@ -35,9 +37,12 @@ fn main() {
         );
     }
 
-    // Retrigger the build script only if the JSON file has changed.
+    // Retrigger the build script if the JSON file has changed.
     let json_path = json_path.to_str().expect("Invalid bytes");
     println!("cargo:rerun-if-changed={}", json_path);
+
+    // Also retrigger the build script on any seccompiler source code change.
+    register_seccompiler_src_watchlist(Path::new(SECCOMPILER_SRC_DIR));
 
     // Path of the generated binary file.
     let mut bpf_out_path = PathBuf::from(&out_dir);
@@ -77,5 +82,26 @@ fn main() {
             );
         }
         Ok(_) => {}
+    }
+}
+
+// Recursively traverse the entire seccompiler source folder and trigger a re-run of this build
+// script on any modification of these files.
+fn register_seccompiler_src_watchlist(src_dir: &Path) {
+    let contents = fs::read_dir(src_dir).expect("Unable to read folder contents.");
+    for entry in contents {
+        let path = entry.unwrap().path();
+        let metadata = fs::metadata(&path).expect("Unable to read file/folder metadata.");
+
+        if metadata.is_file() {
+            // Watch all source files.
+            println!(
+                "cargo:rerun-if-changed={}",
+                path.to_str().expect("Invalid unicode bytes.")
+            );
+        } else if metadata.is_dir() {
+            // If is a folder, recurse.
+            register_seccompiler_src_watchlist(&path);
+        }
     }
 }
