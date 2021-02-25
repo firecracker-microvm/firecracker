@@ -92,7 +92,9 @@ fn create_madt(_cpu_count: u8) -> SDT {
 
 // TODO: move this to arch defines
 // ACPI RSDP table
-pub const RSDP_POINTER: u64 = 0xa0000;
+// Needs to be in upper memory range 0xE0000-0xFFFFF, see
+// https://elixir.bootlin.com/linux/v4.14.209/source/drivers/acpi/acpica/tbxfroot.c#L211
+pub const RSDP_POINTER: u64 = 0xe0000;
 
 pub fn create_acpi_tables(guest_mem: &GuestMemoryMmap, cpu_count: u8) -> GuestAddress {
     let rsdp_offset = GuestAddress(RSDP_POINTER);
