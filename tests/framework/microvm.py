@@ -407,10 +407,11 @@ class Microvm:
             return True
         return False
 
-    def spawn(self, create_logger=True, log_file='log_fifo', log_level='Info'):
+    def spawn(self, create_netns=True, create_logger=True,
+              log_file='log_fifo', log_level='Info'):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
-        self._jailer.setup()
+        self._jailer.setup(create_netns)
         self._api_socket = self._jailer.api_socket_path()
         self._api_session = Session()
 
@@ -640,6 +641,23 @@ class Microvm:
         )
         assert self.api_session.is_status_no_content(response.status_code)
 
+    def put_network(
+            self, iface_id, tapname, guest_mac,
+            allow_mmds_requests=False,
+            tx_rate_limiter=None,
+            rx_rate_limiter=None
+    ):
+        """Attach a network device."""
+        response = self.network.put(
+            iface_id=iface_id,
+            host_dev_name=tapname,
+            guest_mac=guest_mac,
+            allow_mmds_requests=allow_mmds_requests,
+            tx_rate_limiter=tx_rate_limiter,
+            rx_rate_limiter=rx_rate_limiter
+        )
+        assert self._api_session.is_status_no_content(response.status_code)
+
     def ssh_network_config(
             self,
             network_config,
@@ -673,15 +691,8 @@ class Microvm:
                                              tapname)
         guest_mac = net_tools.mac_from_ip(guest_ip)
 
-        response = self.network.put(
-            iface_id=iface_id,
-            host_dev_name=tapname,
-            guest_mac=guest_mac,
-            allow_mmds_requests=allow_mmds_requests,
-            tx_rate_limiter=tx_rate_limiter,
-            rx_rate_limiter=rx_rate_limiter
-        )
-        assert self._api_session.is_status_no_content(response.status_code)
+        self.put_network(iface_id, tapname, guest_mac, allow_mmds_requests,
+                         tx_rate_limiter, rx_rate_limiter)
 
         return tap, host_ip, guest_ip
 

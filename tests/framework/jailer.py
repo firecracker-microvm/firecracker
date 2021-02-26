@@ -35,6 +35,7 @@ class JailerContext:
     extra_args = None
     api_socket_name = None
     cgroups = None
+    macvtaps = None
 
     def __init__(
             self,
@@ -47,6 +48,7 @@ class JailerContext:
             netns=None,
             daemonize=True,
             cgroups=None,
+            macvtaps=None,
             **extra_args
     ):
         """Set up jailer fields.
@@ -66,6 +68,7 @@ class JailerContext:
         self.extra_args = extra_args
         self.api_socket_name = DEFAULT_USOCKET_NAME
         self.cgroups = cgroups
+        self.macvtaps = macvtaps
 
     def __del__(self):
         """Cleanup this jailer context."""
@@ -106,6 +109,9 @@ class JailerContext:
         if self.cgroups is not None:
             for cgroup in self.cgroups:
                 jailer_param_list.extend(['--cgroup', str(cgroup)])
+        if self.macvtaps is not None:
+            for vtap in self.macvtaps:
+                jailer_param_list.extend(['--macvtap', str(vtap)])
         # applying neccessory extra args if needed
         if len(self.extra_args) > 0:
             jailer_param_list.append('--')
@@ -199,14 +205,14 @@ class JailerContext:
             return 'ip netns exec {} '.format(self.netns)
         return ''
 
-    def setup(self):
+    def setup(self, create_netns):
         """Set up this jailer context."""
         os.makedirs(
             self.chroot_base if self.chroot_base is not None
             else DEFAULT_CHROOT_PATH,
             exist_ok=True
         )
-        if self.netns:
+        if self.netns and create_netns:
             utils.run_cmd('ip netns add {}'.format(self.netns))
 
     def cleanup(self):
