@@ -6,6 +6,7 @@ import os
 import platform
 
 import framework.utils as utils
+from framework import defs
 
 from framework.defs import (
     FC_BINARY_NAME, FC_WORKSPACE_DIR, FC_WORKSPACE_TARGET_DIR,
@@ -45,7 +46,7 @@ def cargo_test(path, extra_args=''):
     path = os.path.join(path, CARGO_UNITTEST_REL_PATH)
     cmd = 'CARGO_TARGET_DIR={} RUST_TEST_THREADS=1 RUST_BACKTRACE=1 ' \
           'RUSTFLAGS="{}" cargo test {} --all --no-fail-fast'.format(
-            path, get_rustflags(), extra_args)
+              path, get_rustflags(), extra_args)
     utils.run_cmd(cmd)
 
 
@@ -98,3 +99,28 @@ def get_rustflags():
     if platform.machine() == "aarch64":
         rustflags += " -C link-arg=-lgcc -C link-arg=-lfdt "
     return rustflags
+
+
+def run_seccompiler(bpf_path, json_path=defs.SECCOMP_JSON_DIR):
+    """
+    Run seccompiler.
+
+    :param bpf_path: path to the seccompiler output file
+    :param json_path: optional path to json file
+    """
+    cargo_target = '{}-unknown-linux-musl'.format(platform.machine())
+
+    # If no custom json filter, use the default one for the current target.
+    if json_path == defs.SECCOMP_JSON_DIR:
+        json_path = json_path / "{}.json".format(cargo_target)
+
+    cmd = 'cargo run -p seccomp --target-dir {} --target {} -- --input-file {}\
+        --target-arch {} --output-file {}'.format(defs.SECCOMPILER_TARGET_DIR,
+                                                  cargo_target,
+                                                  json_path,
+                                                  platform.machine(),
+                                                  bpf_path)
+
+    rc, _, _ = utils.run_cmd(cmd)
+
+    assert rc == 0
