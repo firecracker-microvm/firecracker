@@ -26,7 +26,7 @@ use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 #[cfg(target_arch = "x86_64")]
 use logger::{error, info};
 use polly::event_manager::EventManager;
-use seccomp::BpfThreadMap;
+use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;

@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use logger::{error, info, IncMetric, LOGGER, METRICS};
 use polly::event_manager::EventManager;
-use seccomp::BpfThreadMap;
+use seccompiler::BpfThreadMap;
 use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;

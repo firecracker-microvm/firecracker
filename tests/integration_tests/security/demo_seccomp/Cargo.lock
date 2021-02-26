@@ -24,7 +24,7 @@ name = "demo_seccomp"
 version = "0.1.0"
 dependencies = [
  "libc 0.2.66 (registry+https://github.com/rust-lang/crates.io-index)",
- "seccomp 0.24.0",
+ "seccompiler 0.24.0",
 ]
 
 [[package]]
@@ -63,7 +63,7 @@ version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "seccomp"
+name = "seccompiler"
 version = "0.24.0"
 dependencies = [
  "bincode 1.3.1 (registry+https://github.com/rust-lang/crates.io-index)",

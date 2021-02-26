@@ -160,7 +160,7 @@ mod tests {
     use super::*;
 
     use libc::{cpu_set_t, syscall};
-    use seccomp::sock_filter;
+    use seccompiler::sock_filter;
     use std::{mem, process, thread};
 
     // This function is used when running unit tests, so all the unsafes are safe.
@@ -325,7 +325,7 @@ mod tests {
                 },
             ];
 
-            assert!(seccomp::apply_filter(&bpf_filter).is_ok());
+            assert!(seccompiler::apply_filter(&bpf_filter).is_ok());
             assert_eq!(METRICS.seccomp.num_faults.count(), 0);
             // Call the forbidden `SYS_mkdirat`.
             unsafe { syscall(libc::SYS_mkdirat, "/foo/bar\0") };
