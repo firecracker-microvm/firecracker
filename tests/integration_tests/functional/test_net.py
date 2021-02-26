@@ -3,11 +3,15 @@
 """Tests for the net device."""
 import time
 
+from framework import decorators
+from framework.microvm import Serial
+
 import framework.utils as utils
 import host_tools.network as net_tools
 
 # The iperf version to run this tests with
 IPERF_BINARY = 'iperf3'
+NO_OF_VMS = 2
 
 
 def test_high_ingress_traffic(test_microvm_with_ssh, network_config):
@@ -50,3 +54,65 @@ def test_high_ingress_traffic(test_microvm_with_ssh, network_config):
     # ssh commands.
     exit_code, _, _ = ssh_connection.execute_command('echo success\n')
     assert exit_code == 0
+
+
+@decorators.test_context('ssh_and_balloon', NO_OF_VMS)
+def test_macvtaps(test_multiple_microvms):
+    """Check the MacVTap functionality."""
+    microvms = test_multiple_microvms
+    # Creating a bridge for the macvtap interfaces.
+    bridge = net_tools.Bridge("dummy_bridge")
+
+    try:
+        _test_macvtaps(microvms, bridge)
+    except Exception as err:
+        bridge.__del__()
+        raise Exception from err
+
+
+def _test_macvtaps(microvms, bridge):
+    # We create an aux function for being able to delete the
+    # bridge in case any error is returned by this function.
+    for i in range(NO_OF_VMS):
+        microvm = microvms[i]
+        # We need to add the network namespace before the jailer.setup()
+        # does cause we need to add the interfaces beforehand.
+        utils.run_cmd('ip netns add {}'.format(microvm.jailer.netns))
+        _configure_and_run(microvm, bridge, str(i))
+
+    # We now try to test that the 2 microVMs we configured can indeed
+    # talk through the macvtaps that we set up.
+    # We use the serial for that since we did not establish a connection
+    # between the guests and the host.
+    for i in range(NO_OF_VMS):
+        serial = Serial(microvms[i])
+        serial.open()
+        serial.rx(token='login: ')
+        serial.tx("root")
+
+        serial.rx(token='Password: ')
+        serial.tx("root")
+
+        serial.rx(token='# ')
+        ip = "172.16.0.{}".format(str(i+2))
+        serial.tx("ip addr add {}/24 dev eth0".format(ip))
+        if i == 1:
+            serial.tx("ping -c 2 172.16.0.2")
+            serial.rx("2 received")
+
+
+def _configure_and_run(microvm, bridge, iface_id):
+    """Auxiliary function for configuring and running a microVM."""
+    microvm.jailer.daemonize = False
+
+    vtap_name = "macvtap{}".format(iface_id)
+    microvm.jailer.macvtaps = [vtap_name]
+    guest_mac = bridge.add_macvtap(vtap_name, microvm.jailer.netns)
+    microvm.spawn(create_netns=False)
+
+    microvm.basic_config(
+        boot_args='console=ttyS0 reboot=k panic=1 pci=off',
+    )
+    microvm.put_network(iface_id, vtap_name, guest_mac)
+
+    microvm.start()
