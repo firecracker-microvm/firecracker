@@ -353,6 +353,13 @@ class Bridge:
 
     def __init__(self, br_name):
         """Set up a bridge containing macvtap interfaces."""
+        # We first check that the device does not exist.
+        # If it exists, ip addr will return no error and we try to
+        # tear it down.
+        _, _, stderr = utils.run_cmd('ip addr show dev {}'.format(br_name),
+                                     ignore_return_code=True)
+        if stderr == "":
+            utils.run_cmd('ip link delete {}'.format(br_name))
         utils.run_cmd('ip link add {} type dummy'.format(br_name))
         utils.run_cmd('ip link set {} up'.format(br_name))
 
