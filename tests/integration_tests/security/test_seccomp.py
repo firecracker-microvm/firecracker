@@ -6,6 +6,7 @@ import os
 import tempfile
 import platform
 
+from host_tools.cargo_build import run_seccompiler
 import framework.utils as utils
 
 
@@ -72,11 +73,7 @@ def _run_seccompiler(json_data):
 
     bpf_temp = tempfile.NamedTemporaryFile(delete=False)
 
-    cargo_target = '{}-unknown-linux-musl'.format(platform.machine())
-    cmd = 'cargo run -p seccomp --target {} -- --input-file {} --target-arch\
-        {} --output-file {}'.format(cargo_target, json_temp.name,
-                                    platform.machine(), bpf_temp.name)
-    utils.run_cmd(cmd)
+    run_seccompiler(bpf_path=bpf_temp.name, json_path=json_temp.name)
 
     os.unlink(json_temp.name)
     return bpf_temp.name
