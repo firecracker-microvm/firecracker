@@ -344,7 +344,7 @@ impl Queue {
         self.next_avail -= Wrapping(1);
     }
 
-    /// Puts an available descriptor head into the used ring for use by the guest.
+    /// Putss an available descriptor head into the used ring for use by the guest.
     pub fn add_used(
         &mut self,
         mem: &GuestMemoryMmap,
