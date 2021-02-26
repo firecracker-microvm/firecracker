@@ -1,6 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use seccomp::{deserialize_binary, BpfThreadMap, DeserializationError, InstallationError};
+use seccompiler::{deserialize_binary, BpfThreadMap, DeserializationError, InstallationError};
 use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
@@ -101,7 +101,7 @@ pub fn get_custom_filters(file: File) -> Result<BpfThreadMap, FilterError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use seccomp::BpfThreadMap;
+    use seccompiler::BpfThreadMap;
 
     #[test]
     fn test_get_default_filters() {

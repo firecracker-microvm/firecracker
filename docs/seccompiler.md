@@ -34,12 +34,12 @@ Example usage:
 ### Seccompiler library
 
 To view the library documentation, navigate to the seccompiler source code, in
-`firecracker/src/seccomp/src` and run `cargo doc --lib --open`.
+`firecracker/src/seccompiler/src` and run `cargo doc --lib --open`.
 
 ## Where is seccompiler implemented?
 
 Seccompiler is implemented as another package in the Firecracker cargo
-workspace. The code is located at `firecracker/src/seccomp/src`.
+workspace. The code is located at `firecracker/src/seccompiler/src`.
 
 ## Supported platforms
 

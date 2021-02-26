@@ -1,5 +1,5 @@
 [workspace]
-members = ["src/firecracker", "src/jailer", "src/seccomp"]
+members = ["src/firecracker", "src/jailer", "src/seccompiler"]
 default-members = ["src/firecracker"]
 
 [profile.dev]

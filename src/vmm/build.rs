@@ -9,7 +9,7 @@ use std::process::Command;
 const BINARY_FILTER_FILE_NAME: &str = "seccomp_filter.bpf";
 const JSON_DIR: &str = "../../resources/seccomp";
 const SECCOMPILER_BUILD_DIR: &str = "../../build/seccompiler";
-const SECCOMPILER_SRC_DIR: &str = "../seccomp/src";
+const SECCOMPILER_SRC_DIR: &str = "../seccompiler/src";
 
 // This script is run on every modification in the target-specific JSON file in `resources/seccomp`.
 // It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler.
@@ -54,7 +54,7 @@ fn main() {
     command.args(&[
         "run",
         "-p",
-        "seccomp",
+        "seccompiler",
         "--verbose",
         "--target",
         &target,
