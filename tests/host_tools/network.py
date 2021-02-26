@@ -32,6 +32,7 @@ class SSHConnection:
     def __init__(self, ssh_config):
         """Instantiate a SSH client and connect to a microVM."""
         self.netns_file_path = ssh_config['netns_file_path']
+
         self.ssh_config = ssh_config
         assert os.path.exists(ssh_config['ssh_key_path'])
 
@@ -345,3 +346,41 @@ class Tap:
                 tx_queue_len
             )
         )
+
+
+class Bridge:
+    """Functionality for creating macvtaps interfaces inside a bridge."""
+
+    def __init__(self, br_name):
+        """Set up a bridge containing macvtap interfaces."""
+        utils.run_cmd('ip link add {} type dummy'.format(br_name))
+        utils.run_cmd('ip link set {} up'.format(br_name))
+
+        self._br_name = br_name
+        self._ifaces = []
+        self._netns = None
+
+    def add_macvtap(self, if_name, netns):
+        """Set up a macvtap interface.
+
+        It also adds the interface to the specified network namespace,
+        and brings it up. The function returns the new MAC address of the
+        interface.
+        """
+        utils.run_cmd('ip link add link {} name {} type macvtap mode bridge'
+                      .format(self._br_name, if_name))
+        utils.run_cmd('ip link set {} netns {}'.format(if_name, netns))
+        utils.run_cmd('ip netns exec {} ip link set {} up'
+                      .format(netns, if_name))
+        _, stdout, _ = utils.run_cmd('ip netns exec {} '
+                                     'cat /sys/class/net/{}/address'
+                                     .format(netns, if_name))
+
+        self._ifaces.append(if_name)
+        self._netns = netns
+
+        return stdout.strip()
+
+    def __del__(self):
+        """Cleanup this bridge context."""
+        utils.run_cmd('ip link del {}'.format(self._br_name))
