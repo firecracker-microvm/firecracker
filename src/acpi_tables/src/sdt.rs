@@ -15,6 +15,41 @@ pub struct GenericAddress {
     pub address: u64,
 }
 
+#[allow(unused)]
+// FADT revision 5
+#[repr(packed)]
+pub struct AcpiFadtData {
+    pm1a_cnt: GenericAddress,  /* PM1a_CNT_BLK */
+    pm1a_evt: GenericAddress,  /* PM1a_EVT_BLK */
+    pm_tmr: GenericAddress,    /* PM_TMR_BLK */
+    gpe0_blk: GenericAddress,  /* GPE0_BLK */
+    reset_reg: GenericAddress, /* RESET_REG */
+    sleep_ctl: GenericAddress, /* SLEEP_CONTROL_REG */
+    sleep_sts: GenericAddress, /* SLEEP_STATUS_REG */
+    reset_val: u8,             /* RESET_VALUE */
+    rev: u8,                   /* Revision */
+    flags: u32,                /* Flags */
+    smi_cmd: u32,              /* SMI_CMD */
+    sci_int: u16,              /* SCI_INT */
+    int_model: u8,             /* INT_MODEL */
+    acpi_enable_cmd: u8,       /* ACPI_ENABLE */
+    acpi_disable_cmd: u8,      /* ACPI_DISABLE */
+    rtc_century: u8,           /* CENTURY */
+    plvl2_lat: u16,            /* P_LVL2_LAT */
+    plvl3_lat: u16,            /* P_LVL3_LAT */
+    arm_boot_arch: u16,        /* ARM_BOOT_ARCH */
+    minor_ver: u8,             /* FADT Minor Version */
+
+    /*
+     * respective tables offsets within ACPI_BUILD_TABLE_FILE,
+     * NULL if table doesn't exist (in that case field's value
+     * won't be patched by linker and will be kept set to 0)
+     */
+    pub facs_tbl_offset: u64, /* FACS offset in */
+    pub dsdt_tbl_offset: u64,
+    pub xdsdt_tbl_offset: u64,
+}
+
 impl GenericAddress {
     pub fn io_port_address<T>(address: u16) -> Self {
         GenericAddress {

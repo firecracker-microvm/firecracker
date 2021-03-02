@@ -829,6 +829,9 @@ pub fn configure_system_for_boot(
                 .map_err(Internal)?;
         }
 
+        // TODO: remove this once we define virtio devices and their IRQs in ACPI DSDT.
+        // boot_cmdline.insert_str("acpi=noirq").unwrap();
+
         // Write the kernel command line to guest memory. This is x86_64 specific, since on
         // aarch64 the command line will be specified through the FDT.
         linux_loader::loader::load_cmdline::<vm_memory::GuestMemoryMmap>(
