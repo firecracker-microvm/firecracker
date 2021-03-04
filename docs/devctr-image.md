@@ -142,7 +142,7 @@ Then continue with the above steps:
     ```
 
 1. Update the image tag in the
-   [`devtool` script](https://github.com/firecracker-microvm/firecracker/blob/master/tools/devtool).
+   [`devtool` script](https://github.com/firecracker-microvm/firecracker/blob/mainline/tools/devtool).
    Commit and push the change.
 
     ```bash

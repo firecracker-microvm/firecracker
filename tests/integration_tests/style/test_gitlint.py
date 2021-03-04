@@ -11,7 +11,7 @@ def test_gitlint():
     os.environ['LC_ALL'] = 'C.UTF-8'
     os.environ['LANG'] = 'C.UTF-8'
     try:
-        utils.run_cmd('gitlint --commits origin/master..HEAD'
+        utils.run_cmd('gitlint --commits origin/mainline..HEAD'
                       ' --extra-path framework/gitlint_rules.py')
     except ChildProcessError as error:
         assert False, "Commit message violates gitlint rules: {}".format(error)
