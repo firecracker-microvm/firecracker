@@ -275,6 +275,19 @@ impl ApiServer {
         }
     }
 
+    fn send_vmm_action(
+        &mut self,
+        vmm_action: Box<VmmAction>,
+    ) -> std::result::Result<VmmData, VmmActionError> {
+        self.api_request_sender
+            .send(vmm_action)
+            .expect("Failed to send VMM message");
+        self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
+        let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
+        self.check_for_fatal_error(&vmm_outcome);
+        vmm_outcome
+    }
+
     fn serve_vmm_action_request(
         &mut self,
         vmm_action: Box<VmmAction>,
@@ -305,12 +318,8 @@ impl ApiServer {
             VmmAction::Resume => "Running".to_string(),
             _ => self.instance_info.state.clone(),
         };
-        self.api_request_sender
-            .send(vmm_action)
-            .expect("Failed to send VMM message");
-        self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
-        let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
-        self.check_for_fatal_error(&vmm_outcome);
+
+        let vmm_outcome = self.send_vmm_action(vmm_action);
         let response = ParsedRequest::convert_to_response(&vmm_outcome);
 
         if vmm_outcome.is_ok() {
