@@ -32,6 +32,7 @@ class JailerContext:
     chroot_base = None
     netns = None
     daemonize = None
+    new_pid_ns = None
     extra_args = None
     api_socket_name = None
     cgroups = None
@@ -46,6 +47,7 @@ class JailerContext:
             chroot_base=DEFAULT_CHROOT_PATH,
             netns=None,
             daemonize=True,
+            new_pid_ns=False,
             cgroups=None,
             **extra_args
     ):
@@ -63,6 +65,7 @@ class JailerContext:
         self.chroot_base = chroot_base
         self.netns = netns if netns is not None else jailer_id
         self.daemonize = daemonize
+        self.new_pid_ns = new_pid_ns
         self.extra_args = extra_args
         self.api_socket_name = DEFAULT_USOCKET_NAME
         self.cgroups = cgroups
@@ -103,6 +106,8 @@ class JailerContext:
             jailer_param_list.extend(['--netns', str(self.netns_file_path())])
         if self.daemonize:
             jailer_param_list.append('--daemonize')
+        if self.new_pid_ns:
+            jailer_param_list.append('--new-pid-ns')
         if self.cgroups is not None:
             for cgroup in self.cgroups:
                 jailer_param_list.extend(['--cgroup', str(cgroup)])

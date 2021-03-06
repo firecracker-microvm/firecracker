@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::ffi::{CStr, OsString};
-use std::fs::{self, canonicalize, File, Permissions};
+use std::fs::{self, canonicalize, File, OpenOptions, Permissions};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::IntoRawFd;
 use std::os::unix::process::CommandExt;
@@ -13,6 +13,8 @@ use crate::cgroup;
 use crate::cgroup::Cgroup;
 use crate::chroot::chroot;
 use crate::{Error, Result};
+use std::io;
+use std::io::Write;
 use utils::arg_parser::Error::MissingValue;
 use utils::syscall::SyscallReturnCode;
 use utils::{arg_parser, validators};
@@ -44,6 +46,10 @@ const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
 const FOLDER_HIERARCHY: [&[u8]; 4] = [b"/\0", b"/dev\0", b"/dev/net\0", b"/run\0"];
 const FOLDER_PERMISSIONS: u32 = 0o700;
 
+// When running with `--new-pid-ns` flag, the PID of the process running the exec_file differs
+// from jailer's and it is stored inside a dedicated file, prefixed with the below extension.
+const PID_FILE_EXTENSION: &str = ".pid";
+
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
     // This is safe because we are using a library function with valid parameters.
@@ -60,8 +66,10 @@ pub struct Env {
     gid: u32,
     netns: Option<String>,
     daemonize: bool,
+    new_pid_ns: bool,
     start_time_us: u64,
     start_time_cpu_us: u64,
+    jailer_cpu_time_us: u64,
     extra_args: Vec<String>,
     cgroups: Vec<Cgroup>,
 }
@@ -125,6 +133,8 @@ impl Env {
 
         let daemonize = arguments.flag_present("daemonize");
 
+        let new_pid_ns = arguments.flag_present("new-pid-ns");
+
         // Optional arguments.
         let mut cgroups = Vec::new();
 
@@ -165,8 +175,10 @@ impl Env {
             gid,
             netns,
             daemonize,
+            new_pid_ns,
             start_time_us,
             start_time_cpu_us,
+            jailer_cpu_time_us: 0,
             extra_args: arguments.extra_args(),
             cgroups,
         })
@@ -182,6 +194,56 @@ impl Env {
 
     pub fn uid(&self) -> u32 {
         self.uid
+    }
+
+    fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<()> {
+        // Unshare into a new PID namespace.
+        // The current process will not be moved into the newly created namespace, but its first
+        // child will assume the role of init(1) in the new namespace.
+        // The call is safe because we're invoking a C library function with valid parameters.
+        SyscallReturnCode(unsafe { libc::unshare(libc::CLONE_NEWPID) })
+            .into_empty_result()
+            .map_err(Error::UnshareNewPID)?;
+
+        // Compute jailer's total CPU time up to the current time.
+        self.jailer_cpu_time_us =
+            utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - self.start_time_cpu_us;
+
+        // Duplicate the current process. The child process will belong to the previously created
+        // PID namespace.
+        // TODO: replace the `unshare()` + `fork()` combo with `clone()` if we ever need to
+        //  squeeze every bit of start-up latency we can get
+        let pid = unsafe { libc::fork() };
+        match pid {
+            0 => {
+                // Reset process start time.
+                self.start_time_cpu_us = 0;
+
+                Err(Error::Exec(self.exec_command(chroot_exec_file)))
+            }
+            child_pid => {
+                // Save the PID of the process running the exec file provided
+                // inside <chroot_exec_file>.pid file.
+                self.save_exec_file_pid(child_pid, chroot_exec_file)?;
+                unsafe { libc::exit(0) }
+            }
+        }
+    }
+
+    fn save_exec_file_pid(&mut self, pid: i32, chroot_exec_file: PathBuf) -> Result<()> {
+        let chroot_exec_file_str = chroot_exec_file
+            .to_str()
+            .ok_or_else(|| Error::FileName(chroot_exec_file.clone()))?;
+        let pid_file_path =
+            PathBuf::from(format!("{}{}", chroot_exec_file_str, PID_FILE_EXTENSION));
+        let mut pid_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(pid_file_path.clone())
+            .map_err(|e| Error::FileOpen(pid_file_path.clone(), e))?;
+
+        // Write PID to file.
+        write!(pid_file, "{}", pid).map_err(|e| Error::Write(pid_file_path, e))
     }
 
     fn mknod_and_own_dev(
@@ -276,6 +338,21 @@ impl Env {
         SyscallReturnCode(unsafe { libc::close(netns_fd) })
             .into_empty_result()
             .map_err(Error::CloseNetNsFd)
+    }
+
+    fn exec_command(&self, chroot_exec_file: PathBuf) -> io::Error {
+        Command::new(chroot_exec_file)
+            .args(&["--id", &self.id])
+            .args(&["--start-time-us", &self.start_time_us.to_string()])
+            .args(&["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
+            .args(&["--parent-cpu-time-us", &self.jailer_cpu_time_us.to_string()])
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .uid(self.uid())
+            .gid(self.gid())
+            .args(&self.extra_args)
+            .exec()
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -447,19 +524,12 @@ impl Env {
                 .map_err(Error::CloseDevNullFd)?;
         }
 
-        Err(Error::Exec(
-            Command::new(chroot_exec_file)
-                .args(&["--id", &self.id])
-                .args(&["--start-time-us", &self.start_time_us.to_string()])
-                .args(&["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .uid(self.uid())
-                .gid(self.gid())
-                .args(self.extra_args)
-                .exec(),
-        ))
+        // If specified, exec the provided binary into a new PID namespace.
+        if self.new_pid_ns {
+            self.exec_into_new_pid_ns(chroot_exec_file)
+        } else {
+            Err(Error::Exec(self.exec_command(chroot_exec_file)))
+        }
     }
 }
 
@@ -483,6 +553,7 @@ mod tests {
         pub chroot_base: &'a str,
         pub netns: Option<&'a str>,
         pub daemonize: bool,
+        pub new_pid_ns: bool,
         pub cgroups: Vec<&'a str>,
     }
 
@@ -497,6 +568,7 @@ mod tests {
                 chroot_base: "/",
                 netns: Some("zzzns"),
                 daemonize: true,
+                new_pid_ns: true,
                 cgroups: vec!["cpu.shares=2", "cpuset.mems=0"],
             }
         }
@@ -535,6 +607,10 @@ mod tests {
 
         if arg_vals.daemonize {
             arg_vec.push("--daemonize".to_string());
+        }
+
+        if arg_vals.new_pid_ns {
+            arg_vec.push("--new-pid-ns".to_string());
         }
 
         arg_vec
@@ -577,10 +653,12 @@ mod tests {
 
         assert_eq!(good_env.netns, good_arg_vals.netns.map(String::from));
         assert!(good_env.daemonize);
+        assert!(good_env.new_pid_ns);
 
         let another_good_arg_vals = ArgVals {
             netns: None,
             daemonize: false,
+            new_pid_ns: false,
             ..good_arg_vals
         };
 
@@ -590,6 +668,7 @@ mod tests {
         let another_good_env = Env::new(&args, 0, 0)
             .expect("This another new environment should be created successfully.");
         assert!(!another_good_env.daemonize);
+        assert!(!another_good_env.new_pid_ns);
 
         let base_invalid_arg_vals = ArgVals {
             daemonize: true,
@@ -796,6 +875,7 @@ mod tests {
             chroot_base: some_dir_path,
             netns: Some("zzzns"),
             daemonize: false,
+            new_pid_ns: false,
             cgroups: Vec::new(),
         };
         fs::write(some_file_path, "some_content").unwrap();
@@ -938,5 +1018,20 @@ mod tests {
         assert!(fs::metadata(&index_dest_path).is_ok());
         let entries = fs::read_dir(&index_dest_path).unwrap();
         assert_eq!(entries.enumerate().count(), 6);
+    }
+
+    #[test]
+    fn test_save_exec_file_pid() {
+        let exec_file_name = "file";
+        let pid_file_name = "file.pid";
+        let pid = 1;
+
+        let mut env = create_env();
+        env.save_exec_file_pid(pid, PathBuf::from(exec_file_name))
+            .unwrap();
+
+        let stored_pid = fs::read_to_string(pid_file_name);
+        fs::remove_file(pid_file_name).unwrap();
+        assert_eq!(stored_pid.unwrap(), "1");
     }
 }

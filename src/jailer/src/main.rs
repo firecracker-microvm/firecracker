@@ -64,6 +64,7 @@ pub enum Error {
     UmountOldRoot(io::Error),
     UnexpectedListenerFd(i32),
     UnshareNewNs(io::Error),
+    UnshareNewPID(io::Error),
     UnsetCloexec(io::Error),
     Write(PathBuf, io::Error),
 }
@@ -200,6 +201,9 @@ impl fmt::Display for Error {
             UnshareNewNs(ref err) => {
                 write!(f, "Failed to unshare into new mount namespace: {}", err)
             }
+            UnshareNewPID(ref err) => {
+                write!(f, "Failed to unshare into new PID namespace: {}", err)
+            }
             UnsetCloexec(ref err) => write!(
                 f,
                 "Failed to unset the O_CLOEXEC flag on the socket fd: {}",
@@ -265,6 +269,11 @@ pub fn build_arg_parser() -> ArgParser<'static> {
             "Daemonize the jailer before exec, by invoking setsid(), and redirecting \
              the standard I/O file descriptors to /dev/null.",
         ))
+        .arg(
+            Argument::new("new-pid-ns")
+                .takes_value(false)
+                .help("Exec into a new PID namespace."),
+        )
         .arg(Argument::new("cgroup").allow_multiple(true).help(
             "Cgroup and value to be set by the jailer. It must follow this format: \
              <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used \
@@ -664,6 +673,10 @@ mod tests {
         assert_eq!(
             format!("{}", Error::UnshareNewNs(io::Error::from_raw_os_error(42))),
             "Failed to unshare into new mount namespace: No message of desired type (os error 42)",
+        );
+        assert_eq!(
+            format!("{}", Error::UnshareNewPID(io::Error::from_raw_os_error(42))),
+            "Failed to unshare into new PID namespace: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::UnsetCloexec(io::Error::from_raw_os_error(42))),
