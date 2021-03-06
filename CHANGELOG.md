@@ -7,6 +7,8 @@
 - Added devtool build `--ssh-keys` flag to support fetching from private
   git repositories.
 - Added option to configure block device flush.
+- Added `--new-pid-ns` flag to the Jailer in order to spawn the Firecracker
+  process in a new PID namespace.
 
 ### Fixed
 
