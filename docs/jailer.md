@@ -19,6 +19,7 @@ jailer --id <id> \
        [--chroot-base-dir <chroot_base>]
        [--netns <netns>]
        [--daemonize]
+       [--new-pid-ns]
        [--...extra arguments for Firecracker]
 ```
 
@@ -45,6 +46,10 @@ jailer --id <id> \
   jailer will use this to join the associated network namespace.
 - When present, the `--daemonize` flag causes the jailer to cal `setsid()` and
   redirect all three standard I/O file descriptors to `/dev/null`.
+- When present, the `--new-pid-ns` flag causes the jailer to `fork()` and then
+  exec the provided binary into a new PID namespace. As a result, the jailer and
+  the process running the exec file have different PIDs. The PID of the child
+  process is stored in the jail root directory inside `<exec_file_name>.pid`.
 - The jailer adheres to the "end of command options" convention, meaning
   all parameters specified after `--` are forwarded to Firecracker. For
   example, this can be paired with the `--config-file` Firecracker argument to
@@ -98,6 +103,13 @@ After starting, the Jailer goes through the following operations:
   namespace.
 - If `--daemonize` is specified, call `setsid()` and redirect `STDIN`,
   `STDOUT`, and `STDERR` to `/dev/null`.
+- If `--new-pid-ns` is specified, call `unshare()` into a new PID namespace.
+  This will not have any effect on the current process, but its first
+  child will assume the role of init(1) in the new namespace. Next, the
+  jailer is duplicated by a `fork()` call, so that the child process
+  belongs to the previously created PID namespace. The parent will store
+  child's PID inside `<exec_file_name>.pid`, while the child drops privileges
+  and`exec()`s into the `<exec_file_name>`, as described below.
 - Drop privileges via setting the provided `uid` and `gid`.
 - Exec into `<exec_file_name> --id=<id>
   --start-time-us=<opaque> --start-time-cpu-us=<opaque>` (and also forward
@@ -224,11 +236,10 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
   this involves registering handlers with the cgroup `notify_on_release`
   mechanism, while being wary about potential race conditions (the instance
   crashing before the subscription process is complete, for example).
-- For extra resilience, the jailer expects to be spawned by the user in a new
-  PID namespace, most likely via a combination of `clone()` with the
-  `CLONE_NEWPID` flag and `exec()`. A process must be created in a new PID
-  namespace in order to become a pseudo-init process, and the other option is
-  to use a `clone()` in the jailer, which seems unnecessary.
+- For extra resilience, the `--new-pid-ns` flag enables the Jailer to exec the
+  binary file in a new PID namespace, in order to become a pseudo-init process.
+  Alternatively, the user can spawn the jailer in a new PID namespace via a
+  combination of `clone()` with the `CLONE_NEWPID` flag and `exec()`.
 - When running with `--daemonize`, the jailer will fail to start if it's a
   process group leader, because `setsid()` returns an error in this case.
   Spawning the jailer via `clone()` and `exec()` also ensures it cannot be a
