@@ -34,6 +34,7 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::GuestMemoryMmap;
 
+#[cfg(target_arch = "x86_64")]
 const FC_V0_23_SNAP_VERSION: u16 = 1;
 #[cfg(target_arch = "x86_64")]
 const FC_V0_23_MAX_DEVICES: u32 = 11;
@@ -282,8 +283,6 @@ pub fn get_snapshot_data_version(
             validate_devices_number(_vmm.mmio_device_manager.used_irqs_count())?;
             Ok(FC_V0_23_SNAP_VERSION)
         }
-        #[cfg(target_arch = "aarch64")]
-        Some(&FC_V0_23_SNAP_VERSION) => Err(InvalidVersion),
         Some(data_version) => Ok(*data_version),
         _ => Err(InvalidVersion),
     }
