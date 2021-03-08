@@ -74,7 +74,7 @@ macro_rules! MSR_RANGE {
 }
 
 // List of MSRs that can be serialized. List is sorted in ascending order of MSRs addresses.
-static WHITELISTED_MSR_RANGES: &[MsrRange] = &[
+static ALLOWED_MSR_RANGES: &[MsrRange] = &[
     SINGLE_MSR!(MSR_IA32_P5_MC_ADDR),
     SINGLE_MSR!(MSR_IA32_P5_MC_TYPE),
     SINGLE_MSR!(MSR_IA32_TSC),
@@ -173,13 +173,11 @@ static WHITELISTED_MSR_RANGES: &[MsrRange] = &[
 ///
 /// * `index` - The index of the MSR that is checked whether it's needed for serialization.
 pub fn msr_should_serialize(index: u32) -> bool {
-    // Blacklisted MSRs not exported by Linux: IA32_FEATURE_CONTROL and IA32_MCG_CTL
+    // Denied MSRs not exported by Linux: IA32_FEATURE_CONTROL and IA32_MCG_CTL
     if index == MSR_IA32_FEATURE_CONTROL || index == MSR_IA32_MCG_CTL {
         return false;
     };
-    WHITELISTED_MSR_RANGES
-        .iter()
-        .any(|range| range.contains(index))
+    ALLOWED_MSR_RANGES.iter().any(|range| range.contains(index))
 }
 
 // Creates and populates required MSR entries for booting Linux on X86_64.
@@ -250,8 +248,8 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     #[test]
-    fn test_msr_whitelist() {
-        for range in WHITELISTED_MSR_RANGES.iter() {
+    fn test_msr_allowlist() {
+        for range in ALLOWED_MSR_RANGES.iter() {
             for msr in range.base..(range.base + range.nmsrs) {
                 let should = !matches!(msr, MSR_IA32_FEATURE_CONTROL | MSR_IA32_MCG_CTL);
                 assert_eq!(msr_should_serialize(msr), should);

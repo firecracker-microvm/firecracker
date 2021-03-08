@@ -29,7 +29,7 @@ you want to merge your changes to Firecracker:
 1. Create your contribution, meeting all
    [contribution quality standards](#contribution-quality-standards)
 1. [Create a pull request](https://help.github.com/articles/creating-a-pull-request-from-a-fork/)
-   against the master branch of the Firecracker repository.
+   against the main branch of the Firecracker repository.
 1. Add two reviewers to your pull request (a maintainer will do that for you if
    you're new). Work with your reviewers to address any comments and obtain a
    minimum of 2 approvals, at least one of which must be provided by
@@ -48,7 +48,7 @@ If you just want to receive feedback for a contribution proposal, open an “RFC
    branch for the contribution you want feedback on. Use a meaningful name.
 1. Create your proposal based on the existing codebase.
 1. [Create a pull request](https://help.github.com/articles/creating-a-pull-request-from-a-fork/)
-   against the master branch of the Firecracker repository. Prefix your pull
+   against the main branch of the Firecracker repository. Prefix your pull
    request name with `[RFC]`.
 1. Discuss your proposal with the community on the pull request page (or on any
    other channel). Add the conclusion(s) of this discussion to the pull request
