@@ -374,7 +374,7 @@
 ### Fixed
 
 - A `madvise` call issued by the `musl` allocator was added to the seccomp
-  whitelist to prevent Firecracker from terminating abruptly when allocating
+  allow list to prevent Firecracker from terminating abruptly when allocating
   memory in certain conditions.
 
 ## [0.15.0]
@@ -416,8 +416,8 @@
 
 - Log the app version when the `Logger` is initialized.
 - Pretty print panic information.
-- Firecracker terminates with exit code 148 when a non-whitelisted syscall
-  is intercepted.
+- Firecracker terminates with exit code 148 when a syscall which is not
+  present in the allow list is intercepted.
 
 ### Fixed
 

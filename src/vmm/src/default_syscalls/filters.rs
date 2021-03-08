@@ -9,7 +9,7 @@ use seccomp::{
 };
 use utils::signal::sigrtmin;
 
-/// The default filter containing the white listed syscall rules required by `Firecracker` to
+/// The default filter containing the allowed syscall rules required by `Firecracker` to
 /// function.
 /// Any non-trivial modification to this allow list needs a proper comment to specify its source
 /// or why the sycall/condition is needed.

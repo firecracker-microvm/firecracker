@@ -1,6 +1,6 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Tests that the seccomp filters don't let blacklisted syscalls through."""
+"""Tests that the seccomp filters don't let denied syscalls through."""
 
 import os
 
@@ -8,7 +8,7 @@ import framework.utils as utils
 
 
 def test_seccomp_ls(bin_seccomp_paths):
-    """Assert that the seccomp filters deny a blacklisted syscall."""
+    """Assert that the seccomp filters refuse a denied syscall."""
     # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check
     # The fixture pattern causes a pylint false positive for that rule.

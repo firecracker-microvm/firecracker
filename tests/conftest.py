@@ -309,8 +309,8 @@ def bin_seccomp_paths(test_fc_session_root_path):
 
     They currently consist of:
 
-    * a jailer with a simple syscall whitelist;
-    * a jailer with a (syscall, arguments) advanced whitelist;
+    * a jailer with a simple syscall allow list;
+    * a jailer with a (syscall, arguments) advanced allow list;
     * a jailed binary that follows the seccomp rules;
     * a jailed binary that breaks the seccomp rules.
     """

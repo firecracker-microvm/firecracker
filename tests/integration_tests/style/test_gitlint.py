@@ -11,6 +11,7 @@ def test_gitlint():
     os.environ['LC_ALL'] = 'C.UTF-8'
     os.environ['LANG'] = 'C.UTF-8'
     try:
+        # TODO: update this line once the master branch is renamed
         utils.run_cmd('gitlint --commits origin/master..HEAD'
                       ' -C ../.gitlint'
                       ' --extra-path framework/gitlint_rules.py')

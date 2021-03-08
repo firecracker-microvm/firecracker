@@ -262,7 +262,7 @@ Get a copy of the Firecracker sources by cloning our GitHub repo:
 git clone https://github.com/firecracker-microvm/firecracker
 ```
 
-All development happens on the master branch and we use git tags to mark
+All development happens on the main branch and we use git tags to mark
 releases. If you are interested in a specific release (e.g. v0.10.1), you can
 check it out with:
 

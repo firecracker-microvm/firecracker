@@ -98,7 +98,7 @@ fn test_vmm_seccomp() {
                 .into();
             let mut event_manager = EventManager::new().unwrap();
 
-            // The customer "forgot" to whitelist the KVM_RUN ioctl.
+            // The customer "forgot" to allow the KVM_RUN ioctl.
             let filter: BpfProgram = MockSeccomp::new().without_kvm_run().into();
             let vmm = build_microvm_for_boot(&resources, &mut event_manager, &filter).unwrap();
             // Give the vCPUs a chance to attempt KVM_RUN.
