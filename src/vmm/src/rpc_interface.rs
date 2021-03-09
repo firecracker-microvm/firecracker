@@ -192,7 +192,7 @@ impl Display for VmmActionError {
 }
 
 /// The vm state
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VmState {
     /// vm not started (yet)
     NotStarted,

@@ -1,9 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// The strongly typed that contains general information about the microVM.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InstanceInfo {
     /// The ID of the microVM.
     pub id: String,

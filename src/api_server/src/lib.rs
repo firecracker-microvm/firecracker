@@ -807,4 +807,44 @@ mod tests {
         let mut buf: [u8; 100] = [0; 100];
         assert!(sock.read(&mut buf[..]).unwrap() > 0);
     }
+
+    fn test_get_instance_info_state(state: VmState, str_state: &str) {
+        let instance_info = InstanceInfo {
+            state: "Not started".to_string(),
+            id: "test_serve_action_req".to_string(),
+            vmm_version: "version 0.1.0".to_string(),
+            app_name: "app name".to_string(),
+        };
+
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let mut api_server = ApiServer::new(
+            mmds_info,
+            instance_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        );
+
+        let request = Request::try_from(b"GET / HTTP/1.0\r\n\r\n").unwrap();
+        to_api.send(Box::new(Ok(VmmData::State(state)))).unwrap();
+        let response = api_server.handle_request(&request, 0);
+        assert_eq!(response.status(), StatusCode::OK);
+        let r_instance_info =
+            serde_json::from_slice::<InstanceInfo>(response.body().unwrap().raw()).unwrap();
+        assert_eq!(r_instance_info.state, str_state);
+    }
+
+    #[test]
+    fn test_serve_get_instance_info() {
+        [
+            (VmState::Running, "Running"),
+            (VmState::NotStarted, "Not started"),
+        ]
+        .iter()
+        .for_each(|x| test_get_instance_info_state(x.0, x.1));
+    }
 }
