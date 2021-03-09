@@ -766,7 +766,7 @@ mod tests {
 
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
-        let (_to_api, vmm_response_receiver) = channel();
+        let (to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
 
         thread::Builder::new()
@@ -795,6 +795,10 @@ mod tests {
 
         // Send a GET instance-info request.
         assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
+        to_api
+            .send(Box::new(Ok(VmmData::State(VmState::Running))))
+            .unwrap();
+
         let mut buf: [u8; 100] = [0; 100];
         assert!(sock.read(&mut buf[..]).unwrap() > 0);
 
