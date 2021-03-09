@@ -26,7 +26,7 @@ use mmds::data_store;
 use mmds::data_store::Mmds;
 use seccomp::{BpfProgram, SeccompFilter};
 use utils::eventfd::EventFd;
-use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
+use vmm::rpc_interface::{VmState, VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::snapshot::SnapshotType;
 
@@ -264,7 +264,17 @@ impl ApiServer {
             Ok(ParsedRequest::Sync(vmm_action)) => {
                 self.serve_vmm_action_request(vmm_action, request_processing_start_us)
             }
-            Ok(ParsedRequest::GetInstanceInfo) => self.get_instance_info(),
+            Ok(ParsedRequest::GetInstanceInfo) => {
+                if self.instance_info.state.as_str() == "Not started" {
+                    if let Ok(VmmData::State(VmState::Running)) =
+                        self.send_vmm_action(Box::new(VmmAction::GetVmState))
+                    {
+                        self.instance_info.state = "Running".to_string();
+                    }
+                }
+
+                self.get_instance_info()
+            }
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
             Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
