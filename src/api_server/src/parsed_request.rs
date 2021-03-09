@@ -117,6 +117,14 @@ impl ParsedRequest {
                     response.set_body(Body::new(serde_json::to_string(stats).unwrap()));
                     response
                 }
+                VmmData::State(_) => {
+                    error!("Received an invalid vmm response. Status code: 400 Bad Request.");
+                    let mut response = Response::new(Version::Http11, StatusCode::BadRequest);
+                    response.set_body(Body::new(ApiServer::json_fault_message(
+                        "Invalid vmm response".to_string(),
+                    )));
+                    response
+                }
             },
             Err(vmm_action_error) => {
                 error!(

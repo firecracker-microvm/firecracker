@@ -62,6 +62,8 @@ pub enum VmmAction {
     GetBalloonStats,
     /// Get the configuration of the microVM.
     GetVmConfiguration,
+    /// Get current state of the microVM
+    GetVmState,
     /// Flush the metrics. This action can only be called after the logger has been configured.
     FlushMetrics,
     /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
@@ -189,6 +191,15 @@ impl Display for VmmActionError {
     }
 }
 
+/// The vm state
+#[derive(Debug, PartialEq)]
+pub enum VmState {
+    /// vm not started (yet)
+    NotStarted,
+    /// vm is running (possibly paused)
+    Running,
+}
+
 /// The enum represents the response sent by the VMM in case of success. The response is either
 /// empty, when no data needs to be sent, or an internal VMM structure.
 #[derive(Debug, PartialEq)]
@@ -201,6 +212,8 @@ pub enum VmmData {
     Empty,
     /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(VmConfig),
+    /// The Vm State
+    State(VmState),
 }
 
 /// Shorthand result type for external VMM commands.
@@ -294,6 +307,7 @@ impl<'a> PrebootApiController<'a> {
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
+            GetVmState => Ok(VmmData::State(VmState::NotStarted)),
             InsertBlockDevice(config) => self.insert_block_device(config),
             InsertNetworkDevice(config) => self.insert_net_device(config),
             LoadSnapshot(config) => self.load_snapshot(&config),
@@ -466,6 +480,7 @@ impl RuntimeApiController {
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
+            GetVmState => Ok(VmmData::State(VmState::Running)),
             Pause => self.pause(),
             Resume => self.resume(),
             #[cfg(target_arch = "x86_64")]
