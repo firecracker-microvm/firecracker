@@ -310,6 +310,44 @@ pub(crate) fn sysfs_read_caches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use utils::tempdir::TempDir;
+
+    // Auxiliary function for writing any value to a file.
+    fn writeln_special<T, V>(file_path: &T, value: V)
+    where
+        T: AsRef<Path>,
+        V: ::std::fmt::Display,
+    {
+        fs::write(file_path, format!("{}\n", value)).expect("Cannot write value to file");
+    }
+
+    // Auxiliary function for creating a minimum viable cache configuration.
+    fn min_viable_cache_setup(cache: &mut CacheInfo) -> PathBuf {
+        let index_dir = cache.cache_dir.as_path().join("index0/");
+        fs::create_dir(&index_dir).expect("Cannot create directory");
+        let mut level_index_dir = index_dir.clone();
+        let mut type_index_dir = index_dir.clone();
+
+        level_index_dir.push("level");
+        writeln_special(&level_index_dir, 0);
+        let res = cache.populate(0);
+        assert!(res.is_err());
+        // We did create the level file but we still do not have the type file.
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Cannot proceed with reading cache info"
+        );
+
+        type_index_dir.push("type");
+        writeln_special(&type_index_dir, "Instruction");
+        let res = cache.populate(0);
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "shared cpu map, coherency line size, size, number of sets",
+        );
+        index_dir
+    }
 
     #[test]
     fn test_mask_str2bit_count() {
@@ -319,14 +357,14 @@ mod tests {
         assert!(
             res.is_err()
                 && format!("{}", res.unwrap_err())
-                    == "Invalid \"Shared Cpu Map\" cache attribute: 00000000,00000000"
+                    == "Invalid cache configuration found for shared_cpu_map: 00000000,00000000"
         );
 
         let res = mask_str2bit_count("00000000;00000001");
         assert!(
             res.is_err()
                 && format!("{}", res.unwrap_err())
-                    == "Invalid \"Shared Cpu Map\" cache attribute: invalid digit found in string"
+                    == "Invalid cache configuration found for shared_cpu_map: invalid digit found in string"
         );
     }
 
@@ -335,24 +373,204 @@ mod tests {
         assert!(to_bytes(&mut "64K".to_string()).is_ok());
         assert!(to_bytes(&mut "64M".to_string()).is_ok());
 
-        let res = to_bytes(&mut "64KK".to_string());
-        assert!(
-            res.is_err()
-                && format!("{}", res.unwrap_err())
-                    == "Invalid \"Size\" cache attribute: invalid digit found in string"
-        );
+        match to_bytes(&mut "64KK".to_string()) {
+            Err(e) => assert_eq!(
+                format!("{}", e),
+                "Invalid cache configuration found for size: invalid digit found in string"
+            ),
+            _ => panic!("This should be an error!"),
+        }
 
         let res = to_bytes(&mut "64G".to_string());
         assert!(
             res.is_err()
-                && format!("{}", res.unwrap_err()) == "Invalid \"Size\" cache attribute: 64G"
+                && format!("{}", res.unwrap_err())
+                    == "Invalid cache configuration found for size: 64G"
         );
 
         let res = to_bytes(&mut "".to_string());
         assert!(
             res.is_err()
                 && format!("{}", res.unwrap_err())
-                    == "Invalid \"Size\" cache attribute: Empty string was provided"
+                    == "Invalid cache configuration found for size: Empty string was provided"
         );
+    }
+
+    #[test]
+    fn test_invalid_cache_dir() {
+        let mut cache: CacheInfo = CacheInfo::default();
+        let cache_dir = TempDir::new_with_prefix("/tmp/cachedir").unwrap();
+        // the cache directory needs to have a well defined structure.
+        cache.cache_dir = PathBuf::from(cache_dir.as_path());
+        // The cache dir in testing scenario is invalid in its default state, so we expect to get an error.
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Cannot proceed with reading cache info"
+        );
+    }
+
+    #[test]
+    fn test_cache_level() {
+        let mut cache: CacheInfo = CacheInfo::default();
+        let cache_dir = TempDir::new_with_prefix("/tmp/cachedir").unwrap();
+        cache.cache_dir = PathBuf::from(cache_dir.as_path());
+
+        let mut level_index_dir = cache_dir.as_path().join("index0/");
+        let mut type_index_dir = level_index_dir.clone();
+        fs::create_dir(&level_index_dir).expect("Cannot create directory");
+
+        level_index_dir.push("level");
+        writeln_special(&level_index_dir, 0);
+        let res = cache.populate(0);
+        assert!(res.is_err());
+        // We did create the level file but we still do not have the type file.
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Cannot proceed with reading cache info"
+        );
+
+        type_index_dir.push("type");
+        writeln_special(&type_index_dir, "Instruction");
+        let res = cache.populate(0);
+        assert!(res.is_err());
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "shared cpu map, coherency line size, size, number of sets",
+        );
+
+        // Now putting some invalid values in the type and level files.
+        writeln_special(&level_index_dir, "d");
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Invalid cache configuration found for level: invalid digit found in string"
+        );
+        writeln_special(&level_index_dir, 0);
+
+        writeln_special(&type_index_dir, "Instructionn");
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Invalid cache configuration found for type: Instructionn"
+        );
+    }
+
+    #[test]
+    fn test_cache_shared_cpu_map() {
+        let cache_dir = TempDir::new_with_prefix("/tmp/cachedir").unwrap();
+        let mut cache: CacheInfo = CacheInfo::default();
+        cache.cache_dir = PathBuf::from(cache_dir.as_path());
+        let index_dir = min_viable_cache_setup(&mut cache);
+
+        let mut shared_cpu_map_dir = index_dir;
+        shared_cpu_map_dir.push("shared_cpu_map");
+        writeln_special(&shared_cpu_map_dir, "00000000,00000001");
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "coherency line size, size, number of sets"
+        );
+
+        writeln_special(&shared_cpu_map_dir, "00000000,0000000G");
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Invalid cache configuration found for shared_cpu_map: invalid digit found in string"
+        );
+
+        writeln_special(&shared_cpu_map_dir, "00000000");
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Invalid cache configuration found for shared_cpu_map: 00000000"
+        );
+    }
+
+    #[test]
+    fn test_cache_coherency() {
+        let cache_dir = TempDir::new_with_prefix("/tmp/cachedir").unwrap();
+        let mut cache: CacheInfo = CacheInfo::default();
+        cache.cache_dir = PathBuf::from(cache_dir.as_path());
+        let index_dir = min_viable_cache_setup(&mut cache);
+
+        let mut coherency_dir = index_dir;
+        coherency_dir.push("coherency_line_size");
+        writeln_special(&coherency_dir, 64);
+        let res = cache.populate(0);
+        assert_eq!(
+            "shared cpu map, size, number of sets",
+            format!("{}", res.unwrap_err())
+        );
+
+        writeln_special(&coherency_dir, "Instruction");
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Invalid cache configuration found for coherency_line_size: invalid digit found in string"
+        );
+    }
+
+    #[test]
+    fn test_cache_size() {
+        let cache_dir = TempDir::new_with_prefix("/tmp/cachedir").unwrap();
+        let mut cache: CacheInfo = CacheInfo::default();
+        cache.cache_dir = PathBuf::from(cache_dir.as_path());
+        let index_dir = min_viable_cache_setup(&mut cache);
+
+        let mut size_dir = index_dir;
+        size_dir.push("size");
+        writeln_special(&size_dir, "64K");
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "shared cpu map, coherency line size, number of sets",
+        );
+
+        writeln_special(&size_dir, "64");
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Invalid cache configuration found for size: 64"
+        );
+
+        writeln_special(&size_dir, "64Z");
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Invalid cache configuration found for size: 64Z"
+        );
+    }
+
+    #[test]
+    fn test_cache_no_sets() {
+        let cache_dir = TempDir::new_with_prefix("/tmp/cachedir").unwrap();
+        let mut cache: CacheInfo = CacheInfo::default();
+        cache.cache_dir = PathBuf::from(cache_dir.as_path());
+        let index_dir = min_viable_cache_setup(&mut cache);
+
+        let mut sets_dir = index_dir;
+        sets_dir.push("number_of_sets");
+        writeln_special(&sets_dir, "64");
+        let res = cache.populate(0);
+        assert_eq!(
+            "shared cpu map, coherency line size, size",
+            format!("{}", res.unwrap_err())
+        );
+
+        writeln_special(&sets_dir, "64K");
+        let res = cache.populate(0);
+        assert_eq!(
+            format!("{}", res.unwrap_err()),
+            "Invalid cache configuration found for number_of_sets: invalid digit found in string"
+        );
+    }
+
+    #[test]
+    fn test_sysfs_read_caches() {
+        let mut l1_caches: Vec<CacheInfo> = Vec::new();
+        let mut non_l1_caches: Vec<CacheInfo> = Vec::new();
+        // We use sysfs for extracting the cache information.
+        assert!(sysfs_read_caches(&mut l1_caches, &mut non_l1_caches).is_ok());
     }
 }
