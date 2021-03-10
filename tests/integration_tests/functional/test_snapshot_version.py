@@ -14,8 +14,8 @@ FC_V0_23_MAX_DEVICES_ATTACHED = 11
 
 
 def _create_and_start_microvm_with_net_devices(test_microvm,
-                                               network_config,
-                                               devices_no):
+                                               network_config=None,
+                                               devices_no=0):
     test_microvm.spawn()
     # Set up a basic microVM: configure the boot source and
     # add a root device.
@@ -31,18 +31,49 @@ def _create_and_start_microvm_with_net_devices(test_microvm,
         )
     test_microvm.start()
 
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
-    # Verify if guest can run commands.
-    exit_code, _, _ = ssh_connection.execute_command("sync")
-    assert exit_code == 0
+    if network_config is not None:
+        ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+        # Verify if guest can run commands.
+        exit_code, _, _ = ssh_connection.execute_command("sync")
+        assert exit_code == 0
+
+
+def test_create_v0_23_snapshot(test_microvm_with_ssh):
+    """Exercise creating a snapshot targeting v0.23 on all platforms."""
+    test_microvm = test_microvm_with_ssh
+
+    _create_and_start_microvm_with_net_devices(test_microvm)
+
+    snapshot_builder = SnapshotBuilder(test_microvm)
+    # Create directory and files for saving snapshot state and memory.
+    _snapshot_dir = snapshot_builder.create_snapshot_dir()
+
+    # Pause microVM for snapshot.
+    response = test_microvm.vm.patch(state='Paused')
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.snapshot.create(
+        mem_file_path="/snapshot/vm.mem",
+        snapshot_path="/snapshot/vm.vmstate",
+        diff=True,
+        version="0.23.0"
+    )
+    if platform.machine() == "x86_64":
+        assert test_microvm.api_session.is_status_no_content(
+            response.status_code)
+    elif platform.machine() == "aarch64":
+        assert test_microvm.api_session.is_status_bad_request(
+            response.status_code)
+        assert "Cannot translate microVM version to snapshot data version"\
+               in response.text
 
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="Not supported yet."
+    reason="Exercises specific x86_64 functionality."
 )
-def test_create_with_past_version(test_microvm_with_ssh, network_config):
-    """Test scenario: restore in previous versions with too many devices."""
+def test_create_with_prev_device_count(test_microvm_with_ssh, network_config):
+    """Create snapshot with expected device count for previous versions."""
     test_microvm = test_microvm_with_ssh
 
     # Create and start a microVM with (`FC_V0_23_MAX_DEVICES_ATTACHED` - 1)
@@ -68,10 +99,10 @@ def test_create_with_past_version(test_microvm_with_ssh, network_config):
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
-    reason="Not supported yet."
+    reason="Exercises specific x86_64 functionality."
 )
 def test_create_with_too_many_devices(test_microvm_with_ssh, network_config):
-    """Test scenario: restore in previous versions with too many devices."""
+    """Create snapshot with unexpected device count for previous versions."""
     test_microvm = test_microvm_with_ssh
 
     # Create and start a microVM with `FC_V0_23_MAX_DEVICES_ATTACHED`
@@ -94,8 +125,8 @@ def test_create_with_too_many_devices(test_microvm_with_ssh, network_config):
     # devices at a time. This microVM has `FC_V0_23_MAX_DEVICES_ATTACHED`
     # network devices on top of the rootfs, so the limit is exceeded.
     response = test_microvm.snapshot.create(
-        mem_file_path="/snapshot/vm.vmstate",
-        snapshot_path="/snapshot/vm.mem",
+        mem_file_path="/snapshot/vm.mem",
+        snapshot_path="/snapshot/vm.vmstate",
         diff=True,
         version="0.23.0"
     )
