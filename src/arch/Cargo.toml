@@ -13,6 +13,7 @@ versionize = ">=0.1.4"
 versionize_derive = ">=0.1.3"
 
 arch_gen = { path = "../arch_gen" }
+logger = { path = "../logger" }
 utils = { path = "../utils" }
 
 [dev-dependencies]
