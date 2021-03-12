@@ -101,6 +101,12 @@ impl<T: Serialize> Metrics<T> {
     /// Initialize metrics system (once and only once).
     /// Every call made after the first will have no effect besides returning `Ok` or `Err`.
     ///
+    /// This function is supposed to be called only from a single thread, once.
+    /// It is not thread-safe and is not meant to be used in a multithreaded
+    /// scenario. The reason `is_initialized` is an `AtomicBool` instead of
+    /// just a `bool` is that `lazy_static` enforces thread-safety on all its
+    /// members.
+    ///
     /// # Arguments
     ///
     /// * `metrics_dest` - Buffer for JSON formatted metrics. Needs to implement `Write` and `Send`.
@@ -122,6 +128,11 @@ impl<T: Serialize> Metrics<T> {
     /// written.
     /// Upon success, the function will return `True` (if metrics system was initialized and metrics
     /// were successfully written to disk) or `False` (if metrics system was not yet initialized).
+    ///
+    /// This function is supposed to be called only from a single thread and
+    /// is not meant to be used in a multithreaded scenario. The reason
+    /// `metrics_buf` is enclosed in a `Mutex` is that `lazy_static` enforces
+    /// thread-safety on all its members.
     pub fn write(&self) -> Result<bool, MetricsError> {
         if self.is_initialized.load(Ordering::Relaxed) {
             match serde_json::to_string(&self.app_metrics) {
