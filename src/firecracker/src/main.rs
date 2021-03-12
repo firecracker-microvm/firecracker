@@ -13,11 +13,13 @@ use std::sync::{Arc, Mutex};
 use logger::{error, info, IncMetric, LOGGER, METRICS};
 use polly::event_manager::EventManager;
 use seccompiler::BpfThreadMap;
-use utils::arg_parser::{ArgParser, Argument};
+use utils::arg_parser::{ArgParser, Argument, Arguments};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::resources::VmResources;
-use vmm::seccomp_filters::{get_custom_filters, get_default_filters, get_empty_filters};
+use vmm::seccomp_filters::{
+    get_custom_filters, get_default_filters, get_empty_filters, FilterError as SeccompFilterError,
+};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::FC_VERSION_TO_SNAP_VERSION;
 use vmm::vmm_config::instance_info::InstanceInfo;
@@ -209,13 +211,12 @@ fn main() {
         });
     }
 
-    let mut seccomp_filters = match arguments.flag_present("no-seccomp") {
-        true => get_empty_filters(),
-        false => match arguments.single_value("seccomp-filter") {
-            Some(path) => get_custom_filters(File::open(&path).expect("Seccomp file error: {}"))
-                .expect("Could not create seccomp filter"),
-            None => get_default_filters().expect("Could not create seccomp filter"),
-        },
+    let mut seccomp_filters = match get_seccomp_filters(&arguments) {
+        Ok(filter_map) => filter_map,
+        Err(error) => {
+            error!("Seccomp error: {}", error);
+            process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+        }
     };
 
     let vmm_config_json = arguments
@@ -261,6 +262,19 @@ fn main() {
             &instance_info,
             boot_timer_enabled,
         );
+    }
+}
+
+// Retrieve the correct seccomp filter based on the given CLI arguments.
+fn get_seccomp_filters(arguments: &Arguments) -> Result<BpfThreadMap, SeccompFilterError> {
+    match arguments.flag_present("no-seccomp") {
+        true => Ok(get_empty_filters()),
+        false => match arguments.single_value("seccomp-filter") {
+            Some(path) => {
+                get_custom_filters(File::open(&path).map_err(SeccompFilterError::FileOpen)?)
+            }
+            None => get_default_filters(),
+        },
     }
 }
 
