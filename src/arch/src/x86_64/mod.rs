@@ -17,21 +17,14 @@ pub mod msr;
 pub mod regs;
 
 use crate::InitrdConfig;
-use arch_gen::x86::bootparam::{boot_params, E820_RAM};
-use vm_memory::{
-    Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
-};
+use linux_loader::configurator::linux::LinuxBootConfigurator;
+use linux_loader::configurator::{BootConfigurator, BootParams};
+use linux_loader::loader::bootparam::boot_params;
 
-// This is a workaround to the Rust enforcement specifying that any implementation of a foreign
-// trait (in this case `ByteValued`) where:
-// *    the type that is implementing the trait is foreign or
-// *    all of the parameters being passed to the trait (if there are any) are also foreign
-// is prohibited.
-#[derive(Copy, Clone, Default)]
-struct BootParamsWrapper(boot_params);
+use vm_memory::{Address, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
-// It is safe to initialize BootParamsWrap which is a wrapper over `boot_params` (a series of ints).
-unsafe impl ByteValued for BootParamsWrapper {}
+// Value taken from https://elixir.bootlin.com/linux/v5.10.68/source/arch/x86/include/uapi/asm/e820.h#L31
+const E820_RAM: u32 = 1;
 
 /// Errors thrown while configuring x86_64 system.
 #[derive(Debug, PartialEq)]
@@ -120,25 +113,25 @@ pub fn configure_system(
     // Note that this puts the mptable at the last 1k of Linux's 640k base RAM
     mptable::setup_mptable(guest_mem, num_cpus).map_err(Error::MpTableSetup)?;
 
-    let mut params: BootParamsWrapper = BootParamsWrapper(boot_params::default());
+    let mut params = boot_params::default();
 
-    params.0.hdr.type_of_loader = KERNEL_LOADER_OTHER;
-    params.0.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
-    params.0.hdr.header = KERNEL_HDR_MAGIC;
-    params.0.hdr.cmd_line_ptr = cmdline_addr.raw_value() as u32;
-    params.0.hdr.cmdline_size = cmdline_size as u32;
-    params.0.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
+    params.hdr.type_of_loader = KERNEL_LOADER_OTHER;
+    params.hdr.boot_flag = KERNEL_BOOT_FLAG_MAGIC;
+    params.hdr.header = KERNEL_HDR_MAGIC;
+    params.hdr.cmd_line_ptr = cmdline_addr.raw_value() as u32;
+    params.hdr.cmdline_size = cmdline_size as u32;
+    params.hdr.kernel_alignment = KERNEL_MIN_ALIGNMENT_BYTES;
     if let Some(initrd_config) = initrd {
-        params.0.hdr.ramdisk_image = initrd_config.address.raw_value() as u32;
-        params.0.hdr.ramdisk_size = initrd_config.size as u32;
+        params.hdr.ramdisk_image = initrd_config.address.raw_value() as u32;
+        params.hdr.ramdisk_size = initrd_config.size as u32;
     }
 
-    add_e820_entry(&mut params.0, 0, EBDA_START, E820_RAM)?;
+    add_e820_entry(&mut params, 0, EBDA_START, E820_RAM)?;
 
     let last_addr = guest_mem.last_addr();
     if last_addr < end_32bit_gap_start {
         add_e820_entry(
-            &mut params.0,
+            &mut params,
             himem_start.raw_value() as u64,
             // it's safe to use unchecked_offset_from because
             // mem_end > himem_start
@@ -147,7 +140,7 @@ pub fn configure_system(
         )?;
     } else {
         add_e820_entry(
-            &mut params.0,
+            &mut params,
             himem_start.raw_value(),
             // it's safe to use unchecked_offset_from because
             // end_32bit_gap_start > himem_start
@@ -157,7 +150,7 @@ pub fn configure_system(
 
         if last_addr > first_addr_past_32bits {
             add_e820_entry(
-                &mut params.0,
+                &mut params,
                 first_addr_past_32bits.raw_value(),
                 // it's safe to use unchecked_offset_from because
                 // mem_end > first_addr_past_32bits
@@ -167,12 +160,11 @@ pub fn configure_system(
         }
     }
 
-    let zero_page_addr = GuestAddress(layout::ZERO_PAGE_START);
-    guest_mem
-        .write_obj(params, zero_page_addr)
-        .map_err(|_| Error::ZeroPageSetup)?;
-
-    Ok(())
+    LinuxBootConfigurator::write_bootparams(
+        &BootParams::new(&params, GuestAddress(layout::ZERO_PAGE_START)),
+        guest_mem,
+    )
+    .map_err(|_| Error::ZeroPageSetup)
 }
 
 /// Add an e820 region to the e820 map.
@@ -183,13 +175,13 @@ fn add_e820_entry(
     size: u64,
     mem_type: u32,
 ) -> super::Result<()> {
-    if params.e820_entries >= params.e820_map.len() as u8 {
+    if params.e820_entries >= params.e820_table.len() as u8 {
         return Err(Error::E820Configuration);
     }
 
-    params.e820_map[params.e820_entries as usize].addr = addr;
-    params.e820_map[params.e820_entries as usize].size = size;
-    params.e820_map[params.e820_entries as usize].type_ = mem_type;
+    params.e820_table[params.e820_entries as usize].addr = addr;
+    params.e820_table[params.e820_entries as usize].size = size;
+    params.e820_table[params.e820_entries as usize].type_ = mem_type;
     params.e820_entries += 1;
 
     Ok(())
@@ -198,7 +190,7 @@ fn add_e820_entry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arch_gen::x86::bootparam::e820entry;
+    use linux_loader::loader::bootparam::boot_e820_entry;
 
     #[test]
     fn regions_lt_4gb() {
@@ -250,14 +242,14 @@ mod tests {
 
     #[test]
     fn test_add_e820_entry() {
-        let e820_map = [(e820entry {
+        let e820_map = [(boot_e820_entry {
             addr: 0x1,
             size: 4,
             type_: 1,
         }); 128];
 
         let expected_params = boot_params {
-            e820_map,
+            e820_table: e820_map,
             e820_entries: 1,
             ..Default::default()
         };
@@ -271,14 +263,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            format!("{:?}", params.e820_map[0]),
-            format!("{:?}", expected_params.e820_map[0])
+            format!("{:?}", params.e820_table[0]),
+            format!("{:?}", expected_params.e820_table[0])
         );
         assert_eq!(params.e820_entries, expected_params.e820_entries);
 
         // Exercise the scenario where the field storing the length of the e820 entry table is
         // is bigger than the allocated memory.
-        params.e820_entries = params.e820_map.len() as u8 + 1;
+        params.e820_entries = params.e820_table.len() as u8 + 1;
         assert!(add_e820_entry(
             &mut params,
             e820_map[0].addr,
