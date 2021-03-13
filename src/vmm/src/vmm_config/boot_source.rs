@@ -71,10 +71,9 @@ impl Display for BootSourceConfigError {
 }
 
 /// Holds the kernel configuration.
-#[derive(Debug)]
 pub struct BootConfig {
     /// The commandline validated against correctness.
-    pub cmdline: kernel::cmdline::Cmdline,
+    pub cmdline: linux_loader::cmdline::Cmdline,
     /// The descriptor to the kernel file.
     pub kernel_file: std::fs::File,
     /// The descriptor to the initrd file, if there is one.
@@ -96,7 +95,7 @@ impl BootConfig {
             Some(path) => Some(File::open(path).map_err(InvalidInitrdPath)?),
             None => None,
         };
-        let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
+        let mut cmdline = linux_loader::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
         let boot_args = match cfg.boot_args.as_ref() {
             None => DEFAULT_KERNEL_CMDLINE,
             Some(str) => str.as_str(),
