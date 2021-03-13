@@ -10,6 +10,8 @@ use devices::legacy::SerialDevice;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
+#[cfg(target_arch = "x86_64")]
+use vm_memory::GuestAddress;
 
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::DeviceInfoForFDT;
@@ -23,8 +25,8 @@ use devices::virtio::{
     TYPE_VSOCK,
 };
 use devices::BusDevice;
-use kernel::cmdline as kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
+use linux_loader::cmdline as kernel_cmdline;
 use logger::info;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -35,7 +37,7 @@ pub enum Error {
     /// Failed to perform an operation on the bus.
     BusError(devices::BusError),
     /// Appending to kernel command line failed.
-    Cmdline(kernel_cmdline::Error),
+    Cmdline(linux_loader::cmdline::Error),
     /// The device couldn't be found.
     DeviceNotFound,
     /// Failure in creating or cloning an event fd.
@@ -229,10 +231,7 @@ impl MMIODeviceManager {
         // bytes to 1024; further, the '{}' formatting rust construct will automatically
         // transform it to decimal
         cmdline
-            .insert(
-                "virtio_mmio.device",
-                &format!("{}K@0x{:08x}:{}", slot.len / 1024, slot.addr, slot.irqs[0]),
-            )
+            .add_virtio_mmio_device(slot.len, GuestAddress(slot.addr), slot.irqs[0], None)
             .map_err(Error::Cmdline)
     }
 
@@ -688,7 +687,7 @@ mod tests {
             assert!(!msg.is_empty());
         };
         check_fmt_err(Error::BusError(devices::BusError::Overlap));
-        check_fmt_err(Error::Cmdline(kernel_cmdline::Error::CommandLineCopy));
+        check_fmt_err(Error::Cmdline(linux_loader::cmdline::Error::TooLarge));
         check_fmt_err(Error::DeviceNotFound);
         check_fmt_err(Error::EventFd(io::Error::from_raw_os_error(0)));
         check_fmt_err(Error::IncorrectDeviceType);
