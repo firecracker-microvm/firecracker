@@ -154,7 +154,8 @@ class MicrovmBuilder:
                                     snapshot_path=jailed_vmstate,
                                     diff=enable_diff_snapshots,
                                     resume=resume)
-        assert vm.api_session.is_status_no_content(response.status_code)
+        assert vm.api_session.is_status_no_content(response.status_code), \
+            response.text
 
         # Reset root path so next microvm is built some place else.
         self.init_root_path()

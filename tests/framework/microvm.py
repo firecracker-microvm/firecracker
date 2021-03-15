@@ -551,7 +551,8 @@ class Microvm:
             mem_size_mib=mem_size_mib,
             track_dirty_pages=track_dirty_pages
         )
-        assert self._api_session.is_status_no_content(response.status_code)
+        assert self._api_session.is_status_no_content(response.status_code), \
+            response.text
 
         if self.memory_monitor:
             self.memory_monitor.guest_mem_mib = mem_size_mib
@@ -568,7 +569,8 @@ class Microvm:
                 initrd_path=self.create_jailed_resource(self.initrd_file))
 
         response = self.boot.put(**boot_source_args)
-        assert self._api_session.is_status_no_content(response.status_code)
+        assert self._api_session.is_status_no_content(response.status_code), \
+            response.text
 
         if add_root_device and self.rootfs_file != '':
             # Add the root file system with rw permissions.
@@ -578,7 +580,9 @@ class Microvm:
                 is_root_device=True,
                 is_read_only=False
             )
-            assert self._api_session.is_status_no_content(response.status_code)
+            assert self._api_session \
+                       .is_status_no_content(response.status_code), \
+                response.text
 
     def daemonize_jailer(
             self,
@@ -721,7 +725,8 @@ class Microvm:
             assert self.started is False
 
         response = self.actions.put(action_type='InstanceStart')
-        assert self._api_session.is_status_no_content(response.status_code)
+        assert self._api_session.is_status_no_content(response.status_code), \
+            response.text
 
         # Check that the VM has started
         try:
@@ -749,7 +754,8 @@ class Microvm:
                                         snapshot_path=snapshot_path,
                                         diff=diff,
                                         version=version)
-        assert self.api_session.is_status_no_content(response.status_code)
+        assert self.api_session.is_status_no_content(response.status_code), \
+            response.text
 
     def start_console_logger(self, log_fifo):
         """
