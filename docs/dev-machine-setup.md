@@ -102,9 +102,9 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
 1. Select a GCP project and zone
 
     ```console
-    $ FC_PROJECT = your_name-firecracker
-    $ FC_REGION = us-east1
-    $ FC_ZONE = us-east1-b
+    $ FC_PROJECT=your_name-firecracker
+    $ FC_REGION=us-east1
+    $ FC_ZONE=us-east1-b
     ```
 
     <details><summary>Click here for instructions to create a new project</summary>
@@ -125,7 +125,7 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
     </p>
     </details>
 
-    ```
+    ```console
     $ gcloud config set project ${FC_PROJECT}
     $ gcloud config set compute/region ${FC_REGION}
     $ gcloud config set compute/zone ${FC_ZONE}
@@ -138,27 +138,35 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
     so you should use a recent Linux distribution image - such as Ubuntu 18
     (used in the commands below), or equivalent.
 
-    ```
+    ```console
     $ FC_VDISK=disk-ub18
     $ FC_IMAGE=ub18-nested-kvm
-    $ gcloud compute disks create ${FC_VDISK}\
+    $ gcloud compute disks create ${FC_VDISK} \
     --image-project ubuntu-os-cloud --image-family ubuntu-1804-lts
-    $ gcloud compute images create ${FC_IMAGE} --source-disk ${FC_VDISK}\
-    --licenses "https://www.googleapis.com/compute/v1/projects/vm-options/global/licenses/enable-vmx"\
+    $ gcloud compute images create ${FC_IMAGE} --source-disk ${FC_VDISK} \
+    --licenses "https://www.googleapis.com/compute/v1/projects/vm-options/global/licenses/enable-vmx" \
     --source-disk-zone ${FC_ZONE}
     ```
 
 1. Now we create the VM:
 
-    ```
-    $ FC_VM = firecracker-vm
-    $ gcloud compute instances create ${FC_VM} --zone ${FC_ZONE}\
+    Keep in mind that you will need an instance type that supports nested
+    virtualization. `E2` and `N2D` instances will not work. If you want to use
+    a `N1` instance (default in some regions), make sure it uses at least a
+    processor of the `Haswell` architecture by specifying
+    `--min-cpu-platform="Intel Haswell"` when you create the instance.
+    Alternatively, use `N2` instances (such as with
+    `--machine-type="n2-standard-2").
+
+    ```console
+    $ FC_VM=firecracker-vm
+    $ gcloud compute instances create ${FC_VM} --zone ${FC_ZONE} \
     --image ${FC_IMAGE}
     ```
 
 1. Connect to the VM via SSH.
 
-    ```
+    ```console
     $ gcloud compute ssh ${FC_VM}
     ```
 
@@ -166,13 +174,13 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
     (you will be propmpted for a passphrase - can just keep it empty) and
     uploaded to GCE. Done! You should see the prompt of the new VM:
 
-    ```
+    ```console
     ubuntu@firecracker-vm:~$
     ```
 
 1. Verify that VMX is enabled, enable KVM
 
-    ```
+    ```console
     $ grep -cw vmx /proc/cpuinfo
     1
     $ sudo setfacl -m u:${USER}:rw /dev/kvm
@@ -198,7 +206,7 @@ In a nutshell, setting up a GCP account involves the following steps:
 
     ```console
     $ export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)"
-    $ echo "deb http://packages.cloud.google.com/apt $CLOUD_SDK_REPO main"\
+    $ echo "deb http://packages.cloud.google.com/apt $CLOUD_SDK_REPO main" \
     | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
     $ curl https://packages.cloud.google.com/apt/doc/apt-key.gpg \
     | sudo apt-key add -
