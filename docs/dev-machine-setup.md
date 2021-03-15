@@ -144,8 +144,8 @@ set up a Ubuntu-based VM on GCE with nested KVM enablement can be found in GCE
     $ gcloud compute disks create ${FC_VDISK} \
     --image-project ubuntu-os-cloud --image-family ubuntu-1804-lts
     $ gcloud compute images create ${FC_IMAGE} --source-disk ${FC_VDISK} \
-    --licenses "https://www.googleapis.com/compute/v1/projects/vm-options/global/licenses/enable-vmx" \
-    --source-disk-zone ${FC_ZONE}
+    --source-disk-zone ${FC_ZONE} \
+    --licenses "https://www.googleapis.com/compute/v1/projects/vm-options/global/licenses/enable-vmx"
     ```
 
 1. Now we create the VM:
