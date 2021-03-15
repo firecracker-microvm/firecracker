@@ -282,10 +282,7 @@ impl VsockEpollListener for VsockMuxer {
         debug!("vsock: muxer received kick");
 
         let mut epoll_events = vec![EpollEvent::new(EventSet::empty(), 0); 32];
-        match self
-            .epoll
-            .wait(epoll_events.len(), 0, epoll_events.as_mut_slice())
-        {
+        match self.epoll.wait(0, epoll_events.as_mut_slice()) {
             Ok(ev_cnt) => {
                 for ev in &epoll_events[0..ev_cnt] {
                     self.handle_event(

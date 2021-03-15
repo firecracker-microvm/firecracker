@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 libc = ">=0.2.39"
 serde = ">=1.0.27"
-vmm-sys-util = ">=0.6.1"
+vmm-sys-util = ">=0.8.0"
 
 net_gen = { path = "../net_gen" }
 

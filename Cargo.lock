@@ -707,7 +707,7 @@ dependencies = [
  "net_gen 0.1.0",
  "serde 1.0.118 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.60 (registry+https://github.com/rust-lang/crates.io-index)",
- "vmm-sys-util 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vmm-sys-util 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -788,6 +788,15 @@ dependencies = [
 [[package]]
 name = "vmm-sys-util"
 version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.2.81 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "vmm-sys-util"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -958,6 +967,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum versionize_derive 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "f67c253de6afad304491afbe93081a75f59632b47b0e5ab3214405441fe2c6a2"
 "checksum vm-memory 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "45b5b0a6f371f8147143b1adb95edddafc9cb9e40adaf94edb6f93a1d04b0330"
 "checksum vmm-sys-util 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d1cdd1d72e262bbfb014de65ada24c1ac50e10a2e3b1e8ec052df188c2ee5dfa"
+"checksum vmm-sys-util 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "01cf11afbc4ebc0d5c7a7748a77d19e2042677fc15faa2f4ccccb27c18a60605"
 "checksum walkdir 2.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "777182bc735b6424e1a57516d35ed72cb8019d85c8c9bf536dccb3445c1a2f7d"
 "checksum wasm-bindgen 0.2.69 (registry+https://github.com/rust-lang/crates.io-index)" = "3cd364751395ca0f68cafb17666eee36b63077fb5ecd972bbcd74c90c4bf736e"
 "checksum wasm-bindgen-backend 0.2.69 (registry+https://github.com/rust-lang/crates.io-index)" = "1114f89ab1f4106e5b55e688b828c0ab0ea593a1ea7c094b141b14cbaaec2d62"
