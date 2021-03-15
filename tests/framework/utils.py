@@ -280,6 +280,9 @@ class ExceptionAggregator(Exception):
 
     def has_any(self) -> bool:
         """Return whether there are failures or not."""
+        if len(self.failures) == 1:
+            return self.failures[0] != ""
+
         return len(self.failures) > 1
 
     def __str__(self):
