@@ -199,13 +199,12 @@ pub fn create_snapshot(
     params: &CreateSnapshotParams,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
+    // Fail early from invalid target version.
+    let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, &vmm)?;
+
     let microvm_state = vmm
         .save_state()
         .map_err(CreateSnapshotError::MicrovmState)?;
-
-    snapshot_memory_to_file(vmm, &params.mem_file_path, &params.snapshot_type)?;
-
-    let snapshot_data_version = get_snapshot_data_version(&params.version, &version_map, &vmm)?;
 
     snapshot_state_to_file(
         &microvm_state,
@@ -213,6 +212,8 @@ pub fn create_snapshot(
         snapshot_data_version,
         version_map,
     )?;
+
+    snapshot_memory_to_file(vmm, &params.mem_file_path, &params.snapshot_type)?;
 
     Ok(())
 }
