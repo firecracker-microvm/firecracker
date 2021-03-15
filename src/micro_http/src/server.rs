@@ -310,7 +310,7 @@ impl HttpServer {
         // current thread until at least one event is received.
         // The received notifications will then populate the `events` array with
         // `event_count` elements, where 1 <= event_count <= MAX_CONNECTIONS.
-        let event_count = match self.epoll.wait(MAX_CONNECTIONS, -1, &mut events[..]) {
+        let event_count = match self.epoll.wait(-1, &mut events[..]) {
             Ok(event_count) => event_count,
             Err(e) if e.raw_os_error() == Some(libc::EINTR) => 0,
             Err(e) => return Err(ServerError::IOError(e)),
@@ -468,7 +468,7 @@ impl HttpServer {
     /// // Control loop of the application.
     /// let mut events = Vec::with_capacity(10);
     /// loop {
-    ///     let num_ev = epoll.wait(10, -1, events.as_mut_slice());
+    ///     let num_ev = epoll.wait(-1, events.as_mut_slice());
     ///     for event in events {
     ///         match event.data() {
     ///             // The server notification.
