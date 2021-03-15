@@ -127,6 +127,7 @@ class MicrovmBuilder:
         vm = init_microvm(self.root_path, self.bin_cloner_path,
                           self._fc_binary, self._jailer_binary)
         vm.spawn(log_level='Info')
+        vm.api_session.untime()
 
         metrics_file_path = os.path.join(vm.path, 'metrics.log')
         metrics_fifo = log_tools.Fifo(metrics_file_path)
@@ -154,11 +155,18 @@ class MicrovmBuilder:
                                     snapshot_path=jailed_vmstate,
                                     diff=enable_diff_snapshots,
                                     resume=resume)
-        assert vm.api_session.is_status_no_content(response.status_code), \
-            response.text
+        status_ok = vm.api_session.is_status_no_content(response.status_code)
 
         # Reset root path so next microvm is built some place else.
         self.init_root_path()
+
+        # Verify response status and cleanup if needed before assert.
+        if not status_ok:
+            # Destroy VM here before we assert.
+            vm.kill()
+            del vm
+
+        assert status_ok, response.text
 
         # Return a resumed microvm.
         return vm, metrics_fifo

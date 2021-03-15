@@ -5,6 +5,8 @@
 import platform
 import pytest
 from framework.builder import SnapshotBuilder
+from framework.microvms import VMNano
+
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 # Firecracker v0.23 used 16 IRQ lines. For virtio devices,
@@ -132,3 +134,38 @@ def test_create_with_too_many_devices(test_microvm_with_ssh, network_config):
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Too many devices attached" in response.text
+
+
+def test_create_invalid_version(bin_cloner_path):
+    """Test scenario: create snapshot targeting invalid version."""
+    # Use a predefined vm instance.
+    test_microvm = VMNano.spawn(bin_cloner_path).vm
+    test_microvm.start()
+
+    try:
+        # Target an invalid Firecracker version string.
+        test_microvm.pause_to_snapshot(
+            mem_file_path="/vm.mem",
+            snapshot_path="/vm.vmstate",
+            diff=False,
+            version="invalid")
+    except AssertionError as error:
+        # Check if proper error is returned.
+        assert "Cannot translate microVM version to snapshot data version" in \
+            str(error)
+    else:
+        assert False, "Negative test failed"
+
+    try:
+        # Target a valid version string but with no snapshot support.
+        test_microvm.pause_to_snapshot(
+            mem_file_path="/vm.mem",
+            snapshot_path="/vm.vmstate",
+            diff=False,
+            version="0.22.0")
+    except AssertionError as error:
+        # Check if proper error is returned.
+        assert "Cannot translate microVM version to snapshot data version" in \
+            str(error)
+    else:
+        assert False, "Negative test failed"

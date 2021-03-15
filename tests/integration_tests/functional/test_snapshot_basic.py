@@ -414,3 +414,163 @@ def test_cmp_full_and_first_diff_mem(network_config,
                              ])
 
     test_matrix.run_test(_test_compare_mem_files)
+
+
+def test_negative_postload_api(bin_cloner_path):
+    """Test APIs fail after loading from snapshot."""
+    logger = logging.getLogger("snapshot_api_fail")
+
+    vm_builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = VMNano.spawn(bin_cloner_path, diff_snapshots=True)
+    basevm = vm_instance.vm
+    root_disk = vm_instance.disks[0]
+    ssh_key = vm_instance.ssh_key
+
+    basevm.start()
+    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
+
+    # Verify if guest can run commands.
+    exit_code, _, _ = ssh_connection.execute_command("sync")
+    assert exit_code == 0
+
+    logger.info("Create snapshot")
+    # Create a snapshot builder from a microvm.
+    snapshot_builder = SnapshotBuilder(basevm)
+
+    # Create base snapshot.
+    snapshot = snapshot_builder.create([root_disk.local_path()],
+                                       ssh_key,
+                                       SnapshotType.DIFF)
+
+    basevm.kill()
+
+    logger.info("Load snapshot, mem %s", snapshot.mem)
+    # Do not resume, just load, so we can still call APIs that work.
+    microvm, _ = vm_builder.build_from_snapshot(snapshot,
+                                                False,
+                                                True)
+    fail_msg = "The requested operation is not supported after starting " \
+        "the microVM"
+
+    try:
+        microvm.start()
+    except AssertionError as error:
+        assert fail_msg in str(error)
+    else:
+        assert False, "Negative test failed"
+
+    try:
+        microvm.basic_config()
+    except AssertionError as error:
+        assert fail_msg in str(error)
+    else:
+        assert False, "Negative test failed"
+
+    microvm.kill()
+
+
+def test_negative_snapshot_permissions(bin_cloner_path):
+    """Test missing permission error scenarios."""
+    logger = logging.getLogger("snapshot_negative")
+    vm_builder = MicrovmBuilder(bin_cloner_path)
+
+    # Use a predefined vm instance.
+    vm_instance = VMNano.spawn(bin_cloner_path)
+    basevm = vm_instance.vm
+    root_disk = vm_instance.disks[0]
+    ssh_key = vm_instance.ssh_key
+
+    basevm.start()
+
+    logger.info("Create snapshot")
+    # Create a snapshot builder from a microvm.
+    snapshot_builder = SnapshotBuilder(basevm)
+
+    disks = [root_disk.local_path()]
+
+    # Remove write permissions.
+    os.chmod(basevm.jailer.chroot_path(), 0o444)
+
+    try:
+        _ = snapshot_builder.create(disks,
+                                    ssh_key,
+                                    SnapshotType.FULL)
+    except AssertionError as error:
+        # Check if proper error is returned.
+        assert "Permission denied" in str(error)
+    else:
+        assert False, "Negative test failed"
+
+    # Restore proper permissions.
+    os.chmod(basevm.jailer.chroot_path(), 0o744)
+
+    # Create base snapshot.
+    snapshot = snapshot_builder.create(disks,
+                                       ssh_key,
+                                       SnapshotType.FULL)
+
+    logger.info("Load snapshot, mem %s", snapshot.mem)
+
+    basevm.kill()
+
+    # Remove permissions for mem file.
+    os.chmod(snapshot.mem, 0o000)
+
+    try:
+        _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
+    except AssertionError as error:
+        # Check if proper error is returned.
+        assert "Cannot open memory file: Permission denied" in str(error)
+    else:
+        assert False, "Negative test failed"
+
+    # Remove permissions for state file.
+    os.chmod(snapshot.vmstate, 0o000)
+
+    try:
+        _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
+    except AssertionError as error:
+        # Check if proper error is returned.
+        assert "Cannot open snapshot file: Permission denied" in str(error)
+    else:
+        assert False, "Negative test failed"
+
+    # Restore permissions for state file.
+    os.chmod(snapshot.vmstate, 0o744)
+    os.chmod(snapshot.mem, 0o744)
+
+    # Remove permissions for block file.
+    os.chmod(snapshot.disks[0], 0o000)
+
+    try:
+        _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
+    except AssertionError as error:
+        # Check if proper error is returned.
+        assert "Block(Os { code: 13, kind: PermissionDenied" in str(error)
+    else:
+        assert False, "Negative test failed"
+
+
+def test_negative_snapshot_create(bin_cloner_path):
+    """Test create snapshot before pause."""
+    vm_instance = VMNano.spawn(bin_cloner_path)
+    vm = vm_instance.vm
+
+    vm.start()
+
+    response = vm.snapshot.create(mem_file_path='memfile',
+                                  snapshot_path='statefile',
+                                  diff=False)
+
+    assert vm.api_session.is_status_bad_request(response.status_code)
+    assert "save/restore unavailable while running" in response.text
+
+    response = vm.vm.patch(state='Paused')
+    assert vm.api_session.is_status_no_content(response.status_code)
+
+    # Try diff with dirty pages tracking disabled.
+    response = vm.snapshot.create(mem_file_path='memfile',
+                                  snapshot_path='statefile',
+                                  diff=True)
+    assert "Cannot get dirty bitmap" in response.text
+    vm.kill()
