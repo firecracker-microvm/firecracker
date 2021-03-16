@@ -38,7 +38,10 @@ impl fmt::Display for BalloonConfigError {
         use self::BalloonConfigError::*;
         match self {
             DeviceNotFound => write!(f, "No balloon device found."),
-            DeviceNotActive => write!(f, "Device is inactive, check balloon driver is enabled."),
+            DeviceNotActive => write!(
+                f,
+                "Device is inactive, check if balloon driver is enabled in guest kernel."
+            ),
             InvalidStatsUpdate => write!(f, "Cannot enable/disable the statistics after boot."),
             TooManyPagesRequested => write!(f, "Amount of pages requested is too large."),
             StatsNotFound => write!(f, "Statistics for the balloon device are not enabled"),

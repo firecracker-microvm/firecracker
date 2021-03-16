@@ -98,12 +98,18 @@ def run_fio(env_id, basevm, ssh_conn, mode, bs):
     assert rc == 0, stderr.read()
     assert stderr.read() == ""
 
-    run_cmd("echo 3 > /proc/sys/vm/drop_caches")
-
+    # First, flush all guest cached data to host, then drop guest FS caches.
+    rc, _, stderr = ssh_conn.execute_command("sync")
+    assert rc == 0, stderr.read()
+    assert stderr.read() == ""
     rc, _, stderr = ssh_conn.execute_command(
         "echo 3 > /proc/sys/vm/drop_caches")
     assert rc == 0, stderr.read()
     assert stderr.read() == ""
+
+    # Then, flush all host cached data to hardware, also drop host FS caches.
+    run_cmd("sync")
+    run_cmd("echo 3 > /proc/sys/vm/drop_caches")
 
     # Start the CPU load monitor.
     with concurrent.futures.ThreadPoolExecutor() as executor:
