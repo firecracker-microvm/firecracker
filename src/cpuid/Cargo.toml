@@ -5,7 +5,7 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 
 [dependencies]
-kvm-bindings = { version = "0.3.0", features = ["fam-wrappers"] }
-kvm-ioctls = { version = "0.6.0" }
+kvm-bindings = { version = ">=0.4.0", features = ["fam-wrappers"] }
+kvm-ioctls = ">=0.8.0"
 
 utils = { path = "../utils"}

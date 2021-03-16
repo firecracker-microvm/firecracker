@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn test_process_cpuid() {
         let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
-        let mut cpuid = CpuId::new(0);
+        let mut cpuid = CpuId::new(0).unwrap();
         let entry = kvm_cpuid_entry2 {
             function: leaf_0xb::LEAF_NUM,
             index: 0,

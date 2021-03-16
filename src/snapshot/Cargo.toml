@@ -7,7 +7,7 @@ autobenches = false
 
 [dependencies]
 libc = "0.2"
-versionize = ">=0.1.4"
+versionize = ">=0.1.6"
 versionize_derive = ">=0.1.3"
 
 [dev-dependencies]

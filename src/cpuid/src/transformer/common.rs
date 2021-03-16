@@ -261,7 +261,7 @@ mod tests {
         let topoext_fn = get_topoext_fn();
 
         // check that it behaves correctly for TOPOEXT function
-        let mut cpuid = CpuId::new(1);
+        let mut cpuid = CpuId::new(1).unwrap();
         cpuid.as_mut_slice()[0].function = topoext_fn;
         assert!(use_host_cpuid_function(&mut cpuid, topoext_fn, true).is_ok());
         let entries = cpuid.as_mut_slice();
@@ -281,7 +281,7 @@ mod tests {
         let feature_info_fn = LEAF_NUM;
 
         // check that it behaves correctly for TOPOEXT function
-        let mut cpuid = CpuId::new(1);
+        let mut cpuid = CpuId::new(1).unwrap();
         cpuid.as_mut_slice()[0].function = feature_info_fn;
         assert!(use_host_cpuid_function(&mut cpuid, feature_info_fn, false).is_ok());
         let entries = cpuid.as_mut_slice();
@@ -298,7 +298,7 @@ mod tests {
     fn test_use_host_cpuid_function_err() {
         let topoext_fn = get_topoext_fn();
         // check that it returns Err when there are too many entriesentry.function == topoext_fn
-        let mut cpuid = CpuId::new(kvm_bindings::KVM_MAX_CPUID_ENTRIES);
+        let mut cpuid = CpuId::new(kvm_bindings::KVM_MAX_CPUID_ENTRIES).unwrap();
         match use_host_cpuid_function(&mut cpuid, topoext_fn, true) {
             Err(Error::FamError(utils::fam::Error::SizeLimitExceeded)) => {}
             _ => panic!("Wrong behavior"),

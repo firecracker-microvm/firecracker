@@ -143,7 +143,7 @@ mod tests {
     fn test_process_cpuid() {
         let num_entries = 5;
 
-        let mut cpuid = CpuId::new(num_entries);
+        let mut cpuid = CpuId::new(num_entries).unwrap();
         let vm_spec = VmSpec::new(0, 1, false);
         cpuid.as_mut_slice()[0].function = PROCESSED_FN;
         assert!(MockCpuidTransformer {}

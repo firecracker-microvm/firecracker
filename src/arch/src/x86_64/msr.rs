@@ -11,6 +11,8 @@ use kvm_ioctls::{Kvm, VcpuFd};
 #[derive(Debug)]
 /// MSR related errors.
 pub enum Error {
+    /// A FamStructWrapper operation has failed.
+    FamError(utils::fam::Error),
     /// Getting supported MSRs failed.
     GetSupportedModelSpecificRegisters(kvm_ioctls::Error),
     /// Setting up MSRs failed.
@@ -215,7 +217,7 @@ fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 pub fn setup_msrs(vcpu: &VcpuFd) -> Result<()> {
     let entry_vec = create_boot_msr_entries();
-    let msrs = Msrs::from_entries(&entry_vec);
+    let msrs = Msrs::from_entries(&entry_vec).map_err(Error::FamError)?;
     vcpu.set_msrs(&msrs)
         .map_err(Error::SetModelSpecificRegisters)
         .and_then(|msrs_written| {
@@ -271,7 +273,7 @@ mod tests {
             index: MSR_IA32_MISC_ENABLE,
             ..Default::default()
         }];
-        let mut kvm_msrs_wrapper = Msrs::from_entries(&test_kvm_msrs_entry);
+        let mut kvm_msrs_wrapper = Msrs::from_entries(&test_kvm_msrs_entry).unwrap();
 
         // Get_msrs() returns the number of msrs that it succeed in reading.
         // We only want to read one in this test case scenario.
