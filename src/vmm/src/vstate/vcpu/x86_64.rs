@@ -31,6 +31,8 @@ use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 pub enum Error {
     /// A call to cpuid instruction failed.
     CpuId(cpuid::Error),
+    /// A FamStructWrapper operation has failed.
+    FamError(utils::fam::Error),
     /// Error configuring the floating point related registers
     FPUConfiguration(arch::x86_64::regs::Error),
     /// Cannot set the local interruption due to bad configuration.
@@ -106,6 +108,7 @@ impl Display for Error {
                 e
             ),
             SREGSConfiguration(e) => write!(f, "Error configuring the special registers: {:?}", e),
+            FamError(e) => write!(f, "Failed FamStructWrapper operation: {:?}", e),
             FPUConfiguration(e) => write!(
                 f,
                 "Error configuring the floating point related registers: {:?}",
@@ -157,7 +160,7 @@ impl KvmVcpu {
     /// * `id` - Represents the CPU number between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     pub fn new(index: u8, vm: &Vm) -> Result<Self> {
-        let kvm_vcpu = vm.fd().create_vcpu(index).map_err(Error::VcpuFd)?;
+        let kvm_vcpu = vm.fd().create_vcpu(index.into()).map_err(Error::VcpuFd)?;
 
         Ok(KvmVcpu {
             index,
@@ -249,7 +252,7 @@ impl KvmVcpu {
 
         // Build the list of MSRs we want to save.
         let num_msrs = self.msr_list.as_fam_struct_ref().nmsrs as usize;
-        let mut msrs = Msrs::new(num_msrs);
+        let mut msrs = Msrs::new(num_msrs).map_err(Error::FamError)?;
         {
             let indices = self.msr_list.as_slice();
             let msr_entries = msrs.as_mut_slice();
@@ -404,8 +407,8 @@ mod tests {
     impl Default for VcpuState {
         fn default() -> Self {
             VcpuState {
-                cpuid: CpuId::new(1),
-                msrs: Msrs::new(1),
+                cpuid: CpuId::new(1).unwrap(),
+                msrs: Msrs::new(1).unwrap(),
                 debug_regs: Default::default(),
                 lapic: Default::default(),
                 mp_state: Default::default(),

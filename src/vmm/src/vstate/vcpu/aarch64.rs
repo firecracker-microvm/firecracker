@@ -71,7 +71,7 @@ impl KvmVcpu {
     /// * `id` - Represents the CPU number between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     pub fn new(index: u8, vm: &Vm) -> Result<Self> {
-        let kvm_vcpu = vm.fd().create_vcpu(index).map_err(Error::CreateFd)?;
+        let kvm_vcpu = vm.fd().create_vcpu(index.into()).map_err(Error::CreateFd)?;
 
         Ok(KvmVcpu {
             index,

@@ -24,6 +24,8 @@ pub enum Error {
     GetRegList(kvm_ioctls::Error),
     /// Failed to get a system register.
     GetSysRegister(kvm_ioctls::Error),
+    /// A FamStructWrapper operation has failed.
+    FamError(utils::fam::Error),
     /// Failed to set core register (PC, PSTATE or general purpose ones).
     SetCoreRegister(kvm_ioctls::Error, String),
     /// Failed to Set multiprocessor state.
@@ -37,21 +39,18 @@ type Result<T> = result::Result<T, Error>;
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Error::*;
+
         match *self {
-            self::Error::GetCoreRegister(ref e, ref desc) => {
-                write!(f, "Failed to get {} register: {}", desc, e)
-            }
-            self::Error::GetMP(ref e) => write!(f, "Failed to get multiprocessor state: {}", e),
-            self::Error::GetRegList(ref e) => {
-                write!(f, "Failed to retrieve list of registers: {}", e)
-            }
-            self::Error::GetSysRegister(ref e) => write!(f, "Failed to get system register: {}", e),
-            self::Error::SetCoreRegister(ref e, ref desc) => {
-                write!(f, "Failed to set {} register: {}", desc, e)
-            }
-            self::Error::SetMP(ref e) => write!(f, "Failed to set multiprocessor state: {}", e),
-            self::Error::SetRegister(ref e) => write!(f, "Failed to set register: {}", e),
-            self::Error::GetMidrEl1(ref e) => write!(f, "{}", e),
+            GetCoreRegister(ref e, ref desc) => write!(f, "Failed to get {} register: {}", desc, e),
+            GetMP(ref e) => write!(f, "Failed to get multiprocessor state: {}", e),
+            GetRegList(ref e) => write!(f, "Failed to retrieve list of registers: {}", e),
+            GetSysRegister(ref e) => write!(f, "Failed to get system register: {}", e),
+            SetCoreRegister(ref e, ref desc) => write!(f, "Failed to set {} register: {}", desc, e),
+            SetMP(ref e) => write!(f, "Failed to set multiprocessor state: {}", e),
+            SetRegister(ref e) => write!(f, "Failed to set register: {}", e),
+            GetMidrEl1(ref e) => write!(f, "{}", e),
+            FamError(ref e) => write!(f, "Failed FamStructWrapper operation: {:?}", e),
         }
     }
 }
@@ -393,7 +392,7 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Resul
 pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Result<()> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
     // around 500 registers.
-    let mut reg_list = RegList::new(512);
+    let mut reg_list = RegList::new(512).map_err(Error::FamError)?;
     vcpu.get_reg_list(&mut reg_list)
         .map_err(Error::GetRegList)?;
 
