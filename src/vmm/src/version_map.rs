@@ -26,7 +26,9 @@ lazy_static! {
     /// and snapshot data format version.
     pub static ref FC_VERSION_TO_SNAP_VERSION: HashMap<String, u16> = {
         let mut mapping = HashMap::new();
+        #[cfg(not(target_arch = "aarch64"))]
         mapping.insert(String::from("0.23.0"), 1);
+
         mapping.insert(String::from("0.24.0"), 2);
         mapping.insert(String::from("0.25.0"), 3);
 
