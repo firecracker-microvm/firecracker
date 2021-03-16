@@ -391,8 +391,8 @@ pub fn save_core_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Resul
 /// * `state` - Structure for returning the state of the system registers.
 pub fn save_system_registers(vcpu: &VcpuFd, state: &mut Vec<kvm_one_reg>) -> Result<()> {
     // Call KVM_GET_REG_LIST to get all registers available to the guest. For ArmV8 there are
-    // around 500 registers.
-    let mut reg_list = RegList::new(512).map_err(Error::FamError)?;
+    // less than 500 registers.
+    let mut reg_list = RegList::new(500).map_err(Error::FamError)?;
     vcpu.get_reg_list(&mut reg_list)
         .map_err(Error::GetRegList)?;
 
