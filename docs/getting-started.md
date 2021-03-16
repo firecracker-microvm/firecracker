@@ -84,10 +84,10 @@ Next, you will need an uncompressed Linux kernel binary, and an ext4
 file system image (to use as rootfs).
 
 1. To run an `x86_64` guest you can download such resources from:
-    [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/hello/kernel/hello-vmlinux.bin)
+    [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin)
     and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/hello/fsfiles/hello-rootfs.ext4).
 1. To run an `aarch64` guest, download them from:
-    [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/aarch64/ubuntu_with_ssh/kernel/vmlinux.bin)
+    [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/aarch64/kernels/vmlinux.bin)
     and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/aarch64/ubuntu_with_ssh/fsfiles/xenial.rootfs.ext4).
 
 Now, let's open up two shell prompts: one to run Firecracker, and another one
@@ -262,7 +262,7 @@ Get a copy of the Firecracker sources by cloning our GitHub repo:
 git clone https://github.com/firecracker-microvm/firecracker
 ```
 
-All development happens on the master branch and we use git tags to mark
+All development happens on the main branch and we use git tags to mark
 releases. If you are interested in a specific release (e.g. v0.10.1), you can
 check it out with:
 

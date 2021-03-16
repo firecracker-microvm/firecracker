@@ -292,7 +292,7 @@ impl MockSeccomp {
         )
     }
 
-    /// Blacklist KVM_RUN.
+    /// Deny KVM_RUN.
     pub fn without_kvm_run(mut self) -> Self {
         self.rules
             .insert(libc::SYS_ioctl, Self::ioctl_rule_without_kvm_run().1);

@@ -2623,6 +2623,7 @@ impl Clone for fr_proto_pvc {
 #[derive(Debug, Default, Copy)]
 pub struct fr_proto_pvc_info {
     pub dlci: ::std::os::raw::c_uint,
+    // TODO: rename this field to adopt inclusive language once Linux updates it, too.
     pub master: [::std::os::raw::c_char; 16usize],
 }
 #[test]
@@ -2717,7 +2718,9 @@ pub const net_device_flags_IFF_RUNNING: net_device_flags = 64;
 pub const net_device_flags_IFF_NOARP: net_device_flags = 128;
 pub const net_device_flags_IFF_PROMISC: net_device_flags = 256;
 pub const net_device_flags_IFF_ALLMULTI: net_device_flags = 512;
+// TODO: rename this constant to adopt inclusive language once Linux updates it, too.
 pub const net_device_flags_IFF_MASTER: net_device_flags = 1024;
+// TODO: rename this constant to adopt inclusive language once Linux updates it, too.
 pub const net_device_flags_IFF_SLAVE: net_device_flags = 2048;
 pub const net_device_flags_IFF_MULTICAST: net_device_flags = 4096;
 pub const net_device_flags_IFF_PORTSEL: net_device_flags = 8192;
@@ -3070,6 +3073,7 @@ pub struct ifreq__bindgen_ty_2 {
     pub ifru_ivalue: __BindgenUnionField<::std::os::raw::c_int>,
     pub ifru_mtu: __BindgenUnionField<::std::os::raw::c_int>,
     pub ifru_map: __BindgenUnionField<ifmap>,
+    // TODO: rename this field to adopt inclusive language once Linux updates it, too.
     pub ifru_slave: __BindgenUnionField<[::std::os::raw::c_char; 16usize]>,
     pub ifru_newname: __BindgenUnionField<[::std::os::raw::c_char; 16usize]>,
     pub ifru_data: __BindgenUnionField<*mut ::std::os::raw::c_void>,

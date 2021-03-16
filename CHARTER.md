@@ -31,6 +31,6 @@ All contributions must align with this charter and follow Firecracker's
 [contribution process](CONTRIBUTING.md).
 
 Firecracker [maintainers](MAINTAINERS.md) merge contributions into the
-master branch and create Firecracker releases. Maintainers are also
+main branch and create Firecracker releases. Maintainers are also
 subject to the mission and tenets outlined above. Anyone may submit
 and review contributions.

@@ -3,7 +3,7 @@
 The specifications below quantify Firecracker's promise to enable
 minimal-overhead execution of container and serverless workloads. These
 specifications are enforced by integration tests (that run for each PR and
-master branch merge).
+main branch merge).
 
 On an [M5D.metal instance][1] (with hyperthreading disabled) and an
 [M6G.metal instance][2] and given host system resources are available
