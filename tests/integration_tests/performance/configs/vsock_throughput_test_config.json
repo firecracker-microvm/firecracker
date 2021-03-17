@@ -28,33 +28,41 @@
   "measurements": {
     "throughput": {
       "unit": "Mbps",
-      "statistics": [{
-        "name": "total",
-        "function": "Sum",
-        "criteria": "EqualWith"
-      }]
+      "statistics": [
+        {
+          "name": "total",
+          "function": "Sum",
+          "criteria": "EqualWith"
+        }
+      ]
     },
     "duration": {
       "unit": "seconds",
-      "statistics": [{
-        "function": "Avg"
-      }]
+      "statistics": [
+        {
+          "function": "Avg"
+        }
+      ]
     },
     "cpu_utilization_vmm": {
       "unit": "percentage",
-      "statistics": [{
-        "name": "Avg",
-        "function": "ValuePlaceholder",
-        "criteria": "EqualWith"
-      }]
+      "statistics": [
+        {
+          "name": "Avg",
+          "function": "ValuePlaceholder",
+          "criteria": "EqualWith"
+        }
+      ]
     },
     "cpu_utilization_vcpus_total": {
       "unit": "percentage",
-      "statistics": [{
-        "name": "Avg",
-        "function": "ValuePlaceholder",
-        "criteria": "EqualWith"
-      }]
+      "statistics": [
+        {
+          "name": "Avg",
+          "function": "ValuePlaceholder",
+          "criteria": "EqualWith"
+        }
+      ]
     }
   },
   "hosts": {
@@ -266,7 +274,7 @@
                           "delta_percentage": 6
                         },
                         "vsock-p1024-h2g": {
-                          "target": 7,
+                          "target": 176,
                           "delta_percentage": 6
                         },
                         "vsock-p1024K-bd": {
