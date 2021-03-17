@@ -53,7 +53,9 @@ class DataParser(ABC):
 
         for cpu_model in self._data:
             baselines[cpu_model] = {
-                'model': cpu_model, **self._data[cpu_model]}
+                'model': cpu_model,
+                'baselines': self._data[cpu_model]
+            }
 
         temp_baselines = baselines
         baselines = []
