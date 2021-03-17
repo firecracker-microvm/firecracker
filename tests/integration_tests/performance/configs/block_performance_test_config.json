@@ -112,7 +112,7 @@
                         }
                       }
                     },
-                    "1vcpu_1024mb.json": {
+                    "2vcpu_1024mb.json": {
                       "Avg": {
                         "randrw-bs4096": {
                           "target": 65,

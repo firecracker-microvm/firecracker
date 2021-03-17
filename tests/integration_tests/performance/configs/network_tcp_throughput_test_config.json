@@ -31,40 +31,50 @@
   "measurements": {
     "throughput": {
       "unit": "Mbps",
-      "statistics": [{
-        "name": "total",
-        "function": "Sum",
-        "criteria": "EqualWith"
-      }]
+      "statistics": [
+        {
+          "name": "total",
+          "function": "Sum",
+          "criteria": "EqualWith"
+        }
+      ]
     },
     "duration": {
       "unit": "seconds",
-      "statistics": [{
-        "function": "Avg"
-      }]
+      "statistics": [
+        {
+          "function": "Avg"
+        }
+      ]
     },
     "retransmits": {
       "unit": "#",
-      "statistics": [{
-        "name": "total",
-        "function": "Sum"
-      }]
+      "statistics": [
+        {
+          "name": "total",
+          "function": "Sum"
+        }
+      ]
     },
     "cpu_utilization_vmm": {
       "unit": "percentage",
-      "statistics": [{
-        "name": "Avg",
-        "function": "ValuePlaceholder",
-        "criteria": "EqualWith"
-      }]
+      "statistics": [
+        {
+          "name": "Avg",
+          "function": "ValuePlaceholder",
+          "criteria": "EqualWith"
+        }
+      ]
     },
     "cpu_utilization_vcpus_total": {
       "unit": "percentage",
-      "statistics": [{
-        "name": "Avg",
-        "function": "ValuePlaceholder",
-        "criteria": "EqualWith"
-      }]
+      "statistics": [
+        {
+          "name": "Avg",
+          "function": "ValuePlaceholder",
+          "criteria": "EqualWith"
+        }
+      ]
     }
   },
   "hosts": {
@@ -228,8 +238,8 @@
                           "delta_percentage": 5
                         },
                         "tcp-p1024K-ws256K-g2h": {
-                          "target": 3,
-                          "delta_percentage": 4
+                          "target": 25913,
+                          "delta_percentage": 5
                         },
                         "tcp-p1024K-wsDEFAULT-g2h": {
                           "target": 28344,
