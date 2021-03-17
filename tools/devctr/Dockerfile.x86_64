@@ -71,9 +71,10 @@ RUN mkdir "$TMP_BUILD_DIR" \
         && rustup target add x86_64-unknown-linux-musl \
         && rustup component add rustfmt \
         && rustup component add clippy-preview \
+        && rustup install "stable" \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
-            && cargo install cargo-audit \
+            && cargo +"stable" install cargo-audit \
             && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
