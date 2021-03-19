@@ -12,7 +12,8 @@ use kvm_ioctls::{DeviceFd, VmFd};
 use super::layout;
 use gicv2::GICv2;
 use gicv3::GICv3;
-pub use regs::{restore_state, save_state, GicState};
+
+pub use gicv3::{restore_state, save_state, GicState};
 
 /// Errors thrown while setting up the GIC.
 #[derive(Debug)]
@@ -157,21 +158,6 @@ pub fn create_gic(vm: &VmFd, vcpu_count: u64) -> Result<Box<dyn GICDevice>> {
     GICv3::new(vm, vcpu_count).or_else(|_| GICv2::new(vm, vcpu_count))
 }
 
-/// Function that flushes
-/// RDIST pending tables into guest RAM.
-///
-/// The tables get flushed to guest RAM whenever the VM gets stopped.
-pub fn save_pending_tables(fd: &DeviceFd) -> Result<()> {
-    let init_gic_attr = kvm_bindings::kvm_device_attr {
-        group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL,
-        attr: u64::from(kvm_bindings::KVM_DEV_ARM_VGIC_SAVE_PENDING_TABLES),
-        addr: 0,
-        flags: 0,
-    };
-    fd.set_device_attr(&init_gic_attr)
-        .map_err(|e| Error::DeviceAttribute(e, true, kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL))
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -183,24 +169,5 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         assert!(create_gic(&vm, 1).is_ok());
-    }
-
-    #[test]
-    fn test_save_pending_tables() {
-        use std::os::unix::io::AsRawFd;
-
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).expect("Cannot create gic");
-        assert!(save_pending_tables(&gic.device_fd()).is_ok());
-
-        unsafe { libc::close(gic.device_fd().as_raw_fd()) };
-
-        let res = save_pending_tables(&gic.device_fd());
-        assert!(res.is_err());
-        assert_eq!(
-            format!("{:?}", res.unwrap_err()),
-            "DeviceAttribute(Error(9), true, 4)"
-        );
     }
 }
