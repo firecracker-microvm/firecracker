@@ -84,7 +84,9 @@ pub(crate) trait VgicRegEngine {
 
     fn group() -> u32;
 
-    fn mpidr_mask() -> u64;
+    fn mpidr_mask() -> u64 {
+        0
+    }
 
     fn kvm_device_attr(offset: u64, val: &mut Self::RegChunk, mpidr: u64) -> kvm_device_attr {
         kvm_device_attr {

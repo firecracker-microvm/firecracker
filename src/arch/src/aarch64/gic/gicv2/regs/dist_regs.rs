@@ -1,19 +1,20 @@
-// Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+
+use std::ops::Range;
+
+use kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS;
+use kvm_ioctls::DeviceFd;
 
 use crate::aarch64::gic::regs::{GicRegState, MmioReg, SimpleReg, VgicRegEngine};
 use crate::aarch64::gic::Result;
 use crate::{IRQ_BASE, IRQ_MAX};
-use kvm_bindings::KVM_DEV_ARM_VGIC_GRP_DIST_REGS;
-use kvm_ioctls::DeviceFd;
-use std::ops::Range;
 
-// Distributor registers as detailed at page 456 from
-// https://static.docs.arm.com/ihi0069/c/IHI0069C_gic_architecture_specification.pdf.
+// Distributor registers as detailed at page 75 from
+// https://developer.arm.com/documentation/ihi0048/latest/.
 // Address offsets are relative to the Distributor base address defined
 // by the system memory map.
 const GICD_CTLR: DistReg = DistReg::simple(0x0, 4);
-const GICD_STATUSR: DistReg = DistReg::simple(0x0010, 4);
 const GICD_IGROUPR: DistReg = DistReg::shared_irq(0x0080, 1);
 const GICD_ISENABLER: DistReg = DistReg::shared_irq(0x0100, 1);
 const GICD_ICENABLER: DistReg = DistReg::shared_irq(0x0180, 1);
@@ -23,27 +24,26 @@ const GICD_ISACTIVER: DistReg = DistReg::shared_irq(0x0300, 1);
 const GICD_ICACTIVER: DistReg = DistReg::shared_irq(0x0380, 1);
 const GICD_IPRIORITYR: DistReg = DistReg::shared_irq(0x0400, 8);
 const GICD_ICFGR: DistReg = DistReg::shared_irq(0x0C00, 2);
-const GICD_IROUTER: DistReg = DistReg::shared_irq(0x6000, 64);
+const GICD_CPENDSGIR: DistReg = DistReg::simple(0xF10, 16);
+const GICD_SPENDSGIR: DistReg = DistReg::simple(0xF20, 16);
 
 // List with relevant distributor registers that we will be restoring.
 // Order is taken from qemu.
 // Criteria for the present list of registers: only R/W registers, implementation specific registers are not saved.
-// GICD_CPENDSGIR and GICD_SPENDSGIR are not saved since these registers are not used when affinity routing is enabled.
-// Affinity routing GICv3 is enabled by default unless Firecracker clears the ICD_CTLR.ARE bit which it does not do.
 // NOTICE: Any changes to this structure require a snapshot version bump.
 static VGIC_DIST_REGS: &[DistReg] = &[
     GICD_CTLR,
-    GICD_STATUSR,
     GICD_ICENABLER,
     GICD_ISENABLER,
     GICD_IGROUPR,
-    GICD_IROUTER,
     GICD_ICFGR,
     GICD_ICPENDR,
     GICD_ISPENDR,
     GICD_ICACTIVER,
     GICD_ISACTIVER,
     GICD_IPRIORITYR,
+    GICD_CPENDSGIR,
+    GICD_SPENDSGIR,
 ];
 
 /// Some registers have variable lengths since they dedicate a specific number of bits to
@@ -145,7 +145,7 @@ mod tests {
         let res = get_dist_regs(&gic_fd.device_fd());
         assert!(res.is_ok());
         let state = res.unwrap();
-        assert_eq!(state.len(), 12);
+        assert_eq!(state.len(), 7);
         // Check GICD_CTLR size.
         assert_eq!(state[0].chunks.len(), 1);
 

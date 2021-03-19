@@ -3,7 +3,6 @@
 
 mod dist_regs;
 mod icc_regs;
-mod redist_regs;
 
 use kvm_ioctls::DeviceFd;
 
@@ -14,13 +13,10 @@ use crate::aarch64::gic::{
 
 /// Save the state of the GIC device.
 pub fn save_state(fd: &DeviceFd, mpidrs: &[u64]) -> Result<GicState> {
-    // Flush redistributors pending tables to guest RAM.
-    super::save_pending_tables(fd)?;
-
     let mut vcpu_states = Vec::with_capacity(mpidrs.len());
     for mpidr in mpidrs {
         vcpu_states.push(GicVcpuState {
-            rdist: redist_regs::get_redist_regs(fd, *mpidr)?,
+            rdist: Vec::new(),
             icc: icc_regs::get_icc_regs(fd, *mpidr)?,
         })
     }
@@ -39,7 +35,6 @@ pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<
         return Err(Error::InconsistentVcpuCount);
     }
     for (mpidr, vcpu_state) in mpidrs.iter().zip(&state.gic_vcpu_states) {
-        redist_regs::set_redist_regs(fd, *mpidr, &vcpu_state.rdist)?;
         icc_regs::set_icc_regs(fd, *mpidr, &vcpu_state.icc)?;
     }
 
@@ -65,7 +60,7 @@ mod tests {
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
-            "DeviceAttribute(Error(22), false, 5)"
+            "DeviceAttribute(Error(6), false, 2)"
         );
 
         let kvm = Kvm::new().unwrap();
@@ -91,7 +86,7 @@ mod tests {
         let gicd_statusr = &vm_state.dist[1];
 
         assert_eq!(gicd_statusr.chunks[0], val);
-        assert_eq!(vm_state.dist.len(), 12);
+        assert_eq!(vm_state.dist.len(), 7);
         assert!(restore_state(gic_fd, &mpidr, &vm_state).is_ok());
     }
 }

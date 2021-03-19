@@ -26,6 +26,7 @@ const GICR_IPRIORITYR0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0400, 32)
 const GICR_ICFGR0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0C00, 8);
 
 // List with relevant redistributor registers that we will be restoring.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 static VGIC_RDIST_REGS: &[SimpleReg] = &[
     GICR_CTLR,
     GICR_STATUSR,
@@ -35,6 +36,7 @@ static VGIC_RDIST_REGS: &[SimpleReg] = &[
 ];
 
 // List with relevant SGI associated redistributor registers that we will be restoring.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 static VGIC_SGI_REGS: &[SimpleReg] = &[
     GICR_IGROUPR0,
     GICR_ICENABLER0,
