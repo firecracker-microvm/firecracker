@@ -198,7 +198,7 @@ impl Vm {
         Ok(())
     }
 
-    /// Gets a reference to the irqchip of the VM
+    /// Gets a reference to the irqchip of the VM.
     #[cfg(target_arch = "aarch64")]
     pub fn get_irqchip(&self) -> &dyn GICDevice {
         self.irqchip_handle
@@ -269,20 +269,19 @@ impl Vm {
 
     #[cfg(target_arch = "aarch64")]
     pub fn save_state(&self, mpidrs: &[u64]) -> Result<VmState> {
-        let irqchip_handle = self.irqchip_handle.as_ref().unwrap().device_fd();
-
         Ok(VmState {
-            gic: arch::aarch64::gic::save_state(irqchip_handle, mpidrs).map_err(Error::SaveGic)?,
+            gic: self
+                .get_irqchip()
+                .save_device(mpidrs)
+                .map_err(Error::SaveGic)?,
         })
     }
 
     #[cfg(target_arch = "aarch64")]
     pub fn restore_state(&self, mpidrs: &[u64], state: &VmState) -> Result<()> {
-        let irqchip_handle = self.get_irqchip().device_fd();
-        arch::aarch64::gic::restore_state(irqchip_handle, mpidrs, &state.gic)
-            .map_err(Error::RestoreGic)?;
-
-        Ok(())
+        self.get_irqchip()
+            .restore_device(mpidrs, &state.gic)
+            .map_err(Error::RestoreGic)
     }
 
     pub(crate) fn set_kvm_memory_regions(
