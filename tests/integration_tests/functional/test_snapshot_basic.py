@@ -279,7 +279,7 @@ def test_5_full_snapshots(network_config,
     # - Rootfs: Ubuntu 18.04
     # - Microvm: 2vCPU with 512 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_256mb"))
     kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
