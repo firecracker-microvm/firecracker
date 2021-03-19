@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod regs;
+
 use std::{boxed::Box, result};
 
-use crate::aarch64::gic::{Error, GICDevice};
 use kvm_ioctls::DeviceFd;
-pub use regs::{restore_state, save_state, GicState};
+
+use crate::aarch64::gic::{Error, GICDevice, GicState};
+pub use regs::{restore_state, save_state};
 
 type Result<T> = result::Result<T, Error>;
 
@@ -88,6 +90,14 @@ impl GICDevice for GICv3 {
             ],
             vcpu_count,
         })
+    }
+
+    fn save_device(&self, mpidrs: &[u64]) -> Result<GicState> {
+        regs::save_state(&self.fd, mpidrs)
+    }
+
+    fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<()> {
+        regs::restore_state(&self.fd, mpidrs, state)
     }
 
     fn init_device_attributes(gic_device: &dyn GICDevice) -> Result<()> {
