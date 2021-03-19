@@ -64,7 +64,7 @@ impl SimpleReg {
             | (((op2 as u64) << KVM_REG_ARM64_SYSREG_OP2_SHIFT)
                 & KVM_REG_ARM64_SYSREG_OP2_MASK as u64);
 
-        SimpleReg { offset, size: 8 }
+        SimpleReg::new(offset, 8)
     }
 
     const fn sys_icc_ap0rn_el1(n: u64) -> SimpleReg {
