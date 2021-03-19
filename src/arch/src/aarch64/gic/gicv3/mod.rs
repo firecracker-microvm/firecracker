@@ -8,7 +8,6 @@ use std::{boxed::Box, result};
 use kvm_ioctls::DeviceFd;
 
 use crate::aarch64::gic::{Error, GICDevice, GicState};
-pub use regs::{restore_state, save_state};
 
 type Result<T> = result::Result<T, Error>;
 

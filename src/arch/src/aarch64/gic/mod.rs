@@ -13,7 +13,6 @@ use super::layout;
 use gicv2::GICv2;
 use gicv3::GICv3;
 
-pub use gicv3::{restore_state, save_state};
 pub use regs::GicState;
 
 /// Errors thrown while setting up the GIC.
