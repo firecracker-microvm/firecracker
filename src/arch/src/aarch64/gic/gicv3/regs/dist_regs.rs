@@ -131,7 +131,7 @@ pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[GicRegState<u32>]) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::aarch64::gic::create_gic;
+    use crate::aarch64::gic::{create_gic, GICVersion};
     use kvm_ioctls::Kvm;
     use std::os::unix::io::AsRawFd;
 
@@ -140,7 +140,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let _ = vm.create_vcpu(0).unwrap();
-        let gic_fd = create_gic(&vm, 1).expect("Cannot create gic");
+        let gic_fd = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
 
         let res = get_dist_regs(&gic_fd.device_fd());
         assert!(res.is_ok());

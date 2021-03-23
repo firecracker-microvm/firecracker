@@ -49,14 +49,14 @@ pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::aarch64::gic::create_gic;
+    use crate::aarch64::gic::{create_gic, GICVersion};
     use kvm_ioctls::Kvm;
 
     #[test]
     fn test_vm_save_restore_state() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).expect("Cannot create gic");
+        let gic = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
         let gic_fd = gic.device_fd();
 
         let mpidr = vec![1];
@@ -71,7 +71,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let _vcpu = vm.create_vcpu(0).unwrap();
-        let gic = create_gic(&vm, 1).expect("Cannot create gic");
+        let gic = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
         let gic_fd = gic.device_fd();
 
         let vm_state = save_state(gic_fd, &mpidr).unwrap();

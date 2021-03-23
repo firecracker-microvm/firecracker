@@ -696,7 +696,7 @@ mod tests {
         .collect();
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).unwrap();
+        let gic = create_gic(&vm, 1, None).unwrap();
         assert!(create_fdt(
             &mem,
             vec![0],
@@ -714,7 +714,7 @@ mod tests {
         let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).unwrap();
+        let gic = create_gic(&vm, 1, None).unwrap();
         let mut dtb = create_fdt(
             &mem,
             vec![0],
@@ -762,7 +762,7 @@ mod tests {
         let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).unwrap();
+        let gic = create_gic(&vm, 1, None).unwrap();
         let initrd = InitrdConfig {
             address: GuestAddress(0x1000_0000),
             size: 0x1000,

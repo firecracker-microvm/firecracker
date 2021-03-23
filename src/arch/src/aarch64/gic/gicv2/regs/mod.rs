@@ -44,29 +44,32 @@ pub fn restore_state(fd: &DeviceFd, mpidrs: &[u64], state: &GicState) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::aarch64::gic::create_gic;
+    use crate::aarch64::gic::{create_gic, GICVersion};
     use kvm_ioctls::Kvm;
 
     #[test]
     fn test_vm_save_restore_state() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).expect("Cannot create gic");
-        let gic_fd = gic.device_fd();
+        let gic_fd = match create_gic(&vm, 1, Some(GICVersion::GICV2)) {
+            Ok(gic_fd) => gic_fd,
+            Err(Error::CreateGIC(_)) => return,
+            _ => panic!("Failed to open setup GICv2"),
+        };
 
-        let mpidr = vec![1];
-        let res = save_state(gic_fd, &mpidr);
+        let mpidr = vec![0];
+        let res = save_state(&gic_fd.device_fd(), &mpidr);
         // We will receive an error if trying to call before creating vcpu.
         assert!(res.is_err());
         assert_eq!(
             format!("{:?}", res.unwrap_err()),
-            "DeviceAttribute(Error(6), false, 2)"
+            "DeviceAttribute(Error(22), false, 2)"
         );
 
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let _vcpu = vm.create_vcpu(0).unwrap();
-        let gic = create_gic(&vm, 1).expect("Cannot create gic");
+        let gic = create_gic(&vm, 1, Some(GICVersion::GICV2)).expect("Cannot create gic");
         let gic_fd = gic.device_fd();
 
         let vm_state = save_state(gic_fd, &mpidr).unwrap();

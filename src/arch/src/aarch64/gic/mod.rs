@@ -29,6 +29,14 @@ pub enum Error {
 }
 type Result<T> = result::Result<T, Error>;
 
+/// List of implemented GICs.
+pub enum GICVersion {
+    /// Legacy version.
+    GICV2,
+    /// GICV3 without ITS.
+    GICV3,
+}
+
 /// Trait for GIC devices.
 pub trait GICDevice {
     /// Returns the file descriptor of the GIC device
@@ -157,11 +165,20 @@ pub trait GICDevice {
 }
 
 /// Create a GIC device.
-///
-/// It will try to create by default a GICv3 device. If that fails it will try
-/// to fall-back to a GICv2 device.
-pub fn create_gic(vm: &VmFd, vcpu_count: u64) -> Result<Box<dyn GICDevice>> {
-    GICv3::new(vm, vcpu_count).or_else(|_| GICv2::new(vm, vcpu_count))
+
+/// If "version" parameter is "None" the function will try to create by default a GICv3 device.
+/// If that fails it will try to fall-back to a GICv2 device.
+/// If version is Some the function will try to create a device of exactly the specified version.
+pub fn create_gic(
+    vm: &VmFd,
+    vcpu_count: u64,
+    version: Option<GICVersion>,
+) -> Result<Box<dyn GICDevice>> {
+    match version {
+        Some(GICVersion::GICV2) => GICv2::new(vm, vcpu_count),
+        Some(GICVersion::GICV3) => GICv3::new(vm, vcpu_count),
+        None => GICv3::new(vm, vcpu_count).or_else(|_| GICv2::new(vm, vcpu_count)),
+    }
 }
 
 #[cfg(test)]
@@ -174,6 +191,6 @@ mod tests {
     fn test_create_gic() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        assert!(create_gic(&vm, 1).is_ok());
+        assert!(create_gic(&vm, 1, None).is_ok());
     }
 }
