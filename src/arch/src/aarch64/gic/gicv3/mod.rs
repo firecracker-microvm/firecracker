@@ -144,7 +144,7 @@ fn save_pending_tables(fd: &DeviceFd) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::aarch64::gic::create_gic;
+    use crate::aarch64::gic::{create_gic, GICVersion};
     use kvm_ioctls::Kvm;
 
     #[test]
@@ -153,7 +153,7 @@ mod tests {
 
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).expect("Cannot create gic");
+        let gic = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
         assert!(save_pending_tables(&gic.device_fd()).is_ok());
 
         unsafe { libc::close(gic.device_fd().as_raw_fd()) };

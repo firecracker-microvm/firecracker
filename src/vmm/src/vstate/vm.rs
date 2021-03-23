@@ -192,7 +192,7 @@ impl Vm {
     #[cfg(target_arch = "aarch64")]
     pub fn setup_irqchip(&mut self, vcpu_count: u8) -> Result<()> {
         self.irqchip_handle = Some(
-            arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into())
+            arch::aarch64::gic::create_gic(&self.fd, vcpu_count.into(), None)
                 .map_err(Error::VmCreateGIC)?,
         );
         Ok(())
