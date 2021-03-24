@@ -56,7 +56,7 @@ impl fmt::Display for Error {
 }
 
 /// Deserializable object representing a syscall rule.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SyscallRule {
     /// Name of the syscall.
@@ -87,7 +87,7 @@ impl SyscallRule {
 }
 
 /// Deserializable seccomp filter. Refers to one thread category.
-#[derive(Deserialize, PartialEq, Debug)]
+#[derive(Deserialize, PartialEq, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Filter {
     /// Default action if no rules match. e.g. `Kill` for an AllowList.
@@ -140,17 +140,30 @@ impl Compiler {
     }
 
     /// Main compilation function.
-    pub fn compile_blob(&self, filters: HashMap<String, Filter>) -> Result<BpfThreadMap> {
+    pub fn compile_blob(
+        &self,
+        filters: HashMap<String, Filter>,
+        is_basic: bool,
+    ) -> Result<BpfThreadMap> {
         self.validate_filters(&filters)?;
         let mut bpf_map = BpfThreadMap::new();
 
         for (thread_name, filter) in filters.into_iter() {
-            bpf_map.insert(
-                thread_name,
-                self.make_seccomp_filter(filter)?
-                    .try_into()
-                    .map_err(Error::SeccompFilter)?,
-            );
+            if is_basic {
+                bpf_map.insert(
+                    thread_name,
+                    self.make_basic_seccomp_filter(filter)?
+                        .try_into()
+                        .map_err(Error::SeccompFilter)?,
+                );
+            } else {
+                bpf_map.insert(
+                    thread_name,
+                    self.make_seccomp_filter(filter)?
+                        .try_into()
+                        .map_err(Error::SeccompFilter)?,
+                );
+            }
         }
         Ok(bpf_map)
     }
@@ -176,6 +189,33 @@ impl Compiler {
                 Some(conditions) => rule_accumulator.push(SeccompRule::new(conditions, action)),
                 None => rule_accumulator.push(SeccompRule::new(vec![], action)),
             };
+        }
+
+        SeccompFilter::new(rule_map, filter.default_action, self.arch.into())
+            .map_err(Error::SeccompFilter)
+    }
+
+    /// Transforms the deserialized `Filter` into a basic `SeccompFilter` (IR language).
+    /// This filter will drop any argument checks and any rule-level action.
+    /// All rules will trigger the filter-level `filter_action`.
+    fn make_basic_seccomp_filter(&self, filter: Filter) -> Result<SeccompFilter> {
+        let mut rule_map: SeccompRuleMap = SeccompRuleMap::new();
+        let filter_action = &filter.filter_action;
+
+        for syscall_rule in filter.filter {
+            let syscall_name = syscall_rule.syscall;
+            // Basic filters bypass the rule-level action and use the filter_action.
+            let action = filter_action.clone();
+            let syscall_nr = self
+                .syscall_table
+                .get_syscall_nr(&syscall_name)
+                .ok_or_else(|| Error::SyscallName(syscall_name.clone(), self.arch))?;
+
+            // If there is already an entry for this syscall, do nothing.
+            // Otherwise, insert an empty rule that triggers the filter_action.
+            rule_map
+                .entry(syscall_nr)
+                .or_insert_with(|| vec![SeccompRule::new(vec![], action)]);
         }
 
         SeccompFilter::new(rule_map, filter.default_action, self.arch.into())
@@ -324,6 +364,76 @@ mod tests {
     }
 
     #[test]
+    // Test the transformation of Filter objects into SeccompFilter objects.
+    // This `basic` alternative version of the make_seccomp_filter method drops argument checks
+    // and rule-level actions.
+    fn test_make_basic_seccomp_filter() {
+        let compiler = Compiler::new(ARCH.try_into().unwrap());
+        // Test a well-formed filter. Malformed filters are tested in test_compile_blob().
+        let filter = Filter::new(
+            SeccompAction::Trap,
+            SeccompAction::Allow,
+            vec![
+                SyscallRule::new("read".to_string(), Some(SeccompAction::Log), None),
+                SyscallRule::new(
+                    "futex".to_string(),
+                    Some(SeccompAction::Log),
+                    Some(vec![
+                        Cond::new(2, DWORD, Le, 65).unwrap(),
+                        Cond::new(1, QWORD, Ne, 80).unwrap(),
+                    ]),
+                ),
+                SyscallRule::new(
+                    "futex".to_string(),
+                    None,
+                    Some(vec![
+                        Cond::new(3, QWORD, Gt, 65).unwrap(),
+                        Cond::new(1, QWORD, Lt, 80).unwrap(),
+                    ]),
+                ),
+                SyscallRule::new(
+                    "futex".to_string(),
+                    None,
+                    Some(vec![Cond::new(3, QWORD, Ge, 65).unwrap()]),
+                ),
+                SyscallRule::new(
+                    "ioctl".to_string(),
+                    None,
+                    Some(vec![Cond::new(3, DWORD, MaskedEq(100), 65).unwrap()]),
+                ),
+            ],
+        );
+
+        // The expected IR.
+        let seccomp_filter = SeccompFilter::new(
+            vec![
+                match_syscall(
+                    compiler.syscall_table.get_syscall_nr("read").unwrap(),
+                    SeccompAction::Allow,
+                ),
+                match_syscall(
+                    compiler.syscall_table.get_syscall_nr("futex").unwrap(),
+                    SeccompAction::Allow,
+                ),
+                match_syscall(
+                    compiler.syscall_table.get_syscall_nr("ioctl").unwrap(),
+                    SeccompAction::Allow,
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            SeccompAction::Trap,
+            ARCH,
+        )
+        .unwrap();
+
+        assert_eq!(
+            compiler.make_basic_seccomp_filter(filter).unwrap(),
+            seccomp_filter
+        );
+    }
+
+    #[test]
     fn test_compile_blob() {
         let compiler = Compiler::new(ARCH.try_into().unwrap());
         // Test with malformed filters.
@@ -339,7 +449,7 @@ mod tests {
         );
 
         assert_eq!(
-            compiler.compile_blob(wrong_syscall_name_filters),
+            compiler.compile_blob(wrong_syscall_name_filters, false),
             Err(Error::SyscallName(
                 "wrong_syscall".to_string(),
                 compiler.arch
@@ -378,7 +488,11 @@ mod tests {
         // We don't test the BPF compilation in this module.
         // This is done in the seccomp/lib.rs module.
         // Here, we only test the (Filter -> SeccompFilter) transformations. (High-level -> IR)
-        assert!(compiler.compile_blob(correct_filters).is_ok());
+        assert!(compiler
+            .compile_blob(correct_filters.clone(), false)
+            .is_ok());
+        // Also test with basic filtering on.
+        assert!(compiler.compile_blob(correct_filters, true).is_ok());
     }
 
     #[test]
