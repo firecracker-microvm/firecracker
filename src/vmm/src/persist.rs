@@ -475,6 +475,8 @@ mod tests {
         default_kernel_cmdline, default_vmm, insert_balloon_device, insert_block_devices,
         insert_net_device, insert_vsock_device, CustomBlockConfig,
     };
+    #[cfg(target_arch = "aarch64")]
+    use crate::construct_kvm_mpidrs;
     use crate::memory_snapshot::SnapshotMemory;
     use crate::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
     use crate::vmm_config::balloon::BalloonDeviceConfig;
@@ -553,14 +555,16 @@ mod tests {
         assert!(states.balloon_device.is_some());
 
         let memory_state = vmm.guest_memory().describe();
-
+        let vcpu_states = vec![VcpuState::default()];
+        #[cfg(target_arch = "aarch64")]
+        let mpidrs = construct_kvm_mpidrs(&vcpu_states);
         let microvm_state = MicrovmState {
             device_states: states,
             memory_state,
-            vcpu_states: vec![VcpuState::default()],
+            vcpu_states,
             vm_info: VmInfo { mem_size_mib: 1u64 },
             #[cfg(target_arch = "aarch64")]
-            vm_state: vmm.vm.save_state(&[1]).unwrap(),
+            vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
         };
