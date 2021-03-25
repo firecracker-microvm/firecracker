@@ -236,7 +236,7 @@ pub fn build_arg_parser() -> ArgParser<'static> {
             Argument::new("node")
                 .required(false)
                 .takes_value(true)
-                .help("NUMA node to assign this microVM to."),
+                .help("NUMA node to assign this microVM too."),
         )
         .arg(
             Argument::new("uid")
