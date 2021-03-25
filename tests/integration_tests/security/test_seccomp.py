@@ -5,6 +5,7 @@
 import os
 import tempfile
 import platform
+import pytest
 
 from host_tools.cargo_build import run_seccompiler
 import framework.utils as utils
@@ -202,7 +203,7 @@ def test_advanced_seccomp(bin_seccomp_paths):
 
 
 def test_seccomp_applies_to_all_threads(test_microvm_with_api):
-    """Test all Firecracker threads get default seccomp level 2."""
+    """Test all Firecracker threads get default filters."""
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -229,3 +230,30 @@ def test_no_seccomp(test_microvm_with_api):
     test_microvm.start()
 
     utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "0")
+
+
+# The possible Firecracker --seccomp-level values.
+SECCOMP_LEVELS = ["0", "1", "2"]
+
+# Map FC seccomp-level to kernel seccomp-level.
+# Note that level 1 also maps to kernel level 2, which stands for
+# any custom BPF filter.
+KERNEL_LEVEL = {"0": "0", "1": "2", "2": "2"}
+
+
+@pytest.mark.parametrize(
+    "level",
+    SECCOMP_LEVELS
+)
+def test_seccomp_level(test_microvm_with_api, level):
+    """Test Firecracker --seccomp-level value."""
+    test_microvm = test_microvm_with_api
+    test_microvm.jailer.extra_args.update({"seccomp-level": level})
+    test_microvm.spawn()
+
+    test_microvm.basic_config()
+
+    test_microvm.start()
+
+    utils.assert_seccomp_level(
+        test_microvm.jailer_clone_pid, KERNEL_LEVEL[level])
