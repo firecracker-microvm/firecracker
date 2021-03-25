@@ -15,7 +15,8 @@
 
 - Changed Docker images repository from DockerHub to Amazon ECR.
 - Fixed off-by-one error in virtio-block descriptor address validation.
-- Removed the `--seccomp-level parameter`.
+- Deprecated the `--seccomp-level parameter`. It will be removed  in a future
+  release. Using it logs a runtime warning.
 - Experimental gnu libc builds no longer use a default seccomp filter.
 
 ## [0.24.0]
