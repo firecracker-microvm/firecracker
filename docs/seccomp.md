@@ -36,10 +36,15 @@ included in the respective release archive, viewable on the
 
 ## Custom filters (advanced users only)
 
-**Note**: This feature overrides the default filters and can be dangerous.
+**Note 1**: This feature overrides the default filters and can be dangerous.
 Filter misconfiguration can result in abruptly terminating the process or
 disabling the seccomp security boundary altogether.
 We recommend using the default filters instead.
+
+**Note 2**: The user is fully responsible for managing the filter files.
+We recommend using integrity checks whenever transferring/downloading files,
+for example checksums, as well as for the Firecracker binary or other artifacts,
+in order to mitigate potential man-in-the-middle attacks.
 
 Firecracker exposes a way for advanced users to override the default filters
 with fully customisable alternatives, leveraging the same JSON/seccompiler
