@@ -143,7 +143,7 @@ impl ApiServer {
     /// let (api_request_sender, _from_api) = channel();
     /// let (to_api, vmm_response_receiver) = channel();
     /// let mmds_info = MMDS.clone();
-    /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1));
+    /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
@@ -751,7 +751,7 @@ mod tests {
                 )
                 .bind_and_run(
                     PathBuf::from(api_thread_path_to_socket),
-                    ProcessTimeReporter::new(Some(1), Some(1)),
+                    ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                     SeccompFilter::empty().try_into().unwrap(),
                 )
                 .unwrap();

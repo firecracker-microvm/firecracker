@@ -287,13 +287,20 @@ pub struct ProcessTimeReporter {
     start_time_us: Option<u64>,
     // Process CPU start time in us.
     start_time_cpu_us: Option<u64>,
+    // Firecracker's parent process CPU time.
+    parent_cpu_time_us: Option<u64>,
 }
 
 impl ProcessTimeReporter {
-    pub fn new(start_time_us: Option<u64>, start_time_cpu_us: Option<u64>) -> ProcessTimeReporter {
+    pub fn new(
+        start_time_us: Option<u64>,
+        start_time_cpu_us: Option<u64>,
+        parent_cpu_time_us: Option<u64>,
+    ) -> ProcessTimeReporter {
         ProcessTimeReporter {
             start_time_us,
             start_time_cpu_us,
+            parent_cpu_time_us,
         }
     }
 
@@ -309,8 +316,9 @@ impl ProcessTimeReporter {
 
     pub fn report_cpu_start_time(&self) {
         if let Some(cpu_start_time) = self.start_time_cpu_us {
-            let delta_us =
-                utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - cpu_start_time;
+            let delta_us = utils::time::get_time_us(utils::time::ClockType::ProcessCpu)
+                - cpu_start_time
+                + self.parent_cpu_time_us.unwrap_or_default();
             METRICS
                 .api_server
                 .process_startup_time_cpu_us
