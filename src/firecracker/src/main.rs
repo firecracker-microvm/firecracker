@@ -94,6 +94,11 @@ fn main() {
                 .help("Process start CPU time (wall clock, microseconds). This parameter is optional."),
         )
         .arg(
+            Argument::new("parent-cpu-time-us")
+                .takes_value(true)
+                .help("Parent process CPU time (wall clock, microseconds). This parameter is optional."),
+        )
+        .arg(
             Argument::new("config-file")
                 .takes_value(true)
                 .help("Path to a file that contains the microVM configuration in JSON format."),
@@ -234,7 +239,14 @@ fn main() {
             s.parse::<u64>()
                 .expect("'start-time-cpu-us' parameter expected to be of 'u64' type.")
         });
-        let process_time_reporter = ProcessTimeReporter::new(start_time_us, start_time_cpu_us);
+
+        let parent_cpu_time_us = arguments.single_value("parent-cpu-time-us").map(|s| {
+            s.parse::<u64>()
+                .expect("'parent-cpu-time-us' parameter expected to be of 'u64' type.")
+        });
+
+        let process_time_reporter =
+            ProcessTimeReporter::new(start_time_us, start_time_cpu_us, parent_cpu_time_us);
         api_server_adapter::run_with_api(
             seccomp_filter,
             vmm_config_json,
