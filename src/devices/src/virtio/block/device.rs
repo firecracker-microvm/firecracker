@@ -63,6 +63,10 @@ impl DiskProperties {
         })
     }
 
+    pub fn file(&self) -> &File {
+        &self.file
+    }
+
     pub fn file_mut(&mut self) -> &mut File {
         &mut self.file
     }

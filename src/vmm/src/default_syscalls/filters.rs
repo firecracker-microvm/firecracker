@@ -56,6 +56,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     )?],
                 ],
             ),
+            allow_syscall(libc::SYS_fsync),
             #[cfg(target_env = "gnu")]
             allow_syscall(libc::SYS_getpid),
             allow_syscall(libc::SYS_getrandom),
