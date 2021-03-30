@@ -16,6 +16,8 @@
   is still recorded in metrics and logs.
 - Fixed ballooning API definitions by renaming all fields which mentioned "MB"
   to use "MiB" instead.
+- Snapshot related host files (vm-state, memory, block backing files) are now
+  flushed to their backing mediums as part of the CreateSnapshot operation.
 
 ### Changed
 
