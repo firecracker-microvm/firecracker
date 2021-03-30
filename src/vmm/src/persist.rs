@@ -8,7 +8,7 @@
 
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
-use std::io;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -105,12 +105,16 @@ pub enum CreateSnapshotError {
     Memory(memory_snapshot::Error),
     /// Failed to open memory backing file.
     MemoryBackingFile(io::Error),
+    /// Failed to flush memory backing file contents.
+    MemoryFileFlush(io::Error),
     /// Failed to save MicrovmState.
     MicrovmState(MicrovmStateError),
     /// Failed to serialize microVM state.
     SerializeMicrovmState(snapshot::Error),
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(io::Error),
+    /// Failed to flush the snapshot backing file.
+    SnapshotFileFlush(io::Error),
 }
 
 impl Display for CreateSnapshotError {
@@ -125,9 +129,11 @@ impl Display for CreateSnapshotError {
             InvalidVmState(err) => write!(f, "Cannot save Vm state. Error: {:?}", err),
             Memory(err) => write!(f, "Cannot write memory file: {:?}", err),
             MemoryBackingFile(err) => write!(f, "Cannot open memory file: {:?}", err),
+            MemoryFileFlush(err) => write!(f, "Cannot flush memory file contents: {:?}", err),
             MicrovmState(err) => write!(f, "Cannot save microvm state: {}", err),
             SerializeMicrovmState(err) => write!(f, "Cannot serialize MicrovmState: {:?}", err),
             SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {:?}", err),
+            SnapshotFileFlush(err) => write!(f, "Cannot flush snapshot file: {:?}", err),
         }
     }
 }
@@ -211,8 +217,8 @@ fn snapshot_state_to_file(
     snapshot
         .save(&mut snapshot_file, microvm_state)
         .map_err(SerializeMicrovmState)?;
-
-    Ok(())
+    snapshot_file.flush().map_err(SnapshotFileFlush)?;
+    snapshot_file.sync_all().map_err(SnapshotFileFlush)
 }
 
 fn snapshot_memory_to_file(
@@ -235,7 +241,9 @@ fn snapshot_memory_to_file(
 
     match snapshot_type {
         SnapshotType::Full => vmm.guest_memory().dump(&mut file).map_err(Memory),
-    }
+    }?;
+    file.flush().map_err(MemoryFileFlush)?;
+    file.sync_all().map_err(MemoryFileFlush)
 }
 
 pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
@@ -392,6 +400,9 @@ mod tests {
         let err = MemoryBackingFile(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
+        let err = MemoryFileFlush(io::Error::from_raw_os_error(0));
+        let _ = format!("{}{:?}", err, err);
+
         let err = MicrovmState(MicrovmStateError::UnexpectedVcpuResponse);
         let _ = format!("{}{:?}", err, err);
 
@@ -399,6 +410,9 @@ mod tests {
         let _ = format!("{}{:?}", err, err);
 
         let err = SnapshotBackingFile(io::Error::from_raw_os_error(0));
+        let _ = format!("{}{:?}", err, err);
+
+        let err = SnapshotFileFlush(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
     }
 
