@@ -73,6 +73,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     )?],
                 ],
             ),
+            allow_syscall(libc::SYS_fsync),
             // Used by glibc's tgkill
             #[cfg(target_env = "gnu")]
             allow_syscall(libc::SYS_getpid),
