@@ -7,7 +7,7 @@ use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use logger::warn;
+use logger::{error, warn};
 use rate_limiter::{persist::RateLimiterState, RateLimiter};
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
@@ -89,6 +89,11 @@ impl Persist<'_> for Block {
     type Error = io::Error;
 
     fn save(&self) -> Self::State {
+        // Sync data out to backing file on host.
+        if self.disk.file().sync_all().is_err() {
+            error!("Failed to sync block data on serialization.")
+        }
+        // Save device state.
         BlockState {
             id: self.id.clone(),
             partuuid: self.partuuid.clone(),
