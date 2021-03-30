@@ -1,8 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
 ### Changed
 
 - Changed Docker images repository from DockerHub to Amazon ECR.
+
+### Fixed
+
+- Snapshot related host files (vm-state, memory, block backing files) are now
+  flushed to their backing mediums as part of the CreateSnapshot operation.
 
 ## [0.24.2]
 
@@ -10,6 +17,8 @@
 
 - Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal
 is still recorded in metrics and logs.
+- Snapshot related host files (vm-state, memory, block backing files) are now
+  flushed to their backing mediums as part of the CreateSnapshot operation.
 
 ## [0.24.1]
 
