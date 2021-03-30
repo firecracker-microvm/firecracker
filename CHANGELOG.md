@@ -6,6 +6,11 @@
 
 - Changed Docker images repository from DockerHub to Amazon ECR.
 
+### Fixed
+
+- Snapshot related host files (vm-state, memory, block backing files) are now
+  flushed to their backing mediums as part of the CreateSnapshot operation.
+
 ## [0.23.3]
 
 ### Fixed
