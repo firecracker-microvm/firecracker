@@ -280,6 +280,45 @@ impl Serialize for SharedStoreMetric {
     }
 }
 
+/// Reporter object which computes the process wall time and
+/// process CPU time and populates the metric with the results.
+pub struct ProcessTimeReporter {
+    // Process start time in us.
+    start_time_us: Option<u64>,
+    // Process CPU start time in us.
+    start_time_cpu_us: Option<u64>,
+}
+
+impl ProcessTimeReporter {
+    pub fn new(start_time_us: Option<u64>, start_time_cpu_us: Option<u64>) -> ProcessTimeReporter {
+        ProcessTimeReporter {
+            start_time_us,
+            start_time_cpu_us,
+        }
+    }
+
+    pub fn report_start_time(&self) {
+        if let Some(start_time) = self.start_time_us {
+            let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
+            METRICS
+                .api_server
+                .process_startup_time_us
+                .store(delta_us as usize);
+        }
+    }
+
+    pub fn report_cpu_start_time(&self) {
+        if let Some(cpu_start_time) = self.start_time_cpu_us {
+            let delta_us =
+                utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - cpu_start_time;
+            METRICS
+                .api_server
+                .process_startup_time_cpu_us
+                .store(delta_us as usize);
+        }
+    }
+}
+
 // The following structs are used to define a certain organization for the set of metrics we
 // are interested in. Whenever the name of a field differs from its ideal textual representation
 // in the serialized form, we can use the #[serde(rename = "name")] attribute to, well, rename it.

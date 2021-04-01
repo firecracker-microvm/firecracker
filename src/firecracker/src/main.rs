@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::{Arc, Mutex};
 
-use logger::{error, info, IncMetric, LOGGER, METRICS};
+use logger::{error, info, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
 use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
 use utils::arg_parser::{ArgParser, Argument};
@@ -86,12 +86,12 @@ fn main() {
         .arg(
             Argument::new("start-time-us")
                 .takes_value(true)
-                .help("Process start time (wall clock, microseconds)."),
+                .help("Process start time (wall clock, microseconds). This parameter is optional."),
         )
         .arg(
             Argument::new("start-time-cpu-us")
                 .takes_value(true)
-                .help("Process start CPU time (wall clock, microseconds)."),
+                .help("Process start CPU time (wall clock, microseconds). This parameter is optional."),
         )
         .arg(
             Argument::new("config-file")
@@ -234,13 +234,13 @@ fn main() {
             s.parse::<u64>()
                 .expect("'start-time-cpu-us' parameter expected to be of 'u64' type.")
         });
+        let process_time_reporter = ProcessTimeReporter::new(start_time_us, start_time_cpu_us);
         api_server_adapter::run_with_api(
             seccomp_filter,
             vmm_config_json,
             bind_path,
             instance_info,
-            start_time_us,
-            start_time_cpu_us,
+            process_time_reporter,
             boot_timer_enabled,
         );
     } else {
