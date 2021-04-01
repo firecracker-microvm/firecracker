@@ -16,7 +16,7 @@ use std::{fmt, io};
 
 use crate::parsed_request::ParsedRequest;
 use logger::{
-    debug, error, info, update_metric_with_elapsed_time, IncMetric, StoreMetric, METRICS,
+    debug, error, info, update_metric_with_elapsed_time, IncMetric, ProcessTimeReporter, METRICS,
 };
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
@@ -126,6 +126,7 @@ impl ApiServer {
     /// };
     /// use utils::{eventfd::EventFd, tempfile::TempFile};
     /// use vmm::vmm_config::instance_info::InstanceInfo;
+    /// use logger::ProcessTimeReporter;
     ///
     /// let mut tmp_socket = TempFile::new().unwrap();
     /// tmp_socket.remove().unwrap();
@@ -142,6 +143,7 @@ impl ApiServer {
     /// let (api_request_sender, _from_api) = channel();
     /// let (to_api, vmm_response_receiver) = channel();
     /// let mmds_info = MMDS.clone();
+    /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1));
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
@@ -155,8 +157,7 @@ impl ApiServer {
     ///         )
     ///         .bind_and_run(
     ///             PathBuf::from(api_thread_path_to_socket),
-    ///             Some(1),
-    ///             Some(1),
+    ///             time_reporter,
     ///             SeccompFilter::empty().try_into().unwrap(),
     ///         )
     ///         .unwrap();
@@ -173,8 +174,7 @@ impl ApiServer {
     pub fn bind_and_run(
         &mut self,
         path: PathBuf,
-        start_time_us: Option<u64>,
-        start_time_cpu_us: Option<u64>,
+        process_time_reporter: ProcessTimeReporter,
         seccomp_filter: BpfProgram,
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|e| {
@@ -182,22 +182,10 @@ impl ApiServer {
             std::process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
         });
 
-        if let Some(start_time) = start_time_us {
-            let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
-            METRICS
-                .api_server
-                .process_startup_time_us
-                .store(delta_us as usize);
-        }
-
-        if let Some(cpu_start_time) = start_time_cpu_us {
-            let delta_us =
-                utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - cpu_start_time;
-            METRICS
-                .api_server
-                .process_startup_time_cpu_us
-                .store(delta_us as usize);
-        }
+        // Store process start time metric.
+        process_time_reporter.report_start_time();
+        // Store process CPU start time metric.
+        process_time_reporter.report_cpu_start_time();
 
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
@@ -415,6 +403,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use logger::StoreMetric;
     use micro_http::HttpConnection;
     use mmds::MMDS;
     use utils::tempfile::TempFile;
@@ -762,8 +751,7 @@ mod tests {
                 )
                 .bind_and_run(
                     PathBuf::from(api_thread_path_to_socket),
-                    Some(1),
-                    Some(1),
+                    ProcessTimeReporter::new(Some(1), Some(1)),
                     SeccompFilter::empty().try_into().unwrap(),
                 )
                 .unwrap();

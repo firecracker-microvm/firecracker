@@ -8,7 +8,8 @@ use std::sync::LockResult;
 
 pub use crate::logger::{LoggerError, LOGGER};
 pub use crate::metrics::{
-    IncMetric, MetricsError, SharedIncMetric, SharedStoreMetric, StoreMetric, METRICS,
+    IncMetric, MetricsError, ProcessTimeReporter, SharedIncMetric, SharedStoreMetric, StoreMetric,
+    METRICS,
 };
 pub use log::Level::*;
 pub use log::*;
