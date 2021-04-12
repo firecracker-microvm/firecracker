@@ -17,6 +17,7 @@ use kvm_bindings::{
 use kvm_bindings::{kvm_userspace_memory_region, KVM_API_VERSION, KVM_MEM_LOG_DIRTY_PAGES};
 use kvm_ioctls::{Kvm, VmFd};
 use serde::{Deserialize, Serialize};
+use std::os::unix::io::AsRawFd;
 
 #[cfg(target_arch = "aarch64")]
 use crate::arch::aarch64::gic::GICDevice;
@@ -132,7 +133,7 @@ pub struct Vm {
 /// Contains Vm functions that are usable across CPU architectures
 impl Vm {
     /// Constructs a new `Vm` using the given `Kvm` instance.
-    pub fn new(kvm_cap_modifiers: Vec<KvmCapability>) -> Result<Self, VmError> {
+    pub fn new(kvm_cap_modifiers: Vec<KvmCapability>) -> Result<(Self, VmFd), VmError> {
         let kvm = Kvm::new().map_err(VmError::Kvm)?;
 
         // Check that KVM has the correct version.
@@ -150,16 +151,10 @@ impl Vm {
         // Create fd for interacting with kvm-vm specific functions.
         let vm_fd = kvm.create_vm().map_err(VmError::VmFd)?;
 
-        #[cfg(target_arch = "aarch64")]
-        {
-            Ok(Vm {
-                fd: vm_fd,
-                max_memslots,
-                kvm_cap_modifiers,
-                irqchip_handle: None,
-            })
-        }
-
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let supported_cpuid = kvm
+            .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
+            .map_err(VmError::VmFd)?;
         #[cfg(target_arch = "x86_64")]
         {
             let supported_cpuid = kvm
@@ -167,13 +162,19 @@ impl Vm {
                 .map_err(VmError::VmFd)?;
             let msrs_to_save = crate::arch::x86_64::msr::get_msrs_to_save(&kvm)?;
 
-            Ok(Vm {
-                fd: vm_fd,
-                max_memslots,
-                kvm_cap_modifiers,
-                supported_cpuid,
-                msrs_to_save,
-            })
+            let rawfd = unsafe { libc::dup(vm_fd.as_raw_fd()) };
+            let extra_fd = unsafe { kvm.create_vmfd_from_rawfd(rawfd).unwrap() };
+    
+            Ok((
+                Vm {
+                    fd: vm_fd,
+                    max_memslots,
+                    kvm_cap_modifiers,
+                    supported_cpuid,
+                    msrs_to_save,
+                }, 
+                extra_fd
+            ))
         }
     }
 
@@ -468,6 +469,7 @@ impl fmt::Debug for VmState {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::cpu_config::templates::KvmCapability;
     #[cfg(target_arch = "x86_64")]
     use crate::snapshot::Snapshot;
     use crate::test_utils::single_region_mem;
@@ -477,7 +479,7 @@ pub(crate) mod tests {
     pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
         let gm = single_region_mem(mem_size);
 
-        let vm = Vm::new(vec![]).expect("Cannot create new vm");
+        let (vm, _) = Vm::new(vec![]).expect("Cannot create new vm");
         vm.memory_init(&gm, false).unwrap();
 
         (vm, gm)
@@ -509,7 +511,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_vm_memory_init() {
-        let vm = Vm::new(vec![]).expect("Cannot create new vm");
+        let (vm, _) = Vm::new(vec![]).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
         let gm = single_region_mem(0x1000);
@@ -519,7 +521,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vm_save_restore_state() {
-        let vm = Vm::new(vec![]).expect("new vm failed");
+        let (vm, _) = Vm::new(vec![]).expect("new vm failed");
         // Irqchips, clock and pitstate are not configured so trying to save state should fail.
         vm.save_state().unwrap_err();
 
@@ -587,7 +589,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_set_kvm_memory_regions() {
-        let vm = Vm::new(vec![]).expect("Cannot create new vm");
+        let (vm, _) = Vm::new(vec![]).expect("Cannot create new vm");
 
         let gm = single_region_mem(0x1000);
         let res = vm.set_kvm_memory_regions(&gm, false);

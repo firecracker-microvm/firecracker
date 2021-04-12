@@ -1,0 +1,22 @@
+[package]
+name = "pci"
+version = "0.1.0"
+authors = ["Samuel Ortiz <sameo@linux.intel.com>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0"
+byteorder = "1.4.3"
+vmm-sys-util = ">=0.3.1"
+libc = ">=0.2.39"
+log = { version = "0.4.22", features = ["std", "serde"] }
+vm-memory = { version = "0.16.1", features = ["backend-mmap", "backend-bitmap"] }
+vfio-ioctls = { git = "https://github.com/rust-vmm/vfio", branch = "main" }
+kvm-bindings = { version = "0.10.0", features = ["fam-wrappers"] }
+kvm-ioctls = "0.19.0"
+vm-device = { path = "../vm-device"}
+vm-system-allocator = { path = "../vm-system-allocator" }
+
+[dependencies.vfio-bindings]
+version = "0.2.0"
+features = ["fam-wrappers"]

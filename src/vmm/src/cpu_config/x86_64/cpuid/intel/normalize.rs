@@ -46,8 +46,8 @@ pub enum DeterministicCacheError {
 
 /// We always use this brand string.
 pub const DEFAULT_BRAND_STRING: &[u8; BRAND_STRING_LENGTH] =
-    b"Intel(R) Xeon(R) Processor\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
-pub const DEFAULT_BRAND_STRING_BASE: &[u8; 28] = b"Intel(R) Xeon(R) Processor @";
+    b"Intel(R) Xeon(R) Platinum 8259CL CPU\0\0\0\0\0\0\0\0\0\0\0\0";
+pub const DEFAULT_BRAND_STRING_BASE: &[u8; 38] = b"Intel(R) Xeon(R) Platinum 8259CL CPU @";
 
 // We use this 2nd implementation so we can conveniently define functions only used within
 // `normalize`.

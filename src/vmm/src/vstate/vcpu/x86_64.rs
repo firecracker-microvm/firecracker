@@ -634,14 +634,15 @@ impl Peripherals {
             VcpuExit::IoIn(addr, data) => {
                 if let Some(pio_bus) = &self.pio_bus {
                     let _metric = METRICS.vcpu.exit_io_in_agg.record_latency_metrics();
-                    pio_bus.read(u64::from(addr), data);
+                    if !pio_bus.read(u64::from(addr), data) {
+                        error!("Unhandled PIO read {:x}", addr);
+                    }
                     METRICS.vcpu.exit_io_in.inc();
                 }
                 Ok(VcpuEmulation::Handled)
             }
             VcpuExit::IoOut(addr, data) => {
                 if let Some(pio_bus) = &self.pio_bus {
-                    let _metric = METRICS.vcpu.exit_io_out_agg.record_latency_metrics();
                     pio_bus.write(u64::from(addr), data);
                     METRICS.vcpu.exit_io_out.inc();
                 }
@@ -1171,7 +1172,7 @@ mod tests {
         // Regression test for #4666
 
         let kvm = Kvm::new().unwrap();
-        let vm = Vm::new(Vec::new()).unwrap();
+        let (vm, _) = Vm::new(Vec::new()).unwrap();
         let vcpu = KvmVcpu::new(0, &vm).unwrap();
 
         // The list of supported MSR indices, in the order they were returned by KVM

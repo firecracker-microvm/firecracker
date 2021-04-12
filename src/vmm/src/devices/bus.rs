@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 /// Errors triggered during bus operations.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum BusError {
-    /// New device overlaps with an old device.
+    /// The insertion failed because the new device overlapped with an old device.
     Overlap,
 }
 
@@ -51,10 +51,12 @@ pub struct Bus {
 }
 
 use event_manager::{EventOps, Events, MutEventSubscriber};
+use pci::{PciDevice, VfioPciDevice};
 
 #[cfg(target_arch = "aarch64")]
 use super::legacy::RTCDevice;
 use super::legacy::{I8042Device, SerialDevice};
+use super::pci::{PciConfigIo, PciConfigMmio, PciRoot};
 use super::pseudo::BootTimer;
 use super::virtio::mmio::MmioTransport;
 
@@ -66,6 +68,10 @@ pub enum BusDevice {
     BootTimer(BootTimer),
     MmioTransport(MmioTransport),
     Serial(SerialDevice<std::io::Stdin>),
+    PciRoot(PciRoot),
+    PioPciBus(PciConfigIo),
+    MmioPciBus(PciConfigMmio),
+    VfioPciDevice(VfioPciDevice),
     #[cfg(test)]
     Dummy(DummyDevice),
     #[cfg(test)]
@@ -165,8 +171,68 @@ impl BusDevice {
             _ => None,
         }
     }
+    pub fn vfio_pci_device_ref(&self) -> Option<&VfioPciDevice> {
+        match self {
+            Self::VfioPciDevice(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn vfio_pci_device_mut(&mut self) -> Option<&mut VfioPciDevice> {
+        match self {
+            Self::VfioPciDevice(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn pci_device_ref(&self) -> Option<&dyn PciDevice> {
+        match self {
+            Self::VfioPciDevice(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn pci_device_mut(&mut self) -> Option<&mut dyn PciDevice> {
+        match self {
+            Self::VfioPciDevice(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn pci_config_io_ref(&self) -> Option<&PciConfigIo> {
+        match self {
+            Self::PioPciBus(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn pci_config_io_mut(&mut self) -> Option<&mut PciConfigIo> {
+        match self {
+            Self::PioPciBus(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn pci_config_mmio_ref(&self) -> Option<&PciConfigMmio> {
+        match self {
+            Self::MmioPciBus(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn pci_config_mmio_mut(&mut self) -> Option<&mut PciConfigMmio> {
+        match self {
+            Self::MmioPciBus(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn pci_root_ref(&self) -> Option<&PciRoot> {
+        match self {
+            Self::PciRoot(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn pci_root_mut(&mut self) -> Option<&mut PciRoot> {
+        match self {
+            Self::PciRoot(x) => Some(x),
+            _ => None,
+        }
+    }
 
-    pub fn read(&mut self, offset: u64, data: &mut [u8]) {
+    pub fn read(&mut self, base: u64, offset: u64, data: &mut [u8]) {
         match self {
             Self::I8042Device(x) => x.bus_read(offset, data),
             #[cfg(target_arch = "aarch64")]
@@ -174,6 +240,10 @@ impl BusDevice {
             Self::BootTimer(x) => x.bus_read(offset, data),
             Self::MmioTransport(x) => x.bus_read(offset, data),
             Self::Serial(x) => x.bus_read(offset, data),
+            Self::VfioPciDevice(x) => x.bus_read(base, offset, data),
+            Self::MmioPciBus(x) => x.bus_read(base, offset, data),
+            Self::PioPciBus(x) => x.bus_read(base, offset, data),
+            Self::PciRoot(x) => (),
             #[cfg(test)]
             Self::Dummy(x) => x.bus_read(offset, data),
             #[cfg(test)]
@@ -181,7 +251,7 @@ impl BusDevice {
         }
     }
 
-    pub fn write(&mut self, offset: u64, data: &[u8]) {
+    pub fn write(&mut self, base: u64, offset: u64, data: &[u8]) {
         match self {
             Self::I8042Device(x) => x.bus_write(offset, data),
             #[cfg(target_arch = "aarch64")]
@@ -189,6 +259,10 @@ impl BusDevice {
             Self::BootTimer(x) => x.bus_write(offset, data),
             Self::MmioTransport(x) => x.bus_write(offset, data),
             Self::Serial(x) => x.bus_write(offset, data),
+            Self::VfioPciDevice(x) => x.bus_write(base, offset, data),
+            Self::MmioPciBus(x) => x.bus_write(base, offset, data),
+            Self::PioPciBus(x) => x.bus_write(base, offset, data),
+            Self::PciRoot(x) => (),
             #[cfg(test)]
             Self::Dummy(x) => x.bus_write(offset, data),
             #[cfg(test)]
@@ -230,12 +304,11 @@ impl Bus {
         None
     }
 
-    /// Returns the device found at some address.
-    pub fn get_device(&self, addr: u64) -> Option<(u64, &Mutex<BusDevice>)> {
+    pub fn get_device(&self, addr: u64) -> Option<(u64, u64, &Mutex<BusDevice>)> {
         if let Some((BusRange(start, len), dev)) = self.first_before(addr) {
             let offset = addr - start;
             if offset < len {
-                return Some((offset, dev));
+                return Some((start, offset, dev));
             }
         }
         None
@@ -280,11 +353,11 @@ impl Bus {
     ///
     /// Returns true on success, otherwise `data` is untouched.
     pub fn read(&self, addr: u64, data: &mut [u8]) -> bool {
-        if let Some((offset, dev)) = self.get_device(addr) {
+        if let Some((base, offset, dev)) = self.get_device(addr) {
             // OK to unwrap as lock() failing is a serious error condition and should panic.
             dev.lock()
                 .expect("Failed to acquire device lock")
-                .read(offset, data);
+                .read(base, offset, data);
             true
         } else {
             false
@@ -295,11 +368,11 @@ impl Bus {
     ///
     /// Returns true on success, otherwise `data` is untouched.
     pub fn write(&self, addr: u64, data: &[u8]) -> bool {
-        if let Some((offset, dev)) = self.get_device(addr) {
+        if let Some((base, offset, dev)) = self.get_device(addr) {
             // OK to unwrap as lock() failing is a serious error condition and should panic.
             dev.lock()
                 .expect("Failed to acquire device lock")
-                .write(offset, data);
+                .write(base, offset, data);
             true
         } else {
             false

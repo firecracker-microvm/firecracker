@@ -112,6 +112,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.93"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c95c10ba0b00a02636238b814946408b1322d5ac4760326e6fb8ec956d85775"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -211,7 +217,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "lazy_static",
  "lazycell",
  "log",
@@ -785,6 +791,15 @@ dependencies = [
 
 [[package]]
 name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
@@ -794,9 +809,9 @@ dependencies = [
 
 [[package]]
 name = "itoa"
-version = "1.0.11"
+version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
+checksum = "540654e97a3f4470a492cd30ff187bc95d89557a903a2bbf112e2fae98104ef2"
 
 [[package]]
 name = "jailer"
@@ -1029,6 +1044,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
+name = "pci"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "kvm-bindings",
+ "kvm-ioctls",
+ "libc",
+ "log",
+ "vfio-bindings 0.2.0",
+ "vfio-ioctls",
+ "vm-device",
+ "vm-memory",
+ "vm-system-allocator",
+ "vmm-sys-util",
+]
+
+[[package]]
 name = "peeking_take_while"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1067,9 +1100,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.89"
+version = "1.0.91"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f139b0662de085916d1fb67d2b4169d1addddda1919e696f3252b740b629986e"
+checksum = "307e3004becf10f5a6e0d59d20f3cd28231b0e0827a96cd3e0ce6d14bc1e4bb3"
 dependencies = [
  "unicode-ident",
 ]
@@ -1187,9 +1220,9 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustix"
-version = "0.38.40"
+version = "0.38.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99e4ea3e1cdc4b559b8e5650f9c8e5998e3e5c1343b4eaf034565f32318d63c0"
+checksum = "d7f649912bc1495e167a6edee79151c84b1bad49748cb4f1f1167f459f6224f6"
 dependencies = [
  "bitflags 2.6.0",
  "errno",
@@ -1323,9 +1356,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
-version = "2.0.87"
+version = "2.0.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25aa4ce346d03a6dcd68dd8b4010bcb74e54e62c90c573f394c46eae99aba32d"
+checksum = "44d46482f1c1c87acd84dea20c1bf5ebff4c757009ed6bf19cfd36fb10e92c4e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1439,9 +1472,9 @@ checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.13"
+version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91b56cd4cadaeb79bbf1a5645f6b4f8dc5bde8834ad5894a8db35fda9efa1fe"
+checksum = "adb9e6ca4f869e1180728b7950e35922a7fc6397f7b641499e8f3ef06e50dc83"
 
 [[package]]
 name = "unicode-xid"
@@ -1540,6 +1573,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "vfio-bindings"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a21f546f2bda37f5a8cfb138c87f95b8e34d2d78d6a7a92ba3785f4e08604a7"
+dependencies = [
+ "vmm-sys-util",
+]
+
+[[package]]
+name = "vfio-bindings"
+version = "0.4.0"
+source = "git+https://github.com/rust-vmm/vfio?branch=main#b135b8305c2cc8ec333e0cf77a780445cc98dcee"
+
+[[package]]
+name = "vfio-ioctls"
+version = "0.2.0"
+source = "git+https://github.com/rust-vmm/vfio?branch=main#b135b8305c2cc8ec333e0cf77a780445cc98dcee"
+dependencies = [
+ "byteorder",
+ "kvm-bindings",
+ "kvm-ioctls",
+ "libc",
+ "log",
+ "thiserror 1.0.69",
+ "vfio-bindings 0.4.0",
+ "vm-memory",
+ "vmm-sys-util",
+]
+
+[[package]]
 name = "vhost"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1560,6 +1623,20 @@ checksum = "5e4ce718bd4e8d74b1747363e27f715a6b1bd6971597cb21425dadbf4e712241"
 dependencies = [
  "libc",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "vm-device"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "thiserror 1.0.69",
+ "vfio-ioctls",
+ "vm-memory",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1586,6 +1663,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3428ee25acbfc75ed14600f2043876e0889cbd57c39dd441191417377cdceda0"
 
 [[package]]
+name = "vm-system-allocator"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "vm-memory",
+]
+
+[[package]]
 name = "vmm"
 version = "0.1.0"
 dependencies = [
@@ -1596,6 +1681,7 @@ dependencies = [
  "base64",
  "bincode",
  "bitflags 2.6.0",
+ "byteorder",
  "crc64",
  "criterion",
  "derive_more",
@@ -1614,6 +1700,7 @@ dependencies = [
  "log-instrument",
  "memfd",
  "micro_http",
+ "pci",
  "proptest",
  "seccompiler",
  "semver",
@@ -1624,11 +1711,14 @@ dependencies = [
  "timerfd",
  "userfaultfd",
  "utils",
+ "vfio-ioctls",
  "vhost",
  "vm-allocator",
+ "vm-device",
  "vm-fdt",
  "vm-memory",
  "vm-superio",
+ "vm-system-allocator",
  "vmm-sys-util",
  "zerocopy 0.8.10",
 ]

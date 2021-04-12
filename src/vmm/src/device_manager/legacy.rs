@@ -39,6 +39,7 @@ pub struct PortIODeviceManager {
     pub stdio_serial: Arc<Mutex<BusDevice>>,
     // BusDevice::I8042Device
     pub i8042: Arc<Mutex<BusDevice>>,
+    pub pci_bus: Arc<Mutex<BusDevice>>,
 
     // Communication event on ports 1 & 3.
     pub com_evt_1_3: EventFdTrigger,
@@ -75,6 +76,7 @@ impl PortIODeviceManager {
     pub fn new(
         serial: Arc<Mutex<BusDevice>>,
         i8042_reset_evfd: EventFd,
+        pci_bus: Arc<Mutex<BusDevice>>,
     ) -> Result<Self, LegacyDeviceError> {
         debug_assert!(matches!(*serial.lock().unwrap(), BusDevice::Serial(_)));
         let io_bus = crate::devices::Bus::new();
@@ -97,6 +99,7 @@ impl PortIODeviceManager {
             io_bus,
             stdio_serial: serial,
             i8042,
+            pci_bus,
             com_evt_1_3,
             com_evt_2_4,
             kbd_evt,
@@ -125,6 +128,11 @@ impl PortIODeviceManager {
             ),
             input: None,
         })));
+        self.io_bus.insert(
+                self.pci_bus.clone(),
+                0xcf8,
+                0x8
+            )?;
         self.io_bus.insert(
             self.stdio_serial.clone(),
             Self::SERIAL_PORT_ADDRESSES[0],
@@ -244,13 +252,14 @@ impl PortIODeviceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::devices::bus::DummyDevice;
     use crate::test_utils::single_region_mem;
     use crate::Vm;
 
     #[test]
     fn test_register_legacy_devices() {
         let guest_mem = single_region_mem(0x1000);
-        let mut vm = Vm::new(vec![]).unwrap();
+        let (mut vm, _) = Vm::new(vec![]).unwrap();
         vm.memory_init(&guest_mem, false).unwrap();
         crate::builder::setup_interrupt_controller(&mut vm).unwrap();
         let mut ldm = PortIODeviceManager::new(
@@ -265,6 +274,7 @@ mod tests {
                 input: None,
             }))),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
+            Arc::new(Mutex::new(BusDevice::Dummy(DummyDevice{})))
         )
         .unwrap();
         ldm.register_devices(vm.fd()).unwrap();

@@ -66,3 +66,22 @@ pub const SYSTEM_MEM_START: u64 = 0x9fc00;
 /// 257KiB is more than we need, however we reserve this space for potential future use of
 /// ACPI features (new tables and/or devices).
 pub const SYSTEM_MEM_SIZE: u64 = RSDP_ADDR - SYSTEM_MEM_START;
+
+// ** 32-bit reserved area (start: 3GiB, length: 1GiB) **
+/// MEM_32BIT_RESERVED_START
+pub const MEM_32BIT_RESERVED_START: u64 = 0xc000_0000;
+
+/// MEM_32BIT_RESERVED_SIZE
+pub const MEM_32BIT_RESERVED_SIZE: u64 = 1024 << 20;
+
+// Sub range: 32-bit PCI devices (start: 3GiB, length: 640Mib)
+/// MEM_32BIT_DEVICES_START
+pub const MEM_32BIT_DEVICES_START: u64 = MEM_32BIT_RESERVED_START;
+/// MEM_32BIT_DEVICES_SIZE
+pub const MEM_32BIT_DEVICES_SIZE: u64 = 640 << 20;
+
+// PCI MMCONFIG space (start: after the device space, length: 256MiB)
+/// PCI_MMCONFIG_START
+pub const PCI_MMCONFIG_START: u64 = MEM_32BIT_DEVICES_START + MEM_32BIT_DEVICES_SIZE;
+/// PCI_MMCONFIG_SIZE
+pub const PCI_MMCONFIG_SIZE: u64 = 256 << 20;

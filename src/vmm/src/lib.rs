@@ -110,6 +110,7 @@ pub mod utils;
 pub mod vmm_config;
 /// Module with virtual state structs.
 pub mod vstate;
+pub mod interrupt;
 
 use std::collections::HashMap;
 use std::io;
@@ -153,6 +154,7 @@ use crate::vstate::memory::{
 use crate::vstate::vcpu::VcpuState;
 pub use crate::vstate::vcpu::{Vcpu, VcpuConfig, VcpuEvent, VcpuHandle, VcpuResponse};
 pub use crate::vstate::vm::Vm;
+use kvm_bindings::{kvm_irq_routing, kvm_irq_routing_entry as IrqRoutingEntry};
 
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
@@ -856,6 +858,38 @@ impl Vmm {
         &self.vm
     }
 }
+
+// Returns a `Vec<T>` with a size in bytes at least as large as `size_in_bytes`.
+fn vec_with_size_in_bytes<T: Default>(size_in_bytes: usize) -> Vec<T> {
+    let rounded_size = (size_in_bytes + size_of::<T>() - 1) / size_of::<T>();
+    let mut v = Vec::with_capacity(rounded_size);
+    v.resize_with(rounded_size, T::default);
+    v
+}
+
+use std::mem::size_of;
+// The kvm API has many structs that resemble the following `Foo` structure:
+//
+// ```
+// #[repr(C)]
+// struct Foo {
+//    some_data: u32
+//    entries: __IncompleteArrayField<__u32>,
+// }
+// ```
+//
+// In order to allocate such a structure, `size_of::<Foo>()` would be too small because it would not
+// include any space for `entries`. To make the allocation large enough while still being aligned
+// for `Foo`, a `Vec<Foo>` is created. Only the first element of `Vec<Foo>` would actually be used
+// as a `Foo`. The remaining memory in the `Vec<Foo>` is for `entries`, which must be contiguous
+// with `Foo`. This function is used to make the `Vec<Foo>` with enough space for `count` entries.
+/// Helper function to create Vec of specific size.
+pub fn vec_with_array_field<T: Default, F>(count: usize) -> Vec<T> {
+    let element_space = count * size_of::<F>();
+    let vec_size_bytes = size_of::<T>() + element_space;
+    vec_with_size_in_bytes(vec_size_bytes)
+}
+
 
 /// Process the content of the MPIDR_EL1 register in order to be able to pass it to KVM
 ///

@@ -77,7 +77,7 @@ impl std::ops::DerefMut for RTCDevice {
 
 // Implements Bus functions for AMBA PL031 RTC device
 impl RTCDevice {
-    pub fn bus_read(&mut self, offset: u64, data: &mut [u8]) {
+    pub fn bus_read(&mut self, _: u64, offset: u64, data: &mut [u8]) {
         if let (Ok(offset), 4) = (u16::try_from(offset), data.len()) {
             // read() function from RTC implementation expects a slice of
             // len 4, and we just validated that this is the data lengt
@@ -92,7 +92,7 @@ impl RTCDevice {
         }
     }
 
-    pub fn bus_write(&mut self, offset: u64, data: &[u8]) {
+    pub fn bus_write(&mut self, _: u64, offset: u64, data: &[u8]) {
         if let (Ok(offset), 4) = (u16::try_from(offset), data.len()) {
             // write() function from RTC implementation expects a slice of
             // len 4, and we just validated that this is the data length
