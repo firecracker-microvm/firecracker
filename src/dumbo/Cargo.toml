@@ -9,7 +9,7 @@ bitflags = ">=1.0.4"
 
 utils = { path = "../utils" }
 logger = { path = "../logger" }
-micro_http = { path = "../micro_http" }
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "49240ce" }
 
 [dev-dependencies]
 serde_json = ">=1.0.9"
