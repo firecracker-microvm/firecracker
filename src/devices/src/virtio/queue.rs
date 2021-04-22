@@ -393,6 +393,33 @@ impl Queue {
         let addr = self.avail_ring.unchecked_add(2);
         Wrapping(mem.read_obj::<u16>(addr).unwrap())
     }
+
+    #[inline(always)]
+    pub fn used_event(&self, mem: &GuestMemoryMmap) -> Wrapping<u16> {
+        // We need to find the `used_event` field from the avail ring.
+        let used_event_addr = 4 + 2 * self.actual_size();
+
+        // Complete all the writes in add_used() before reading the event.
+        fence(Ordering::SeqCst);
+
+        let event: u16 = mem
+            .read_obj::<u16>(self.avail_ring.unchecked_add(u64::from(used_event_addr)))
+            .unwrap();
+
+        Wrapping(event)
+    }
+
+    pub fn set_avail_event(&mut self, mem: &GuestMemoryMmap) {
+        let avail_event_addr = 4 + 8 * self.actual_size();
+
+        mem.write_obj(
+            self.avail_idx(mem).0,
+            self.used_ring.unchecked_add(u64::from(avail_event_addr)),
+        )
+        .unwrap();
+
+        fence(Ordering::SeqCst);
+    }
 }
 
 #[cfg(test)]
@@ -633,6 +660,38 @@ pub(crate) mod tests {
                 _ => unreachable!(),
             };
         }
+    }
+
+    #[test]
+    fn test_used_event() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+        let q = vq.create_queue();
+        assert_eq!(q.used_event(&m), Wrapping(0));
+
+        vq.avail.event.set(10);
+        assert_eq!(q.used_event(&m), Wrapping(10));
+
+        vq.avail.event.set(u16::MAX);
+        assert_eq!(q.used_event(&m), Wrapping(u16::MAX));
+    }
+
+    #[test]
+    fn test_set_avail_event() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+        let mut q = vq.create_queue();
+        assert_eq!(vq.used.event.get(), 0);
+
+        vq.avail.idx.set(10);
+        q.set_avail_event(&m);
+        assert_eq!(vq.used.event.get(), 10);
+
+        vq.avail.idx.set(u16::MAX);
+        q.set_avail_event(&m);
+        assert_eq!(vq.used.event.get(), u16::MAX);
     }
 
     #[test]
