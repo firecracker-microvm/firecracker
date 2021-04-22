@@ -9,6 +9,7 @@ use crate::device_manager::persist::DeviceStates;
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::vcpu::VcpuState;
 use devices::virtio::block::persist::BlockState;
+use devices::virtio::QueueState;
 
 use lazy_static::lazy_static;
 use versionize::VersionMap;
@@ -29,6 +30,9 @@ lazy_static! {
         #[cfg(target_arch = "x86_64")]
         version_map.set_type_version(VcpuState::type_id(), 2);
 
+        // v0.26 state change mappings
+        version_map.new_version().set_type_version(QueueState::type_id(), 2);
+
         version_map
     };
 
@@ -41,6 +45,7 @@ lazy_static! {
 
         mapping.insert(String::from("0.24.0"), 2);
         mapping.insert(String::from("0.25.0"), 3);
+        mapping.insert(String::from("0.26.0"), 4);
 
         mapping
     };

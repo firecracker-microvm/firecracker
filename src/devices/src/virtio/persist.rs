@@ -14,6 +14,7 @@ use vm_memory::{address::Address, GuestAddress, GuestMemoryMmap};
 use std::num::Wrapping;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 #[derive(Debug)]
 pub enum Error {
@@ -43,6 +44,10 @@ pub struct QueueState {
 
     next_avail: Wrapping<u16>,
     next_used: Wrapping<u16>,
+
+    /// The number of added used buffers since last guest kick
+    #[version(start = 2)]
+    num_added: Wrapping<u16>,
 }
 
 impl Persist<'_> for Queue {
@@ -60,6 +65,7 @@ impl Persist<'_> for Queue {
             used_ring: self.used_ring.0,
             next_avail: self.next_avail,
             next_used: self.next_used,
+            num_added: self.num_added,
         }
     }
 
@@ -76,6 +82,8 @@ impl Persist<'_> for Queue {
             used_ring: GuestAddress::new(state.used_ring),
             next_avail: state.next_avail,
             next_used: state.next_used,
+            uses_notif_suppression: false,
+            num_added: state.num_added,
         })
     }
 }
@@ -124,12 +132,17 @@ impl VirtioDeviceState {
             return Err(Error::InvalidInput);
         }
 
+        let uses_notif_suppression = (self.acked_features & 1u64 << VIRTIO_RING_F_EVENT_IDX) != 0;
         let queues: Vec<Queue> = self
             .queues
             .iter()
             .map(|queue_state| {
                 // Safe to unwrap, `Queue::restore` has no error case.
-                Queue::restore((), &queue_state).unwrap()
+                let mut queue = Queue::restore((), &queue_state).unwrap();
+                if uses_notif_suppression {
+                    queue.enable_notif_suppression();
+                }
+                queue
             })
             .collect();
 
@@ -218,6 +231,7 @@ mod tests {
                 used_ring: 0,
                 next_avail: Wrapping(0),
                 next_used: Wrapping(0),
+                num_added: Wrapping(0),
             }
         }
     }
