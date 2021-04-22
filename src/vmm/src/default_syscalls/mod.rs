@@ -108,6 +108,18 @@ fn create_arch_specific_ioctl_conditions() -> Result<Vec<SeccompRule>, Error> {
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_XSAVE)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_XCRS)?],
         and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_XCRS)?],
+        and![Cond::new(
+            1,
+            ArgLen::DWORD,
+            Eq,
+            kvm_ioctls::kvm_ioctls::KVM_GET_TSC_KHZ()
+        )?],
+        and![Cond::new(
+            1,
+            ArgLen::DWORD,
+            Eq,
+            kvm_ioctls::kvm_ioctls::KVM_SET_TSC_KHZ()
+        )?],
     ]);
 
     #[cfg(target_arch = "aarch64")]
