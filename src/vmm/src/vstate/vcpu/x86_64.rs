@@ -21,8 +21,8 @@ use kvm_bindings::{
     kvm_xsave, CpuId, MsrList, Msrs,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
-use logger::{error, IncMetric, METRICS};
-use versionize::{VersionMap, Versionize, VersionizeResult};
+use logger::{error, warn, IncMetric, METRICS};
+use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
 
@@ -87,6 +87,8 @@ pub enum Error {
     VcpuSetXcrs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu xsave.
     VcpuSetXsave(kvm_ioctls::Error),
+    /// Failed to set KVM TSC freq.
+    VcpuSetTSC(kvm_ioctls::Error),
 }
 
 impl Display for Error {
@@ -135,6 +137,7 @@ impl Display for Error {
             VcpuSetVcpuEvents(e) => write!(f, "Failed to set KVM vcpu event: {}", e),
             VcpuSetXcrs(e) => write!(f, "Failed to set KVM vcpu xcrs: {}", e),
             VcpuSetXsave(e) => write!(f, "Failed to set KVM vcpu xsave: {}", e),
+            VcpuSetTSC(e) => write!(f, "Failed to set KVM TSC frequency: {}", e),
         }
     }
 }
@@ -250,6 +253,11 @@ impl KvmVcpu {
          * meaningful. For SET_MSRS it will then contain good data.
          */
 
+        let tsc_khz = self.fd.get_tsc_khz();
+
+        // TODO: Add get_tsc_khz() error handling.
+        error!("CPU TSC freq: {} KHz", tsc_khz);
+
         // Build the list of MSRs we want to save.
         let num_msrs = self.msr_list.as_fam_struct_ref().nmsrs as usize;
         let mut msrs = Msrs::new(num_msrs).map_err(Error::FamError)?;
@@ -291,6 +299,7 @@ impl KvmVcpu {
             vcpu_events,
             xcrs,
             xsave,
+            tsc_khz: Some(tsc_khz),
         })
     }
 
@@ -318,6 +327,14 @@ impl KvmVcpu {
          * SET_LAPIC must come before SET_MSRS, because the TSC deadline MSR
          * only restores successfully, when the LAPIC is correctly configured.
          */
+
+        if let Some(freq) = state.tsc_khz {
+            self.fd.set_tsc_khz(freq).map_err(Error::VcpuSetTSC)?;
+            error!("Set TSC frequency to {} khz", freq);
+        } else {
+            error!("vCPU state does not contain TSC freq. TSC might not be consistent, please validate host TSC frequency.");
+        }
+
         self.fd
             .set_cpuid2(&state.cpuid)
             .map_err(Error::VcpuSetCpuid)?;
@@ -392,6 +409,31 @@ pub struct VcpuState {
     vcpu_events: kvm_vcpu_events,
     xcrs: kvm_xcrs,
     xsave: kvm_xsave,
+    #[version(start = 2, default_fn = "default_tsc_khz", ser_fn = "ser_tsc")]
+    tsc_khz: Option<i32>,
+}
+
+impl VcpuState {
+    fn default_tsc_khz(_: u16) -> Option<i32> {
+        warn!("CPU TSC freq not found in snapshot");
+        None
+    }
+
+    fn ser_tsc(&mut self, target_version: u16) -> VersionizeResult<()> {
+        if target_version < 2 {
+            warn!("Saving to older snapshot version, TSC freq not included in snapshot.");
+        }
+
+        // Prevent v0.25 to create snapshots of uVMs running on non-invariant TSC host.
+        // TODO: Figure out if we need higher level knob and relax the constraint.
+        if self.tsc_khz.is_none() {
+            return Err(VersionizeError::Semantic(
+                "TSC freq not available. Does host support constant TSC ?".to_owned(),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
