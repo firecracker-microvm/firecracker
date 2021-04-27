@@ -84,6 +84,15 @@ impl LocalTime {
             nsec: timespec.tv_nsec,
         }
     }
+
+    // In the glibc implementation, if the TZ environment variable is not set, then the first
+    // call to localtime_r() will cache it.  Since this can involve fopen() on varied paths
+    // on the filesystem (including the root directory "/"), the first call to now() can't
+    // be on a sandboxed thread.
+    // 
+    pub fn setup_timezone() {
+        LocalTime::now();
+    }
 }
 
 impl fmt::Display for LocalTime {

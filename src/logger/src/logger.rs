@@ -288,6 +288,19 @@ impl Logger {
         }
     }
 
+    /// The logger puts time information in some messages, using localtime_r() to defer to the
+    /// system time zone settings.  But if the "TZ" environment variable is not set to an
+    /// explicit time zone, glibc tries to find the information from system files.  Hence if
+    /// the first time now() is called happens on a security sandboxed thread, logging winds up
+    /// causing a SIGSYS failure when localtime_r() does fopen() calls that it shouldn't.
+    ///
+    /// Since this is a hidden dependency in glib's implementation, ask the LocalTime abstraction
+    /// to take care of it up front. 
+    ///
+    fn precache_timezone_for_glibc(&self) {
+        LocalTime::setup_timezone();
+    }
+
     /// Preconfigure the logger prior to initialization.
     /// Performs the most basic steps in order to enable the logger to write to stdout or stderr
     /// even before calling LOGGER.init(). Calling this method is optional.
@@ -318,6 +331,8 @@ impl Logger {
                 }
 
                 self.try_init_max_level();
+
+                self.precache_timezone_for_glibc();
 
                 // don't finish the initialization
                 false
