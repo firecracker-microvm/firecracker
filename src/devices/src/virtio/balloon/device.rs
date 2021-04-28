@@ -41,14 +41,14 @@ macro_rules! mem_of_active_device {
     };
 }
 
-fn mb_to_pages(amount_mb: u32) -> Result<u32, BalloonError> {
-    amount_mb
-        .checked_mul(MB_TO_4K_PAGES)
+fn mib_to_pages(amount_mib: u32) -> Result<u32, BalloonError> {
+    amount_mib
+        .checked_mul(MIB_TO_4K_PAGES)
         .ok_or(BalloonError::TooManyPagesRequested)
 }
 
-fn pages_to_mb(amount_pages: u32) -> u32 {
-    amount_pages / MB_TO_4K_PAGES
+fn pages_to_mib(amount_pages: u32) -> u32 {
+    amount_pages / MIB_TO_4K_PAGES
 }
 
 #[repr(C)]
@@ -76,7 +76,7 @@ unsafe impl ByteValued for BalloonStat {}
 // BalloonStats holds statistics returned from the stats_queue.
 #[derive(Clone, Default, Debug, PartialEq, Serialize)]
 pub struct BalloonConfig {
-    pub amount_mb: u32,
+    pub amount_mib: u32,
     pub deflate_on_oom: bool,
     pub stats_polling_interval_s: u16,
 }
@@ -87,8 +87,8 @@ pub struct BalloonConfig {
 pub struct BalloonStats {
     pub target_pages: u32,
     pub actual_pages: u32,
-    pub target_mb: u32,
-    pub actual_mb: u32,
+    pub target_mib: u32,
+    pub actual_mib: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub swap_in: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,7 +163,7 @@ pub struct Balloon {
 
 impl Balloon {
     pub fn new(
-        amount_mb: u32,
+        amount_mib: u32,
         deflate_on_oom: bool,
         stats_polling_interval_s: u16,
         restored: bool,
@@ -199,7 +199,7 @@ impl Balloon {
             avail_features,
             acked_features: 0u64,
             config_space: ConfigSpace {
-                num_pages: mb_to_pages(amount_mb)?,
+                num_pages: mib_to_pages(amount_mib)?,
                 actual_pages: 0,
             },
             interrupt_status: Arc::new(AtomicUsize::new(0)),
@@ -423,9 +423,9 @@ impl Balloon {
         BALLOON_DEV_ID
     }
 
-    pub fn update_size(&mut self, amount_mb: u32) -> Result<(), BalloonError> {
+    pub fn update_size(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         if self.is_activated() {
-            self.config_space.num_pages = mb_to_pages(amount_mb)?;
+            self.config_space.num_pages = mib_to_pages(amount_mib)?;
             Ok(())
         } else {
             Err(BalloonError::DeviceNotActive)
@@ -460,7 +460,7 @@ impl Balloon {
     }
 
     pub fn size_mb(&self) -> u32 {
-        pages_to_mb(self.config_space.num_pages)
+        pages_to_mib(self.config_space.num_pages)
     }
 
     pub fn deflate_on_oom(&self) -> bool {
@@ -475,8 +475,8 @@ impl Balloon {
         if self.stats_enabled() {
             self.latest_stats.target_pages = self.config_space.num_pages;
             self.latest_stats.actual_pages = self.config_space.actual_pages;
-            self.latest_stats.target_mb = pages_to_mb(self.latest_stats.target_pages);
-            self.latest_stats.actual_mb = pages_to_mb(self.latest_stats.actual_pages);
+            self.latest_stats.target_mib = pages_to_mib(self.latest_stats.target_pages);
+            self.latest_stats.actual_mib = pages_to_mib(self.latest_stats.actual_pages);
             Some(&self.latest_stats)
         } else {
             None
@@ -485,7 +485,7 @@ impl Balloon {
 
     pub fn config(&self) -> BalloonConfig {
         BalloonConfig {
-            amount_mb: self.size_mb(),
+            amount_mib: self.size_mb(),
             deflate_on_oom: self.deflate_on_oom(),
             stats_polling_interval_s: self.stats_polling_interval_s(),
         }
@@ -631,8 +631,8 @@ pub(crate) mod tests {
         let mut stats = BalloonStats {
             target_pages: 5120,
             actual_pages: 2560,
-            target_mb: 20,
-            actual_mb: 10,
+            target_mib: 20,
+            actual_mib: 10,
             swap_in: Some(0),
             swap_out: Some(0),
             major_faults: Some(0),
@@ -713,7 +713,7 @@ pub(crate) mod tests {
         let balloon = Balloon::new(0x10, true, 0, false).unwrap();
 
         let cfg = BalloonConfig {
-            amount_mb: 16,
+            amount_mib: 16,
             deflate_on_oom: true,
             stats_polling_interval_s: 0,
         };
