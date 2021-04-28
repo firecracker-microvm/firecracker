@@ -614,11 +614,11 @@ impl Vmm {
     /// Updates configuration for the balloon device target size.
     pub fn update_balloon_config(
         &mut self,
-        amount_mb: u32,
+        amount_mib: u32,
     ) -> std::result::Result<(), BalloonError> {
         // The balloon cannot have a target size greater than the size of
         // the guest memory.
-        if amount_mb as u64 > mem_size_mib(self.guest_memory()) {
+        if amount_mib as u64 > mem_size_mib(self.guest_memory()) {
             return Err(BalloonError::TooManyPagesRequested);
         }
 
@@ -640,7 +640,7 @@ impl Vmm {
                     .as_mut_any()
                     .downcast_mut::<Balloon>()
                     .unwrap()
-                    .update_size(amount_mb)?;
+                    .update_size(amount_mib)?;
             }
 
             let locked_dev = busdev.lock().expect("Poisoned lock");
