@@ -103,7 +103,7 @@ Here is an example command on how to install the balloon through the API:
 
 ```
 socket_location=...
-amount_mb=...
+amount_mib=...
 deflate_on_oom=...
 polling_interval=...
 
@@ -112,15 +112,15 @@ curl --unix-socket $socket_location -i \
     -H 'Accept: application/json' \
     -H 'Content-Type: application/json' \
     -d "{
-        \"amount_mb\": $amount_mb, \
+        \"amount_mib\": $amount_mib, \
         \"deflate_on_oom\": $deflate_on_oom, \
         \"stats_polling_interval_s\": $polling_interval \
     }"
 ```
 
 To use this, set `socket_location` to the location of the firecracker socket
-(by default, at `/run/firecracker.socket`. Then, set `amount_mb`,
-`deflate_on_oom` and `stats_polling_interval_s` as desired: `amount_mb`
+(by default, at `/run/firecracker.socket`. Then, set `amount_mib`,
+`deflate_on_oom` and `stats_polling_interval_s` as desired: `amount_mib`
 represents the target size of the balloon, and `deflate_on_oom` and
 `stats_polling_interval_s` represent the options mentioned before.
 
@@ -129,7 +129,7 @@ object into your configuration file:
 
 ```
 "balloon": {
-    "amount_mb": 0,
+    "amount_mib": 0,
     "deflate_on_oom": false,
     "stats_polling_interval_s": 1
 },
@@ -157,7 +157,7 @@ API through the following command:
 
 ```
 socket_location=...
-amount_mb=...
+amount_mib=...
 polling_interval=...
 
 curl --unix-socket $socket_location -i \
@@ -165,12 +165,12 @@ curl --unix-socket $socket_location -i \
     -H 'Accept: application/json' \
     -H 'Content-Type: application/json' \
     -d "{
-        \"amount_mb\": $amount_mb, \
+        \"amount_mib\": $amount_mib, \
         \"stats_polling_interval_s\": $polling_interval \
     }"
 ```
 
-This will update the target size of the balloon to `amount_mb` and the
+This will update the target size of the balloon to `amount_mib` and the
 statistics polling interval to `polling_interval`.
 
 ## Virtio balloon statistics
@@ -196,8 +196,8 @@ The target and actual sizes of the balloon are expressed as follows:
 
 * `target_pages`: The target size of the balloon, in 4K pages.
 * `actual_pages`: The number of 4K pages the device is currently holding.
-* `target_mb`: The target size of the balloon, in MiB.
-* `actual_mb`: The number of MiB the device is currently holding.
+* `target_mib`: The target size of the balloon, in MiB.
+* `actual_mib`: The number of MiB the device is currently holding.
 
 These values are taken directly from the config space of the device and are
 always up to date, in the sense that they are exactly what the Firecracker
