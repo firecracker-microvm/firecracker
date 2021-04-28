@@ -76,8 +76,8 @@ type Result<T> = std::result::Result<T, BalloonConfigError>;
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonDeviceConfig {
-    /// Target balloon size in MB.
-    pub amount_mb: u32,
+    /// Target balloon size in MiB.
+    pub amount_mib: u32,
     /// Option to deflate the balloon in case the guest is out of memory.
     pub deflate_on_oom: bool,
     /// Interval in seconds between refreshing statistics.
@@ -88,7 +88,7 @@ pub struct BalloonDeviceConfig {
 impl From<BalloonConfig> for BalloonDeviceConfig {
     fn from(state: BalloonConfig) -> Self {
         BalloonDeviceConfig {
-            amount_mb: state.amount_mb,
+            amount_mib: state.amount_mib,
             deflate_on_oom: state.deflate_on_oom,
             stats_polling_interval_s: state.stats_polling_interval_s,
         }
@@ -100,8 +100,8 @@ impl From<BalloonConfig> for BalloonDeviceConfig {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BalloonUpdateConfig {
-    /// Target balloon size in MB.
-    pub amount_mb: u32,
+    /// Target balloon size in MiB.
+    pub amount_mib: u32,
 }
 
 /// The data fed into a balloon statistics interval update request.
@@ -138,7 +138,7 @@ impl BalloonBuilder {
     pub fn set(&mut self, cfg: BalloonDeviceConfig) -> Result<()> {
         self.inner = Some(Arc::new(Mutex::new(
             Balloon::new(
-                cfg.amount_mb,
+                cfg.amount_mib,
                 cfg.deflate_on_oom,
                 cfg.stats_polling_interval_s,
                 // `restored` flag is false because this code path
@@ -171,7 +171,7 @@ pub(crate) mod tests {
 
     pub(crate) fn default_config() -> BalloonDeviceConfig {
         BalloonDeviceConfig {
-            amount_mb: 0,
+            amount_mib: 0,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         }
@@ -189,7 +189,7 @@ pub(crate) mod tests {
     fn test_balloon_create() {
         let default_balloon_config = default_config();
         let balloon_config = BalloonDeviceConfig {
-            amount_mb: 0,
+            amount_mib: 0,
             deflate_on_oom: false,
             stats_polling_interval_s: 0,
         };
@@ -201,7 +201,7 @@ pub(crate) mod tests {
         assert_eq!(builder.get().unwrap().lock().unwrap().num_pages(), 0);
         assert_eq!(builder.get_config().unwrap(), default_balloon_config);
 
-        let _update_config = BalloonUpdateConfig { amount_mb: 5 };
+        let _update_config = BalloonUpdateConfig { amount_mib: 5 };
         let _stats_update_config = BalloonUpdateStatsConfig {
             stats_polling_interval_s: 5,
         };
@@ -210,13 +210,13 @@ pub(crate) mod tests {
     #[test]
     fn test_from_balloon_state() {
         let expected_balloon_config = BalloonDeviceConfig {
-            amount_mb: 5,
+            amount_mib: 5,
             deflate_on_oom: false,
             stats_polling_interval_s: 3,
         };
 
         let actual_balloon_config = BalloonDeviceConfig::from(BalloonConfig {
-            amount_mb: 5,
+            amount_mib: 5,
             deflate_on_oom: false,
             stats_polling_interval_s: 3,
         });
