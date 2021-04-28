@@ -474,7 +474,7 @@ impl RuntimeApiController {
                 .vmm
                 .lock()
                 .expect("Poisoned lock")
-                .update_balloon_config(balloon_update.amount_mb)
+                .update_balloon_config(balloon_update.amount_mib)
                 .map(|_| VmmData::Empty)
                 .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
             UpdateBalloonStatistics(balloon_stats_update) => self
@@ -1204,7 +1204,7 @@ mod tests {
             VmmActionError::OperationNotSupportedPreBoot,
         );
         check_preboot_request_err(
-            VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mb: 0 }),
+            VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mib: 0 }),
             VmmActionError::OperationNotSupportedPreBoot,
         );
         check_preboot_request_err(
@@ -1395,13 +1395,13 @@ mod tests {
 
     #[test]
     fn test_runtime_update_balloon_config() {
-        let req = VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mb: 0 });
+        let req = VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mib: 0 });
         check_runtime_request(req, |result, vmm| {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vmm.update_balloon_config_called)
         });
 
-        let req = VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mb: 0 });
+        let req = VmmAction::UpdateBalloon(BalloonUpdateConfig { amount_mib: 0 });
         check_runtime_request_err(
             req,
             VmmActionError::BalloonConfig(BalloonConfigError::DeviceNotFound),
