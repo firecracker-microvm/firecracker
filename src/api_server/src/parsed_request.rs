@@ -605,7 +605,7 @@ pub(crate) mod tests {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
         let body = "{ \
-            \"amount_mb\": 0, \
+            \"amount_mib\": 0, \
             \"deflate_on_oom\": false, \
             \"stats_polling_interval_s\": 0 \
             }";
@@ -841,7 +841,7 @@ pub(crate) mod tests {
     fn test_try_from_patch_balloon() {
         let (mut sender, receiver) = UnixStream::pair().unwrap();
         let mut connection = HttpConnection::new(receiver);
-        let body = "{ \"amount_mb\": 1 }";
+        let body = "{ \"amount_mib\": 1 }";
         sender
             .write_all(http_request("PATCH", "/balloon", Some(&body)).as_bytes())
             .unwrap();
