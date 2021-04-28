@@ -546,7 +546,7 @@ pub(crate) mod tests {
              Server: Firecracker API\r\n\
              Connection: keep-alive\r\n\
              Content-Type: application/json\r\n\
-             Content-Length: 88\r\n\r\n{}",
+             Content-Length: 90\r\n\r\n{}",
             serde_json::to_string(&stats).unwrap(),
         );
         assert_eq!(buf.into_inner(), expected_response.as_bytes());
@@ -650,8 +650,8 @@ pub(crate) mod tests {
             .write_all(
                 b"PUT /balloon HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
-                Content-Length: 74\r\n\r\n{ \
-                \"amount_mb\": 0, \
+                Content-Length: 75\r\n\r\n{ \
+                \"amount_mib\": 0, \
                 \"deflate_on_oom\": false, \
                 \"stats_polling_interval_s\": 0 \
                 }",
@@ -928,7 +928,7 @@ pub(crate) mod tests {
             .write_all(
                 b"PATCH /balloon HTTP/1.1\r\n\
                 Content-Type: application/json\r\n\
-                Content-Length: 18\r\n\r\n{ \"amount_mb\": 1 }",
+                Content-Length: 19\r\n\r\n{ \"amount_mib\": 1 }",
             )
             .unwrap();
         assert!(connection.try_read().is_ok());
