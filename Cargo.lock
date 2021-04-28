@@ -313,6 +313,7 @@ dependencies = [
  "mmds",
  "polly",
  "seccomp",
+ "snapshot",
  "timerfd",
  "utils",
  "vmm",

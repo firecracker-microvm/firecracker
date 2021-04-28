@@ -324,7 +324,7 @@ def test_deflate_on_oom_false(test_microvm_with_ssh_and_balloon,
 
 # pylint: disable=C0103
 def test_reinflate_balloon(test_microvm_with_ssh_and_balloon, network_config):
-    """Verify that repeatedly inflating and deflating the baloon works."""
+    """Verify that repeatedly inflating and deflating the balloon works."""
     test_microvm = test_microvm_with_ssh_and_balloon
     test_microvm.spawn()
     test_microvm.basic_config()

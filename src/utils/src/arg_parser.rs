@@ -339,7 +339,7 @@ impl<'a> Arguments<'a> {
     }
 
     /// Clear split between the actual arguments of the process, the extra arguments if any
-    /// and the `--help` argument if present.
+    /// and the `--help` and `--version` arguments if present.
     pub fn parse(&mut self, args: &[String]) -> Result<()> {
         // Skipping the first element of `args` as it is the name of the binary.
         let (args, extra_args) = Arguments::split_args(&args[1..]);
@@ -499,6 +499,11 @@ mod tests {
                     .takes_value(true)
                     .help("'config-file' info."),
             )
+            .arg(
+                Argument::new("describe-snapshot")
+                    .takes_value(true)
+                    .help("'describe-snapshot' info."),
+            )
     }
 
     #[test]
@@ -651,6 +656,36 @@ mod tests {
 
         assert!(arguments.parse(&args).is_ok());
         assert!(arguments.args.contains_key("version"));
+
+        arguments = arg_parser.arguments().clone();
+
+        let args = vec!["binary-name", "--exec-file", "foo", "--describe-snapshot"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert_eq!(
+            arguments.parse(&args),
+            Err(Error::MissingValue("describe-snapshot".to_string()))
+        );
+
+        arguments = arg_parser.arguments().clone();
+
+        let args = vec![
+            "binary-name",
+            "--exec-file",
+            "foo",
+            "--describe-snapshot",
+            "--",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<String>>();
+
+        assert_eq!(
+            arguments.parse(&args),
+            Err(Error::MissingValue("describe-snapshot".to_string()))
+        );
 
         arguments = arg_parser.arguments().clone();
 

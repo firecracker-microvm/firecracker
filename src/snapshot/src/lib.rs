@@ -102,11 +102,10 @@ impl Snapshot {
         }
     }
 
-    /// Attempts to load an existing snapshot without CRC validation.
-    pub fn unchecked_load<T, O>(mut reader: &mut T, version_map: VersionMap) -> Result<O, Error>
+    /// Fetches snapshot data version.
+    pub fn get_data_version<T>(mut reader: &mut T, version_map: &VersionMap) -> Result<u16, Error>
     where
         T: Read,
-        O: Versionize,
     {
         let format_version_map = Self::format_version_map();
         let magic_id =
@@ -125,8 +124,17 @@ impl Snapshot {
             return Err(Error::InvalidDataVersion(hdr.data_version));
         }
 
-        Ok(O::deserialize(&mut reader, &version_map, hdr.data_version)
-            .map_err(Error::Versionize)?)
+        Ok(hdr.data_version)
+    }
+
+    /// Attempts to load an existing snapshot without CRC validation.
+    pub fn unchecked_load<T, O>(mut reader: &mut T, version_map: VersionMap) -> Result<O, Error>
+    where
+        T: Read,
+        O: Versionize,
+    {
+        let data_version = Self::get_data_version(&mut reader, &version_map)?;
+        Ok(O::deserialize(&mut reader, &version_map, data_version).map_err(Error::Versionize)?)
     }
 
     /// Attempts to load an existing snapshot and validate CRC.

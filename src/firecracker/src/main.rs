@@ -13,13 +13,15 @@ use std::sync::{Arc, Mutex};
 use logger::{error, info, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
 use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
+use snapshot::Snapshot;
+use std::fs::File;
 use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::default_syscalls::get_seccomp_filter;
 use vmm::resources::VmResources;
 use vmm::signal_handler::{mask_handled_signals, SignalManager};
-use vmm::version_map::FC_VERSION_TO_SNAP_VERSION;
+use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 
@@ -142,6 +144,11 @@ fn main() {
             Argument::new("version")
                 .takes_value(false)
                 .help("Print the binary version number and a list of supported snapshot data format versions.")
+        )
+        .arg(
+            Argument::new("describe-snapshot")
+                .takes_value(true)
+                .help("Print the data format version of the provided snapshot state file.")
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {
@@ -166,6 +173,11 @@ fn main() {
                 process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
             }
 
+            if let Some(snapshot_path) = arg_parser.arguments().single_value("describe-snapshot") {
+                print_snapshot_data_format(snapshot_path);
+                process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+            }
+
             arg_parser.arguments()
         }
     };
@@ -187,8 +199,10 @@ fn main() {
         // It's safe to unwrap here because the field's been provided with a default value.
         let level = arguments.single_value("level").unwrap().to_owned();
         let logger_level = LoggerLevel::from_string(level).unwrap_or_else(|err| {
-            error!("Invalid value for logger level: {}. Possible values: [Error, Warning, Info, Debug]", err);
-            process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+            process::exit(i32::from(generic_error_exit(&format!(
+                "Invalid value for logger level: {}. Possible values: [Error, Warning, Info, Debug]",
+                err
+            ))));
         });
         let show_level = arguments.flag_present("show-level");
         let show_log_origin = arguments.flag_present("show-log-origin");
@@ -200,8 +214,10 @@ fn main() {
             show_log_origin,
         );
         init_logger(logger_config, &instance_info).unwrap_or_else(|err| {
-            error!("Could not initialize logger: {}", err);
-            process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+            process::exit(i32::from(generic_error_exit(&format!(
+                "Could not initialize logger:: {}",
+                err
+            ))));
         });
     }
 
@@ -265,6 +281,12 @@ fn main() {
     }
 }
 
+// Exit gracefully with a generic error code.
+fn generic_error_exit(msg: &str) -> u8 {
+    error!("{}", msg);
+    vmm::FC_EXIT_CODE_GENERIC_ERROR
+}
+
 // Print supported snapshot data format versions.
 fn print_supported_snapshot_versions() {
     let mut snapshot_versions_str = "Supported snapshot data format versions:".to_string();
@@ -279,6 +301,34 @@ fn print_supported_snapshot_versions() {
         .for_each(|v| snapshot_versions_str.push_str(format!(" v{},", v).as_str()));
     snapshot_versions_str.pop();
     println!("{}\n", snapshot_versions_str);
+}
+
+// Print data format of provided snapshot state file.
+fn print_snapshot_data_format(snapshot_path: &str) {
+    let mut snapshot_reader = File::open(snapshot_path).unwrap_or_else(|err| {
+        process::exit(i32::from(generic_error_exit(&format!(
+            "Unable to open snapshot state file: {:?}",
+            err
+        ))));
+    });
+    let data_format_version = Snapshot::get_data_version(&mut snapshot_reader, &VERSION_MAP)
+        .unwrap_or_else(|err| {
+            process::exit(i32::from(generic_error_exit(&format!(
+                "Invalid data format version of snapshot file: {:?}",
+                err
+            ))));
+        });
+
+    let (key, _) = FC_VERSION_TO_SNAP_VERSION
+        .iter()
+        .find(|(_, &val)| val == data_format_version)
+        .unwrap_or_else(|| {
+            process::exit(i32::from(generic_error_exit(&format!(
+                "Cannot translate snapshot data version {} to Firecracker microVM version",
+                data_format_version
+            ))));
+        });
+    println!("v{}", key);
 }
 
 // Configure and start a microVM as described by the command-line JSON.

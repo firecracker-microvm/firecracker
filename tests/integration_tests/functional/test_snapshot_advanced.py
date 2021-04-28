@@ -40,7 +40,7 @@ scratch_drives = ["vdb", "vdc", "vdd", "vde", "vdf"]
 )
 def test_restore_old_snapshot_all_devices(bin_cloner_path):
     """Test scenario: restore previous version snapshots in current version."""
-    # Microvm: 2vCPU 256MB RAM, baloon, 4 disks and 4 netdevices.
+    # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
     logger = logging.getLogger("snapshot_many_devices")
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
@@ -91,7 +91,7 @@ def test_restore_old_snapshot_all_devices(bin_cloner_path):
 )
 def test_restore_old_version_all_devices(bin_cloner_path):
     """Test scenario: restore snapshot in previous versions of Firecracker."""
-    # Microvm: 2vCPU 256MB RAM, baloon, 4 disks and 4 netdevices.
+    # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
     logger = logging.getLogger("snapshot_many_devices")
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
@@ -109,7 +109,7 @@ def test_restore_old_version_all_devices(bin_cloner_path):
 
         # Old version from artifact.
         target_version = firecracker.base_name()[1:]
-        # v0.23 does not have a ballon device.
+        # v0.23 does not have a balloon device.
         balloon = "0.23" not in target_version
 
         legacy = "0.24" in target_version
@@ -181,7 +181,7 @@ def validate_all_devices(
 
     if balloon is True:
         logger.info("Testing balloon memory reclaim.")
-        # Call helper fn from ballon integration tests.
+        # Call helper fn from balloon integration tests.
         _test_rss_memory_lower(microvm, use_legacy_api=legacy_api)
 
 
@@ -199,7 +199,7 @@ def create_snapshot_helper(bin_cloner_path, logger, target_version=None,
     if diff_snapshots is False:
         snapshot_type = SnapshotType.FULL
     else:
-        # Version 0.24 and greater has Diff and ballon support.
+        # Version 0.24 and greater has Diff and balloon support.
         snapshot_type = SnapshotType.DIFF
 
     if balloon:

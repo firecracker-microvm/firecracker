@@ -10,6 +10,8 @@
 - Added `--new-pid-ns` flag to the Jailer in order to spawn the Firecracker
   process in a new PID namespace.
 - Added API metrics for `GET`, `PUT` and `PATCH` requests on `/mmds` endpoint.
+- Added `--describe-snapshot` flag to Firecracker to fetch the data format
+  version of a snapshot state file provided as argument.
 
 ### Fixed
 
