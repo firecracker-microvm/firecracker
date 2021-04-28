@@ -138,7 +138,13 @@ def test_restore_old_version_all_devices(bin_cloner_path):
         logger.debug(microvm.log_data)
 
 
-def validate_all_devices(logger, microvm, ifaces, drives, balloon):
+def validate_all_devices(
+    logger,
+    microvm,
+    ifaces,
+    drives,
+    balloon
+):
     """Perform a basic validation for all devices of a microvm."""
     # Test that net devices have connectivity after restore.
     for iface in ifaces:
@@ -199,7 +205,7 @@ def create_snapshot_helper(bin_cloner_path, logger, target_version=None,
 
         # Add a memory balloon with stats enabled.
         response = vm.balloon.put(
-            amount_mb=0,
+            amount_mib=0,
             deflate_on_oom=True,
             stats_polling_interval_s=1
         )
