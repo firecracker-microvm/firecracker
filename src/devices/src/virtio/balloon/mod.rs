@@ -21,8 +21,8 @@ pub const CONFIG_SPACE_SIZE: usize = 8;
 pub const QUEUE_SIZE: u16 = 256;
 pub const NUM_QUEUES: usize = 3;
 pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE, QUEUE_SIZE, QUEUE_SIZE];
-// Number of 4K pages in a MB.
-pub const MB_TO_4K_PAGES: u32 = 256;
+// Number of 4K pages in a MiB.
+pub const MIB_TO_4K_PAGES: u32 = 256;
 // The maximum number of pages that can be received in a single descriptor.
 pub const MAX_PAGES_IN_DESC: usize = 256;
 // The maximum number of pages that can be compacted into ranges during process_inflate().
