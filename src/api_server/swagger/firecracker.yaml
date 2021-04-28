@@ -617,14 +617,14 @@ definitions:
   Balloon:
     type: object
     required:
-      - amount_mb
+      - amount_mib
       - deflate_on_oom
     description:
       Balloon device descriptor.
     properties:
-      amount_mb:
+      amount_mib:
         type: integer
-        description: Target balloon size in MB.
+        description: Target balloon size in MiB.
       deflate_on_oom:
         type: boolean
         description: Whether the balloon should deflate when the guest has memory pressure.
@@ -635,13 +635,13 @@ definitions:
   BalloonUpdate:
     type: object
     required:
-      - amount_mb
+      - amount_mib
     description:
       Balloon device descriptor.
     properties:
-      amount_mb:
+      amount_mib:
         type: integer
-        description: Target balloon size in MB.
+        description: Target balloon size in MiB.
 
   BalloonStats:
     type: object
@@ -650,8 +650,8 @@ definitions:
     required:
       - target_pages
       - actual_pages
-      - target_mb
-      - actual_mb
+      - target_mib
+      - actual_mib
     properties:
       target_pages:
         description: Target number of pages the device aims to hold.
@@ -659,11 +659,11 @@ definitions:
       actual_pages:
         description: Actual number of pages the device is holding.
         type: integer
-      target_mb:
-        description: Target amount of memory (in MB) the device aims to hold.
+      target_mib:
+        description: Target amount of memory (in MiB) the device aims to hold.
         type: integer
-      actual_mb:
-        description: Actual amount of memory (in MB) the device is holding.
+      actual_mib:
+        description: Actual amount of memory (in MiB) the device is holding.
         type: integer
       swap_in:
         description: The amount of memory that has been swapped in (in bytes).
