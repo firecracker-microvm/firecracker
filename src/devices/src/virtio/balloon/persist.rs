@@ -62,8 +62,8 @@ impl BalloonStatsState {
         BalloonStats {
             target_pages: 0,
             actual_pages: 0,
-            target_mb: 0,
-            actual_mb: 0,
+            target_mib: 0,
+            actual_mib: 0,
             swap_in: self.swap_in,
             swap_out: self.swap_out,
             major_faults: self.major_faults,
