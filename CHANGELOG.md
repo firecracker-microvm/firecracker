@@ -14,6 +14,8 @@
 
 - Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal
   is still recorded in metrics and logs.
+- Fixed ballooning API definitions by renaming all fields which mentioned "MB"
+  to use "MiB" instead.
 
 ### Changed
 
