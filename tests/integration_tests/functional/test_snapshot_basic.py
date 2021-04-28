@@ -74,7 +74,7 @@ def _test_seq_snapshots(context):
     root_disk = context.disk.copy()
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
-    # Create a fresh microvm from aftifacts.
+    # Create a fresh microvm from artifacts.
     basevm = vm_builder.build(kernel=context.kernel,
                               disks=[root_disk],
                               ssh_key=ssh_key,
