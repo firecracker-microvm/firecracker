@@ -843,19 +843,19 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     test_microvm.basic_config()
 
     # Updating an inexistent balloon device should give an error.
-    response = test_microvm.balloon.patch(amount_mb=0)
+    response = test_microvm.balloon.patch(amount_mib=0)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     # Adding a memory balloon should be OK.
     response = test_microvm.balloon.put(
-        amount_mb=1,
+        amount_mib=1,
         deflate_on_oom=True
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # As is overwriting one.
     response = test_microvm.balloon.put(
-        amount_mb=0,
+        amount_mib=0,
         deflate_on_oom=False,
         stats_polling_interval_s=5
     )
@@ -864,18 +864,18 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     # Getting the device configuration should be available pre-boot.
     response = test_microvm.balloon.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json()['amount_mb'] == 0
+    assert response.json()['amount_mib'] == 0
     assert response.json()['deflate_on_oom'] is False
     assert response.json()['stats_polling_interval_s'] == 5
 
     # Updating an existing balloon device is forbidden before boot.
-    response = test_microvm.balloon.patch(amount_mb=2)
+    response = test_microvm.balloon.patch(amount_mib=2)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     # We can't have a balloon device with a target size greater than
     # the available amount of memory.
     response = test_microvm.balloon.put(
-        amount_mb=1024,
+        amount_mib=1024,
         deflate_on_oom=False,
         stats_polling_interval_s=5
     )
@@ -885,12 +885,12 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     test_microvm.start()
 
     # Updating should fail as driver didn't have time to initialize.
-    response = test_microvm.balloon.patch(amount_mb=4)
+    response = test_microvm.balloon.patch(amount_mib=4)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     # Overwriting the existing device should give an error now.
     response = test_microvm.balloon.put(
-        amount_mb=3,
+        amount_mib=3,
         deflate_on_oom=False,
         stats_polling_interval_s=3
     )
@@ -901,11 +901,11 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     time.sleep(0.5)
 
     # But updating should be OK.
-    response = test_microvm.balloon.patch(amount_mb=4)
+    response = test_microvm.balloon.patch(amount_mib=4)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Check we can't request more than the total amount of VM memory.
-    response = test_microvm.balloon.patch(amount_mb=300)
+    response = test_microvm.balloon.patch(amount_mib=300)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
     # Check we can't disable statistics as they were enabled at boot.
@@ -916,14 +916,14 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     # Getting the device configuration should be available post-boot.
     response = test_microvm.balloon.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json()['amount_mb'] == 4
+    assert response.json()['amount_mib'] == 4
     assert response.json()['deflate_on_oom'] is False
     assert response.json()['stats_polling_interval_s'] == 5
 
     # Check we can't overflow the `num_pages` field in the config space by
     # requesting too many MB. There are 256 4K pages in a MB. Here, we are
     # requesting u32::MAX / 128.
-    response = test_microvm.balloon.patch(amount_mb=33554432)
+    response = test_microvm.balloon.patch(amount_mib=33554432)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
 

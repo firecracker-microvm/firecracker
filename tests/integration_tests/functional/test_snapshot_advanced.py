@@ -80,7 +80,7 @@ def test_restore_old_snapshot_all_devices(bin_cloner_path):
                                                  resume=True,
                                                  enable_diff_snapshots=False)
         validate_all_devices(logger, microvm, net_ifaces, scratch_drives,
-                             diff_snapshots)
+                             diff_snapshots, legacy_api=False)
         logger.debug("========== Firecracker restore snapshot log ==========")
         logger.debug(microvm.log_data)
 
@@ -112,6 +112,8 @@ def test_restore_old_version_all_devices(bin_cloner_path):
         # v0.23 does not have a ballon device.
         balloon = "0.23" not in target_version
 
+        legacy = "0.24" in target_version
+
         # Create a snapshot with current FC version targeting the old version.
         snapshot = create_snapshot_helper(bin_cloner_path,
                                           logger,
@@ -133,12 +135,19 @@ def test_restore_old_version_all_devices(bin_cloner_path):
                                                  resume=True,
                                                  enable_diff_snapshots=False)
         validate_all_devices(logger, microvm, net_ifaces, scratch_drives,
-                             balloon)
+                             balloon, legacy_api=legacy)
         logger.debug("========== Firecracker restore snapshot log ==========")
         logger.debug(microvm.log_data)
 
 
-def validate_all_devices(logger, microvm, ifaces, drives, balloon):
+def validate_all_devices(
+    logger,
+    microvm,
+    ifaces,
+    drives,
+    balloon,
+    legacy_api=False
+):
     """Perform a basic validation for all devices of a microvm."""
     # Test that net devices have connectivity after restore.
     for iface in ifaces:
@@ -173,7 +182,7 @@ def validate_all_devices(logger, microvm, ifaces, drives, balloon):
     if balloon is True:
         logger.info("Testing balloon memory reclaim.")
         # Call helper fn from ballon integration tests.
-        _test_rss_memory_lower(microvm)
+        _test_rss_memory_lower(microvm, use_legacy_api=legacy_api)
 
 
 def create_snapshot_helper(bin_cloner_path, logger, target_version=None,
@@ -194,15 +203,24 @@ def create_snapshot_helper(bin_cloner_path, logger, target_version=None,
         snapshot_type = SnapshotType.DIFF
 
     if balloon:
+        legacy_balloon = fc_binary is not None and "0.24" in fc_binary
+
         # Copy balloon test util.
         copy_util_to_rootfs(vm_instance.disks[0].local_path(), 'fillmem')
 
         # Add a memory balloon with stats enabled.
-        response = vm.balloon.put(
-            amount_mb=0,
-            deflate_on_oom=True,
-            stats_polling_interval_s=1
-        )
+        if legacy_balloon:
+            response = vm.balloon.put(
+                amount_mb=0,
+                deflate_on_oom=True,
+                stats_polling_interval_s=1
+            )
+        else:
+            response = vm.balloon.put(
+                amount_mib=0,
+                deflate_on_oom=True,
+                stats_polling_interval_s=1
+            )
         assert vm.api_session.is_status_no_content(response.status_code)
 
     # Disk path array needed when creating the snapshot later.

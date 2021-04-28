@@ -94,14 +94,18 @@ class Balloon():
     @staticmethod
     def create_json(
             amount_mb=None,
+            amount_mib=None,
             deflate_on_oom=None,
             stats_polling_interval_s=None
     ):
         """Compose the json associated to this type of API request."""
         datax = {}
 
-        if amount_mb is not None:
+        if amount_mib is None and amount_mb is not None:
             datax['amount_mb'] = amount_mb
+
+        if amount_mb is None and amount_mib is not None:
+            datax['amount_mib'] = amount_mib
 
         if deflate_on_oom is not None:
             datax['deflate_on_oom'] = deflate_on_oom
