@@ -502,6 +502,63 @@ def test_stats(test_microvm_with_ssh_and_balloon, network_config):
     )
 
 
+def test_stats_update(test_microvm_with_ssh_and_balloon, network_config):
+    """Verify that balloon stats update correctly."""
+    test_microvm = test_microvm_with_ssh_and_balloon
+    test_microvm.spawn()
+    test_microvm.basic_config()
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    test_microvm.ssh_config['ssh_key_path'] = os.path.join(
+        test_microvm.fsfiles,
+        'debian.rootfs.id_rsa'
+    )
+
+    # Add a memory balloon with stats enabled.
+    response = test_microvm.balloon.put(
+        amount_mib=0,
+        deflate_on_oom=True,
+        stats_polling_interval_s=1
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Start the microvm.
+    test_microvm.start()
+
+    # Open an ssh connection to the microvm.
+    firecracker_pid = test_microvm.jailer_clone_pid
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    # Dirty 30MB of pages.
+    make_guest_dirty_memory(ssh_connection, amount=(30 * MB_TO_PAGES))
+
+    # This call will internally wait for rss to become stable.
+    _ = get_stable_rss_mem_by_pid(firecracker_pid)
+
+    # Get an initial reading of the stats.
+    initial_stats = test_microvm.balloon.get_stats().json()
+
+    # Inflate the balloon to trigger a change in the stats.
+    response = test_microvm.balloon.patch(amount_mib=10)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Wait out the polling interval, then get the updated stats.
+    time.sleep(1)
+    next_stats = test_microvm.balloon.get_stats().json()
+    assert initial_stats['available_memory'] != next_stats['available_memory']
+
+    # Inflate the balloon more to trigger a change in the stats.
+    response = test_microvm.balloon.patch(amount_mib=30)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Change the polling interval.
+    response = test_microvm.balloon.patch_stats(stats_polling_interval_s=60)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # The polling interval change should update the stats.
+    final_stats = test_microvm.balloon.get_stats().json()
+    assert next_stats['available_memory'] != final_stats['available_memory']
+
+
 def test_balloon_snapshot(
     network_config,
     bin_cloner_path
