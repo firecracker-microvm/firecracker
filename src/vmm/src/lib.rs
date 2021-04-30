@@ -58,7 +58,7 @@ use devices::virtio::{
 };
 use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
-use polly::event_manager::{EventManager, Subscriber};
+use polly::event_manager::{EventManager, Subscriber, ExitCode};
 use rate_limiter::BucketUpdate;
 use seccomp::BpfProgramRef;
 use snapshot::Persist;
@@ -339,8 +339,9 @@ impl Vmm {
             .map_err(Error::I8042Error)
     }
 
-    /// Waits for all vCPUs to exit and terminates the Firecracker process.
-    pub fn stop(&mut self, exit_code: i32) {
+    /// Waits for all vCPUs to exit.  Does not terminate the Firecracker process.
+    /// (See notes in main() about why ExitCode is bubbled up for clean shutdown.)
+    pub fn stop(&mut self) {
         info!("Vmm is stopping.");
 
         if let Some(observer) = self.events_observer.as_mut() {
@@ -352,12 +353,6 @@ impl Vmm {
         // Write the metrics before exiting.
         if let Err(e) = METRICS.write() {
             error!("Failed to write metrics while stopping: {}", e);
-        }
-
-        // Exit from Firecracker using the provided exit code. Safe because we're terminating
-        // the process anyway.
-        unsafe {
-            libc::_exit(exit_code);
         }
     }
 
@@ -717,7 +712,7 @@ impl Drop for Vmm {
 
 impl Subscriber for Vmm {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: &EpollEvent, _: &mut EventManager) {
+    fn process_exitable(&mut self, event: &EpollEvent, _: &mut EventManager) -> Option<ExitCode> {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -735,9 +730,11 @@ impl Subscriber for Vmm {
                     _ => None,
                 })
                 .unwrap_or(FC_EXIT_CODE_OK);
-            self.stop(i32::from(exit_code));
+            self.stop();
+            Some(exit_code)
         } else {
             error!("Spurious EventManager event for handler: Vmm");
+            None
         }
     }
 

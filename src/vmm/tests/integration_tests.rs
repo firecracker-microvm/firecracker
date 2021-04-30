@@ -73,7 +73,7 @@ fn test_build_microvm() {
             let _ = event_manager.run_with_timeout(500).unwrap();
 
             #[cfg(target_arch = "x86_64")]
-            vmm.lock().unwrap().stop(-1); // If we got here, something went wrong.
+            vmm.lock().unwrap().stop(1); // If we got here, something went wrong.
             #[cfg(target_arch = "aarch64")]
             vmm.lock().unwrap().stop(0);
         }
@@ -104,7 +104,7 @@ fn test_vmm_seccomp() {
             // Give the vCPUs a chance to attempt KVM_RUN.
             thread::sleep(Duration::from_millis(200));
             // Should never get here.
-            vmm.lock().unwrap().stop(-1);
+            vmm.lock().unwrap().stop(1);
         }
         vmm_pid => {
             // Parent process: wait for the vmm to exit.
@@ -160,7 +160,7 @@ fn test_pause_resume_microvm() {
             let _ = event_manager.run_with_timeout(500).unwrap();
 
             #[cfg(target_arch = "x86_64")]
-            vmm.lock().unwrap().stop(-1); // If we got here, something went wrong.
+            vmm.lock().unwrap().stop(1); // If we got here, something went wrong.
             #[cfg(target_arch = "aarch64")]
             vmm.lock().unwrap().stop(0);
         }
@@ -193,7 +193,7 @@ fn test_dirty_bitmap_error() {
             let _ = event_manager.run_with_timeout(500).unwrap();
 
             #[cfg(target_arch = "x86_64")]
-            vmm.lock().unwrap().stop(-1); // If we got here, something went wrong.
+            vmm.lock().unwrap().stop(1); // If we got here, something went wrong.
             #[cfg(target_arch = "aarch64")]
             vmm.lock().unwrap().stop(0);
         }

@@ -12,7 +12,7 @@ use std::{
 use api_server::{ApiRequest, ApiResponse, ApiServer};
 use logger::{error, warn, ProcessTimeReporter};
 use mmds::MMDS;
-use polly::event_manager::{EventManager, Subscriber};
+use polly::event_manager::{EventManager, Subscriber, ExitCode};
 use seccomp::BpfProgram;
 use utils::{
     epoll::{EpollEvent, EventSet},
@@ -43,7 +43,7 @@ impl ApiServerAdapter {
         vm_resources: VmResources,
         vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
-    ) {
+    ) -> ExitCode {
         let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
             from_api,
@@ -53,10 +53,13 @@ impl ApiServerAdapter {
         event_manager
             .add_subscriber(api_adapter)
             .expect("Cannot register the api event to the event manager.");
+
         loop {
-            event_manager
-                .run()
+            let opt_exit_code = event_manager
+                .run_maybe_exiting()
                 .expect("EventManager events driver fatal error");
+
+            if let Some(exit_code) = opt_exit_code { return exit_code; }
         }
     }
 
@@ -127,7 +130,7 @@ pub(crate) fn run_with_api(
     instance_info: InstanceInfo,
     process_time_reporter: ProcessTimeReporter,
     boot_timer_enabled: bool,
-) {
+) -> ExitCode {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
     // which only consumes API events.
@@ -242,5 +245,5 @@ pub(crate) fn run_with_api(
         vm_resources,
         vmm,
         &mut event_manager,
-    );
+    )
 }
