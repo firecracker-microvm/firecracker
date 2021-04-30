@@ -23,10 +23,20 @@ The device can be configured with the following options:
   allocate some memory which would make the guest enter an out-of-memory state,
   the kernel will take some pages from the balloon and give them to said
   process instead asking the OOM killer process to kill some processes to free
-  memory. Note that this applies to allocations from guest processes which would
-  make the system enter an OOM state. This does not apply to instances when the
-  kernel needs memory for its activities (i.e. constructing caches), or when the
-  user requests more memory than the amount available through an inflate.
+  memory. Note that this applies to physical page allocations in the kernel
+  which belong to guest processes. This does not apply to instances when the
+  kernel needs memory for its activities (i.e. constructing caches), when the
+  user requests more memory than the currently available to the balloon for
+  releasing, or when guest processes try to allocate large amounts of memory
+  that are refused by the guest memory manager, which is possible when the
+  guest runs with `vm.overcommit_memory=0` and the allocation does not pass
+  the MM basic checks. Setting `vm.memory_overcommit` to 1 would make the MM
+  approve all allocations, no matter how large, and using the memory mapped
+  for those allocations will always deflate the balloon instead of making the
+  guest enter an OOM state. Note: we do not recommend running with
+  `vm.overcommit_memory=1` because it requires complete control over what
+  allocations are done in the guest and can easily result in unexpected OOM
+  scenarios.
 * `stats_polling_interval_s`: unsigned integer value which if set to 0
   disables the virtio balloon statistics and otherwise represents the interval
   of time in seconds at which the balloon statistics are updated.
