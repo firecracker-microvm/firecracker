@@ -239,19 +239,8 @@ impl Balloon {
     }
 
     pub(crate) fn process_stats_timer_event(&mut self) -> Result<(), BalloonError> {
-        let mem = mem_of_active_device!(self.device_state);
         self.stats_timer.read();
-
-        // The communication is driven by the device by using the buffer
-        // and sending a used buffer notification
-        if let Some(index) = self.stats_desc_index.take() {
-            self.queues[STATS_INDEX]
-                .add_used(&mem, index, 0)
-                .map_err(BalloonError::Queue)?;
-            self.signal_used_queue()
-        } else {
-            Ok(())
-        }
+        self.trigger_stats_update()
     }
 
     pub(crate) fn process_inflate(&mut self) -> Result<(), BalloonError> {
@@ -423,6 +412,22 @@ impl Balloon {
         BALLOON_DEV_ID
     }
 
+    fn trigger_stats_update(&mut self) -> Result<(), BalloonError> {
+        let mem = mem_of_active_device!(self.device_state);
+
+        // The communication is driven by the device by using the buffer
+        // and sending a used buffer notification
+        if let Some(index) = self.stats_desc_index.take() {
+            self.queues[STATS_INDEX]
+                .add_used(&mem, index, 0)
+                .map_err(BalloonError::Queue)?;
+            self.signal_used_queue()
+        } else {
+            error!("Failed to update balloon stats, missing descriptor.");
+            Ok(())
+        }
+    }
+
     pub fn update_size(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         if self.is_activated() {
             self.config_space.num_pages = mib_to_pages(amount_mib)?;
@@ -440,6 +445,8 @@ impl Balloon {
         if self.stats_polling_interval_s == 0 || interval_s == 0 {
             return Err(BalloonError::StatisticsStateChange);
         }
+
+        self.trigger_stats_update()?;
 
         self.stats_polling_interval_s = interval_s;
         self.update_timer_state();
@@ -1016,6 +1023,8 @@ pub(crate) mod tests {
     #[test]
     fn test_update_stats_interval() {
         let mut balloon = Balloon::new(0, true, 0, false).unwrap();
+        let mem = default_mem();
+        balloon.activate(mem).unwrap();
         assert_eq!(
             format!("{:?}", balloon.update_stats_polling_interval(1)),
             "Err(StatisticsStateChange)"
@@ -1023,6 +1032,8 @@ pub(crate) mod tests {
         assert!(balloon.update_stats_polling_interval(0).is_ok());
 
         let mut balloon = Balloon::new(0, true, 1, false).unwrap();
+        let mem = default_mem();
+        balloon.activate(mem).unwrap();
         assert_eq!(
             format!("{:?}", balloon.update_stats_polling_interval(0)),
             "Err(StatisticsStateChange)"
