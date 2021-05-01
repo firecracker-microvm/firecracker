@@ -198,69 +198,104 @@ impl ApiServer {
         }
 
         server.start_server().expect("Cannot start HTTP server");
+
         loop {
-            match server.requests() {
-                Ok(request_vec) => {
-                    for server_request in request_vec {
-                        let request_processing_start_us =
-                            utils::time::get_time_us(utils::time::ClockType::Monotonic);
-                        server
-                            .respond(
-                                // Use `self.handle_request()` as the processing callback.
-                                server_request.process(|request| {
-                                    self.handle_request(request, request_processing_start_us)
-                                }),
-                            )
-                            .or_else(|e| {
-                                error!("API Server encountered an error on response: {}", e);
-                                Ok(())
-                            })?;
-                        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
-                            - request_processing_start_us;
-                        debug!("Total previous API call duration: {} us.", delta_us);
-                        if self.vmm_fatal_error {
-                            // Flush the remaining outgoing responses
-                            // and proceed to exit
-                            server.flush_outgoing_writes();
-                            error!(
-                                "Fatal error with exit code: {}",
-                                FC_EXIT_CODE_BAD_CONFIGURATION
-                            );
-                            unsafe {
-                                libc::_exit(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
+            let request_vec = match server.requests() {
+                Ok(vec) => vec,
+                Err(e) => {  // print request error, but keep server running
                     error!(
                         "API Server error on retrieving incoming request. Error: {}",
                         e
                     );
+                    continue
+                }
+            };
+
+            for server_request in request_vec {
+                let request_processing_start_us =
+                    utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
+                // !!! ServerRequest::process() doesn't appear to do anything besides put a private
+                // id field into the response.  But since it takes an inner function it cannot
+                // return from this function without giving a response.  Review a better way of
+                // exiting cleanly than by reaching out of the closure to set a boolean.
+
+                let mut shutting_down = false;
+
+                server
+                    .respond(
+                        server_request.process(|request| {
+                            match self.handle_request_or_finishing(request, request_processing_start_us) {
+                                Some(response) => response,
+                                None => {
+                                    shutting_down = true;
+                                    Response::new(Version::Http11, StatusCode::NoContent)
+                                }
+                            }
+                        }),
+                    )
+                    .or_else(|e| {
+                        error!("API Server encountered an error on response: {}", e);
+                        Ok(())
+                    })?;
+
+                let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
+                    - request_processing_start_us;
+                debug!("Total previous API call duration: {} us.", delta_us);
+
+                if shutting_down {
+                    debug!("/shutdown-internal request received, API server thread now ending itself");
+                    return Ok(());
+                }
+
+                if self.vmm_fatal_error {
+                    // Flush the remaining outgoing responses
+                    // and proceed to exit
+                    server.flush_outgoing_writes();
+                    error!(
+                        "Fatal error with exit code: {}",
+                        FC_EXIT_CODE_BAD_CONFIGURATION
+                    );
+                    unsafe {
+                        libc::_exit(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
+                    }
                 }
             }
         }
     }
 
     /// Handles an API request received through the associated socket.
+    /// If None is given back, it means a ShutdownInternal was requested and no response
+    /// is expected (should be requested by the main thread, not by clients)
+    pub fn handle_request_or_finishing(
+        &mut self,
+        request: &Request,
+        request_processing_start_us: u64,
+    ) -> Option<Response> {
+        match ParsedRequest::try_from_request(request) {
+            Ok(ParsedRequest::Sync(vmm_action)) => {
+                Some(self.serve_vmm_action_request(vmm_action, request_processing_start_us))
+            }
+            Ok(ParsedRequest::GetInstanceInfo) => Some(self.get_instance_info()),
+            Ok(ParsedRequest::GetMMDS) => Some(self.get_mmds()),
+            Ok(ParsedRequest::PatchMMDS(value)) => Some(self.patch_mmds(value)),
+            Ok(ParsedRequest::PutMMDS(value)) => Some(self.put_mmds(value)),
+            Ok(ParsedRequest::ShutdownInternal) => None,
+            Err(e) => {
+                error!("{}", e);
+                Some(e.into())
+            }
+        }
+    }
+
+    /// Variant of handle_request that is used by tests, and does not know about the
+    /// ShutdownInternal mechanism.  So the response is non-optional.
     pub fn handle_request(
         &mut self,
         request: &Request,
         request_processing_start_us: u64,
     ) -> Response {
-        match ParsedRequest::try_from_request(request) {
-            Ok(ParsedRequest::Sync(vmm_action)) => {
-                self.serve_vmm_action_request(vmm_action, request_processing_start_us)
-            }
-            Ok(ParsedRequest::GetInstanceInfo) => self.get_instance_info(),
-            Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
-            Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
-            Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
-            Err(e) => {
-                error!("{}", e);
-                e.into()
-            }
-        }
+        self.handle_request_or_finishing(request, request_processing_start_us).unwrap()
     }
 
     fn serve_vmm_action_request(

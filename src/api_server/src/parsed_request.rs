@@ -31,6 +31,7 @@ pub(crate) enum ParsedRequest {
     PatchMMDS(Value),
     PutMMDS(Value),
     Sync(Box<VmmAction>),
+    ShutdownInternal,  // !!! not an API, used by shutdown to thread::join the API thread
 }
 
 impl ParsedRequest {
@@ -57,6 +58,7 @@ impl ParsedRequest {
 
         match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
+            (Method::Get, "shutdown-internal", None) => Ok(ParsedRequest::ShutdownInternal),
             (Method::Get, "balloon", None) => parse_get_balloon(path_tokens.get(1)),
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),

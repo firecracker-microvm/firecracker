@@ -7,6 +7,9 @@ use std::{
     sync::mpsc::{channel, Receiver, Sender, TryRecvError},
     sync::{Arc, Mutex},
     thread,
+
+    os::unix::net::UnixStream,  // for main thread to send ShutdownInternal to API thread
+    io::prelude::*,  // UnixStream write_all() requires prelude
 };
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
@@ -146,9 +149,10 @@ pub(crate) fn run_with_api(
         .try_clone()
         .expect("Failed to clone API event FD");
 
+    let api_bind_path = bind_path.clone();
     let api_seccomp_filter = seccomp_filter.clone();
     // Start the separate API thread.
-    thread::Builder::new()
+    let api_thread = thread::Builder::new()
         .name("fc_api".to_owned())
         .spawn(move || {
             mask_handled_signals().expect("Unable to install signal mask on API thread.");
@@ -160,7 +164,7 @@ pub(crate) fn run_with_api(
                 from_vmm,
                 to_vmm_event_fd,
             )
-            .bind_and_run(bind_path, process_time_reporter, api_seccomp_filter)
+            .bind_and_run(api_bind_path, process_time_reporter, api_seccomp_filter)
             {
                 Ok(_) => (),
                 Err(api_server::Error::Io(inner)) => match inner.kind() {
@@ -238,12 +242,33 @@ pub(crate) fn run_with_api(
         .expect("Poisoned lock")
         .start(super::metrics::WRITE_METRICS_PERIOD_MS);
 
-    ApiServerAdapter::run_microvm(
+    let exit_code = ApiServerAdapter::run_microvm(
         api_event_fd,
         from_api,
         to_api,
         vm_resources,
         vmm,
         &mut event_manager,
-    )
+    );
+
+    // We want to tell the API thread to shut down for a clean exit.  But this is after
+    // the Vmm.stop() has been called, so it's a moment of internal finalization (as
+    // opposed to be something the client might call to shut the Vm down).  Since it's
+    // an internal signal implementing it with an HTTP request is probably not the ideal
+    // way to do it...but having another way would involve waiting on the socket or some
+    // other signal.  This leverages the existing wait.
+    //
+    // !!! Since the code is only needed for a "clean" shutdown mode, a non-clean mode
+    // could not respond to the request, making this effectively a debug-only feature.
+    //
+    let mut sock = UnixStream::connect(bind_path).unwrap();
+    assert!(sock.write_all(b"GET /shutdown-internal HTTP/1.1\r\n\r\n").is_ok());
+
+    // This call to thread::join() should block until the API thread has processed the
+    // shutdown-internal and returns from its function.  If it doesn't block here, then
+    // that means it got the message; so no need to process a response.
+    //
+    api_thread.join().unwrap();
+
+    exit_code
 }
