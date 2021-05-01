@@ -9,6 +9,7 @@
 - Added option to configure block device flush.
 - Added `--new-pid-ns` flag to the Jailer in order to spawn the Firecracker
   process in a new PID namespace.
+- Added API metrics for `GET`, `PUT` and `PATCH` requests on `/mmds` endpoint.
 
 ### Fixed
 
