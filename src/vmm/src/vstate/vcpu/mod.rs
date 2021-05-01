@@ -6,8 +6,6 @@
 // found in the THIRD-PARTY file.
 
 use libc::{c_int, c_void, siginfo_t};
-#[cfg(not(test))]
-use std::sync::Barrier;
 #[cfg(test)]
 use std::sync::Mutex;
 use std::{
@@ -332,6 +330,7 @@ impl Vcpu {
                     .expect("failed to send save not allowed status");
             }
             Ok(VcpuEvent::Exit) => return self.exit(FC_EXIT_CODE_GENERIC_ERROR),
+            Ok(VcpuEvent::Finish) => return StateMachine::finish(),
             // Unhandled exit of the other end.
             Err(TryRecvError::Disconnected) => {
                 // Move to 'exited' state.
@@ -396,6 +395,7 @@ impl Vcpu {
                 StateMachine::next(Self::paused)
             }
             Ok(VcpuEvent::Exit) => self.exit(FC_EXIT_CODE_GENERIC_ERROR),
+            Ok(VcpuEvent::Finish) => StateMachine::finish(),
             // Unhandled exit of the other end.
             Err(_) => {
                 // Move to 'exited' state.
@@ -404,41 +404,38 @@ impl Vcpu {
         }
     }
 
-    #[cfg(not(test))]
     // Transition to the exited state.
     fn exit(&mut self, exit_code: u8) -> StateMachine<Self> {
         self.response_sender
             .send(VcpuResponse::Exited(exit_code))
             .expect("vcpu channel unexpectedly closed");
 
+        StateMachine::next(Self::exited)
+    }
+
+    // This is the main loop of the `Exited` state.
+    fn exited(&mut self) -> StateMachine<Self> {
+        //
+        // !!! This signaled `EventFd` is not used by the main protocol.  Is it specific to test?
+        // What does the test actually want to know by seeing it set?
+        //
         if let Err(e) = self.exit_evt.write(1) {
             METRICS.vcpu.failures.inc();
             error!("Failed signaling vcpu exit event: {}", e);
         }
 
-        // State machine reached its end.
-        StateMachine::next(Self::exited)
-    }
-
-    #[cfg(not(test))]
-    // This is the main loop of the `Exited` state.
-    fn exited(&mut self) -> StateMachine<Self> {
-        // Wait indefinitely.
-        // The VMM thread will kill the entire process.
-        let barrier = Barrier::new(2);
-        barrier.wait();
-
-        StateMachine::finish()
-    }
-
-    #[cfg(test)]
-    // In tests the main/vmm thread exits without 'exit()'ing the whole process.
-    // All channels get closed on the other side while this Vcpu thread is still running.
-    // This Vcpu thread should just do a clean finish without reporting back to the main thread.
-    fn exit(&mut self, _: u8) -> StateMachine<Self> {
-        self.exit_evt.write(1).unwrap();
-        // State machine reached its end.
-        StateMachine::finish()
+        // !!! Stylistically we might like to force a transition to an exit state for all VCPUs
+        // before allowing them to accept a Finish and terminate the state loop.  But you run into
+        // trouble with sending Exit to already exited VCPUs.  This is because right now, reading
+        // (and removing) an exited event from the channel is how the main thread discovers exits
+        // arising from the VCPU itself.  So by the time clean shutdown is performed, one can't
+        // tell if a VCPU is in the exit state or not.  For the moment, the main benefit is that
+        // the exit state is able to refuse to process any other events besides Finish.
+        //
+        match self.event_receiver.recv() {
+            Ok(VcpuEvent::Finish) => StateMachine::finish(),
+            _ => panic!("exited() state of VCPU can only respond to Finish events (for thread join)")
+        }
     }
 
     #[cfg(not(test))]
@@ -558,6 +555,8 @@ impl Drop for Vcpu {
 pub enum VcpuEvent {
     /// The vCPU will go to exited state when receiving this message.
     Exit,
+    /// Actual thread (channel) ends on finish--hence no response.
+    Finish,
     /// Pause the Vcpu.
     Pause,
     /// Event to resume the Vcpu.
@@ -825,15 +824,20 @@ mod tests {
         }
     }
 
-    // In tests we need to close any pending Vcpu threads on test completion.
+    // Wait for the Vcpu thread to finish execution
     impl Drop for VcpuHandle {
         fn drop(&mut self) {
-            // Make sure the Vcpu is out of KVM_RUN.
-            self.send_event(VcpuEvent::Pause).unwrap();
-            // Close the original channel so that the Vcpu thread errors and goes to exit state.
-            let (event_sender, _event_receiver) = channel();
-            self.event_sender = event_sender;
-            // Wait for the Vcpu thread to finish execution
+            //
+            // !!! Previously, this Drop code would attempt to send messages to the Vcpu
+            // to put it in an exit state.  We now assume that by the time a VcpuHandle is
+            // dropped, other code has run to get the state machine loop to finish so the
+            // thread is ready to join.  The strategy of avoiding more complex messaging
+            // protocols during the Drop helps avoid cycles which were preventing a truly
+            // clean shutdown.
+            //
+            // If the code hangs at this point, that means that a Finish event was not
+            // sent by Vmm.stop().
+            //
             self.vcpu_thread.take().unwrap().join().unwrap();
         }
     }

@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::os::unix::io::AsRawFd;
-use std::sync::mpsc::RecvTimeoutError;
+use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -317,12 +317,26 @@ impl Vmm {
 
     /// Sends an exit command to the vCPUs.
     pub fn exit_vcpus(&mut self) -> Result<()> {
-        self.broadcast_vcpu_event(
-            VcpuEvent::Exit,
-            VcpuResponse::Exited(FC_EXIT_CODE_GENERIC_ERROR),
-        )
-        .map_err(|_| Error::VcpuExit)
+        //
+        // We actually send a "Finish" event.  If a VCPU has already exited, this is
+        // the only message it will accept...but runinng and paused will take it as well.
+        // It breaks out of the state machine loop so that the thread can be joined.
+        //
+        for handle in &self.vcpus_handles {
+            handle
+                .send_event(VcpuEvent::Finish)
+                .map_err(|_| Error::VcpuMessage)?;
+        }
+
+        // The actual thread::join() that runs to release the thread's resource is done in
+        // the VcpuHandle's Drop trait.  We can trigger that to happen now by clearing the
+        // list of handles (Vmm's Drop will also asserts this list is empty).
+        //
+        self.vcpus_handles.clear();
+
+        Ok(())
     }
+
     /// Returns a reference to the inner `GuestMemoryMmap` object if present, or `None` otherwise.
     pub fn guest_memory(&self) -> &GuestMemoryMmap {
         &self.guest_memory
@@ -343,6 +357,8 @@ impl Vmm {
     /// (See notes in main() about why ExitCode is bubbled up for clean shutdown.)
     pub fn stop(&mut self) {
         info!("Vmm is stopping.");
+
+        self.exit_vcpus().unwrap();  // exit all not-already-exited VCPUs, join their threads
 
         if let Some(observer) = self.events_observer.as_mut() {
             if let Err(e) = observer.on_vmm_stop() {
@@ -706,7 +722,24 @@ fn construct_kvm_mpidrs(vcpu_states: &[VcpuState]) -> Vec<u64> {
 
 impl Drop for Vmm {
     fn drop(&mut self) {
-        let _ = self.exit_vcpus();
+        //
+        // !!! This used to think it exited the cpus, which would do a thread join and tie up
+        // the vcpu threads:
+        //
+        //     let _ = self.exit_vcpus();
+        //
+        // But since the main firecracker process used exit() to terminate in mid-stack, the
+        // destructors for Vmm and other classes would not run.  Even after mitigating that by
+        // running the exit from a top-level main() wrapper, the Vmm's Drop still was not
+        // happening because of a cycle: VCPU threads held references to the Vmm, so you couldn't
+        // have the Vmm drop be how the threads were exiting.  Further, the VCPU threads would
+        // not exit cleanly--they'd just block on a barrier--and could not be thread::join'd.
+        //
+        // To be more explicit and untangle those problems, exit_vcpus() is moved into Vmm::stop().
+        // So now, this Drop method just asserts that happened.  It won't trigger if there's
+        // another situation where there's no Vmm Drop...but a Valgrind run will pick up the leak.
+        //
+        assert!(self.vcpus_handles.is_empty());
     }
 }
 
@@ -718,20 +751,49 @@ impl Subscriber for Vmm {
 
         if source == self.exit_evt.as_raw_fd() && event_set == EventSet::IN {
             let _ = self.exit_evt.read();
+
+            let mut opt_exit_code: Option<ExitCode> = None;
+
             // Query each vcpu for the exit_code.
+            //
+            for handle in &self.vcpus_handles {
+                match handle.response_receiver().try_recv() {
+                    Ok(VcpuResponse::Exited(status)) => {
+                        if opt_exit_code.is_none() {
+                            opt_exit_code = Some(status);
+                        } else {
+                            warn!("Multiple VCPU exit states detected, using first exit code");
+                        }
+                    }
+                    Err(TryRecvError::Empty) => {}  // Nothing pending in channel
+                    Ok(_response) => {
+                        //
+                        // !!! This removes a response from the VCPU channel.  Is there
+                        // anything to lose from that, given that we are exiting?
+                    }
+                    Err(e) => {
+                        panic!("Error while looking for VCPU exit status: {}", e);
+                    }
+                }
+            }
+
+            // !!! The caller of this routine is receiving the exit code to bubble back up
+            // to the main() function to return cleanly.  However, it does not have clean
+            // access to the Vmm to shut it down (here we have it, since it is `self`).  It
+            // might seem tempting to put the stop() code in the Drop trait...but since
+            // stopping the Vmm involves shutting down VCPU threads which hold references
+            // on the Vmm, that presents a cycle.  The solution of the moment is to do
+            // everything here...which means this is the only process_exitable() handler
+            // that will actually work with an exit code (all other Subscriber trait
+            // implementers must use process())
+            //
+            self.stop();
+
             // If the exit_code can't be found on any vcpu, it means that the exit signal
             // has been issued by the i8042 controller in which case we exit with
             // FC_EXIT_CODE_OK.
-            let exit_code = self
-                .vcpus_handles
-                .iter()
-                .find_map(|handle| match handle.response_receiver().try_recv() {
-                    Ok(VcpuResponse::Exited(exit_code)) => Some(exit_code),
-                    _ => None,
-                })
-                .unwrap_or(FC_EXIT_CODE_OK);
-            self.stop();
-            Some(exit_code)
+            //
+            Some(opt_exit_code.unwrap_or(FC_EXIT_CODE_OK))
         } else {
             error!("Spurious EventManager event for handler: Vmm");
             None
