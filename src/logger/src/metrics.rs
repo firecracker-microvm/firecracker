@@ -355,6 +355,10 @@ pub struct GetRequestsMetrics {
     pub machine_cfg_count: SharedIncMetric,
     /// Number of failures during GETs for getting information on the instance.
     pub machine_cfg_fails: SharedIncMetric,
+    /// Number of GETs for getting mmds.
+    pub mmds_count: SharedIncMetric,
+    /// Number of failures during GETs for getting mmds.
+    pub mmds_fails: SharedIncMetric,
 }
 
 /// Metrics specific to PUT API Requests for counting user triggered actions and/or failures.
@@ -388,6 +392,10 @@ pub struct PutRequestsMetrics {
     pub network_count: SharedIncMetric,
     /// Number of failures in creating a new network interface.
     pub network_fails: SharedIncMetric,
+    /// Number of PUTs for creating mmds.
+    pub mmds_count: SharedIncMetric,
+    /// Number of failures in creating a new mmds.
+    pub mmds_fails: SharedIncMetric,
 }
 
 /// Metrics specific to PATCH API Requests for counting user triggered actions and/or failures.
@@ -405,6 +413,10 @@ pub struct PatchRequestsMetrics {
     pub machine_cfg_count: SharedIncMetric,
     /// Number of failures in configuring the machine.
     pub machine_cfg_fails: SharedIncMetric,
+    /// Number of tries to PATCH an mmds.
+    pub mmds_count: SharedIncMetric,
+    /// Number of failures in PATCHing an mmds.
+    pub mmds_fails: SharedIncMetric,
 }
 
 /// Balloon Device associated metrics.
