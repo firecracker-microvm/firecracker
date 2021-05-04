@@ -88,6 +88,7 @@ def test_create_with_prev_device_count(test_microvm_with_ssh, network_config):
     snapshot_builder = SnapshotBuilder(test_microvm)
     # Create directory and files for saving snapshot state and memory.
     _snapshot_dir = snapshot_builder.create_snapshot_dir()
+
     # Pause and create a snapshot of the microVM. Firecracker v0.23 allowed a
     # maximum of `FC_V0_23_MAX_DEVICES_ATTACHED` virtio devices at a time.
     # This microVM has `FC_V0_23_MAX_DEVICES_ATTACHED` devices, including the

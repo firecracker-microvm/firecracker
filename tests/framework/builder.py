@@ -244,10 +244,6 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
             mem_full_path = os.path.join(snaps_dir, mem_file_name)
             vmstate_full_path = os.path.join(snaps_dir, snapshot_name)
 
-        # Disable API timeout as the APIs for snapshot related procedures
-        # take longer.
-        self._microvm.api_session.untime()
-
         snaps_dir_name = os.path.basename(snaps_dir)
         self._microvm.pause_to_snapshot(
             mem_file_path=os.path.join('/', snaps_dir_name, mem_file_name),
