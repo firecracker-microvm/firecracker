@@ -280,7 +280,10 @@ impl ApiServer {
             Ok(ParsedRequest::GetMMDS) => Some(self.get_mmds()),
             Ok(ParsedRequest::PatchMMDS(value)) => Some(self.patch_mmds(value)),
             Ok(ParsedRequest::PutMMDS(value)) => Some(self.put_mmds(value)),
+
+            #[cfg(debug_assertions)]
             Ok(ParsedRequest::ShutdownInternal) => None,
+
             Err(e) => {
                 error!("{}", e);
                 Some(e.into())

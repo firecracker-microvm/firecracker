@@ -16,12 +16,16 @@ use seccomp::{BpfProgram, SeccompLevel};
 use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
+
 use vmm::default_syscalls::get_seccomp_filter;
 use vmm::resources::VmResources;
 use vmm::signal_handler::{mask_handled_signals, SignalManager};
 use vmm::version_map::FC_VERSION_TO_SNAP_VERSION;
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
+
+#[cfg(debug_assertions)]
+use vmm::exit_firecracker_abruptly;
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.
@@ -30,7 +34,7 @@ const DEFAULT_API_SOCK_PATH: &str = "/run/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 const FIRECRACKER_VERSION: &str = env!("FIRECRACKER_VERSION");
 
-fn main_exitable() -> ExitCode {
+fn main_exitable() -> (SeccompLevel, ExitCode) {
     LOGGER
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
@@ -206,13 +210,11 @@ fn main_exitable() -> ExitCode {
     }
 
     // It's safe to unwrap here because the field's been provided with a default value.
-    let seccomp_level = arguments.single_value("seccomp-level").unwrap();
-    let seccomp_filter = get_seccomp_filter(
-        SeccompLevel::from_string(&seccomp_level).unwrap_or_else(|err| {
-            panic!("Invalid value for seccomp-level: {}", err);
-        }),
-    )
-    .unwrap_or_else(|err| {
+    let seccomp_level_arg = arguments.single_value("seccomp-level").unwrap();
+    let seccomp_level = SeccompLevel::from_string(&seccomp_level_arg).unwrap_or_else(|err| {
+        panic!("Invalid value for seccomp-level: {}", err);
+    });
+    let seccomp_filter = get_seccomp_filter(seccomp_level).unwrap_or_else(|err| {
         panic!("Could not create seccomp filter: {}", err);
     });
 
@@ -224,7 +226,7 @@ fn main_exitable() -> ExitCode {
     let boot_timer_enabled = arguments.flag_present("boot-timer");
     let api_enabled = !arguments.flag_present("no-api");
 
-    if api_enabled {
+    let exit_code = if api_enabled {
         let bind_path = arguments
             .single_value("api-sock")
             .map(PathBuf::from)
@@ -262,22 +264,40 @@ fn main_exitable() -> ExitCode {
             &instance_info,
             boot_timer_enabled,
         )
-    }
+    };
+
+    (seccomp_level, exit_code)
 }
 
-fn main () {
-    // This idiom is the prescribed way to get a clean shutdown of Rust (that will report
-    // no leaks in Valgrind or sanitizers).  Calling `unsafe { libc::exit() }` does no
-    // cleanup, and std::process::exit() does more--but does not run destructors.  So the
-    // best thing to do is to is bubble up the exit code through the whole stack, and
-    // only exit when everything potentially destructible has cleaned itself up.
+// This idiom of wrapping main is the prescribed way to get a clean shutdown of Rust (that
+// will report no leaks in Valgrind or sanitizers).  It gives destructors a chance to run.
+//
+// See process_exitable() method of Subscriber trait for what triggers the exit_code.
+//
+// Variable named _seccomp_level instead of seccomp_level to avoid warning that the
+// release build doesn't use it.
+//
+fn main() {
+    // Release builds exit as soon as possible; faster and reduces impact of deadlock bugs.
     //
-    // https://doc.rust-lang.org/std/process/fn.exit.html
+    #[cfg(not(debug_assertions))]
+    {
+        main_exitable();
+        panic!("Release build bubbled exit_code to main() vs. ending abruptly earlier");
+    }
+
+    // Debug builds exit as cleanly as they are able to, for Valgrind and sanity checking.
     //
-    // See process_exitable() method of Subscriber trait for what triggers the exit_code.
-    //
-    let exit_code = main_exitable();
-    std::process::exit(i32::from(exit_code));
+    #[cfg(debug_assertions)]
+    {
+        let (seccomp_level, exit_code) = main_exitable();
+
+        if seccomp_level == SeccompLevel::None {
+            std::process::exit(i32::from(exit_code));  // includes Rust library cleanup
+        } else {
+            exit_firecracker_abruptly(exit_code);  // see notes on seccomp interaction
+        }
+    }
 }
 
 // Print supported snapshot data format versions.

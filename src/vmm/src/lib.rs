@@ -227,6 +227,21 @@ pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
     guest_memory.map_and_fold(0, |(_, region)| region.len(), |a, b| a + b) >> 20
 }
 
+/// The default/recommended filter for production workloads is a tight whitelist that
+/// doesn't include some syscalls done by Rust during thread exit (rt_sigprocmask is
+/// the first to hit the filter).  So when default seccomp filter is installed,
+/// calling Rust's `std::process::exit()` will result in a seccomp violation panic.
+///
+/// Calling the libc::_exit() function is even more basic than libc::exit(), and so
+/// it must be used when seccomp filtering is enabled, unless something else changes.
+///
+/// But see main() for how debug builds use std::process::exit() when they are verifying
+/// shutdown can run cleanly, when seccomp filtering is off.
+///
+pub fn exit_firecracker_abruptly(exit_code: ExitCode) -> ! {  // ! -> diverging function
+    unsafe { libc::_exit(i32::from(exit_code)) }
+}
+
 /// Contains the state and associated methods required for the Firecracker VMM.
 pub struct Vmm {
     events_observer: Option<Box<dyn VmmEventsObserver>>,
@@ -353,13 +368,14 @@ impl Vmm {
             .map_err(Error::I8042Error)
     }
 
-    /// Waits for all vCPUs to exit.  Does not terminate the Firecracker process.
-    /// (See notes in main() about why ExitCode is bubbled up for clean shutdown.)
-    pub fn stop(&mut self) {
+    /// This stops the VMM.  If it's a release build, this will exit the Firecracker process
+    /// entirely.  But debug builds enforce a higher level of cleanliness, and return an
+    /// exit code that the caller should bubble up to main().
+    ///
+    pub fn stop(&mut self, exit_code: ExitCode) -> ExitCode {
         info!("Vmm is stopping.");
 
-        self.exit_vcpus().unwrap();  // exit all not-already-exited VCPUs, join their threads
-
+        // Teardown the VMM (produces metrics we need to write out)
         if let Some(observer) = self.events_observer.as_mut() {
             if let Err(e) = observer.on_vmm_stop() {
                 warn!("{}", Error::VmmObserverTeardown(e));
@@ -369,6 +385,23 @@ impl Vmm {
         // Write the metrics before exiting.
         if let Err(e) = METRICS.write() {
             error!("Failed to write metrics while stopping: {}", e);
+        }
+
+        // The release build exits here, to reduce the impact of shutdown deadlock bugs.
+        // It's also faster to let the OS do memory and resource cleanup, once semantically
+        // important shutdown (e.g. flushing and writing any open files) is done.
+        //
+        #[cfg(not(debug_assertions))]
+        exit_firecracker_abruptly(exit_code);
+
+        // The debug build will shut down in an orderly fashion, bubbling up the exit code all
+        // the way to main and joining all threads (including ending the API server gracefully).
+        //
+        #[cfg(debug_assertions)]
+        {
+            self.exit_vcpus().unwrap();  // exit all not-already-exited VCPUs, join their threads
+
+            exit_code
         }
     }
 
@@ -777,6 +810,12 @@ impl Subscriber for Vmm {
                 }
             }
 
+            // If the exit_code can't be found on any vcpu, it means that the exit signal
+            // has been issued by the i8042 controller in which case we exit with
+            // FC_EXIT_CODE_OK.
+            //
+            let exit_code = opt_exit_code.unwrap_or(FC_EXIT_CODE_OK);
+
             // !!! The caller of this routine is receiving the exit code to bubble back up
             // to the main() function to return cleanly.  However, it does not have clean
             // access to the Vmm to shut it down (here we have it, since it is `self`).  It
@@ -787,13 +826,7 @@ impl Subscriber for Vmm {
             // that will actually work with an exit code (all other Subscriber trait
             // implementers must use process())
             //
-            self.stop();
-
-            // If the exit_code can't be found on any vcpu, it means that the exit signal
-            // has been issued by the i8042 controller in which case we exit with
-            // FC_EXIT_CODE_OK.
-            //
-            Some(opt_exit_code.unwrap_or(FC_EXIT_CODE_OK))
+            Some(self.stop(exit_code))  // exits abruptly if release build, else returns
         } else {
             error!("Spurious EventManager event for handler: Vmm");
             None

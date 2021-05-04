@@ -251,15 +251,16 @@ pub(crate) fn run_with_api(
         &mut event_manager,
     );
 
+    // Note: In the release build, this is never reached...because exit() is called
+    // abruptly (the OS does faster cleanup, and it reduces the risk of hanging).
+    // Top level main() will complain if the bubbling process happens in release builds.
+
     // We want to tell the API thread to shut down for a clean exit.  But this is after
     // the Vmm.stop() has been called, so it's a moment of internal finalization (as
     // opposed to be something the client might call to shut the Vm down).  Since it's
     // an internal signal implementing it with an HTTP request is probably not the ideal
     // way to do it...but having another way would involve waiting on the socket or some
     // other signal.  This leverages the existing wait.
-    //
-    // !!! Since the code is only needed for a "clean" shutdown mode, a non-clean mode
-    // could not respond to the request, making this effectively a debug-only feature.
     //
     let mut sock = UnixStream::connect(bind_path).unwrap();
     assert!(sock.write_all(b"GET /shutdown-internal HTTP/1.1\r\n\r\n").is_ok());
