@@ -55,17 +55,21 @@ class MicrovmBuilder:
               config: Artifact,
               net_ifaces=None,
               enable_diff_snapshots=False,
-              cpu_template=None):
+              cpu_template=None,
+              use_ramdisk=False):
         """Build a fresh microvm."""
         vm = init_microvm(self.root_path, self.bin_cloner_path,
                           self._fc_binary, self._jailer_binary)
 
+        # Start firecracker.
+        vm.spawn(use_ramdisk=use_ramdisk)
+
         # Link the microvm to kernel, rootfs, ssh_key artifacts.
         vm.kernel_file = kernel.local_path()
         vm.rootfs_file = disks[0].local_path()
-
-        # Start firecracker.
-        vm.spawn()
+        # copy rootfs to ramdisk if needed
+        jailed_rootfs_path = vm.copy_to_jail_ramfs(vm.rootfs_file) if \
+            use_ramdisk else vm.create_jailed_resource(vm.rootfs_file)
 
         # Download ssh key into the microvm root.
         ssh_key.download(self.root_path)
@@ -96,7 +100,21 @@ class MicrovmBuilder:
         with open(config.local_path()) as microvm_config_file:
             microvm_config = json.load(microvm_config_file)
 
-        response = vm.basic_config(boot_args='console=ttyS0 reboot=k panic=1')
+        response = vm.basic_config(
+            add_root_device=False,
+            boot_args='console=ttyS0 reboot=k panic=1'
+        )
+
+        # Add the root file system with rw permissions.
+        response = vm.drive.put(
+            drive_id='rootfs',
+            path_on_host=jailed_rootfs_path,
+            is_root_device=True,
+            is_read_only=False
+        )
+        assert vm.api_session \
+            .is_status_no_content(response.status_code), \
+            response.text
 
         # Apply the microvm artifact configuration and template.
         response = vm.machine_cfg.put(
@@ -202,24 +220,45 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
                target_version: str = None,
                mem_file_name: str = "vm.mem",
                snapshot_name: str = "vm.vmstate",
-               net_ifaces=None):
+               net_ifaces=None,
+               use_ramdisk=False):
         """Create a Snapshot object from a microvm and artifacts."""
+        if use_ramdisk:
+            snaps_dir = self._microvm.jailer.chroot_ramfs_path()
+            mem_full_path = os.path.join(snaps_dir, mem_file_name)
+            vmstate_full_path = os.path.join(snaps_dir, snapshot_name)
+
+            memsize = self._microvm.machine_cfg.configuration['mem_size_mib']
+            # Pre-allocate ram for memfile to eliminate allocation variability.
+            utils.run_cmd('dd if=/dev/zero of={} bs=1M count={}'.format(
+                mem_full_path, memsize
+            ))
+            cmd = 'chown {}:{} {}'.format(
+                self._microvm.jailer.uid,
+                self._microvm.jailer.gid,
+                mem_full_path
+            )
+            utils.run_cmd(cmd)
+        else:
+            snaps_dir = self.create_snapshot_dir()
+            mem_full_path = os.path.join(snaps_dir, mem_file_name)
+            vmstate_full_path = os.path.join(snaps_dir, snapshot_name)
+
         # Disable API timeout as the APIs for snapshot related procedures
         # take longer.
         self._microvm.api_session.untime()
-        snapshot_dir = self.create_snapshot_dir()
+
+        snaps_dir_name = os.path.basename(snaps_dir)
         self._microvm.pause_to_snapshot(
-            mem_file_path="/snapshot/"+mem_file_name,
-            snapshot_path="/snapshot/"+snapshot_name,
+            mem_file_path=os.path.join('/', snaps_dir_name, mem_file_name),
+            snapshot_path=os.path.join('/', snaps_dir_name, snapshot_name),
             diff=snapshot_type == SnapshotType.DIFF,
             version=target_version)
 
         # Create a copy of the ssh_key artifact.
         ssh_key_copy = ssh_key.copy()
-        mem_path = os.path.join(snapshot_dir, mem_file_name)
-        vmstate_path = os.path.join(snapshot_dir, snapshot_name)
-        return Snapshot(mem=mem_path,
-                        vmstate=vmstate_path,
+        return Snapshot(mem=mem_full_path,
+                        vmstate=vmstate_full_path,
                         # TODO: To support more disks we need to figure out a
                         # simple and flexible way to store snapshot artifacts
                         # in S3. This should be done in a PR where we add tests
