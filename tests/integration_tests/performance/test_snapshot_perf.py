@@ -71,7 +71,8 @@ kernel {}, disk {} """.format(snapshot_type,
                               disks=[rw_disk],
                               ssh_key=ssh_key,
                               config=context.microvm,
-                              enable_diff_snapshots=enable_diff_snapshots)
+                              enable_diff_snapshots=enable_diff_snapshots,
+                              use_ramdisk=True)
 
         # Configure metrics system.
         metrics_fifo_path = os.path.join(vm.path, 'metrics_fifo')
@@ -88,7 +89,8 @@ kernel {}, disk {} """.format(snapshot_type,
         snapshot_builder = SnapshotBuilder(vm)
         snapshot_builder.create([rw_disk],
                                 ssh_key,
-                                snapshot_type)
+                                snapshot_type,
+                                use_ramdisk=True)
         metrics = vm.flush_metrics(metrics_fifo)
 
         if snapshot_type == SnapshotType.FULL:
