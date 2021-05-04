@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import select
+import shutil
 import time
 
 from retry import retry
@@ -318,6 +319,22 @@ class Microvm:
         )
         self._cpu_load_monitor.start()
 
+    def copy_to_jail_ramfs(self, src):
+        """Copy a file to a jail ramfs."""
+        filename = os.path.basename(src)
+        dest_path = os.path.join(self.jailer.chroot_ramfs_path(), filename)
+        jailed_path = os.path.join(
+            '/', self.jailer.ramfs_subdir_name, filename
+        )
+        shutil.copy(src, dest_path)
+        cmd = 'chown {}:{} {}'.format(
+            self.jailer.uid,
+            self.jailer.gid,
+            dest_path
+        )
+        utils.run_cmd(cmd)
+        return jailed_path
+
     def create_jailed_resource(self, path, create_jail=False):
         """Create a hard link to some resource inside this microvm."""
         return self.jailer.jailed_path(path, create=True,
@@ -407,10 +424,11 @@ class Microvm:
             return True
         return False
 
-    def spawn(self, create_logger=True, log_file='log_fifo', log_level='Info'):
+    def spawn(self, create_logger=True,
+              log_file='log_fifo', log_level='Info', use_ramdisk=False):
         """Start a microVM as a daemon or in a screen session."""
         # pylint: disable=subprocess-run-check
-        self._jailer.setup()
+        self._jailer.setup(use_ramdisk=use_ramdisk)
         self._api_socket = self._jailer.api_socket_path()
         self._api_session = Session()
 
