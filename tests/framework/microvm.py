@@ -684,6 +684,7 @@ class Microvm:
         response = self.vm.patch(state='Paused')
         assert self.api_session.is_status_no_content(response.status_code)
 
+        self.api_session.untime()
         response = self.snapshot_create.put(mem_file_path=mem_file_path,
                                             snapshot_path=snapshot_path,
                                             diff=diff,
