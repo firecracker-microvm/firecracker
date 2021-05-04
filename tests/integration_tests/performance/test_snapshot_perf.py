@@ -30,21 +30,21 @@ CREATE_LATENCY_BASELINES = {
     'x86_64': {
         '2vcpu_256mb.json': {
             'FULL':  180,
-            'DIFF':  50,
+            'DIFF':  70,
         },
         '2vcpu_512mb.json': {
             'FULL':  280,
-            'DIFF':  50,
+            'DIFF':  75,
         }
     },
     'aarch64': {
         '2vcpu_256mb.json': {
             'FULL':  160,
-            'DIFF':  14,
+            'DIFF':  70,
         },
         '2vcpu_512mb.json': {
             'FULL':  300,
-            'DIFF':  20,
+            'DIFF':  75,
         }
     },
 }
@@ -100,7 +100,8 @@ def _test_snapshot_create_latency(context):
                                   disks=[rw_disk],
                                   ssh_key=ssh_key,
                                   config=context.microvm,
-                                  enable_diff_snapshots=enable_diff_snapshots)
+                                  enable_diff_snapshots=enable_diff_snapshots,
+                                  use_ramdisk=True)
 
             # Configure metrics system.
             metrics_fifo_path = os.path.join(vm.path, 'metrics_fifo')
@@ -134,7 +135,8 @@ def _test_snapshot_create_latency(context):
             snapshot_builder.create(disks=[rw_disk],
                                     ssh_key=ssh_key,
                                     snapshot_type=snapshot_type,
-                                    target_version=target_version)
+                                    target_version=target_version,
+                                    use_ramdisk=True)
             metrics = vm.flush_metrics(metrics_fifo)
             vm_name = context.microvm.name()
 
