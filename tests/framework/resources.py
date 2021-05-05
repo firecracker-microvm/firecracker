@@ -332,6 +332,7 @@ class SnapshotCreate():
 
     def put(self, **args):
         """Create a snapshot of the microvm."""
+        self._api_session.untime()
         datax = self.create_json(**args)
         return self._api_session.put(
             "{}".format(self._snapshot_cfg_url),
@@ -484,19 +485,26 @@ class MachineConfigure():
 
         self._machine_cfg_url = api_url + self.MACHINE_CFG_RESOURCE
         self._api_session = api_session
+        self._datax = {}
+
+    @property
+    def configuration(self):
+        """Return machine config dictionary."""
+        return self._datax
 
     def put(self, **args):
         """Specify the details of the machine configuration."""
-        datax = self.create_json(**args)
+        self._datax = self.create_json(**args)
 
         return self._api_session.put(
             "{}".format(self._machine_cfg_url),
-            json=datax
+            json=self._datax
         )
 
     def patch(self, **args):
         """Update the details of the machine configuration."""
         datax = self.create_json(**args)
+        self._datax.update(datax)
 
         return self._api_session.patch(
             "{}".format(self._machine_cfg_url),

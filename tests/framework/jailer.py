@@ -69,6 +69,8 @@ class JailerContext:
         self.extra_args = extra_args
         self.api_socket_name = DEFAULT_USOCKET_NAME
         self.cgroups = cgroups
+        self.ramfs_subdir_name = 'ramfs'
+        self._ramfs_path = None
 
     def __del__(self):
         """Cleanup this jailer context."""
@@ -140,6 +142,10 @@ class JailerContext:
         """Return the MicroVM chroot path."""
         return os.path.join(self.chroot_base_with_id(), 'root')
 
+    def chroot_ramfs_path(self):
+        """Return the MicroVM chroot ramfs subfolder path."""
+        return os.path.join(self.chroot_path(), self.ramfs_subdir_name)
+
     def jailed_path(self, file_path, create=False, create_jail=False):
         """Create a hard link or block special device owned by uid:gid.
 
@@ -204,19 +210,39 @@ class JailerContext:
             return 'ip netns exec {} '.format(self.netns)
         return ''
 
-    def setup(self):
+    def setup(self, use_ramdisk=False):
         """Set up this jailer context."""
         os.makedirs(
             self.chroot_base if self.chroot_base is not None
             else DEFAULT_CHROOT_PATH,
             exist_ok=True
         )
+
+        if use_ramdisk:
+            self._ramfs_path = self.chroot_ramfs_path()
+            os.makedirs(self._ramfs_path, exist_ok=True)
+            ramdisk_name = 'ramfs-{}'.format(self.jailer_id)
+            utils.run_cmd(
+                'mount -t ramfs -o size=1M {} {}'.format(
+                    ramdisk_name, self._ramfs_path
+                )
+            )
+            cmd = 'chown {}:{} {}'.format(
+                self.uid, self.gid, self._ramfs_path
+            )
+            utils.run_cmd(cmd)
+
         if self.netns:
             utils.run_cmd('ip netns add {}'.format(self.netns))
 
     def cleanup(self):
         """Clean up this jailer context."""
         # pylint: disable=subprocess-run-check
+        if self._ramfs_path:
+            utils.run_cmd(
+                'umount {}'.format(self._ramfs_path), ignore_return_code=True
+            )
+
         if self.jailer_id:
             shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
