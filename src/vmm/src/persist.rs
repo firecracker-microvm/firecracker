@@ -108,8 +108,10 @@ impl Display for MicrovmStateError {
 pub enum CreateSnapshotError {
     /// Failed to get dirty bitmap.
     DirtyBitmap,
-    /// Failed to translate microVM version to snapshot data version.
-    InvalidVersion,
+    /// Invalid microVM version format
+    InvalidVersionFormat,
+    /// MicroVM version does not support snapshot.
+    UnsupportedVersion,
     /// Failed to save VM state.
     InvalidVmState(vstate::vm::Error),
     /// Failed to write memory to snapshot.
@@ -136,9 +138,10 @@ impl Display for CreateSnapshotError {
         use self::CreateSnapshotError::*;
         match self {
             DirtyBitmap => write!(f, "Cannot get dirty bitmap"),
-            InvalidVersion => write!(
+            InvalidVersionFormat => write!(f, "Invalid microVM version format."),
+            UnsupportedVersion => write!(
                 f,
-                "Cannot translate microVM version to snapshot data version"
+                "Cannot translate microVM version to snapshot data version",
             ),
             InvalidVmState(err) => write!(f, "Cannot save Vm state. Error: {:?}", err),
             Memory(err) => write!(f, "Cannot write memory file: {:?}", err),
@@ -282,10 +285,10 @@ pub fn get_snapshot_data_version(
     version_map: &VersionMap,
     _vmm: &Vmm,
 ) -> std::result::Result<u16, CreateSnapshotError> {
-    use self::CreateSnapshotError::InvalidVersion;
     if version.is_none() {
         return Ok(version_map.latest_version());
     }
+    validate_fc_version_format(version.as_ref().unwrap())?;
     match FC_VERSION_TO_SNAP_VERSION.get(version.as_ref().unwrap()) {
         #[cfg(target_arch = "x86_64")]
         Some(&FC_V0_23_SNAP_VERSION) => {
@@ -293,7 +296,7 @@ pub fn get_snapshot_data_version(
             Ok(FC_V0_23_SNAP_VERSION)
         }
         Some(data_version) => Ok(*data_version),
-        _ => Err(InvalidVersion),
+        _ => Err(CreateSnapshotError::UnsupportedVersion),
     }
 }
 
@@ -447,6 +450,21 @@ fn validate_devices_number(device_number: usize) -> std::result::Result<(), Crea
     Ok(())
 }
 
+fn validate_fc_version_format(version: &str) -> Result<(), CreateSnapshotError> {
+    let v: Vec<_> = version.match_indices('.').collect();
+    if v.len() != 2
+        || version[v[0].0..]
+            .trim_start_matches('.')
+            .parse::<f32>()
+            .is_err()
+        || version[..v[1].0].parse::<f32>().is_err()
+    {
+        Err(CreateSnapshotError::InvalidVersionFormat)
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -593,6 +611,19 @@ mod tests {
                 _ => assert!(res.is_ok()),
             }
         }
+
+        assert!(
+            get_snapshot_data_version(&Some("a.bb.c".to_string()), &VERSION_MAP, &vmm).is_err()
+        );
+        assert!(get_snapshot_data_version(&Some("0.24".to_string()), &VERSION_MAP, &vmm).is_err());
+        assert!(
+            get_snapshot_data_version(&Some("0.24.0.1".to_string()), &VERSION_MAP, &vmm).is_err()
+        );
+        assert!(
+            get_snapshot_data_version(&Some("0.24.x".to_string()), &VERSION_MAP, &vmm).is_err()
+        );
+
+        assert!(get_snapshot_data_version(&Some("0.24.0".to_string()), &VERSION_MAP, &vmm).is_ok());
     }
 
     #[test]
@@ -603,7 +634,10 @@ mod tests {
         let err = DirtyBitmap;
         let _ = format!("{}{:?}", err, err);
 
-        let err = InvalidVersion;
+        let err = InvalidVersionFormat;
+        let _ = format!("{}{:?}", err, err);
+
+        let err = UnsupportedVersion;
         let _ = format!("{}{:?}", err, err);
 
         let err = InvalidVmState(vstate::vm::Error::NotEnoughMemorySlots);
