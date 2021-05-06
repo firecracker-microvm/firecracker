@@ -154,26 +154,23 @@ impl VmResources {
 
     /// Generates JSON describing Vmm resources configuration.
     pub fn to_json(&self) -> String {
-        let balloon_device: Option<BalloonDeviceConfig> = self.balloon.get_config().ok();
-        let block_devices: Vec<BlockDeviceConfig> = vec![];
-        let boot_source: BootSourceConfig = self
+        let boot_source = self
             .boot_config
             .as_ref()
             .map(BootSourceConfig::from)
-            .unwrap_or(BootSourceConfig::default());
-        let logger: Option<LoggerConfig> = None;
-        let machine_config: Option<VmConfig> = None;
-        let metrics: Option<MetricsConfig> = None;
+            .unwrap_or_default();
+
+        // TODO: go through net devices and check for mmds addr
         let mmds_config: Option<MmdsConfig> = None;
         let net_devices: Vec<NetworkInterfaceConfig> = vec![];
         let vsock_device: Option<VsockDeviceConfig> = None;
         let vmm_config = VmmConfig {
-            balloon_device,
-            block_devices,
+            balloon_device: self.balloon.get_config().ok(),
+            block_devices: self.block.configs(),
             boot_source,
-            logger,
-            machine_config,
-            metrics,
+            logger: None,
+            machine_config: Some(self.vm_config.clone()),
+            metrics: None,
             mmds_config,
             net_devices,
             vsock_device,
