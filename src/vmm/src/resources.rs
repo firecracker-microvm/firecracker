@@ -154,7 +154,7 @@ impl VmResources {
 
     /// Generates JSON describing Vmm resources configuration.
     pub fn to_json(&self) -> String {
-        let balloon_device: Option<BalloonDeviceConfig> = None;
+        let balloon_device: Option<BalloonDeviceConfig> = self.balloon.get_config().ok();
         let block_devices: Vec<BlockDeviceConfig> = vec![];
         let boot_source: BootSourceConfig = self
             .boot_config
