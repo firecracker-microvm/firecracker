@@ -1,12 +1,12 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::{export::Formatter, Deserialize};
+use serde::{export::Formatter, Deserialize, Serialize};
 use std::fmt::{Display, Result};
 use std::net::Ipv4Addr;
 
 /// Keeps the MMDS configuration.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MmdsConfig {
     /// MMDS IPv4 configured address.

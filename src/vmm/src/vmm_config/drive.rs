@@ -15,7 +15,7 @@ use devices::virtio::Block;
 
 pub use devices::virtio::CacheType;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 type Result<T> = result::Result<T, DriveError>;
 
@@ -64,7 +64,7 @@ impl Display for DriveError {
 }
 
 /// Use this structure to set up the Block Device before booting the kernel.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockDeviceConfig {
     /// Unique identifier of the drive.
