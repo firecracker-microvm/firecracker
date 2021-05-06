@@ -192,7 +192,7 @@ impl VmResources {
             return Err(VmConfigError::InvalidMemorySize);
         }
 
-        // The VM cannot have a memory size greater than the target size
+        // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
         if self.balloon.get().is_some()
             && machine_config
