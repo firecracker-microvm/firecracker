@@ -12,11 +12,11 @@ use devices::virtio::net::TapError;
 use devices::virtio::Net;
 use utils::net::mac::MacAddr;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// This struct represents the strongly typed equivalent of the json body from net iface
 /// related requests.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkInterfaceConfig {
     /// ID of the guest network interface.

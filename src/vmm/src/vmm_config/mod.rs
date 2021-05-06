@@ -8,7 +8,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use libc::O_NONBLOCK;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 
@@ -46,7 +46,7 @@ pub mod vsock;
 
 /// A public-facing, stateless structure, holding all the data we need to create a TokenBucket
 /// (live) object.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct TokenBucketConfig {
     /// See TokenBucket::size.
     pub size: u64,
@@ -58,7 +58,7 @@ pub struct TokenBucketConfig {
 
 /// A public-facing, stateless structure, holding all the data we need to create a RateLimiter
 /// (live) object.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RateLimiterConfig {
     /// Data used to initialize the RateLimiter::bandwidth bucket.

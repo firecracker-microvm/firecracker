@@ -21,7 +21,7 @@ use crate::vstate::vcpu::VcpuConfig;
 use mmds::ns::MmdsNetworkStack;
 use utils::net::ipv4addr::is_link_local_valid;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -51,7 +51,7 @@ pub enum Error {
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct VmmConfig {
     #[serde(rename = "balloon")]
     balloon_device: Option<BalloonDeviceConfig>,
@@ -154,6 +154,31 @@ impl VmResources {
         }
 
         Ok(resources)
+    }
+
+    /// Generates JSON describing Vmm resources configuration.
+    pub fn to_json(&self) -> String {
+        let balloon_device: Option<BalloonDeviceConfig> = None;
+        let block_devices: Vec<BlockDeviceConfig> = vec![];
+        let boot_source: BootSourceConfig = Default::default();
+        let logger: Option<LoggerConfig> = None;
+        let machine_config: Option<VmConfig> = None;
+        let metrics: Option<MetricsConfig> = None;
+        let mmds_config: Option<MmdsConfig> = None;
+        let net_devices: Vec<NetworkInterfaceConfig> = vec![];
+        let vsock_device: Option<VsockDeviceConfig> = None;
+        let vmm_config = VmmConfig {
+            balloon_device,
+            block_devices,
+            boot_source,
+            logger,
+            machine_config,
+            metrics,
+            mmds_config,
+            net_devices,
+            vsock_device,
+        };
+        serde_json::to_string(&vmm_config).unwrap()
     }
 
     /// Returns a VcpuConfig based on the vm config.
