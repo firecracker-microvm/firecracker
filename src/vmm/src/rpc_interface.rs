@@ -60,8 +60,8 @@ pub enum VmmAction {
     GetBalloonConfig,
     /// Get the ballon device latest statistics.
     GetBalloonStats,
-    /// Get the configuration of the microVM.
-    GetVmConfiguration,
+    /// Get the machine configuration of the microVM.
+    GetVmMachineConfig,
     /// Get microVM instance information.
     GetVmInstanceInfo,
     /// Flush the metrics. This action can only be called after the logger has been configured.
@@ -309,7 +309,7 @@ impl<'a> PrebootApiController<'a> {
                 .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Metrics),
             GetBalloonConfig => self.balloon_config(),
-            GetVmConfiguration => Ok(VmmData::MachineConfiguration(
+            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(self.instance_info.clone())),
@@ -492,7 +492,7 @@ impl RuntimeApiController {
                 .latest_balloon_stats()
                 .map(VmmData::BalloonStats)
                 .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
-            GetVmConfiguration => Ok(VmmData::MachineConfiguration(
+            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(
@@ -1033,7 +1033,7 @@ mod tests {
 
     #[test]
     fn test_preboot_get_vm_config() {
-        let req = VmmAction::GetVmConfiguration;
+        let req = VmmAction::GetVmMachineConfig;
         let expected_cfg = VmConfig::default();
         check_preboot_request(req, |result, _| {
             assert_eq!(result, Ok(VmmData::MachineConfiguration(expected_cfg)))
@@ -1347,7 +1347,7 @@ mod tests {
 
     #[test]
     fn test_runtime_get_vm_config() {
-        let req = VmmAction::GetVmConfiguration;
+        let req = VmmAction::GetVmMachineConfig;
         check_runtime_request(req, |result, _| {
             assert_eq!(
                 result,
