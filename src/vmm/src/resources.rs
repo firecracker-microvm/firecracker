@@ -3,12 +3,8 @@
 
 #![deny(warnings)]
 
-use std::fs::File;
-
 use crate::vmm_config::balloon::*;
-use crate::vmm_config::boot_source::{
-    BootConfig, BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE,
-};
+use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
@@ -160,7 +156,11 @@ impl VmResources {
     pub fn to_json(&self) -> String {
         let balloon_device: Option<BalloonDeviceConfig> = None;
         let block_devices: Vec<BlockDeviceConfig> = vec![];
-        let boot_source: BootSourceConfig = Default::default();
+        let boot_source: BootSourceConfig = self
+            .boot_config
+            .as_ref()
+            .map(BootSourceConfig::from)
+            .unwrap_or(BootSourceConfig::default());
         let logger: Option<LoggerConfig> = None;
         let machine_config: Option<VmConfig> = None;
         let metrics: Option<MetricsConfig> = None;
@@ -293,31 +293,7 @@ impl VmResources {
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<BootSourceConfigError> {
-        use self::BootSourceConfigError::{
-            InvalidInitrdPath, InvalidKernelCommandLine, InvalidKernelPath,
-        };
-
-        // Validate boot source config.
-        let kernel_file =
-            File::open(&boot_source_cfg.kernel_image_path).map_err(InvalidKernelPath)?;
-        let initrd_file: Option<File> = match &boot_source_cfg.initrd_path {
-            Some(path) => Some(File::open(path).map_err(InvalidInitrdPath)?),
-            None => None,
-        };
-        let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-        let boot_args = match boot_source_cfg.boot_args.as_ref() {
-            None => DEFAULT_KERNEL_CMDLINE,
-            Some(str) => str.as_str(),
-        };
-        cmdline
-            .insert_str(boot_args)
-            .map_err(|e| InvalidKernelCommandLine(e.to_string()))?;
-
-        self.boot_config = Some(BootConfig {
-            cmdline,
-            kernel_file,
-            initrd_file,
-        });
+        self.boot_config = Some(BootConfig::new(boot_source_cfg)?);
         Ok(())
     }
 
@@ -448,6 +424,7 @@ mod tests {
             cmdline: kernel_cmdline,
             kernel_file: File::open(tmp_file.as_path()).unwrap(),
             initrd_file: Some(File::open(tmp_file.as_path()).unwrap()),
+            description: Default::default(),
         }
     }
 

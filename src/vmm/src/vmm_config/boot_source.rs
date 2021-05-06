@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::{Display, Formatter, Result};
+use std::fs::File;
 use std::io;
 
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,7 @@ pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 825
 
 /// Strongly typed data structure used to configure the boot source of the
 /// microvm.
-#[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BootSourceConfig {
     /// Path of the kernel image.
@@ -32,6 +33,12 @@ pub struct BootSourceConfig {
     /// kernel command line is used: `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub boot_args: Option<String>,
+}
+
+impl From<&BootConfig> for BootSourceConfig {
+    fn from(cfg: &BootConfig) -> Self {
+        cfg.description.clone()
+    }
 }
 
 /// Errors associated with actions on `BootSourceConfig`.
@@ -70,6 +77,66 @@ pub struct BootConfig {
     pub cmdline: kernel::cmdline::Cmdline,
     /// The descriptor to the kernel file.
     pub kernel_file: std::fs::File,
-    /// The descriptor to the initrd file, if there is one
+    /// The descriptor to the initrd file, if there is one.
     pub initrd_file: Option<std::fs::File>,
+    /// The configuration above fields are based on.
+    pub description: BootSourceConfig,
+}
+
+impl BootConfig {
+    /// Creates the BootConfig based on a given configuration.
+    pub fn new(cfg: BootSourceConfig) -> std::result::Result<Self, BootSourceConfigError> {
+        use self::BootSourceConfigError::{
+            InvalidInitrdPath, InvalidKernelCommandLine, InvalidKernelPath,
+        };
+
+        // Validate boot source config.
+        let kernel_file = File::open(&cfg.kernel_image_path).map_err(InvalidKernelPath)?;
+        let initrd_file: Option<File> = match &cfg.initrd_path {
+            Some(path) => Some(File::open(path).map_err(InvalidInitrdPath)?),
+            None => None,
+        };
+        let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
+        let boot_args = match cfg.boot_args.as_ref() {
+            None => DEFAULT_KERNEL_CMDLINE,
+            Some(str) => str.as_str(),
+        };
+        cmdline
+            .insert_str(boot_args)
+            .map_err(|e| InvalidKernelCommandLine(e.to_string()))?;
+
+        Ok(BootConfig {
+            cmdline,
+            kernel_file,
+            initrd_file,
+            // We can simply store original config since it doesn't support updates.
+            description: cfg,
+        })
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use utils::tempfile::TempFile;
+
+    #[test]
+    fn test_boot_config() {
+        let kernel_file = TempFile::new().unwrap();
+        let kernel_path = kernel_file.as_path().to_str().unwrap().to_string();
+
+        let boot_src_cfg = BootSourceConfig {
+            boot_args: None,
+            initrd_path: None,
+            kernel_image_path: kernel_path,
+        };
+
+        let boot_cfg = BootConfig::new(boot_src_cfg.clone()).unwrap();
+        assert!(boot_cfg.initrd_file.is_none());
+        assert_eq!(boot_cfg.cmdline.as_str(), DEFAULT_KERNEL_CMDLINE);
+        assert_eq!(boot_cfg.description, boot_src_cfg);
+
+        let generated_cfg = BootSourceConfig::from(&boot_cfg);
+        assert_eq!(generated_cfg, boot_src_cfg);
+    }
 }
