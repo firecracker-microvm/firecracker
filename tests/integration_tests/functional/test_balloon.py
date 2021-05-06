@@ -119,54 +119,36 @@ def copy_util_to_rootfs(rootfs_path, util):
     subprocess.check_call("rmdir tmpfs", shell=True)
 
 
-def _test_rss_memory_lower(test_microvm, use_legacy_api=False):
+def _test_rss_memory_lower(test_microvm):
     """Check inflating the balloon makes guest use less rss memory."""
     # Get the firecracker pid, and open an ssh connection.
     firecracker_pid = test_microvm.jailer_clone_pid
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # Using deflate_on_oom, get the RSS as low as possible
-    if use_legacy_api:
-        response = test_microvm.balloon.patch(amount_mb=200)
-        assert test_microvm.api_session.is_status_no_content(
-            response.status_code
-        )
-    else:
-        response = test_microvm.balloon.patch(amount_mib=200)
-        assert test_microvm.api_session.is_status_no_content(
-            response.status_code
-        )
+    response = test_microvm.balloon.patch(amount_mib=200)
+    assert test_microvm.api_session.is_status_no_content(
+        response.status_code
+    )
 
     # Get initial rss consumption.
     init_rss = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Get the balloon back to 0.
-    if use_legacy_api:
-        response = test_microvm.balloon.patch(amount_mb=0)
-        assert test_microvm.api_session.is_status_no_content(
-            response.status_code
-        )
-    else:
-        response = test_microvm.balloon.patch(amount_mib=0)
-        assert test_microvm.api_session.is_status_no_content(
-            response.status_code
-        )
+    response = test_microvm.balloon.patch(amount_mib=0)
+    assert test_microvm.api_session.is_status_no_content(
+        response.status_code
+    )
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Dirty memory, then inflate balloon and get ballooned rss consumption.
     make_guest_dirty_memory(ssh_connection)
 
-    if use_legacy_api:
-        response = test_microvm.balloon.patch(amount_mb=200)
-        assert test_microvm.api_session.is_status_no_content(
-            response.status_code
-        )
-    else:
-        response = test_microvm.balloon.patch(amount_mib=200)
-        assert test_microvm.api_session.is_status_no_content(
-            response.status_code
-        )
+    response = test_microvm.balloon.patch(amount_mib=200)
+    assert test_microvm.api_session.is_status_no_content(
+        response.status_code
+    )
     balloon_rss = get_stable_rss_mem_by_pid(firecracker_pid)
 
     # Check that the ballooning reclaimed the memory.
