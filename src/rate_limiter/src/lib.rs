@@ -93,13 +93,18 @@ pub enum BucketReduction {
 pub struct TokenBucket {
     // Bucket defining traits.
     size: u64,
-    // Initial burst size (number of free initial tokens, that can be consumed at no cost)
-    one_time_burst: u64,
+    // Initial burst size.
+    initial_one_time_burst: u64,
     // Complete refill time in milliseconds.
     refill_time: u64,
 
     // Internal state descriptors.
+
+    // Number of free initial tokens, that can be consumed at no cost.
+    one_time_burst: u64,
+    // Current token budget.
     budget: u64,
+    // Last time this token bucket saw activity.
     last_update: Instant,
 
     // Fields used for pre-processing optimizations.
@@ -136,6 +141,7 @@ impl TokenBucket {
         Some(TokenBucket {
             size,
             one_time_burst,
+            initial_one_time_burst: one_time_burst,
             refill_time: complete_refill_time_ms,
             // Start off full.
             budget: size,
@@ -236,6 +242,11 @@ impl TokenBucket {
     /// Returns the current budget (one time burst allowance notwithstanding).
     pub fn budget(&self) -> u64 {
         self.budget
+    }
+
+    /// Returns the initially configured one time burst budget.
+    pub fn initial_one_time_burst(&self) -> u64 {
+        self.initial_one_time_burst
     }
 }
 
