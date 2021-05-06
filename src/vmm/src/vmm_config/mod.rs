@@ -56,6 +56,20 @@ pub struct TokenBucketConfig {
     pub refill_time: u64,
 }
 
+impl From<&TokenBucket> for TokenBucketConfig {
+    fn from(tb: &TokenBucket) -> Self {
+        let one_time_burst = match tb.initial_one_time_burst() {
+            0 => None,
+            v => Some(v),
+        };
+        TokenBucketConfig {
+            size: tb.capacity(),
+            one_time_burst,
+            refill_time: tb.refill_time_ms(),
+        }
+    }
+}
+
 /// A public-facing, stateless structure, holding all the data we need to create a RateLimiter
 /// (live) object.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -128,6 +142,26 @@ impl TryInto<RateLimiter> for RateLimiterConfig {
     }
 }
 
+impl From<&RateLimiter> for RateLimiterConfig {
+    fn from(rl: &RateLimiter) -> Self {
+        RateLimiterConfig {
+            bandwidth: rl.bandwidth().map(TokenBucketConfig::from),
+            ops: rl.ops().map(TokenBucketConfig::from),
+        }
+    }
+}
+
+impl RateLimiterConfig {
+    // Option<T> already implements From<T> so we have to use a custom one.
+    fn into_option(self) -> Option<RateLimiterConfig> {
+        if self.bandwidth.is_some() || self.ops.is_some() {
+            Some(self)
+        } else {
+            None
+        }
+    }
+}
+
 type Result<T> = std::result::Result<T, std::io::Error>;
 
 /// Create and opens a File for writing to it.
@@ -152,12 +186,12 @@ mod tests {
 
     use super::*;
 
+    const SIZE: u64 = 1024 * 1024;
+    const ONE_TIME_BURST: u64 = 1024;
+    const REFILL_TIME: u64 = 1000;
+
     #[test]
     fn test_rate_limiter_configs() {
-        const SIZE: u64 = 1024 * 1024;
-        const ONE_TIME_BURST: u64 = 1024;
-        const REFILL_TIME: u64 = 1000;
-
         let rlconf = RateLimiterConfig {
             bandwidth: Some(TokenBucketConfig {
                 size: SIZE,
@@ -177,6 +211,27 @@ mod tests {
         assert_eq!(rl.ops().unwrap().capacity(), SIZE * 2);
         assert_eq!(rl.ops().unwrap().one_time_burst(), 0);
         assert_eq!(rl.ops().unwrap().refill_time_ms(), REFILL_TIME * 2);
+    }
+
+    #[test]
+    fn test_generate_configs() {
+        let bw_tb_cfg = TokenBucketConfig {
+            size: SIZE,
+            one_time_burst: Some(ONE_TIME_BURST),
+            refill_time: REFILL_TIME,
+        };
+        let bw_tb = TokenBucket::new(SIZE, ONE_TIME_BURST, REFILL_TIME).unwrap();
+        let generated_bw_tb_cfg = TokenBucketConfig::from(&bw_tb);
+        assert_eq!(generated_bw_tb_cfg, bw_tb_cfg);
+
+        let rl_conf = RateLimiterConfig {
+            bandwidth: Some(bw_tb_cfg),
+            ops: None,
+        };
+        let rl: RateLimiter = rl_conf.try_into().unwrap();
+        let generated_rl_conf = RateLimiterConfig::from(&rl);
+        assert_eq!(generated_rl_conf, rl_conf);
+        assert_eq!(generated_rl_conf.into_option(), Some(rl_conf));
     }
 
     #[test]
