@@ -123,7 +123,7 @@ In your **second shell** prompt:
       kernel="${image_bucket_url}/quickstart_guide/x86_64/kernels/vmlinux.bin"
       rootfs="${image_bucket_url}/hello/fsfiles/hello-rootfs.ext4"
   elif [ ${arch} = "aarch64" ]; then
-      kernel="${image_bucket_url}/quickstart_guide/aarch64/kernels/vmlinux.bin"
+      kernel="${image_bucket_url}/aarch64/ubuntu_with_ssh/kernel/vmlinux.bin"
       rootfs="${image_bucket_url}/aarch64/ubuntu_with_ssh/fsfiles/xenial.rootfs.ext4"
   else
       echo "Cannot run firecracker on $arch architecture!"
