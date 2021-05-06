@@ -16,6 +16,7 @@ use devices::virtio::Block;
 pub use devices::virtio::CacheType;
 
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 
 type Result<T> = result::Result<T, DriveError>;
 
@@ -87,6 +88,21 @@ pub struct BlockDeviceConfig {
     pub cache_type: CacheType,
     /// Rate Limiter for I/O operations.
     pub rate_limiter: Option<RateLimiterConfig>,
+}
+
+impl From<&Block> for BlockDeviceConfig {
+    fn from(block: &Block) -> Self {
+        let rl: RateLimiterConfig = block.rate_limiter().into();
+        BlockDeviceConfig {
+            drive_id: block.id().clone(),
+            path_on_host: block.file_path().clone(),
+            is_root_device: block.is_root_device(),
+            partuuid: block.partuuid().cloned(),
+            is_read_only: block.is_read_only(),
+            cache_type: block.cache_type(),
+            rate_limiter: rl.into_option(),
+        }
+    }
 }
 
 /// Only provided fields will be updated. I.e. if any optional fields
@@ -202,6 +218,15 @@ impl BlockBuilder {
             rate_limiter.unwrap_or_default(),
         )
         .map_err(DriveError::CreateBlockDevice)
+    }
+
+    /// Returns a vec with the structures used to configure the devices.
+    pub fn configs(&self) -> Vec<BlockDeviceConfig> {
+        let mut ret = vec![];
+        for block in &self.list {
+            ret.push(BlockDeviceConfig::from(block.lock().unwrap().deref()));
+        }
+        ret
     }
 }
 
@@ -561,28 +586,23 @@ mod tests {
 
     #[test]
     fn test_block_config() {
-        let dummy_block_file = TempFile::new().unwrap();
-        let expected_partuuid = "0eaa91a0-01".to_string();
-        let expected_is_read_only = true;
+        let dummy_file = TempFile::new().unwrap();
 
-        let block_config = BlockDeviceConfig {
-            drive_id: "dummy_drive".to_string(),
-            path_on_host: dummy_block_file.as_path().to_str().unwrap().to_string(),
-            is_root_device: false,
-            partuuid: Some("0eaa91a0-01".to_string()),
+        let dummy_block_device = BlockDeviceConfig {
+            path_on_host: dummy_file.as_path().to_str().unwrap().to_string(),
+            is_root_device: true,
+            partuuid: None,
             cache_type: CacheType::Unsafe,
             is_read_only: true,
+            drive_id: String::from("1"),
             rate_limiter: None,
         };
 
-        assert_eq!(
-            block_config.partuuid.as_ref().unwrap().to_string(),
-            expected_partuuid
-        );
-        assert_eq!(
-            block_config.path_on_host,
-            dummy_block_file.as_path().to_str().unwrap().to_string()
-        );
-        assert_eq!(block_config.is_read_only, expected_is_read_only);
+        let mut block_devs = BlockBuilder::new();
+        assert!(block_devs.insert(dummy_block_device.clone()).is_ok());
+
+        let configs = block_devs.configs();
+        assert_eq!(configs.len(), 1);
+        assert_eq!(configs.first().unwrap(), &dummy_block_device);
     }
 }
