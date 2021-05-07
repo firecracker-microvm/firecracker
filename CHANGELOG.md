@@ -26,6 +26,8 @@
 
 - Changed Docker images repository from DockerHub to Amazon ECR.
 - Fixed off-by-one error in virtio-block descriptor address validation.
+- Changed the `PATCH` request on `/balloon/statistics` to schedule the first
+  statistics update immediately after processing the request.
 
 ### Fixed
 
