@@ -711,7 +711,7 @@ definitions:
     required:
       - stats_polling_interval_s
     description:
-      Update the statistics polling interval. Statistics cannot be turned on/off after boot.
+      Update the statistics polling interval, with the first statistics update scheduled immediately. Statistics cannot be turned on/off after boot.
     properties:
       stats_polling_interval_s:
         type: integer
