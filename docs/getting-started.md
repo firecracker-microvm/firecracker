@@ -43,7 +43,7 @@ the repository and execute `tools/devtool checkenv`.
 ## Getting the Firecracker Binary
 
 Firecracker is linked statically against
-[musl](https://www.musl-libc.org/), having no library dependencies. You can
+[musl](https://musl.libc.org/), having no library dependencies. You can
 just download the latest binary from our
 [release page](https://github.com/firecracker-microvm/firecracker/releases),
 and run it on your x86_64 or aarch64 Linux machine.
