@@ -14,7 +14,7 @@ use std::{io, result};
 
 use super::super::DeviceType;
 use super::super::InitrdConfig;
-use super::cache_info::{sysfs_read_caches, CacheInfo, Error as CacheError};
+use super::cache_info::{read_cache_config, CacheEntry};
 use super::get_fdt_addr;
 use super::gic::GICDevice;
 use super::layout::FDT_MAX_SIZE;
@@ -84,7 +84,7 @@ pub enum Error {
     /// Failure in calling syscall for terminating this FDT.
     FinishFDTReserveMap(io::Error),
     /// Failure in populating the cache information for the vcpus.
-    ReadCacheInfo(CacheError),
+    ReadCacheInfo(String),
     /// Failure in writing FDT in memory.
     WriteFDTToMemory(GuestMemoryError),
 }
@@ -318,10 +318,11 @@ fn generate_prop64(cells: &[u64]) -> Vec<u8> {
 fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &[u64]) -> Result<()> {
     // Since the L1 caches are not shareable among CPUs and they are direct attributes of the
     // cpu in the device tree, we process the L1 and non-L1 caches separately.
-    let mut l1_caches: Vec<CacheInfo> = Vec::new();
-    let mut non_l1_caches: Vec<CacheInfo> = Vec::new();
+    let mut l1_caches: Vec<CacheEntry> = Vec::new();
+    let mut non_l1_caches: Vec<CacheEntry> = Vec::new();
     // We use sysfs for extracting the cache information.
-    sysfs_read_caches(&mut l1_caches, &mut non_l1_caches).map_err(Error::ReadCacheInfo)?;
+    read_cache_config(&mut l1_caches, &mut non_l1_caches)
+        .map_err(|e| Error::ReadCacheInfo(e.to_string()))?;
 
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/arm/cpus.yaml.
     append_begin_node(fdt, "cpus")?;
