@@ -13,15 +13,6 @@
 - Added `--describe-snapshot` flag to Firecracker to fetch the data format
   version of a snapshot state file provided as argument.
 
-### Fixed
-
-- Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal
-  is still recorded in metrics and logs.
-- Fixed ballooning API definitions by renaming all fields which mentioned "MB"
-  to use "MiB" instead.
-- Snapshot related host files (vm-state, memory, block backing files) are now
-  flushed to their backing mediums as part of the CreateSnapshot operation.
-
 ### Changed
 
 - Changed Docker images repository from DockerHub to Amazon ECR.
@@ -36,6 +27,12 @@
 - Unnecessary interrupt assertion was removed from the RTC.
   However, a dummy interrupt is still allocated for snapshot
   compatibility reasons.
+- Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal
+  is still recorded in metrics and logs.
+- Fixed ballooning API definitions by renaming all fields which mentioned "MB"
+  to use "MiB" instead.
+- Snapshot related host files (vm-state, memory, block backing files) are now
+  flushed to their backing mediums as part of the CreateSnapshot operation.
 
 ## [0.24.0]
 
