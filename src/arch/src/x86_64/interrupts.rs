@@ -37,7 +37,7 @@ fn set_klapic_reg(klapic: &mut kvm_lapic_state, reg_offset: usize, value: u32) {
 }
 
 fn set_apic_delivery_mode(reg: u32, mode: u32) -> u32 {
-    (((reg) & !0x700) | ((mode) << 8))
+    ((reg) & !0x700) | ((mode) << 8)
 }
 
 /// Configures LAPICs.  LAPIC0 is set for external interrupts, LAPIC1 is set for NMI.
@@ -65,8 +65,6 @@ pub fn set_lint(vcpu: &VcpuFd) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    extern crate utils;
-
     use super::*;
     use kvm_ioctls::Kvm;
 
@@ -91,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_apic_delivery_mode() {
-        let mut v: Vec<u32> = (0..20).map(|_| utils::rand::xor_rng_u32()).collect();
+        let mut v: Vec<u32> = (0..20).map(|_| utils::rand::xor_psuedo_rng_u32()).collect();
 
         v.iter_mut()
             .for_each(|x| *x = set_apic_delivery_mode(*x, 2));

@@ -1,8 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate seccomp;
-
 use seccomp::{allow_syscall, SyscallRuleSet};
 
 /// Returns a list of rules that allow syscalls required for running a rust program.
@@ -21,6 +18,7 @@ pub fn jailer_required_rules() -> Vec<SyscallRuleSet> {
         allow_syscall(libc::SYS_rt_sigaction),
         allow_syscall(libc::SYS_execve),
         allow_syscall(libc::SYS_mmap),
+        allow_syscall(libc::SYS_mprotect),
         #[cfg(target_arch = "x86_64")]
         allow_syscall(libc::SYS_arch_prctl),
         allow_syscall(libc::SYS_set_tid_address),

@@ -13,7 +13,7 @@ def test_microvm_initrd_with_serial(
     vm = test_microvm_with_initrd
     vm.jailer.daemonize = False
     vm.spawn()
-    vm.memory_events_queue = None
+    vm.memory_monitor = None
 
     vm.basic_config(
         add_root_device=False,
@@ -33,6 +33,6 @@ def test_microvm_initrd_with_serial(
 
     serial.rx(token='# ')
 
-    serial.tx(f"findmnt /")
+    serial.tx("findmnt /")
     serial.rx(
         token=f"/      {INITRD_FILESYSTEM} {INITRD_FILESYSTEM}")

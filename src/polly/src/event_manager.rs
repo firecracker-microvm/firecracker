@@ -108,8 +108,8 @@ impl EventManager {
     // all events registered at once. This way we can also remove the `interest_list` which is
     // only used once in this function.
     pub fn add_subscriber(&mut self, subscriber: Arc<Mutex<dyn Subscriber>>) -> Result<()> {
-        // Unwrapping here is safe because we want to panic in case the lock is poisoned.
-        let interest_list = subscriber.lock().unwrap().interest_list();
+        // Expecting here is safe because we want to panic in case the lock is poisoned.
+        let interest_list = subscriber.lock().expect("Poisoned lock").interest_list();
 
         for event in interest_list {
             self.register(event.data() as i32, event, subscriber.clone())?
@@ -131,7 +131,7 @@ impl EventManager {
         };
 
         self.epoll
-            .ctl(epoll::ControlOperation::Add, pollable, &epoll_event)
+            .ctl(epoll::ControlOperation::Add, pollable, epoll_event)
             .map_err(Error::Poll)?;
 
         self.subscribers.insert(pollable, subscriber);
@@ -146,7 +146,7 @@ impl EventManager {
                     .ctl(
                         epoll::ControlOperation::Delete,
                         pollable,
-                        &epoll::EpollEvent::default(),
+                        epoll::EpollEvent::default(),
                     )
                     .map_err(Error::Poll)?;
             }
@@ -161,7 +161,7 @@ impl EventManager {
     pub fn modify(&mut self, pollable: Pollable, epoll_event: EpollEvent) -> Result<()> {
         if self.subscribers.contains_key(&pollable) {
             self.epoll
-                .ctl(epoll::ControlOperation::Modify, pollable, &epoll_event)
+                .ctl(epoll::ControlOperation::Modify, pollable, epoll_event)
                 .map_err(Error::Poll)?;
         } else {
             return Err(Error::NotFound(pollable));
@@ -178,11 +178,7 @@ impl EventManager {
     /// Wait for events for a maximum timeout of `miliseconds`. Dispatch the events to the
     /// registered signal handlers.
     pub fn run_with_timeout(&mut self, milliseconds: i32) -> Result<usize> {
-        let event_count = match self.epoll.wait(
-            EventManager::EVENT_BUFFER_SIZE,
-            milliseconds,
-            &mut self.ready_events[..],
-        ) {
+        let event_count = match self.epoll.wait(milliseconds, &mut self.ready_events[..]) {
             Ok(event_count) => event_count,
             Err(e) if e.raw_os_error() == Some(libc::EINTR) => 0,
             Err(e) => return Err(Error::Poll(e)),
@@ -201,10 +197,10 @@ impl EventManager {
             if self.subscribers.contains_key(&pollable) {
                 self.subscribers
                     .get_mut(&pollable)
-                    .unwrap()
+                    .unwrap() // Safe because we have already checked existence
                     .clone()
                     .lock()
-                    .unwrap()
+                    .expect("Poisoned lock")
                     .process(&event, self);
             }
             // TODO: Should we log an error in case the subscriber does not exist?
@@ -459,9 +455,7 @@ mod tests {
             .add_subscriber(dummy_subscriber.clone())
             .unwrap();
 
-        assert!(event_manager
-            .add_subscriber(dummy_subscriber.clone())
-            .is_err())
+        assert!(event_manager.add_subscriber(dummy_subscriber).is_err())
     }
 
     #[test]

@@ -23,13 +23,14 @@ use std::result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use logger::{debug, error, warn, IncMetric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;
 
 use super::super::super::Error as DeviceError;
 use super::super::{
-    ActivateError, ActivateResult, Queue as VirtQueue, VirtioDevice, VsockError,
+    ActivateError, ActivateResult, DeviceState, Queue as VirtQueue, VirtioDevice, VsockError,
     VIRTIO_MMIO_INT_VRING,
 };
 use super::packet::VsockPacket;
@@ -51,10 +52,9 @@ pub struct Vsock<B> {
     cid: u64,
     pub(crate) queues: Vec<VirtQueue>,
     pub(crate) queue_events: Vec<EventFd>,
-    mem: GuestMemoryMmap,
     pub(crate) backend: B,
-    avail_features: u64,
-    acked_features: u64,
+    pub(crate) avail_features: u64,
+    pub(crate) acked_features: u64,
     pub(crate) interrupt_status: Arc<AtomicUsize>,
     pub(crate) interrupt_evt: EventFd,
     // This EventFd is the only one initially registered for a vsock device, and is used to convert
@@ -63,7 +63,7 @@ pub struct Vsock<B> {
     // mostly something we wanted to happen for the backend events, to prevent (potentially)
     // continuous triggers from happening before the device gets activated.
     pub(crate) activate_evt: EventFd,
-    device_activated: bool,
+    pub(crate) device_state: DeviceState,
 }
 
 // TODO: Detect / handle queue deadlock:
@@ -75,12 +75,7 @@ impl<B> Vsock<B>
 where
     B: VsockBackend,
 {
-    pub(crate) fn with_queues(
-        cid: u64,
-        mem: GuestMemoryMmap,
-        backend: B,
-        queues: Vec<VirtQueue>,
-    ) -> super::Result<Vsock<B>> {
+    pub fn with_queues(cid: u64, backend: B, queues: Vec<VirtQueue>) -> super::Result<Vsock<B>> {
         let mut queue_events = Vec::new();
         for _ in 0..queues.len() {
             queue_events.push(EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?);
@@ -90,28 +85,35 @@ where
             cid,
             queues,
             queue_events,
-            mem,
             backend,
             avail_features: AVAIL_FEATURES,
             acked_features: 0,
             interrupt_status: Arc::new(AtomicUsize::new(0)),
             interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
-            device_activated: false,
+            device_state: DeviceState::Inactive,
         })
     }
 
     /// Create a new virtio-vsock device with the given VM CID and vsock backend.
-    pub fn new(cid: u64, mem: GuestMemoryMmap, backend: B) -> super::Result<Vsock<B>> {
+    pub fn new(cid: u64, backend: B) -> super::Result<Vsock<B>> {
         let queues: Vec<VirtQueue> = defs::QUEUE_SIZES
             .iter()
             .map(|&max_size| VirtQueue::new(max_size))
             .collect();
-        Self::with_queues(cid, mem, backend, queues)
+        Self::with_queues(cid, backend, queues)
+    }
+
+    pub fn id(&self) -> &str {
+        defs::VSOCK_DEV_ID
     }
 
     pub fn cid(&self) -> u64 {
         self.cid
+    }
+
+    pub fn backend(&self) -> &B {
+        &self.backend
     }
 
     /// Signal the guest driver that we've used some virtio buffers that it had previously made
@@ -131,10 +133,15 @@ where
     /// otherwise.
     pub fn process_rx(&mut self) -> bool {
         debug!("vsock: process_rx()");
+        let mem = match self.device_state {
+            DeviceState::Activated(ref mem) => mem,
+            // This should never happen, it's been already validated in the event handler.
+            DeviceState::Inactive => unreachable!(),
+        };
 
         let mut have_used = false;
 
-        while let Some(head) = self.queues[RXQ_INDEX].pop(&self.mem) {
+        while let Some(head) = self.queues[RXQ_INDEX].pop(mem) {
             let used_len = match VsockPacket::from_rx_virtq_head(&head) {
                 Ok(mut pkt) => {
                     if self.backend.recv_pkt(&mut pkt).is_ok() {
@@ -153,7 +160,11 @@ where
             };
 
             have_used = true;
-            self.queues[RXQ_INDEX].add_used(&self.mem, head.index, used_len);
+            self.queues[RXQ_INDEX]
+                .add_used(mem, head.index, used_len)
+                .unwrap_or_else(|e| {
+                    error!("Failed to add available descriptor {}: {}", head.index, e)
+                });
         }
 
         have_used
@@ -164,16 +175,25 @@ where
     /// ring, and `false` otherwise.
     pub fn process_tx(&mut self) -> bool {
         debug!("vsock::process_tx()");
+        let mem = match self.device_state {
+            DeviceState::Activated(ref mem) => mem,
+            // This should never happen, it's been already validated in the event handler.
+            DeviceState::Inactive => unreachable!(),
+        };
 
         let mut have_used = false;
 
-        while let Some(head) = self.queues[TXQ_INDEX].pop(&self.mem) {
+        while let Some(head) = self.queues[TXQ_INDEX].pop(mem) {
             let pkt = match VsockPacket::from_tx_virtq_head(&head) {
                 Ok(pkt) => pkt,
                 Err(e) => {
                     error!("vsock: error reading TX packet: {:?}", e);
                     have_used = true;
-                    self.queues[TXQ_INDEX].add_used(&self.mem, head.index, 0);
+                    self.queues[TXQ_INDEX]
+                        .add_used(mem, head.index, 0)
+                        .unwrap_or_else(|e| {
+                            error!("Failed to add available descriptor {}: {}", head.index, e);
+                        });
                     continue;
                 }
             };
@@ -184,7 +204,11 @@ where
             }
 
             have_used = true;
-            self.queues[TXQ_INDEX].add_used(&self.mem, head.index, 0);
+            self.queues[TXQ_INDEX]
+                .add_used(mem, head.index, 0)
+                .unwrap_or_else(|e| {
+                    error!("Failed to add available descriptor {}: {}", head.index, e);
+                });
         }
 
         have_used
@@ -211,7 +235,11 @@ where
         uapi::VIRTIO_ID_VSOCK
     }
 
-    fn queues(&mut self) -> &mut [VirtQueue] {
+    fn queues(&self) -> &[VirtQueue] {
+        &self.queues
+    }
+
+    fn queues_mut(&mut self) -> &mut [VirtQueue] {
         &mut self.queues
     }
 
@@ -236,15 +264,19 @@ where
             4 if data.len() == 4 => {
                 byte_order::write_le_u32(data, ((self.cid() >> 32) & 0xffff_ffff) as u32)
             }
-            _ => warn!(
-                "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
-                data.len(),
-                offset
-            ),
+            _ => {
+                METRICS.vsock.cfg_fails.inc();
+                warn!(
+                    "vsock: virtio-vsock received invalid read request of {} bytes at offset {}",
+                    data.len(),
+                    offset
+                )
+            }
         }
     }
 
     fn write_config(&mut self, offset: u64, data: &[u8]) {
+        METRICS.vsock.cfg_fails.inc();
         warn!(
             "vsock: guest driver attempted to write device config (offset={:x}, len={:x})",
             offset,
@@ -252,8 +284,9 @@ where
         );
     }
 
-    fn activate(&mut self) -> ActivateResult {
+    fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
         if self.queues.len() != defs::NUM_QUEUES {
+            METRICS.vsock.activate_fails.inc();
             error!(
                 "Cannot perform activate. Expected {} queue(s), got {}",
                 defs::NUM_QUEUES,
@@ -263,26 +296,29 @@ where
         }
 
         if self.activate_evt.write(1).is_err() {
+            METRICS.vsock.activate_fails.inc();
             error!("Cannot write to activate_evt",);
             return Err(ActivateError::BadActivate);
         }
 
-        self.device_activated = true;
+        self.device_state = DeviceState::Activated(mem);
 
         Ok(())
     }
 
     fn is_activated(&self) -> bool {
-        self.device_activated
+        match self.device_state {
+            DeviceState::Inactive => false,
+            DeviceState::Activated(_) => true,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::virtio::vsock::defs::uapi;
-
-    use super::super::tests::TestContext;
     use super::*;
+    use crate::virtio::vsock::defs::uapi;
+    use crate::virtio::vsock::test_utils::TestContext;
 
     #[test]
     fn test_virtio_device() {
@@ -351,6 +387,6 @@ mod tests {
         // }
 
         // Test a correct activation.
-        ctx.device.activate().unwrap();
+        ctx.device.activate(ctx.mem.clone()).unwrap();
     }
 }

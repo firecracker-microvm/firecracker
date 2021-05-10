@@ -4,19 +4,163 @@
 
 ### Added
 
-- Added a new API call, `PUT /metrics`, for configuring the metrics
-  system.
-- Added `app_name` field in InstanceInfo struct for storing the
-  application name.
+- Added devtool build `--ssh-keys` flag to support fetching from private
+  git repositories.
+- Added option to configure block device flush.
+- Added `--new-pid-ns` flag to the Jailer in order to spawn the Firecracker
+  process in a new PID namespace.
+- Added API metrics for `GET`, `PUT` and `PATCH` requests on `/mmds` endpoint.
+- Added `--describe-snapshot` flag to Firecracker to fetch the data format
+  version of a snapshot state file provided as argument.
+
+### Fixed
+
+- Fixed the SIGPIPE signal handler so Firecracker no longer exits. The signal
+  is still recorded in metrics and logs.
+- Fixed ballooning API definitions by renaming all fields which mentioned "MB"
+  to use "MiB" instead.
+- Snapshot related host files (vm-state, memory, block backing files) are now
+  flushed to their backing mediums as part of the CreateSnapshot operation.
+
+### Changed
+
+- Changed Docker images repository from DockerHub to Amazon ECR.
+- Fixed off-by-one error in virtio-block descriptor address validation.
+- Changed the `PATCH` request on `/balloon/statistics` to schedule the first
+  statistics update immediately after processing the request.
+
+### Fixed
+
+- Fixed non-compliant check for the RTC device ensuring a fixed
+  4-sized data buffer.
+- Unnecessary interrupt assertion was removed from the RTC.
+  However, a dummy interrupt is still allocated for snapshot
+  compatibility reasons.
+
+## [0.24.0]
+
+### Added
+
+- Added optional `resume_vm` field to `/snapshot/load` API call.
+- Added support for block rate limiter PATCH.
+- Added devtool test `-c|--cpuset-cpus` flag for cpus confinement when tests
+  run.
+- Added devtool test `-m|--cpuset-mems` flag for memory confinement when tests
+  run.
+- Added the virtio traditional memory ballooning device.
+- Added a mechanism to handle vCPU/VMM errors that result in process termination.
+- Added incremental guest memory snapshot support.
+- Added aarch64 snapshot support.
+
+### Changed
+
+- Change the information provided in `DescribeInstance` command to provide microVM
+  state information (Not started/Running/Paused) instead of whether it's
+  started or not.
+- Removed the jailer `--extra-args` parameter. It was a noop, having been
+  replaced by the `--` separator for extra arguments.
+- Changed the output of the `--version` command line parameter to include a list
+  of supported snapshot data format versions for the firecracker binary.
+- Increased the maximum number of virtio devices from 11 to 19.
+- Added a new check that prevents creating v0.23 snapshots when more than 11
+  devices are attached.
+- If the stdout buffer is full and non-blocking, the serial writes no longer block.
+  Any new bytes will be lost, until the buffer is freed. The device also logs these
+  errors and increments the `uart.error_count` metric for each lost byte.
+
+### Fixed
+
+- Fixed inconsistency in YAML file InstanceInfo definition
+
+## [0.23.0]
+
+### Added
+
+- Added metric for throttled block device events.
+- Added metrics for counting rate limiter throttling events.
+- Added metric for counting MAC address updates.
+- Added metrics for counting TAP read and write errors.
+- Added metrics for counting RX and TX partial writes.
+- Added metrics that measure the duration of pausing and resuming the microVM,
+  from the VMM perspective.
+- Added metric for measuring the duration of the last full/diff snapshot created,
+  from the VMM perspective.
+- Added metric for measuring the duration of loading a snapshot, from the VMM
+  perspective.
+- Added metrics that measure the duration of pausing and resuming the microVM,
+  from the API (user) perspective.
+- Added metric for measuring the duration of the last full/diff snapshot created,
+  from the API (user) perspective.
+- Added metric for measuring the duration of loading a snapshot, from the API
+  (user) perspective.
+- Added `track_dirty_pages` field to `machine-config`. If enabled, Firecracker
+  can create incremental guest memory snapshots by saving the dirty guest pages
+  in a sparse file.
+- Added a new API call, `PATCH /vm`, for changing the microVM state (to
+  `Paused` or `Resumed`).
+- Added a new API call, `PUT /snapshot/create`, for creating a full or diff snapshot.
+- Added a new API call, `PUT /snapshot/load`, for loading a snapshot.
+- Added new jailer command line argument `--cgroup` which allow the user to
+  specify the cgroups that are going to be set by the Jailer.
+- Added full support for AMD CPUs (General Availability). More details
+  [here](README.md#supported-platforms).
+
+### Fixed
+
+- Boot time on AMD achieves the desired performance (i.e under 150ms).
+
+### Changed
+
+- The logger `level` field is now case-insensitive.
+- Disabled boot timer device after restoring a snapshot.
+- Enabled boot timer device only when specifically requested, by using the
+  `--boot-timer` dedicated cmdline parameter.
+- firecracker and jailer `--version` now gets updated on each devtool
+  build to the output of `git describe --dirty`, if the git repo is available.
+- MicroVM process is only attached to the cgroups defined by using `--cgroups`
+  or the ones defined indirectly by using `--node`.
+- Changed `devtool build` to build jailer binary for `musl` only targets. Building
+  jailer binary for `non-musl` targets have been removed.
+
+## [0.22.0]
+
+### Added
+
+- Added a new API call, `PUT /metrics`, for configuring the metrics system.
+- Added `app_name` field in InstanceInfo struct for storing the application
+  name.
 - New command-line parameters for `firecracker`, named `--log-path`,
   `--level`, `--show-level` and `--show-log-origin` that can be used
   for configuring the Logger when starting the process. When using
   this method for configuration, only `--log-path` is mandatory.
+- Added a [guide](docs/devctr-image.md) for updating the dev container image.
+- Added a new API call, `PUT /mmds/config`, for configuring the
+  `MMDS` with a custom valid link-local IPv4 address.
+- Added experimental JSON response format support for MMDS guest applications
+  requests.
+- Added metrics for the vsock device.
+- Added `devtool strip` command which removes debug symbols from the release
+  binaries.
+- Added the `tx_malformed_frames` metric for the virtio net device, emitted
+  when a TX frame missing the VNET header is encountered.
 
 ### Fixed
+
 - Added `--version` flag to both Firecracker and Jailer.
+- Return `405 Method Not Allowed` MMDS response for non HTTP `GET` MMDS
+  requests originating from guest.
+- Fixed folder permissions in the jail (#1802).
+- Any number of whitespace characters are accepted after ":" when parsing HTTP
+  headers.
+- Potential panic condition caused by the net device expecting to find a VNET
+  header in every frame.
+- Potential crash scenario caused by "Content-Length" HTTP header field
+  accepting negative values.
+- Fixed #1754 - net: traffic blocks when running ingress UDP performance tests
+  with very large buffers.
 
 ### Changed
+
 - Updated CVE-2019-3016 mitigation information in
   [Production Host Setup](docs/prod-host-setup.md)
 - In case of using an invalid JSON as a 'config-file' for Firecracker,
@@ -25,6 +169,20 @@
 - Removed `metrics_fifo` field from the logger configuration.
 - Renamed `log_fifo` field from LoggerConfig to `log_path` and
   `metrics_fifo` field from MetricsConfig to `metrics_path`.
+- `PATCH /drives/{id}` only allowed post-boot. Use `PUT` for pre-boot
+  updates to existing configurations.
+- `PATCH /network-interfaces/{id}` only allowed post-boot. Use `PUT` for
+  pre-boot updates to existing configurations.
+- Changed returned status code from `500 Internal Server Error` to
+  `501 Not Implemented`, for queries on the MMDS endpoint in IMDS format, when
+  the requested resource value type is unsupported.
+- Allowed the MMDS data store to be initialized with all supported JSON types.
+  Retrieval of these values within the guest, besides String, Array, and
+  Dictionary, is only possible in JSON mode.
+- `PATCH` request on `/mmds` before the data store is initialized returns
+  `403 BadRequest`.
+- Segregated MMDS documentation in MMDS design documentation and MMDS user
+  guide documentation.
 
 ## [0.21.0]
 
@@ -39,7 +197,7 @@
 - Fixed #1469 - Broken GitHub location for Firecracker release binary.
 - The jailer allows changing the default api socket path by using the extra
   arguments passed to firecracker.
-- Fixed #1456 - Occasional KVM_EXIT_SHUTDOWN and bad syscall (14) during 
+- Fixed #1456 - Occasional KVM_EXIT_SHUTDOWN and bad syscall (14) during
   VM shutdown.
 - Updated the production host setup guide with steps for addressing
   CVE-2019-18960.
@@ -48,7 +206,7 @@
   un-swapped.
 
 ### Changed
-  
+
 - Removed redundant `--seccomp-level` jailer parameter since it can be
   simply forwarded to the Firecracker executable using "end of command
   options" convention.
@@ -70,19 +228,19 @@
 
 ### Fixed
 
-- Fixed CVE-2019-18960 - Fixed a logical error in bounds checking performed 
+- Fixed CVE-2019-18960 - Fixed a logical error in bounds checking performed
   on vsock virtio descriptors.
 - Fixed #1283 - Can't start a VM in AARCH64 with vcpus number more than 16.
-- Fixed #1088 - The backtrace are printed on `panic`, no longer causing a 
+- Fixed #1088 - The backtrace are printed on `panic`, no longer causing a
   seccomp fault.
-- Fixed #1375 - Change logger options type from Value to Vec<LogOption> to
+- Fixed #1375 - Change logger options type from `Value` to `Vec<LogOption>` to
   prevent potential unwrap on None panics.
 - Fixed #1436 - Raise interrupt for TX queue used descriptors
-- Fixed #1439 - Prevent achieving 100% cpu load when the net device rx is 
+- Fixed #1439 - Prevent achieving 100% cpu load when the net device rx is
   throttled by the ratelimiter
-- Fixed #1437 - Invalid fields in rate limiter related API requests are 
+- Fixed #1437 - Invalid fields in rate limiter related API requests are
   now failing with a proper error message.
-- Fixed #1316 - correctly determine the size of a virtio device backed 
+- Fixed #1316 - correctly determine the size of a virtio device backed
   by a block device.
 - Fixed #1383 - Log failed api requests.
 
@@ -204,7 +362,7 @@
 - When running with `jailer` the location of the API socket has changed to
   `<jail-root-path>/api.socket` (API socket was moved _inside_ the jail).
 - `PUT` and `PATCH` requests on `/mmds` with data containing any value type
-  other than `String`, `Array`, `Object` will return status code 400.
+  other than `String`, `Array`, `Object` will returns status code 400.
 - Improved multiple error messages.
 - Removed all kernel modules from the recommended kernel config.
 
@@ -227,7 +385,7 @@
 ### Fixed
 
 - A `madvise` call issued by the `musl` allocator was added to the seccomp
-  whitelist to prevent Firecracker from terminating abruptly when allocating
+  allow list to prevent Firecracker from terminating abruptly when allocating
   memory in certain conditions.
 
 ## [0.15.0]
@@ -269,8 +427,8 @@
 
 - Log the app version when the `Logger` is initialized.
 - Pretty print panic information.
-- Firecracker terminates with exit code 148 when a non-whitelisted syscall
-  is intercepted.
+- Firecracker terminates with exit code 148 when a syscall which is not
+  present in the allow list is intercepted.
 
 ### Fixed
 
@@ -344,7 +502,7 @@
   - [contribution guildelines](CONTRIBUTE.md)
   - [design](docs/design.md)
   - [getting started guide](docs/getting-started.md)
-  - [security policy](SECURITY-POLICY.md)
+  - [security policy](SECURITY.md)
   - [specifications](SPECIFICATION.md)
 - **Experimental** vhost-based vsock implementation.
 

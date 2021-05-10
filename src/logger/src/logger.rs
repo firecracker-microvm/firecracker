@@ -21,48 +21,36 @@
 //! ## Example for logging to stdout/stderr
 //!
 //! ```
-//! #[macro_use]
-//! extern crate logger;
-//! use logger::LOGGER;
+//! use logger::{warn, error, LOGGER};
 //! use std::ops::Deref;
 //!
-//! fn main() {
-//!     // Optionally do an initial configuration for the logger.
-//!     if let Err(e) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
-//!         println!("Could not configure the log subsystem: {}", e);
-//!         return;
-//!     }
-//!     warn!("this is a warning");
-//!     error!("this is an error");
+//! // Optionally do an initial configuration for the logger.
+//! if let Err(e) = LOGGER.deref().configure(Some("MY-INSTANCE".to_string())) {
+//!     println!("Could not configure the log subsystem: {}", e);
+//!     return;
 //! }
+//! warn!("this is a warning");
+//! error!("this is an error");
 //! ```
 //! ## Example for logging to a `File`:
 //!
 //! ```
-//! extern crate libc;
-//! extern crate utils;
-//!
 //! use libc::c_char;
 //! use std::io::Cursor;
+//! use logger::{warn, error, LOGGER};
 //!
-//! #[macro_use]
-//! extern crate logger;
-//! use logger::LOGGER;
+//! let mut logs = Cursor::new(vec![0; 15]);
 //!
-//! fn main() {
-//!     let mut logs = Cursor::new(vec![0; 15]);
-//!
-//!     // Initialize the logger to log to a FIFO that was created beforehand.
-//!     assert!(LOGGER
-//!         .init(
-//!              "Running Firecracker v.x".to_string(),
-//!             Box::new(logs),
-//!         )
-//!         .is_ok());
-//!     // The following messages should appear in the in-memory buffer `logs`.
-//!     warn!("this is a warning");
-//!     error!("this is an error");
-//! }
+//! // Initialize the logger to log to a FIFO that was created beforehand.
+//! assert!(LOGGER
+//!     .init(
+//!         "Running Firecracker v.x".to_string(),
+//!         Box::new(logs),
+//!     )
+//!     .is_ok());
+//! // The following messages should appear in the in-memory buffer `logs`.
+//! warn!("this is a warning");
+//! error!("this is an error");
 //! ```
 
 //! # Plain log format
@@ -90,33 +78,27 @@
 //! Logs can be flushed either to stdout/stderr or to a byte-oriented sink (File, FIFO, Ring Buffer
 //! etc).
 
-use std;
 use std::fmt;
-use std::io::Write;
+use std::io::{sink, stderr, stdout, Write};
 use std::result;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
+use std::thread;
 
+use crate::metrics::{IncMetric, METRICS};
+use lazy_static::lazy_static;
 use log::{max_level, set_logger, set_max_level, Level, LevelFilter, Log, Metadata, Record};
-use metrics::{Metric, METRICS};
 use utils::time::LocalTime;
 
-use super::buf_guard;
+use super::extract_guard;
+use crate::init;
+use crate::init::Init;
 
 /// Type for returning functions outcome.
 pub type Result<T> = result::Result<T, LoggerError>;
 
 // Values used by the Logger.
-const IN_PREFIX_SEPARATOR: &str = ":";
-const MSG_SEPARATOR: &str = " ";
 const DEFAULT_MAX_LEVEL: LevelFilter = LevelFilter::Warn;
-
-// Synchronization primitives used to run a one-time global initialization.
-const UNINITIALIZED: usize = 0;
-const INITIALIZING: usize = 1;
-const INITIALIZED: usize = 2;
-
-static STATE: AtomicUsize = AtomicUsize::new(0);
 
 lazy_static! {
     static ref _LOGGER_INNER: Logger = Logger::new();
@@ -132,8 +114,9 @@ lazy_static! {
 // All member fields have types which are Sync, and exhibit interior mutability, so
 // we can call logging operations using a non-mut static global variable.
 pub struct Logger {
+    init: Init,
     // Human readable logs will be outputted here.
-    log_buf: Mutex<Option<Box<dyn Write + Send>>>,
+    log_buf: Mutex<Box<dyn Write + Send>>,
     show_level: AtomicBool,
     show_file_path: AtomicBool,
     show_line_numbers: AtomicBool,
@@ -144,7 +127,8 @@ impl Logger {
     /// Creates a new instance of the current logger.
     fn new() -> Logger {
         Logger {
-            log_buf: Mutex::new(None),
+            init: Init::new(),
+            log_buf: Mutex::new(Box::new(sink())),
             show_level: AtomicBool::new(true),
             show_line_numbers: AtomicBool::new(true),
             show_file_path: AtomicBool::new(true),
@@ -173,18 +157,13 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate log;
-    /// extern crate logger;
-    /// use logger::LOGGER;
+    /// use logger::{warn, LOGGER};
     /// use std::ops::Deref;
     ///
-    /// fn main() {
-    ///     let l = LOGGER.deref();
-    ///     l.set_include_level(true);
-    ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
-    ///     warn!("A warning log message with level included");
-    /// }
+    /// let l = LOGGER.deref();
+    /// l.set_include_level(true);
+    /// assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
+    /// warn!("A warning log message with level included");
     /// ```
     /// The code above will more or less print:
     /// ```bash
@@ -208,18 +187,14 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate logger;
-    /// use logger::LOGGER;
+    /// use logger::{warn, LOGGER};
     /// use std::ops::Deref;
     ///
-    /// fn main() {
-    ///     let l = LOGGER.deref();
-    ///     l.set_include_origin(false, false);
-    ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
+    /// let l = LOGGER.deref();
+    /// l.set_include_origin(false, false);
+    /// assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
     ///
-    ///     warn!("A warning log message with log origin disabled");
-    /// }
+    /// warn!("A warning log message with log origin disabled");
     /// ```
     /// The code above will more or less print:
     /// ```bash
@@ -236,11 +211,8 @@ impl Logger {
 
     /// Sets the ID for this logger session.
     pub fn set_instance_id(&self, instance_id: String) -> &Self {
-        let mut id_guard = match self.instance_id.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        *id_guard = instance_id;
+        let mut guard = extract_guard(self.instance_id.write());
+        *guard = instance_id;
         self
     }
 
@@ -254,19 +226,14 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// #[macro_use]
-    /// extern crate logger;
-    /// extern crate log;
-    /// use logger::LOGGER;
+    /// use logger::{info, warn, LOGGER};
     /// use std::ops::Deref;
     ///
-    /// fn main() {
-    ///     let l = LOGGER.deref();
-    ///     l.set_max_level(log::LevelFilter::Warn);
-    ///     assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
-    ///     info!("An informational log message");
-    ///     warn!("A test warning message");
-    /// }
+    /// let l = LOGGER.deref();
+    /// l.set_max_level(log::LevelFilter::Warn);
+    /// assert!(l.configure(Some("MY-INSTANCE".to_string())).is_ok());
+    /// info!("An informational log message");
+    /// warn!("A test warning message");
     /// ```
     /// The code above will more or less print:
     /// ```bash
@@ -278,59 +245,39 @@ impl Logger {
         self
     }
 
+    /// Get the current thread's name.
+    fn get_thread_name(&self) -> String {
+        thread::current().name().unwrap_or("-").to_string()
+    }
+
     /// Creates the first portion (to the left of the separator)
     /// of the log statement based on the logger settings.
     fn create_prefix(&self, record: &Record) -> String {
-        let ins_id = match self.instance_id.read() {
-            Ok(guard) => guard.to_string(),
-            Err(poisoned) => poisoned.into_inner().to_string(),
-        };
+        let mut prefix: Vec<String> = vec![];
 
-        let level = if self.show_level() {
-            record.level().to_string()
-        } else {
-            "".to_string()
-        };
-
-        let pth = if self.show_file_path() {
-            record.file().unwrap_or("unknown").to_string()
-        } else {
-            "".to_string()
-        };
-
-        let line = if self.show_line_numbers() {
-            if let Some(ln) = record.line() {
-                ln.to_string()
-            } else {
-                "".to_string()
-            }
-        } else {
-            "".to_string()
-        };
-
-        let mut prefix: Vec<String> = vec![ins_id, level, pth, line];
-        prefix.retain(|i| !i.is_empty());
-        format!(" [{}]", prefix.join(IN_PREFIX_SEPARATOR))
-    }
-
-    /// Try to change the state of the logger.
-    /// This method will succeed only if the logger is UNINITIALIZED.
-    fn try_lock(&self, locked_state: usize) -> Result<()> {
-        match STATE.compare_and_swap(UNINITIALIZED, locked_state, Ordering::SeqCst) {
-            INITIALIZING => {
-                // If the logger is initializing, an error will be returned.
-                METRICS.logger.log_fails.inc();
-                return Err(LoggerError::IsInitializing);
-            }
-            INITIALIZED => {
-                // If the logger was already initialized, an error will be returned.
-                METRICS.logger.log_fails.inc();
-                return Err(LoggerError::AlreadyInitialized);
-            }
-            _ => {}
+        let instance_id = extract_guard(self.instance_id.read());
+        if !instance_id.is_empty() {
+            prefix.push(instance_id.to_string());
         }
 
-        Ok(())
+        // Attach current thread name to prefix.
+        prefix.push(self.get_thread_name());
+
+        if self.show_level() {
+            prefix.push(record.level().to_string());
+        };
+
+        if self.show_file_path() {
+            prefix.push(record.file().unwrap_or("unknown").to_string());
+        };
+
+        if self.show_line_numbers() {
+            if let Some(line) = record.line() {
+                prefix.push(line.to_string());
+            }
+        }
+
+        format!("[{}]", prefix.join(":"))
     }
 
     /// if the max level hasn't been configured yet, set it to default
@@ -355,29 +302,27 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// extern crate logger;
     /// use logger::LOGGER;
     /// use std::ops::Deref;
     ///
-    /// fn main() {
-    ///     LOGGER
-    ///         .deref()
-    ///         .configure(Some("MY-INSTANCE".to_string()))
-    ///         .unwrap();
-    /// }
+    /// LOGGER
+    ///    .deref()
+    ///    .configure(Some("MY-INSTANCE".to_string()))
+    ///    .unwrap();
     /// ```
     pub fn configure(&self, instance_id: Option<String>) -> Result<()> {
-        self.try_lock(INITIALIZING)?;
+        self.init
+            .call_init(|| {
+                if let Some(some_instance_id) = instance_id {
+                    self.set_instance_id(some_instance_id);
+                }
 
-        if let Some(some_instance_id) = instance_id {
-            self.set_instance_id(some_instance_id);
-        }
+                self.try_init_max_level();
 
-        self.try_init_max_level();
-
-        STATE.store(UNINITIALIZED, Ordering::SeqCst);
-
-        Ok(())
+                // don't finish the initialization
+                false
+            })
+            .map_err(LoggerError::Init)
     }
 
     /// Initialize log system (once and only once).
@@ -391,57 +336,56 @@ impl Logger {
     /// # Example
     ///
     /// ```
-    /// extern crate logger;
     /// use logger::LOGGER;
     ///
     /// use std::io::Cursor;
     ///
-    /// fn main() {
-    ///     let mut logs = Cursor::new(vec![0; 15]);
+    /// let mut logs = Cursor::new(vec![0; 15]);
     ///
-    ///     LOGGER.init(
-    ///         "Running Firecracker v.x".to_string(),
-    ///         Box::new(logs),
-    ///     );
-    /// }
+    /// LOGGER.init(
+    ///     "Running Firecracker v.x".to_string(),
+    ///     Box::new(logs),
+    /// );
     /// ```
     pub fn init(&self, header: String, log_dest: Box<dyn Write + Send>) -> Result<()> {
-        self.try_lock(INITIALIZING)?;
-        {
-            let mut g = buf_guard(&self.log_buf);
+        self.init
+            .call_init(|| {
+                let mut g = extract_guard(self.log_buf.lock());
+                *g = log_dest;
 
-            *g = Some(log_dest);
-        }
+                self.try_init_max_level();
 
-        self.try_init_max_level();
+                // finish init
+                true
+            })
+            .map_err(LoggerError::Init)?;
 
-        STATE.store(INITIALIZED, Ordering::SeqCst);
         self.write_log(header, Level::Info);
 
         Ok(())
     }
 
-    // In a future PR we'll update the way things are written to the selected destination to avoid
-    // the creation and allocation of unnecessary intermediate Strings. The `write_log` method takes
-    // care of the common logic involved in writing regular log messages.
-    fn write_log(&self, msg: String, msg_level: Level) {
-        if STATE.load(Ordering::Relaxed) == INITIALIZED {
-            if let Some(guard) = buf_guard(&self.log_buf).as_mut() {
-                // No need to explicitly call flush because the underlying LineWriter flushes
-                // automatically whenever a newline is detected (and we always end with a
-                // newline the current write).
-                if guard.write_all(&(format!("{}\n", msg)).as_bytes()).is_err() {
-                    // No reason to log the error to stderr here, just increment the metric.
-                    METRICS.logger.missed_log_count.inc();
-                }
-            } else {
-                METRICS.logger.missed_log_count.inc();
-                panic!("Failed to write to the provided log destination due to poisoned lock");
-            }
-        } else if msg_level <= Level::Warn {
-            eprintln!("{}", msg);
+    /// The `write_log` method takes care of the common logic involved in writing
+    /// regular log messages.
+    fn write_log(&self, mut msg: String, msg_level: Level) {
+        let mut guard;
+        let mut dest: Box<dyn Write + Send> = if self.init.is_initialized() {
+            guard = extract_guard(self.log_buf.lock());
+            Box::new(guard.as_mut())
         } else {
-            println!("{}", msg);
+            match msg_level {
+                Level::Error | Level::Warn => Box::new(stderr()),
+                _ => Box::new(stdout()),
+            }
+        };
+
+        // No need to explicitly call flush because the underlying LineWriter flushes
+        // automatically whenever a newline is detected (and we always end with a
+        // newline the current write).
+        msg.push('\n');
+        if dest.write_all(msg.as_bytes()).is_err() {
+            // No reason to log the error to stderr here, just increment the metric.
+            METRICS.logger.missed_log_count.inc();
         }
     }
 }
@@ -449,28 +393,14 @@ impl Logger {
 /// Describes the errors which may occur while handling logging scenarios.
 #[derive(Debug)]
 pub enum LoggerError {
-    /// First attempt at initialization failed.
-    NeverInitialized(String),
-    /// The logger is locked while initializing.
-    IsInitializing,
-    /// The logger does not allow reinitialization.
-    AlreadyInitialized,
-    /// Writing the specified buffer failed.
-    Write(std::io::Error),
+    /// Initialization Error.
+    Init(init::Error),
 }
 
 impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
-            LoggerError::NeverInitialized(ref e) => e.to_string(),
-            LoggerError::IsInitializing => {
-                "The logger is initializing. Can't perform the requested action right now."
-                    .to_string()
-            }
-            LoggerError::AlreadyInitialized => {
-                "Reinitialization of logger not allowed.".to_string()
-            }
-            LoggerError::Write(ref e) => format!("Failed to write logs. Error: {}", e),
+            LoggerError::Init(ref e) => format!("Logger initialization failure: {}", e),
         };
         write!(f, "{}", printable)
     }
@@ -480,57 +410,120 @@ impl fmt::Display for LoggerError {
 impl Log for Logger {
     // This is currently not used.
     fn enabled(&self, _metadata: &Metadata) -> bool {
-        true
+        unreachable!();
     }
 
     fn log(&self, record: &Record) {
         let msg = format!(
-            "{}{}{}{}",
+            "{} {} {}",
             LocalTime::now(),
             self.create_prefix(&record),
-            MSG_SEPARATOR,
             record.args()
         );
         self.write_log(msg, record.metadata().level());
     }
 
     // This is currently not used.
-    fn flush(&self) {}
+    fn flush(&self) {
+        unreachable!();
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{File, OpenOptions};
-    use std::io::{BufRead, BufReader, ErrorKind};
-    use std::ops::Deref;
-
-    use log::MetadataBuilder;
+    use std::io::Read;
+    use std::sync::Arc;
 
     use super::*;
-    use utils::tempfile::TempFile;
+    use log::info;
 
     const TEST_INSTANCE_ID: &str = "TEST-INSTANCE-ID";
     const TEST_APP_HEADER: &str = "App header";
+
     const LOG_SOURCE: &str = "logger.rs";
+    const LOG_LINE: u32 = 0;
 
-    fn validate_logs(log_path: &str, expected: &[(&'static str, &'static str)]) -> bool {
-        let f = File::open(log_path).unwrap();
-        let mut reader = BufReader::new(f);
+    struct LogWriter {
+        buf: Arc<Mutex<Vec<u8>>>,
+    }
 
-        let mut line = String::new();
-        // The first line should contain the app header.
-        reader.read_line(&mut line).unwrap();
-        assert!(line.contains(TEST_APP_HEADER));
-        for tuple in expected {
-            line.clear();
-            // Read an actual log line.
-            reader.read_line(&mut line).unwrap();
-            assert!(line.contains(&TEST_INSTANCE_ID));
-            assert!(line.contains(&tuple.0));
-            assert!(line.contains(&LOG_SOURCE));
-            assert!(line.contains(&tuple.1));
+    impl Write for LogWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let mut data = self.buf.lock().unwrap();
+            data.append(&mut buf.to_vec());
+
+            Ok(buf.len())
         }
-        false
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct LogReader {
+        buf: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Read for LogReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let mut data = self.buf.lock().unwrap();
+
+            let len = std::cmp::min(data.len(), buf.len());
+            buf[..len].copy_from_slice(&data[..len]);
+
+            data.drain(..len);
+
+            Ok(len)
+        }
+    }
+
+    fn log_channel() -> (LogWriter, LogReader) {
+        let buf = Arc::new(Mutex::new(vec![]));
+        (LogWriter { buf: buf.clone() }, LogReader { buf })
+    }
+
+    impl Logger {
+        fn mock_new() -> Logger {
+            let logger = Logger::new();
+            logger.set_instance_id(TEST_INSTANCE_ID.to_string());
+
+            logger
+        }
+
+        fn mock_log(&self, level: Level, msg: &str) {
+            self.log(
+                &log::Record::builder()
+                    .level(level)
+                    .args(format_args!("{}", msg))
+                    .file(Some(LOG_SOURCE))
+                    .line(Some(LOG_LINE))
+                    .build(),
+            );
+        }
+
+        fn mock_init(&self) -> LogReader {
+            let (writer, mut reader) = log_channel();
+            assert!(self
+                .init(TEST_APP_HEADER.to_string(), Box::new(writer))
+                .is_ok());
+            validate_log(
+                &mut Box::new(&mut reader),
+                &format!("{}\n", TEST_APP_HEADER),
+            );
+
+            reader
+        }
+    }
+
+    fn validate_log(log_reader: &mut dyn Read, expected: &str) {
+        let mut log = Vec::new();
+        log_reader.read_to_end(&mut log).unwrap();
+
+        assert!(log.len() >= expected.len());
+        assert_eq!(
+            expected,
+            std::str::from_utf8(&log[log.len() - expected.len()..]).unwrap()
+        );
     }
 
     #[test]
@@ -541,130 +534,196 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cognitive_complexity)]
-    fn test_init() {
-        let l = LOGGER.deref();
+    fn test_configure() {
+        let logger = Logger::new();
+        let crnt_thread_name = logger.get_thread_name();
 
-        l.set_include_origin(false, true);
-        assert_eq!(l.show_line_numbers(), false);
+        // Assert that `configure()` can be called successfully any number of times.
+        assert!(logger.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
+        assert!(logger.configure(None).is_ok());
+        assert!(logger.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
 
-        l.set_include_origin(true, true)
-            .set_include_level(true)
-            .set_max_level(log::LevelFilter::Info);
-        assert_eq!(l.show_line_numbers(), true);
-        assert_eq!(l.show_file_path(), true);
-        assert_eq!(l.show_level(), true);
-
-        l.set_instance_id(TEST_INSTANCE_ID.to_string());
-
-        // Assert that the initial configuration works any number of times.
-        assert!(l.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
-        assert!(l.configure(None).is_ok());
-        assert!(l.configure(Some(TEST_INSTANCE_ID.to_string())).is_ok());
-
-        info!("info");
-        warn!("warning");
-        error!("error");
-
-        // Assert that initialization works only once.
-
-        let log_file_temp =
-            TempFile::new().expect("Failed to create temporary output logging file.");
-        let log_file = String::from(log_file_temp.as_path().to_path_buf().to_str().unwrap());
-        l.set_instance_id(TEST_INSTANCE_ID.to_string());
-        assert!(l
-            .init(
-                TEST_APP_HEADER.to_string(),
-                Box::new(
-                    OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .open(&log_file)
-                        .unwrap()
-                ),
-            )
+        // Assert that `init()` works after `configure()`
+        let (writer, mut reader) = log_channel();
+        assert!(logger
+            .init(TEST_APP_HEADER.to_string(), Box::new(writer))
             .is_ok());
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("{}\n", TEST_APP_HEADER),
+        );
+        // Check that the logs are written to the configured writer.
+        logger.mock_log(Level::Info, "info");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!(
+                "[TEST-INSTANCE-ID:{}:INFO:logger.rs:0] info\n",
+                crnt_thread_name
+            ),
+        );
+    }
 
-        info!("info");
-        warn!("warning");
-
-        let log_file_temp2 = TempFile::new().unwrap();
-
-        assert!(l
-            .init(
-                TEST_APP_HEADER.to_string(),
-                Box::new(
-                    OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .open(log_file_temp2.as_path())
-                        .unwrap()
-                ),
-            )
-            .is_err());
-
-        info!("info");
-        warn!("warning");
-        error!("error");
-
-        // Here we also test that the last initialization had no effect given that the
-        // logging system can only be initialized with byte-oriented sinks once per program.
-        validate_logs(
-            &log_file,
-            &[
-                ("INFO", "info"),
-                ("WARN", "warn"),
-                ("INFO", "info"),
-                ("WARN", "warn"),
-                ("ERROR", "error"),
-            ],
+    #[test]
+    fn test_init() {
+        let logger = Logger::new();
+        let crnt_thread_name = logger.get_thread_name();
+        // Assert that the first call to `init()` is successful.
+        let (writer, mut reader) = log_channel();
+        logger.set_instance_id(TEST_INSTANCE_ID.to_string());
+        assert!(logger
+            .init(TEST_APP_HEADER.to_string(), Box::new(writer))
+            .is_ok());
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("{}\n", TEST_APP_HEADER),
+        );
+        // Check that the logs are written to the configured writer.
+        logger.mock_log(Level::Info, "info");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!(
+                "[TEST-INSTANCE-ID:{}:INFO:logger.rs:0] info\n",
+                crnt_thread_name
+            ),
         );
 
-        STATE.store(UNINITIALIZED, Ordering::SeqCst);
+        // Assert that initialization works only once.
+        let (writer_2, mut reader_2) = log_channel();
+        assert!(logger
+            .init(TEST_APP_HEADER.to_string(), Box::new(writer_2))
+            .is_err());
+        // Check that the logs are written only to the first writer.
+        logger.mock_log(Level::Info, "info");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!(
+                "[TEST-INSTANCE-ID:{}:INFO:logger.rs:0] info\n",
+                crnt_thread_name
+            ),
+        );
+        validate_log(&mut Box::new(&mut reader_2), "");
+    }
 
-        l.set_include_level(true).set_include_origin(false, false);
-        let error_metadata = MetadataBuilder::new().level(Level::Error).build();
-        let log_record = log::Record::builder().metadata(error_metadata).build();
-        Logger::log(&l, &log_record);
+    #[test]
+    fn test_create_prefix() {
+        let logger = Logger::mock_new();
+        let mut reader = logger.mock_init();
+        let crnt_thread_name = logger.get_thread_name();
+        // Test with empty instance id.
+        logger.set_instance_id("".to_string());
 
-        assert_eq!(l.show_level(), true);
-        assert_eq!(l.show_file_path(), false);
-        assert_eq!(l.show_line_numbers(), false);
+        // Check that the prefix is empty when `show_level` and `show_origin` are false.
+        logger
+            .set_include_level(false)
+            .set_include_origin(false, true);
+        logger.mock_log(Level::Info, "msg");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[{}] msg\n", crnt_thread_name),
+        );
 
-        l.set_include_level(false).set_include_origin(true, true);
-        let error_metadata = MetadataBuilder::new().level(Level::Info).build();
-        let log_record = log::Record::builder().metadata(error_metadata).build();
-        Logger::log(&l, &log_record);
+        // Check that the prefix is correctly shown when all flags are true.
+        logger
+            .set_include_level(true)
+            .set_include_origin(true, true);
+        logger.mock_log(Level::Info, "msg");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[{}:INFO:logger.rs:0] msg\n", crnt_thread_name),
+        );
 
-        assert_eq!(l.show_level(), false);
-        assert_eq!(l.show_file_path(), true);
-        assert_eq!(l.show_line_numbers(), true);
+        // Check show_line_numbers=false.
+        logger
+            .set_include_level(true)
+            .set_include_origin(true, false);
+        logger.mock_log(Level::Debug, "msg");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[{}:DEBUG:logger.rs] msg\n", crnt_thread_name),
+        );
+
+        // Check show_file_path=false.
+        logger
+            .set_include_level(true)
+            .set_include_origin(false, true);
+        logger.mock_log(Level::Error, "msg");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[{}:ERROR] msg\n", crnt_thread_name),
+        );
+
+        // Check show_level=false.
+        logger
+            .set_include_level(false)
+            .set_include_origin(true, true);
+        logger.mock_log(Level::Info, "msg");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[{}:logger.rs:0] msg\n", crnt_thread_name),
+        );
+
+        // Test with a mock instance id.
+        logger.set_instance_id(TEST_INSTANCE_ID.to_string());
+
+        // Check that the prefix contains only the instance id when all flags are false.
+        logger
+            .set_include_level(false)
+            .set_include_origin(false, false);
+        logger.mock_log(Level::Info, "msg");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!("[TEST-INSTANCE-ID:{}] msg\n", crnt_thread_name),
+        );
+
+        // Check that the prefix is correctly shown when all flags are true.
+        logger
+            .set_include_level(true)
+            .set_include_origin(true, true);
+        logger.mock_log(Level::Warn, "msg");
+        validate_log(
+            &mut Box::new(&mut reader),
+            &format!(
+                "[TEST-INSTANCE-ID:{}:WARN:logger.rs:0] msg\n",
+                crnt_thread_name
+            ),
+        );
+    }
+
+    #[test]
+    fn test_thread_name_custom() {
+        let custom_thread = thread::Builder::new()
+            .name("custom-thread".to_string())
+            .spawn(move || {
+                let logger = Logger::mock_new();
+                let mut reader = logger.mock_init();
+                logger
+                    .set_include_level(false)
+                    .set_include_origin(false, false);
+                logger.set_instance_id("".to_string());
+                logger.mock_log(Level::Info, "thread-msg");
+                validate_log(&mut Box::new(&mut reader), "[custom-thread] thread-msg\n");
+            })
+            .unwrap();
+        let r = custom_thread.join();
+        assert_eq!(r.is_ok(), true);
+    }
+
+    #[test]
+    fn test_static_logger() {
+        log::set_max_level(log::LevelFilter::Info);
+        LOGGER.set_instance_id(TEST_INSTANCE_ID.to_string());
+
+        let mut reader = LOGGER.mock_init();
+
+        info!("info");
+        validate_log(&mut Box::new(&mut reader), "info\n");
     }
 
     #[test]
     fn test_error_messages() {
         assert_eq!(
-            format!(
-                "{}",
-                LoggerError::NeverInitialized(String::from("Bad Log Path Provided"))
-            ),
-            "Bad Log Path Provided"
-        );
-        assert_eq!(
-            format!("{}", LoggerError::AlreadyInitialized),
-            "Reinitialization of logger not allowed."
-        );
-
-        assert_eq!(
-            format!("{}", LoggerError::IsInitializing),
-            "The logger is initializing. Can't perform the requested action right now."
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                LoggerError::Write(std::io::Error::new(ErrorKind::Interrupted, "write"))
-            ),
-            "Failed to write logs. Error: write"
+            format!("{}", LoggerError::Init(init::Error::AlreadyInitialized)),
+            "Logger initialization failure: The component is already initialized."
         );
     }
 }

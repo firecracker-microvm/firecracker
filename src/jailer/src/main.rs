@@ -1,11 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate libc;
-extern crate regex;
-
-extern crate utils;
-
 mod cgroup;
 mod chroot;
 mod env;
@@ -18,20 +12,23 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::result;
 
-use env::Env;
+use crate::env::Env;
 use utils::arg_parser::{ArgParser, Argument, Error as ParsingError};
 use utils::validators;
 
-const JAILER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const JAILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 #[derive(Debug)]
 pub enum Error {
     ArgumentParsing(ParsingError),
     Canonicalize(PathBuf, io::Error),
     CgroupInheritFromParent(PathBuf, String),
     CgroupLineNotFound(String, String),
-    CgroupLineNotUnique(String, String),
-    ChangeFileOwner(&'static str, io::Error),
+    CgroupInvalidFile(String),
+    CgroupWrite(String, String, String),
+    CgroupFormat(String),
+    ChangeFileOwner(PathBuf, io::Error),
     ChdirNewRoot(io::Error),
+    Chmod(PathBuf, io::Error),
     CloseNetNsFd(io::Error),
     CloseDevNullFd(io::Error),
     Copy(PathBuf, PathBuf, io::Error),
@@ -67,6 +64,7 @@ pub enum Error {
     UmountOldRoot(io::Error),
     UnexpectedListenerFd(i32),
     UnshareNewNs(io::Error),
+    UnshareNewPID(io::Error),
     UnsetCloexec(io::Error),
     Write(PathBuf, io::Error),
 }
@@ -82,6 +80,9 @@ impl fmt::Display for Error {
                 "{}",
                 format!("Failed to canonicalize path {:?}: {}", path, io_err).replace("\"", "")
             ),
+            Chmod(ref path, ref err) => {
+                write!(f, "Failed to change permissions on {:?}: {}", path, err)
+            }
             CgroupInheritFromParent(ref path, ref filename) => write!(
                 f,
                 "{}",
@@ -96,13 +97,15 @@ impl fmt::Display for Error {
                 "{} configurations not found in {}",
                 controller, proc_mounts
             ),
-            CgroupLineNotUnique(ref proc_mounts, ref controller) => write!(
+            CgroupInvalidFile(ref file) => write!(f, "Cgroup invalid file: {}", file,),
+            CgroupWrite(ref evalue, ref rvalue, ref file) => write!(
                 f,
-                "Found more than one cgroups configuration line in {} for {}",
-                proc_mounts, controller
+                "Expected value {} for {}. Current value: {}",
+                evalue, file, rvalue
             ),
-            ChangeFileOwner(ref filename, ref err) => {
-                write!(f, "Failed to change owner for {}: {}", filename, err)
+            CgroupFormat(ref arg) => write!(f, "Invalid format for cgroups: {}", arg,),
+            ChangeFileOwner(ref path, ref err) => {
+                write!(f, "Failed to change owner for {:?}: {}", path, err)
             }
             ChdirNewRoot(ref err) => write!(f, "Failed to chdir into chroot directory: {}", err),
             CloseNetNsFd(ref err) => write!(f, "Failed to close netns fd: {}", err),
@@ -198,6 +201,9 @@ impl fmt::Display for Error {
             UnshareNewNs(ref err) => {
                 write!(f, "Failed to unshare into new mount namespace: {}", err)
             }
+            UnshareNewPID(ref err) => {
+                write!(f, "Failed to unshare into new PID namespace: {}", err)
+            }
             UnsetCloexec(ref err) => write!(
                 f,
                 "Failed to unset the O_CLOEXEC flag on the socket fd: {}",
@@ -232,7 +238,7 @@ pub fn build_arg_parser() -> ArgParser<'static> {
         )
         .arg(
             Argument::new("node")
-                .required(true)
+                .required(false)
                 .takes_value(true)
                 .help("NUMA node to assign this microVM to."),
         )
@@ -264,10 +270,41 @@ pub fn build_arg_parser() -> ArgParser<'static> {
              the standard I/O file descriptors to /dev/null.",
         ))
         .arg(
-            Argument::new("extra-args")
-                .takes_value(true)
-                .help("Arguments that will be passed verbatim to the exec file."),
+            Argument::new("new-pid-ns")
+                .takes_value(false)
+                .help("Exec into a new PID namespace."),
         )
+        .arg(Argument::new("cgroup").allow_multiple(true).help(
+            "Cgroup and value to be set by the jailer. It must follow this format: \
+             <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used \
+             multiple times to add multiple cgroups.",
+        ))
+        .arg(
+            Argument::new("version")
+                .takes_value(false)
+                .help("Print the binary version number."),
+        )
+}
+
+// It's called writeln_special because we have to use this rather convoluted way of writing
+// to special cgroup files, to avoid getting errors. It would be nice to know why that happens :-s
+pub fn writeln_special<T, V>(file_path: &T, value: V) -> Result<()>
+where
+    T: AsRef<Path>,
+    V: ::std::fmt::Display,
+{
+    fs::write(file_path, format!("{}\n", value))
+        .map_err(|e| Error::Write(PathBuf::from(file_path.as_ref()), e))
+}
+
+pub fn readln_special<T: AsRef<Path>>(file_path: &T) -> Result<String> {
+    let mut line = fs::read_to_string(file_path)
+        .map_err(|e| Error::ReadToString(PathBuf::from(file_path.as_ref()), e))?;
+
+    // Remove the newline character at the end (if any).
+    line.pop();
+
+    Ok(line)
 }
 
 fn sanitize_process() {
@@ -294,7 +331,7 @@ fn sanitize_process() {
 /// Turns an AsRef<Path> into a CString (c style string).
 /// The expect should not fail, since Linux paths only contain valid Unicode chars (do they?),
 /// and do not contain null bytes (do they?).
-fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
+pub fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
     let path_str = path
         .as_ref()
         .to_path_buf()
@@ -319,27 +356,27 @@ fn main() {
             process::exit(1);
         }
         _ => {
-            if let Some(help) = arg_parser.arguments().value_as_bool("help") {
-                if help {
-                    println!("Jailer v{}\n", JAILER_VERSION);
-                    println!("{}", arg_parser.formatted_help());
-                    process::exit(0);
-                }
+            if arg_parser.arguments().flag_present("help") {
+                println!("Jailer v{}\n", JAILER_VERSION);
+                println!("{}\n", arg_parser.formatted_help());
+                println!(
+                    "Any arguments after the -- separator will be supplied to the jailed \
+                     binary.\n"
+                );
+                process::exit(0);
             }
 
-            if let Some(version) = arg_parser.arguments().value_as_bool("version") {
-                if version {
-                    println!("Jailer v{}\n", JAILER_VERSION);
-                    process::exit(0);
-                }
+            if arg_parser.arguments().flag_present("version") {
+                println!("Jailer v{}\n", JAILER_VERSION);
+                process::exit(0);
             }
         }
     }
 
     Env::new(
         arg_parser.arguments(),
-        utils::time::get_time(utils::time::ClockType::Monotonic) / 1000,
-        utils::time::get_time(utils::time::ClockType::ProcessCpu) / 1000,
+        utils::time::get_time_us(utils::time::ClockType::Monotonic),
+        utils::time::get_time_us(utils::time::ClockType::ProcessCpu),
     )
     .and_then(|env| {
         fs::create_dir_all(env.chroot_dir())
@@ -353,7 +390,7 @@ fn main() {
 mod tests {
     use super::*;
     use std::fs::File;
-    use std::os::unix::io::AsRawFd;
+    use std::os::unix::io::IntoRawFd;
 
     use utils::arg_parser;
 
@@ -368,7 +405,7 @@ mod tests {
         for i in 0..n {
             let maybe_file = File::create(format!("{}/{}", tmp_dir_path, i));
             assert!(maybe_file.is_ok());
-            fds.push(maybe_file.unwrap().as_raw_fd());
+            fds.push(maybe_file.unwrap().into_raw_fd());
         }
 
         sanitize_process();
@@ -395,6 +432,7 @@ mod tests {
         let err_args_parse = arg_parser::Error::UnexpectedArgument("foo".to_string());
         let err_regex = regex::Error::Syntax(id.to_string());
         let err2_str = "No such file or directory (os error 2)";
+        let cgroup_file = "cpuset.mems";
 
         assert_eq!(
             format!("{}", Error::ArgumentParsing(err_args_parse)),
@@ -417,28 +455,42 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
+                Error::Chmod(path.clone(), io::Error::from_raw_os_error(2))
+            ),
+            "Failed to change permissions on \"/foo\": No such file or directory (os error 2)",
+        );
+        assert_eq!(
+            format!(
+                "{}",
                 Error::CgroupLineNotFound(proc_mounts.to_string(), controller.to_string())
             ),
             "sysfs configurations not found in /proc/mounts",
         );
         assert_eq!(
+            format!("{}", Error::CgroupInvalidFile(cgroup_file.to_string())),
+            "Cgroup invalid file: cpuset.mems",
+        );
+        assert_eq!(
             format!(
                 "{}",
-                Error::CgroupLineNotUnique(proc_mounts.to_string(), controller.to_string())
+                Error::CgroupWrite("1".to_string(), "2".to_string(), cgroup_file.to_string())
             ),
-            "Found more than one cgroups configuration line in /proc/mounts for sysfs",
+            "Expected value 1 for cpuset.mems. Current value: 2",
+        );
+        assert_eq!(
+            format!("{}", Error::CgroupFormat(cgroup_file.to_string())),
+            "Invalid format for cgroups: cpuset.mems",
         );
 
-        let folder_cstr = CStr::from_bytes_with_nul(b"/dev/net/tun\0").unwrap();
         assert_eq!(
             format!(
                 "{}",
                 Error::ChangeFileOwner(
-                    folder_cstr.to_str().unwrap(),
+                    PathBuf::from("/dev/net/tun"),
                     io::Error::from_raw_os_error(42)
                 )
             ),
-            "Failed to change owner for /dev/net/tun: No message of desired type (os error 42)",
+            "Failed to change owner for \"/dev/net/tun\": No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::ChdirNewRoot(io::Error::from_raw_os_error(42))),
@@ -469,7 +521,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Error::CreateDir(path.clone(), io::Error::from_raw_os_error(2))
+                Error::CreateDir(path, io::Error::from_raw_os_error(2))
             ),
             format!("Failed to create directory /foo: {}", err2_str)
         );
@@ -623,6 +675,10 @@ mod tests {
             "Failed to unshare into new mount namespace: No message of desired type (os error 42)",
         );
         assert_eq!(
+            format!("{}", Error::UnshareNewPID(io::Error::from_raw_os_error(42))),
+            "Failed to unshare into new PID namespace: No message of desired type (os error 42)",
+        );
+        assert_eq!(
             format!("{}", Error::UnsetCloexec(io::Error::from_raw_os_error(42))),
             "Failed to unset the O_CLOEXEC flag on the socket fd: No message of desired type (os \
              error 42)",
@@ -633,6 +689,18 @@ mod tests {
                 Error::Write(file_path, io::Error::from_raw_os_error(2))
             ),
             format!("Failed to write to /foo/bar: {}", err2_str),
+        );
+    }
+
+    #[test]
+    fn test_to_cstring() {
+        let path = Path::new("some_path");
+        let cstring_path = to_cstring(path).unwrap();
+        assert_eq!(cstring_path, CString::new("some_path").unwrap());
+        let path_with_nul = Path::new("some_path\0");
+        assert_eq!(
+            format!("{}", to_cstring(path_with_nul).unwrap_err()),
+            "Encountered interior \\0 while parsing a string"
         );
     }
 }

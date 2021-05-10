@@ -11,6 +11,7 @@ make vmlinux
 
 Here's a quick step-by-step guide to building your own kernel that Firecracker
 can boot:
+
 1. Get the Linux source code:
 
    ```bash
@@ -18,17 +19,17 @@ can boot:
    cd linux.git
    ```
 
-2. Check out the Linux version you want to build (e.g. we'll be using v4.20
+1. Check out the Linux version you want to build (e.g. we'll be using v4.20
    here):
 
    ```bash
    git checkout v4.20
    ```
 
-3. You will need to configure your Linux build. You can start from
-   [our recommended config](../resources/microvm-kernel-config) - just copy
-   it to `.config` (under the Linux sources dir). You can make interactive
-   config adjustments using:
+1. You will need to configure your Linux build. You can start from
+   [our recommended config](../resources/microvm-kernel-x86_64.config) by
+   copying it to `.config` (under the Linux sources dir). You can make
+   interactive config adjustments using:
 
    ```bash
    make menuconfig
@@ -37,15 +38,14 @@ can boot:
    *Note*: there are many ways of building a kernel config file, other than
    `menuconfig`. You are free to use whichever one you choose.
 
-4. Build the uncompressed kernel image:
+1. Build the uncompressed kernel image:
 
    ```bash
    make vmlinux
    ```
 
-5. Upon a successful build, you can find the uncompressed kernel image under
+1. Upon a successful build, you can find the uncompressed kernel image under
    `./vmlinux`.
-
 
 ## Creating a rootfs Image
 
@@ -56,6 +56,7 @@ support for it will have to be compiled into the kernel, so it can be mounted
 at boot time.
 
 To build an EXT4 image:
+
 1. Prepare a properly-sized file. We'll use 50MiB here, but this depends
    on how much data you'll want to fit inside:
 
@@ -63,7 +64,7 @@ To build an EXT4 image:
    dd if=/dev/zero of=rootfs.ext4 bs=1M count=50
    ```
 
-2. Create an empty file system on the file you created:
+1. Create an empty file system on the file you created:
 
    ```bash
    mkfs.ext4 rootfs.ext4
@@ -87,6 +88,7 @@ and many other features.
 For the sake of simplicity, let's set up an Alpine-based rootfs, with OpenRC
 as an init system. To that end, we'll use the official Docker image for
 Alpine Linux:
+
 1. First, let's start the Alpine container, bind-mounting the EXT4 image
    created earlier, to `/my-rootfs`:
 
@@ -94,7 +96,7 @@ Alpine Linux:
    docker run -it --rm -v /tmp/my-rootfs:/my-rootfs alpine
    ```
 
-2. Then, inside the container, install the OpenRC init system, and some basic
+1. Then, inside the container, install the OpenRC init system, and some basic
    tools:
 
    ```bash
@@ -102,7 +104,7 @@ Alpine Linux:
    apk add util-linux
    ```
 
-3. And set up userspace init (still inside the container shell):
+1. And set up userspace init (still inside the container shell):
 
    ```bash
    # Set up a login terminal on the serial console (ttyS0):
@@ -117,13 +119,19 @@ Alpine Linux:
 
    # Then, copy the newly configured system to the rootfs image:
    for d in bin etc lib root sbin usr; do tar c "/$d" | tar x -C /my-rootfs; done
+
+   # The above command may trigger the following message:
+   # tar: Removing leading "/" from member names
+   # However, this is just a warning, so you should be able to
+   # proceed with the setup process.
+
    for dir in dev proc run sys var; do mkdir /my-rootfs/${dir}; done
 
-   # All done, exit docker shell
+   # All done, exit docker shell.
    exit
    ```
 
-4. Finally, unmount your rootfs image:
+1. Finally, unmount your rootfs image:
 
    ```bash
    sudo umount /tmp/my-rootfs

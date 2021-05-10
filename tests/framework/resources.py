@@ -42,6 +42,76 @@ class Actions():
         return datax
 
 
+class Balloon():
+    """Facility for specifying balloon device configurations."""
+
+    BALLOON_CFG_RESOURCE = 'balloon'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+
+        self._balloon_cfg_url = api_url + self.BALLOON_CFG_RESOURCE
+        self._api_session = api_session
+
+    def put(self, **args):
+        """Specify the balloon device configuration."""
+        datax = self.create_json(**args)
+        return self._api_session.put(
+            "{}".format(self._balloon_cfg_url),
+            json=datax
+        )
+
+    def patch(self, **args):
+        """Update a previously attached balloon device."""
+        datax = self.create_json(**args)
+        return self._api_session.patch(
+            "{}".format(self._balloon_cfg_url),
+            json=datax
+        )
+
+    def patch_stats(self, **args):
+        """Update the balloon statistics interval."""
+        datax = self.create_json(**args)
+        return self._api_session.patch(
+            "{}".format(self._balloon_cfg_url + "/statistics"),
+            json=datax
+        )
+
+    def get(self):
+        """Get the response of specifying the balloon configuration."""
+        return self._api_session.get(
+            self._balloon_cfg_url
+        )
+
+    def get_stats(self):
+        """Get the response of specifying the balloon statistics."""
+        return self._api_session.get(
+            "{}".format(self._balloon_cfg_url + "/statistics")
+        )
+
+    @staticmethod
+    def create_json(
+            amount_mib=None,
+            deflate_on_oom=None,
+            stats_polling_interval_s=None
+    ):
+        """Compose the json associated to this type of API request."""
+        datax = {}
+
+        if amount_mib is not None:
+            datax['amount_mib'] = amount_mib
+
+        if deflate_on_oom is not None:
+            datax['deflate_on_oom'] = deflate_on_oom
+
+        if stats_polling_interval_s is not None:
+            datax['stats_polling_interval_s'] = stats_polling_interval_s
+
+        return datax
+
+
 class BootSource():
     """Facility for specifying the source of the boot process."""
 
@@ -98,6 +168,25 @@ class BootSource():
         return datax
 
 
+# Too few public methods (1/2) (too-few-public-methods)
+# pylint: disable=R0903
+class DescribeInstance():
+    """Facility for getting the microVM state."""
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        self._descinst_cfg_url = \
+            API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        self._api_session = api_session
+
+    def get(self):
+        """Get the status of configuring the current microvm."""
+        return self._api_session.get(
+            self._descinst_cfg_url
+        )
+
+
 class Drive():
     """Facility for attaching a block device."""
 
@@ -142,7 +231,8 @@ class Drive():
             is_root_device=None,
             partuuid=None,
             is_read_only=None,
-            rate_limiter=None):
+            rate_limiter=None,
+            cache_type=None):
         """Compose the json associated to this type of API request."""
         datax = {}
 
@@ -160,6 +250,9 @@ class Drive():
 
         if is_read_only is not None:
             datax['is_read_only'] = is_read_only
+
+        if cache_type is not None:
+            datax['cache_type'] = cache_type
 
         if rate_limiter is not None:
             datax['rate_limiter'] = rate_limiter
@@ -221,6 +314,121 @@ class Logger():
         return datax
 
 
+class SnapshotCreate():
+    """Facility for sending create snapshot commands on the microvm."""
+
+    SNAPSHOT_CREATE_URL = 'snapshot/create'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        self._snapshot_cfg_url = api_url + self.SNAPSHOT_CREATE_URL
+        self._api_session = api_session
+
+    def put(self, **args):
+        """Create a snapshot of the microvm."""
+        self._api_session.untime()
+        datax = self.create_json(**args)
+        return self._api_session.put(
+            "{}".format(self._snapshot_cfg_url),
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(mem_file_path, snapshot_path, diff=False, version=None):
+        """Compose the json associated to this type of API request."""
+        if diff:
+            snapshot_type = 'Diff'
+        else:
+            snapshot_type = 'Full'
+        datax = {
+            'mem_file_path': mem_file_path,
+            'snapshot_path': snapshot_path,
+            'snapshot_type': snapshot_type,
+        }
+        if version is not None:
+            datax['version'] = version
+
+        return datax
+
+
+class SnapshotLoad():
+    """Facility for sending load snapshot commands on the microvm."""
+
+    SNAPSHOT_LOAD_URL = 'snapshot/load'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+        self._snapshot_cfg_url = api_url + self.SNAPSHOT_LOAD_URL
+        self._api_session = api_session
+
+    def put(self, **args):
+        """Load a snapshot of the microvm."""
+        datax = self.create_json(**args)
+        return self._api_session.put(
+            "{}".format(self._snapshot_cfg_url),
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(mem_file_path, snapshot_path, diff=False, resume=False):
+        """Compose the json associated to this type of API request."""
+        datax = {
+            'mem_file_path': mem_file_path,
+            'snapshot_path': snapshot_path,
+        }
+        if diff:
+            datax['enable_diff_snapshots'] = True
+        if resume:
+            datax['resume_vm'] = True
+        return datax
+
+
+class SnapshotHelper():
+    """Facility for creation and loading of microvm snapshots."""
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        self._create = SnapshotCreate(api_usocket_full_name, api_session)
+        self._load = SnapshotLoad(api_usocket_full_name, api_session)
+        self._vm_state = Vm(api_usocket_full_name, api_session)
+
+    def create(self, mem_file_path, snapshot_path, diff=False, version=None):
+        """Create a snapshot of the microvm."""
+        return self._create.put(
+            mem_file_path=mem_file_path,
+            snapshot_path=snapshot_path,
+            diff=diff,
+            version=version
+        )
+
+    def load(self, mem_file_path, snapshot_path, diff=False, resume=False):
+        """Load a snapshot of the microvm."""
+        response = self._load.put(
+            mem_file_path=mem_file_path,
+            snapshot_path=snapshot_path,
+            diff=diff,
+            resume=resume
+        )
+
+        if resume and "unknown field `resume_vm`" in response.text:
+            # Retry using old API - separate resume command.
+            response = self._load.put(
+                mem_file_path=mem_file_path,
+                snapshot_path=snapshot_path,
+                diff=diff,
+                resume=False
+            )
+            if response.status_code != 204:
+                return response
+            response = self._vm_state.patch(state='Resumed')
+
+        return response
+
+
 class Metrics:
     """Facility for setting up the metrics system and sending API requests."""
 
@@ -273,19 +481,26 @@ class MachineConfigure():
 
         self._machine_cfg_url = api_url + self.MACHINE_CFG_RESOURCE
         self._api_session = api_session
+        self._datax = {}
+
+    @property
+    def configuration(self):
+        """Return machine config dictionary."""
+        return self._datax
 
     def put(self, **args):
         """Specify the details of the machine configuration."""
-        datax = self.create_json(**args)
+        self._datax = self.create_json(**args)
 
         return self._api_session.put(
             "{}".format(self._machine_cfg_url),
-            json=datax
+            json=self._datax
         )
 
     def patch(self, **args):
         """Update the details of the machine configuration."""
         datax = self.create_json(**args)
+        self._datax.update(datax)
 
         return self._api_session.patch(
             "{}".format(self._machine_cfg_url),
@@ -303,7 +518,8 @@ class MachineConfigure():
             vcpu_count=None,
             mem_size_mib=None,
             ht_enabled=None,
-            cpu_template=None):
+            cpu_template=None,
+            track_dirty_pages=None):
         """Compose the json associated to this type of API request."""
         datax = {}
         if vcpu_count is not None:
@@ -317,6 +533,9 @@ class MachineConfigure():
 
         if cpu_template is not None:
             datax['cpu_template'] = cpu_template
+
+        if track_dirty_pages is not None:
+            datax['track_dirty_pages'] = track_dirty_pages
 
         return datax
 
@@ -338,6 +557,13 @@ class MMDS():
         """Send a new MMDS request."""
         return self._api_session.put(
             "{}".format(self._mmds_cfg_url),
+            json=args['json']
+        )
+
+    def put_config(self, **args):
+        """Send a new MMDS config request."""
+        return self._api_session.put(
+            "{}".format(self._mmds_cfg_url + "/config"),
             json=args['json']
         )
 
@@ -413,6 +639,38 @@ class Network():
 
         if rx_rate_limiter is not None:
             datax['rx_rate_limiter'] = rx_rate_limiter
+
+        return datax
+
+
+class Vm():
+    """Facility for handling the state for a microvm."""
+
+    VM_CFG_RESOURCE = 'vm'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+
+        self._vm_cfg_url = api_url + self.VM_CFG_RESOURCE
+        self._api_session = api_session
+
+    def patch(self, **args):
+        """Apply an update to the microvm state."""
+        datax = self.create_json(**args)
+
+        return self._api_session.patch(
+            self._vm_cfg_url,
+            json=datax
+        )
+
+    @staticmethod
+    def create_json(state):
+        """Create the json for the vm specific API request."""
+        datax = {
+            'state': state
+        }
 
         return datax
 

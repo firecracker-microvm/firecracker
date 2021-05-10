@@ -8,6 +8,7 @@ import time
 
 import pytest
 
+from framework.microvms import VMNano
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
 import host_tools.network as net_tools
@@ -100,14 +101,27 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
         'vcpu_count': 4,
         'ht_enabled': True,
         'mem_size_mib': 256,
-        'cpu_template': 'C3'
+        'track_dirty_pages': True
     }
-    response = test_microvm.machine_cfg.put(
-        vcpu_count=microvm_config_json['vcpu_count'],
-        ht_enabled=microvm_config_json['ht_enabled'],
-        mem_size_mib=microvm_config_json['mem_size_mib'],
-        cpu_template=microvm_config_json['cpu_template']
-    )
+    if platform.machine() == 'x86_64':
+        microvm_config_json['cpu_template'] = 'C3'
+
+    if platform.machine() == 'aarch64':
+        response = test_microvm.machine_cfg.put(
+            vcpu_count=microvm_config_json['vcpu_count'],
+            ht_enabled=microvm_config_json['ht_enabled'],
+            mem_size_mib=microvm_config_json['mem_size_mib'],
+            track_dirty_pages=microvm_config_json['track_dirty_pages']
+        )
+    else:
+        response = test_microvm.machine_cfg.put(
+            vcpu_count=microvm_config_json['vcpu_count'],
+            ht_enabled=microvm_config_json['ht_enabled'],
+            mem_size_mib=microvm_config_json['mem_size_mib'],
+            cpu_template=microvm_config_json['cpu_template'],
+            track_dirty_pages=microvm_config_json['track_dirty_pages']
+        )
+
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     response = test_microvm.machine_cfg.get()
@@ -123,8 +137,12 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     mem_size_mib = microvm_config_json['mem_size_mib']
     assert response_json['mem_size_mib'] == mem_size_mib
 
-    cpu_template = str(microvm_config_json['cpu_template'])
-    assert response_json['cpu_template'] == cpu_template
+    if platform.machine() == 'x86_64':
+        cpu_template = str(microvm_config_json['cpu_template'])
+        assert response_json['cpu_template'] == cpu_template
+
+    track_dirty_pages = microvm_config_json['track_dirty_pages']
+    assert response_json['track_dirty_pages'] == track_dirty_pages
 
 
 def test_net_api_put_update_pre_boot(test_microvm_with_api):
@@ -178,8 +196,8 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
         guest_mac='06:00:00:00:00:01'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "The host device name {} is already in use.".\
-        format(second_if_name) in response.text
+    assert "Could not create Network Device" \
+        in response.text
 
     # Updates to a network interface with an available name are allowed.
     iface_id = '1'
@@ -222,6 +240,24 @@ def test_api_put_machine_config(test_microvm_with_api):
         cpu_template='random_string'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    response = test_microvm.machine_cfg.patch(
+        track_dirty_pages=True
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    response = test_microvm.machine_cfg.patch(
+        cpu_template='C3'
+    )
+    if platform.machine() == "x86_64":
+        assert test_microvm.api_session.is_status_no_content(
+            response.status_code
+        )
+    else:
+        assert test_microvm.api_session.is_status_bad_request(
+            response.status_code
+        )
+        assert "CPU templates are not supported on aarch64" in response.text
 
 
 def test_api_put_update_post_boot(test_microvm_with_api):
@@ -447,8 +483,9 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     fs1 = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, 'scratch')
     )
+    drive_id = 'scratch'
     response = test_microvm.drive.put(
-        drive_id='scratch',
+        drive_id=drive_id,
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False
@@ -491,6 +528,23 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     response = test_microvm.logger.patch(level='Error')
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "Invalid request method" in response.text
+
+    # Patching drive before boot is not allowed.
+    response = test_microvm.drive.patch(
+        drive_id=drive_id,
+        path_on_host='foo.bar'
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The requested operation is not supported before starting the " \
+           "microVM." in response.text
+
+    # Patching net before boot is not allowed.
+    response = test_microvm.network.patch(
+        iface_id=iface_id
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The requested operation is not supported before starting the " \
+           "microVM." in response.text
 
 
 def test_api_patch_post_boot(test_microvm_with_api):
@@ -575,7 +629,14 @@ def test_drive_patch(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    _drive_patch(test_microvm)
+    # Patching drive before boot is not allowed.
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        path_on_host='foo.bar'
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The requested operation is not supported before starting the " \
+        "microVM." in response.text
 
     test_microvm.start()
 
@@ -586,13 +647,13 @@ def test_drive_patch(test_microvm_with_api):
     platform.machine() != "x86_64",
     reason="not yet implemented on aarch64"
 )
-def test_send_ctrl_alt_del(test_microvm_with_atkbd):
+def test_send_ctrl_alt_del(test_microvm_with_api):
     """Test shutting down the microVM gracefully, by sending CTRL+ALT+DEL.
 
     This relies on i8042 and AT Keyboard support being present in the guest
     kernel.
     """
-    test_microvm = test_microvm_with_atkbd
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     test_microvm.basic_config()
@@ -632,7 +693,7 @@ def _drive_patch(test_microvm):
         drive_id='scratch'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Required key path_on_host not present in the json." \
+    assert "at least one property to patch: path_on_host, rate_limiter" \
            in response.text
 
     # Cannot patch drive permissions post boot.
@@ -642,8 +703,7 @@ def _drive_patch(test_microvm):
         is_read_only=True
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Invalid PATCH payload. Only updates on path_on_host are allowed." \
-           in response.text
+    assert "unknown field `is_read_only`" in response.text
 
     # Updates to `is_root_device` with a valid value are not allowed.
     response = test_microvm.drive.patch(
@@ -652,8 +712,7 @@ def _drive_patch(test_microvm):
         is_root_device=False
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Invalid PATCH payload. Only updates on path_on_host are allowed." \
-           in response.text
+    assert "unknown field `is_root_device`" in response.text
 
     # Updates to `path_on_host` with an invalid path are not allowed.
     response = test_microvm.drive.patch(
@@ -661,7 +720,7 @@ def _drive_patch(test_microvm):
         path_on_host='foo.bar'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Cannot open block device. Invalid permission/path" \
+    assert "drive update (patch): device error: No such file or directory" \
            in response.text
 
     fs = drive_tools.FilesystemFile(
@@ -673,6 +732,57 @@ def _drive_patch(test_microvm):
         path_on_host=test_microvm.create_jailed_resource(fs.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Updates to valid `path_on_host` and `rate_limiter` are allowed.
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        path_on_host=test_microvm.create_jailed_resource(fs.path),
+        rate_limiter={
+            'bandwidth': {
+                'size': 1000000,
+                'refill_time': 100
+            },
+            'ops': {
+                'size': 1,
+                'refill_time': 100
+            }
+        }
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Updates to `rate_limiter` only are allowed.
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        rate_limiter={
+            'bandwidth': {
+                'size': 5000,
+                'refill_time': 100
+            },
+            'ops': {
+                'size': 500,
+                'refill_time': 100
+            }
+        }
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Updates to `rate_limiter` and invalid path fail.
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        path_on_host='foo.bar',
+        rate_limiter={
+            'bandwidth': {
+                'size': 5000,
+                'refill_time': 100
+            },
+            'ops': {
+                'size': 500,
+                'refill_time': 100
+            }
+        }
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "No such file or directory" in response.text
 
 
 def test_api_vsock(test_microvm_with_api):
@@ -714,3 +824,120 @@ def test_api_vsock(test_microvm_with_api):
         uds_path='vsock.sock'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    response = test_microvm.vm.patch(state='Paused')
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Diff snapshots should not be allowed on uVMs with vsock device.
+    response = test_microvm.snapshot.create(mem_file_path='memfile',
+                                            snapshot_path='snapsfile',
+                                            diff=True)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "Diff snapshots are not allowed on uVMs with vsock" in response.text
+
+
+def test_api_balloon(test_microvm_with_ssh_and_balloon):
+    """Test balloon related API commands."""
+    test_microvm = test_microvm_with_ssh_and_balloon
+    test_microvm.spawn()
+    test_microvm.basic_config()
+
+    # Updating an inexistent balloon device should give an error.
+    response = test_microvm.balloon.patch(amount_mib=0)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Adding a memory balloon should be OK.
+    response = test_microvm.balloon.put(
+        amount_mib=1,
+        deflate_on_oom=True
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # As is overwriting one.
+    response = test_microvm.balloon.put(
+        amount_mib=0,
+        deflate_on_oom=False,
+        stats_polling_interval_s=5
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Getting the device configuration should be available pre-boot.
+    response = test_microvm.balloon.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json()['amount_mib'] == 0
+    assert response.json()['deflate_on_oom'] is False
+    assert response.json()['stats_polling_interval_s'] == 5
+
+    # Updating an existing balloon device is forbidden before boot.
+    response = test_microvm.balloon.patch(amount_mib=2)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # We can't have a balloon device with a target size greater than
+    # the available amount of memory.
+    response = test_microvm.balloon.put(
+        amount_mib=1024,
+        deflate_on_oom=False,
+        stats_polling_interval_s=5
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Start the microvm.
+    test_microvm.start()
+
+    # Updating should fail as driver didn't have time to initialize.
+    response = test_microvm.balloon.patch(amount_mib=4)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Overwriting the existing device should give an error now.
+    response = test_microvm.balloon.put(
+        amount_mib=3,
+        deflate_on_oom=False,
+        stats_polling_interval_s=3
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Give the balloon driver time to initialize.
+    # 500 ms is the maximum acceptable boot time.
+    time.sleep(0.5)
+
+    # But updating should be OK.
+    response = test_microvm.balloon.patch(amount_mib=4)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Check we can't request more than the total amount of VM memory.
+    response = test_microvm.balloon.patch(amount_mib=300)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Check we can't disable statistics as they were enabled at boot.
+    # We can, however, change the interval to a non-zero value.
+    response = test_microvm.balloon.patch_stats(stats_polling_interval_s=5)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Getting the device configuration should be available post-boot.
+    response = test_microvm.balloon.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json()['amount_mib'] == 4
+    assert response.json()['deflate_on_oom'] is False
+    assert response.json()['stats_polling_interval_s'] == 5
+
+    # Check we can't overflow the `num_pages` field in the config space by
+    # requesting too many MB. There are 256 4K pages in a MB. Here, we are
+    # requesting u32::MAX / 128.
+    response = test_microvm.balloon.patch(amount_mib=33554432)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+
+def test_negative_api_lifecycle(bin_cloner_path):
+    """Test some vm lifecycle error scenarios."""
+    vm_instance = VMNano.spawn(bin_cloner_path)
+    basevm = vm_instance.vm
+
+    # Try to pause microvm when not running, it must fail.
+    response = basevm.vm.patch(state='Paused')
+    assert "not supported before starting the microVM" \
+        in response.text
+
+    # Try to resume microvm when not running, it must fail.
+    response = basevm.vm.patch(state='Resumed')
+    assert "not supported before starting the microVM" \
+        in response.text

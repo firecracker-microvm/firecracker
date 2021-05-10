@@ -5,17 +5,16 @@
 import os
 import shutil
 import stat
-
-from subprocess import run, PIPE
-
+from pathlib import Path
 from retry.api import retry_call
-
+import framework.utils as utils
+import framework.defs as defs
 from framework.defs import FC_BINARY_NAME
 
 # Default name for the socket used for API calls.
 DEFAULT_USOCKET_NAME = 'run/firecracker.socket'
 # The default location for the chroot.
-DEFAULT_CHROOT_PATH = '/srv/jailer'
+DEFAULT_CHROOT_PATH = f'{defs.DEFAULT_TEST_SESSION_ROOT_PATH}/jailer'
 
 
 class JailerContext:
@@ -33,19 +32,23 @@ class JailerContext:
     chroot_base = None
     netns = None
     daemonize = None
+    new_pid_ns = None
     extra_args = None
     api_socket_name = None
+    cgroups = None
 
     def __init__(
             self,
             jailer_id,
             exec_file,
-            numa_node=0,
+            numa_node=None,
             uid=1234,
             gid=1234,
             chroot_base=DEFAULT_CHROOT_PATH,
             netns=None,
             daemonize=True,
+            new_pid_ns=False,
+            cgroups=None,
             **extra_args
     ):
         """Set up jailer fields.
@@ -62,13 +65,21 @@ class JailerContext:
         self.chroot_base = chroot_base
         self.netns = netns if netns is not None else jailer_id
         self.daemonize = daemonize
+        self.new_pid_ns = new_pid_ns
         self.extra_args = extra_args
         self.api_socket_name = DEFAULT_USOCKET_NAME
+        self.cgroups = cgroups
+        self.ramfs_subdir_name = 'ramfs'
+        self._ramfs_path = None
 
     def __del__(self):
         """Cleanup this jailer context."""
         self.cleanup()
 
+    # Disabling 'too-many-branches' warning for this function as it needs to
+    # check every argument, so the number of branches will increase
+    # with every new argument.
+    # pylint: disable=too-many-branches
     def construct_param_list(self):
         """Create the list of parameters we want the jailer to start with.
 
@@ -97,6 +108,11 @@ class JailerContext:
             jailer_param_list.extend(['--netns', str(self.netns_file_path())])
         if self.daemonize:
             jailer_param_list.append('--daemonize')
+        if self.new_pid_ns:
+            jailer_param_list.append('--new-pid-ns')
+        if self.cgroups is not None:
+            for cgroup in self.cgroups:
+                jailer_param_list.extend(['--cgroup', str(cgroup)])
         # applying neccessory extra args if needed
         if len(self.extra_args) > 0:
             jailer_param_list.append('--')
@@ -107,13 +123,14 @@ class JailerContext:
                     if key == "api-sock":
                         self.api_socket_name = value
         return jailer_param_list
+    # pylint: enable=too-many-branches
 
     def chroot_base_with_id(self):
         """Return the MicroVM chroot base + MicroVM ID."""
         return os.path.join(
             self.chroot_base if self.chroot_base is not None
             else DEFAULT_CHROOT_PATH,
-            FC_BINARY_NAME,
+            Path(self.exec_file).name,
             self.jailer_id
         )
 
@@ -124,6 +141,10 @@ class JailerContext:
     def chroot_path(self):
         """Return the MicroVM chroot path."""
         return os.path.join(self.chroot_base_with_id(), 'root')
+
+    def chroot_ramfs_path(self):
+        """Return the MicroVM chroot ramfs subfolder path."""
+        return os.path.join(self.chroot_path(), self.ramfs_subdir_name)
 
     def jailed_path(self, file_path, create=False, create_jail=False):
         """Create a hard link or block special device owned by uid:gid.
@@ -145,13 +166,32 @@ class JailerContext:
                     str(os.major(stat_result.st_rdev)),
                     str(os.minor(stat_result.st_rdev))
                 ]
-                run(cmd, check=True)
+                utils.run_cmd(cmd)
             else:
                 cmd = 'ln -f {} {}'.format(file_path, global_p)
-                run(cmd, shell=True, check=True)
+                utils.run_cmd(cmd)
             cmd = 'chown {}:{} {}'.format(self.uid, self.gid, global_p)
-            run(cmd, shell=True, check=True)
+            utils.run_cmd(cmd)
         return jailed_p
+
+    def copy_into_root(self, file_path, create_jail=False):
+        """Copy a file in the jail root, owned by uid:gid.
+
+        Copy a file in the jail root, creating the folder path if
+        not existent, then change their owner to uid:gid.
+        """
+        global_path = os.path.join(
+            self.chroot_path(), file_path.strip(os.path.sep))
+        if create_jail:
+            os.makedirs(self.chroot_path(), exist_ok=True)
+
+        os.makedirs(os.path.dirname(global_path), exist_ok=True)
+
+        shutil.copy(file_path, global_path)
+
+        cmd = 'chown {}:{} {}'.format(
+            self.uid, self.gid, global_path)
+        utils.run_cmd(cmd)
 
     def netns_file_path(self):
         """Get the host netns file path for a jailer context.
@@ -170,67 +210,84 @@ class JailerContext:
             return 'ip netns exec {} '.format(self.netns)
         return ''
 
-    def setup(self):
+    def setup(self, use_ramdisk=False):
         """Set up this jailer context."""
         os.makedirs(
             self.chroot_base if self.chroot_base is not None
             else DEFAULT_CHROOT_PATH,
             exist_ok=True
         )
+
+        if use_ramdisk:
+            self._ramfs_path = self.chroot_ramfs_path()
+            os.makedirs(self._ramfs_path, exist_ok=True)
+            ramdisk_name = 'ramfs-{}'.format(self.jailer_id)
+            utils.run_cmd(
+                'mount -t ramfs -o size=1M {} {}'.format(
+                    ramdisk_name, self._ramfs_path
+                )
+            )
+            cmd = 'chown {}:{} {}'.format(
+                self.uid, self.gid, self._ramfs_path
+            )
+            utils.run_cmd(cmd)
+
         if self.netns:
-            run('ip netns add {}'.format(self.netns), shell=True, check=True)
+            utils.run_cmd('ip netns add {}'.format(self.netns))
 
     def cleanup(self):
         """Clean up this jailer context."""
         # pylint: disable=subprocess-run-check
+        if self._ramfs_path:
+            utils.run_cmd(
+                'umount {}'.format(self._ramfs_path), ignore_return_code=True
+            )
+
         if self.jailer_id:
             shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
         if self.netns:
-            _ = run(
-                'ip netns del {}'.format(self.netns),
-                shell=True,
-                stderr=PIPE
-            )
+            utils.run_cmd('ip netns del {}'.format(self.netns))
 
         # Remove the cgroup folders associated with this microvm.
         # The base /sys/fs/cgroup/<controller>/firecracker folder will remain,
         # because we can't remove it unless we're sure there's no other running
         # microVM.
 
-        # Firecracker is interested in these 3 cgroups for the moment.
-        controllers = ('cpu', 'cpuset', 'pids')
-        for controller in controllers:
-            # Obtain the tasks from each cgroup and wait on them before
-            # removing the microvm's associated cgroup folder.
-            try:
-                retry_call(
-                    f=self._kill_crgoup_tasks,
-                    fargs=[controller],
-                    exceptions=TimeoutError,
-                    max_delay=5
+        if self.cgroups:
+            controllers = set()
+
+            # Extract the controller for every cgroup that needs to be set.
+            for cgroup in self.cgroups:
+                controllers.add(cgroup.split('.')[0])
+
+            for controller in controllers:
+                # Obtain the tasks from each cgroup and wait on them before
+                # removing the microvm's associated cgroup folder.
+                try:
+                    retry_call(
+                        f=self._kill_cgroup_tasks,
+                        fargs=[controller],
+                        exceptions=TimeoutError,
+                        max_delay=5
+                    )
+                except TimeoutError:
+                    pass
+
+                # Remove cgroups and sub cgroups.
+                back_cmd = r'-depth -type d -exec rmdir {} \;'
+                cmd = 'find /sys/fs/cgroup/{}/{}/{} {}'.format(
+                    controller,
+                    FC_BINARY_NAME,
+                    self.jailer_id,
+                    back_cmd
                 )
-            except TimeoutError:
-                pass
+                # We do not need to know if it succeeded or not; afterall,
+                # we are trying to clean up resources created by the jailer
+                # itself not the testing system.
+                utils.run_cmd(cmd, ignore_return_code=True)
 
-            # As the files inside a cgroup aren't real, they can't need
-            # to be removed, that is why 'rm -rf' and 'rmdir' fail.
-            # We only need to remove the cgroup directories. The "-depth"
-            # argument tells find to do a depth first recursion, so that
-            # we remove any sub cgroups first if they are there.
-            back_cmd = r'-depth -type d -exec rmdir {} \;'
-            cmd = 'find /sys/fs/cgroup/{}/{}/{} {}'.format(
-                controller,
-                FC_BINARY_NAME,
-                self.jailer_id,
-                back_cmd
-            )
-            # We do not need to know if it succeeded or not; afterall, we are
-            # trying to clean up resources created by the jailer itself not
-            # the testing system.
-            _ = run(cmd, shell=True, stderr=PIPE)
-
-    def _kill_crgoup_tasks(self, controller):
+    def _kill_cgroup_tasks(self, controller):
         """Simulate wait on pid.
 
         Read the tasks file and stay there until /proc/{pid}
@@ -250,9 +307,9 @@ class JailerContext:
             return True
 
         cmd = 'cat {}'.format(tasks_file)
-        tasks = run(cmd, shell=True, stdout=PIPE).stdout.decode('utf-8')
+        result = utils.run_cmd(cmd)
 
-        tasks_split = tasks.splitlines()
+        tasks_split = result.stdout.splitlines()
         for task in tasks_split:
             if os.path.exists("/proc/{}".format(task)):
                 raise TimeoutError

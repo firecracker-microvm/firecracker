@@ -36,9 +36,10 @@ to integrate with container ecosystems.
 
 ### What processors does Firecracker support?
 
-The Firecracker VMM is built to be processor agnostic. Intel processors are
-supported for production workloads. Support for AMD and Arm processors is in
-developer preview.
+The Firecracker VMM is built to be processor agnostic. Intel, AMD and 64 bit ARM
+processors are supported for production workloads.
+
+You can find more details [here](README.md#supported-platforms).
 
 ### Can Firecracker be used within the container ecosystem?
 
@@ -58,13 +59,14 @@ Firecracker is an
 that is purpose-built for running serverless functions and containers safely and
 efficiently, and nothing more. Firecracker is written in Rust, provides a
 minimal required device model to the guest operating system while excluding
-non-essential functionality (only 5 emulated devices are available: virtio-net,
-virtio-block, virtio-vsock, serial console, and a minimal keyboard controller
-used only to stop the microVM). This, along with a streamlined kernel loading
-process enables a < 125 ms startup time and a < 5 MiB memory footprint. The
-Firecracker process also provides a RESTful control API, handles resource rate
-limiting for microVMs, and provides a microVM metadata service to enable the
-sharing of configuration data between the host and guest.
+non-essential functionality (only 6 emulated devices are available: virtio-net,
+virtio-balloon, virtio-block, virtio-vsock, serial console, and a minimal
+keyboard controller used only to stop the microVM). This, along with a
+streamlined kernel loading process enables a < 125 ms startup time and a < 5
+MiB memory footprint. The Firecracker process also provides a RESTful control
+API, handles resource rate limiting for microVMs, and provides a microVM
+metadata service to enable the sharing of configuration data between the host
+and guest.
 
 ### What operating systems are supported by Firecracker?
 
@@ -100,6 +102,14 @@ to create new Firecracker releases.
 
 ## Technical FAQ & Troubleshooting
 
+### Can I emulate a different architecture in the guest than the one on the host?
+
+Guest operating systems must be built for the same CPU architecture as the
+host on which it will run. Firecracker does not support running microVMs on
+any architecture other than the one the host is running on. In other words,
+running an OS built for a `x86_64` on an `aarch64` system will not work, and
+vice versa.
+
 ### I tried using an initrd for boot but it doesn't seem to be used. Is initrd supported?
 
 Initrds are only recently supported in Firecracker. If your release predates
@@ -123,7 +133,7 @@ Example of a kernel valid command
 line that enables the serial console (which goes in the `boot_args` field of
 the `/boot-source` Firecracker API resource):
 
-```
+```console
 console=ttyS0 reboot=k panic=1 pci=off nomodules
 ```
 
@@ -146,12 +156,14 @@ calls into kvm ptp instead of actual network NTP traffic.
 
 To be able to do this you need to have a guest kernel compiled with `KVM_PTP`
 support:
-```
+
+```console
 CONFIG_PTP_1588_CLOCK=y
 CONFIG_PTP_1588_CLOCK_KVM=y
 ```
-Our [recommended guest kernel config](resources/microvm-kernel-config) already
-has these included.
+
+Our [recommended guest kernel config](resources/microvm-kernel-x86_64.config)
+already has these included.
 
 Now `/dev/ptp0` should be available in the guest. Next you need to configure
 `/dev/ptp0` as a NTP time source.
@@ -159,8 +171,8 @@ Now `/dev/ptp0` should be available in the guest. Next you need to configure
 For example when using `chrony`:
 
 1. Add `refclock PHC /dev/ptp0 poll 3 dpoll -2 offset 0` to the chrony conf
-file (`/etc/chrony/chrony.conf`)
-2. Restart the `chrony` daemon.
+   file (`/etc/chrony/chrony.conf`)
+1. Restart the `chrony` daemon.
 
 You can see more info about the `refclock` parameters
 [here](https://chrony.tuxfamily.org/doc/3.4/chrony.conf.html#refclock).
@@ -182,7 +194,7 @@ For example, when you create two network interfaces by calling
 `/network-interfaces/1` and then `/network-interfaces/0`, it may result in this
 mapping:
 
-```
+```console
 /network-interfaces/1 -> eth0
 /network-interfaces/0 -> eth1
 ```
@@ -192,15 +204,17 @@ mapping:
 Firecracker does not implement ACPI and PM devices, therefore operations like
 gracefully rebooting or powering off the guest are supported in unconventional ways.
 
-Running the `poweroff` or `halt` commands inside a Linux guest will bring it down but
-Firecracker process remains unaware of the guest shutdown so it lives on.
+Running the `poweroff` or `halt` commands inside a Linux guest will bring it
+down but Firecracker process remains unaware of the guest shutdown so it lives
+on.
 
 Running the `reboot` command in a Linux guest will gracefully bring down the guest
 system and also bring a graceful end to the Firecracker process.
 
-Issuing a `SendCtrlAltDel` action command through the Firecracker API will generate a
-`Ctrl + Alt + Del` keyboard event in the guest resulting in a clean reboot on most
-guest Linux systems.
+On `x86_64` systems, issuing a `SendCtrlAltDel` action command through the
+Firecracker API will generate a `Ctrl + Alt + Del` keyboard event in the guest
+which triggers a behavior identical to running the `reboot` command. This is,
+however, not supported on `aarch64` systems.
 
 ### How can I create my own rootfs or kernel images?
 
@@ -211,7 +225,7 @@ docs/rootfs-and-kernel-setup.md).
 
 If you see errors like ...
 
-```
+```console
 [<TIMESTAMP>] fc_vmm: page allocation failure: order:6, mode:0x140c0c0
 (GFP_KERNEL|__GFP_COMP|__GFP_ZERO), nodemask=(null)
 [<TIMESTAMP>] fc_vmm cpuset=<GUID> mems_allowed=0
@@ -222,6 +236,7 @@ allocation of 2^`order` bytes (in this case, 6) and there aren't sufficient
 contiguous pages.
 
 Possible mitigations are:
+
 - Track the failing allocations in the `dmesg` output and rebuild the host
   kernel so as to use `vmalloc` instead of `kmalloc` for them.
 - Reduce memory pressure on the host.
@@ -235,8 +250,9 @@ the microVM. One example of such file can be found at `tests/framework/vm_config
 
 ### Firecracker fails to start and returns an Out of Memory error
 
-If the Firecracker process exits with `12` exit code (`Out of memory` error), the root
-cause is that there is not enough memory on the host to be used by the Firecracker microVM.
+If the Firecracker process exits with `12` exit code (`Out of memory` error),
+the root cause is that there is not enough memory on the host to be used by the
+Firecracker microVM.
 
 If the microVM was not configured in terms of memory size through an API request,
 the host needs to meet the minimum requirement in terms of free memory size,
@@ -244,8 +260,9 @@ namely 128 MB of free memory which the microVM defaults to.
 
 ### Firecracker fails to start and returns "Resource busy" error
 
-If another hypervisor like VMware or VirtualBox is running on the host and locks `/dev/kvm`,
-Firecracker process will fail to start with "Resource busy" error.
+If another hypervisor like VMware or VirtualBox is running on the host and
+locks `/dev/kvm`, Firecracker process will fail to start with "Resource busy"
+error.
 
 This issue can be resolved by terminating the other hypervisor running on the host,
 and allowing Firecracker to start.

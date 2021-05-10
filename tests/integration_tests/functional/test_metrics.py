@@ -3,6 +3,7 @@
 """Tests the metrics system."""
 
 import os
+import json
 import host_tools.logging as log_tools
 
 
@@ -23,12 +24,31 @@ def test_flush_metrics(test_microvm_with_api):
 
     microvm.start()
 
-    # Empty fifo before triggering `FlushMetrics` so that we get accurate data.
-    _ = metrics_fifo.sequential_reader(100)
+    res = metrics_fifo.sequential_reader(1)
+    metrics = json.loads(res[0])
 
-    how_many_flushes = 3
-    for _ in range(how_many_flushes):
-        response = microvm.actions.put(action_type='FlushMetrics')
-        assert microvm.api_session.is_status_no_content(response.status_code)
-    lines = metrics_fifo.sequential_reader(how_many_flushes)
-    assert len(lines) == how_many_flushes
+    exp_keys = [
+        'utc_timestamp_ms',
+        'api_server',
+        'balloon',
+        'block',
+        'get_api_requests',
+        'i8042',
+        'latencies_us',
+        'logger',
+        'mmds',
+        'net',
+        'patch_api_requests',
+        'put_api_requests',
+        'rtc',
+        'seccomp',
+        'vcpu',
+        'vmm',
+        'uart',
+        'signals',
+        'vsock'
+    ]
+
+    assert set(metrics.keys()) == set(exp_keys)
+
+    microvm.flush_metrics(metrics_fifo)

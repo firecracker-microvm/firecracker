@@ -3,56 +3,72 @@
 
 #![deny(warnings)]
 
-use std::fs::{File, OpenOptions};
-use std::path::PathBuf;
+use std::fs::File;
 
-use vmm_config::boot_source::{
+use crate::vmm_config::balloon::*;
+use crate::vmm_config::boot_source::{
     BootConfig, BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE,
 };
-use vmm_config::drive::*;
-use vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
-use vmm_config::machine_config::{VmConfig, VmConfigError};
-use vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
-use vmm_config::net::*;
-use vmm_config::vsock::*;
-use vstate::VcpuConfig;
+use crate::vmm_config::drive::*;
+use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
+use crate::vmm_config::machine_config::{VmConfig, VmConfigError, DEFAULT_MEM_SIZE_MIB};
+use crate::vmm_config::metrics::{init_metrics, MetricsConfig, MetricsConfigError};
+use crate::vmm_config::mmds::{MmdsConfig, MmdsConfigError};
+use crate::vmm_config::net::*;
+use crate::vmm_config::vsock::*;
+use crate::vstate::vcpu::VcpuConfig;
+use mmds::ns::MmdsNetworkStack;
+use utils::net::ipv4addr::is_link_local_valid;
+
+use serde::Deserialize;
 
 type Result<E> = std::result::Result<(), E>;
 
 /// Errors encountered when configuring microVM resources.
 #[derive(Debug)]
 pub enum Error {
-    /// JSON is invalid.
-    InvalidJson,
+    /// Balloon device configuration error.
+    BalloonDevice(BalloonConfigError),
     /// Block device configuration error.
     BlockDevice(DriveError),
-    /// Net device configuration error.
-    NetDevice(NetworkInterfaceError),
     /// Boot source configuration error.
     BootSource(BootSourceConfigError),
+    /// JSON is invalid.
+    InvalidJson,
     /// Logger configuration error.
     Logger(LoggerConfigError),
     /// Metrics system configuration error.
     Metrics(MetricsConfigError),
+    /// MMDS configuration error.
+    MmdsConfig(MmdsConfigError),
+    /// Net device configuration error.
+    NetDevice(NetworkInterfaceError),
     /// microVM vCpus or memory configuration error.
     VmConfig(VmConfigError),
+    /// Vsock device configuration error.
+    VsockDevice(VsockConfigError),
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
 #[derive(Deserialize)]
 pub struct VmmConfig {
-    #[serde(rename = "boot-source")]
-    boot_source: BootSourceConfig,
+    #[serde(rename = "balloon")]
+    balloon_device: Option<BalloonDeviceConfig>,
     #[serde(rename = "drives")]
     block_devices: Vec<BlockDeviceConfig>,
-    #[serde(rename = "network-interfaces", default)]
-    net_devices: Vec<NetworkInterfaceConfig>,
+    #[serde(rename = "boot-source")]
+    boot_source: BootSourceConfig,
     #[serde(rename = "logger")]
     logger: Option<LoggerConfig>,
     #[serde(rename = "machine-config")]
     machine_config: Option<VmConfig>,
     #[serde(rename = "metrics")]
     metrics: Option<MetricsConfig>,
+    #[serde(rename = "mmds-config")]
+    mmds_config: Option<MmdsConfig>,
+    #[serde(rename = "network-interfaces", default)]
+    net_devices: Vec<NetworkInterfaceConfig>,
     #[serde(rename = "vsock")]
     vsock_device: Option<VsockDeviceConfig>,
 }
@@ -65,25 +81,31 @@ pub struct VmResources {
     vm_config: VmConfig,
     /// The boot configuration for this microVM.
     boot_config: Option<BootConfig>,
-    /// The configurations for block devices.
-    pub block: BlockDeviceConfigs,
-    /// The configurations for network interface devices.
-    pub network_interface: NetworkInterfaceConfigs,
-    /// The configurations for vsock devices.
-    pub vsock: Option<VsockDeviceConfig>,
+    /// The block devices.
+    pub block: BlockBuilder,
+    /// The vsock device.
+    pub vsock: VsockBuilder,
+    /// The balloon device.
+    pub balloon: BalloonBuilder,
+    /// The network devices builder.
+    pub net_builder: NetBuilder,
+    /// The configuration for `MmdsNetworkStack`.
+    pub mmds_config: Option<MmdsConfig>,
+    /// Whether or not to load boot timer device.
+    pub boot_timer: bool,
 }
 
 impl VmResources {
     /// Configures Vmm resources as described by the `config_json` param.
     pub fn from_json(
         config_json: &str,
-        firecracker_version: &str,
+        instance_info: &InstanceInfo,
     ) -> std::result::Result<Self, Error> {
         let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
             .map_err(|_| Error::InvalidJson)?;
 
         if let Some(logger) = vmm_config.logger {
-            init_logger(logger, firecracker_version).map_err(Error::Logger)?;
+            init_logger(logger, instance_info).map_err(Error::Logger)?;
         }
 
         if let Some(metrics) = vmm_config.metrics {
@@ -96,22 +118,41 @@ impl VmResources {
                 .set_vm_config(&machine_config)
                 .map_err(Error::VmConfig)?;
         }
+
         resources
             .set_boot_source(vmm_config.boot_source)
             .map_err(Error::BootSource)?;
+
         for drive_config in vmm_config.block_devices.into_iter() {
             resources
                 .set_block_device(drive_config)
                 .map_err(Error::BlockDevice)?;
         }
+
         for net_config in vmm_config.net_devices.into_iter() {
             resources
-                .set_net_device(net_config)
+                .build_net_device(net_config)
                 .map_err(Error::NetDevice)?;
         }
+
         if let Some(vsock_config) = vmm_config.vsock_device {
-            resources.set_vsock_device(vsock_config);
+            resources
+                .set_vsock_device(vsock_config)
+                .map_err(Error::VsockDevice)?;
         }
+
+        if let Some(balloon_config) = vmm_config.balloon_device {
+            resources
+                .set_balloon_device(balloon_config)
+                .map_err(Error::BalloonDevice)?;
+        }
+
+        if let Some(mmds_config) = vmm_config.mmds_config {
+            resources
+                .set_mmds_config(mmds_config)
+                .map_err(Error::MmdsConfig)?;
+        }
+
         Ok(resources)
     }
 
@@ -124,6 +165,11 @@ impl VmResources {
             ht_enabled: self.vm_config().ht_enabled.unwrap(),
             cpu_template: self.vm_config().cpu_template,
         }
+    }
+
+    /// Returns whether dirty page tracking is enabled or not.
+    pub fn track_dirty_pages(&self) -> bool {
+        self.vm_config().track_dirty_pages
     }
 
     /// Returns the VmConfig.
@@ -139,6 +185,22 @@ impl VmResources {
 
         if machine_config.mem_size_mib == Some(0) {
             return Err(VmConfigError::InvalidMemorySize);
+        }
+
+        // The VM cannot have a memory size greater than the target size
+        // of the balloon device, if present.
+        if self.balloon.get().is_some()
+            && machine_config
+                .mem_size_mib
+                .clone()
+                .unwrap_or(DEFAULT_MEM_SIZE_MIB)
+                < self
+                    .balloon
+                    .get_config()
+                    .map_err(|_| VmConfigError::InvalidVmState)?
+                    .amount_mib as usize
+        {
+            return Err(VmConfigError::IncompatibleBalloonSize);
         }
 
         let ht_enabled = machine_config
@@ -158,6 +220,7 @@ impl VmResources {
         // Update all the fields that have a new value.
         self.vm_config.vcpu_count = Some(vcpu_count_value);
         self.vm_config.ht_enabled = Some(ht_enabled);
+        self.vm_config.track_dirty_pages = machine_config.track_dirty_pages;
 
         if machine_config.mem_size_mib.is_some() {
             self.vm_config.mem_size_mib = machine_config.mem_size_mib;
@@ -173,6 +236,26 @@ impl VmResources {
     /// Gets a reference to the boot source configuration.
     pub fn boot_source(&self) -> Option<&BootConfig> {
         self.boot_config.as_ref()
+    }
+
+    /// Sets a balloon device to be attached when the VM starts.
+    pub fn set_balloon_device(
+        &mut self,
+        config: BalloonDeviceConfig,
+    ) -> Result<BalloonConfigError> {
+        // The balloon cannot have a target size greater than the size of
+        // the guest memory.
+        if config.amount_mib as usize
+            > self
+                .vm_config
+                .mem_size_mib
+                .clone()
+                .unwrap_or(DEFAULT_MEM_SIZE_MIB)
+        {
+            return Err(BalloonConfigError::TooManyPagesRequested);
+        }
+
+        self.balloon.set(config)
     }
 
     /// Set the guest boot source configuration.
@@ -218,73 +301,47 @@ impl VmResources {
         self.block.insert(block_device_config)
     }
 
-    /// Updates the path of the host file backing the emulated block device with id `drive_id`.
-    pub fn update_block_device_path(
-        &mut self,
-        drive_id: String,
-        path_on_host: String,
-    ) -> Result<DriveError> {
-        // Get the block device configuration specified by drive_id.
-        let block_device_index = self
-            .block
-            .get_index_of_drive_id(&drive_id)
-            .ok_or(DriveError::InvalidBlockDeviceID)?;
-
-        let file_path = PathBuf::from(path_on_host);
-        // Try to open the file specified by path_on_host using the permissions of the block_device.
-        let _ = OpenOptions::new()
-            .read(true)
-            .write(!self.block.config_list[block_device_index].is_read_only())
-            .open(&file_path)
-            .map_err(DriveError::CannotOpenBlockDevice)?;
-
-        // Update the path of the block device with the specified path_on_host.
-        self.block.config_list[block_device_index].path_on_host = file_path;
-
-        Ok(())
-    }
-
-    /// Inserts a network device to be attached when the VM starts.
-    pub fn set_net_device(
+    /// Builds a network device to be attached when the VM starts.
+    pub fn build_net_device(
         &mut self,
         body: NetworkInterfaceConfig,
     ) -> Result<NetworkInterfaceError> {
-        self.network_interface.insert(body)
-    }
-
-    /// Updates configuration for an emulated net device as described in `new_cfg`.
-    pub fn update_net_rate_limiters(
-        &mut self,
-        new_cfg: NetworkInterfaceUpdateConfig,
-    ) -> Result<NetworkInterfaceError> {
-        let old_cfg = self
-            .network_interface
-            .iter_mut()
-            .find(|&&mut ref c| c.iface_id == new_cfg.iface_id)
-            .ok_or(NetworkInterfaceError::DeviceIdNotFound)?;
-
-        macro_rules! update_rate_limiter {
-            ($rate_limiter: ident) => {{
-                if let Some(new_rlim_cfg) = new_cfg.$rate_limiter {
-                    if let Some(ref mut old_rlim_cfg) = old_cfg.$rate_limiter {
-                        // We already have an RX rate limiter set, so we'll update it.
-                        old_rlim_cfg.update(&new_rlim_cfg);
-                    } else {
-                        // No old RX rate limiter; create one now.
-                        old_cfg.$rate_limiter = Some(new_rlim_cfg);
-                    }
-                }
-            }};
-        }
-
-        update_rate_limiter!(rx_rate_limiter);
-        update_rate_limiter!(tx_rate_limiter);
-        Ok(())
+        self.net_builder.build(body).map(|net_device| {
+            // Update `Net` device `MmdsNetworkStack` IPv4 address.
+            match &self.mmds_config {
+                Some(cfg) => cfg.ipv4_addr().map_or((), |ipv4_addr| {
+                    if let Some(mmds_ns) = net_device.lock().expect("Poisoned lock").mmds_ns_mut() {
+                        mmds_ns.set_ipv4_addr(ipv4_addr);
+                    };
+                }),
+                None => (),
+            };
+        })
     }
 
     /// Sets a vsock device to be attached when the VM starts.
-    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) {
-        self.vsock = Some(config);
+    pub fn set_vsock_device(&mut self, config: VsockDeviceConfig) -> Result<VsockConfigError> {
+        self.vsock.insert(config)
+    }
+
+    /// Setter for mmds config.
+    pub fn set_mmds_config(&mut self, config: MmdsConfig) -> Result<MmdsConfigError> {
+        // Check IPv4 address validity.
+        let ipv4_addr = match config.ipv4_addr() {
+            Some(ipv4_addr) if is_link_local_valid(ipv4_addr) => Ok(ipv4_addr),
+            None => Ok(MmdsNetworkStack::default_ipv4_addr()),
+            _ => Err(MmdsConfigError::InvalidIpv4Addr),
+        }?;
+
+        // Update existing built network device `MmdsNetworkStack` IPv4 address.
+        for net_device in self.net_builder.iter_mut() {
+            if let Some(mmds_ns) = net_device.lock().expect("Poisoned lock").mmds_ns_mut() {
+                mmds_ns.set_ipv4_addr(ipv4_addr)
+            }
+        }
+
+        self.mmds_config = Some(config);
+        Ok(())
     }
 }
 
@@ -294,57 +351,63 @@ mod tests {
     use std::os::linux::fs::MetadataExt;
 
     use super::*;
-    use dumbo::MacAddr;
+    use crate::resources::VmResources;
+    use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
+    use crate::vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
+    use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
+    use crate::vmm_config::vsock::tests::default_config;
+    use crate::vmm_config::RateLimiterConfig;
+    use crate::vstate::vcpu::VcpuConfig;
     use logger::{LevelFilter, LOGGER};
-    use resources::VmResources;
+    use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
-    use vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
-    use vmm_config::drive::{BlockDeviceConfig, BlockDeviceConfigs, DriveError};
-    use vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
-    use vmm_config::net::{
-        NetworkInterfaceConfig, NetworkInterfaceConfigs, NetworkInterfaceError,
-        NetworkInterfaceUpdateConfig,
-    };
-    use vmm_config::vsock::VsockDeviceConfig;
-    use vmm_config::{RateLimiterConfig, TokenBucketConfig};
-    use vstate::VcpuConfig;
 
-    fn default_net_cfgs() -> NetworkInterfaceConfigs {
-        let mut net_if_cfgs = NetworkInterfaceConfigs::new();
-        net_if_cfgs
-            .insert(NetworkInterfaceConfig {
-                iface_id: "net_if1".to_string(),
-                // TempFile::new_with_prefix("") generates a random file name used as random net_if name.
-                host_dev_name: TempFile::new_with_prefix("")
-                    .unwrap()
-                    .as_path()
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
-                guest_mac: Some(MacAddr::parse_str("01:23:45:67:89:0a").unwrap()),
-                rx_rate_limiter: Some(RateLimiterConfig::default()),
-                tx_rate_limiter: Some(RateLimiterConfig::default()),
-                allow_mmds_requests: false,
-            })
-            .unwrap();
-
-        net_if_cfgs
+    fn default_net_cfg() -> NetworkInterfaceConfig {
+        NetworkInterfaceConfig {
+            iface_id: "net_if1".to_string(),
+            // TempFile::new_with_prefix("") generates a random file name used as random net_if name.
+            host_dev_name: TempFile::new_with_prefix("")
+                .unwrap()
+                .as_path()
+                .to_str()
+                .unwrap()
+                .to_string(),
+            guest_mac: Some(MacAddr::parse_str("01:23:45:67:89:0a").unwrap()),
+            rx_rate_limiter: Some(RateLimiterConfig::default()),
+            tx_rate_limiter: Some(RateLimiterConfig::default()),
+            allow_mmds_requests: false,
+        }
     }
 
-    fn default_block_cfgs() -> BlockDeviceConfigs {
-        let mut block_cfgs = BlockDeviceConfigs::new();
-        block_cfgs
-            .insert(BlockDeviceConfig {
+    fn default_net_builder() -> NetBuilder {
+        let mut net_builder = NetBuilder::new();
+        net_builder.build(default_net_cfg()).unwrap();
+
+        net_builder
+    }
+
+    fn default_block_cfg() -> (BlockDeviceConfig, TempFile) {
+        let tmp_file = TempFile::new().unwrap();
+        (
+            BlockDeviceConfig {
                 drive_id: "block1".to_string(),
-                path_on_host: TempFile::new().unwrap().as_path().to_path_buf(),
+                path_on_host: tmp_file.as_path().to_str().unwrap().to_string(),
                 is_root_device: false,
                 partuuid: Some("0eaa91a0-01".to_string()),
+                cache_type: CacheType::Unsafe,
                 is_read_only: false,
                 rate_limiter: Some(RateLimiterConfig::default()),
-            })
-            .unwrap();
+            },
+            tmp_file,
+        )
+    }
 
-        block_cfgs
+    fn default_blocks() -> BlockBuilder {
+        let mut blocks = BlockBuilder::new();
+        let (cfg, _file) = default_block_cfg();
+        blocks.insert(cfg).unwrap();
+        blocks
     }
 
     fn default_boot_cfg() -> BootConfig {
@@ -362,9 +425,12 @@ mod tests {
         VmResources {
             vm_config: VmConfig::default(),
             boot_config: Some(default_boot_cfg()),
-            block: default_block_cfgs(),
-            network_interface: default_net_cfgs(),
-            vsock: None,
+            block: default_blocks(),
+            vsock: Default::default(),
+            balloon: Default::default(),
+            net_builder: default_net_builder(),
+            mmds_config: None,
+            boot_timer: false,
         }
     }
 
@@ -395,6 +461,13 @@ mod tests {
         let kernel_file = TempFile::new().unwrap();
         let rootfs_file = TempFile::new().unwrap();
 
+        let default_instance_info = InstanceInfo {
+            id: "".to_string(),
+            state: "Not started".to_string(),
+            vmm_version: "SOME_VERSION".to_string(),
+            app_name: "".to_string(),
+        };
+
         // We will test different scenarios with invalid resources configuration and
         // check the expected errors. We include configuration for the kernel and rootfs
         // in every json because they are mandatory fields. If we don't configure
@@ -419,7 +492,7 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::BootSource(BootSourceConfigError::InvalidKernelPath(_))) => (),
             _ => unreachable!(),
         }
@@ -443,7 +516,7 @@ mod tests {
             kernel_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::BlockDevice(DriveError::InvalidBlockDevicePath)) => (),
             _ => unreachable!(),
         }
@@ -473,7 +546,7 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::VmConfig(VmConfigError::InvalidVcpuCount)) => (),
             _ => unreachable!(),
         }
@@ -503,7 +576,7 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::VmConfig(VmConfigError::InvalidMemorySize)) => (),
             _ => unreachable!(),
         }
@@ -531,7 +604,7 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::Logger(LoggerConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
@@ -562,7 +635,7 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
             Err(Error::Metrics(MetricsConfigError::InitializationFailure { .. })) => (),
             _ => unreachable!(),
         }
@@ -597,8 +670,10 @@ mod tests {
             rootfs_file.as_path().to_str().unwrap()
         );
 
-        match VmResources::from_json(json.as_str(), "some_version") {
-            Err(Error::NetDevice(NetworkInterfaceError::HostDeviceNameInUse { .. })) => (),
+        match VmResources::from_json(json.as_str(), &default_instance_info) {
+            Err(Error::NetDevice(NetworkInterfaceError::CreateNetworkDevice(
+                devices::virtio::net::Error::TapOpen { .. },
+            ))) => (),
             _ => unreachable!(),
         }
 
@@ -622,20 +697,65 @@ mod tests {
                     "network-interfaces": [
                         {{
                             "iface_id": "netif",
-                            "host_dev_name": "hostname8"
+                            "host_dev_name": "hostname8",
+                            "allow_mmds_requests": true
                         }}
                     ],
-                     "machine-config": {{
-                            "vcpu_count": 2,
-                            "mem_size_mib": 1024,
-                            "ht_enabled": false
-                     }}
+                    "machine-config": {{
+                        "vcpu_count": 2,
+                        "mem_size_mib": 1024,
+                        "ht_enabled": false
+                    }},
+                    "mmds-config": {{
+                        "ipv4_address": "169.254.170.2"
+                    }}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),
             rootfs_file.as_path().to_str().unwrap(),
         );
+        assert!(VmResources::from_json(json.as_str(), &default_instance_info).is_ok());
 
-        assert!(VmResources::from_json(json.as_str(), "some_version").is_ok());
+        // Test all configuration, this time trying to configure the MMDS with an
+        // empty body. It will make it access the code path in which it sets the
+        // default MMDS configuration.
+        let kernel_file = TempFile::new().unwrap();
+        json = format!(
+            r#"{{
+                    "balloon": {{
+                        "amount_mib": 0,
+                        "deflate_on_oom": false,
+                        "stats_polling_interval_s": 0
+                    }},
+                    "boot-source": {{
+                        "kernel_image_path": "{}",
+                        "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
+                    }},
+                    "drives": [
+                        {{
+                            "drive_id": "rootfs",
+                            "path_on_host": "{}",
+                            "is_root_device": true,
+                            "is_read_only": false
+                        }}
+                    ],
+                    "network-interfaces": [
+                        {{
+                            "iface_id": "netif",
+                            "host_dev_name": "hostname9",
+                            "allow_mmds_requests": true
+                        }}
+                    ],
+                    "machine-config": {{
+                        "vcpu_count": 2,
+                        "mem_size_mib": 1024,
+                        "ht_enabled": false
+                    }},
+                    "mmds-config": {{}}
+            }}"#,
+            kernel_file.as_path().to_str().unwrap(),
+            rootfs_file.as_path().to_str().unwrap(),
+        );
+        assert!(VmResources::from_json(json.as_str(), &default_instance_info).is_ok());
     }
 
     #[test]
@@ -667,6 +787,7 @@ mod tests {
             mem_size_mib: Some(512),
             ht_enabled: Some(true),
             cpu_template: Some(CpuFeaturesTemplate::T2),
+            track_dirty_pages: false,
         };
 
         assert_ne!(vm_resources.vm_config, aux_vm_config);
@@ -692,6 +813,72 @@ mod tests {
             vm_resources.set_vm_config(&aux_vm_config),
             Err(VmConfigError::InvalidMemorySize)
         );
+
+        // Incompatible mem_size_mib with balloon size.
+        vm_resources.vm_config.mem_size_mib = Some(128);
+        vm_resources
+            .set_balloon_device(BalloonDeviceConfig {
+                amount_mib: 100,
+                deflate_on_oom: false,
+                stats_polling_interval_s: 0,
+            })
+            .unwrap();
+        aux_vm_config.mem_size_mib = Some(90);
+        assert_eq!(
+            vm_resources.set_vm_config(&aux_vm_config),
+            Err(VmConfigError::IncompatibleBalloonSize)
+        );
+
+        // mem_size_mib compatible with balloon size.
+        aux_vm_config.mem_size_mib = Some(256);
+        assert!(vm_resources.set_vm_config(&aux_vm_config).is_ok());
+    }
+
+    #[test]
+    fn test_set_balloon_device() {
+        let mut vm_resources = VmResources {
+            vm_config: VmConfig::default(),
+            boot_config: Some(default_boot_cfg()),
+            block: default_blocks(),
+            vsock: Default::default(),
+            balloon: BalloonBuilder::new(),
+            net_builder: default_net_builder(),
+            mmds_config: None,
+            boot_timer: false,
+        };
+        let mut new_balloon_cfg = BalloonDeviceConfig {
+            amount_mib: 100,
+            deflate_on_oom: false,
+            stats_polling_interval_s: 0,
+        };
+        assert!(vm_resources.balloon.get().is_none());
+        vm_resources
+            .set_balloon_device(new_balloon_cfg.clone())
+            .unwrap();
+
+        let actual_balloon_cfg = vm_resources.balloon.get_config().unwrap();
+        assert_eq!(actual_balloon_cfg.amount_mib, new_balloon_cfg.amount_mib);
+        assert_eq!(
+            actual_balloon_cfg.deflate_on_oom,
+            new_balloon_cfg.deflate_on_oom
+        );
+        assert_eq!(
+            actual_balloon_cfg.stats_polling_interval_s,
+            new_balloon_cfg.stats_polling_interval_s
+        );
+
+        vm_resources = VmResources {
+            vm_config: VmConfig::default(),
+            boot_config: Some(default_boot_cfg()),
+            block: default_blocks(),
+            vsock: Default::default(),
+            balloon: BalloonBuilder::new(),
+            net_builder: default_net_builder(),
+            mmds_config: None,
+            boot_timer: false,
+        };
+        new_balloon_cfg.amount_mib = 256;
+        assert!(vm_resources.set_balloon_device(new_balloon_cfg).is_err());
     }
 
     #[test]
@@ -749,30 +936,30 @@ mod tests {
     #[test]
     fn test_set_block_device() {
         let mut vm_resources = default_vm_resources();
-
-        // Clone the existing block config in order to obtain a new one.
-        let mut new_block_device_cfg = vm_resources.block.config_list.get(0).unwrap().clone();
+        let (mut new_block_device_cfg, _file) = default_block_cfg();
         let tmp_file = TempFile::new().unwrap();
         new_block_device_cfg.drive_id = "block2".to_string();
-        new_block_device_cfg.path_on_host = tmp_file.as_path().to_path_buf();
-        assert_eq!(vm_resources.block.config_list.len(), 1);
-
+        new_block_device_cfg.path_on_host = tmp_file.as_path().to_str().unwrap().to_string();
+        assert_eq!(vm_resources.block.list.len(), 1);
         vm_resources.set_block_device(new_block_device_cfg).unwrap();
-        assert_eq!(vm_resources.block.config_list.len(), 2);
+        assert_eq!(vm_resources.block.list.len(), 2);
     }
 
     #[test]
     fn test_set_vsock_device() {
         let mut vm_resources = default_vm_resources();
-        let new_vsock_cfg = VsockDeviceConfig {
-            vsock_id: "new_vsock".to_string(),
-            guest_cid: 1,
-            uds_path: String::from("uds_path"),
-        };
-        assert!(vm_resources.vsock.is_none());
-        vm_resources.set_vsock_device(new_vsock_cfg.clone());
-        let actual_vsock_cfg = vm_resources.vsock.as_ref().unwrap().clone();
-        assert_eq!(actual_vsock_cfg, new_vsock_cfg);
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
+        let new_vsock_cfg = default_config(&tmp_sock_file);
+        assert!(vm_resources.vsock.get().is_none());
+        vm_resources
+            .set_vsock_device(new_vsock_cfg.clone())
+            .unwrap();
+        let actual_vsock_cfg = vm_resources.vsock.get().unwrap();
+        assert_eq!(
+            actual_vsock_cfg.lock().unwrap().id(),
+            &new_vsock_cfg.vsock_id
+        );
     }
 
     #[test]
@@ -780,97 +967,13 @@ mod tests {
         let mut vm_resources = default_vm_resources();
 
         // Clone the existing net config in order to obtain a new one.
-        let mut new_net_device_cfg = vm_resources
-            .network_interface
-            .iter()
-            .next()
-            .unwrap()
-            .clone();
+        let mut new_net_device_cfg = default_net_cfg();
         new_net_device_cfg.iface_id = "new_net_if".to_string();
         new_net_device_cfg.guest_mac = Some(MacAddr::parse_str("01:23:45:67:89:0c").unwrap());
         new_net_device_cfg.host_dev_name = "dummy_path2".to_string();
-        assert_eq!(vm_resources.network_interface.len(), 1);
+        assert_eq!(vm_resources.net_builder.len(), 1);
 
-        vm_resources.set_net_device(new_net_device_cfg).unwrap();
-        assert_eq!(vm_resources.network_interface.len(), 2);
-    }
-
-    #[test]
-    fn test_update_block_device() {
-        let tmp_file = TempFile::new().unwrap();
-        let mut vm_resources = default_vm_resources();
-        let expected_file_path = tmp_file.as_path().to_path_buf();
-        let block_cfg_to_be_updated = vm_resources.block.config_list.get(0).unwrap().clone();
-        assert_ne!(block_cfg_to_be_updated.path_on_host, expected_file_path);
-        vm_resources
-            .update_block_device_path(
-                block_cfg_to_be_updated.drive_id.clone(),
-                String::from(expected_file_path.to_str().unwrap()),
-            )
-            .unwrap();
-        let updated_block_cfg = vm_resources.block.config_list.get(0).unwrap();
-        assert_eq!(updated_block_cfg.path_on_host, expected_file_path);
-
-        // InvalidBlockDeviceId.
-        assert_eq!(
-            vm_resources.update_block_device_path("id_does_not_exist".to_string(), "".to_string()),
-            Err(DriveError::InvalidBlockDeviceID)
-        );
-
-        // CannotOpenBlockDevice.
-        assert!(vm_resources
-            .update_block_device_path(
-                block_cfg_to_be_updated.drive_id.clone(),
-                "/does/not/exist".to_string()
-            )
-            .is_err());
-    }
-
-    #[test]
-    fn test_update_net_rate_limiters() {
-        let bw_tb = TokenBucketConfig {
-            size: 15,
-            one_time_burst: Some(5),
-            refill_time: 5,
-        };
-
-        let ops_tb = TokenBucketConfig {
-            size: 10,
-            one_time_burst: Some(2),
-            refill_time: 2,
-        };
-
-        let expected_rl_cfg = RateLimiterConfig {
-            bandwidth: Some(bw_tb),
-            ops: Some(ops_tb),
-        };
-
-        let mut vm_resources = default_vm_resources();
-        let actual_net_cfg = vm_resources.network_interface.iter().next().unwrap();
-        let actual_rx_rl_cfg = actual_net_cfg.rx_rate_limiter.unwrap();
-        let actual_tx_rl_cfg = actual_net_cfg.tx_rate_limiter.unwrap();
-        assert_ne!(actual_rx_rl_cfg, expected_rl_cfg);
-        assert_ne!(actual_tx_rl_cfg, expected_rl_cfg);
-
-        let mut net_if_cfg_update = NetworkInterfaceUpdateConfig {
-            iface_id: actual_net_cfg.iface_id.clone(),
-            rx_rate_limiter: Some(expected_rl_cfg),
-            tx_rate_limiter: Some(expected_rl_cfg),
-        };
-        vm_resources
-            .update_net_rate_limiters(net_if_cfg_update.clone())
-            .unwrap();
-        let actual_net_cfg = vm_resources.network_interface.iter().next().unwrap();
-        let actual_rx_rl_cfg = actual_net_cfg.rx_rate_limiter.unwrap();
-        let actual_tx_rl_cfg = actual_net_cfg.tx_rate_limiter.unwrap();
-        assert_eq!(actual_rx_rl_cfg, expected_rl_cfg);
-        assert_eq!(actual_tx_rl_cfg, expected_rl_cfg);
-
-        // DeviceIdNotFound.
-        net_if_cfg_update.iface_id = "net_if_does_not_exist".to_string();
-        match vm_resources.update_net_rate_limiters(net_if_cfg_update) {
-            Err(NetworkInterfaceError::DeviceIdNotFound { .. }) => (),
-            _ => unreachable!(),
-        }
+        vm_resources.build_net_device(new_net_device_cfg).unwrap();
+        assert_eq!(vm_resources.net_builder.len(), 2);
     }
 }

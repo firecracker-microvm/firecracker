@@ -8,12 +8,16 @@
 
 use std::num::{NonZeroU16, NonZeroU64, NonZeroUsize, Wrapping};
 
-use pdu::bytes::NetworkBytes;
-use pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
-use pdu::Incomplete;
-use tcp::{seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT};
-use utils::rand::xor_rng_u32;
-use ByteBuffer;
+use crate::pdu::bytes::NetworkBytes;
+use crate::pdu::tcp::{Error as TcpSegmentError, Flags as TcpFlags, TcpSegment};
+use crate::pdu::Incomplete;
+use crate::tcp::{
+    seq_after, seq_at_or_after, NextSegmentStatus, RstConfig, MAX_WINDOW_SIZE, MSS_DEFAULT,
+};
+use crate::ByteBuffer;
+use utils::rand::xor_psuedo_rng_u32;
+
+use bitflags::bitflags;
 
 bitflags! {
     // We use a set of flags, instead of a state machine, to represent the connection status. Some
@@ -235,7 +239,7 @@ impl Connection {
         let ack_to_send = Wrapping(segment.sequence_number()) + Wrapping(1);
 
         // Let's pick the initial sequence number.
-        let isn = Wrapping(xor_rng_u32());
+        let isn = Wrapping(xor_psuedo_rng_u32());
         let first_not_sent = isn + Wrapping(1);
         let remote_rwnd_edge = first_not_sent + Wrapping(u32::from(segment.window_size()));
 
@@ -306,10 +310,7 @@ impl Connection {
             return false;
         }
 
-        match parse_mss_option(segment) {
-            Ok(mss) if mss == self.mss => true,
-            _ => false,
-        }
+        matches!(parse_mss_option(segment), Ok(mss) if mss == self.mss)
     }
 
     fn reset_for_segment<T: NetworkBytes>(&mut self, s: &TcpSegment<T>) {
@@ -330,10 +331,7 @@ impl Connection {
     // has been ACKed by the other endpoint, and no FIN has been previously sent.
     fn can_send_first_fin(&self) -> bool {
         !self.fin_sent()
-            && match self.send_fin {
-                Some(fin_seq) if fin_seq == self.highest_ack_received => true,
-                _ => false,
-            }
+            && matches!(self.send_fin, Some(fin_seq) if fin_seq == self.highest_ack_received)
     }
 
     // Returns the window size which should be written to an outgoing segment. This is going to be
@@ -1548,18 +1546,23 @@ pub(crate) mod tests {
         let remote_isn = t.remote_isn;
         let mss = u32::from(t.mss);
 
+        let (payload_buf, mut response_seq) = payload_src.unwrap();
+        let mut payload_offset = 0;
         for i in 0..max {
             // Using the expects to get the value of i if there's an error.
             let s = t
-                .write_next_segment(&mut c, payload_src)
+                .write_next_segment(&mut c, Some((&payload_buf[payload_offset..], response_seq)))
                 .unwrap_or_else(|_| panic!("{}", i))
                 .unwrap_or_else(|| panic!("{}", i));
+
+            payload_offset += s.payload_len();
+            response_seq += Wrapping(s.payload_len() as u32);
 
             // Again, the 1 accounts for the sequence number taken up by the SYN.
             assert_eq!(s.sequence_number(), conn_isn.wrapping_add(1 + i * mss));
             assert_eq!(s.ack_number(), remote_isn.wrapping_add(1));
             assert_eq!(s.flags_after_ns(), TcpFlags::ACK);
-            assert_eq!(s.payload_len(), mss as usize);
+            assert_eq!(s.payload_len() as u32, mss);
         }
 
         // No more new data can be sent until the window advances, even though data_buf

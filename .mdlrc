@@ -1,0 +1,1 @@
+style File.join(File.dirname(__FILE__), 'tests/host_tools/mdl_style.rb')

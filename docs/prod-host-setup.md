@@ -1,14 +1,57 @@
 # Production Host Setup Recommendations
 
+## Firecracker Configuration
+
+### Seccomp
+
+Firecracker uses
+[seccomp](https://www.kernel.org/doc/Documentation/prctl/seccomp_filter.txt)
+filters to limit the system calls allowed by the host OS to the required
+minimum.
+
+By default, Firecracker uses advanced filtering, which is the most restrictive
+option, and the recommended setting for production workloads.
+This can also be explicitly requested by supplying `--seccomp-level=2` to the
+Firecracker executable.
+
+### 8250 Serial Device
+
+Firecracker implements the 8250 serial device, which is visible from the guest
+side and is tied to the Firecracker/non-daemonized jailer process stdout.
+Without proper handling, because the guest has access to the serial device,
+this can lead to unbound memory or storage usage on the host side. Firecracker
+does not offer users the option to limit serial data transfer, nor does it
+impose any restrictions on stdout handling. Users are responsible for handling
+the memory and storage usage of the Firecracker process stdout. We suggest
+using any upper-bounded forms of storage, such as fixed-size or ring buffers,
+using programs like `journald` or `logrotate`, or redirecting to `/dev/null`
+or a named pipe. Furthermore, we do not recommend that users enable the serial
+device in production. To disable it in the guest kernel, use the
+`8250.nr_uarts=0` boot argument when configuring the boot source. Please be
+aware that the device can be reactivated from within the guest even if it was
+disabled at boot.
+
+If Firecracker's `stdout` buffer is non-blocking and full (assuming it has a
+bounded size), any subsequent writes will fail, resulting in data loss, until
+the buffer is freed.
+
+### Log files
+
+Firecracker outputs logging data into a named pipe, socket, or file using the
+path specified in the `log_path` field of logger configuration. Firecracker can
+generate log data as a result of guest operations and therefore the guest can
+influence the volume of data written in the logs. Users are responsible
+for consuming and storing this data safely. We suggest using any upper-bounded
+forms of storage, such as fixed-size or ring buffers, programs like `journald`
+or `logrotate`, or redirecting to a named pipe.
+
 ## Jailer Configuration
 
 Using Jailer in a production Firecracker deployment is highly recommended,
 as it provides additional security boundaries for the microVM.
 The Jailer process applies
 [cgroup](https://www.kernel.org/doc/Documentation/cgroup-v1/cgroups.txt),
-namespace,
-[seccomp](https://www.kernel.org/doc/Documentation/prctl/seccomp_filter.txt)
-isolation and drops privileges of the Firecracker process.
+namespace isolation and drops privileges of the Firecracker process.
 
 To set up the jailer correctly, you'll need to:
 
@@ -35,6 +78,9 @@ When deploying Firecracker microVMs to handle multi-tenant workloads, the
 following host environment configurations are strongly recommended to guard
 against side-channel security issues.
 
+Some of the mitigations are platform specific. When applicable, this
+information will be specified between brackets.
+
 #### Disable Simultaneous Multithreading (SMT)
 
 Disabling SMT will help mitigate side-channels issues between sibling
@@ -42,17 +88,25 @@ threads on the same physical core.
 
 SMT can be disabled by adding the following Kernel boot parameter to the host:
 
-```
+```console
 nosmt=force
 ````
 
 Verification can be done by running:
 
 ```bash
-(grep -q "^forceoff$\|^notsupported$" /sys/devices/system/cpu/smt/control && echo "Hyperthreading: DISABLED (OK)") || echo "Hyperthreading: ENABLED (Recommendation: DISABLED)"
+(grep -q "^forceoff$" /sys/devices/system/cpu/smt/control && \
+echo "Hyperthreading: DISABLED (OK)") || \
+(grep -q "^notsupported$\|^notimplemented$" \
+/sys/devices/system/cpu/smt/control && \
+echo "Hyperthreading: Not Supported (OK)") || \
+echo "Hyperthreading: ENABLED (Recommendation: DISABLED)"
 ```
 
-#### Check Kernel Page-Table Isolation (KPTI) support
+**Note** There are some newer aarch64 CPUs that also implement SMT, however AWS Graviton
+processors do not implement it.
+
+#### [Intel and ARM only] Check Kernel Page-Table Isolation (KPTI) support
 
 KPTI is used to prevent certain side-channel issues that allow access to
 protected kernel memory pages that are normally inaccessible to guests. Some
@@ -61,8 +115,19 @@ variants of Meltdown can be mitigated by enabling this feature.
 Verification can be done by running:
 
 ```bash
-(grep -q "^Mitigation: PTI$" /sys/devices/system/cpu/vulnerabilities/meltdown && echo "KPTI: SUPPORTED (OK)") || echo "KPTI: NOT SUPPORTED (Recommendation: SUPPORTED)"
+(grep -q "^Mitigation: PTI$" /sys/devices/system/cpu/vulnerabilities/meltdown \
+&& echo "KPTI: SUPPORTED (OK)") || \
+(grep -q "^Not affected$" /sys/devices/system/cpu/vulnerabilities/meltdown \
+&& echo "KPTI: Not Affected (OK)") || \
+echo "KPTI: NOT SUPPORTED (Recommendation: SUPPORTED)"
 ```
+
+A full list of the ARM processors that are vulnerable to side-channel attacks and
+the mechanisms of these attacks can be found
+[here](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability).
+KPTI is implemented for ARM in version 4.16 and later of the Linux kernel.
+
+**Note** Graviton-enabled hardware is not affected by this.
 
 #### Disable Kernel Same-page Merging (KSM)
 
@@ -71,39 +136,66 @@ reveal what memory line was accessed by another process.
 
 KSM can be disabled by executing the following as root:
 
-```
+```console
 echo "0" > /sys/kernel/mm/ksm/run
 ```
 
 Verification can be done by running:
 
 ```bash
-(grep -q "^0$" /sys/kernel/mm/ksm/run && echo "KSM: DISABLED (OK)") || echo "KSM: ENABLED (Recommendation: DISABLED)"
+(grep -q "^0$" /sys/kernel/mm/ksm/run && echo "KSM: DISABLED (OK)") || \
+echo "KSM: ENABLED (Recommendation: DISABLED)"
 ```
 
-#### Check for speculative branch prediction issue mitigation
+#### Check for mitigations against Spectre Side Channels
 
-Use a kernel compiled with retpoline and run on hardware with microcode
-supporting Indirect Branch Prediction Barriers (IBPB) and Indirect Branch
-Restricted Speculation (IBRS).
+##### Branch Target Injection mitigation (Spectre V2)
 
-These features provide side-channel mitigation for variants of Spectre such
-as the Branch Target Injection variant.
+**Intel and AMD** Use a kernel compiled with retpoline and run on hardware with microcode
+supporting conditional Indirect Branch Prediction Barriers (IBPB) and
+Indirect Branch Restricted Speculation (IBRS).
 
 Verification can be done by running:
 
 ```bash
-(grep -q "^Mitigation: Full generic retpoline, IBPB, IBRS_FW$" /sys/devices/system/cpu/vulnerabilities/spectre_v2 && echo "retpoline, IBPB, IBRS: ENABLED (OK)") || echo "retpoline, IBPB, IBRS: DISABLED (Recommendation: ENABLED)"
+(grep -Eq '^Mitigation: Full [[:alpha:]]+ retpoline, \
+IBPB: conditional, IBRS_FW' \
+/sys/devices/system/cpu/vulnerabilities/spectre_v2 && \
+echo "retpoline, IBPB, IBRS: ENABLED (OK)") \
+|| echo "retpoline, IBPB, IBRS: DISABLED (Recommendation: ENABLED)"
 ```
 
-#### Apply L1 Terminal Fault (L1TF) mitigation
+**ARM** The mitigations for ARM systems are patched in all linux stable versions
+starting with 4.16. More information on the processors vulnerable to this type
+of attack and detailed information on the mitigations can be found in the
+[ARM security documentation](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability).
+
+Verification can be done by running:
+
+```bash
+(grep -q "^Mitigation:" /sys/devices/system/cpu/vulnerabilities/spectre_v2 || \
+grep -q "^Not affected$" /sys/devices/system/cpu/vulnerabilities/spectre_v2) && \
+echo "SPECTRE V2 -> OK" || echo "SPECTRE V2 -> NOT OK"
+```
+
+##### Bounds Check Bypass Store (Spectre V1)
+
+Verification for mitigation against Spectre V1 can be done:
+
+```bash
+(grep -q "^Mitigation:" /sys/devices/system/cpu/vulnerabilities/spectre_v1 || \
+grep -q "^Not affected$" /sys/devices/system/cpu/vulnerabilities/spectre_v1) && \
+echo "SPECTRE V1 -> OK" || echo "SPECTRE V1 -> NOT OK"
+```
+
+#### [Intel only] Apply L1 Terminal Fault (L1TF) mitigation
 
 These features provide mitigation for Foreshadow/L1TF side-channel issue on
 affected hardware.
 
 They can be enabled by adding the following Linux kernel boot parameter:
 
-```
+```console
 l1tf=full,force
 ```
 
@@ -114,7 +206,10 @@ Verification can be done by running:
 
 ```bash
 declare -a CONDITIONS=("Mitigation: PTE Inversion" "VMX: cache flushes")
-for cond in "${CONDITIONS[@]}"; do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf && echo "$cond: ENABLED (OK)") || echo "$cond: DISABLED (Recommendation: ENABLED)"; done
+for cond in "${CONDITIONS[@]}"; \
+do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf && \
+echo "$cond: ENABLED (OK)") || \
+echo "$cond: DISABLED (Recommendation: ENABLED)"; done
 ```
 
 See more details [here](https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html#guest-mitigation-mechanisms).
@@ -126,11 +221,11 @@ Speculative Store Bypass and SpectreNG.
 
 It can be enabled by adding the following Linux kernel boot parameter:
 
-```
+```console
 spec_store_bypass_disable=seccomp
 ```
 
-which will apply SSB if seccomp is enabled by Firecracker's jailer.
+which will apply SSB if seccomp is enabled by Firecracker.
 
 Verification can be done by running:
 
@@ -165,7 +260,9 @@ having guest memory contents on microVM storage devices.
 Verify that swap is disabled by running:
 
 ```bash
-grep -q "/dev" /proc/swaps && echo "swap partitions present (Recommendation: no swap)" || echo "no swap partitions (OK)"
+grep -q "/dev" /proc/swaps && \
+echo "swap partitions present (Recommendation: no swap)" \
+|| echo "no swap partitions (OK)"
 ```
 
 ### Known kernel issues
@@ -176,13 +273,13 @@ General recommendation: Keep the host and the guest kernels up to date.
 
 ##### Description
 
-In a Linux KVM guest that has PV TLB enabled, a process in the guest kernel 
+In a Linux KVM guest that has PV TLB enabled, a process in the guest kernel
 may be able to read memory locations from another process in the same guest.
 
 ##### Impact
 
-Under certain conditions the TLB will contain invalid entries. A malicious 
-attacker running on the guest can get access to the memory of other running 
+Under certain conditions the TLB will contain invalid entries. A malicious
+attacker running on the guest can get access to the memory of other running
 process on that guest.
 
 ##### Vulnerable systems
@@ -193,9 +290,9 @@ are present:
 - the host kernel >= 4.10.
 - the guest kernel >= 4.16.
 - the `KVM_FEATURE_PV_TLB_FLUSH` is set in the CPUID of the
-guest. This is the `EAX` bit 9 in the `KVM_CPUID_FEATURES (0x40000001)` entry. 
+  guest. This is the `EAX` bit 9 in the `KVM_CPUID_FEATURES (0x40000001)` entry.
 
-This can be checked by running 
+This can be checked by running
 
 ```bash
 cpuid -r
@@ -205,18 +302,29 @@ and by searching for the entry corresponding to the leaf `0x40000001`.
 
 Example output:
 
-```
+```console
 0x40000001 0x00: eax=0x200 ebx=0x00000000 ecx=0x00000000 edx=0x00000000
 EAX 010004fb = 0010 0000 0000
-EAX Bit 9: KVM_FEATURE_PV_TLB_FLUSH = 1 
+EAX Bit 9: KVM_FEATURE_PV_TLB_FLUSH = 1
 ```
 
 ##### Mitigation
 
-The vulnerability is fixed by the following host kernel 
+The vulnerability is fixed by the following host kernel
 [patches](https://lkml.org/lkml/2020/1/30/482).
 
 The fix was integrated in the mainline kernel and in 4.19.103, 5.4.19, 5.5.3
 stable kernel releases. Please follow [kernel.org](https://www.kernel.org/) and
-once the fix is available in your stable release please update the host kernel. 
+once the fix is available in your stable release please update the host kernel.
 If you are not using a vanilla kernel, please check with Linux distro provider.
+
+#### [ARM only] Physical counter directly passed through to the guest
+
+On ARM, the physical counter (i.e `CNTPCT`) it is returning the
+[actual EL1 physical counter value of the host][1]. From the discussions before
+merging this change [upstream][2], this seems like a conscious design decision
+of the ARM code contributors, giving precedence to performance over the ability
+to trap and control this in the hypervisor.
+
+[1]: https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/hyp/timer-sr.c#L63
+[2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html

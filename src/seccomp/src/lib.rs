@@ -18,22 +18,18 @@
 //! ## Example with Filtering Disabled
 //!
 //! ```
-//! extern crate libc;
-//!
-//! fn main() {
-//!     let buf = "Hello, world!";
-//!     assert_eq!(
-//!         unsafe {
-//!             libc::syscall(
-//!                 libc::SYS_write,
-//!                 libc::STDOUT_FILENO,
-//!                 buf.as_bytes(),
-//!                 buf.len(),
-//!             );
-//!         },
-//!         ()
-//!     );
-//! }
+//! let buf = "Hello, world!";
+//! assert_eq!(
+//!     unsafe {
+//!         libc::syscall(
+//!             libc::SYS_write,
+//!             libc::STDOUT_FILENO,
+//!             buf.as_bytes(),
+//!             buf.len(),
+//!         );
+//!     },
+//!     ()
+//! );
 //! ```
 //!
 //! The code snippet above will print "Hello, world!" to stdout.
@@ -46,40 +42,35 @@
 //! Without a signal handler in place, the process will die with exit code 159 (128 + `SIGSYS`).
 //!
 //! ```should_panic
-//! extern crate libc;
-//! extern crate seccomp;
-//!
 //! use std::convert::TryInto;
 //! use seccomp::*;
 //!
-//! fn main() {
-//!     let buf = "Hello, world!";
-//!     let filter = SeccompFilter::new(
-//!         vec![
-//!             allow_syscall(libc::SYS_close),
-//!             allow_syscall(libc::SYS_execve),
-//!             allow_syscall(libc::SYS_exit_group),
-//!             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-//!             allow_syscall(libc::SYS_open),
-//!             #[cfg(target_arch = "aarch64")]
-//!             allow_syscall(libc::SYS_openat),
-//!             allow_syscall(libc::SYS_read),
-//!         ]
+//! let buf = "Hello, world!";
+//! let filter = SeccompFilter::new(
+//!     vec![
+//!         allow_syscall(libc::SYS_close),
+//!         allow_syscall(libc::SYS_execve),
+//!         allow_syscall(libc::SYS_exit_group),
+//!         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+//!         allow_syscall(libc::SYS_open),
+//!         #[cfg(target_arch = "aarch64")]
+//!         allow_syscall(libc::SYS_openat),
+//!         allow_syscall(libc::SYS_read),
+//!     ]
 //!         .into_iter()
 //!         .collect(),
 //!         SeccompAction::Trap,
-//!     )
+//! )
 //!     .unwrap().try_into().unwrap();
 //!     SeccompFilter::apply(filter).unwrap();
-//!     unsafe {
-//!         libc::syscall(
-//!             libc::SYS_write,
-//!             libc::STDOUT_FILENO,
-//!             buf.as_bytes(),
-//!             buf.len(),
-//!         );
-//!     };
-//! }
+//! unsafe {
+//!     libc::syscall(
+//!         libc::SYS_write,
+//!         libc::STDOUT_FILENO,
+//!         buf.as_bytes(),
+//!         buf.len(),
+//!     );
+//! };
 //! ```
 //!
 //! The code snippet above will print "Hello, world!" to stdout and "Bad system call" to stderr.
@@ -118,9 +109,6 @@
 //! A signal handler will catch `SIGSYS` and exit with code 159 on any other syscall.
 //!
 //! ```should_panic
-//! extern crate libc;
-//! extern crate seccomp;
-//!
 //! use seccomp::*;
 //! use std::convert::TryInto;
 //! use std::mem;
@@ -242,9 +230,6 @@
 //! [`SeccompAction`]: enum.SeccompAction.html
 //! [`SeccompFilter`]: struct.SeccompFilter.html
 //! [`action`]: struct.SeccompRule.html#action
-
-extern crate libc;
-
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter};
@@ -912,7 +897,7 @@ impl SeccompFilter {
 
         self.rules
             .entry(syscall_number)
-            .or_insert_with(|| vec![])
+            .or_insert_with(std::vec::Vec::new)
             .append(&mut rules);
 
         Ok(())
@@ -1172,7 +1157,7 @@ pub enum SeccompLevel {
 impl SeccompLevel {
     /// Converts from a seccomp level value of type String to the corresponding SeccompLevel variant
     /// or returns an error if the parsing failed.
-    pub fn from_string(seccomp_value: String) -> std::result::Result<Self, SeccompError> {
+    pub fn from_string(seccomp_value: &str) -> std::result::Result<Self, SeccompError> {
         match seccomp_value.parse::<u8>() {
             Ok(0) => Ok(SeccompLevel::None),
             Ok(1) => Ok(SeccompLevel::Basic),
@@ -1186,10 +1171,10 @@ impl SeccompLevel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SeccompCmpArgLen as ArgLen;
+    use crate::SeccompCmpOp::*;
+    use crate::SeccompCondition as Cond;
     use std::thread;
-    use SeccompCmpArgLen as ArgLen;
-    use SeccompCmpOp::*;
-    use SeccompCondition as Cond;
 
     // The type of the `req` parameter is different for the `musl` library. This will enable
     // successful build for other non-musl libraries.
@@ -1278,7 +1263,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, 0);
             },
@@ -1303,7 +1288,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, 0, 0);
             },
@@ -1332,7 +1317,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, (KVM_GET_PIT2 - 1) as IoctlRequest);
             },
@@ -1358,7 +1343,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, 0 as IoctlRequest, 1);
             },
@@ -1386,7 +1371,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, KVM_GET_PIT2 as IoctlRequest);
             },
@@ -1417,7 +1402,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
             },
@@ -1446,7 +1431,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, (KVM_GET_PIT2 + 1) as IoctlRequest);
             },
@@ -1478,7 +1463,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 11);
             },
@@ -1506,7 +1491,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, KVM_GET_PIT2 as IoctlRequest);
             },
@@ -1537,7 +1522,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
             },
@@ -1572,7 +1557,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, KVM_GET_PIT2_LSB as IoctlRequest);
             },
@@ -1604,7 +1589,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, 0 as IoctlRequest, 0);
             },
@@ -1632,7 +1617,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, KVM_GET_PIT2 as IoctlRequest);
             },
@@ -1657,7 +1642,7 @@ mod tests {
         );
         // check syscalls that are not supposed to work
         validate_seccomp_filter(
-            rules.clone(),
+            rules,
             || unsafe {
                 libc::ioctl(0, 0 as IoctlRequest, std::u64::MAX);
             },
@@ -1795,7 +1780,7 @@ mod tests {
                 allow_syscall_if(
                     9,
                     vec![SeccompRule::new(
-                        vec![Cond::new(1, arg_len.clone(), MaskedEq(0b100), 36).unwrap()],
+                        vec![Cond::new(1, arg_len, MaskedEq(0b100), 36).unwrap()],
                         SeccompAction::Allow,
                     )],
                 ),
@@ -2034,38 +2019,26 @@ mod tests {
     #[test]
     fn test_parse_seccomp() {
         // Check `from_string()` behaviour for different scenarios.
-        match SeccompLevel::from_string("3".to_string()) {
+        match SeccompLevel::from_string("3") {
             Err(SeccompError::Level(_)) => (),
             _ => panic!("Unexpected result"),
         }
         assert_eq!(
-            format!(
-                "{}",
-                SeccompLevel::from_string("3".to_string()).unwrap_err()
-            ),
+            format!("{}", SeccompLevel::from_string("3").unwrap_err()),
             "'3' isn't a valid value for 'seccomp-level'. Must be 0, 1 or 2."
         );
-        match SeccompLevel::from_string("foo".to_string()) {
+        match SeccompLevel::from_string("foo") {
             Err(SeccompError::Parse(_)) => (),
             _ => panic!("Unexpected result"),
         }
         assert_eq!(
-            format!(
-                "{}",
-                SeccompLevel::from_string("foo".to_string()).unwrap_err()
-            ),
+            format!("{}", SeccompLevel::from_string("foo").unwrap_err()),
             "Could not parse to 'u8': invalid digit found in string"
         );
+        assert_eq!(SeccompLevel::from_string("0").unwrap(), SeccompLevel::None);
+        assert_eq!(SeccompLevel::from_string("1").unwrap(), SeccompLevel::Basic);
         assert_eq!(
-            SeccompLevel::from_string("0".to_string()).unwrap(),
-            SeccompLevel::None
-        );
-        assert_eq!(
-            SeccompLevel::from_string("1".to_string()).unwrap(),
-            SeccompLevel::Basic
-        );
-        assert_eq!(
-            SeccompLevel::from_string("2".to_string()).unwrap(),
+            SeccompLevel::from_string("2").unwrap(),
             SeccompLevel::Advanced
         );
     }

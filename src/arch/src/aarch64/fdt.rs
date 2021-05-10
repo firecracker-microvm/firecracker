@@ -14,16 +14,23 @@ use std::{io, result};
 
 use super::super::DeviceType;
 use super::super::InitrdConfig;
+use super::cache_info::{sysfs_read_caches, CacheInfo, Error as CacheError};
 use super::get_fdt_addr;
 use super::gic::GICDevice;
 use super::layout::FDT_MAX_SIZE;
-use aarch64::fdt::Error::CstringFDTTransform;
+use crate::aarch64::fdt::Error::CstringFDTTransform;
 use vm_memory::{Address, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap};
 
 // This is a value for uniquely identifying the FDT node declaring the interrupt controller.
 const GIC_PHANDLE: u32 = 1;
 // This is a value for uniquely identifying the FDT node containing the clock definition.
 const CLOCK_PHANDLE: u32 = 2;
+// You may be wondering why this big value?
+// This phandle is used to uniquely identify the FDT nodes containing cache information. Each cpu
+// can have a variable number of caches, some of these caches may be shared with other cpus.
+// So, we start the indexing of the phandles used from a really big number and then substract from it
+// as we need more and more phandle for each cache representation.
+const LAST_CACHE_PHANDLE: u32 = 4000;
 // Read the documentation specified when appending the root node to the FDT.
 const ADDRESS_CELLS: u32 = 0x2;
 const SIZE_CELLS: u32 = 0x2;
@@ -76,21 +83,23 @@ pub enum Error {
     CstringFDTTransform(NulError),
     /// Failure in calling syscall for terminating this FDT.
     FinishFDTReserveMap(io::Error),
+    /// Failure in populating the cache information for the vcpus.
+    ReadCacheInfo(CacheError),
     /// Failure in writing FDT in memory.
     WriteFDTToMemory(GuestMemoryError),
 }
 type Result<T> = result::Result<T, Error>;
 
 /// Creates the flattened device tree for this aarch64 microVM.
-pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
+pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     guest_mem: &GuestMemoryMmap,
     vcpu_mpidr: Vec<u64>,
     cmdline: &CStr,
-    device_info: &HashMap<(DeviceType, String), T>,
-    gic_device: &Box<dyn GICDevice>,
+    device_info: &HashMap<(DeviceType, String), T, S>,
+    gic_device: &dyn GICDevice,
     initrd: &Option<InitrdConfig>,
-) -> Result<(Vec<u8>)> {
-    // Alocate stuff necessary for the holding the blob.
+) -> Result<Vec<u8>> {
+    // Allocate stuff necessary for storing the blob.
     let mut fdt = vec![0; FDT_MAX_SIZE];
 
     allocate_fdt(&mut fdt)?;
@@ -116,7 +125,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     create_timer_node(&mut fdt)?;
     create_clock_node(&mut fdt)?;
     create_psci_node(&mut fdt)?;
-    create_devices_node(&mut fdt, device_info)?;
+    create_devices_node(&mut fdt, &device_info)?;
 
     // End Header node.
     append_end_node(&mut fdt)?;
@@ -272,6 +281,13 @@ fn append_property(fdt: &mut Vec<u8>, name: &str, val: &[u8]) -> Result<()> {
     Ok(())
 }
 
+fn append_cache_property_u32(fdt: &mut Vec<u8>, name: &str, val: Option<u32>) -> Result<()> {
+    if let Some(cache_attr) = val {
+        append_property_u32(fdt, name, cache_attr)?;
+    }
+    Ok(())
+}
+
 // Auxiliary functions for writing u32/u64 numbers in big endian order.
 fn to_be32(input: u32) -> [u8; 4] {
     u32::to_be_bytes(input)
@@ -299,26 +315,119 @@ fn generate_prop64(cells: &[u64]) -> Vec<u8> {
 }
 
 // Following are the auxiliary function for creating the different nodes that we append to our FDT.
-fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &Vec<u64>) -> Result<()> {
+fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &[u64]) -> Result<()> {
+    // Since the L1 caches are not shareable among CPUs and they are direct attributes of the
+    // cpu in the device tree, we process the L1 and non-L1 caches separately.
+    let mut l1_caches: Vec<CacheInfo> = Vec::new();
+    let mut non_l1_caches: Vec<CacheInfo> = Vec::new();
+    // We use sysfs for extracting the cache information.
+    sysfs_read_caches(&mut l1_caches, &mut non_l1_caches).map_err(Error::ReadCacheInfo)?;
+
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/arm/cpus.yaml.
     append_begin_node(fdt, "cpus")?;
     // As per documentation, on ARM v8 64-bit systems value should be set to 2.
     append_property_u32(fdt, "#address-cells", 0x02)?;
     append_property_u32(fdt, "#size-cells", 0x0)?;
     let num_cpus = vcpu_mpidr.len();
-
-    for cpu_index in 0..num_cpus {
+    for (cpu_index, mpidr) in vcpu_mpidr.iter().enumerate() {
         let cpu_name = format!("cpu@{:x}", cpu_index);
         append_begin_node(fdt, &cpu_name)?;
         append_property_string(fdt, "device_type", "cpu")?;
         append_property_string(fdt, "compatible", "arm,arm-v8")?;
-        if num_cpus > 1 {
-            // This is required on armv8 64-bit. See aforementioned documentation.
-            append_property_string(fdt, "enable-method", "psci")?;
-        }
+        // The power state coordination interface (PSCI) needs to be enabled for
+        // all vcpus.
+        append_property_string(fdt, "enable-method", "psci")?;
         // Set the field to first 24 bits of the MPIDR - Multiprocessor Affinity Register.
         // See http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0488c/BABHBJCI.html.
-        append_property_u64(fdt, "reg", vcpu_mpidr[cpu_index] & 0x7FFFFF)?;
+        append_property_u64(fdt, "reg", mpidr & 0x7F_FFFF)?;
+
+        for cache in l1_caches.iter() {
+            // Please check out
+            // https://github.com/devicetree-org/devicetree-specification/releases/download/v0.3/devicetree-specification-v0.3.pdf,
+            // section 3.8.
+            append_cache_property_u32(
+                fdt,
+                cache.type_.of_cache_size(),
+                cache.size_.map(|s| s as u32),
+            )?;
+            append_cache_property_u32(
+                fdt,
+                cache.type_.of_cache_line_size(),
+                cache.line_size.map(|l| l as u32),
+            )?;
+            append_cache_property_u32(
+                fdt,
+                cache.type_.of_cache_sets(),
+                cache.number_of_sets.map(|s| s as u32),
+            )?;
+        }
+
+        // Some of the non-l1 caches can be shared amongst CPUs. You can see an example of a shared scenario
+        // in https://github.com/devicetree-org/devicetree-specification/releases/download/v0.3/devicetree-specification-v0.3.pdf,
+        // 3.8.1 Example.
+        let mut prev_level = 1;
+        let mut node = false;
+        for cache in non_l1_caches.iter() {
+            // We append the next-level-cache node (the node that specifies the cache hierarchy)
+            // in the next iteration. For example,
+            // L2-cache {
+            //      cache-size = <0x8000> ----> first iteration
+            //      next-level-cache = <&l3-cache> ---> second iteration
+            // }
+            // The cpus per unit cannot be 0 since the sysfs will also include the current cpu
+            // in the list of shared cpus so it needs to be at least 1. Firecracker trusts the host.
+            // The operation is safe since we already checked when creating cache attributes that
+            // cpus_per_unit is not 0 (.e look for mask_str2bit_count function).
+            let cache_phandle = LAST_CACHE_PHANDLE
+                - (num_cpus * (cache.level - 2) as usize + cpu_index / cache.cpus_per_unit as usize)
+                    as u32;
+
+            if prev_level != cache.level {
+                append_property_u32(fdt, "next-level-cache", cache_phandle)?;
+                if prev_level > 1 {
+                    append_end_node(fdt)?;
+                    node = false;
+                }
+            }
+
+            if cpu_index % cache.cpus_per_unit as usize == 0 {
+                node = true;
+                append_begin_node(
+                    fdt,
+                    &format!(
+                        "l{}-{}-cache",
+                        cache.level,
+                        cpu_index / cache.cpus_per_unit as usize
+                    ),
+                )?;
+                append_property_u32(fdt, "phandle", cache_phandle)?;
+                append_property_string(fdt, "compatible", "cache")?;
+                append_property_u32(fdt, "cache-level", cache.level as u32)?;
+                append_cache_property_u32(
+                    fdt,
+                    cache.type_.of_cache_size(),
+                    cache.size_.map(|s| s as u32),
+                )?;
+
+                append_cache_property_u32(
+                    fdt,
+                    cache.type_.of_cache_line_size(),
+                    cache.line_size.map(|l| l as u32),
+                )?;
+                append_cache_property_u32(
+                    fdt,
+                    cache.type_.of_cache_sets(),
+                    cache.number_of_sets.map(|s| s as u32),
+                )?;
+                if let Some(cache_type) = cache.type_.of_cache_type() {
+                    append_property_null(fdt, cache_type)?;
+                }
+                prev_level = cache.level;
+            }
+        }
+        if node {
+            append_end_node(fdt)?;
+        }
         append_end_node(fdt)?;
     }
     append_end_node(fdt)?;
@@ -364,7 +473,7 @@ fn create_chosen_node(
     Ok(())
 }
 
-fn create_gic_node(fdt: &mut Vec<u8>, gic_device: &Box<dyn GICDevice>) -> Result<()> {
+fn create_gic_node(fdt: &mut Vec<u8>, gic_device: &dyn GICDevice) -> Result<()> {
     let gic_reg_prop = generate_prop64(gic_device.device_properties());
 
     append_begin_node(fdt, "intc")?;
@@ -400,7 +509,7 @@ fn create_clock_node(fdt: &mut Vec<u8>) -> Result<()> {
     append_begin_node(fdt, "apb-pclk")?;
     append_property_string(fdt, "compatible", "fixed-clock")?;
     append_property_u32(fdt, "#clock-cells", 0x0)?;
-    append_property_u32(fdt, "clock-frequency", 24000000)?;
+    append_property_u32(fdt, "clock-frequency", 24_000_000)?;
     append_property_string(fdt, "clock-output-names", "clk24mhz")?;
     append_property_u32(fdt, "phandle", CLOCK_PHANDLE)?;
     append_end_node(fdt)?;
@@ -498,15 +607,16 @@ fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
     Ok(())
 }
 
-fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
+fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildHasher>(
     fdt: &mut Vec<u8>,
-    dev_info: &HashMap<(DeviceType, String), T>,
+    dev_info: &HashMap<(DeviceType, String), T, S>,
 ) -> Result<()> {
     // Create one temp Vec to store all virtio devices
     let mut ordered_virtio_device: Vec<&T> = Vec::new();
 
     for ((device_type, _device_id), info) in dev_info {
         match device_type {
+            DeviceType::BootTimer => (), // since it's not a real device
             DeviceType::RTC => create_rtc_node(fdt, info)?,
             DeviceType::Serial => create_serial_node(fdt, info)?,
             DeviceType::Virtio(_) => {
@@ -516,7 +626,7 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
     }
 
     // Sort out virtio devices by address from low to high and insert them into fdt table.
-    ordered_virtio_device.sort_by(|a, b| a.addr().cmp(&b.addr()));
+    ordered_virtio_device.sort_by_key(|&a| a.addr());
     for ordered_device_info in ordered_virtio_device.drain(..) {
         create_virtio_node(fdt, ordered_device_info)?;
     }
@@ -527,8 +637,8 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aarch64::gic::create_gic;
-    use aarch64::{arch_memory_regions, layout};
+    use crate::aarch64::gic::create_gic;
+    use crate::aarch64::{arch_memory_regions, layout};
     use kvm_ioctls::Kvm;
 
     const LEN: u64 = 4096;
@@ -571,15 +681,12 @@ mod tests {
             ),
             (
                 (DeviceType::Virtio(1), "virtio".to_string()),
-                MMIODeviceInfo {
-                    addr: 0x00 + LEN,
-                    irq: 2,
-                },
+                MMIODeviceInfo { addr: LEN, irq: 2 },
             ),
             (
                 (DeviceType::RTC, "rtc".to_string()),
                 MMIODeviceInfo {
-                    addr: 0x00 + 2 * LEN,
+                    addr: 2 * LEN,
                     irq: 3,
                 },
             ),
@@ -595,7 +702,7 @@ mod tests {
             vec![0],
             &CString::new("console=tty0").unwrap(),
             &dev_info,
-            &gic,
+            gic.as_ref(),
             &None,
         )
         .is_ok())
@@ -613,7 +720,7 @@ mod tests {
             vec![0],
             &CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
-            &gic,
+            gic.as_ref(),
             &None,
         )
         .unwrap();
@@ -643,7 +750,10 @@ mod tests {
         set_size(&mut dtb, pos, val);
         let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
         let generated_fdt = device_tree::DeviceTree::load(&dtb).unwrap();
-        assert!(format!("{:?}", original_fdt) == format!("{:?}", generated_fdt));
+        assert_eq!(
+            format!("{:?}", original_fdt),
+            format!("{:?}", generated_fdt)
+        );
     }
 
     #[test]
@@ -654,7 +764,7 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1).unwrap();
         let initrd = InitrdConfig {
-            address: GuestAddress(0x10000000),
+            address: GuestAddress(0x1000_0000),
             size: 0x1000,
         };
 
@@ -663,7 +773,7 @@ mod tests {
             vec![0],
             &CString::new("console=tty0").unwrap(),
             &HashMap::<(DeviceType, std::string::String), MMIODeviceInfo>::new(),
-            &gic,
+            gic.as_ref(),
             &Some(initrd),
         )
         .unwrap();
@@ -693,6 +803,9 @@ mod tests {
         set_size(&mut dtb, pos, val);
         let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
         let generated_fdt = device_tree::DeviceTree::load(&dtb).unwrap();
-        assert!(format!("{:?}", original_fdt) == format!("{:?}", generated_fdt));
+        assert_eq!(
+            format!("{:?}", original_fdt),
+            format!("{:?}", generated_fdt)
+        );
     }
 }

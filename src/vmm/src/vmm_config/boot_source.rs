@@ -4,6 +4,8 @@
 use std::fmt::{Display, Formatter, Result};
 use std::io;
 
+use serde::{Deserialize, Serialize};
+
 /// Default guest kernel command line:
 /// - `reboot=k` shut down the guest on reboot, instead of well... rebooting;
 /// - `panic=1` on panic, reboot after 1 second;
@@ -19,7 +21,7 @@ pub const DEFAULT_KERNEL_CMDLINE: &str = "reboot=k panic=1 pci=off nomodules 825
 
 /// Strongly typed data structure used to configure the boot source of the
 /// microvm.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BootSourceConfig {
     /// Path of the kernel image.
@@ -41,8 +43,6 @@ pub enum BootSourceConfigError {
     InvalidInitrdPath(io::Error),
     /// The kernel command line is invalid.
     InvalidKernelCommandLine(String),
-    /// The boot source cannot be update post boot.
-    UpdateNotAllowedPostBoot,
 }
 
 impl Display for BootSourceConfigError {
@@ -58,9 +58,6 @@ impl Display for BootSourceConfigError {
             ),
             InvalidKernelCommandLine(ref e) => {
                 write!(f, "The kernel command line is invalid: {}", e.as_str())
-            }
-            UpdateNotAllowedPostBoot => {
-                write!(f, "The update operation is not allowed after boot.")
             }
         }
     }

@@ -2,38 +2,127 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests scenarios for Firecracker signal handling."""
 
+import json
 import os
-from signal import SIGBUS, SIGRTMIN, SIGSEGV
+from signal import \
+    (SIGBUS, SIGSEGV, SIGXFSZ,
+     SIGXCPU, SIGPIPE, SIGHUP, SIGILL, SIGSYS)
 from time import sleep
-
+import resource as res
 import pytest
 
 import host_tools.network as net_tools
+import framework.utils as utils
+
+signum_str = {
+    SIGBUS: "sigbus",
+    SIGSEGV: "sigsegv",
+    SIGXFSZ: "sigxfsz",
+    SIGXCPU: "sigxcpu",
+    SIGPIPE: "sigpipe",
+    SIGHUP: "sighup",
+    SIGILL: "sigill",
+    SIGSYS: "sigsys"
+}
 
 
 @pytest.mark.parametrize(
     "signum",
-    [SIGBUS, SIGSEGV]
+    [SIGBUS, SIGSEGV, SIGXFSZ, SIGXCPU, SIGPIPE, SIGHUP, SIGILL, SIGSYS]
 )
-def test_sigbus_sigsegv(test_microvm_with_api, signum):
-    """Test signal handling for `SIGBUS` and `SIGSEGV`."""
-    test_microvm = test_microvm_with_api
-    test_microvm.spawn()
+def test_generic_signal_handler(test_microvm_with_api, signum):
+    """Test signal handling for all handled signals."""
+    microvm = test_microvm_with_api
+    microvm.spawn()
 
     # We don't need to monitor the memory for this test.
-    test_microvm.memory_events_queue = None
+    microvm.memory_monitor = None
 
-    test_microvm.basic_config()
+    microvm.basic_config()
 
-    test_microvm.start()
-    firecracker_pid = int(test_microvm.jailer_clone_pid)
+    # Configure metrics based on a file.
+    metrics_path = os.path.join(microvm.path, 'metrics_fifo')
+    utils.run_cmd("touch {}".format(metrics_path))
+    response = microvm.metrics.put(
+        metrics_path=microvm.create_jailed_resource(metrics_path)
+    )
+    assert microvm.api_session.is_status_no_content(response.status_code)
 
+    microvm.start()
+    firecracker_pid = int(microvm.jailer_clone_pid)
     sleep(0.5)
+
+    metrics_jail_path = os.path.join(microvm.chroot(), metrics_path)
+    metrics_fd = open(metrics_jail_path)
+
+    line_metrics = metrics_fd.readlines()
+    assert len(line_metrics) == 1
+
     os.kill(firecracker_pid, signum)
+    # Firecracker gracefully handles SIGPIPE (doesn't terminate).
+    if signum == int(SIGPIPE):
+        msg = 'Received signal 13'
+        # Flush metrics to file, so we can see the SIGPIPE at bottom assert.
+        # This is going to fail if process has exited.
+        response = microvm.actions.put(action_type='FlushMetrics')
+        assert microvm.api_session.is_status_no_content(response.status_code)
+    else:
+        # Ensure that the process was terminated.
+        utils.wait_process_termination(firecracker_pid)
+        msg = 'Shutting down VM after intercepting signal {}'.format(signum)
 
-    msg = 'Shutting down VM after intercepting signal {}'.format(signum)
+    microvm.check_log_message(msg)
 
-    test_microvm.check_log_message(msg)
+    if signum != SIGSYS:
+        metric_line = json.loads(metrics_fd.readlines()[0])
+        assert metric_line["signals"][signum_str[signum]] == 1
+
+
+def test_sigxfsz_handler(test_microvm_with_api):
+    """Test intercepting and handling SIGXFSZ."""
+    microvm = test_microvm_with_api
+    microvm.spawn()
+
+    # We don't need to monitor the memory for this test.
+    microvm.memory_monitor = None
+
+    microvm.basic_config()
+
+    # Configure metrics based on a file.
+    metrics_path = os.path.join(microvm.path, 'metrics_fifo')
+    utils.run_cmd("touch {}".format(metrics_path))
+    response = microvm.metrics.put(
+        metrics_path=microvm.create_jailed_resource(metrics_path)
+    )
+    assert microvm.api_session.is_status_no_content(response.status_code)
+
+    microvm.start()
+
+    metrics_jail_path = os.path.join(microvm.jailer.chroot_path(),
+                                     metrics_path)
+    metrics_fd = open(metrics_jail_path)
+    line_metrics = metrics_fd.readlines()
+    assert len(line_metrics) == 1
+
+    firecracker_pid = int(microvm.jailer_clone_pid)
+    size = os.path.getsize(metrics_jail_path)
+    # The SIGXFSZ is triggered because the size of rootfs is bigger than
+    # the size of metrics file times 3. Since the metrics file is flushed
+    # twice we have to make sure that the limit is bigger than that
+    # in order to make sure the SIGXFSZ metric is logged
+    res.prlimit(firecracker_pid, res.RLIMIT_FSIZE, (size*3, res.RLIM_INFINITY))
+
+    while True:
+        try:
+            utils.run_cmd("ps -p {}".format(firecracker_pid))
+            sleep(1)
+        except ChildProcessError:
+            break
+
+    msg = 'Shutting down VM after intercepting signal 25, code 0'
+    microvm.check_log_message(msg)
+    metric_line = json.loads(metrics_fd.readlines()[0])
+    assert metric_line["signals"]["sigxfsz"] == 1
 
 
 def test_handled_signals(test_microvm_with_ssh, network_config):
@@ -42,7 +131,7 @@ def test_handled_signals(test_microvm_with_ssh, network_config):
     microvm.spawn()
 
     # We don't need to monitor the memory for this test.
-    microvm.memory_events_queue = None
+    microvm.memory_monitor = None
 
     microvm.basic_config(vcpu_count=2)
 
@@ -57,13 +146,16 @@ def test_handled_signals(test_microvm_with_ssh, network_config):
     # Just validate a simple command: `nproc`
     cmd = "nproc"
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert stderr.read().decode("utf-8") == ""
-    assert int(stdout.read().decode("utf-8")) == 2
+    assert stderr.read() == ""
+    assert int(stdout.read()) == 2
 
     # We have a handler installed for this signal.
-    os.kill(firecracker_pid, SIGRTMIN+1)
+    # The 35 is the SIGRTMIN for musl libc.
+    # We hardcode this value since the SIGRTMIN python reports
+    # is 34, which is likely the one for glibc.
+    os.kill(firecracker_pid, 35)
 
     # Validate the microVM is still up and running.
     _, stdout, stderr = ssh_connection.execute_command(cmd)
-    assert stderr.read().decode("utf-8") == ""
-    assert int(stdout.read().decode("utf-8")) == 2
+    assert stderr.read() == ""
+    assert int(stdout.read()) == 2

@@ -1,9 +1,5 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate libc;
-extern crate utils;
-
 use std::convert::TryInto;
 
 use seccomp::{
@@ -13,42 +9,56 @@ use seccomp::{
 };
 use utils::signal::sigrtmin;
 
-/// The default filter containing the white listed syscall rules required by `Firecracker` to
+/// The default filter containing the allowed syscall rules required by `Firecracker` to
 /// function.
+/// Any non-trivial modification to this allow list needs a proper comment to specify its source
+/// or why the sycall/condition is needed.
 pub fn default_filter() -> Result<SeccompFilter, Error> {
     Ok(SeccompFilter::new(
         vec![
-            allow_syscall(libc::SYS_accept4),
+            // Called by the api thread to receive data on socket
+            allow_syscall_if(
+                libc::SYS_accept4,
+                or![and![Cond::new(
+                    3,
+                    ArgLen::DWORD,
+                    Eq,
+                    libc::SOCK_CLOEXEC as u64
+                )?],],
+            ),
+            // Called for expanding the heap
             allow_syscall(libc::SYS_brk),
+            // Used for metrics and logging, via the helpers in utils/src/time.rs
+            // It's not called on some platforms, because of vdso optimisations. In those cases,
+            // musl falls back to the regular syscall.
             allow_syscall(libc::SYS_clock_gettime),
             allow_syscall(libc::SYS_close),
+            // Needed for vsock
             allow_syscall(libc::SYS_connect),
-            allow_syscall(libc::SYS_dup),
             allow_syscall(libc::SYS_epoll_ctl),
             allow_syscall(libc::SYS_epoll_pwait),
             #[cfg(all(target_env = "gnu", target_arch = "x86_64"))]
             allow_syscall(libc::SYS_epoll_wait),
             allow_syscall(libc::SYS_exit),
             allow_syscall(libc::SYS_exit_group),
+            // Used by snapshotting, drive patching and rescanning
             allow_syscall_if(
                 libc::SYS_fcntl,
                 or![and![
                     Cond::new(1, ArgLen::DWORD, Eq, super::FCNTL_F_SETFD)?,
-                    Cond::new(2, ArgLen::QWORD, Eq, super::FCNTL_FD_CLOEXEC)?,
-                ]],
+                    Cond::new(2, ArgLen::DWORD, Eq, super::FCNTL_FD_CLOEXEC)?,
+                ],],
             ),
+            // Used for drive patching & rescanning, for reading the local timezone
             allow_syscall(libc::SYS_fstat),
+            // Used for snapshotting
+            allow_syscall(libc::SYS_ftruncate),
+            // Used for synchronization
             allow_syscall_if(
                 libc::SYS_futex,
                 or![
                     and![Cond::new(1, ArgLen::DWORD, Eq, super::FUTEX_WAIT_PRIVATE)?],
                     and![Cond::new(1, ArgLen::DWORD, Eq, super::FUTEX_WAKE_PRIVATE)?],
-                    and![Cond::new(
-                        1,
-                        ArgLen::DWORD,
-                        Eq,
-                        super::FUTEX_REQUEUE_PRIVATE
-                    )?],
                     #[cfg(target_env = "gnu")]
                     and![Cond::new(
                         1,
@@ -58,9 +68,13 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     )?],
                 ],
             ),
-            allow_syscall(libc::SYS_getrandom),
+            // Used by glibc's tgkill
+            #[cfg(target_env = "gnu")]
+            allow_syscall(libc::SYS_getpid),
             allow_syscall_if(libc::SYS_ioctl, super::create_ioctl_seccomp_rule()?),
+            // Used by the block device
             allow_syscall(libc::SYS_lseek),
+            // Triggered by musl for some customer workloads
             #[cfg(target_env = "musl")]
             allow_syscall_if(
                 libc::SYS_madvise,
@@ -71,42 +85,81 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     libc::MADV_DONTNEED as u64
                 )?],],
             ),
-            allow_syscall(libc::SYS_mmap),
+            // Used for re-allocating large memory regions, for example vectors
             allow_syscall(libc::SYS_mremap),
+            // Used for freeing memory
             allow_syscall(libc::SYS_munmap),
-            #[cfg(target_arch = "aarch64")]
-            allow_syscall(libc::SYS_newfstatat),
+            allow_syscall_if(
+                libc::SYS_mmap,
+                or![
+                    // Used for reading the timezone in LocalTime::now()
+                    and![Cond::new(3, ArgLen::DWORD, Eq, libc::MAP_SHARED as u64)?],
+                    // Used by the balloon device
+                    and![Cond::new(
+                        3,
+                        ArgLen::DWORD,
+                        Eq,
+                        (libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE) as u64
+                    )?],
+                ],
+            ),
             #[cfg(target_arch = "x86_64")]
             allow_syscall(libc::SYS_open),
+            #[cfg(target_arch = "aarch64")]
             allow_syscall(libc::SYS_openat),
-            #[cfg(target_arch = "x86_64")]
-            allow_syscall(libc::SYS_pipe),
             allow_syscall(libc::SYS_read),
-            allow_syscall(libc::SYS_readv),
+            // Used by the API thread and vsock
             allow_syscall(libc::SYS_recvfrom),
             // SYS_rt_sigreturn is needed in case a fault does occur, so that the signal handler
             // can return. Otherwise we get stuck in a fault loop.
             allow_syscall(libc::SYS_rt_sigreturn),
-            allow_syscall(libc::SYS_sigaltstack),
+            // Used by the API thread and vsock
             allow_syscall_if(
                 libc::SYS_socket,
-                or![and![Cond::new(0, ArgLen::DWORD, Eq, libc::AF_UNIX as u64)?],],
+                or![and![
+                    Cond::new(0, ArgLen::DWORD, Eq, libc::AF_UNIX as u64)?,
+                    Cond::new(
+                        1,
+                        ArgLen::DWORD,
+                        Eq,
+                        (libc::SOCK_STREAM as u64) | (libc::SOCK_CLOEXEC as u64)
+                    )?,
+                    Cond::new(2, ArgLen::DWORD, Eq, 0u64)?
+                ],],
             ),
-            #[cfg(target_arch = "x86_64")]
-            allow_syscall(libc::SYS_stat),
+            // Used to kick vcpus
             allow_syscall_if(
                 libc::SYS_tkill,
                 or![and![Cond::new(
                     1,
                     ArgLen::DWORD,
                     Eq,
-                    (sigrtmin() + super::super::vstate::VCPU_RTSIG_OFFSET) as u64
+                    (sigrtmin() + super::super::vstate::vcpu::VCPU_RTSIG_OFFSET) as u64
                 )?]],
             ),
-            allow_syscall(libc::SYS_timerfd_create),
-            allow_syscall(libc::SYS_timerfd_settime),
+            // Used to kick vcpus, on gnu
+            #[cfg(target_env = "gnu")]
+            allow_syscall(libc::SYS_tgkill),
+            // Needed for rate limiting
+            allow_syscall_if(
+                libc::SYS_timerfd_create,
+                or![and![
+                    Cond::new(0, ArgLen::DWORD, Eq, libc::CLOCK_MONOTONIC as u64)?,
+                    Cond::new(
+                        1,
+                        ArgLen::DWORD,
+                        Eq,
+                        (libc::TFD_CLOEXEC as u64) | (libc::TFD_NONBLOCK as u64)
+                    )?,
+                ],],
+            ),
+            // Needed for rate limiting
+            allow_syscall_if(
+                libc::SYS_timerfd_settime,
+                or![and![Cond::new(1, ArgLen::DWORD, Eq, 0u64)?],],
+            ),
+            allow_syscall(libc::SYS_fsync),
             allow_syscall(libc::SYS_write),
-            allow_syscall(libc::SYS_writev),
         ]
         .into_iter()
         .collect(),
@@ -119,7 +172,7 @@ pub fn get_seccomp_filter(seccomp_level: SeccompLevel) -> Result<BpfProgram, Sec
     match seccomp_level {
         SeccompLevel::None => Ok(vec![]),
         SeccompLevel::Basic => default_filter()
-            .and_then(|filter| Ok(filter.allow_all()))
+            .map(|filter| filter.allow_all())
             .and_then(|filter| filter.try_into())
             .map_err(SeccompError::SeccompFilter),
         SeccompLevel::Advanced => default_filter()

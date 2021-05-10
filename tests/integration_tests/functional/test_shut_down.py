@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests scenarios for shutting down Firecracker/VM."""
 import os
-from subprocess import run, PIPE
 import time
+import json
+import platform
+
+import framework.utils as utils
 
 import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -12,11 +15,12 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 def test_reboot(test_microvm_with_ssh, network_config):
     """Test reboot from guest kernel."""
     test_microvm = test_microvm_with_ssh
+    test_microvm.jailer.daemonize = False
     test_microvm.spawn()
 
     # We don't need to monitor the memory for this test because we are
     # just rebooting and the process dies before pmap gets the RSS.
-    test_microvm.memory_events_queue = None
+    test_microvm.memory_monitor = None
 
     # Set up the microVM with 4 vCPUs, 256 MiB of RAM, 0 network ifaces, and
     # a root file system with the rw permission. The network interfaces is
@@ -41,8 +45,8 @@ def test_reboot(test_microvm_with_ssh, network_config):
     cmd = 'ps -o nlwp {} | tail -1 | awk \'{{print $1}}\''.format(
         firecracker_pid
     )
-    process = run(cmd, stdout=PIPE, stderr=PIPE, shell=True, check=True)
-    nr_of_threads = process.stdout.decode('utf-8').rstrip()
+    _, stdout, _ = utils.run_cmd(cmd)
+    nr_of_threads = stdout.rstrip()
     assert int(nr_of_threads) == 6
 
     # Consume existing metrics
@@ -51,6 +55,7 @@ def test_reboot(test_microvm_with_ssh, network_config):
     # Rebooting Firecracker sends an exit event and should gracefully kill.
     # the instance.
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
     ssh_connection.execute_command("reboot")
 
     while True:
@@ -64,3 +69,11 @@ def test_reboot(test_microvm_with_ssh, network_config):
     # Consume existing metrics
     lines = metrics_fifo.sequential_reader(100)
     assert len(lines) == 1
+
+    if platform.machine() != "x86_64":
+        log_data = test_microvm.log_data
+        assert "Received KVM_SYSTEM_EVENT: type: 2, event: 0" in log_data
+        assert "Vmm is stopping." in log_data
+
+    # Make sure that the FC process was not killed by a seccomp fault
+    assert json.loads(lines[0])["seccomp"]["num_faults"] == 0

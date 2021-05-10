@@ -1,104 +1,79 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Tests that ensure the boot time to init process is within spec.
-
-The boot time tests use the minimal kernel image and root file system found in
-the S3 bucket at https://s3.amazonaws.com/spec.ccfc.min/img/minimal.
-For boot time testing the serial console is not enabled.
-"""
+"""Tests that ensure the boot time to init process is within spec."""
 
 import re
 import time
 import platform
-
-from framework import decorators
 
 # The maximum acceptable boot time in us.
 MAX_BOOT_TIME_US = 150000
 # NOTE: for aarch64 most of the boot time is spent by the kernel to unpack the
 # initramfs in RAM. This time is influenced by the size and the compression
 # method of the used initrd image.
-INITRD_BOOT_TIME_US = 160000 if platform.machine() == "x86_64" else 500000
+INITRD_BOOT_TIME_US = 180000 if platform.machine() == "x86_64" else 200000
 # TODO: Keep a `current` boot time in S3 and validate we don't regress
 # Regex for obtaining boot time from some string.
 TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
 
-NO_OF_MICROVMS = 10
 
-
-def test_single_microvm_boottime_no_network(test_microvm_with_boottime):
-    """Check guest boottime of microvm without network."""
-    _ = _configure_vm(test_microvm_with_boottime)
+def test_no_boottime(test_microvm_with_api):
+    """Check that boot timer device not present by default."""
+    _ = _configure_and_run_vm(test_microvm_with_api)
     time.sleep(0.4)
-    boottime_us = _test_microvm_boottime(test_microvm_with_boottime.log_data)
+    timestamps = re.findall(TIMESTAMP_LOG_REGEX,
+                            test_microvm_with_api.log_data)
+    assert not timestamps
+
+
+def test_boottime_no_network(test_microvm_with_boottime):
+    """Check boot time of microVM without network."""
+    vm = test_microvm_with_boottime
+    vm.jailer.extra_args.update(
+        {'boot-timer': None}
+    )
+    _ = _configure_and_run_vm(vm)
+    time.sleep(0.4)
+    boottime_us = _test_microvm_boottime(
+        vm.log_data)
     print("Boot time with no network is: " + str(boottime_us) + " us")
 
 
-@decorators.test_context('boottime', NO_OF_MICROVMS)
-def test_multiple_microvm_boottime_no_network(test_multiple_microvms):
-    """Check guest boottime without network when spawning multiple microvms."""
-    microvms = test_multiple_microvms
-    assert microvms
-    assert len(microvms) == NO_OF_MICROVMS
-    log_fifos_data = []
-    for i in range(NO_OF_MICROVMS):
-        _ = _configure_vm(microvms[i])
-        time.sleep(0.4)
-        log_fifos_data.append(microvms[i].log_data)
-    for i in range(NO_OF_MICROVMS):
-        _ = _test_microvm_boottime(log_fifos_data[i])
-
-
-@decorators.test_context('boottime', NO_OF_MICROVMS)
-def test_multiple_microvm_boottime_with_network(
-        test_multiple_microvms,
-        network_config
-):
-    """Check guest boottime with network when spawning multiple microvms."""
-    microvms = test_multiple_microvms
-    assert microvms
-    assert len(microvms) == NO_OF_MICROVMS
-    log_fifos_data = []
-    _taps = []
-    for i in range(NO_OF_MICROVMS):
-        _tap = _configure_vm(microvms[i], {
-            "config": network_config, "iface_id": str(i)
-        })
-        time.sleep(0.4)
-        log_fifos_data.append(microvms[i].log_data)
-        _taps.append(_tap)
-    for i in range(NO_OF_MICROVMS):
-        _ = _test_microvm_boottime(log_fifos_data[i])
-
-
-def test_single_microvm_boottime_with_network(
+def test_boottime_with_network(
         test_microvm_with_boottime,
         network_config
 ):
-    """Check guest boottime of microvm with network."""
-    _tap = _configure_vm(test_microvm_with_boottime, {
+    """Check boot time of microVM with network."""
+    vm = test_microvm_with_boottime
+    vm.jailer.extra_args.update(
+        {'boot-timer': None}
+    )
+    _tap = _configure_and_run_vm(vm, {
         "config": network_config, "iface_id": "1"
     })
     time.sleep(0.4)
-    boottime_us = _test_microvm_boottime(test_microvm_with_boottime.log_data)
+    boottime_us = _test_microvm_boottime(
+            vm.log_data)
     print("Boot time with network configured is: " + str(boottime_us) + " us")
 
 
-def test_single_microvm_initrd_boottime(
+def test_initrd_boottime(
         test_microvm_with_initrd):
-    """Check guest boottime of microvm with initrd."""
-    _tap = _configure_vm(test_microvm_with_initrd, initrd=True)
+    """Check boot time of microVM when using an initrd."""
+    vm = test_microvm_with_initrd
+    vm.jailer.extra_args.update(
+        {'boot-timer': None}
+    )
+    _tap = _configure_and_run_vm(vm, initrd=True)
     time.sleep(0.8)
     boottime_us = _test_microvm_boottime(
-        test_microvm_with_initrd.log_data, max_time_us=INITRD_BOOT_TIME_US)
+        vm.log_data,
+        max_time_us=INITRD_BOOT_TIME_US)
     print("Boot time with initrd is: " + str(boottime_us) + " us")
 
 
 def _test_microvm_boottime(log_fifo_data, max_time_us=MAX_BOOT_TIME_US):
-    """Assert that we meet the minimum boot time.
-
-    TODO: Should use a microVM with the `boottime` capability.
-    """
+    """Auxiliary function for asserting the expected boot time."""
     boot_time_us = 0
     timestamps = re.findall(TIMESTAMP_LOG_REGEX, log_fifo_data)
     if timestamps:
@@ -109,7 +84,7 @@ def _test_microvm_boottime(log_fifo_data, max_time_us=MAX_BOOT_TIME_US):
     return boot_time_us
 
 
-def _configure_vm(microvm, network_info=None, initrd=False):
+def _configure_and_run_vm(microvm, network_info=None, initrd=False):
     """Auxiliary function for preparing microvm before measuring boottime."""
     microvm.spawn()
 

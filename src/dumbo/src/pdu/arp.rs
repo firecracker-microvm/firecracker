@@ -7,14 +7,14 @@
 //! A more detailed view of an ARP frame can be found [here].
 //!
 //! [here]: https://en.wikipedia.org/wiki/Address_Resolution_Protocol
-
 use std::convert::From;
 use std::net::Ipv4Addr;
 use std::result::Result;
 
 use super::bytes::{InnerBytes, NetworkBytes, NetworkBytesMut};
 use super::ethernet::{self, ETHERTYPE_IPV4};
-use crate::mac::{MacAddr, MAC_ADDR_LEN};
+
+use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 
 /// ARP Request operation
 pub const OPER_REQUEST: u16 = 0x0001;
@@ -514,7 +514,8 @@ mod tests {
         {
             let mac = MacAddr::from_bytes_unchecked(&[0; 6]);
             let mut eth =
-                ::pdu::ethernet::EthernetFrame::write_incomplete(a.as_mut(), mac, mac, 0).unwrap();
+                crate::pdu::ethernet::EthernetFrame::write_incomplete(a.as_mut(), mac, mac, 0)
+                    .unwrap();
             let mut arp = EthIPv4ArpFrame::from_bytes_unchecked(eth.inner_mut().payload_mut());
             arp.set_tpa(addr);
         }

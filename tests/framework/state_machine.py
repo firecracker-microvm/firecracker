@@ -24,6 +24,8 @@ class MatchStaticString:
         Preserve built `_input` if partially matches `_string`.
         Return True when `_input` is the same as `_string`.
         """
+        if input_char == '':
+            return False
         self._input += str(input_char)
         if self._input == self._string[:len(self._input)]:
             if len(self._input) == len(self._string):

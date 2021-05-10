@@ -8,6 +8,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use logger::warn;
 use utils::byte_order;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
@@ -38,31 +39,26 @@ const MMIO_VERSION: u32 = 2;
 ///
 /// Typically one page (4096 bytes) of MMIO address space is sufficient to handle this transport
 /// and inner virtio device.
+#[derive(Debug)]
 pub struct MmioTransport {
     device: Arc<Mutex<dyn VirtioDevice>>,
     // The register where feature bits are stored.
-    features_select: u32,
+    pub(crate) features_select: u32,
     // The register where features page is selected.
-    acked_features_select: u32,
-    queue_select: u32,
-    device_status: u32,
-    config_generation: u32,
+    pub(crate) acked_features_select: u32,
+    pub(crate) queue_select: u32,
+    pub(crate) device_status: u32,
+    pub(crate) config_generation: u32,
     mem: GuestMemoryMmap,
-    interrupt_status: Arc<AtomicUsize>,
+    pub(crate) interrupt_status: Arc<AtomicUsize>,
 }
 
 impl MmioTransport {
     /// Constructs a new MMIO transport for the given virtio device.
-    pub fn new(
-        mem: GuestMemoryMmap,
-        device: Arc<Mutex<dyn VirtioDevice>>,
-    ) -> std::io::Result<MmioTransport> {
-        let interrupt_status = device
-            .lock()
-            .expect("Poisoned device lock")
-            .interrupt_status();
+    pub fn new(mem: GuestMemoryMmap, device: Arc<Mutex<dyn VirtioDevice>>) -> MmioTransport {
+        let interrupt_status = device.lock().expect("Poisoned lock").interrupt_status();
 
-        Ok(MmioTransport {
+        MmioTransport {
             device,
             features_select: 0,
             acked_features_select: 0,
@@ -71,11 +67,11 @@ impl MmioTransport {
             config_generation: 0,
             mem,
             interrupt_status,
-        })
+        }
     }
 
     pub fn locked_device(&self) -> MutexGuard<dyn VirtioDevice + 'static> {
-        self.device.lock().expect("Poisoned device lock")
+        self.device.lock().expect("Poisoned lock")
     }
 
     // Gets the encapsulated VirtioDevice.
@@ -111,7 +107,7 @@ impl MmioTransport {
     fn with_queue_mut<F: FnOnce(&mut Queue)>(&mut self, f: F) -> bool {
         if let Some(queue) = self
             .locked_device()
-            .queues()
+            .queues_mut()
             .get_mut(self.queue_select as usize)
         {
             f(queue);
@@ -148,7 +144,7 @@ impl MmioTransport {
         //   notifications in those eventfds, but nothing will happen other
         //   than supurious wakeups.
         // . Do not reset config_generation and keep it monotonically increasing
-        for queue in self.locked_device().queues() {
+        for queue in self.locked_device().queues_mut() {
             *queue = Queue::new(queue.get_max_size());
         }
     }
@@ -179,7 +175,7 @@ impl MmioTransport {
                 let device_activated = self.locked_device().is_activated();
                 if !device_activated && self.are_queues_valid() {
                     self.locked_device()
-                        .activate()
+                        .activate(self.mem.clone())
                         .expect("Failed to activate device");
                 }
             }
@@ -336,14 +332,14 @@ impl BusDevice for MmioTransport {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use utils::byte_order::{read_le_u32, write_le_u32};
 
     use super::*;
     use utils::eventfd::EventFd;
     use vm_memory::GuestMemoryMmap;
 
-    struct DummyDevice {
+    pub(crate) struct DummyDevice {
         acked_features: u64,
         avail_features: u64,
         interrupt_evt: EventFd,
@@ -355,7 +351,7 @@ mod tests {
     }
 
     impl DummyDevice {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             DummyDevice {
                 acked_features: 0,
                 avail_features: 0,
@@ -403,12 +399,16 @@ mod tests {
             self.acked_features = acked_features;
         }
 
-        fn activate(&mut self) -> ActivateResult {
+        fn activate(&mut self, _: GuestMemoryMmap) -> ActivateResult {
             self.device_activated = true;
             Ok(())
         }
 
-        fn queues(&mut self) -> &mut [Queue] {
+        fn queues(&self) -> &[Queue] {
+            &self.queues
+        }
+
+        fn queues_mut(&mut self) -> &mut [Queue] {
             &mut self.queues
         }
 
@@ -441,7 +441,7 @@ mod tests {
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
         assert!(dummy.reset().is_none());
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy))).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(dummy)));
 
         // We just make sure here that the implementation of a mmio device behaves as we expect,
         // given a known virtio device implementation (the dummy device).
@@ -470,7 +470,7 @@ mod tests {
     #[test]
     fn test_bus_device_read() {
         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new()))).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
 
         let mut buf = vec![0xff, 0, 0xfe, 0];
         let buf_copy = buf.to_vec();
@@ -549,7 +549,7 @@ mod tests {
     fn test_bus_device_write() {
         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
         let dummy_dev = Arc::new(Mutex::new(DummyDevice::new()));
-        let mut d = MmioTransport::new(m, dummy_dev.clone()).unwrap();
+        let mut d = MmioTransport::new(m, dummy_dev.clone());
         let mut buf = vec![0; 5];
         write_le_u32(&mut buf[..4], 1);
 
@@ -706,7 +706,7 @@ mod tests {
     #[test]
     fn test_bus_device_activate() {
         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new()))).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
 
         assert!(!d.are_queues_valid());
         assert!(!d.locked_device().is_activated());
@@ -824,7 +824,7 @@ mod tests {
     #[test]
     fn test_bus_device_reset() {
         let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
-        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new()))).unwrap();
+        let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
         let mut buf = vec![0; 4];
 
         assert!(!d.are_queues_valid());

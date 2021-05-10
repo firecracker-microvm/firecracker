@@ -1,16 +1,19 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::convert::TryInto;
+use std::convert::{From, TryInto};
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 use libc::O_NONBLOCK;
+use serde::Deserialize;
 
-use rate_limiter::{RateLimiter, TokenBucket};
+use rate_limiter::{BucketUpdate, RateLimiter, TokenBucket};
 
+/// Wrapper for configuring the balloon device.
+pub mod balloon;
 /// Wrapper for configuring the microVM boot source.
 pub mod boot_source;
 /// Wrapper for configuring the block devices.
@@ -23,8 +26,12 @@ pub mod logger;
 pub mod machine_config;
 /// Wrapper for configuring the metrics.
 pub mod metrics;
+/// Wrapper for configuring the MMDS.
+pub mod mmds;
 /// Wrapper for configuring the network devices attached to the microVM.
 pub mod net;
+/// Wrapper for configuring microVM snapshots and the microVM state.
+pub mod snapshot;
 /// Wrapper for configuring the vsock devices attached to the microVM.
 pub mod vsock;
 
@@ -49,12 +56,6 @@ pub struct TokenBucketConfig {
     pub refill_time: u64,
 }
 
-impl Into<TokenBucket> for TokenBucketConfig {
-    fn into(self) -> TokenBucket {
-        TokenBucket::new(self.size, self.one_time_burst, self.refill_time)
-    }
-}
-
 /// A public-facing, stateless structure, holding all the data we need to create a RateLimiter
 /// (live) object.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
@@ -66,14 +67,46 @@ pub struct RateLimiterConfig {
     pub ops: Option<TokenBucketConfig>,
 }
 
-impl RateLimiterConfig {
-    /// Updates the configuration, merging in new options from `new_config`.
-    pub fn update(&mut self, new_config: &RateLimiterConfig) {
-        if new_config.bandwidth.is_some() {
-            self.bandwidth = new_config.bandwidth;
+/// A public-facing, stateless structure, specifying RateLimiter properties updates.
+pub struct RateLimiterUpdate {
+    /// Possible update to the RateLimiter::bandwidth bucket.
+    pub bandwidth: BucketUpdate,
+    /// Possible update to the RateLimiter::ops bucket.
+    pub ops: BucketUpdate,
+}
+
+fn get_bucket_update(tb_cfg: &Option<TokenBucketConfig>) -> BucketUpdate {
+    match tb_cfg {
+        // There is data to update.
+        Some(tb_cfg) => {
+            TokenBucket::new(
+                tb_cfg.size,
+                tb_cfg.one_time_burst.unwrap_or(0),
+                tb_cfg.refill_time,
+            )
+            // Updated active rate-limiter.
+            .map(BucketUpdate::Update)
+            // Updated/deactivated rate-limiter
+            .unwrap_or(BucketUpdate::Disabled)
         }
-        if new_config.ops.is_some() {
-            self.ops = new_config.ops;
+        // No update to the rate-limiter.
+        None => BucketUpdate::None,
+    }
+}
+
+impl From<Option<RateLimiterConfig>> for RateLimiterUpdate {
+    fn from(cfg: Option<RateLimiterConfig>) -> Self {
+        if let Some(cfg) = cfg {
+            RateLimiterUpdate {
+                bandwidth: get_bucket_update(&cfg.bandwidth),
+                ops: get_bucket_update(&cfg.ops),
+            }
+        } else {
+            // No update to the rate-limiter.
+            RateLimiterUpdate {
+                bandwidth: BucketUpdate::None,
+                ops: BucketUpdate::None,
+            }
         }
     }
 }
@@ -86,10 +119,10 @@ impl TryInto<RateLimiter> for RateLimiterConfig {
         let ops = self.ops.unwrap_or_default();
         RateLimiter::new(
             bw.size,
-            bw.one_time_burst,
+            bw.one_time_burst.unwrap_or(0),
             bw.refill_time,
             ops.size,
-            ops.one_time_burst,
+            ops.one_time_burst.unwrap_or(0),
             ops.refill_time,
         )
     }
@@ -125,17 +158,7 @@ mod tests {
         const ONE_TIME_BURST: u64 = 1024;
         const REFILL_TIME: u64 = 1000;
 
-        let b: TokenBucket = TokenBucketConfig {
-            size: SIZE,
-            one_time_burst: Some(ONE_TIME_BURST),
-            refill_time: REFILL_TIME,
-        }
-        .into();
-        assert_eq!(b.capacity(), SIZE);
-        assert_eq!(b.one_time_burst(), ONE_TIME_BURST);
-        assert_eq!(b.refill_time_ms(), REFILL_TIME);
-
-        let mut rlconf = RateLimiterConfig {
+        let rlconf = RateLimiterConfig {
             bandwidth: Some(TokenBucketConfig {
                 size: SIZE,
                 one_time_burst: Some(ONE_TIME_BURST),
@@ -154,24 +177,6 @@ mod tests {
         assert_eq!(rl.ops().unwrap().capacity(), SIZE * 2);
         assert_eq!(rl.ops().unwrap().one_time_burst(), 0);
         assert_eq!(rl.ops().unwrap().refill_time_ms(), REFILL_TIME * 2);
-
-        rlconf.update(&RateLimiterConfig {
-            bandwidth: Some(TokenBucketConfig {
-                size: SIZE * 2,
-                one_time_burst: Some(ONE_TIME_BURST * 2),
-                refill_time: REFILL_TIME * 2,
-            }),
-            ops: None,
-        });
-        assert_eq!(rlconf.bandwidth.unwrap().size, SIZE * 2);
-        assert_eq!(
-            rlconf.bandwidth.unwrap().one_time_burst,
-            Some(ONE_TIME_BURST * 2)
-        );
-        assert_eq!(rlconf.bandwidth.unwrap().refill_time, REFILL_TIME * 2);
-        assert_eq!(rlconf.ops.unwrap().size, SIZE * 2);
-        assert_eq!(rlconf.ops.unwrap().one_time_burst, None);
-        assert_eq!(rlconf.ops.unwrap().refill_time, REFILL_TIME * 2);
     }
 
     #[test]

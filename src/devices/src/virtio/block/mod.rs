@@ -3,9 +3,11 @@
 
 pub mod device;
 pub mod event_handler;
+pub mod persist;
 pub mod request;
+pub mod test_utils;
 
-pub use self::device::{build_config_space, Block};
+pub use self::device::{Block, CacheType};
 pub use self::event_handler::*;
 pub use self::request::*;
 

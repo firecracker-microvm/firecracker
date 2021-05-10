@@ -16,11 +16,11 @@ pub mod msr;
 /// Logic for configuring x86_64 registers.
 pub mod regs;
 
+use crate::InitrdConfig;
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
 use vm_memory::{
     Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion,
 };
-use InitrdConfig;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `ByteValued`) where:
@@ -48,8 +48,8 @@ pub enum Error {
 
 // Where BIOS/VGA magic would live on a real PC.
 const EBDA_START: u64 = 0x9fc00;
-const FIRST_ADDR_PAST_32BITS: u64 = (1 << 32);
-const MEM_32BIT_GAP_SIZE: u64 = (768 << 20);
+const FIRST_ADDR_PAST_32BITS: u64 = 1 << 32;
+const MEM_32BIT_GAP_SIZE: u64 = 768 << 20;
 /// The start of the memory area reserved for MMIO devices.
 pub const MMIO_MEM_START: u64 = FIRST_ADDR_PAST_32BITS - MEM_32BIT_GAP_SIZE;
 

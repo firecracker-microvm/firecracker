@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::super::VmmAction;
-use logger::{Metric, METRICS};
+use crate::parsed_request::{Error, ParsedRequest};
+use crate::request::Body;
 #[cfg(target_arch = "aarch64")]
-use request::StatusCode;
-use request::{Body, Error, ParsedRequest};
+use crate::request::StatusCode;
+use logger::{IncMetric, METRICS};
+
+use serde::{Deserialize, Serialize};
 
 // The names of the members from this enum must precisely correspond (as a string) to the possible
 // values of "action_type" from the json request body. This is useful to get a strongly typed
@@ -25,7 +28,7 @@ struct ActionBody {
     action_type: ActionType,
 }
 
-pub fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.actions_count.inc();
     let action_body = serde_json::from_slice::<ActionBody>(body.raw()).map_err(|e| {
         METRICS.put_api_requests.actions_fails.inc();
@@ -33,8 +36,8 @@ pub fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
     })?;
 
     match action_body.action_type {
-        ActionType::FlushMetrics => Ok(ParsedRequest::Sync(VmmAction::FlushMetrics)),
-        ActionType::InstanceStart => Ok(ParsedRequest::Sync(VmmAction::StartMicroVm)),
+        ActionType::FlushMetrics => Ok(ParsedRequest::new_sync(VmmAction::FlushMetrics)),
+        ActionType::InstanceStart => Ok(ParsedRequest::new_sync(VmmAction::StartMicroVm)),
         ActionType::SendCtrlAltDel => {
             // SendCtrlAltDel not supported on aarch64.
             #[cfg(target_arch = "aarch64")]
@@ -44,7 +47,7 @@ pub fn parse_put_actions(body: &Body) -> Result<ParsedRequest, Error> {
             ));
 
             #[cfg(target_arch = "x86_64")]
-            Ok(ParsedRequest::Sync(VmmAction::SendCtrlAltDel))
+            Ok(ParsedRequest::new_sync(VmmAction::SendCtrlAltDel))
         }
     }
 }
@@ -62,7 +65,7 @@ mod tests {
                 "action_type": "InstanceStart"
             }"#;
 
-            let req: ParsedRequest = ParsedRequest::Sync(VmmAction::StartMicroVm);
+            let req: ParsedRequest = ParsedRequest::new_sync(VmmAction::StartMicroVm);
             let result = parse_put_actions(&Body::new(json));
             assert!(result.is_ok());
             assert!(result.unwrap().eq(&req));
@@ -74,7 +77,7 @@ mod tests {
                 "action_type": "SendCtrlAltDel"
             }"#;
 
-            let req: ParsedRequest = ParsedRequest::Sync(VmmAction::SendCtrlAltDel);
+            let req: ParsedRequest = ParsedRequest::new_sync(VmmAction::SendCtrlAltDel);
             let result = parse_put_actions(&Body::new(json));
             assert!(result.is_ok());
             assert!(result.unwrap().eq(&req));
@@ -95,7 +98,7 @@ mod tests {
                 "action_type": "FlushMetrics"
             }"#;
 
-            let req: ParsedRequest = ParsedRequest::Sync(VmmAction::FlushMetrics);
+            let req: ParsedRequest = ParsedRequest::new_sync(VmmAction::FlushMetrics);
             let result = parse_put_actions(&Body::new(json));
             assert!(result.is_ok());
             assert!(result.unwrap().eq(&req));

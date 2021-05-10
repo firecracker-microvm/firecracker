@@ -4,27 +4,18 @@
 #![deny(missing_docs)]
 //! Provides helper logic for parsing and writing protocol data units, and minimalist
 //! implementations of a TCP listener, a TCP connection, and an HTTP/1.1 server.
+pub mod pdu;
+pub mod tcp;
 
-#[macro_use]
-extern crate bitflags;
-
-extern crate logger;
-extern crate mmds;
-extern crate serde;
-extern crate utils;
-
-mod mac;
-pub mod ns;
-mod pdu;
-mod tcp;
-
-pub use mac::{MacAddr, MAC_ADDR_LEN};
-pub use pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
-pub use pdu::ethernet::{
+pub use crate::pdu::arp::{EthIPv4ArpFrame, ETH_IPV4_FRAME_LEN};
+pub use crate::pdu::ethernet::{
     EthernetFrame, ETHERTYPE_ARP, ETHERTYPE_IPV4, PAYLOAD_OFFSET as ETHERNET_PAYLOAD_OFFSET,
 };
-pub use pdu::ipv4::{IPv4Packet, PROTOCOL_TCP, PROTOCOL_UDP};
-pub use pdu::udp::{UdpDatagram, UDP_HEADER_SIZE};
+pub use crate::pdu::ipv4::{IPv4Packet, PROTOCOL_TCP, PROTOCOL_UDP};
+pub use crate::pdu::udp::{UdpDatagram, UDP_HEADER_SIZE};
+
+use utils::net::mac::MacAddr;
+
 use std::ops::Index;
 
 /// Represents a generalization of a borrowed `[u8]` slice.

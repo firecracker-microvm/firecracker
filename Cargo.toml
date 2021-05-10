@@ -1,5 +1,6 @@
 [workspace]
 members = ["src/firecracker", "src/jailer"]
+default-members = ["src/firecracker"]
 
 [profile.dev]
 panic = "abort"
@@ -7,3 +8,6 @@ panic = "abort"
 [profile.release]
 panic = "abort"
 lto = true
+
+[patch.crates-io]
+kvm-bindings = { git = "https://github.com/firecracker-microvm/kvm-bindings", tag = "v0.4.0-1", features = ["fam-wrappers"] }

@@ -1,5 +1,5 @@
-extern crate libc;
-extern crate vmm_sys_util;
+// Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 use libc::c_int;
 pub use vmm_sys_util::signal::*;

@@ -4,19 +4,22 @@ FROM ubuntu:18.04
 # The Rust toolchain layer will get updated most frequently, but we could keep the system
 # dependencies layer intact for much longer.
 
-ARG RUST_TOOLCHAIN="1.39.0"
+ARG RUST_TOOLCHAIN="1.46.0"
 ARG TINI_VERSION_TAG="v0.18.0"
 ARG TMP_BUILD_DIR=/tmp/build
+ARG TMP_POERTY_DIR=/tmp/poetry
 ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
 ARG CARGO_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_registry"
 ARG CARGO_GIT_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_git_registry"
+ARG DEBIAN_FRONTEND=noninteractive
 
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
 ENV PATH="$PATH:$CARGO_HOME/bin"
+ENV LC_ALL=C.UTF-8
 
-# Install system dependecies
+# Install system dependencies
 #
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
@@ -27,16 +30,15 @@ RUN apt-get update \
         g++ \
         gcc \
         gcc-aarch64-linux-gnu \
+        git \
         iperf3 \
         iproute2 \
         jq \
-        libcurl4-openssl-dev \
         libdw-dev \
         libiberty-dev \
-        libssl-dev \
+        libssl1.0-dev \
         lsof \
         make \
-        musl-tools \
         net-tools \
         openssh-client \
         pkgconf \
@@ -44,25 +46,26 @@ RUN apt-get update \
         python3 \
         python3-dev \
         python3-pip \
-        python3-venv    \
+        python3-venv \
+        ruby-dev \
         zlib1g-dev \
         screen \
+        tzdata \
+        npm \
     && python3 -m pip install \
         setuptools \
         wheel \
-    && python3 -m pip install \
-        boto3 \
-        nsenter \
-        pycodestyle \
-        pydocstyle \
-        pylint \
-        pytest \
-        pytest-timeout \
-        pyyaml \
-        requests \
-        requests-unixsocket \
-        retry \
+    && python3 -m pip install --upgrade pip \ 
+    && npm install -g @apidevtools/swagger-cli \
+    && gem install chef-utils:16.6.14 mdl \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install poetry
+RUN mkdir "$TMP_POERTY_DIR"
+COPY tools/devctr/pyproject.toml "$TMP_POERTY_DIR/pyproject.toml"
+RUN cd "$TMP_POERTY_DIR" \
+    &&  poetry config virtualenvs.create false \
+    &&  poetry install --no-dev --no-interaction
 
 # Install the Rust toolchain
 #
@@ -71,14 +74,25 @@ RUN mkdir "$TMP_BUILD_DIR" \
         && rustup target add x86_64-unknown-linux-musl \
         && rustup component add rustfmt \
         && rustup component add clippy-preview \
+        && rustup install "stable" \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
-            && cargo install cargo-audit \
+            && cargo +"stable" install cargo-audit \
             && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
         && rm -rf "$CARGO_HOME/git" \
         && ln -s "$CARGO_GIT_REGISTRY_DIR" "$CARGO_HOME/git" \
+    && cd / \
+    && rm -rf "$TMP_BUILD_DIR"
+
+# Build iperf3-vsock
+RUN mkdir "$TMP_BUILD_DIR" && cd "$TMP_BUILD_DIR" \
+    && git clone https://github.com/stefano-garzarella/iperf-vsock \
+    && cd iperf-vsock && git checkout 9245f9a \
+    && mkdir build && cd build \
+    && ../configure "LDFLAGS=--static" --disable-shared && make \
+    && cp src/iperf3 /usr/local/bin/iperf3-vsock \
     && cd / \
     && rm -rf "$TMP_BUILD_DIR"
 

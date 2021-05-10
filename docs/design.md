@@ -73,10 +73,10 @@ runs the following threads: API, VMM and vCPU(s). The API thread is responsible
 for Firecracker's API server and associated control plane. It's never in the
 fast path of the virtual machine. The VMM thread exposes the machine model,
 minimal legacy device model, microVM metadata service (MMDS) and VirtIO device
-emulated Net and Block devices, complete with I/O rate limiting. In addition to
-them, there are one or more vCPU threads (one per guest CPU core). They are
-created via KVM and run the `KVM_RUN` main loop. They execute synchronous I/O
-and memory-mapped I/O operations on devices models.
+emulated Net, Block and Vsock devices, complete with I/O rate limiting. In
+addition to them, there are one or more vCPU threads (one per guest CPU core).
+They are created via KVM and run the `KVM_RUN` main loop. They execute
+synchronous I/O and memory-mapped I/O operations on devices models.
 
 ### Threat Containment
 
@@ -139,11 +139,25 @@ that support bursts or specific bandwidth/operations limitations.
 
 ### MicroVM Metadata Service
 
-Firecracker microVMs expose access to a minimal the MicroVM-Metadata Service
+Firecracker microVMs expose access to a minimal MicroVM-Metadata Service
 (MMDS) to the guest through the API endpoint. The metadata stored by the
 service is fully configured by users.
 
-### Jailing
+### Sandboxing
+
+#### __Firecracker process__
+
+##### Seccomp
+
+Seccomp filters are used by default to further limit the system calls Firecracker
+can use. There are 3 possible levels of seccomp filtering, configurable by passing
+a command line argument to Firecracker: 0 (disabled), 1 (allows a set of
+trusted system calls by their identifiers) and 2 (allows a set of trusted
+system calls with trusted parameter values), the latter being the most
+restrictive and the recommended one. The filters are loaded in the Firecracker
+process, immediately before the execution of the untrusted guest code starts.
+
+#### __Jailer process__
 
 The Firecracker process can be started by another `jailer` process. The jailer
 sets up system resources that require elevated permissions (e.g., cgroup,
@@ -152,17 +166,9 @@ then runs as an unprivileged process. Past this point, Firecracker can only
 access resources that a privileged third-party grants access to (e.g., by
 copying a file into the chroot, or passing a file descriptor).
 
-Seccomp filters are used to further limit the system calls Firecracker can use.
-There are 3 possible levels of seccomp filtering, configurable by passing a
-command line argument to the jailer: 0 (disabled), 1 (whitelists a set of
-trusted system calls by their identifiers) and 2 (whitelists a set of trusted
-system calls with trusted parameter values), the latter being the most
-restrictive and the recommended one. The filters are loaded in the Firecracker
-process, immediately before the execution of the untrusted guest code starts.
+##### Cgroups and Quotas
 
-#### Cgroups and Quotas
-
-Each Firecracker microVM is further encapsulated into a cgroup. By setting the
+Each Firecracker microVM can be further encapsulated into a cgroup. By setting the
 affinity of the Firecracker microVM to a node via the cpuset subsystem, one
 can prevent the migration of said microVM from one node to another, something
 that would impair performance and cause unnecessary contention on shared

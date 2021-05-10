@@ -11,5 +11,6 @@
 //! Provides tools for representing and handling network related concepts like MAC addresses and
 //! network interfaces.
 
-mod tap;
-pub use self::tap::{Error as TapError, Tap};
+/// Provides IPv4 address utility methods.
+pub mod ipv4addr;
+pub mod mac;

@@ -13,13 +13,13 @@
 
 use std::num::{NonZeroU16, NonZeroU64, Wrapping};
 
-use logger::{Metric, METRICS};
-use mmds::parse_request;
-use pdu::bytes::NetworkBytes;
-use pdu::tcp::TcpSegment;
-use pdu::Incomplete;
-use tcp::connection::{Connection, PassiveOpenError, RecvStatusFlags};
-use tcp::{seq_after, NextSegmentStatus, MAX_WINDOW_SIZE};
+use crate::pdu::{bytes::NetworkBytes, tcp::TcpSegment, Incomplete};
+use crate::tcp::{
+    connection::{Connection, PassiveOpenError, RecvStatusFlags},
+    seq_after, NextSegmentStatus, MAX_WINDOW_SIZE,
+};
+use logger::{IncMetric, METRICS};
+use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
 use utils::time::timestamp_cycles;
 
 // TODO: These are currently expressed in cycles. Normally, they would be the equivalent of a
@@ -47,6 +47,8 @@ pub struct Endpoint {
     receive_buf_left: usize,
     // This is filled with the HTTP response bytes after we parse a request and generate the reply.
     response_buf: Vec<u8>,
+    // Initial response sequence, used to track if the entire `response_buf` was sent.
+    initial_response_seq: Wrapping<u32>,
     // Represents the sequence number associated with the first byte from response_buf.
     response_seq: Wrapping<u32>,
     // The TCP connection that does all the receiving/sending work.
@@ -101,6 +103,7 @@ impl Endpoint {
             // created via passive open only, so this points to the sequence number right after
             // the SYNACK. It might stop working like that if/when the implementation changes.
             response_seq: connection.first_not_sent(),
+            initial_response_seq: connection.first_not_sent(),
             connection,
             last_segment_received_timestamp: timestamp_cycles(),
             eviction_threshold: eviction_threshold.get(),
@@ -120,7 +123,11 @@ impl Endpoint {
         )
     }
 
-    pub fn receive_segment<T: NetworkBytes>(&mut self, s: &TcpSegment<T>) {
+    pub fn receive_segment<T: NetworkBytes>(
+        &mut self,
+        s: &TcpSegment<T>,
+        callback: fn(Request) -> Response,
+    ) {
         if self.stop_receiving {
             return;
         }
@@ -160,7 +167,7 @@ impl Endpoint {
 
         if !self.response_buf.is_empty()
             && self.connection.highest_ack_received()
-                == self.response_seq + Wrapping(self.response_buf.len() as u32)
+                == self.initial_response_seq + Wrapping(self.response_buf.len() as u32)
         {
             // If we got here, then we still have some response bytes to send (which are
             // stored in self.response_buf).
@@ -169,6 +176,7 @@ impl Endpoint {
             // response has been successfully received. Set the new response_seq and clear
             // the response_buf.
             self.response_seq = self.connection.highest_ack_received();
+            self.initial_response_seq = self.response_seq;
             self.response_buf.clear();
         }
 
@@ -177,7 +185,7 @@ impl Endpoint {
             // available in self.receive_buf.
 
             // The following is some ugly but workable code that attempts to find the end of an
-            // HTTP 1.x request in receive_buf. We need to do this for now because parse_request()
+            // HTTP 1.x request in receive_buf. We need to do this for now because parse_request_bytes()
             // expects the entire request contents as parameter.
             if self.receive_buf_left > 2 {
                 let b = self.receive_buf.as_mut();
@@ -194,7 +202,8 @@ impl Endpoint {
                         };
 
                         // We found a potential request, let's parse it.
-                        let response = parse_request(&b[..end]);
+                        let response = parse_request_bytes(&b[..end], callback);
+
                         // The unwrap is safe because a Vec will allocate more space until all the
                         // writes succeed.
                         response.write_all(&mut self.response_buf).unwrap();
@@ -238,7 +247,11 @@ impl Endpoint {
         mss_reserved: u16,
     ) -> Option<Incomplete<TcpSegment<'a, &'a mut [u8]>>> {
         let tcp_payload_src = if !self.response_buf.is_empty() {
-            Some((self.response_buf.as_slice(), self.response_seq))
+            let offset = self.response_seq - self.initial_response_seq;
+            Some((
+                self.response_buf.split_at(offset.0 as usize).1,
+                self.response_seq,
+            ))
         } else {
             None
         };
@@ -249,7 +262,10 @@ impl Endpoint {
             tcp_payload_src,
             timestamp_cycles(),
         ) {
-            Ok(something) => something,
+            Ok(write_result) => write_result.map(|segment| {
+                self.response_seq += Wrapping(segment.inner().payload_len() as u32);
+                segment
+            }),
             Err(_) => {
                 METRICS.mmds.tx_errors.inc();
                 None
@@ -288,6 +304,67 @@ impl Endpoint {
     }
 }
 
+fn build_response(http_version: Version, status_code: StatusCode, body: Body) -> Response {
+    let mut response = Response::new(http_version, status_code);
+    response.set_body(body);
+    response
+}
+
+/// Parses the request bytes and builds a `micro_http::Response` by the given callback function.
+fn parse_request_bytes(byte_stream: &[u8], callback: fn(Request) -> Response) -> Response {
+    let request = Request::try_from(byte_stream);
+    match request {
+        Ok(request) => callback(request),
+        Err(e) => match e {
+            RequestError::BodyWithoutPendingRequest => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(e.to_string()),
+            ),
+            RequestError::HeadersWithoutPendingRequest => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(e.to_string()),
+            ),
+            RequestError::InvalidHttpVersion(err_msg) => build_response(
+                Version::default(),
+                StatusCode::NotImplemented,
+                Body::new(err_msg.to_string()),
+            ),
+            RequestError::InvalidUri(err_msg) => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(err_msg.to_string()),
+            ),
+            RequestError::InvalidHttpMethod(err_msg) => build_response(
+                Version::default(),
+                StatusCode::NotImplemented,
+                Body::new(err_msg.to_string()),
+            ),
+            RequestError::InvalidRequest => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new("Invalid request.".to_string()),
+            ),
+            RequestError::HeaderError(err) => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(err.to_string()),
+            ),
+            RequestError::Overflow => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(e.to_string()),
+            ),
+            RequestError::Underflow => build_response(
+                Version::default(),
+                StatusCode::BadRequest,
+                Body::new(e.to_string()),
+            ),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,8 +372,9 @@ mod tests {
     use std::fmt;
     use std::str::from_utf8;
 
-    use pdu::tcp::Flags as TcpFlags;
-    use tcp::connection::tests::ConnectionTester;
+    use crate::pdu::tcp::Flags as TcpFlags;
+    use crate::tcp::connection::tests::ConnectionTester;
+    use crate::tcp::tests::mock_callback;
 
     impl Endpoint {
         pub fn set_eviction_threshold(&mut self, value: u64) {
@@ -361,7 +439,7 @@ mod tests {
         ctrl.set_flags_after_ns(TcpFlags::ACK);
         ctrl.set_ack_number(endpoint_isn.wrapping_add(1));
         assert!(!e.connection.is_established());
-        e.receive_segment(&ctrl);
+        e.receive_segment(&ctrl, mock_callback);
         assert!(e.connection.is_established());
 
         // Also, there should be nothing to send now anymore, nor any timeout pending.
@@ -374,7 +452,7 @@ mod tests {
             data.set_flags_after_ns(TcpFlags::ACK);
             data.set_sequence_number(remote_isn.wrapping_add(1));
             data.set_ack_number(endpoint_isn.wrapping_add(1));
-            e.receive_segment(&data);
+            e.receive_segment(&data, mock_callback);
         }
 
         assert_eq!(e.receive_buf_left, incomplete_request.len());
@@ -403,7 +481,7 @@ mod tests {
             data.set_flags_after_ns(TcpFlags::ACK);
             data.set_sequence_number(remote_first_not_sent);
             data.set_ack_number(endpoint_isn + 1);
-            e.receive_segment(&data);
+            e.receive_segment(&data, mock_callback);
         }
 
         remote_first_not_sent =
@@ -421,8 +499,8 @@ mod tests {
             assert_eq!(s.inner().ack_number(), remote_first_not_sent);
 
             let response = from_utf8(s.inner().payload()).unwrap();
-            // The response should contain "404" because the MMDS is empty.
-            assert!(response.contains("404"));
+            // The response should contain "200" because the HTTP request is correct.
+            assert!(response.contains("200"));
 
             endpoint_first_not_sent = s
                 .inner()
@@ -455,7 +533,7 @@ mod tests {
                 data.set_flags_after_ns(TcpFlags::ACK);
                 data.set_sequence_number(remote_first_not_sent);
                 data.set_ack_number(endpoint_first_not_sent);
-                e.receive_segment(&data);
+                e.receive_segment(&data, mock_callback);
             }
 
             remote_first_not_sent = remote_first_not_sent.wrapping_add(request.len() as u32);
@@ -469,7 +547,7 @@ mod tests {
                 assert_eq!(s.inner().ack_number(), remote_first_not_sent);
 
                 let response = from_utf8(s.inner().payload()).unwrap();
-                assert!(response.contains("404"));
+                assert!(response.contains("200"));
 
                 endpoint_first_not_sent =
                     endpoint_first_not_sent.wrapping_add(s.inner().payload_len() as u32);
@@ -501,7 +579,7 @@ mod tests {
             data.set_flags_after_ns(TcpFlags::ACK);
             data.set_sequence_number(remote_first_not_sent);
             data.set_ack_number(endpoint_first_not_sent);
-            e.receive_segment(&data);
+            e.receive_segment(&data, mock_callback);
         }
 
         {
@@ -510,5 +588,80 @@ mod tests {
                 .unwrap();
             assert_eq!(s.inner().flags_after_ns(), TcpFlags::RST);
         }
+    }
+
+    #[test]
+    fn test_parse_request_bytes_error() {
+        // Test unsupported HTTP version.
+        let request_bytes = b"GET http://169.254.169.255/ HTTP/2.0\r\n\r\n";
+        let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
+        expected_response.set_body(Body::new("Unsupported HTTP version.".to_string()));
+        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        assert_eq!(actual_response, expected_response);
+
+        // Test invalid URI (empty URI).
+        let request_bytes = b"GET   HTTP/1.0\r\n\r\n";
+        let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
+        expected_response.set_body(Body::new("Empty URI not allowed.".to_string()));
+        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        assert_eq!(actual_response, expected_response);
+
+        // Test invalid HTTP methods.
+        let invalid_methods = ["POST", "HEAD", "DELETE", "CONNECT", "OPTIONS", "TRACE"];
+        for method in invalid_methods.iter() {
+            let request_bytes = format!("{} http://169.254.169.255/ HTTP/1.0\r\n\r\n", method);
+            let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
+            expected_response.set_body(Body::new("Unsupported HTTP method.".to_string()));
+            let actual_response = parse_request_bytes(request_bytes.as_bytes(), mock_callback);
+            assert_eq!(actual_response, expected_response);
+        }
+
+        // Test valid methods.
+        let valid_methods = ["PUT", "PATCH", "GET"];
+        for method in valid_methods.iter() {
+            let request_bytes = format!("{} http://169.254.169.255/ HTTP/1.0\r\n\r\n", method);
+            let expected_response = Response::new(Version::Http11, StatusCode::OK);
+            let actual_response = parse_request_bytes(request_bytes.as_bytes(), mock_callback);
+            assert_eq!(actual_response, expected_response);
+        }
+
+        // Test invalid HTTP format.
+        let request_bytes = b"GET / HTTP/1.1\r\n";
+        let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
+        expected_response.set_body(Body::new("Invalid request.".to_string()));
+        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        assert_eq!(actual_response, expected_response);
+
+        // Test invalid HTTP headers.
+        let request_bytes = b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Transfer-Encoding: identity; q=0\r\n\
+                                 Content-Length: 26\r\n\r\nthis is not\n\r\na json \nbody";
+        assert!(parse_request_bytes(request_bytes, mock_callback)
+            .body()
+            .is_none());
+
+        let request_bytes = b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Transfer-Encoding: identity; q=0\r\n\
+                                 Content-Length: alpha\r\n\r\nthis is not\n\r\na json \nbody";
+        let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
+        expected_response.set_body(Body::new(
+            "Invalid value. Key:Content-Length; Value: alpha".to_string(),
+        ));
+        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        assert_eq!(actual_response, expected_response);
+
+        let request_bytes = b"PATCH http://localhost/home HTTP/1.1\r\n\
+                                 Expect: 100-continue\r\n\
+                                 Transfer-Encoding: identity; q=0\r\n\
+                                 Content-Length: 67\r\n\
+                                 Accept-Encoding: deflate, compress, *;q=0\r\n\r\nthis is not\n\r\na json \nbody";
+        let mut expected_response = Response::new(Version::Http11, StatusCode::BadRequest);
+        expected_response.set_body(Body::new(
+            "Invalid value. Key:Accept-Encoding; Value: *;q=0".to_string(),
+        ));
+        let actual_response = parse_request_bytes(request_bytes, mock_callback);
+        assert_eq!(actual_response, expected_response);
     }
 }

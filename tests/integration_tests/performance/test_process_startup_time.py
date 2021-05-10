@@ -9,14 +9,26 @@ import time
 
 import host_tools.logging as log_tools
 
-MAX_STARTUP_TIME_CPU_US = {'x86_64': 8000, 'aarch64': 12000}
+MAX_STARTUP_TIME_CPU_US = {'x86_64': 5500, 'aarch64': 2800}
 """ The maximum acceptable startup time in CPU us. """
 # TODO: Keep a `current` startup time in S3 and validate we don't regress
 
 
-def test_startup_time(test_microvm_with_api):
-    """Check the startup time for jailer and Firecracker up to socket bind."""
+def test_startup_time_new_pid_ns(test_microvm_with_api):
+    """Check startup time when jailer is spawned in a new PID namespace."""
     microvm = test_microvm_with_api
+    microvm.bin_cloner_path = None
+    microvm.jailer.new_pid_ns = True
+    _test_startup_time(microvm)
+
+
+def test_startup_time_daemonize(test_microvm_with_api):
+    """Check startup time when jailer spawns Firecracker in a new PID ns."""
+    microvm = test_microvm_with_api
+    _test_startup_time(microvm)
+
+
+def _test_startup_time(microvm):
     microvm.spawn()
 
     microvm.basic_config(vcpu_count=2, mem_size_mib=1024)

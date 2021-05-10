@@ -2,21 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0<Paste>
 
 use super::super::VmmAction;
-use logger::{Metric, METRICS};
-use request::{method_to_error, Body, Error, Method, ParsedRequest, StatusCode};
+use crate::parsed_request::{method_to_error, Error, ParsedRequest};
+use crate::request::{Body, Method, StatusCode};
+use logger::{IncMetric, METRICS};
 use vmm::vmm_config::machine_config::VmConfig;
 
-pub fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
-    Ok(ParsedRequest::Sync(VmmAction::GetVmConfiguration))
+    Ok(ParsedRequest::new_sync(VmmAction::GetVmConfiguration))
 }
 
-pub fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.machine_cfg_count.inc();
     let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|e| {
         METRICS.put_api_requests.machine_cfg_fails.inc();
         Error::SerdeJson(e)
     })?;
+
+    check_unsupported_fields(&vm_config)?;
+
     if vm_config.vcpu_count.is_none()
         || vm_config.mem_size_mib.is_none()
         || vm_config.ht_enabled.is_none()
@@ -26,17 +30,21 @@ pub fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
             "Missing mandatory fields.".to_string(),
         ));
     }
-    Ok(ParsedRequest::Sync(VmmAction::SetVmConfiguration(
+
+    Ok(ParsedRequest::new_sync(VmmAction::SetVmConfiguration(
         vm_config,
     )))
 }
 
-pub fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
+pub(crate) fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.machine_cfg_count.inc();
     let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|e| {
         METRICS.patch_api_requests.machine_cfg_fails.inc();
         Error::SerdeJson(e)
     })?;
+
+    check_unsupported_fields(&vm_config)?;
+
     if vm_config.vcpu_count.is_none()
         && vm_config.mem_size_mib.is_none()
         && vm_config.cpu_template.is_none()
@@ -44,58 +52,133 @@ pub fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
     {
         return method_to_error(Method::Patch);
     }
-    Ok(ParsedRequest::Sync(VmmAction::SetVmConfiguration(
+    Ok(ParsedRequest::new_sync(VmmAction::SetVmConfiguration(
         vm_config,
     )))
+}
+
+fn check_unsupported_fields(_vm_config: &VmConfig) -> Result<(), Error> {
+    #[cfg(target_arch = "aarch64")]
+    {
+        if _vm_config.cpu_template.is_some() {
+            // cpu_template is not supported on aarch64
+            return Err(Error::Generic(
+                StatusCode::BadRequest,
+                "CPU templates are not supported on aarch64".to_string(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
+    use crate::parsed_request::tests::vmm_action_from_request;
 
     #[test]
     fn test_parse_get_machine_config_request() {
         assert!(parse_get_machine_config().is_ok());
+        assert!(METRICS.get_api_requests.machine_cfg_count.count() > 0);
     }
 
     #[test]
     fn test_parse_put_machine_config_request() {
+        // 1. Test case for invalid payload.
         assert!(parse_put_machine_config(&Body::new("invalid_payload")).is_err());
+        assert!(METRICS.put_api_requests.machine_cfg_fails.count() > 0);
 
-        let config_clone = VmConfig {
-            vcpu_count: Some(8),
-            mem_size_mib: Some(1024),
-            ht_enabled: Some(true),
-            cpu_template: Some(CpuFeaturesTemplate::T2),
-        };
+        // 2. Test case for mandatory fields.
+        let body = r#"{
+                "mem_size_mib": 1024,
+                "ht_enabled": true
+              }"#;
+        assert!(parse_put_machine_config(&Body::new(body)).is_err());
+
         let body = r#"{
                 "vcpu_count": 8,
-                "mem_size_mib": 1024,
-                "ht_enabled": true,
-                "cpu_template": "T2"
-              }"#;
-        match parse_put_machine_config(&Body::new(body)) {
-            Ok(ParsedRequest::Sync(VmmAction::SetVmConfiguration(config))) => {
-                assert_eq!(config, config_clone)
-            }
-            _ => panic!("Test failed."),
-        }
+                "ht_enabled": true
+                }"#;
+        assert!(parse_put_machine_config(&Body::new(body)).is_err());
 
         let body = r#"{
                 "vcpu_count": 8,
                 "mem_size_mib": 1024
               }"#;
         assert!(parse_put_machine_config(&Body::new(body)).is_err());
+
+        // 3. Test case a success scenario for both architectures.
+        let body = r#"{
+                "vcpu_count": 8,
+                "mem_size_mib": 1024,
+                "ht_enabled": true,
+                "track_dirty_pages": true
+              }"#;
+        let expected_config = VmConfig {
+            vcpu_count: Some(8),
+            mem_size_mib: Some(1024),
+            ht_enabled: Some(true),
+            cpu_template: None,
+            track_dirty_pages: true,
+        };
+
+        match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+            VmmAction::SetVmConfiguration(config) => assert_eq!(config, expected_config),
+            _ => panic!("Test failed."),
+        }
+
+        // 4. Test that applying a CPU template is successful on x86_64 while on aarch64, it is not.
+        let body = r#"{
+                "vcpu_count": 8,
+                "mem_size_mib": 1024,
+                "ht_enabled": true,
+                "cpu_template": "T2",
+                "track_dirty_pages": true
+              }"#;
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            use vmm::vmm_config::machine_config::CpuFeaturesTemplate;
+            let expected_config = VmConfig {
+                vcpu_count: Some(8),
+                mem_size_mib: Some(1024),
+                ht_enabled: Some(true),
+                cpu_template: Some(CpuFeaturesTemplate::T2),
+                track_dirty_pages: true,
+            };
+
+            match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+                VmmAction::SetVmConfiguration(config) => assert_eq!(config, expected_config),
+                _ => panic!("Test failed."),
+            }
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            assert!(parse_put_machine_config(&Body::new(body)).is_err());
+        }
     }
 
     #[test]
     fn test_parse_patch_machine_config_request() {
+        // 1. Test cases for invalid payload.
         assert!(parse_patch_machine_config(&Body::new("invalid_payload")).is_err());
 
-        let body = r#"{}"#;
+        // 2. Check currently supported fields that can be patched.
+        // "track_dirty_pages" is not one of them.
+        let body = r#"{
+                "track_dirty_pages": true
+              }"#;
         assert!(parse_patch_machine_config(&Body::new(body)).is_err());
+
+        // On aarch64, CPU template is also not patch compatible.
+        let body = r#"{
+                "cpu_template": "T2"
+              }"#;
+        #[cfg(target_arch = "aarch64")]
+        assert!(parse_patch_machine_config(&Body::new(body)).is_err());
+        #[cfg(target_arch = "x86_64")]
+        assert!(parse_patch_machine_config(&Body::new(body)).is_ok());
 
         let body = r#"{
                 "vcpu_count": 8,

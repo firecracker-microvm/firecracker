@@ -5,3 +5,5 @@ target
 .idea
 __pycache__
 *.pyc
+.vscode
+test_results/*

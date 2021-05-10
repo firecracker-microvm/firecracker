@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 use std::result;
@@ -78,16 +78,52 @@ impl<'a> ArgParser<'a> {
     pub fn formatted_help(&self) -> String {
         let mut help_builder = vec![];
 
-        for arg in self.arguments.args.values() {
-            help_builder.push(format!("{}\n", arg.format_help()));
+        let required_arguments = self.format_arguments(true);
+        if !required_arguments.is_empty() {
+            help_builder.push("required arguments:".to_string());
+            help_builder.push(required_arguments);
         }
 
-        help_builder.concat()
+        let optional_arguments = self.format_arguments(false);
+        if !optional_arguments.is_empty() {
+            // Add line break if `required_arguments` is pushed.
+            if !help_builder.is_empty() {
+                help_builder.push("".to_string());
+            }
+
+            help_builder.push("optional arguments:".to_string());
+            help_builder.push(optional_arguments);
+        }
+
+        help_builder.join("\n")
     }
 
     /// Return a reference to `arguments` field.
     pub fn arguments(&self) -> &Arguments {
         &self.arguments
+    }
+
+    // Filter arguments by whether or not it is required.
+    // Align arguments by setting width to length of the longest argument.
+    fn format_arguments(&self, is_required: bool) -> String {
+        let filtered_arguments = self
+            .arguments
+            .args
+            .values()
+            .filter(|arg| is_required == arg.required)
+            .collect::<Vec<_>>();
+
+        let max_arg_width = filtered_arguments
+            .iter()
+            .map(|arg| arg.format_name().len())
+            .max()
+            .unwrap_or(0);
+
+        filtered_arguments
+            .into_iter()
+            .map(|arg| arg.format_help(max_arg_width))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -98,6 +134,7 @@ pub struct Argument<'a> {
     required: bool,
     requires: Option<&'a str>,
     takes_value: bool,
+    allow_multiple: bool,
     default_value: Option<Value>,
     help: Option<&'a str>,
     user_value: Option<Value>,
@@ -111,6 +148,7 @@ impl<'a> Argument<'a> {
             required: false,
             requires: None,
             takes_value: false,
+            allow_multiple: false,
             default_value: None,
             help: None,
             user_value: None,
@@ -136,10 +174,21 @@ impl<'a> Argument<'a> {
         self
     }
 
+    /// If `allow_multiple` is true, then the user can provide multiple values for the
+    /// argument (e.g --arg val1 --arg val2). It sets the `takes_value` option to true,
+    /// so the user must provides at least one value.
+    pub fn allow_multiple(mut self, allow_multiple: bool) -> Self {
+        if allow_multiple {
+            self.takes_value = true;
+        }
+        self.allow_multiple = allow_multiple;
+        self
+    }
+
     /// Keep a default value which will be used if the user didn't provide a value for
     /// the argument.
     pub fn default_value(mut self, default_value: &'a str) -> Self {
-        self.default_value = Some(Value::String(String::from(default_value)));
+        self.default_value = Some(Value::Single(String::from(default_value)));
         self
     }
 
@@ -150,42 +199,72 @@ impl<'a> Argument<'a> {
         self
     }
 
-    fn format_help(&self) -> String {
+    fn format_help(&self, arg_width: usize) -> String {
         let mut help_builder = vec![];
 
-        help_builder.push(format!("--{}", self.name));
+        let arg = self.format_name();
+        help_builder.push(format!("{:<arg_width$}", arg, arg_width = arg_width));
 
-        if self.takes_value {
-            help_builder.push(format!(" <{}>", self.name));
-        }
+        // Add three whitespaces between the argument and its help message for readability.
+        help_builder.push("   ".to_string());
 
-        if let Some(help) = self.help {
-            help_builder.push(format!(": {}", help));
-        }
+        match (self.help, &self.default_value) {
+            (Some(help), Some(default_value)) => {
+                help_builder.push(format!("{} [default: {}]", help, default_value))
+            }
+            (Some(help), None) => help_builder.push(help.to_string()),
+            (None, Some(default_value)) => {
+                help_builder.push(format!("[default: {}]", default_value))
+            }
+            (None, None) => (),
+        };
+
         help_builder.concat()
+    }
+
+    fn format_name(&self) -> String {
+        if self.takes_value {
+            format!("  --{name} <{name}>", name = self.name)
+        } else {
+            format!("  --{}", self.name)
+        }
     }
 }
 
-/// Represents the value of an argument, which will be a `String` if
-/// the argument takes a value, or `bool` if it's a flag.
+/// Represents the type of argument, and the values it takes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
-    Bool(bool),
-    String(String),
+    Flag,
+    Single(String),
+    Multiple(Vec<String>),
 }
 
 impl Value {
-    fn as_string(&self) -> Option<String> {
+    fn as_single_value(&self) -> Option<&String> {
         match self {
-            Value::String(s) => Some(s.to_string()),
+            Value::Single(s) => Some(s),
             _ => None,
         }
     }
 
-    fn as_bool(&self) -> Option<bool> {
+    fn as_flag(&self) -> bool {
+        matches!(self, Value::Flag)
+    }
+
+    fn as_multiple(&self) -> Option<&[String]> {
         match self {
-            Value::Bool(b) => Some(*b),
+            Value::Multiple(v) => Some(v),
             _ => None,
+        }
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Flag => write!(f, "true"),
+            Value::Single(s) => write!(f, "\"{}\"", s),
+            Value::Multiple(v) => write!(f, "{:?}", v),
         }
     }
 }
@@ -193,8 +272,8 @@ impl Value {
 /// Stores the arguments of the parser.
 #[derive(Clone, Default)]
 pub struct Arguments<'a> {
-    // A Hash Map in which the key is an argument and the value is its associated `Argument`.
-    args: HashMap<&'a str, Argument<'a>>,
+    // A BTreeMap in which the key is an argument and the value is its associated `Argument`.
+    args: BTreeMap<&'a str, Argument<'a>>,
     // The arguments specified after `--` (i.e. end of command options).
     extra_args: Vec<String>,
 }
@@ -217,16 +296,24 @@ impl<'a> Arguments<'a> {
 
     /// Return the value of an argument if the argument exists and has the type
     /// String. Otherwise return None.
-    pub fn value_as_string(&self, arg_name: &'static str) -> Option<String> {
+    pub fn single_value(&self, arg_name: &'static str) -> Option<&String> {
         self.value_of(arg_name)
-            .and_then(|arg_value| arg_value.as_string())
+            .and_then(|arg_value| arg_value.as_single_value())
+    }
+
+    /// Return whether an `arg_name` argument of type flag exists.
+    pub fn flag_present(&self, arg_name: &'static str) -> bool {
+        match self.value_of(arg_name) {
+            Some(v) => v.as_flag(),
+            None => false,
+        }
     }
 
     /// Return the value of an argument if the argument exists and has the type
-    /// bool. Otherwise return None.
-    pub fn value_as_bool(&self, arg_name: &'static str) -> Option<bool> {
+    /// vector. Otherwise return None.
+    pub fn multiple_values(&self, arg_name: &'static str) -> Option<&[String]> {
         self.value_of(arg_name)
-            .and_then(|arg_value| arg_value.as_bool())
+            .and_then(|arg_value| arg_value.as_multiple())
     }
 
     /// Get the extra arguments (all arguments after `--`).
@@ -252,7 +339,7 @@ impl<'a> Arguments<'a> {
     }
 
     /// Clear split between the actual arguments of the process, the extra arguments if any
-    /// and the `--help` argument if present.
+    /// and the `--help` and `--version` arguments if present.
     pub fn parse(&mut self, args: &[String]) -> Result<()> {
         // Skipping the first element of `args` as it is the name of the binary.
         let (args, extra_args) = Arguments::split_args(&args[1..]);
@@ -263,7 +350,7 @@ impl<'a> Arguments<'a> {
         // returning.
         if args.contains(&HELP_ARG.to_string()) {
             let mut help_arg = Argument::new("help").help("Show the help message.");
-            help_arg.user_value = Some(Value::Bool(true));
+            help_arg.user_value = Some(Value::Flag);
             self.insert_arg(help_arg);
             return Ok(());
         }
@@ -272,8 +359,8 @@ impl<'a> Arguments<'a> {
         // command line arguments by adding just the version argument to the parsed list and
         // returning.
         if args.contains(&VERSION_ARG.to_string()) {
-            let mut version_arg = Argument::new("version").help("Print the binary version number.");
-            version_arg.user_value = Some(Value::Bool(true));
+            let mut version_arg = Argument::new("version");
+            version_arg.user_value = Some(Value::Flag);
             self.insert_arg(version_arg);
             return Ok(());
         }
@@ -310,14 +397,13 @@ impl<'a> Arguments<'a> {
         let arg_name = &arg[ARG_PREFIX.len()..];
 
         // Check if the argument is an expected one and, if yes, check that it was not
-        // provided more than once.
-        if self
+        // provided more than once (unless allow_multiple is set).
+        let argument = self
             .args
             .get(arg_name)
-            .ok_or_else(|| Error::UnexpectedArgument(arg_name.to_string()))?
-            .user_value
-            .is_some()
-        {
+            .ok_or_else(|| Error::UnexpectedArgument(arg_name.to_string()))?;
+
+        if !argument.allow_multiple && argument.user_value.is_some() {
             return Err(Error::DuplicateArgument(arg_name.to_string()));
         }
         Ok(())
@@ -344,9 +430,21 @@ impl<'a> Arguments<'a> {
                     .filter(|v| !v.starts_with(ARG_PREFIX))
                     .ok_or_else(|| Error::MissingValue(argument.name.to_string()))?
                     .clone();
-                Value::String(val)
+
+                if argument.allow_multiple {
+                    match argument.user_value.take() {
+                        Some(Value::Multiple(mut v)) => {
+                            v.push(val);
+                            Value::Multiple(v)
+                        }
+                        None => Value::Multiple(vec![val]),
+                        _ => return Err(Error::UnexpectedArgument(argument.name.to_string())),
+                    }
+                } else {
+                    Value::Single(val)
+                }
             } else {
-                Value::Bool(true)
+                Value::Flag
             };
 
             argument.user_value = Some(arg_val);
@@ -401,66 +499,137 @@ mod tests {
                     .takes_value(true)
                     .help("'config-file' info."),
             )
+            .arg(
+                Argument::new("describe-snapshot")
+                    .takes_value(true)
+                    .help("'describe-snapshot' info."),
+            )
     }
 
     #[test]
     fn test_arg_help() {
         // Checks help format for an argument.
-        let mut argument = Argument::new("exec-file").required(true).takes_value(true);
+        let width = 32;
+        let short_width = 16;
 
-        assert_eq!(argument.format_help(), "--exec-file <exec-file>");
+        let mut argument = Argument::new("exec-file").takes_value(false);
+
+        assert_eq!(
+            argument.format_help(width),
+            "  --exec-file                      "
+        );
+        assert_eq!(argument.format_help(short_width), "  --exec-file      ");
+
+        argument = Argument::new("exec-file").takes_value(true);
+
+        assert_eq!(
+            argument.format_help(width),
+            "  --exec-file <exec-file>          "
+        );
+        assert_eq!(
+            argument.format_help(short_width),
+            "  --exec-file <exec-file>   "
+        );
 
         argument = Argument::new("exec-file")
-            .required(true)
             .takes_value(true)
             .help("'exec-file' info.");
 
         assert_eq!(
-            argument.format_help(),
-            "--exec-file <exec-file>: 'exec-file' info."
+            argument.format_help(width),
+            "  --exec-file <exec-file>          'exec-file' info."
+        );
+        assert_eq!(
+            argument.format_help(short_width),
+            "  --exec-file <exec-file>   'exec-file' info."
         );
 
-        argument = Argument::new("no-api")
-            .requires("config-file")
-            .takes_value(false);
+        argument = Argument::new("exec-file")
+            .takes_value(true)
+            .default_value("./exec-file");
 
-        assert_eq!(argument.format_help(), "--no-api");
+        assert_eq!(
+            argument.format_help(width),
+            "  --exec-file <exec-file>          [default: \"./exec-file\"]"
+        );
+        assert_eq!(
+            argument.format_help(short_width),
+            "  --exec-file <exec-file>   [default: \"./exec-file\"]"
+        );
 
-        argument = Argument::new("no-api")
-            .requires("config-file")
-            .takes_value(false)
-            .help("'no-api' info.");
+        argument = Argument::new("exec-file")
+            .takes_value(true)
+            .default_value("./exec-file")
+            .help("'exec-file' info.");
 
-        assert_eq!(argument.format_help(), "--no-api: 'no-api' info.");
+        assert_eq!(
+            argument.format_help(width),
+            "  --exec-file <exec-file>          'exec-file' info. [default: \"./exec-file\"]"
+        );
+        assert_eq!(
+            argument.format_help(short_width),
+            "  --exec-file <exec-file>   'exec-file' info. [default: \"./exec-file\"]"
+        );
     }
 
     #[test]
     fn test_arg_parser_help() {
         // Checks help information when user passes `--help` flag.
-        let arg_parser = ArgParser::new().arg(
-            Argument::new("exec-file")
-                .required(true)
-                .takes_value(true)
-                .help("'exec-file' info."),
-        );
+        let mut arg_parser = ArgParser::new()
+            .arg(
+                Argument::new("exec-file")
+                    .required(true)
+                    .takes_value(true)
+                    .help("'exec-file' info."),
+            )
+            .arg(
+                Argument::new("api-sock")
+                    .takes_value(true)
+                    .help("'api-sock' info."),
+            );
+
         assert_eq!(
             arg_parser.formatted_help(),
-            "--exec-file <exec-file>: 'exec-file' info.\n"
+            "required arguments:\n  \
+             --exec-file <exec-file>   'exec-file' info.\n\n\
+             optional arguments:\n  \
+             --api-sock <api-sock>   'api-sock' info."
+        );
+
+        arg_parser = ArgParser::new()
+            .arg(Argument::new("id").takes_value(true).help("'id' info."))
+            .arg(
+                Argument::new("seccomp-level")
+                    .takes_value(true)
+                    .help("'seccomp-level' info."),
+            )
+            .arg(
+                Argument::new("config-file")
+                    .takes_value(true)
+                    .help("'config-file' info."),
+            );
+
+        assert_eq!(
+            arg_parser.formatted_help(),
+            "optional arguments:\n  \
+             --config-file <config-file>       'config-file' info.\n  \
+             --id <id>                         'id' info.\n  \
+             --seccomp-level <seccomp-level>   'seccomp-level' info."
         );
     }
 
     #[test]
     fn test_value() {
-        //Test `as_string()` and `as_bool()` functions behaviour.
-        let mut value = Value::Bool(true);
-        assert!(Value::as_string(&value).is_none());
-        value = Value::String("arg".to_string());
-        assert_eq!(Value::as_string(&value).unwrap(), "arg".to_string());
+        //Test `as_string()` and `as_flag()` functions behaviour.
+        let mut value = Value::Flag;
+        assert!(Value::as_single_value(&value).is_none());
+        value = Value::Single("arg".to_string());
+        assert_eq!(Value::as_single_value(&value).unwrap(), "arg");
 
-        value = Value::String("arg".to_string());
-        assert!(Value::as_bool(&value).is_none());
-        value = Value::Bool(true);
-        assert_eq!(Value::as_bool(&value).unwrap(), true);
+        value = Value::Single("arg".to_string());
+        assert!(!Value::as_flag(&value));
+        value = Value::Flag;
+        assert!(Value::as_flag(&value));
     }
 
     #[test]
@@ -487,6 +656,36 @@ mod tests {
 
         assert!(arguments.parse(&args).is_ok());
         assert!(arguments.args.contains_key("version"));
+
+        arguments = arg_parser.arguments().clone();
+
+        let args = vec!["binary-name", "--exec-file", "foo", "--describe-snapshot"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert_eq!(
+            arguments.parse(&args),
+            Err(Error::MissingValue("describe-snapshot".to_string()))
+        );
+
+        arguments = arg_parser.arguments().clone();
+
+        let args = vec![
+            "binary-name",
+            "--exec-file",
+            "foo",
+            "--describe-snapshot",
+            "--",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<String>>();
+
+        assert_eq!(
+            arguments.parse(&args),
+            Err(Error::MissingValue("describe-snapshot".to_string()))
+        );
 
         arguments = arg_parser.arguments().clone();
 
@@ -716,6 +915,72 @@ mod tests {
         assert_eq!(
             format!("{}", Error::DuplicateArgument("foo".to_string())),
             "The argument 'foo' was provided more than once."
+        );
+    }
+
+    #[test]
+    fn test_value_display() {
+        assert_eq!(format!("{}", Value::Flag), "true");
+        assert_eq!(format!("{}", Value::Single("foo".to_string())), "\"foo\"");
+    }
+
+    #[test]
+    fn test_allow_multiple() {
+        let arg_parser = ArgParser::new()
+            .arg(
+                Argument::new("no-multiple")
+                    .takes_value(true)
+                    .help("argument that takes just one value."),
+            )
+            .arg(
+                Argument::new("multiple")
+                    .allow_multiple(true)
+                    .help("argument that allows duplication."),
+            );
+
+        let mut arguments = arg_parser.arguments().clone();
+
+        // Check single value arguments fails when multiple values are provided.
+        let args = vec!["binary-name", "--no-multiple", "1", "--no-multiple", "2"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert_eq!(
+            arguments.parse(&args),
+            Err(Error::DuplicateArgument("no-multiple".to_string()))
+        );
+
+        arguments = arg_parser.arguments().clone();
+
+        // Check single value arguments works as expected when just one value
+        // is provided for both arguments.
+        let args = vec!["binary-name", "--no-multiple", "1", "--multiple", "2"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert!(arguments.parse(&args).is_ok());
+
+        arguments = arg_parser.arguments().clone();
+
+        // Check multiple arg allow multiple values
+        let args = vec!["binary-name", "--multiple", "1", "--multiple", "2"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert!(arguments.parse(&args).is_ok());
+
+        // Check dulicates require a value
+        let args = vec!["binary-name", "--multiple", "--multiple", "2"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<String>>();
+
+        assert_eq!(
+            arguments.parse(&args),
+            Err(Error::MissingValue("multiple".to_string()))
         );
     }
 }

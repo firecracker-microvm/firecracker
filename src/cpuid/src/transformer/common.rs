@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use bit_helper::BitHelper;
-use common::get_cpuid;
+use crate::bit_helper::BitHelper;
+use crate::common::get_cpuid;
 
+use crate::transformer::Error::FamError;
 use kvm_bindings::{kvm_cpuid_entry2, CpuId};
-use transformer::Error::FamError;
 
 // constants for setting the fields of kvm_cpuid2 structures
 // CPUID bits in ebx, ecx, and edx.
@@ -31,16 +31,19 @@ pub fn update_feature_info_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use cpu_leaf::leaf_0x1::*;
+    use crate::cpu_leaf::leaf_0x1::*;
 
     let max_cpus_per_package = u32::from(common::get_max_cpus_per_package(vm_spec.cpu_count)?);
 
     // X86 hypervisor feature
-    entry.ecx.write_bit(ecx::HYPERVISOR_BITINDEX, true);
+    entry
+        .ecx
+        .write_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX, true)
+        .write_bit(ecx::HYPERVISOR_BITINDEX, true);
 
     entry
         .ebx
-        .write_bits_in_range(&ebx::APICID_BITRANGE, u32::from(vm_spec.cpu_id))
+        .write_bits_in_range(&ebx::APICID_BITRANGE, u32::from(vm_spec.cpu_index))
         .write_bits_in_range(&ebx::CLFLUSH_SIZE_BITRANGE, EBX_CLFLUSH_CACHELINE)
         .write_bits_in_range(&ebx::CPU_COUNT_BITRANGE, max_cpus_per_package);
 
@@ -71,7 +74,7 @@ pub fn update_cache_parameters_entry(
     entry: &mut kvm_cpuid_entry2,
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
-    use cpu_leaf::leaf_cache_parameters::*;
+    use crate::cpu_leaf::leaf_cache_parameters::*;
 
     match entry.eax.read_bits_in_range(&eax::CACHE_LEVEL_BITRANGE) {
         // L1 & L2 Cache
@@ -79,7 +82,7 @@ pub fn update_cache_parameters_entry(
             // The L1 & L2 cache is shared by at most 2 hyperthreads
             entry.eax.write_bits_in_range(
                 &eax::MAX_CPUS_PER_CORE_BITRANGE,
-                (vm_spec.cpu_count > 1 && vm_spec.ht_enabled) as u32,
+                u32::from(vm_spec.cpus_per_core() - 1),
             );
         }
         // L3 Cache
@@ -132,11 +135,11 @@ pub fn use_host_cpuid_function(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use common::tests::get_topoext_fn;
+    use crate::common::tests::get_topoext_fn;
+    use crate::transformer::VmSpec;
     use kvm_bindings::kvm_cpuid_entry2;
-    use transformer::VmSpec;
 
     #[test]
     fn test_get_max_cpus_per_package() {
@@ -149,7 +152,7 @@ mod test {
     }
 
     fn check_update_feature_info_entry(cpu_count: u8, expected_htt: bool) {
-        use cpu_leaf::leaf_0x1::*;
+        use crate::cpu_leaf::leaf_0x1::*;
 
         let vm_spec = VmSpec::new(0, cpu_count, false).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
@@ -165,7 +168,8 @@ mod test {
 
         assert!(update_feature_info_entry(&mut entry, &vm_spec).is_ok());
 
-        assert!(entry.edx.read_bit(edx::HTT_BITINDEX) == expected_htt)
+        assert_eq!(entry.edx.read_bit(edx::HTT_BITINDEX), expected_htt);
+        assert_eq!(entry.ecx.read_bit(ecx::TSC_DEADLINE_TIMER_BITINDEX), true);
     }
 
     fn check_update_cache_parameters_entry(
@@ -174,7 +178,7 @@ mod test {
         cache_level: u32,
         expected_max_cpus_per_core: u32,
     ) {
-        use cpu_leaf::leaf_cache_parameters::*;
+        use crate::cpu_leaf::leaf_cache_parameters::*;
 
         let vm_spec = VmSpec::new(0, cpu_count, ht_enabled).expect("Error creating vm_spec");
         let mut entry = &mut kvm_cpuid_entry2 {
@@ -257,7 +261,7 @@ mod test {
         let topoext_fn = get_topoext_fn();
 
         // check that it behaves correctly for TOPOEXT function
-        let mut cpuid = CpuId::new(1);
+        let mut cpuid = CpuId::new(1).unwrap();
         cpuid.as_mut_slice()[0].function = topoext_fn;
         assert!(use_host_cpuid_function(&mut cpuid, topoext_fn, true).is_ok());
         let entries = cpuid.as_mut_slice();
@@ -272,12 +276,12 @@ mod test {
     #[test]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_use_host_cpuid_function_without_count() {
-        use cpu_leaf::leaf_0x1::*;
+        use crate::cpu_leaf::leaf_0x1::*;
         // try to emulate the extended cache topology leaves
         let feature_info_fn = LEAF_NUM;
 
         // check that it behaves correctly for TOPOEXT function
-        let mut cpuid = CpuId::new(1);
+        let mut cpuid = CpuId::new(1).unwrap();
         cpuid.as_mut_slice()[0].function = feature_info_fn;
         assert!(use_host_cpuid_function(&mut cpuid, feature_info_fn, false).is_ok());
         let entries = cpuid.as_mut_slice();
@@ -294,9 +298,9 @@ mod test {
     fn test_use_host_cpuid_function_err() {
         let topoext_fn = get_topoext_fn();
         // check that it returns Err when there are too many entriesentry.function == topoext_fn
-        let mut cpuid = CpuId::new(kvm_bindings::KVM_MAX_CPUID_ENTRIES);
+        let mut cpuid = CpuId::new(kvm_bindings::KVM_MAX_CPUID_ENTRIES).unwrap();
         match use_host_cpuid_function(&mut cpuid, topoext_fn, true) {
-            Err(Error::FamError(vmm_sys_util::fam::Error::SizeLimitExceeded)) => {}
+            Err(Error::FamError(utils::fam::Error::SizeLimitExceeded)) => {}
             _ => panic!("Wrong behavior"),
         }
     }

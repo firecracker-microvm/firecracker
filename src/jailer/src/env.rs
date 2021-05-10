@@ -1,35 +1,54 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::ffi::CStr;
-use std::fs::{self, canonicalize, File};
+use std::ffi::{CStr, OsString};
+use std::fs::{self, canonicalize, File, OpenOptions, Permissions};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::IntoRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use libc;
-
-use cgroup::Cgroup;
-use chroot::chroot;
+use crate::cgroup;
+use crate::cgroup::Cgroup;
+use crate::chroot::chroot;
+use crate::{Error, Result};
+use std::io;
+use std::io::Write;
 use utils::arg_parser::Error::MissingValue;
 use utils::syscall::SyscallReturnCode;
 use utils::{arg_parser, validators};
-use {Error, Result};
 
 const STDIN_FILENO: libc::c_int = 0;
 const STDOUT_FILENO: libc::c_int = 1;
 const STDERR_FILENO: libc::c_int = 2;
 
+// Kernel-based virtual machine (hardware virtualization extensions)
+// minor/major numbers are taken from
+// https://www.kernel.org/doc/html/latest/admin-guide/devices.html
 const DEV_KVM_WITH_NUL: &[u8] = b"/dev/kvm\0";
+const DEV_KVM_MAJOR: u32 = 10;
+const DEV_KVM_MINOR: u32 = 232;
+
+// TUN/TAP device minor/major numbers are taken from
+// www.kernel.org/doc/Documentation/networking/tuntap.txt
 const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
+const DEV_NET_TUN_MAJOR: u32 = 10;
+const DEV_NET_TUN_MINOR: u32 = 200;
+
 const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
+
 // Relevant folders inside the jail that we create or/and for which we change ownership.
 // We need /dev in order to be able to create /dev/kvm and /dev/net/tun device.
 // We need /run for the default location of the api socket.
 // Since libc::chown is not recursive, we cannot specify only /dev/net as we want
 // to walk through the entire folder hierarchy.
 const FOLDER_HIERARCHY: [&[u8]; 4] = [b"/\0", b"/dev\0", b"/dev/net\0", b"/run\0"];
+const FOLDER_PERMISSIONS: u32 = 0o700;
+
+// When running with `--new-pid-ns` flag, the PID of the process running the exec_file differs
+// from jailer's and it is stored inside a dedicated file, prefixed with the below extension.
+const PID_FILE_EXTENSION: &str = ".pid";
 
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
@@ -41,16 +60,18 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
 
 pub struct Env {
     id: String,
-    numa_node: u32,
     chroot_dir: PathBuf,
     exec_file_path: PathBuf,
     uid: u32,
     gid: u32,
     netns: Option<String>,
     daemonize: bool,
+    new_pid_ns: bool,
     start_time_us: u64,
     start_time_cpu_us: u64,
+    jailer_cpu_time_us: u64,
     extra_args: Vec<String>,
+    cgroups: Vec<Cgroup>,
 }
 
 impl Env {
@@ -59,23 +80,15 @@ impl Env {
         start_time_us: u64,
         start_time_cpu_us: u64,
     ) -> Result<Self> {
-        // All arguments are either mandatory, or have default values, so the unwraps
-        // should not fail.
+        // Unwraps should not fail because the arguments are mandatory arguments or with default values.
         let id = arguments
-            .value_as_string("id")
+            .single_value("id")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("id".to_string())))?;
 
-        validators::validate_instance_id(&id.as_str()).map_err(Error::InvalidInstanceId)?;
-
-        let numa_node_str = arguments
-            .value_as_string("node")
-            .ok_or_else(|| Error::ArgumentParsing(MissingValue("node".to_string())))?;
-        let numa_node = numa_node_str
-            .parse::<u32>()
-            .map_err(|_| Error::NumaNode(numa_node_str))?;
+        validators::validate_instance_id(id).map_err(Error::InvalidInstanceId)?;
 
         let exec_file = arguments
-            .value_as_string("exec-file")
+            .single_value("exec-file")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("exec-file".to_string())))?;
         let exec_file_path = canonicalize(&exec_file)
             .map_err(|e| Error::Canonicalize(PathBuf::from(&exec_file), e))?;
@@ -84,8 +97,12 @@ impl Env {
             return Err(Error::NotAFile(exec_file_path));
         }
 
+        let exec_file_name = exec_file_path
+            .file_name()
+            .ok_or_else(|| Error::FileName(exec_file_path.clone()))?;
+
         let chroot_base = arguments
-            .value_as_string("chroot-base-dir")
+            .single_value("chroot-base-dir")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("chroot-base-dir".to_string())))?;
         let mut chroot_dir = canonicalize(&chroot_base)
             .map_err(|e| Error::Canonicalize(PathBuf::from(&chroot_base), e))?;
@@ -94,40 +111,76 @@ impl Env {
             return Err(Error::NotADirectory(chroot_dir));
         }
 
-        chroot_dir.push(
-            exec_file_path
-                .file_name()
-                .ok_or_else(|| Error::FileName(exec_file_path.clone()))?,
-        );
-        chroot_dir.push(&id);
+        chroot_dir.push(&exec_file_name);
+        chroot_dir.push(id);
         chroot_dir.push("root");
 
         let uid_str = arguments
-            .value_as_string("uid")
+            .single_value("uid")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("uid".to_string())))?;
-        let uid = uid_str.parse::<u32>().map_err(|_| Error::Uid(uid_str))?;
+        let uid = uid_str
+            .parse::<u32>()
+            .map_err(|_| Error::Uid(uid_str.to_owned()))?;
 
         let gid_str = arguments
-            .value_as_string("gid")
+            .single_value("gid")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("gid".to_string())))?;
-        let gid = gid_str.parse::<u32>().map_err(|_| Error::Gid(gid_str))?;
+        let gid = gid_str
+            .parse::<u32>()
+            .map_err(|_| Error::Gid(gid_str.to_owned()))?;
 
-        let netns = arguments.value_as_string("netns");
+        let netns = arguments.single_value("netns").cloned();
 
-        let daemonize = arguments.value_as_bool("daemonize").unwrap_or(false);
+        let daemonize = arguments.flag_present("daemonize");
+
+        let new_pid_ns = arguments.flag_present("new-pid-ns");
+
+        // Optional arguments.
+        let mut cgroups = Vec::new();
+
+        // If `--node` is used, the corresponding cgroups will be created.
+        if let Some(numa_node_str) = arguments.single_value("node") {
+            let numa_node = numa_node_str
+                .parse::<u32>()
+                .map_err(|_| Error::NumaNode(numa_node_str.to_owned()))?;
+
+            let mut numa_cgroups = cgroup::cgroups_from_numa_node(numa_node, id, &exec_file_name)?;
+            cgroups.append(&mut numa_cgroups);
+        }
+
+        // cgroup format: <cgroup_controller>.<cgroup_property>=<value>,...
+        if let Some(cgroups_args) = arguments.multiple_values("cgroup") {
+            for cg in cgroups_args {
+                let aux: Vec<&str> = cg.split('=').collect();
+                if aux.len() != 2 || aux[1].is_empty() {
+                    return Err(Error::CgroupFormat(cg.to_string()));
+                }
+
+                let cgroup = Cgroup::new(
+                    aux[0].to_string(), // cgroup file
+                    aux[1].to_string(), // cgroup value
+                    id,
+                    &exec_file_name,
+                )?;
+
+                cgroups.push(cgroup);
+            }
+        }
 
         Ok(Env {
-            id,
-            numa_node,
+            id: id.to_owned(),
             chroot_dir,
             exec_file_path,
             uid,
             gid,
             netns,
             daemonize,
+            new_pid_ns,
             start_time_us,
             start_time_cpu_us,
+            jailer_cpu_time_us: 0,
             extra_args: arguments.extra_args(),
+            cgroups,
         })
     }
 
@@ -141,6 +194,56 @@ impl Env {
 
     pub fn uid(&self) -> u32 {
         self.uid
+    }
+
+    fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<()> {
+        // Unshare into a new PID namespace.
+        // The current process will not be moved into the newly created namespace, but its first
+        // child will assume the role of init(1) in the new namespace.
+        // The call is safe because we're invoking a C library function with valid parameters.
+        SyscallReturnCode(unsafe { libc::unshare(libc::CLONE_NEWPID) })
+            .into_empty_result()
+            .map_err(Error::UnshareNewPID)?;
+
+        // Compute jailer's total CPU time up to the current time.
+        self.jailer_cpu_time_us =
+            utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - self.start_time_cpu_us;
+
+        // Duplicate the current process. The child process will belong to the previously created
+        // PID namespace.
+        // TODO: replace the `unshare()` + `fork()` combo with `clone()` if we ever need to
+        //  squeeze every bit of start-up latency we can get
+        let pid = unsafe { libc::fork() };
+        match pid {
+            0 => {
+                // Reset process start time.
+                self.start_time_cpu_us = 0;
+
+                Err(Error::Exec(self.exec_command(chroot_exec_file)))
+            }
+            child_pid => {
+                // Save the PID of the process running the exec file provided
+                // inside <chroot_exec_file>.pid file.
+                self.save_exec_file_pid(child_pid, chroot_exec_file)?;
+                unsafe { libc::exit(0) }
+            }
+        }
+    }
+
+    fn save_exec_file_pid(&mut self, pid: i32, chroot_exec_file: PathBuf) -> Result<()> {
+        let chroot_exec_file_str = chroot_exec_file
+            .to_str()
+            .ok_or_else(|| Error::FileName(chroot_exec_file.clone()))?;
+        let pid_file_path =
+            PathBuf::from(format!("{}{}", chroot_exec_file_str, PID_FILE_EXTENSION));
+        let mut pid_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(pid_file_path.clone())
+            .map_err(|e| Error::FileOpen(pid_file_path.clone(), e))?;
+
+        // Write PID to file.
+        write!(pid_file, "{}", pid).map_err(|e| Error::Write(pid_file_path, e))
     }
 
     fn mknod_and_own_dev(
@@ -164,36 +267,43 @@ impl Env {
             )
         })
         .into_empty_result()
-        .map_err(|e| Error::MknodDev(e, std::str::from_utf8(dev_path_str).unwrap()))?;
+        .map_err(|e| {
+            Error::MknodDev(
+                e,
+                std::str::from_utf8(dev_path_str).expect("Cannot convert from UTF-8"),
+            )
+        })?;
 
         SyscallReturnCode(unsafe { libc::chown(dev_path.as_ptr(), self.uid(), self.gid()) })
             .into_empty_result()
-            .map_err(|e| Error::ChangeFileOwner(dev_path.to_str().unwrap(), e))
+            // Safe to unwrap as we provided valid file names.
+            .map_err(|e| Error::ChangeFileOwner(PathBuf::from(dev_path.to_str().unwrap()), e))
     }
 
-    fn setup_jailed_folders(&mut self) -> Result<()> {
-        for folder in FOLDER_HIERARCHY.iter() {
-            let folder_cstr = CStr::from_bytes_with_nul(folder).map_err(Error::FromBytesWithNul)?;
+    fn setup_jailed_folder(&self, folder: &[u8]) -> Result<()> {
+        let folder_cstr = CStr::from_bytes_with_nul(folder).map_err(Error::FromBytesWithNul)?;
 
-            // This unwrap is safe as we provided strings that have valid utf8 chars.
-            let path = folder_cstr.to_str().unwrap();
-            fs::create_dir_all(path).map_err(|e| Error::CreateDir(PathBuf::from(path), e))?;
+        // Safe to unwrap as the byte sequence is UTF-8 validated above.
+        let path = folder_cstr.to_str().unwrap();
+        let path_buf = PathBuf::from(path);
+        fs::create_dir_all(path).map_err(|e| Error::CreateDir(path_buf.clone(), e))?;
+        fs::set_permissions(path, Permissions::from_mode(FOLDER_PERMISSIONS))
+            .map_err(|e| Error::Chmod(path_buf.clone(), e))?;
 
-            SyscallReturnCode(unsafe { libc::chown(folder_cstr.as_ptr(), self.uid(), self.gid()) })
-                .into_empty_result()
-                .map_err(|e| Error::ChangeFileOwner(folder_cstr.to_str().unwrap(), e))?;
-        }
-        Ok(())
+        #[cfg(target_arch = "x86_64")]
+        let folder_bytes_ptr = folder.as_ptr() as *const i8;
+        #[cfg(target_arch = "aarch64")]
+        let folder_bytes_ptr = folder.as_ptr();
+        SyscallReturnCode(unsafe { libc::chown(folder_bytes_ptr, self.uid(), self.gid()) })
+            .into_empty_result()
+            .map_err(|e| Error::ChangeFileOwner(path_buf, e))
     }
 
-    pub fn run(mut self) -> Result<()> {
+    fn copy_exec_to_chroot(&mut self) -> Result<OsString> {
         let exec_file_name = self
             .exec_file_path
             .file_name()
             .ok_or_else(|| Error::FileName(self.exec_file_path.clone()))?;
-
-        let chroot_exec_file = PathBuf::from("/").join(exec_file_name);
-
         // We do a quick push here to get the global path of the executable inside the chroot,
         // without having to create a new PathBuf. We'll then do a pop to revert to the actual
         // chroot_dir right after the copy.
@@ -208,31 +318,151 @@ impl Env {
 
         // Pop exec_file_name.
         self.chroot_dir.pop();
+        Ok(exec_file_name.to_os_string())
+    }
+
+    fn join_netns(path: &str) -> Result<()> {
+        // Not used `as_raw_fd` as it will create a dangling fd (object will be freed immediately) instead
+        // used `into_raw_fd` which provides underlying fd ownership to caller.
+        let netns_fd = File::open(path)
+            .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
+            .into_raw_fd();
+
+        // Safe because we are passing valid parameters.
+        SyscallReturnCode(unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) })
+            .into_empty_result()
+            .map_err(Error::SetNetNs)?;
+
+        // Since we have ownership here, we also have to close the fd after joining the
+        // namespace. Safe because we are passing valid parameters.
+        SyscallReturnCode(unsafe { libc::close(netns_fd) })
+            .into_empty_result()
+            .map_err(Error::CloseNetNsFd)
+    }
+
+    fn exec_command(&self, chroot_exec_file: PathBuf) -> io::Error {
+        Command::new(chroot_exec_file)
+            .args(&["--id", &self.id])
+            .args(&["--start-time-us", &self.start_time_us.to_string()])
+            .args(&["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
+            .args(&["--parent-cpu-time-us", &self.jailer_cpu_time_us.to_string()])
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .uid(self.uid())
+            .gid(self.gid())
+            .args(&self.extra_args)
+            .exec()
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn copy_cache_info(&self) -> Result<()> {
+        use crate::{readln_special, to_cstring, writeln_special};
+
+        const HOST_CACHE_INFO: &str = "/sys/devices/system/cpu/cpu0/cache";
+        // Based on https://elixir.free-electrons.com/linux/v4.9.62/source/arch/arm64/kernel/cacheinfo.c#L29.
+        const MAX_CACHE_LEVEL: u8 = 7;
+        // These are the files that we need to copy in the chroot so that we can create the
+        // cache topology.
+        const FOLDER_HIERARCHY: [&str; 6] = [
+            "size",
+            "level",
+            "type",
+            "shared_cpu_map",
+            "coherency_line_size",
+            "number_of_sets",
+        ];
+
+        // We create the cache folder inside the chroot and then change its permissions.
+        let jailer_cache_dir =
+            Path::new(self.chroot_dir()).join("sys/devices/system/cpu/cpu0/cache/");
+        fs::create_dir_all(&jailer_cache_dir)
+            .map_err(|e| Error::CreateDir(jailer_cache_dir.to_owned(), e))?;
+
+        for index in 0..(MAX_CACHE_LEVEL + 1) {
+            let index_folder = format!("index{}", index);
+            let host_path = PathBuf::from(HOST_CACHE_INFO).join(&index_folder);
+
+            if fs::metadata(&host_path).is_err() {
+                // It means the folder does not exist, i.e we exhausted the number of cache levels
+                // existent on the host.
+                break;
+            }
+
+            // We now create the destination folder in the jailer.
+            let jailer_path = jailer_cache_dir.join(&index_folder);
+            fs::create_dir_all(&jailer_path)
+                .map_err(|e| Error::CreateDir(jailer_path.to_owned(), e))?;
+
+            // We now read the contents of the current directory and copy the files we are interested in
+            // to the destination path.
+            for entry in FOLDER_HIERARCHY.iter() {
+                let host_cache_file = host_path.join(&entry);
+                let jailer_cache_file = jailer_path.join(&entry);
+
+                let line = readln_special(&host_cache_file)?;
+                writeln_special(&jailer_cache_file, line)?;
+
+                // We now change the permissions.
+                let dest_path_cstr = to_cstring(&jailer_cache_file)?;
+                SyscallReturnCode(unsafe {
+                    libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid())
+                })
+                .into_empty_result()
+                .map_err(|e| Error::ChangeFileOwner(jailer_cache_file.to_owned(), e))?;
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn copy_midr_el1_info(&self) -> Result<()> {
+        use crate::{readln_special, to_cstring, writeln_special};
+
+        const HOST_MIDR_EL1_INFO: &str = "/sys/devices/system/cpu/cpu0/regs/identification";
+
+        let jailer_midr_el1_directory =
+            Path::new(self.chroot_dir()).join("sys/devices/system/cpu/cpu0/regs/identification/");
+        fs::create_dir_all(&jailer_midr_el1_directory)
+            .map_err(|e| Error::CreateDir(jailer_midr_el1_directory.to_owned(), e))?;
+
+        let host_midr_el1_file = PathBuf::from(format!("{}/midr_el1", HOST_MIDR_EL1_INFO));
+        let jailer_midr_el1_file = jailer_midr_el1_directory.join("midr_el1");
+
+        // Read and copy the MIDR_EL1 file to Jailer
+        let line = readln_special(&host_midr_el1_file)?;
+        writeln_special(&jailer_midr_el1_file, line)?;
+
+        // Change the permissions.
+        let dest_path_cstr = to_cstring(&jailer_midr_el1_file)?;
+        SyscallReturnCode(unsafe { libc::chown(dest_path_cstr.as_ptr(), self.uid(), self.gid()) })
+            .into_empty_result()
+            .map_err(|e| Error::ChangeFileOwner(jailer_midr_el1_file.to_owned(), e))?;
+
+        Ok(())
+    }
+
+    pub fn run(mut self) -> Result<()> {
+        let exec_file_name = self.copy_exec_to_chroot()?;
+        let chroot_exec_file = PathBuf::from("/").join(&exec_file_name);
 
         // Join the specified network namespace, if applicable.
         if let Some(ref path) = self.netns {
-            // This will take ownership of the raw fd.
-            // TODO: for some reason, if we use as_raw_fd here instead, the resulting fd cannot
-            // be used with setns, because we get an EBADFD error. I wonder why?
-            let netns_fd = File::open(path)
-                .map_err(|e| Error::FileOpen(PathBuf::from(path), e))?
-                .into_raw_fd();
-
-            // Safe because we are passing valid parameters.
-            SyscallReturnCode(unsafe { libc::setns(netns_fd, libc::CLONE_NEWNET) })
-                .into_empty_result()
-                .map_err(Error::SetNetNs)?;
-
-            // Since we have ownership here, we also have to close the fd after joining the
-            // namespace. Safe because we are passing valid parameters.
-            SyscallReturnCode(unsafe { libc::close(netns_fd) })
-                .into_empty_result()
-                .map_err(Error::CloseNetNsFd)?;
+            Env::join_netns(path)?;
         }
 
         // We have to setup cgroups at this point, because we can't do it anymore after chrooting.
-        let cgroup = Cgroup::new(self.id.as_str(), self.numa_node, exec_file_name)?;
-        cgroup.attach_pid()?;
+        // cgroups are iterated two times as some cgroups may require others (e.g cpuset requires
+        // cpuset.mems and cpuset.cpus) to be set before attaching any pid.
+        for cgroup in &self.cgroups {
+            // it will panic if any cgroup fails to write
+            cgroup.write_value().unwrap();
+        }
+
+        for cgroup in &self.cgroups {
+            // it will panic if any cgroup fails to attach
+            cgroup.attach_pid().unwrap();
+        }
 
         // If daemonization was requested, open /dev/null before chrooting.
         let dev_null = if self.daemonize {
@@ -250,13 +480,20 @@ impl Env {
         } else {
             None
         };
+        #[cfg(target_arch = "aarch64")]
+        self.copy_cache_info()?;
+        #[cfg(target_arch = "aarch64")]
+        self.copy_midr_el1_info()?;
 
         // Jail self.
         chroot(self.chroot_dir())?;
 
         // This will not only create necessary directories, but will also change ownership
         // for all of them.
-        self.setup_jailed_folders()?;
+        FOLDER_HIERARCHY
+            .iter()
+            .map(|f| self.setup_jailed_folder(*f))
+            .collect::<Result<()>>()?;
 
         // Here we are creating the /dev/kvm and /dev/net/tun devices inside the jailer.
         // Following commands can be translated into bash like this:
@@ -265,9 +502,9 @@ impl Env {
         // $: mknod $dev_net_tun_path c 10 200
         // www.kernel.org/doc/Documentation/networking/tuntap.txt specifies 10 and 200 as the major
         // and minor for the /dev/net/tun device.
-        self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, 10, 200)?;
+        self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR)?;
         // Do the same for /dev/kvm with (major, minor) = (10, 232).
-        self.mknod_and_own_dev(DEV_KVM_WITH_NUL, 10, 232)?;
+        self.mknod_and_own_dev(DEV_KVM_WITH_NUL, DEV_KVM_MAJOR, DEV_KVM_MINOR)?;
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(fd) = dev_null {
@@ -287,37 +524,54 @@ impl Env {
                 .map_err(Error::CloseDevNullFd)?;
         }
 
-        Err(Error::Exec(
-            Command::new(chroot_exec_file)
-                .args(&["--id", &self.id])
-                .args(&["--start-time-us", &self.start_time_us.to_string()])
-                .args(&["--start-time-cpu-us", &self.start_time_cpu_us.to_string()])
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .uid(self.uid())
-                .gid(self.gid())
-                .args(self.extra_args)
-                .exec(),
-        ))
+        // If specified, exec the provided binary into a new PID namespace.
+        if self.new_pid_ns {
+            self.exec_into_new_pid_ns(chroot_exec_file)
+        } else {
+            Err(Error::Exec(self.exec_command(chroot_exec_file)))
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use build_arg_parser;
+    use crate::build_arg_parser;
+
+    use std::os::linux::fs::MetadataExt;
+    use std::os::unix::ffi::OsStrExt;
+    use utils::tempdir::TempDir;
+    use utils::tempfile::TempFile;
 
     #[derive(Clone)]
     struct ArgVals<'a> {
-        node: &'a str,
-        id: &'a str,
-        exec_file: &'a str,
-        uid: &'a str,
-        gid: &'a str,
-        chroot_base: &'a str,
-        netns: Option<&'a str>,
-        daemonize: bool,
+        pub node: &'a str,
+        pub id: &'a str,
+        pub exec_file: &'a str,
+        pub uid: &'a str,
+        pub gid: &'a str,
+        pub chroot_base: &'a str,
+        pub netns: Option<&'a str>,
+        pub daemonize: bool,
+        pub new_pid_ns: bool,
+        pub cgroups: Vec<&'a str>,
+    }
+
+    impl ArgVals<'_> {
+        pub fn new() -> ArgVals<'static> {
+            ArgVals {
+                node: "0",
+                id: "bd65600d-8669-4903-8a14-af88203add38",
+                exec_file: "/proc/cpuinfo",
+                uid: "1001",
+                gid: "1002",
+                chroot_base: "/",
+                netns: Some("zzzns"),
+                daemonize: true,
+                new_pid_ns: true,
+                cgroups: vec!["cpu.shares=2", "cpuset.mems=0"],
+            }
+        }
     }
 
     fn make_args(arg_vals: &ArgVals) -> Vec<String> {
@@ -340,6 +594,12 @@ mod tests {
         .map(String::from)
         .collect::<Vec<String>>();
 
+        // Append cgroups arguments
+        for cg in &arg_vals.cgroups {
+            arg_vec.push("--cgroup".to_string());
+            arg_vec.push((*cg).to_string());
+        }
+
         if let Some(s) = arg_vals.netns {
             arg_vec.push("--netns".to_string());
             arg_vec.push(s.to_string());
@@ -349,30 +609,32 @@ mod tests {
             arg_vec.push("--daemonize".to_string());
         }
 
+        if arg_vals.new_pid_ns {
+            arg_vec.push("--new-pid-ns".to_string());
+        }
+
         arg_vec
+    }
+
+    fn get_major(dev: u64) -> u32 {
+        unsafe { libc::major(dev) }
+    }
+
+    fn get_minor(dev: u64) -> u32 {
+        unsafe { libc::minor(dev) }
+    }
+
+    fn create_env() -> Env {
+        // Create a standard environment.
+        let arg_parser = build_arg_parser();
+        let mut args = arg_parser.arguments().clone();
+        args.parse(&make_args(&ArgVals::new())).unwrap();
+        Env::new(&args, 0, 0).unwrap()
     }
 
     #[test]
     fn test_new_env() {
-        let node = "1";
-        let id = "bd65600d-8669-4903-8a14-af88203add38";
-        let exec_file = "/proc/cpuinfo";
-        let uid = "1001";
-        let gid = "1002";
-        let chroot_base = "/";
-        let netns = Some("zzzns");
-
-        let good_arg_vals = ArgVals {
-            node,
-            id,
-            exec_file,
-            uid,
-            gid,
-            chroot_base,
-            netns,
-            daemonize: true,
-        };
-
+        let good_arg_vals = ArgVals::new();
         let arg_parser = build_arg_parser();
         let mut args = arg_parser.arguments().clone();
         args.parse(&make_args(&good_arg_vals)).unwrap();
@@ -380,21 +642,23 @@ mod tests {
         let good_env =
             Env::new(&args, 0, 0).expect("This new environment should be created successfully.");
 
-        let mut chroot_dir = PathBuf::from(chroot_base);
-        chroot_dir.push(Path::new(exec_file).file_name().unwrap());
-        chroot_dir.push(id);
+        let mut chroot_dir = PathBuf::from(good_arg_vals.chroot_base);
+        chroot_dir.push(Path::new(good_arg_vals.exec_file).file_name().unwrap());
+        chroot_dir.push(good_arg_vals.id);
         chroot_dir.push("root");
 
         assert_eq!(good_env.chroot_dir(), chroot_dir);
-        assert_eq!(format!("{}", good_env.gid()), gid);
-        assert_eq!(format!("{}", good_env.uid()), uid);
+        assert_eq!(format!("{}", good_env.gid()), good_arg_vals.gid);
+        assert_eq!(format!("{}", good_env.uid()), good_arg_vals.uid);
 
-        assert_eq!(good_env.netns, netns.map(String::from));
+        assert_eq!(good_env.netns, good_arg_vals.netns.map(String::from));
         assert!(good_env.daemonize);
+        assert!(good_env.new_pid_ns);
 
         let another_good_arg_vals = ArgVals {
             netns: None,
             daemonize: false,
+            new_pid_ns: false,
             ..good_arg_vals
         };
 
@@ -404,6 +668,7 @@ mod tests {
         let another_good_env = Env::new(&args, 0, 0)
             .expect("This another new environment should be created successfully.");
         assert!(!another_good_env.daemonize);
+        assert!(!another_good_env.new_pid_ns);
 
         let base_invalid_arg_vals = ArgVals {
             daemonize: true,
@@ -418,6 +683,16 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_node_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["zzz"],
+            ..base_invalid_arg_vals.clone()
+        };
+
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
         let invalid_id_arg_vals = ArgVals {
@@ -480,5 +755,283 @@ mod tests {
         unsafe {
             libc::close(fd2);
         }
+    }
+
+    #[test]
+    fn test_setup_jailed_folder() {
+        let env = create_env();
+
+        // Error case: non UTF-8 paths.
+        let bad_string: &[u8] = &[0, 102, 111, 111, 0]; // A leading nul followed by 'f', 'o', 'o'
+        assert_eq!(
+            format!("{}", env.setup_jailed_folder(bad_string).err().unwrap()),
+            "Failed to decode string from byte array: data provided contains an interior nul byte at byte pos 0"
+        );
+
+        // Error case: inaccessible path - can't be triggered with unit tests running as root.
+        // assert_eq!(
+        //     format!("{}", env.setup_jailed_folders(vec!["/foo/bar"]).err().unwrap()),
+        //     "Failed to create directory /foo/bar: Permission denied (os error 13)"
+        // );
+
+        // Success case.
+        let foo_dir = TempDir::new().unwrap();
+        let mut foo_path = foo_dir.as_path().as_os_str().as_bytes().to_vec();
+        foo_path.push(0);
+        foo_dir.remove().unwrap();
+        assert!(env.setup_jailed_folder(foo_path.as_slice()).is_ok());
+
+        let metadata = fs::metadata(
+            CStr::from_bytes_with_nul(foo_path.as_slice())
+                .unwrap()
+                .to_str()
+                .unwrap(),
+        )
+        .unwrap();
+        // The mode bits will also have S_IFDIR set because the path belongs to a directory.
+        assert_eq!(
+            metadata.permissions().mode(),
+            FOLDER_PERMISSIONS | libc::S_IFDIR
+        );
+        assert_eq!(metadata.st_uid(), env.uid);
+        assert_eq!(metadata.st_gid(), env.gid);
+
+        // Can't safely test that permissions remain unchanged by umask settings without affecting
+        // the umask of the whole unit test process.
+        // This crate produces a binary, so Rust integ tests aren't an option either.
+        // And changing the umask in the Python integration tests is unsafe because of pytest's
+        // process management; it can't be isolated from side effects.
+    }
+
+    #[test]
+    fn test_mknod_and_own_dev() {
+        use std::os::unix::fs::FileTypeExt;
+
+        let env = create_env();
+
+        // Ensure path buffers without NULL-termination are handled well.
+        assert!(env.mknod_and_own_dev(b"/some/path", 0, 0).is_err());
+
+        // Ensure device nodes are created with correct major/minor numbers and permissions.
+        let dev_infos: Vec<(&[u8], u32, u32)> = vec![
+            (b"/dev/net/tun-test\0", DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR),
+            (b"/dev/kvm-test\0", DEV_KVM_MAJOR, DEV_KVM_MINOR),
+        ];
+
+        for (dev, major, minor) in dev_infos {
+            let dev_str = CStr::from_bytes_with_nul(dev).unwrap().to_str().unwrap();
+
+            // Checking this just to be super sure there's no file at `dev_str` path (though
+            // it shouldn't be as we deleted it at the end of the previous test run).
+            if Path::new(dev_str).exists() {
+                fs::remove_file(dev_str).unwrap();
+            }
+
+            // Create a new device node.
+            env.mknod_and_own_dev(dev, major, minor).unwrap();
+
+            // Ensure device's properties.
+            let metadata = fs::metadata(dev_str).unwrap();
+            assert_eq!(metadata.file_type().is_char_device(), true);
+            assert_eq!(get_major(metadata.st_rdev()), major);
+            assert_eq!(get_minor(metadata.st_rdev()), minor);
+            assert_eq!(
+                metadata.permissions().mode(),
+                libc::S_IFCHR | libc::S_IRUSR | libc::S_IWUSR
+            );
+
+            // Trying to create again the same device node is not allowed.
+            assert_eq!(
+                format!("{}", env.mknod_and_own_dev(dev, major, minor).unwrap_err()),
+                format!(
+                    "Failed to create {}\u{0} via mknod inside the jail: File exists (os error 17)",
+                    dev_str
+                )
+            );
+            // Remove the device node.
+            fs::remove_file(dev_str).expect("Could not remove file.");
+        }
+    }
+
+    #[test]
+    fn test_copy_exec_to_chroot() {
+        // Create a standard environment.
+        let arg_parser = build_arg_parser();
+        let mut args = arg_parser.arguments().clone();
+
+        // Create tmp resources for `exec_file` and `chroot_base`.
+        let some_file = TempFile::new_with_prefix("/tmp/").unwrap();
+        let some_file_path = some_file.as_path().to_str().unwrap();
+        let some_file_name = some_file.as_path().file_name().unwrap();
+        let some_dir = TempDir::new().unwrap();
+        let some_dir_path = some_dir.as_path().to_str().unwrap();
+
+        let some_arg_vals = ArgVals {
+            node: "0",
+            id: "bd65600d-8669-4903-8a14-af88203add38",
+            exec_file: some_file_path,
+            uid: "1001",
+            gid: "1002",
+            chroot_base: some_dir_path,
+            netns: Some("zzzns"),
+            daemonize: false,
+            new_pid_ns: false,
+            cgroups: Vec::new(),
+        };
+        fs::write(some_file_path, "some_content").unwrap();
+        args.parse(&make_args(&some_arg_vals)).unwrap();
+        let mut env = Env::new(&args, 0, 0).unwrap();
+
+        // Create the required chroot dir hierarchy.
+        fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
+
+        assert_eq!(
+            env.copy_exec_to_chroot().unwrap(),
+            some_file_name.to_os_string()
+        );
+
+        let dest_path = env.chroot_dir.join(some_file_name);
+        // Check that `fs::copy()` copied src content and permission bits to destination.
+        let metadata_src = fs::metadata(&env.exec_file_path).unwrap();
+        let metadata_dest = fs::metadata(&dest_path).unwrap();
+        let content_src = fs::read(&env.exec_file_path).unwrap();
+        let content_dest = fs::read(&dest_path).unwrap();
+        assert_eq!(content_src, content_dest);
+        assert_eq!(content_dest, b"some_content");
+        assert_eq!(metadata_src.permissions(), metadata_dest.permissions());
+
+        // Clean up the environment.
+        fs::remove_dir_all(env.chroot_dir()).expect("Could not remove dir hierarchy.");
+    }
+
+    #[test]
+    fn test_join_netns() {
+        let mut path = "invalid_path";
+        assert_eq!(
+            format!("{}", Env::join_netns(path).unwrap_err()),
+            format!(
+                "Failed to open file {}: No such file or directory (os error 2)",
+                path
+            )
+        );
+
+        let tmp_file = TempFile::new().unwrap();
+        path = tmp_file.as_path().to_str().unwrap();
+        assert_eq!(
+            format!("{}", Env::join_netns(path).unwrap_err()),
+            "Failed to join network namespace: netns: Invalid argument (os error 22)"
+        );
+
+        // Testing `join_netns()` with a valid network namespace is not that easy
+        // as Rust std library doesn't offer support for creating such namespaces.
+    }
+
+    #[test]
+    fn test_cgroups_parsing() {
+        let arg_parser = build_arg_parser();
+        let good_arg_vals = ArgVals::new();
+
+        // Cases that should fail
+
+        // Check string without "." (no controller)
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpusetcpus=2"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        // Check string with multiple "."
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpu.set.cpus=2"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        // Check empty string
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec![""],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        // Check valid file empty value
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpuset.cpus="],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        // Check valid file no value
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpuset.cpus"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        // Cases that should success
+
+        // Check value with special characters (',', '.', '-')
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpuset.cpus=2-4,5.3"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_ok());
+
+        // Check valid case
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["cpuset.cpus=2"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_ok());
+    }
+
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn test_copy_cache_info() {
+        let env = create_env();
+
+        // Create the required chroot dir hierarchy.
+        fs::create_dir_all(env.chroot_dir()).expect("Could not create dir hierarchy.");
+
+        assert!(env.copy_cache_info().is_ok());
+
+        // Make sure that the needed files truly exist.
+        const JAILER_CACHE_INFO: &str = "sys/devices/system/cpu/cpu0/cache";
+
+        let dest_path = env.chroot_dir.join(JAILER_CACHE_INFO);
+        assert!(fs::metadata(&dest_path).is_ok());
+        let index_dest_path = dest_path.join("index0");
+        assert!(fs::metadata(&index_dest_path).is_ok());
+        let entries = fs::read_dir(&index_dest_path).unwrap();
+        assert_eq!(entries.enumerate().count(), 6);
+    }
+
+    #[test]
+    fn test_save_exec_file_pid() {
+        let exec_file_name = "file";
+        let pid_file_name = "file.pid";
+        let pid = 1;
+
+        let mut env = create_env();
+        env.save_exec_file_pid(pid, PathBuf::from(exec_file_name))
+            .unwrap();
+
+        let stored_pid = fs::read_to_string(pid_file_name);
+        fs::remove_file(pid_file_name).unwrap();
+        assert_eq!(stored_pid.unwrap(), "1");
     }
 }

@@ -6,11 +6,19 @@ edition = "2018"
 
 [dependencies]
 libc = ">=0.2.39"
+timerfd = ">=1.0"
+versionize = ">=0.1.6"
+versionize_derive = ">=0.1.3"
+vm-memory = { path = "../vm-memory" }
+
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }
-vm-memory = { version = ">=0.2.0", features = ["backend-mmap"] }
-utils = { path = "../utils" }
+mmds = { path = "../mmds" }
 net_gen = { path = "../net_gen" }
 polly = { path = "../polly" }
 rate_limiter = { path = "../rate_limiter" }
+serde = { version = ">=1.0.27", features = ["derive"] }
+snapshot = { path = "../snapshot" }
+utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
+

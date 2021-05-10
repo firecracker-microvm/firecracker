@@ -13,7 +13,7 @@
 #   building: `./devtool build`
 #     Then find the binaries under build/debug/
 #   testing: `./devtool test`
-#     Will run the entire test battery; will take serveral minutes to complete.
+#     Will run the entire test battery; will take several minutes to complete.
 #   deep-dive: `./devtool shell`
 #     Open a shell prompt inside the container. Then build or test (or do
 #     anything, really) manually.
@@ -65,15 +65,19 @@
 #   - Add a `./devtool run` command to set up and run Firecracker.
 #   - Add a `./devtool diag` command to help with troubleshooting, by checking
 #     the most common failure conditions.
-#   - Add a `./devtool build-devctr` command to build the development container
-#     from its Dockerfile.
 #   - Look into caching the Cargo registry within the container and if that
 #     would help with reproducible builds (in addition to pinning Cargo.lock)
+
+# Development container image (without tag)
+DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
+
+# Development container tag
+DEVCTR_IMAGE_TAG="v28"
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
 # (Yet another step on our way to reproducible builds.)
-DEVCTR_IMAGE="fcuvm/dev:v14"
+DEVCTR_IMAGE="${DEVCTR_IMAGE_NO_TAG}:${DEVCTR_IMAGE_TAG}"
 
 # Naming things is hard
 MY_NAME="Firecracker $(basename "$0")"
@@ -86,6 +90,9 @@ FC_ROOT_DIR=$(cd "${FC_TOOLS_DIR}/.." && pwd)
 
 # Full path to the build dir on the host.
 FC_BUILD_DIR="${FC_ROOT_DIR}/build"
+
+# Full path to devctr dir on the host.
+FC_DEVCTR_DIR="${FC_ROOT_DIR}/tools/devctr"
 
 # Full path to the cargo registry dir on the host. This appears on the host
 # because we want to persist the cargo registry across container invocations.
@@ -114,9 +121,18 @@ CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
 # Full path to the microVM images cache dir
 CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
 
+# Full path to the public key mapping on the guest
+PUB_KEY_PATH=/root/.ssh/id_rsa.pub
+
+# Full path to the private key mapping on the guest
+PRIV_KEY_PATH=/root/.ssh/id_rsa
+
 # Global options received by $0
 # These options are not command-specific, so we store them as global vars
 OPT_UNATTENDED=false
+
+DEFAULT_TEST_SESSION_ROOT_PATH=/srv
+DEFAULT_RAMDISK_PATH=/mnt/devtool-ramdisk
 
 
 # Send a decorated message to stdout, followed by a new line
@@ -139,8 +155,8 @@ say_noln() {
 #
 say_err() {
     [ -t 2 ] && [ -n "$TERM" ] \
-        && echo "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
-        || echo "[$MY_NAME] $*" 1>&2
+        && echo -e "$(tput setaf 1)[$MY_NAME] $*$(tput sgr0)" 1>&2 \
+        || echo -e "[$MY_NAME] $*" 1>&2
 }
 
 # Send a warning-highlighted text to stdout
@@ -189,6 +205,32 @@ ensure_docker() {
         "https://docs.docker.com/install/linux/linux-postinstall/"
 }
 
+# Run a command and retry multiple times if it fails. Once it stops
+# failing return to normal execution. If there are "retry count"
+# failures, set the last error code.
+# $1 - command
+# $2 - retry count
+# $3 - sleep interval between retries
+retry_cmd() {
+    command=$1
+    retry_cnt=$2
+    sleep_int=$3
+
+    {
+        $command
+    } || {
+        # Command failed, substract one from retry_cnt
+        retry_cnt=$((retry_cnt - 1))
+
+        # If retry_cnt is larger than 0, sleep and call again
+        if [ "$retry_cnt" -gt 0 ]; then
+            echo "$command failed, retrying..."
+            sleep "$sleep_int"
+            retry_cmd "$command" "$retry_cnt" "$sleep_int"
+        fi
+    }
+}
+
 # Attempt to download our Docker image. Exit if that fails.
 # Upon returning from this call, the caller can be certain our Docker image is
 # available on this system.
@@ -204,7 +246,9 @@ ensure_devctr() {
         say "About to pull docker image $DEVCTR_IMAGE"
         get_user_confirmation || die "Aborted."
 
-        docker pull "${DEVCTR_IMAGE}"
+        # Run docker pull 5 times in case it fails - sleep 3 seconds
+        # between attempts
+        retry_cmd "docker pull $DEVCTR_IMAGE" 5 3
 
         ok_or_die "Error pulling docker image. Aborting."
     }
@@ -234,17 +278,59 @@ ensure_build_dir() {
     done
 }
 
+# Makes sure that Firecracker release binaries were built.
+# This is relevant in the context of stripping the already built release binaries.
+ensure_release_binaries_exist() {
+    target=$1
+    profile=$2
+    firecracker_bin_path="$CARGO_TARGET_DIR/$target/$profile/firecracker"
+    jailer_bin_path="$CARGO_TARGET_DIR/$target/$profile/jailer"
+
+    # Both binaries must exist for the stripping to be successful.
+    [ -f $firecracker_bin_path ] && [ -f $jailer_bin_path ] || \
+    die "Missing release binaries. Needed files:\n* $firecracker_bin_path\n* $jailer_bin_path."
+}
+
 # Fix build/ dir permissions after a privileged container run.
-# Since the privileged cotainer runs as root, any files it creates will be
+# Since the privileged container runs as root, any files it creates will be
 # owned by root. This fixes that by recursively changing the ownership of build/
 # to the current user.
 #
-fix_build_dir_perms() {
+cmd_fix_perms() {
     # Yes, running Docker to get elevated privileges, just to chown some files
     # is a dirty hack.
     run_devctr \
         -- \
         chown -R "$(id -u):$(id -g)" "$CTR_FC_BUILD_DIR"
+}
+
+# Builds the development container from its Dockerfile.
+#
+cmd_build_devctr() {
+    arch=$(uname -m)
+    docker_file_name="Dockerfile.$arch"
+    should_update_python_packages=true
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")      { cmd_help; exit 1; } ;;
+            "-n"|"--no-python-package-update")
+                shift
+                should_update_python_packages=false
+                ;;
+            "--")               { shift; break;     } ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
+    docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$FC_DEVCTR_DIR/$docker_file_name" .
+
+    if [ "$should_update_python_packages" = true ]; then
+        update_python_package_version
+    fi
 }
 
 # Prompt the user for confirmation before proceeding.
@@ -362,6 +448,43 @@ run_devctr() {
         "$DEVCTR_IMAGE" "${ctr_args[@]}"
 }
 
+# Helper function to test that the argument provided is a valid path to a SSH key.
+#
+test_key() {
+    ssh-keygen -lf "$1" &>/dev/null
+    ret=$?
+    [ $ret -ne 0 ] && die "$1 is not a valid key file."
+}
+
+# Tries to update any outdated python packages on the container,
+# locks the new versions and copies back the ```poetry.lock```
+# file to the host.
+#
+update_python_package_version() {
+    say "Updating python packages..."
+
+    # defined in Dockerfile
+    poetry_dir_on_container="/tmp/poetry"
+    lock_file_location_on_host="$FC_DEVCTR_DIR/poetry.lock"
+    image_id=$(docker images -q "$DEVCTR_IMAGE_NO_TAG" | head -n 1)
+    dummy_container_name=$(uuidgen)
+    dummy_container_id=$(docker create -ti --name \
+        "$dummy_container_name" \
+        "$image_id" \
+        bash)
+
+    docker start "$dummy_container_id"
+    cmd="cd "$poetry_dir_on_container"; poetry update"
+    docker exec -ti "$dummy_container_id" /bin/bash -c "${cmd}"
+    docker cp \
+        "$dummy_container_id":/tmp/poetry/poetry.lock \
+        "$lock_file_location_on_host"
+    docker commit "$dummy_container_id" "$DEVCTR_IMAGE_NO_TAG"
+
+    docker stop "$dummy_container_id"
+    docker rm -f "$dummy_container_name"
+}
+
 # `$0 help`
 # Show the detailed devtool usage information.
 #
@@ -384,6 +507,18 @@ cmd_help() {
     echo "        --release             Build the release binaries."
     echo "        -l, --libc musl|gnu   Choose the libc flavor against which Firecracker will"
     echo "                              be linked. Default is musl."
+    echo "        --ssh-keys            Provide the paths to the public and private SSH keys on the host"
+    echo "                              (in this particular order) required for the git authentication."
+    echo "                              It is mandatory that both keys are specified."
+    echo ""
+    echo "    strip [--target-libc musl|gnu]"
+    echo "        Strip debug symbols from the Firecracker release binaries."
+    echo ""
+    echo "        --target-libc musl|gnu   Choose the target libc flavor which determines the"
+    echo "                                 toolchain used to build Firecracker release binaries."
+    echo "                                 Stripping will occur only for the Firecracker release"
+    echo "                                 binaries corresponding to the inferred toolchain. Default"
+    echo "                                 is musl."
     echo ""
     echo "    fmt"
     echo "        Auto-format all Rust source files, to match the Firecracker requirements."
@@ -412,9 +547,21 @@ cmd_help() {
     echo "        Run the Firecracker integration tests."
     echo "        The Firecracker testing system is based on pytest. All arguments after --"
     echo "        will be passed through to pytest."
+    echo "        -c, --cpuset-cpus cpulist    Set a dedicated cpulist to be used by the tests."
+    echo "        -m, --cpuset-mems memlist    Set a dedicated memlist to be used by the tests."
+    echo "        -r, --ramdisk size[k|m|g]    Use a ramdisk of `size` MB for
+                                               the entire test session (e.g
+                                               stored artifacts, Firecracker
+                                               binaries, logs/metrics FIFOs
+                                               and test created device files)."
     echo ""
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
+    echo "    fix_perms"
+    echo "        Fixes permissions when devtool dies in the middle of a privileged session."
+    echo "    build_devctr [--no-python-package-update]"
+    echo "        Builds the development container from its Dockerfile."
+    echo "        -n, --no-python-package-update  Do not update python packages."
     echo ""
 }
 
@@ -433,6 +580,20 @@ cmd_build() {
             "-h"|"--help")  { cmd_help; exit 1;     } ;;
             "--debug")      { profile="debug";      } ;;
             "--release")    { profile="release";    } ;;
+            "--ssh-keys")
+                shift
+                [[ -z "$1" ]] && \
+                    die "Please provide the path to the public SSH key."
+                [[ ! -f "$1" ]]  && die "The public key file does not exist: $1."
+                test_key "$1"
+                host_pub_key_path="$1"
+                shift
+                [[ -z "$1" ]] && \
+                    die "Please provide the path to the private SSH key."
+                [[ ! -f "$1" ]]  && die "The private key file does not exist: $1."
+                test_key "$1"
+                host_priv_key_path="$1"
+                ;;
             "-l"|"--libc")
                 shift
                 [[ "$1" =~ ^(musl|gnu)$ ]] || \
@@ -475,20 +636,43 @@ cmd_build() {
 
     [ $profile = "release" ] && cargo_args+=("--release")
 
+    # Map the public and private keys to the guest if they are specified.
+    [ ! -z "$host_pub_key_path" ] && [ ! -z "$host_priv_key_path" ] &&
+        extra_args="--volume $host_pub_key_path:$PUB_KEY_PATH:z \
+                    --volume $host_priv_key_path:$PRIV_KEY_PATH:z"
+
+    # Artificially trigger a re-run of the build script,
+    # to make sure that `firecracker --version` reports the latest changes.
+    touch "$FC_ROOT_DIR/build.rs"
+
     # Run the cargo build process inside the container.
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
-    #
-    # Note: we need to pass an explicit TARGET_CC to cargo, because the `cc`
-    # crate gets confused for aarch64 musl.
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
-        --env TARGET_CC=musl-gcc \
+        ${extra_args} \
         -- \
         cargo build \
             --target-dir "$CTR_CARGO_TARGET_DIR" \
             "${cargo_args[@]}"
+    ret=$?
+
+    [ $ret -ne 0 ] && return $ret
+
+    # Build jailer only in case of musl for compatibility reasons
+    if [ "$libc" == "musl" ];then
+        run_devctr \
+            --user "$(id -u):$(id -g)" \
+            --workdir "$CTR_FC_ROOT_DIR" \
+            ${extra_args} \
+            -- \
+            cargo build -p jailer \
+                --target-dir "$CTR_CARGO_TARGET_DIR" \
+                "${cargo_args[@]}"
+
+    fi
+
     ret=$?
 
     # If `cargo build` was successful, let's copy the binaries to a more
@@ -502,6 +686,70 @@ cmd_build() {
     return $ret
 }
 
+cmd_strip() {
+    profile="release"
+    libc="musl"
+    target="$(uname -m)-unknown-linux-${libc}"
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")  { cmd_help; exit 1;     } ;;
+            "--target-libc")
+                shift
+                [[ "$1" =~ ^(musl|gnu)$ ]] || \
+                    die "Invalid libc: $1. Valid options are \"musl\" and \"gnu\"."
+                libc="$1"
+                target="$(uname -m)-unknown-linux-${libc}"
+                ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
+    # Check prerequisites
+    ensure_devctr
+    ensure_build_dir
+    ensure_release_binaries_exist $target $profile
+
+    say "Starting stripping the debug symbols for $profile binaries built against $target target."
+    strip_flags="--strip-debug"
+    say "Strip flags: $strip_flags."
+
+    run_devctr \
+      --user "$(id -u):$(id -g)" \
+      -- \
+      strip $strip_flags\
+        "$CTR_CARGO_TARGET_DIR/$target/$profile/firecracker" \
+        "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer"
+    ret=$?
+
+    [ $ret -eq 0 ] && {
+        cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
+        say "Stripping was successful."
+        say "Stripped binaries placed under $cargo_bin_dir."
+    }
+
+    return $ret
+}
+
+mount_ramdisk() {
+    say "Using ramdisk ..."
+    local ramdisk_size="$1"
+    umount_ramdisk
+    mkdir -p ${DEFAULT_RAMDISK_PATH} && \
+    mount -t tmpfs -o size=${ramdisk_size} tmpfs ${DEFAULT_RAMDISK_PATH}
+    mkdir -p ${DEFAULT_RAMDISK_PATH}/srv
+    mkdir -p  ${DEFAULT_RAMDISK_PATH}/tmp
+}
+
+umount_ramdisk() {
+    umount ${DEFAULT_RAMDISK_PATH} &>/dev/null
+    rmdir ${DEFAULT_RAMDISK_PATH} &>/dev/null
+}
+
 # `$0 test` - run integration tests
 # Please see `$0 help` for more information.
 #
@@ -511,6 +759,19 @@ cmd_test() {
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")      { cmd_help; exit 1; } ;;
+            "-c"|"--cpuset-cpus")
+                shift
+                local cpuset_cpus="$1"
+                ;;
+            "-m"|"--cpuset-mems")
+                shift
+                local cpuset_mems="$1"
+                ;;
+            "-r"|"--ramdisk")
+                shift
+                local ramdisk_size="$1"
+                local ramdisk=true
+                ;;
             "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -524,9 +785,14 @@ cmd_test() {
     ensure_devctr
     ensure_build_dir
 
-
     # If we got to here, we've got all we need to continue.
+    say "$(date -u +'%F %H:%M:%S %Z')"
     say "Starting test run ..."
+
+    if [[ $ramdisk = true ]]; then
+        mount_ramdisk ${ramdisk_size}
+        ramdisk_args="--volume ${DEFAULT_RAMDISK_PATH}:${DEFAULT_TEST_SESSION_ROOT_PATH}"
+    fi
 
     # Testing (running Firecracker via the jailer) needs root access,
     # in order to set-up the Firecracker jail (manipulating cgroups, net
@@ -536,15 +802,24 @@ cmd_test() {
         --privileged \
         --security-opt seccomp=unconfined \
         --ulimit core=0 \
+        --ulimit nofile=4096:4096 \
         --workdir "$CTR_FC_ROOT_DIR/tests" \
+        --cpuset-cpus="$cpuset_cpus" \
+        --cpuset-mems="$cpuset_mems" \
+        ${ramdisk_args} \
         -- \
         pytest "$@"
 
     ret=$?
 
+
+    if [[ $ramdisk = true ]]; then
+        umount_ramdisk
+    fi
+
     # Running as root would have created some root-owned files under the build
     # dir. Let's fix that.
-    fix_build_dir_perms
+    cmd_fix_perms
 
     return $ret
 }
@@ -562,6 +837,12 @@ cmd_shell() {
         case "$1" in
             "-h"|"--help")          { cmd_help; exit 1; } ;;
             "-p"|"--privileged")    { privileged=true;  } ;;
+            "-r"|"--ramdisk")
+                  shift
+                  local ramdisk_size="$1"
+                  local ramdisk=true
+                  ;;
+              "--")               { shift; break;     } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
             ;;
@@ -573,6 +854,11 @@ cmd_shell() {
     ensure_devctr
     ensure_build_dir
 
+    if [[ $ramdisk = true ]]; then
+        mount_ramdisk ${ramdisk_size}
+        ramdisk_args="--volume ${DEFAULT_RAMDISK_PATH}:${DEFAULT_TEST_SESSION_ROOT_PATH}"
+    fi
+
     if [[ $privileged = true ]]; then
         # If requested, spin up a privileged container.
         #
@@ -582,8 +868,10 @@ cmd_shell() {
             "$CTR_FC_ROOT_DIR will be owned by root."
         run_devctr \
             --privileged \
+            --ulimit nofile=4096:4096 \
             --security-opt seccomp=unconfined \
             --workdir "$CTR_FC_ROOT_DIR" \
+            ${ramdisk_args} \
             -- \
             bash
         ret=$?
@@ -591,7 +879,7 @@ cmd_shell() {
         # Running as root may have created some root-owned files under the build
         # dir. Let's fix that.
         #
-        fix_build_dir_perms
+        cmd_fix_perms
     else
         say "Dropping to shell prompt as user $(whoami) ..."
         say "Note: $FC_ROOT_DIR is bind-mounted under $CTR_FC_ROOT_DIR"
@@ -605,12 +893,17 @@ cmd_shell() {
 
         run_devctr \
             --user "$(id -u):$(id -g)" \
+            --ulimit nofile=4096:4096 \
             --device=/dev/kvm:/dev/kvm \
             --workdir "$CTR_FC_ROOT_DIR" \
             --env PS1="$(whoami)@\h:\w\$ " \
             -- \
             bash --norc
         ret=$?
+    fi
+
+    if [[ $ramdisk = true ]]; then
+        umount_ramdisk
     fi
 
     return $ret
@@ -645,7 +938,7 @@ cmd_fmt() {
 }
 
 
-# Prepare a Firecracker release by updating the version, crate dependencies
+# Prepare a Firecracker release by updating the version, changelog
 # and credits.
 # Example: `devtool release 0.42.0`
 #
@@ -687,14 +980,15 @@ cmd_prepare_release() {
         rm -f "${file}="
     done
 
-    # Update crate dependencies.
-    say "Updating crate dependencies..."
+    # Run `cargo check` to update firecracker and jailer versions in
+    # `Cargo.lock`.
+    say "Updating lockfile..."
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
         -- \
-        cargo update
-    ok_or_die "cargo update failed."
+        cargo check
+    ok_or_die "cargo check failed."
 
     # Update credits.
     say "Updating credits..."
@@ -830,6 +1124,13 @@ check_swap () {
 	say_warn "WARNING: SWAP enabled"
 }
 
+check_vm() {
+    if [ $(dmesg | grep -c -i "hypervisor detected") -gt 0 ]; then
+        say_warn "WARNING: you are running in a virtual machine." \
+	"Firecracker is not well tested under nested virtualization."
+    fi
+}
+
 cmd_checkenv() {
     # Parse any command line args.
     while [ $# -gt 0 ]; do
@@ -847,6 +1148,7 @@ cmd_checkenv() {
     say "Please check $QUICKSTART in case of any error."
     ensure_kvm_rw
     check_kernver
+    check_vm
     say "Checking Host Security Configuration."
     say "Please check $PROD_DOC in case of any error."
     check_KSM

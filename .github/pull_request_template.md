@@ -1,4 +1,4 @@
-## Reason for This PR
+# Reason for This PR
 
 `[Author TODO: add issue # or explain reasoning.]`
 
@@ -25,3 +25,4 @@ the terms of the Apache 2.0 license.
 - [ ] Any newly added `unsafe` code is properly documented.
 - [ ] Any API changes are reflected in `firecracker/swagger.yaml`.
 - [ ] Any user-facing changes are mentioned in `CHANGELOG.md`.
+- [ ] All added/changed functionality is tested.

@@ -14,13 +14,14 @@ in lightweight virtual machines, called microVMs, which combine the security and
 isolation properties provided by hardware virtualization technology with the
 speed and flexibility of containers.
 
+## Overview
+
 The main component of Firecracker is a virtual machine monitor (VMM) that uses
 the Linux Kernel Virtual Machine (KVM) to create and run microVMs. Firecracker
 has a minimalist design. It excludes unnecessary devices and guest-facing
 functionality to reduce the memory footprint and attack surface area of each
 microVM. This improves security, decreases the startup time, and increases
-hardware utilization. Firecracker currently supports Intel, AMD (preview) and
-Arm (preview) CPUs. Firecracker has also been integrated in container runtimes,
+hardware utilization. Firecracker has also been integrated in container runtimes,
 for example
 [Kata Containers](https://github.com/kata-containers/documentation/wiki/Initial-release-of-Kata-Containers-with-Firecracker-support)
 and [Weaveworks Ignite](https://github.com/weaveworks/ignite).
@@ -73,8 +74,10 @@ To contribute to Firecracker, check out the development setup section in the
 
 New Firecracker versions are released via the GitHub repository
 [releases](https://github.com/firecracker-microvm/firecracker/releases) page,
-typically every one or two months. A history of changes is recorded in our
+typically every two or three months. A history of changes is recorded in our
 [changelog](CHANGELOG.md).
+
+The Firecracker release policy is detailed [here](docs/RELEASE_POLICY.md).
 
 ## Design
 
@@ -93,7 +96,7 @@ The **API endpoint** can be used to:
 - Configure the microvm by:
   - Setting the number of vCPUs (the default is 1).
   - Setting the memory size (the default is 128 MiB).
-  - Choosing a CPU template (currently, C3 and T2 are available).
+  - [x86_64 only] Choosing a CPU template (currently, C3 and T2 are available).
 - Add one or more network interfaces to the microVM.
 - Add one or more read-write or read-only disks to the microVM, each represented
   by a file-backed block device.
@@ -108,14 +111,43 @@ The **API endpoint** can be used to:
 - Add a [vsock socket](docs/vsock.md) to the microVM.
 - Start the microVM using a given kernel image, root file system, and boot
   arguments.
-- Stop the microVM.
+- [x86_64 only] Stop the microVM.
 
 **Built-in Capabilities**:
 
 - Demand fault paging and CPU oversubscription enabled by default.
+- Advanced seccomp filters for enhanced security.
 - [Jailer](docs/jailer.md) process for starting Firecracker in production
-  scenarios; applies a cgroup/namespace/seccomp rule isolation barrier and then
+  scenarios; applies a cgroup/namespace isolation barrier and then
   drops privileges.
+
+## Supported platforms
+
+We continuously test Firecracker on machines with the following CPUs
+micro-architectures: Intel Skylake, Intel Cascade Lake, AMD Zen2 and
+ARM64 Neoverse N1.
+
+Firecracker is [generally available](docs/RELEASE_POLICY.md) on Intel x86_64,
+AMD x86_64 and ARM64 CPUs (starting from release v0.24) that offer hardware
+virtualization support, and that are released starting with 2015.
+All production use cases should follow [these production host setup instructions](docs/prod-host-setup.md).
+
+Firecracker may work on other x86 and Arm 64-bit CPUs with support for hardware
+virtualization, but any such platform is currently not supported and not fit
+for production. If you want to run Firecracker on such platforms, please
+[open a feature request](https://github.com/firecracker-microvm/firecracker/issues/new?assignees=&labels=&template=feature_request.md&title=%5BFeature+Request%5D+Title).
+
+Firecracker currently only supports little-endian platforms, which includes x86_64
+and many aarch64 CPUs. Other systems and architectures may not provide a little-endian
+mode, and Firecracker may not work correctly on such systems.
+
+## Known issues and Limitations
+
+- The [SendCtrlAltDel](docs/api_requests/actions.md#sendctrlaltdel) API request
+  is not supported for aarch64 enabled microVMs.
+- Configuring CPU templates is only supported for Intel enabled microVMs.
+- The ability of [snapshotting a microVM](docs/snapshotting/snapshot-support.md)
+  on aarch64 is only supported for GICv3 powered microVMs.
 
 ## Performance
 
@@ -129,7 +161,7 @@ testing.
 
 The security of Firecracker is our top priority. If you suspect you have
 uncovered a vulnerability, contact us privately, as outlined in our
-[security policy document](SECURITY-POLICY.md); we will immediately prioritize
+[security policy document](SECURITY.md); we will immediately prioritize
 your disclosure.
 
 ## FAQ & Contact
@@ -137,9 +169,10 @@ your disclosure.
 Frequently asked questions are collected in our [FAQ doc](FAQ.md).
 
 You can get in touch with the Firecracker community in the following ways:
-- Security-related issues, see our [security policy document](SECURITY-POLICY.md).
+
+- Security-related issues, see our [security policy document](SECURITY.md).
 - Chat with us on our
-  [Slack workspace](https://join.slack.com/t/firecracker-microvm/shared_invite/enQtNDY2NTUwMzQ3MDE1LWIwMzA0OWFkMTZhMTlmMDZiMmFkYjMyODMxMGQ1ZjliMzJjNjJiNWRhNWNkOGEyNmUxNmRkMjZhYTc3MmVjZjM).
+  [Slack workspace](https://join.slack.com/t/firecracker-microvm/shared_invite/zt-oxbm7tqt-GLlze9zZ7sdRSDY6OnXXHg).
   _Note: most of the maintainers are on a European time zone._
 - Open a GitHub issue in this repository.
 - Email the maintainers at

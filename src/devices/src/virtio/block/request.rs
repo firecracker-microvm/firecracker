@@ -6,14 +6,15 @@
 // found in the THIRD-PARTY file.
 
 use std::convert::From;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::result;
 
-use logger::{Metric, METRICS};
+use logger::{IncMetric, METRICS};
 use virtio_gen::virtio_blk::*;
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 use super::super::DescriptorChain;
+use super::device::{CacheType, DiskProperties};
 use super::{Error, SECTOR_SHIFT, SECTOR_SIZE};
 
 #[derive(Debug)]
@@ -22,6 +23,7 @@ pub enum ExecuteError {
     Flush(io::Error),
     Read(GuestMemoryError),
     Seek(io::Error),
+    SyncAll(io::Error),
     Write(GuestMemoryError),
     Unsupported(u32),
 }
@@ -33,6 +35,7 @@ impl ExecuteError {
             ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
+            ExecuteError::SyncAll(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
             ExecuteError::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
         }
@@ -175,12 +178,10 @@ impl Request {
         Ok(req)
     }
 
-    pub fn execute<T: Seek + Read + Write>(
+    pub(crate) fn execute(
         &self,
-        disk: &mut T,
-        disk_nsectors: u64,
+        disk: &mut DiskProperties,
         mem: &GuestMemoryMmap,
-        disk_id: &[u8],
     ) -> result::Result<u32, ExecuteError> {
         let mut top: u64 = u64::from(self.data_len) / SECTOR_SIZE;
         if u64::from(self.data_len) % SECTOR_SIZE != 0 {
@@ -189,52 +190,69 @@ impl Request {
         top = top
             .checked_add(self.sector)
             .ok_or(ExecuteError::BadRequest(Error::InvalidOffset))?;
-        if top > disk_nsectors {
+        if top > disk.nsectors() {
             return Err(ExecuteError::BadRequest(Error::InvalidOffset));
         }
 
-        disk.seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
+        let cache_type = disk.cache_type();
+        let diskfile = disk.file_mut();
+        diskfile
+            .seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
             .map_err(ExecuteError::Seek)?;
 
         match self.request_type {
-            RequestType::In => {
-                mem.read_from(self.data_addr, disk, self.data_len as usize)
-                    .map_err(ExecuteError::Read)?;
-                METRICS.block.read_bytes.add(self.data_len as usize);
-                METRICS.block.read_count.inc();
-                return Ok(self.data_len);
+            RequestType::In => mem
+                .read_exact_from(self.data_addr, diskfile, self.data_len as usize)
+                .map(|_| {
+                    METRICS.block.read_bytes.add(self.data_len as usize);
+                    METRICS.block.read_count.inc();
+                    self.data_len
+                })
+                .map_err(ExecuteError::Read),
+            RequestType::Out => mem
+                .write_all_to(self.data_addr, diskfile, self.data_len as usize)
+                .map(|_| {
+                    METRICS.block.write_bytes.add(self.data_len as usize);
+                    METRICS.block.write_count.inc();
+                    0
+                })
+                .map_err(ExecuteError::Write),
+            RequestType::Flush => {
+                match cache_type {
+                    CacheType::Writeback => {
+                        // flush() first to force any cached data out.
+                        diskfile.flush().map_err(ExecuteError::Flush)?;
+                        // Sync data out to physical media on host.
+                        diskfile.sync_all().map_err(ExecuteError::SyncAll)?;
+                        METRICS.block.flush_count.inc();
+                    }
+                    CacheType::Unsafe => {
+                        // This is a noop.
+                    }
+                };
+                Ok(0)
             }
-            RequestType::Out => {
-                mem.write_to(self.data_addr, disk, self.data_len as usize)
-                    .map_err(ExecuteError::Write)?;
-                METRICS.block.write_bytes.add(self.data_len as usize);
-                METRICS.block.write_count.inc();
-            }
-            RequestType::Flush => match disk.flush() {
-                Ok(_) => {
-                    METRICS.block.flush_count.inc();
-                    return Ok(0);
-                }
-                Err(e) => return Err(ExecuteError::Flush(e)),
-            },
             RequestType::GetDeviceID => {
+                let disk_id = disk.image_id();
                 if (self.data_len as usize) < disk_id.len() {
                     return Err(ExecuteError::BadRequest(Error::InvalidOffset));
                 }
                 mem.write_slice(disk_id, self.data_addr)
-                    .map_err(ExecuteError::Write)?;
+                    .map(|_| VIRTIO_BLK_ID_BYTES)
+                    .map_err(ExecuteError::Write)
             }
-            RequestType::Unsupported(t) => return Err(ExecuteError::Unsupported(t)),
-        };
-        Ok(0)
+            RequestType::Unsupported(t) => Err(ExecuteError::Unsupported(t)),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::virtio::queue::tests::*;
-    use vm_memory::GuestAddress;
+    use crate::virtio::test_utils::VirtQueue;
+    use vm_memory::{Address, GuestAddress, GuestMemory};
 
     #[test]
     fn test_read_request_header() {
@@ -303,6 +321,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn test_parse() {
         let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), &m, 16);
@@ -323,20 +342,20 @@ mod tests {
             let request_header = RequestHeader::new(VIRTIO_BLK_T_OUT, 114);
             m.write_obj::<RequestHeader>(request_header, GuestAddress(0x1000))
                 .unwrap();
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::UnexpectedWriteOnlyDescriptor) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::UnexpectedWriteOnlyDescriptor)
+            ));
         }
 
         {
             let mut q = vq.create_queue();
             // Chain too short: no data_descriptor.
             vq.dtable[request_type_descriptor].flags.set(0);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::DescriptorChainTooShort) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::DescriptorChainTooShort)
+            ));
         }
 
         {
@@ -346,10 +365,10 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT);
             vq.dtable[data_descriptor].set(0x2000, 0x1000, 0, 2);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::DescriptorChainTooShort) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::DescriptorChainTooShort)
+            ));
         }
 
         {
@@ -359,10 +378,10 @@ mod tests {
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
             vq.dtable[status_descriptor].set(0x3000, 0, 0, 0);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::UnexpectedWriteOnlyDescriptor) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::UnexpectedWriteOnlyDescriptor)
+            ));
         }
 
         {
@@ -371,10 +390,10 @@ mod tests {
             m.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
                 .unwrap();
             vq.dtable[data_descriptor].flags.set(VIRTQ_DESC_F_NEXT);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::UnexpectedReadOnlyDescriptor) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::UnexpectedReadOnlyDescriptor)
+            ));
         }
 
         {
@@ -383,10 +402,10 @@ mod tests {
             m.write_obj::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
                 .unwrap();
             vq.dtable[data_descriptor].flags.set(VIRTQ_DESC_F_NEXT);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::UnexpectedReadOnlyDescriptor) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::UnexpectedReadOnlyDescriptor)
+            ));
         }
 
         {
@@ -395,28 +414,54 @@ mod tests {
             vq.dtable[data_descriptor]
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::UnexpectedReadOnlyDescriptor) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::UnexpectedReadOnlyDescriptor)
+            ));
         }
 
         {
             let mut q = vq.create_queue();
             // Status descriptor too small.
             vq.dtable[status_descriptor].flags.set(VIRTQ_DESC_F_WRITE);
-            assert!(match Request::parse(&q.pop(m).unwrap(), m) {
-                Err(Error::DescriptorLengthTooSmall) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                Request::parse(&q.pop(m).unwrap(), m),
+                Err(Error::DescriptorLengthTooSmall)
+            ));
         }
 
         {
             let mut q = vq.create_queue();
-            // Should be OK now.
+            // Fix status descriptor length.
             vq.dtable[status_descriptor].len.set(0x1000);
-            let r = Request::parse(&q.pop(m).unwrap(), m).unwrap();
+            // Invalid guest address for the status descriptor.
+            // Parsing will still succeed as the operation that
+            // will fail happens when executing the request.
+            vq.dtable[status_descriptor]
+                .addr
+                .set(m.last_addr().raw_value());
+            assert!(Request::parse(&q.pop(m).unwrap(), m).is_ok());
+        }
 
+        {
+            let mut q = vq.create_queue();
+            // Restore status descriptor.
+            vq.dtable[status_descriptor].set(0x3000, 0x1000, VIRTQ_DESC_F_WRITE, 0);
+            // Invalid guest address for the data descriptor.
+            // Parsing will still succeed as the operation that
+            // will fail happens when executing the request.
+            vq.dtable[data_descriptor]
+                .addr
+                .set(m.last_addr().raw_value());
+            assert!(Request::parse(&q.pop(m).unwrap(), m).is_ok());
+        }
+
+        {
+            let mut q = vq.create_queue();
+            // Restore data descriptor.
+            vq.dtable[data_descriptor].addr.set(0x2000);
+            // Should be OK now.
+            let r = Request::parse(&q.pop(m).unwrap(), m).unwrap();
             assert_eq!(r.request_type, RequestType::In);
             assert_eq!(r.sector, 114);
             assert_eq!(r.data_addr, GuestAddress(0x2000));

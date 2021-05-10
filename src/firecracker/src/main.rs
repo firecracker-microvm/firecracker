@@ -1,22 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-
-extern crate api_server;
-extern crate backtrace;
-extern crate libc;
-#[macro_use]
-extern crate logger;
-extern crate mmds;
-extern crate polly;
-extern crate seccomp;
-extern crate timerfd;
-extern crate utils;
-extern crate vmm;
-
 mod api_server_adapter;
 mod metrics;
-
-use backtrace::Backtrace;
 
 use std::fs;
 use std::io;
@@ -25,15 +10,18 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::{Arc, Mutex};
 
-use logger::{Metric, LOGGER, METRICS};
+use logger::{error, info, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
 use polly::event_manager::EventManager;
 use seccomp::{BpfProgram, SeccompLevel};
+use snapshot::Snapshot;
+use std::fs::File;
 use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::default_syscalls::get_seccomp_filter;
 use vmm::resources::VmResources;
-use vmm::signal_handler::register_signal_handlers;
+use vmm::signal_handler::{mask_handled_signals, SignalManager};
+use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::InstanceInfo;
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 
@@ -42,17 +30,12 @@ use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 // see https://refspecs.linuxfoundation.org/FHS_3.0/fhs/ch03s15.html for more information.
 const DEFAULT_API_SOCK_PATH: &str = "/run/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
-const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const FIRECRACKER_VERSION: &str = env!("FIRECRACKER_VERSION");
 
 fn main() {
     LOGGER
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
-
-    if let Err(e) = register_signal_handlers() {
-        error!("Failed to register signal handlers: {}", e);
-        process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
-    }
 
     // We need this so that we can reset terminal to canonical mode if panic occurs.
     let stdin = io::stdin();
@@ -73,8 +56,6 @@ fn main() {
         }
 
         METRICS.vmm.panic_count.inc();
-        let bt = Backtrace::new();
-        error!("{:?}", bt);
 
         // Write the metrics before aborting.
         if let Err(e) = METRICS.write() {
@@ -100,21 +81,24 @@ fn main() {
                 .takes_value(true)
                 .default_value("2")
                 .help(
-                    "Level of seccomp filtering that will be passed to executed path as \
-                    argument.\n
-                        - Level 0: No filtering.\n
-                        - Level 1: Seccomp filtering by syscall number.\n
-                        - Level 2: Seccomp filtering by syscall number and argument values.\n
-                    ",
+                    "Level of seccomp filtering (0: no filter | 1: filter by syscall number | 2: filter by syscall \
+                     number and argument values) that will be passed to executed path as argument."
                 ),
         )
         .arg(
             Argument::new("start-time-us")
-                .takes_value(true),
+                .takes_value(true)
+                .help("Process start time (wall clock, microseconds). This parameter is optional."),
         )
         .arg(
             Argument::new("start-time-cpu-us")
-                .takes_value(true),
+                .takes_value(true)
+                .help("Process start CPU time (wall clock, microseconds). This parameter is optional."),
+        )
+        .arg(
+            Argument::new("parent-cpu-time-us")
+                .takes_value(true)
+                .help("Parent process CPU time (wall clock, microseconds). This parameter is optional."),
         )
         .arg(
             Argument::new("config-file")
@@ -150,6 +134,21 @@ fn main() {
                 .takes_value(false)
                 .requires("log-path")
                 .help("Whether or not to include the file path and line number of the log's origin.")
+        )
+        .arg(
+            Argument::new("boot-timer")
+                .takes_value(false)
+                .help("Whether or not to load boot timer device for logging elapsed time since InstanceStart command.")
+        )
+        .arg(
+            Argument::new("version")
+                .takes_value(false)
+                .help("Print the binary version number and a list of supported snapshot data format versions.")
+        )
+        .arg(
+            Argument::new("describe-snapshot")
+                .takes_value(true)
+                .help("Print the data format version of the provided snapshot state file.")
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {
@@ -162,19 +161,21 @@ fn main() {
             process::exit(i32::from(vmm::FC_EXIT_CODE_ARG_PARSING));
         }
         _ => {
-            if let Some(help) = arg_parser.arguments().value_as_bool("help") {
-                if help {
-                    println!("Firecracker v{}\n", FIRECRACKER_VERSION);
-                    println!("{}", arg_parser.formatted_help());
-                    process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
-                }
+            if arg_parser.arguments().flag_present("help") {
+                println!("Firecracker v{}\n", FIRECRACKER_VERSION);
+                println!("{}", arg_parser.formatted_help());
+                process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
             }
 
-            if let Some(version) = arg_parser.arguments().value_as_bool("version") {
-                if version {
-                    println!("Firecracker v{}\n", FIRECRACKER_VERSION);
-                    process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
-                }
+            if arg_parser.arguments().flag_present("version") {
+                println!("Firecracker v{}\n", FIRECRACKER_VERSION);
+                print_supported_snapshot_versions();
+                process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+            }
+
+            if let Some(snapshot_path) = arg_parser.arguments().single_value("describe-snapshot") {
+                print_snapshot_data_format(snapshot_path);
+                process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
             }
 
             arg_parser.arguments()
@@ -182,19 +183,29 @@ fn main() {
     };
 
     // It's safe to unwrap here because the field's been provided with a default value.
-    let instance_id = arguments.value_as_string("id").unwrap();
+    let instance_id = arguments.single_value("id").unwrap();
     validate_instance_id(instance_id.as_str()).expect("Invalid instance ID");
 
-    LOGGER.set_instance_id(instance_id.clone());
+    let instance_info = InstanceInfo {
+        id: instance_id.clone(),
+        state: "Not started".to_string(),
+        vmm_version: FIRECRACKER_VERSION.to_string(),
+        app_name: "Firecracker".to_string(),
+    };
 
-    if let Some(log) = arguments.value_as_string("log-path") {
+    LOGGER.set_instance_id(instance_id.to_owned());
+
+    if let Some(log) = arguments.single_value("log-path") {
         // It's safe to unwrap here because the field's been provided with a default value.
-        let level = arguments.value_as_string("level").unwrap();
+        let level = arguments.single_value("level").unwrap().to_owned();
         let logger_level = LoggerLevel::from_string(level).unwrap_or_else(|err| {
-            panic!("Invalid value for logger level: {}. Possible values: [Error, Warning, Info, Debug]", err);
+            process::exit(i32::from(generic_error_exit(&format!(
+                "Invalid value for logger level: {}. Possible values: [Error, Warning, Info, Debug]",
+                err
+            ))));
         });
-        let show_level = arguments.value_as_bool("show-level").unwrap_or(false);
-        let show_log_origin = arguments.value_as_bool("show-log-origin").unwrap_or(false);
+        let show_level = arguments.flag_present("show-level");
+        let show_log_origin = arguments.flag_present("show-log-origin");
 
         let logger_config = LoggerConfig::new(
             PathBuf::from(log),
@@ -202,13 +213,18 @@ fn main() {
             show_level,
             show_log_origin,
         );
-        init_logger(logger_config, FIRECRACKER_VERSION).expect("Could not initialize logger.");
+        init_logger(logger_config, &instance_info).unwrap_or_else(|err| {
+            process::exit(i32::from(generic_error_exit(&format!(
+                "Could not initialize logger:: {}",
+                err
+            ))));
+        });
     }
 
     // It's safe to unwrap here because the field's been provided with a default value.
-    let seccomp_level = arguments.value_as_string("seccomp-level").unwrap();
+    let seccomp_level = arguments.single_value("seccomp-level").unwrap();
     let seccomp_filter = get_seccomp_filter(
-        SeccompLevel::from_string(seccomp_level).unwrap_or_else(|err| {
+        SeccompLevel::from_string(&seccomp_level).unwrap_or_else(|err| {
             panic!("Invalid value for seccomp-level: {}", err);
         }),
     )
@@ -217,44 +233,102 @@ fn main() {
     });
 
     let vmm_config_json = arguments
-        .value_as_string("config-file")
+        .single_value("config-file")
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
-    let api_enabled = !arguments.value_as_bool("no-api").unwrap_or(false);
+    let boot_timer_enabled = arguments.flag_present("boot-timer");
+    let api_enabled = !arguments.flag_present("no-api");
 
     if api_enabled {
         let bind_path = arguments
-            .value_as_string("api-sock")
+            .single_value("api-sock")
             .map(PathBuf::from)
             .expect("Missing argument: api-sock");
 
-        let start_time_us = arguments.value_as_string("start-time-us").map(|s| {
+        let start_time_us = arguments.single_value("start-time-us").map(|s| {
             s.parse::<u64>()
                 .expect("'start-time-us' parameter expected to be of 'u64' type.")
         });
 
-        let start_time_cpu_us = arguments.value_as_string("start-time-cpu-us").map(|s| {
+        let start_time_cpu_us = arguments.single_value("start-time-cpu-us").map(|s| {
             s.parse::<u64>()
-                .expect("'start-time-cpu_us' parameter expected to be of 'u64' type.")
+                .expect("'start-time-cpu-us' parameter expected to be of 'u64' type.")
         });
-        let instance_info = InstanceInfo {
-            id: instance_id,
-            started: false,
-            vmm_version: FIRECRACKER_VERSION.to_string(),
-            app_name: "Firecracker".to_string(),
-        };
+
+        let parent_cpu_time_us = arguments.single_value("parent-cpu-time-us").map(|s| {
+            s.parse::<u64>()
+                .expect("'parent-cpu-time-us' parameter expected to be of 'u64' type.")
+        });
+
+        let process_time_reporter =
+            ProcessTimeReporter::new(start_time_us, start_time_cpu_us, parent_cpu_time_us);
         api_server_adapter::run_with_api(
             seccomp_filter,
             vmm_config_json,
             bind_path,
             instance_info,
-            start_time_us,
-            start_time_cpu_us,
+            process_time_reporter,
+            boot_timer_enabled,
         );
     } else {
-        run_without_api(seccomp_filter, vmm_config_json);
+        run_without_api(
+            seccomp_filter,
+            vmm_config_json,
+            &instance_info,
+            boot_timer_enabled,
+        );
     }
+}
+
+// Exit gracefully with a generic error code.
+fn generic_error_exit(msg: &str) -> u8 {
+    error!("{}", msg);
+    vmm::FC_EXIT_CODE_GENERIC_ERROR
+}
+
+// Print supported snapshot data format versions.
+fn print_supported_snapshot_versions() {
+    let mut snapshot_versions_str = "Supported snapshot data format versions:".to_string();
+    let mut snapshot_versions: Vec<String> = FC_VERSION_TO_SNAP_VERSION
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect();
+    snapshot_versions.sort();
+
+    snapshot_versions
+        .iter()
+        .for_each(|v| snapshot_versions_str.push_str(format!(" v{},", v).as_str()));
+    snapshot_versions_str.pop();
+    println!("{}\n", snapshot_versions_str);
+}
+
+// Print data format of provided snapshot state file.
+fn print_snapshot_data_format(snapshot_path: &str) {
+    let mut snapshot_reader = File::open(snapshot_path).unwrap_or_else(|err| {
+        process::exit(i32::from(generic_error_exit(&format!(
+            "Unable to open snapshot state file: {:?}",
+            err
+        ))));
+    });
+    let data_format_version = Snapshot::get_data_version(&mut snapshot_reader, &VERSION_MAP)
+        .unwrap_or_else(|err| {
+            process::exit(i32::from(generic_error_exit(&format!(
+                "Invalid data format version of snapshot file: {:?}",
+                err
+            ))));
+        });
+
+    let (key, _) = FC_VERSION_TO_SNAP_VERSION
+        .iter()
+        .find(|(_, &val)| val == data_format_version)
+        .unwrap_or_else(|| {
+            process::exit(i32::from(generic_error_exit(&format!(
+                "Cannot translate snapshot data version {} to Firecracker microVM version",
+                data_format_version
+            ))));
+        });
+    println!("v{}", key);
 }
 
 // Configure and start a microVM as described by the command-line JSON.
@@ -262,16 +336,19 @@ fn build_microvm_from_json(
     seccomp_filter: BpfProgram,
     event_manager: &mut EventManager,
     config_json: String,
+    instance_info: &InstanceInfo,
+    boot_timer_enabled: bool,
 ) -> (VmResources, Arc<Mutex<vmm::Vmm>>) {
-    let vm_resources =
-        VmResources::from_json(&config_json, FIRECRACKER_VERSION).unwrap_or_else(|err| {
+    let mut vm_resources =
+        VmResources::from_json(&config_json, instance_info).unwrap_or_else(|err| {
             error!(
                 "Configuration for VMM from one single json failed: {:?}",
                 err
             );
             process::exit(i32::from(vmm::FC_EXIT_CODE_BAD_CONFIGURATION));
         });
-    let vmm = vmm::builder::build_microvm(&vm_resources, event_manager, &seccomp_filter)
+    vm_resources.boot_timer = boot_timer_enabled;
+    let vmm = vmm::builder::build_microvm_for_boot(&vm_resources, event_manager, &seccomp_filter)
         .unwrap_or_else(|err| {
             error!(
                 "Building VMM configured from cmdline json failed: {:?}",
@@ -284,8 +361,25 @@ fn build_microvm_from_json(
     (vm_resources, vmm)
 }
 
-fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
+fn run_without_api(
+    seccomp_filter: BpfProgram,
+    config_json: Option<String>,
+    instance_info: &InstanceInfo,
+    bool_timer_enabled: bool,
+) {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+
+    // Right before creating the signalfd,
+    // mask the handled signals so that the default handlers are bypassed.
+    mask_handled_signals().expect("Unable to install signal mask on VMM thread.");
+    let signal_manager = Arc::new(Mutex::new(
+        SignalManager::new().expect("Unable to create SignalManager."),
+    ));
+
+    // Register the signal handler event fd.
+    event_manager
+        .add_subscriber(signal_manager)
+        .expect("Cannot register the signal handler fd to the event manager.");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(metrics::PeriodicMetrics::new()));
@@ -301,16 +395,20 @@ fn run_without_api(seccomp_filter: BpfProgram, config_json: Option<String>) {
         &mut event_manager,
         // Safe to unwrap since '--no-api' requires this to be set.
         config_json.unwrap(),
+        instance_info,
+        bool_timer_enabled,
     );
 
     // Start the metrics.
     firecracker_metrics
         .lock()
-        .expect("Metrics lock poisoned.")
+        .expect("Poisoned lock")
         .start(metrics::WRITE_METRICS_PERIOD_MS);
 
     // Run the EventManager that drives everything in the microVM.
     loop {
-        event_manager.run().unwrap();
+        event_manager
+            .run()
+            .expect("Failed to start the event manager");
     }
 }

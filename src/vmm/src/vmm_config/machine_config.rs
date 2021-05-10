@@ -1,9 +1,11 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::{de, Deserialize};
+use serde::{de, Deserialize, Serialize};
 use std::fmt;
 
+/// The default memory size of the VM, in MiB.
+pub const DEFAULT_MEM_SIZE_MIB: usize = 128;
 /// Firecracker aims to support small scale workloads only, so limit the maximum
 /// vCPUs supported.
 pub const MAX_SUPPORTED_VCPUS: u8 = 32;
@@ -11,28 +13,38 @@ pub const MAX_SUPPORTED_VCPUS: u8 = 32;
 /// Errors associated with configuring the microVM.
 #[derive(Debug, PartialEq)]
 pub enum VmConfigError {
+    /// The memory size is smaller than the target size set in the balloon device configuration.
+    IncompatibleBalloonSize,
+    /// The memory size is invalid. The memory can only be an unsigned integer.
+    InvalidMemorySize,
     /// The vcpu count is invalid. When hyperthreading is enabled, the `cpu_count` must be either
     /// 1 or an even number.
     InvalidVcpuCount,
-    /// The memory size is invalid. The memory can only be an unsigned integer.
-    InvalidMemorySize,
-    /// Cannot update the configuration of the microvm post boot.
-    UpdateNotAllowedPostBoot,
+    /// Could not get the config of the balloon device from the VM resources, even though a
+    /// balloon device was previously installed.
+    InvalidVmState,
 }
 
 impl fmt::Display for VmConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::VmConfigError::*;
         match *self {
+            IncompatibleBalloonSize => write!(
+                f,
+                "The memory size (MiB) is smaller than the previously \
+                 set balloon device target size.",
+            ),
+            InvalidMemorySize => write!(f, "The memory size (MiB) is invalid.",),
             InvalidVcpuCount => write!(
                 f,
                 "The vCPU number is invalid! The vCPU number can only \
                  be 1 or an even number when hyperthreading is enabled.",
             ),
-            InvalidMemorySize => write!(f, "The memory size (MiB) is invalid.",),
-            UpdateNotAllowedPostBoot => {
-                write!(f, "The update operation is not allowed after boot.")
-            }
+            InvalidVmState => write!(
+                f,
+                "Could not get the configuration of the previously \
+                 installed balloon device to validate the memory size.",
+            ),
         }
     }
 }
@@ -58,15 +70,19 @@ pub struct VmConfig {
     /// A CPU template that it is used to filter the CPU features exposed to the guest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cpu_template: Option<CpuFeaturesTemplate>,
+    /// Enables or disables dirty page tracking. Enabling allows incremental snapshots.
+    #[serde(default)]
+    pub track_dirty_pages: bool,
 }
 
 impl Default for VmConfig {
     fn default() -> Self {
         VmConfig {
             vcpu_count: Some(1),
-            mem_size_mib: Some(128),
+            mem_size_mib: Some(DEFAULT_MEM_SIZE_MIB),
             ht_enabled: Some(false),
             cpu_template: None,
+            track_dirty_pages: false,
         }
     }
 }
@@ -74,14 +90,17 @@ impl Default for VmConfig {
 impl fmt::Display for VmConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let vcpu_count = self.vcpu_count.unwrap_or(1);
-        let mem_size = self.mem_size_mib.unwrap_or(128);
+        let mem_size = self.mem_size_mib.unwrap_or(DEFAULT_MEM_SIZE_MIB);
         let ht_enabled = self.ht_enabled.unwrap_or(false);
         let cpu_template = self
             .cpu_template
             .map_or("Uninitialized".to_string(), |c| c.to_string());
-
-        write!(f, "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?},  \"ht_enabled\": {:?},  \"cpu_template\": {:?} }}",
-               vcpu_count, mem_size, ht_enabled, cpu_template)
+        write!(
+            f,
+            "{{ \"vcpu_count\": {:?}, \"mem_size_mib\": {:?}, \"ht_enabled\": {:?}, \
+             \"cpu_template\": {:?}, \"track_dirty_pages\": {:?} }}",
+            vcpu_count, mem_size, ht_enabled, cpu_template, self.track_dirty_pages
+        )
     }
 }
 
@@ -138,11 +157,5 @@ mod tests {
 
         let expected_str = "The memory size (MiB) is invalid.";
         assert_eq!(VmConfigError::InvalidMemorySize.to_string(), expected_str);
-
-        let expected_str = "The update operation is not allowed after boot.";
-        assert_eq!(
-            VmConfigError::UpdateNotAllowedPostBoot.to_string(),
-            expected_str
-        );
     }
 }

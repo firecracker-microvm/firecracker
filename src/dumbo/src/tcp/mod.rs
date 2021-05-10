@@ -7,8 +7,8 @@ pub mod connection;
 mod endpoint;
 pub mod handler;
 
-use pdu::bytes::NetworkBytes;
-use pdu::tcp::{Flags as TcpFlags, TcpSegment};
+use crate::pdu::bytes::NetworkBytes;
+use crate::pdu::tcp::{Flags as TcpFlags, TcpSegment};
 
 use std::num::Wrapping;
 
@@ -92,6 +92,13 @@ pub fn seq_at_or_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use micro_http::{Request, Response, StatusCode, Version};
+
+    // In tcp tests, some of the functions require a callback parameter. Since we do not care,
+    // for the purpose of those tests, what that callback does, we need to provide a dummy one.
+    pub fn mock_callback(_request: Request) -> Response {
+        Response::new(Version::Http11, StatusCode::OK)
+    }
 
     #[test]
     fn test_rst_config() {

@@ -11,6 +11,8 @@ use kvm_ioctls::{Kvm, VcpuFd};
 #[derive(Debug)]
 /// MSR related errors.
 pub enum Error {
+    /// A FamStructWrapper operation has failed.
+    FamError(utils::fam::Error),
     /// Getting supported MSRs failed.
     GetSupportedModelSpecificRegisters(kvm_ioctls::Error),
     /// Setting up MSRs failed.
@@ -74,7 +76,7 @@ macro_rules! MSR_RANGE {
 }
 
 // List of MSRs that can be serialized. List is sorted in ascending order of MSRs addresses.
-static WHITELISTED_MSR_RANGES: &[MsrRange] = &[
+static ALLOWED_MSR_RANGES: &[MsrRange] = &[
     SINGLE_MSR!(MSR_IA32_P5_MC_ADDR),
     SINGLE_MSR!(MSR_IA32_P5_MC_TYPE),
     SINGLE_MSR!(MSR_IA32_TSC),
@@ -173,13 +175,11 @@ static WHITELISTED_MSR_RANGES: &[MsrRange] = &[
 ///
 /// * `index` - The index of the MSR that is checked whether it's needed for serialization.
 pub fn msr_should_serialize(index: u32) -> bool {
-    // Blacklisted MSRs not exported by Linux: IA32_FEATURE_CONTROL and IA32_MCG_CTL
+    // Denied MSRs not exported by Linux: IA32_FEATURE_CONTROL and IA32_MCG_CTL
     if index == MSR_IA32_FEATURE_CONTROL || index == MSR_IA32_MCG_CTL {
         return false;
     };
-    WHITELISTED_MSR_RANGES
-        .iter()
-        .any(|range| range.contains(index))
+    ALLOWED_MSR_RANGES.iter().any(|range| range.contains(index))
 }
 
 // Creates and populates required MSR entries for booting Linux on X86_64.
@@ -217,7 +217,7 @@ fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
 /// * `vcpu` - Structure for the VCPU that holds the VCPU's fd.
 pub fn setup_msrs(vcpu: &VcpuFd) -> Result<()> {
     let entry_vec = create_boot_msr_entries();
-    let msrs = Msrs::from_entries(&entry_vec);
+    let msrs = Msrs::from_entries(&entry_vec).map_err(Error::FamError)?;
     vcpu.set_msrs(&msrs)
         .map_err(Error::SetModelSpecificRegisters)
         .and_then(|msrs_written| {
@@ -250,13 +250,10 @@ mod tests {
     use kvm_ioctls::Kvm;
 
     #[test]
-    fn test_msr_whitelist() {
-        for range in WHITELISTED_MSR_RANGES.iter() {
+    fn test_msr_allowlist() {
+        for range in ALLOWED_MSR_RANGES.iter() {
             for msr in range.base..(range.base + range.nmsrs) {
-                let should = match msr {
-                    MSR_IA32_FEATURE_CONTROL | MSR_IA32_MCG_CTL => false,
-                    _ => true,
-                };
+                let should = !matches!(msr, MSR_IA32_FEATURE_CONTROL | MSR_IA32_MCG_CTL);
                 assert_eq!(msr_should_serialize(msr), should);
             }
         }
@@ -276,7 +273,7 @@ mod tests {
             index: MSR_IA32_MISC_ENABLE,
             ..Default::default()
         }];
-        let mut kvm_msrs_wrapper = Msrs::from_entries(&test_kvm_msrs_entry);
+        let mut kvm_msrs_wrapper = Msrs::from_entries(&test_kvm_msrs_entry).unwrap();
 
         // Get_msrs() returns the number of msrs that it succeed in reading.
         // We only want to read one in this test case scenario.
