@@ -265,6 +265,19 @@ fn mask_str2bit_count(mask_str: &str) -> Result<u16> {
     Ok(bit_count)
 }
 
+fn append_cache_level(
+    cache_l1: &mut Vec<CacheInfo>,
+    cache_non_l1: &mut Vec<CacheInfo>,
+    cache: &CacheInfo,
+) {
+    let cache_info = cache.clone();
+    if cache.level() == 1 {
+        cache_l1.push(cache_info);
+    } else {
+        cache_non_l1.push(cache_info);
+    }
+}
+
 pub(crate) fn sysfs_read_caches(
     cache_l1: &mut Vec<CacheInfo>,
     cache_non_l1: &mut Vec<CacheInfo>,
@@ -279,17 +292,13 @@ pub(crate) fn sysfs_read_caches(
     for index in 0..(MAX_CACHE_LEVEL + 1) {
         match cache.populate(index) {
             Ok(()) => {
-                let cache_info = cache.clone();
-                if cache.level() == 1 {
-                    cache_l1.push(cache_info);
-                } else {
-                    cache_non_l1.push(cache_info);
-                }
+                append_cache_level(cache_l1, cache_non_l1, &cache);
             }
             // Missing cache files is not necessary an error so we
             // do not propagate it upwards. We were prudent enough to log a warning.
             Err(Error::MissingCacheConfig) => return Ok(()),
             Err(Error::MissingOptionalAttr(ref msg)) => {
+                append_cache_level(cache_l1, cache_non_l1, &cache);
                 if !msg.is_empty() && !logged_missing_attr {
                     warn!(
                         "{}",
