@@ -30,6 +30,7 @@ use super::{
 use crate::virtio::{IrqTrigger, IrqType};
 
 use serde::{Deserialize, Serialize};
+use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -216,7 +217,7 @@ impl Block {
     ) -> io::Result<Block> {
         let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only, cache_type)?;
 
-        let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
+        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
 
         if cache_type == CacheType::Writeback {
             avail_features |= 1u64 << VIRTIO_BLK_F_FLUSH;
@@ -279,7 +280,7 @@ impl Block {
 
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
-        while let Some(head) = queue.pop(mem) {
+        while let Some(head) = queue.pop_or_enable_notification(mem) {
             let len = match Request::parse(&head, mem, self.disk.nsectors()) {
                 Ok(request) => {
                     if request.rate_limit(&mut self.rate_limiter) {
@@ -320,16 +321,19 @@ impl Block {
                     head.index, e
                 )
             });
+
+            if queue.prepare_kick(mem) {
+                self.irq_trigger
+                    .trigger_irq(IrqType::Vring)
+                    .unwrap_or_else(|_| {
+                        METRICS.block.event_fails.inc();
+                    });
+            }
+
             used_any = true;
         }
 
-        if used_any {
-            self.irq_trigger
-                .trigger_irq(IrqType::Vring)
-                .unwrap_or_else(|_| {
-                    METRICS.block.event_fails.inc();
-                });
-        } else {
+        if !used_any {
             METRICS.block.no_avail_buffer.inc();
         }
     }
@@ -458,6 +462,13 @@ impl VirtioDevice for Block {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+        let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
+        if event_idx {
+            for queue in &mut self.queues {
+                queue.enable_notif_suppression();
+            }
+        }
+
         if self.activate_evt.write(1).is_err() {
             error!("Block: Cannot write to activate_evt");
             return Err(super::super::ActivateError::BadActivate);
@@ -523,7 +534,7 @@ pub(crate) mod tests {
 
         assert_eq!(block.device_type(), TYPE_BLOCK);
 
-        let features: u64 = 1u64 << VIRTIO_F_VERSION_1;
+        let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
 
         assert_eq!(block.avail_features_by_page(0), features as u32);
         assert_eq!(block.avail_features_by_page(1), (features >> 32) as u32);
