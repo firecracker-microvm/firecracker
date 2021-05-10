@@ -31,6 +31,7 @@ use crate::virtio::VIRTIO_MMIO_INT_CONFIG;
 use crate::Error as DeviceError;
 
 use serde::{Deserialize, Serialize};
+use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -218,7 +219,9 @@ impl Block {
     ) -> io::Result<Block> {
         let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only, cache_type)?;
 
-        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
+        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1)
+            | (1u64 << VIRTIO_BLK_F_FLUSH)
+            | (1u64 << VIRTIO_RING_F_EVENT_IDX);
 
         if is_disk_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
@@ -280,8 +283,10 @@ impl Block {
             // This should never happen, it's been already validated in the event handler.
             DeviceState::Inactive => unreachable!(),
         };
+        let has_notification_suppression = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
+        let mut needs_notification = false;
         while let Some(head) = queue.pop(mem) {
             let len = match Request::parse(&head, mem) {
                 Ok(request) => {
@@ -344,6 +349,10 @@ impl Block {
                     head.index, e
                 )
             });
+
+            queue.set_avail_event(mem);
+            needs_notification |= queue.needs_notification(mem, has_notification_suppression);
+
             used_any = true;
         }
 
@@ -351,10 +360,16 @@ impl Block {
             METRICS.block.no_avail_buffer.inc();
         }
 
-        used_any
+        // We try to batch requests and then send only 1 notification to the guest.
+        // This is not fully compliant with the virtio standard which states that we should
+        // send a notification after processing each descriptor if `queue.needs_notification()`
+        // returns true:
+        // https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html#x1-400007
+        // But the current approach seems to work.
+        needs_notification
     }
 
-    pub(crate) fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
+    pub(crate) fn signal_used_queue(&mut self) -> result::Result<(), DeviceError> {
         self.interrupt_status
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
 
@@ -363,6 +378,9 @@ impl Block {
             METRICS.block.event_fails.inc();
             DeviceError::FailedSignalingUsedQueue(e)
         })?;
+
+        self.queues[0].after_notification();
+
         Ok(())
     }
 
@@ -548,7 +566,9 @@ pub(crate) mod tests {
 
         assert_eq!(block.device_type(), TYPE_BLOCK);
 
-        let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_BLK_F_FLUSH);
+        let features: u64 = (1u64 << VIRTIO_F_VERSION_1)
+            | (1u64 << VIRTIO_BLK_F_FLUSH)
+            | (1u64 << VIRTIO_RING_F_EVENT_IDX);
 
         assert_eq!(block.avail_features_by_page(0), features as u32);
         assert_eq!(block.avail_features_by_page(1), (features >> 32) as u32);
