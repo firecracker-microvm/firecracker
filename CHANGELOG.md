@@ -12,6 +12,8 @@
 - Added API metrics for `GET`, `PUT` and `PATCH` requests on `/mmds` endpoint.
 - Added `--describe-snapshot` flag to Firecracker to fetch the data format
   version of a snapshot state file provided as argument.
+- Added `--no-seccomp` parameter for disabling the default seccomp filters.
+- Added `--seccomp-filter` parameter for supplying user-provided, custom filters.
 
 ### Changed
 
@@ -19,6 +21,7 @@
 - Fixed off-by-one error in virtio-block descriptor address validation.
 - Changed the `PATCH` request on `/balloon/statistics` to schedule the first
   statistics update immediately after processing the request.
+- Removed the `--seccomp-level parameter`.
 
 ### Fixed
 

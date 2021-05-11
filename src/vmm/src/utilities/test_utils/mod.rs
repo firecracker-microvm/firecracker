@@ -8,19 +8,18 @@ use std::panic;
 use std::sync::{Arc, Mutex};
 
 use crate::builder::build_microvm_for_boot;
-use crate::default_syscalls::get_seccomp_filter;
+use crate::default_syscalls::get_empty_filters;
 use crate::resources::VmResources;
 use crate::utilities::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use polly::event_manager::EventManager;
-use seccomp::SeccompLevel;
 use utils::terminal::Terminal;
 
 const VMM_ERR_EXIT: i32 = 42;
 
 pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>>, EventManager) {
     let mut event_manager = EventManager::new().unwrap();
-    let empty_seccomp_filter = get_seccomp_filter(SeccompLevel::None).unwrap();
+    let mut empty_seccomp_filters = get_empty_filters();
 
     let boot_source_cfg = MockBootSourceConfig::new().with_default_boot_args();
     #[cfg(target_arch = "aarch64")]
@@ -40,7 +39,7 @@ pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>
     };
 
     (
-        build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filter).unwrap(),
+        build_microvm_for_boot(&resources, &mut event_manager, &mut empty_seccomp_filters).unwrap(),
         event_manager,
     )
 }
