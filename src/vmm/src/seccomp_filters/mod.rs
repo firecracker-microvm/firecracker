@@ -77,7 +77,7 @@ fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterErr
 pub fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
     // Retrieve, at compile-time, the serialized binary filter generated with seccompiler.
     let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/seccomp_filter.bpf"));
-    let map = deserialize_binary(&mut &bytes[..], DESERIALIZATION_BYTES_LIMIT)
+    let map = deserialize_binary(&bytes[..], DESERIALIZATION_BYTES_LIMIT)
         .map_err(FilterError::Deserialization)?;
     filter_thread_categories(map)
 }
@@ -93,8 +93,7 @@ pub fn get_empty_filters() -> BpfThreadMap {
 
 /// Retrieve custom seccomp filters.
 pub fn get_custom_filters(file: File) -> Result<BpfThreadMap, FilterError> {
-    let mut reader = BufReader::new(file);
-    let map = deserialize_binary(&mut reader, DESERIALIZATION_BYTES_LIMIT)
+    let map = deserialize_binary(BufReader::new(file), DESERIALIZATION_BYTES_LIMIT)
         .map_err(FilterError::Deserialization)?;
     filter_thread_categories(map)
 }
