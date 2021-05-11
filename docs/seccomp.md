@@ -30,6 +30,10 @@ cached in the build folder and is only recompiled if modified.
 
 You can find the default seccomp filters under `resources/seccomp`.
 
+For a certain release, the default JSON filters used to build Firecracker are also
+included in the respective release archive, viewable on the
+[releases page](https://github.com/firecracker-microvm/firecracker/releases).
+
 ## Custom filters (advanced users only)
 
 **Note**: This feature overrides the default filters and can be dangerous.
