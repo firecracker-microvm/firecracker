@@ -13,7 +13,7 @@ fn main() {
     let bpf_path = &args[2];
 
     let mut filter_file = File::open(bpf_path).unwrap();
-    let mut map = deserialize_binary(&mut filter_file).unwrap();
+    let mut map = deserialize_binary(&mut filter_file, None).unwrap();
 
     // Loads filters.
     SeccompFilter::apply(map.get("main").unwrap()).unwrap();

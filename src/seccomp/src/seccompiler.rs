@@ -739,7 +739,7 @@ mod tests {
 
             // deserialize and compare
             assert_eq!(
-                deserialize_binary(&mut out_file.into_file()).unwrap(),
+                deserialize_binary(&mut out_file.into_file(), None).unwrap(),
                 bpf_data
             );
         }
