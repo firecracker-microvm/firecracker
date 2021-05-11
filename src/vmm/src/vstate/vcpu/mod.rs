@@ -647,7 +647,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::seccomp_filters;
+    use crate::seccomp_filters::{get_filters, SeccompConfig};
     use crate::vstate::vcpu::Error as EmulationError;
     use crate::vstate::vm::{tests::setup_vm, Vm};
     use utils::errno;
@@ -913,7 +913,7 @@ mod tests {
                 .expect("failed to configure vcpu");
         }
 
-        let mut seccomp_filters = seccomp_filters::get_empty_filters();
+        let mut seccomp_filters = get_filters(SeccompConfig::None).unwrap();
         let vcpu_handle = vcpu
             .start_threaded(Arc::new(seccomp_filters.remove("vcpu").unwrap()))
             .expect("failed to start vcpu");

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::{Arc, Mutex};
 
-use logger::{error, info, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
+use logger::{error, info, warn, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
 use polly::event_manager::EventManager;
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
@@ -18,9 +18,7 @@ use utils::arg_parser::{ArgParser, Argument, Arguments};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::resources::VmResources;
-use vmm::seccomp_filters::{
-    get_custom_filters, get_default_filters, get_empty_filters, FilterError as SeccompFilterError,
-};
+use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::signal_handler::{mask_handled_signals, SignalManager};
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::InstanceInfo;
@@ -78,11 +76,25 @@ fn main() {
                 .help("MicroVM unique identifier."),
         )
         .arg(
+            Argument::new("seccomp-level")
+                .takes_value(true)
+                .help("Deprecated! Level of seccomp filtering (0: no filter | 1: filter by syscall number | 2: filter by syscall \
+                number and argument values.")
+        )
+        .arg(
             Argument::new("seccomp-filter")
                 .takes_value(true)
+                .forbids(vec!["seccomp-level", "no-seccomp"])
                 .help(
                     "Optional parameter which allows specifying the path to a custom seccomp filter. For advanced users."
                 ),
+        )
+        .arg(
+            Argument::new("no-seccomp")
+                .takes_value(false)
+                .forbids(vec!["seccomp-level"])
+                .help("Optional parameter which allows starting and using a microVM without seccomp filtering. \
+                    Not recommended.")
         )
         .arg(
             Argument::new("start-time-us")
@@ -109,12 +121,6 @@ fn main() {
                 .takes_value(false)
                 .requires("config-file")
                 .help("Optional parameter which allows starting and using a microVM without an active API socket.")
-        )
-        .arg(
-            Argument::new("no-seccomp")
-                .takes_value(false)
-                .help("Optional parameter which allows starting and using a microVM without seccomp filtering. \
-                    Not recommended.")
         )
         .arg(
             Argument::new("log-path")
@@ -187,6 +193,9 @@ fn main() {
         }
     };
 
+    // Display warnings for any used deprecated parameters.
+    warn_deprecated_parameters(&arguments);
+
     // It's safe to unwrap here because the field's been provided with a default value.
     let instance_id = arguments.single_value("id").unwrap();
     validate_instance_id(instance_id.as_str()).expect("Invalid instance ID");
@@ -226,13 +235,20 @@ fn main() {
         });
     }
 
-    let mut seccomp_filters = match get_seccomp_filters(&arguments) {
-        Ok(filter_map) => filter_map,
-        Err(error) => {
-            error!("Seccomp error: {}", error);
-            process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
-        }
-    };
+    let seccomp_config = SeccompConfig::from_args(
+        arguments.single_value("seccomp-level"),
+        arguments.flag_present("no-seccomp"),
+        arguments.single_value("seccomp-filter"),
+    )
+    .unwrap_or_else(|error| {
+        error!("Seccomp error: {}", error);
+        process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+    });
+
+    let mut seccomp_filters = get_filters(seccomp_config).unwrap_or_else(|error| {
+        error!("Seccomp error: {}", error);
+        process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+    });
 
     let vmm_config_json = arguments
         .single_value("config-file")
@@ -293,16 +309,15 @@ fn generic_error_exit(msg: &str) -> u8 {
     vmm::FC_EXIT_CODE_GENERIC_ERROR
 }
 
-// Retrieve the correct seccomp filter based on the given CLI arguments.
-fn get_seccomp_filters(arguments: &Arguments) -> Result<BpfThreadMap, SeccompFilterError> {
-    match arguments.flag_present("no-seccomp") {
-        true => Ok(get_empty_filters()),
-        false => match arguments.single_value("seccomp-filter") {
-            Some(path) => {
-                get_custom_filters(File::open(&path).map_err(SeccompFilterError::FileOpen)?)
-            }
-            None => get_default_filters(),
-        },
+// Log a warning for any usage of deprecated parameters.
+fn warn_deprecated_parameters(arguments: &Arguments) {
+    // --seccomp-level is deprecated.
+    if let Some(value) = arguments.single_value("seccomp-level") {
+        warn!(
+            "You are using a deprecated parameter: --seccomp-level {}, that will be removed in a\
+            future version.",
+            value
+        );
     }
 }
 

@@ -127,7 +127,7 @@ impl ApiServer {
     /// use utils::{eventfd::EventFd, tempfile::TempFile};
     /// use vmm::vmm_config::instance_info::InstanceInfo;
     /// use logger::ProcessTimeReporter;
-    /// use vmm::seccomp_filters;
+    /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
     ///
     /// let mut tmp_socket = TempFile::new().unwrap();
     /// tmp_socket.remove().unwrap();
@@ -145,7 +145,7 @@ impl ApiServer {
     /// let (to_api, vmm_response_receiver) = channel();
     /// let mmds_info = MMDS.clone();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
-    /// let seccomp_filters = seccomp_filters::get_empty_filters();
+    /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
@@ -411,7 +411,7 @@ mod tests {
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
     use vmm::rpc_interface::VmmActionError;
-    use vmm::seccomp_filters;
+    use vmm::seccomp_filters::{get_filters, SeccompConfig};
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
@@ -740,7 +740,7 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
-        let seccomp_filters = seccomp_filters::get_default_filters().unwrap();
+        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
