@@ -1,149 +1,149 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
+use seccomp::{deserialize_binary, BpfThreadMap, DeserializationError, Error};
+use std::fmt;
+use std::fs::File;
 
-use seccomp::{
-    Error, SeccompAction, SeccompCmpArgLen as ArgLen, SeccompCmpOp::Eq, SeccompCondition as Cond,
-    SeccompRule,
-};
+const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 
-#[macro_use]
-mod macros;
-mod filters;
-
-pub use self::filters::get_custom_filters;
-pub use self::filters::get_default_filters;
-pub use self::filters::get_empty_filters;
-
-// See include/uapi/asm-generic/fcntl.h in the kernel code.
-const FCNTL_FD_CLOEXEC: u64 = 1;
-const FCNTL_F_SETFD: u64 = 2;
-
-// See include/uapi/linux/futex.h in the kernel code.
-const FUTEX_WAIT: u64 = 0;
-const FUTEX_WAKE: u64 = 1;
-#[cfg(target_env = "gnu")]
-const FUTEX_CMP_REQUEUE: u64 = 4;
-const FUTEX_PRIVATE_FLAG: u64 = 128;
-const FUTEX_WAIT_PRIVATE: u64 = FUTEX_WAIT | FUTEX_PRIVATE_FLAG;
-const FUTEX_WAKE_PRIVATE: u64 = FUTEX_WAKE | FUTEX_PRIVATE_FLAG;
-#[cfg(target_env = "gnu")]
-const FUTEX_CMP_REQUEUE_PRIVATE: u64 = FUTEX_CMP_REQUEUE | FUTEX_PRIVATE_FLAG;
-
-// See include/uapi/asm-generic/ioctls.h in the kernel code.
-const TCGETS: u64 = 0x5401;
-const TCSETS: u64 = 0x5402;
-const TIOCGWINSZ: u64 = 0x5413;
-const FIONBIO: u64 = 0x5421;
-
-// See include/uapi/linux/if_tun.h in the kernel code.
-const TUNSETIFF: u64 = 0x4004_54ca;
-const TUNSETOFFLOAD: u64 = 0x4004_54d0;
-const TUNSETVNETHDRSZ: u64 = 0x4004_54d8;
-
-// Hardcoded here instead of getting values from kvm-ioctls, so that filtered values cannot be
-// mistakenly or intentionally altered from outside our codebase.
-const KVM_GET_DIRTY_LOG: u64 = 0x4010_ae42;
-const KVM_RUN: u64 = 0xae80;
-const KVM_GET_MP_STATE: u64 = 0x8004_ae98;
-const KVM_SET_MP_STATE: u64 = 0x4004_ae99;
-const KVM_GET_VCPU_EVENTS: u64 = 0x8040_ae9f;
-const KVM_SET_VCPU_EVENTS: u64 = 0x4040_aea0;
-
-// Use this mod to define ioctl params that are architecture specific.
-// To add other architectures, add another module declaration with the right cfg attribute.
-#[cfg(target_arch = "x86_64")]
-mod arch_specific_constants {
-    pub const KVM_SET_MSRS: u64 = 0x4008_ae89;
-    pub const KVM_SET_CPUID2: u64 = 0x4008_ae90;
-    pub const KVM_SET_REGS: u64 = 0x4090_ae82;
-    pub const KVM_SET_SREGS: u64 = 0x4138_ae84;
-    pub const KVM_SET_LAPIC: u64 = 0x4400_ae8f;
-    pub const KVM_GET_SREGS: u64 = 0x8138_ae83;
-    pub const KVM_GET_LAPIC: u64 = 0x8400_ae8e;
-    pub const KVM_GET_IRQCHIP: u64 = 0xc208_ae62;
-    pub const KVM_GET_CLOCK: u64 = 0x8030_ae7c;
-    pub const KVM_GET_PIT2: u64 = 0x8070_ae9f;
-    pub const KVM_GET_REGS: u64 = 0x8090_ae81;
-    pub const KVM_GET_MSRS: u64 = 0xc008_ae88;
-    pub const KVM_GET_CPUID2: u64 = 0xc008_ae91;
-    pub const KVM_GET_DEBUGREGS: u64 = 0x8080_aea1;
-    pub const KVM_SET_DEBUGREGS: u64 = 0x4080_aea2;
-    pub const KVM_GET_XSAVE: u64 = 0x9000_aea4;
-    pub const KVM_SET_XSAVE: u64 = 0x5000_aea5;
-    pub const KVM_GET_XCRS: u64 = 0x8188_aea6;
-    pub const KVM_SET_XCRS: u64 = 0x4188_aea7;
+/// Error retrieving seccomp filters.
+#[derive(fmt::Debug)]
+pub enum FilterError {
+    /// Filter deserialitaion error.
+    Deserialization(DeserializationError),
+    /// Invalid thread categories.
+    ThreadCategories(String),
+    /// Missing Thread Category.
+    MissingThreadCategory(String),
+    /// Seccomp error occurred.
+    Seccomp(Error),
 }
 
-// Use this mod to define ioctl params that are architecture specific.
-// To add other architectures, add another module declaration with the right cfg attribute.
-#[cfg(target_arch = "aarch64")]
-mod arch_specific_constants {
-    pub const KVM_GET_ONE_REG: u64 = 0x4010_aeab;
-    pub const KVM_SET_ONE_REG: u64 = 0x4010_aeac;
-    pub const KVM_GET_REG_LIST: u64 = 0xc008_aeb0;
-    pub const KVM_SET_DEVICE_ATTR: u64 = 0x4018_aee1;
-    pub const KVM_GET_DEVICE_ATTR: u64 = 0x4018_aee2;
+impl fmt::Display for FilterError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::FilterError::*;
+
+        match *self {
+            Deserialization(ref err) => write!(f, "Filter (de)serialization failed: {}", err),
+            ThreadCategories(ref categories) => {
+                write!(f, "Invalid thread categories: {}", categories)
+            }
+            MissingThreadCategory(ref category) => {
+                write!(f, "Missing thread category: {}", category)
+            }
+            Seccomp(ref err) => write!(f, "Seccomp error: {}", err),
+        }
+    }
 }
 
-fn create_arch_specific_ioctl_conditions() -> Result<Vec<SeccompRule>, Error> {
-    use arch_specific_constants::*;
+/// Return an error if the BpfThreadMap contains invalid thread categories.
+fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterError> {
+    let (filters, invalid_filters): (BpfThreadMap, BpfThreadMap) = map
+        .into_iter()
+        .partition(|(k, _)| THREAD_CATEGORIES.contains(&k.as_str()));
+    if !invalid_filters.is_empty() {
+        // build the error message
+        let mut thread_categories_string =
+            invalid_filters
+                .keys()
+                .fold("".to_string(), |mut acc, elem| {
+                    acc.push_str(elem);
+                    acc.push_str(",");
+                    acc
+                });
+        thread_categories_string.pop();
+        return Err(FilterError::ThreadCategories(thread_categories_string));
+    }
 
-    #[cfg(target_arch = "x86_64")]
-    return Ok(or![
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_LAPIC)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_SREGS)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_CPUID2)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_LAPIC)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_MSRS)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_REGS)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_SREGS)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_IRQCHIP)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_CLOCK)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_PIT2)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_REGS)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_MSRS)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_CPUID2)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_DEBUGREGS)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_DEBUGREGS)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_XSAVE)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_XSAVE)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_XCRS)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_XCRS)?],
-    ]);
+    for &category in THREAD_CATEGORIES.iter() {
+        let category_string = category.to_string();
+        if !filters.contains_key(&category_string) {
+            return Err(FilterError::MissingThreadCategory(category_string));
+        }
+    }
 
-    #[cfg(target_arch = "aarch64")]
-    return Ok(or![
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_ONE_REG)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_ONE_REG)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_REG_LIST)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_DEVICE_ATTR)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_DEVICE_ATTR)?],
-    ]);
+    Ok(filters)
 }
 
-fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
-    let mut rule = or![
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_RUN)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_DIRTY_LOG)?],
-        // Triggered on shutdown, to restore the initial terminal settings,
-        // only when Firecracker was launched from a shell.
-        and![Cond::new(1, ArgLen::DWORD, Eq, TCGETS)?],
-        // Triggered on shutdown, to restore the initial terminal settings,
-        // only when Firecracker was launched from a shell.
-        and![Cond::new(1, ArgLen::DWORD, Eq, TCSETS)?],
-        // Triggered on shutdown, to restore the initial terminal settings.
-        and![Cond::new(1, ArgLen::DWORD, Eq, TIOCGWINSZ)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, FIONBIO)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, TUNSETIFF)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, TUNSETOFFLOAD)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, TUNSETVNETHDRSZ)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_MP_STATE)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_MP_STATE)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_GET_VCPU_EVENTS)?],
-        and![Cond::new(1, ArgLen::DWORD, Eq, KVM_SET_VCPU_EVENTS)?],
-    ];
+/// Retrieve the default filters containing the syscall rules required by `Firecracker`
+/// to function. The binary file is generated via the `build.rs` script of this crate.
+pub fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
+    // Retrieve, at compile-time, the serialized binary filter generated with seccompiler.
+    let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/seccomp_filter.bpf"));
+    let map = deserialize_binary(&mut &bytes[..]).map_err(FilterError::Deserialization)?;
+    filter_thread_categories(map)
+}
 
-    rule.append(&mut create_arch_specific_ioctl_conditions()?);
+/// Retrieve empty seccomp filters.
+pub fn get_empty_filters() -> BpfThreadMap {
+    let mut map = BpfThreadMap::new();
+    map.insert("vmm".to_string(), vec![]);
+    map.insert("api".to_string(), vec![]);
+    map.insert("vcpu".to_string(), vec![]);
+    map
+}
 
-    Ok(rule)
+/// Retrieve custom seccomp filters.
+pub fn get_custom_filters(mut file: File) -> Result<BpfThreadMap, FilterError> {
+    let map = deserialize_binary(&mut file).map_err(FilterError::Deserialization)?;
+    filter_thread_categories(map)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use seccomp::BpfThreadMap;
+
+    #[test]
+    fn test_get_default_filters() {
+        let mut filters = get_default_filters().unwrap();
+        assert_eq!(filters.len(), 3);
+        assert!(filters.remove("vmm").is_some());
+        assert!(filters.remove("api").is_some());
+        assert!(filters.remove("vcpu").is_some());
+    }
+
+    #[test]
+    fn test_get_empty_filters() {
+        let filters = filter_thread_categories(get_empty_filters()).unwrap();
+        assert_eq!(filters.len(), 3);
+        assert_eq!(filters.get("vmm").unwrap().len(), 0);
+        assert_eq!(filters.get("api").unwrap().len(), 0);
+        assert_eq!(filters.get("vcpu").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_filter_thread_categories() {
+        // correct categories
+        let mut map = BpfThreadMap::new();
+        map.insert("vcpu".to_string(), vec![]);
+        map.insert("vmm".to_string(), vec![]);
+        map.insert("api".to_string(), vec![]);
+
+        assert_eq!(filter_thread_categories(map).unwrap().len(), 3);
+
+        // invalid categories
+        let mut map = BpfThreadMap::new();
+        map.insert("vcpu".to_string(), vec![]);
+        map.insert("vmm".to_string(), vec![]);
+        map.insert("thread1".to_string(), vec![]);
+        map.insert("thread2".to_string(), vec![]);
+
+        match filter_thread_categories(map).unwrap_err() {
+            FilterError::ThreadCategories(err) => {
+                assert!(err == "thread2,thread1" || err == "thread1,thread2")
+            }
+            _ => panic!("Expected ThreadCategories error."),
+        }
+
+        // missing category
+        let mut map = BpfThreadMap::new();
+        map.insert("vcpu".to_string(), vec![]);
+        map.insert("vmm".to_string(), vec![]);
+
+        match filter_thread_categories(map).unwrap_err() {
+            FilterError::MissingThreadCategory(name) => assert_eq!(name, "api"),
+            _ => panic!("Expected MissingThreadCategory error."),
+        }
+    }
 }

@@ -1,0 +1,17 @@
+{
+    "vmm": {
+        "default_action": "allow",
+        "filter_action": "trap",
+        "filter": []
+    },
+    "api": {
+        "default_action": "allow",
+        "filter_action": "trap",
+        "filter": []
+    },
+    "vcpu": {
+        "default_action": "allow",
+        "filter_action": "trap",
+        "filter": []
+    }
+}
