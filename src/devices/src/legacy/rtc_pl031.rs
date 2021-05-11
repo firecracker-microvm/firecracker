@@ -48,7 +48,7 @@ impl fmt::Display for Error {
 type Result<T> = result::Result<T, Error>;
 
 /// A RTC device following the PL031 specification..
-pub struct RTC {
+pub struct Rtc {
     previous_now: Instant,
     tick_offset: i64,
     // This is used for implementing the RTC alarm. However, in Firecracker we do not need it.
@@ -59,10 +59,10 @@ pub struct RTC {
     ris: u32,
 }
 
-impl RTC {
+impl Rtc {
     /// Constructs an AMBA PL031 RTC device.
-    fn new() -> RTC {
-        RTC {
+    fn new() -> Rtc {
+        Rtc {
             // This is used only for duration measuring purposes.
             previous_now: Instant::now(),
             tick_offset: utils::time::get_time_ns(utils::time::ClockType::Real) as i64,
@@ -84,7 +84,7 @@ impl RTC {
     fn handle_read(&mut self, offset: u64) -> Result<u32> {
         let val;
 
-        if offset < AMBA_ID_HIGH && offset >= AMBA_ID_LOW {
+        if (AMBA_ID_LOW..AMBA_ID_HIGH).contains(&offset) {
             let index = ((offset - AMBA_ID_LOW) >> 2) as usize;
             val = u32::from(PL031_ID[index]);
         } else {
@@ -147,7 +147,7 @@ impl RTC {
     }
 }
 
-impl BusDevice for RTC {
+impl BusDevice for Rtc {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
         if data.len() == 4 {
             match self.handle_read(offset) {
@@ -168,7 +168,7 @@ impl BusDevice for RTC {
 
     fn write(&mut self, offset: u64, data: &[u8]) {
         if data.len() == 4 {
-            let v = byte_order::read_le_u32(&data[..]);
+            let v = byte_order::read_le_u32(data);
             if let Err(e) = self.handle_write(offset, v) {
                 warn!("Failed to write to the RTC: {}", e);
                 METRICS.rtc.error_count.inc();
@@ -183,7 +183,7 @@ impl BusDevice for RTC {
     }
 }
 
-impl Default for RTC {
+impl Default for Rtc {
     fn default() -> Self {
         Self::new()
     }
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_rtc_read_write() {
-        let mut rtc = RTC::new();
+        let mut rtc = Rtc::new();
         let mut data = [0; 4];
 
         // Read and write to the DR register. Since this is a RO register, the write
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn test_rtc_invalid_buf_len() {
-        let mut rtc = RTC::new();
+        let mut rtc = Rtc::new();
         let mut data = [1; 2];
 
         let err_cnt_before_write = METRICS.rtc.error_count.count();

@@ -145,10 +145,6 @@ pub mod tests {
     fn test_get_vendor_id() {
         let vendor_id = get_vendor_id_from_host();
         assert!(vendor_id.is_ok());
-        assert!(match &vendor_id.ok().unwrap() {
-            VENDOR_ID_INTEL => true,
-            VENDOR_ID_AMD => true,
-            _ => false,
-        });
+        matches!(&vendor_id.ok().unwrap(), VENDOR_ID_INTEL | VENDOR_ID_AMD);
     }
 }

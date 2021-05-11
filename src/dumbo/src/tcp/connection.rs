@@ -749,7 +749,7 @@ impl Connection {
             mss_option,
             self.mss
                 .checked_sub(mss_reserved)
-                .ok_or_else(|| WriteNextError::MssRemaining)?,
+                .ok_or(WriteNextError::MssRemaining)?,
             payload,
         )
         .map_err(WriteNextError::TcpSegment)?;

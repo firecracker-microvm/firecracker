@@ -617,7 +617,7 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
     for ((device_type, _device_id), info) in dev_info {
         match device_type {
             DeviceType::BootTimer => (), // since it's not a real device
-            DeviceType::RTC => create_rtc_node(fdt, info)?,
+            DeviceType::Rtc => create_rtc_node(fdt, info)?,
             DeviceType::Serial => create_serial_node(fdt, info)?,
             DeviceType::Virtio(_) => {
                 ordered_virtio_device.push(info);
@@ -684,7 +684,7 @@ mod tests {
                 MMIODeviceInfo { addr: LEN, irq: 2 },
             ),
             (
-                (DeviceType::RTC, "rtc".to_string()),
+                (DeviceType::Rtc, "rtc".to_string()),
                 MMIODeviceInfo {
                     addr: 2 * LEN,
                     irq: 3,

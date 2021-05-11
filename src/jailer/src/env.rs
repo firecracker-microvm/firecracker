@@ -492,8 +492,7 @@ impl Env {
         // for all of them.
         FOLDER_HIERARCHY
             .iter()
-            .map(|f| self.setup_jailed_folder(*f))
-            .collect::<Result<()>>()?;
+            .try_for_each(|f| self.setup_jailed_folder(*f))?;
 
         // Here we are creating the /dev/kvm and /dev/net/tun devices inside the jailer.
         // Following commands can be translated into bash like this:

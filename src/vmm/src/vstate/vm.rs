@@ -181,10 +181,12 @@ impl Vm {
     #[cfg(target_arch = "x86_64")]
     pub fn setup_irqchip(&self) -> Result<()> {
         self.fd.create_irq_chip().map_err(Error::VmSetup)?;
-        let mut pit_config = kvm_pit_config::default();
         // We need to enable the emulation of a dummy speaker port stub so that writing to port 0x61
         // (i.e. KVM_SPEAKER_BASE_ADDRESS) does not trigger an exit to user space.
-        pit_config.flags = KVM_PIT_SPEAKER_DUMMY;
+        let pit_config = kvm_pit_config {
+            flags: KVM_PIT_SPEAKER_DUMMY,
+            ..Default::default()
+        };
         self.fd.create_pit2(pit_config).map_err(Error::VmSetup)
     }
 
@@ -221,20 +223,26 @@ impl Vm {
         // This bit is not accepted in SET_CLOCK, clear it.
         clock.flags &= !KVM_CLOCK_TSC_STABLE;
 
-        let mut pic_master = kvm_irqchip::default();
-        pic_master.chip_id = KVM_IRQCHIP_PIC_MASTER;
+        let mut pic_master = kvm_irqchip {
+            chip_id: KVM_IRQCHIP_PIC_MASTER,
+            ..Default::default()
+        };
         self.fd
             .get_irqchip(&mut pic_master)
             .map_err(Error::VmGetIrqChip)?;
 
-        let mut pic_slave = kvm_irqchip::default();
-        pic_slave.chip_id = KVM_IRQCHIP_PIC_SLAVE;
+        let mut pic_slave = kvm_irqchip {
+            chip_id: KVM_IRQCHIP_PIC_SLAVE,
+            ..Default::default()
+        };
         self.fd
             .get_irqchip(&mut pic_slave)
             .map_err(Error::VmGetIrqChip)?;
 
-        let mut ioapic = kvm_irqchip::default();
-        ioapic.chip_id = KVM_IRQCHIP_IOAPIC;
+        let mut ioapic = kvm_irqchip {
+            chip_id: KVM_IRQCHIP_IOAPIC,
+            ..Default::default()
+        };
         self.fd
             .get_irqchip(&mut ioapic)
             .map_err(Error::VmGetIrqChip)?;

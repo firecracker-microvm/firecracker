@@ -95,10 +95,10 @@ pub trait GICDevice {
         Self: Sized,
     {
         let attr = kvm_bindings::kvm_device_attr {
+            flags,
             group,
             attr,
             addr,
-            flags,
         };
         fd.set_device_attr(&attr)
             .map_err(|e| Error::DeviceAttribute(e, true, group))?;
@@ -148,7 +148,7 @@ pub trait GICDevice {
     fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<()>;
 
     /// Method to initialize the GIC device
-    fn new(vm: &VmFd, vcpu_count: u64) -> Result<Box<dyn GICDevice>>
+    fn create(vm: &VmFd, vcpu_count: u64) -> Result<Box<dyn GICDevice>>
     where
         Self: Sized,
     {
@@ -175,9 +175,9 @@ pub fn create_gic(
     version: Option<GICVersion>,
 ) -> Result<Box<dyn GICDevice>> {
     match version {
-        Some(GICVersion::GICV2) => GICv2::new(vm, vcpu_count),
-        Some(GICVersion::GICV3) => GICv3::new(vm, vcpu_count),
-        None => GICv3::new(vm, vcpu_count).or_else(|_| GICv2::new(vm, vcpu_count)),
+        Some(GICVersion::GICV2) => GICv2::create(vm, vcpu_count),
+        Some(GICVersion::GICV3) => GICv3::create(vm, vcpu_count),
+        None => GICv3::create(vm, vcpu_count).or_else(|_| GICv2::create(vm, vcpu_count)),
     }
 }
 

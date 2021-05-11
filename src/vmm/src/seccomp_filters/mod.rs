@@ -115,7 +115,7 @@ fn get_default_filters(basic: bool) -> Result<BpfThreadMap, FilterError> {
         true => include_bytes!(concat!(env!("OUT_DIR"), "/basic_seccomp_filter.bpf")),
         false => include_bytes!(concat!(env!("OUT_DIR"), "/seccomp_filter.bpf")),
     };
-    let map = deserialize_binary(&bytes[..], DESERIALIZATION_BYTES_LIMIT)
+    let map = deserialize_binary(bytes, DESERIALIZATION_BYTES_LIMIT)
         .map_err(FilterError::Deserialization)?;
     filter_thread_categories(map)
 }
@@ -148,7 +148,7 @@ fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterErr
                 .keys()
                 .fold("".to_string(), |mut acc, elem| {
                     acc.push_str(elem);
-                    acc.push_str(",");
+                    acc.push(',');
                     acc
                 });
         thread_categories_string.pop();

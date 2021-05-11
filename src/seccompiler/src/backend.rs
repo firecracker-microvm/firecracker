@@ -215,9 +215,9 @@ pub(crate) enum SeccompCmpOp {
 #[serde(rename_all = "lowercase")]
 pub(crate) enum SeccompCmpArgLen {
     /// Argument value length is 4 bytes.
-    DWORD,
+    Dword,
     /// Argument value length is 8 bytes.
-    QWORD,
+    Qword,
 }
 
 /// Condition that syscall must match in order to satisfy a rule.
@@ -337,8 +337,8 @@ impl SeccompCondition {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
         let mut bpf = match self.arg_len {
-            SeccompCmpArgLen::DWORD => vec![],
-            SeccompCmpArgLen::QWORD => vec![
+            SeccompCmpArgLen::Dword => vec![],
+            SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
                 BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
             ],
@@ -360,8 +360,8 @@ impl SeccompCondition {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
         let mut bpf = match self.arg_len {
-            SeccompCmpArgLen::DWORD => vec![],
-            SeccompCmpArgLen::QWORD => vec![
+            SeccompCmpArgLen::Dword => vec![],
+            SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
                 BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
                 BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
@@ -384,8 +384,8 @@ impl SeccompCondition {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
         let mut bpf = match self.arg_len {
-            SeccompCmpArgLen::DWORD => vec![],
-            SeccompCmpArgLen::QWORD => vec![
+            SeccompCmpArgLen::Dword => vec![],
+            SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
                 BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, 3, 0),
                 BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 2),
@@ -408,8 +408,8 @@ impl SeccompCondition {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
         let mut bpf = match self.arg_len {
-            SeccompCmpArgLen::DWORD => vec![],
-            SeccompCmpArgLen::QWORD => vec![
+            SeccompCmpArgLen::Dword => vec![],
+            SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
                 BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
                 BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
@@ -432,8 +432,8 @@ impl SeccompCondition {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
         let mut bpf = match self.arg_len {
-            SeccompCmpArgLen::DWORD => vec![],
-            SeccompCmpArgLen::QWORD => vec![
+            SeccompCmpArgLen::Dword => vec![],
+            SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
                 BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, msb, offset + 3, 0),
                 BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
@@ -462,8 +462,8 @@ impl SeccompCondition {
         let (mask_msb, mask_lsb) = ((mask >> 32) as u32, mask as u32);
 
         let mut bpf = match self.arg_len {
-            SeccompCmpArgLen::DWORD => vec![],
-            SeccompCmpArgLen::QWORD => vec![
+            SeccompCmpArgLen::Dword => vec![],
+            SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
                 BPF_STMT(BPF_ALU + BPF_AND + BPF_K, mask_msb),
                 BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, offset + 3),
@@ -487,8 +487,8 @@ impl SeccompCondition {
         let (msb, lsb, msb_offset, lsb_offset) = self.value_segments();
 
         let mut bpf = match self.arg_len {
-            SeccompCmpArgLen::DWORD => vec![],
-            SeccompCmpArgLen::QWORD => vec![
+            SeccompCmpArgLen::Dword => vec![],
+            SeccompCmpArgLen::Qword => vec![
                 BPF_STMT(BPF_LD + BPF_W + BPF_ABS, u32::from(msb_offset)),
                 BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, msb, 0, 2),
             ],
@@ -995,7 +995,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Eq, KVM_GET_PIT2).unwrap()],
+                vec![Cond::new(1, SeccompCmpArgLen::Dword, Eq, KVM_GET_PIT2).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1020,7 +1020,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(2, SeccompCmpArgLen::QWORD, Eq, std::u64::MAX).unwrap()],
+                vec![Cond::new(2, SeccompCmpArgLen::Qword, Eq, std::u64::MAX).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1028,7 +1028,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, std::u64::MAX);
+                libc::ioctl(0, 0, std::u64::MAX);
             },
             false,
         );
@@ -1048,7 +1048,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Ge, KVM_GET_PIT2).unwrap()],
+                vec![Cond::new(1, SeccompCmpArgLen::Dword, Ge, KVM_GET_PIT2).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1074,7 +1074,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(2, SeccompCmpArgLen::QWORD, Ge, u64::from(std::u32::MAX)).unwrap()],
+                vec![Cond::new(2, SeccompCmpArgLen::Qword, Ge, u64::from(std::u32::MAX)).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1082,8 +1082,8 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX));
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 1);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX));
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 1);
             },
             false,
         );
@@ -1091,7 +1091,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, 1);
+                libc::ioctl(0, 0, 1);
             },
             true,
         );
@@ -1103,7 +1103,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Gt, KVM_GET_PIT2).unwrap()],
+                vec![Cond::new(1, SeccompCmpArgLen::Dword, Gt, KVM_GET_PIT2).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1130,7 +1130,7 @@ mod tests {
             vec![SeccompRule::new(
                 vec![Cond::new(
                     2,
-                    SeccompCmpArgLen::QWORD,
+                    SeccompCmpArgLen::Qword,
                     Gt,
                     u64::from(std::u32::MAX) + 10,
                 )
@@ -1142,7 +1142,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 11);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 11);
             },
             false,
         );
@@ -1150,7 +1150,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 10);
             },
             true,
         );
@@ -1162,7 +1162,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Le, KVM_GET_PIT2).unwrap()],
+                vec![Cond::new(1, SeccompCmpArgLen::Dword, Le, KVM_GET_PIT2).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1190,7 +1190,7 @@ mod tests {
             vec![SeccompRule::new(
                 vec![Cond::new(
                     2,
-                    SeccompCmpArgLen::QWORD,
+                    SeccompCmpArgLen::Qword,
                     Le,
                     u64::from(std::u32::MAX) + 10,
                 )
@@ -1202,8 +1202,8 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 9);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 10);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 9);
             },
             false,
         );
@@ -1211,7 +1211,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 11);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 11);
             },
             true,
         );
@@ -1223,7 +1223,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Lt, KVM_GET_PIT2).unwrap()],
+                vec![Cond::new(1, SeccompCmpArgLen::Dword, Lt, KVM_GET_PIT2).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1250,7 +1250,7 @@ mod tests {
             vec![SeccompRule::new(
                 vec![Cond::new(
                     2,
-                    SeccompCmpArgLen::QWORD,
+                    SeccompCmpArgLen::Qword,
                     Lt,
                     u64::from(std::u32::MAX) + 10,
                 )
@@ -1262,7 +1262,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 9);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 9);
             },
             false,
         );
@@ -1270,7 +1270,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 10);
             },
             true,
         );
@@ -1284,7 +1284,7 @@ mod tests {
             vec![SeccompRule::new(
                 vec![Cond::new(
                     1,
-                    SeccompCmpArgLen::DWORD,
+                    SeccompCmpArgLen::Dword,
                     MaskedEq(KVM_GET_PIT2_MSB),
                     KVM_GET_PIT2,
                 )
@@ -1316,7 +1316,7 @@ mod tests {
             vec![SeccompRule::new(
                 vec![Cond::new(
                     2,
-                    SeccompCmpArgLen::QWORD,
+                    SeccompCmpArgLen::Qword,
                     MaskedEq(u64::from(std::u32::MAX)),
                     std::u64::MAX,
                 )
@@ -1328,8 +1328,8 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX));
-                libc::ioctl(0, 0 as IoctlRequest, std::u64::MAX);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX));
+                libc::ioctl(0, 0, std::u64::MAX);
             },
             false,
         );
@@ -1337,7 +1337,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, 0);
+                libc::ioctl(0, 0, 0);
             },
             true,
         );
@@ -1349,7 +1349,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(1, SeccompCmpArgLen::DWORD, Ne, KVM_GET_PIT2).unwrap()],
+                vec![Cond::new(1, SeccompCmpArgLen::Dword, Ne, KVM_GET_PIT2).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1357,7 +1357,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest);
+                libc::ioctl(0, 0);
             },
             false,
         );
@@ -1374,7 +1374,7 @@ mod tests {
         let rules = vec![allow_syscall_if(
             libc::SYS_ioctl,
             vec![SeccompRule::new(
-                vec![Cond::new(2, SeccompCmpArgLen::QWORD, Ne, std::u64::MAX).unwrap()],
+                vec![Cond::new(2, SeccompCmpArgLen::Qword, Ne, std::u64::MAX).unwrap()],
                 SeccompAction::Allow,
             )],
         )];
@@ -1382,7 +1382,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, 0);
+                libc::ioctl(0, 0, 0);
             },
             false,
         );
@@ -1390,7 +1390,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, std::u64::MAX);
+                libc::ioctl(0, 0, std::u64::MAX);
             },
             true,
         );
@@ -1399,13 +1399,13 @@ mod tests {
     // Checks that rule gets translated correctly into BPF statements.
     #[test]
     fn test_rule_bpf_output() {
-        assert!(Cond::new(6, ArgLen::QWORD, Eq, 1).is_err());
+        assert!(Cond::new(6, ArgLen::Qword, Eq, 1).is_err());
 
         // Builds rule.
         let rule = SeccompRule::new(
             vec![
-                Cond::new(0, ArgLen::DWORD, Eq, 1).unwrap(),
-                Cond::new(2, ArgLen::QWORD, MaskedEq(0b1010), 14).unwrap(),
+                Cond::new(0, ArgLen::Dword, Eq, 1).unwrap(),
+                Cond::new(2, ArgLen::Qword, MaskedEq(0b1010), 14).unwrap(),
             ],
             SeccompAction::Allow,
         );
@@ -1439,9 +1439,9 @@ mod tests {
         // Builds rule.
         let mut conditions = Vec::with_capacity(43);
         for _ in 0..42 {
-            conditions.push(Cond::new(0, ArgLen::QWORD, MaskedEq(0), 0).unwrap());
+            conditions.push(Cond::new(0, ArgLen::Qword, MaskedEq(0), 0).unwrap());
         }
-        conditions.push(Cond::new(0, ArgLen::QWORD, Eq, 0).unwrap());
+        conditions.push(Cond::new(0, ArgLen::Qword, Eq, 0).unwrap());
         let rule = SeccompRule::new(conditions, SeccompAction::Allow);
 
         let (msb_offset, lsb_offset) = { (4, 0) };
@@ -1528,7 +1528,7 @@ mod tests {
             assert!(SeccompFilter::new(empty_rule_map, SeccompAction::Allow, ARCH).is_err());
         }
 
-        let filter = create_test_bpf_filter(ArgLen::DWORD);
+        let filter = create_test_bpf_filter(ArgLen::Dword);
 
         let mut instructions = Vec::new();
         instructions.extend(VALIDATE_ARCHITECTURE(ARCH.try_into().unwrap()));
@@ -1579,7 +1579,7 @@ mod tests {
             assert!(SeccompFilter::new(empty_rule_map, SeccompAction::Allow, ARCH).is_err());
         }
 
-        let filter = create_test_bpf_filter(ArgLen::QWORD);
+        let filter = create_test_bpf_filter(ArgLen::Qword);
 
         let mut instructions = Vec::new();
         instructions.extend(VALIDATE_ARCHITECTURE(ARCH.try_into().unwrap()));
@@ -1741,12 +1741,12 @@ mod tests {
     fn test_validate_condition() {
         // Invalid argument number
         assert_eq!(
-            Cond::new(90, ArgLen::DWORD, Eq, 65),
+            Cond::new(90, ArgLen::Dword, Eq, 65),
             Err(Error::InvalidArgumentNumber)
         );
 
         // Valid argument number
-        assert!(Cond::new(0, ArgLen::DWORD, Eq, 65).is_ok());
+        assert!(Cond::new(0, ArgLen::Dword, Eq, 65).is_ok());
     }
 
     #[test]
@@ -1791,8 +1791,8 @@ mod tests {
                             SeccompRule::new(vec![], SeccompAction::Allow),
                             SeccompRule::new(
                                 vec![
-                                    Cond::new(2, ArgLen::DWORD, Le, 14).unwrap(),
-                                    Cond::new(1, ArgLen::DWORD, Ne, 10).unwrap(),
+                                    Cond::new(2, ArgLen::Dword, Le, 14).unwrap(),
+                                    Cond::new(1, ArgLen::Dword, Ne, 10).unwrap(),
                                 ],
                                 SeccompAction::Allow,
                             ),

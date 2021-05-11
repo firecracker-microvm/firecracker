@@ -192,7 +192,7 @@ mod tests {
             eax: 0,
             ebx: 0,
             ecx: 0,
-            edx: *(0 as u32).write_bit(edx::ARCH_CAPABILITIES_BITINDEX, true),
+            edx: *(0_u32).write_bit(edx::ARCH_CAPABILITIES_BITINDEX, true),
             padding: [0, 0, 0],
         };
         assert!(update_structured_extended_entry(&mut entry, &vm_spec).is_ok());
