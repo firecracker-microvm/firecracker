@@ -65,7 +65,7 @@
 //!         ARCH,
 //! )
 //!     .unwrap().try_into().unwrap();
-//!     SeccompFilter::apply(&filter).unwrap();
+//!     apply_filter(&filter).unwrap();
 //! unsafe {
 //!     libc::syscall(
 //!         libc::SYS_write,
@@ -193,7 +193,7 @@
 //!     
 //!     let filter: BpfProgram = filter.try_into().unwrap();
 //!
-//!     SeccompFilter::apply(&filter).unwrap();
+//!     apply_filter(&filter).unwrap();
 //!
 //!     unsafe {
 //!         libc::syscall(
@@ -340,8 +340,6 @@ pub enum Error {
     IntoBpf,
     /// Argument number that exceeds the maximum value.
     InvalidArgumentNumber,
-    /// Failed to load seccomp rules into the kernel.
-    Load(i32),
     /// Error related to the target arch.
     Arch(TargetArchError),
 }
@@ -357,11 +355,6 @@ impl Display for Error {
             InvalidArgumentNumber => {
                 write!(f, "The seccomp rule contains an invalid argument number.")
             }
-            Load(err) => write!(
-                f,
-                "Failed to load seccomp rules into the kernel with error {}.",
-                err
-            ),
             Arch(ref err) => write!(f, "{:?}", err),
         }
     }
@@ -571,8 +564,6 @@ struct sock_fprog {
 pub type BpfProgram = Vec<sock_filter>;
 /// Reference to program made up of a sequence of BPF instructions.
 pub type BpfProgramRef<'a> = &'a [sock_filter];
-/// Slice of BPF instructions.
-pub type BpfInstructionSlice = [sock_filter];
 
 impl SeccompCondition {
     /// Creates a new [`SeccompCondition`].
@@ -991,15 +982,6 @@ impl SeccompFilter {
         })
     }
 
-    /// Creates an empty `SeccompFilter` which allows everything.
-    pub fn empty(target_arch: &str) -> Result<Self> {
-        Ok(Self {
-            rules: BTreeMap::new(),
-            default_action: SeccompAction::Allow,
-            target_arch: target_arch.try_into().map_err(Error::Arch)?,
-        })
-    }
-
     /// Adds rules for the specified syscall in the filter.
     ///
     /// # Arguments
@@ -1016,51 +998,6 @@ impl SeccompFilter {
             .entry(syscall_number)
             .or_insert_with(std::vec::Vec::new)
             .append(&mut rules);
-
-        Ok(())
-    }
-
-    /// Builds the array of filter instructions and sends them to the kernel.
-    ///
-    /// # Arguments
-    ///
-    /// * `filters` - BPF program containing the seccomp rules.
-    pub fn apply(bpf_filter: BpfProgramRef) -> Result<()> {
-        // If the program is empty, don't install the filter.
-        if bpf_filter.is_empty() {
-            return Ok(());
-        }
-
-        // If the program length is greater than the limit allowed by the kernel,
-        // fail quickly. Otherwise, `prctl` will give a more cryptic error code.
-        if bpf_filter.len() > BPF_MAX_LEN {
-            return Err(Error::FilterTooLarge);
-        }
-
-        unsafe {
-            {
-                let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
-                if rc != 0 {
-                    return Err(Error::Load(*libc::__errno_location()));
-                }
-            }
-
-            let bpf_prog = sock_fprog {
-                len: bpf_filter.len() as u16,
-                filter: bpf_filter.as_ptr(),
-            };
-            let bpf_prog_ptr = &bpf_prog as *const sock_fprog;
-            {
-                let rc = libc::prctl(
-                    libc::PR_SET_SECCOMP,
-                    libc::SECCOMP_MODE_FILTER,
-                    bpf_prog_ptr,
-                );
-                if rc != 0 {
-                    return Err(Error::Load(*libc::__errno_location()));
-                }
-            }
-        }
 
         Ok(())
     }
@@ -1221,22 +1158,7 @@ fn EXAMINE_SYSCALL() -> Vec<sock_filter> {
     )]
 }
 
-/// Possible errors that could be encountered while generating a BPF program.
-#[derive(Debug)]
-pub enum SeccompError {
-    /// Error while trying to generate a BPF program.
-    SeccompFilter(Error),
-}
-
-impl Display for SeccompError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        match *self {
-            SeccompError::SeccompFilter(ref err) => write!(f, "Seccomp error: {}", err),
-        }
-    }
-}
-
-/// Binary Deserialization errors.
+/// Binary filter deserialization errors.
 #[derive(Debug)]
 pub enum DeserializationError {
     /// Error when doing bincode deserialization.
@@ -1253,13 +1175,37 @@ impl Display for DeserializationError {
     }
 }
 
+/// Filter installation errors.
+#[derive(Debug, PartialEq)]
+pub enum InstallationError {
+    /// Filter exceeds the maximum number of instructions that a BPF program can have.
+    FilterTooLarge,
+    /// Error returned by `prctl`.
+    Prctl(i32),
+}
+
+impl Display for InstallationError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::InstallationError::*;
+
+        match *self {
+            FilterTooLarge => write!(
+                f,
+                "Filter length exceeds the maximum size of {} instructions ",
+                BPF_MAX_LEN
+            ),
+            Prctl(ref errno) => write!(f, "`prctl` syscall failed with error code: {}", errno),
+        }
+    }
+}
+
 /// Deserialize a BPF file into a collection of usable BPF filters.
 pub fn deserialize_binary(
     reader: &mut dyn Read,
     bytes_limit: Option<u64>,
 ) -> std::result::Result<BpfThreadMap, DeserializationError> {
     let result = match bytes_limit {
-        // Also add the default options. These are not part of the DefaultOptions due to
+        // Also add the default options. These are not part of the `DefaultOptions` as per
         // this issue: https://github.com/servo/bincode/issues/333
         Some(limit) => DefaultOptions::new()
             .with_fixint_encoding()
@@ -1275,6 +1221,47 @@ pub fn deserialize_binary(
         .into_iter()
         .map(|(k, v)| (k.to_lowercase(), v))
         .collect())
+}
+
+/// Helper function for installing a BPF filter.
+pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), InstallationError> {
+    // If the program is empty, don't install the filter.
+    if bpf_filter.is_empty() {
+        return Ok(());
+    }
+
+    // If the program length is greater than the limit allowed by the kernel,
+    // fail quickly. Otherwise, `prctl` will give a more cryptic error code.
+    if bpf_filter.len() > BPF_MAX_LEN {
+        return Err(InstallationError::FilterTooLarge);
+    }
+
+    unsafe {
+        {
+            let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+            if rc != 0 {
+                return Err(InstallationError::Prctl(*libc::__errno_location()));
+            }
+        }
+
+        let bpf_prog = sock_fprog {
+            len: bpf_filter.len() as u16,
+            filter: bpf_filter.as_ptr(),
+        };
+        let bpf_prog_ptr = &bpf_prog as *const sock_fprog;
+        {
+            let rc = libc::prctl(
+                libc::PR_SET_SECCOMP,
+                libc::SECCOMP_MODE_FILTER,
+                bpf_prog_ptr,
+            );
+            if rc != 0 {
+                return Err(InstallationError::Prctl(*libc::__errno_location()));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1337,7 +1324,7 @@ mod tests {
             let filter: BpfProgram = filter.try_into().unwrap();
 
             // Apply seccomp filter.
-            SeccompFilter::apply(&filter).unwrap();
+            apply_filter(&filter).unwrap();
 
             // Call the validation fn.
             validation_fn();
@@ -2087,9 +2074,56 @@ mod tests {
 
             // Apply seccomp filter.
             assert_eq!(
-                SeccompFilter::apply(&filter).unwrap_err(),
-                Error::FilterTooLarge
+                apply_filter(&filter).unwrap_err(),
+                InstallationError::FilterTooLarge
             );
+        })
+        .join()
+        .unwrap();
+
+        // Test empty filter.
+        thread::spawn(|| {
+            let filter: BpfProgram =
+                SeccompFilter::new(BTreeMap::new(), SeccompAction::Allow, ARCH)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+
+            assert_eq!(filter.len(), 0);
+
+            let seccomp_level = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
+            assert_eq!(seccomp_level, 0);
+
+            apply_filter(&filter).unwrap();
+
+            // test that seccomp level remains 0 on failure.
+            let seccomp_level = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
+            assert_eq!(seccomp_level, 0);
+        })
+        .join()
+        .unwrap();
+
+        // Test invalid BPF code.
+        thread::spawn(|| {
+            let filter = vec![sock_filter {
+                // invalid opcode
+                code: 9999,
+                jt: 0,
+                jf: 0,
+                k: 0,
+            }];
+
+            let seccomp_level = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
+            assert_eq!(seccomp_level, 0);
+
+            assert_eq!(
+                apply_filter(&filter).unwrap_err(),
+                InstallationError::Prctl(22)
+            );
+
+            // test that seccomp level remains 0 on failure.
+            let seccomp_level = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
+            assert_eq!(seccomp_level, 0);
         })
         .join()
         .unwrap();
@@ -2114,10 +2148,6 @@ mod tests {
             "The seccomp rule contains an invalid argument number."
         );
         assert_eq!(
-            format!("{}", Error::Load(42)),
-            "Failed to load seccomp rules into the kernel with error 42."
-        );
-        assert_eq!(
             format!(
                 "{}",
                 Error::Arch(TargetArchError::InvalidString("lala".to_string()))
@@ -2134,16 +2164,6 @@ mod tests {
         assert_eq!(0x7ffc_0000, u32::from(SeccompAction::Log));
         assert_eq!(0x7ff0_002a, u32::from(SeccompAction::Trace(42)));
         assert_eq!(0x0003_0000, u32::from(SeccompAction::Trap));
-    }
-
-    #[test]
-    fn test_seccomp_empty() {
-        let rc1 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
-        assert_eq!(rc1, 0);
-        let filter: BpfProgram = SeccompFilter::empty(ARCH).unwrap().try_into().unwrap();
-        SeccompFilter::apply(&filter).unwrap();
-        let rc2 = unsafe { libc::prctl(libc::PR_GET_SECCOMP) };
-        assert_eq!(rc2, 0);
     }
 
     #[test]

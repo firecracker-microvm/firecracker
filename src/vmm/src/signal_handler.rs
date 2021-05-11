@@ -275,7 +275,7 @@ impl Subscriber for SignalManager {
 mod tests {
     use super::*;
     use libc::{c_void, cpu_set_t, siginfo_t};
-    use seccomp::{sock_filter, BpfProgram, SeccompFilter};
+    use seccomp::sock_filter;
     use std::convert::TryInto;
     use std::sync::{Arc, Mutex};
     use std::{mem, thread};
@@ -374,7 +374,7 @@ mod tests {
         assert!(METRICS.signals.sigill.count() >= 1);
     }
 
-    fn make_test_seccomp_bpf_filter() -> BpfProgram {
+    fn make_test_seccomp_bpf_filter() -> Vec<sock_filter> {
         // Create seccomp filter that allows all syscalls, except for `SYS_mkdirat`.
         // For some reason, directly calling `SYS_kill` with SIGSYS, like we do with the
         // other signals, results in an error. Probably because of the way `cargo test` is
@@ -552,7 +552,7 @@ mod tests {
             }
             assert!(register_signal_handler(SIGSYS, signal_handler).is_ok());
             let filter = make_test_seccomp_bpf_filter();
-            assert!(SeccompFilter::apply(&filter).is_ok());
+            assert!(seccomp::apply_filter(&filter).is_ok());
             assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
             // Call the forbidden `SYS_mkdirat`.
