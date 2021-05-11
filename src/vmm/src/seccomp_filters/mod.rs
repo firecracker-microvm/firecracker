@@ -24,6 +24,8 @@ pub enum FilterError {
     MissingThreadCategory(String),
     /// Filter installation error.
     Install(InstallationError),
+    /// File open error.
+    FileOpen(std::io::Error),
 }
 
 impl fmt::Display for FilterError {
@@ -31,7 +33,7 @@ impl fmt::Display for FilterError {
         use self::FilterError::*;
 
         match *self {
-            Deserialization(ref err) => write!(f, "Filter (de)serialization failed: {}", err),
+            Deserialization(ref err) => write!(f, "Filter deserialization failed: {}", err),
             ThreadCategories(ref categories) => {
                 write!(f, "Invalid thread categories: {}", categories)
             }
@@ -39,6 +41,7 @@ impl fmt::Display for FilterError {
                 write!(f, "Missing thread category: {}", category)
             }
             Install(ref err) => write!(f, "Filter installation error: {}", err),
+            FileOpen(ref err) => write!(f, "Filter file open error: {}", err),
         }
     }
 }
