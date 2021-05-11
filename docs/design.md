@@ -149,13 +149,14 @@ service is fully configured by users.
 
 ##### Seccomp
 
-Seccomp filters are used by default to further limit the system calls Firecracker
-can use. There are 3 possible levels of seccomp filtering, configurable by passing
-a command line argument to Firecracker: 0 (disabled), 1 (allows a set of
-trusted system calls by their identifiers) and 2 (allows a set of trusted
-system calls with trusted parameter values), the latter being the most
-restrictive and the recommended one. The filters are loaded in the Firecracker
-process, immediately before the execution of the untrusted guest code starts.
+Seccomp filters are used by default to limit the host system calls Firecracker
+can use. The default filters only allow the bare minimum set of system calls and
+parameters that Firecracker needs in order to function correctly.
+
+The filters are loaded in the Firecracker process, on a per-thread basis,
+before executing any guest code.
+
+For more information, check out the [seccomp documentation](seccomp.md).
 
 #### __Jailer process__
 

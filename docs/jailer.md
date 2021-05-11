@@ -55,14 +55,7 @@ jailer --id <id> \
   example, this can be paired with the `--config-file` Firecracker argument to
   specify a configuration file when starting Firecracker via the jailer (the
   file path and the resources referenced within must be valid relative to a
-  jailed Firecracker). Another argument that can be passed in this way is
-  `--seccomp-level`, which specifies whether seccomp filters should be installed
-  and how restrictive they should be. Possible values are:
-  - 0 : disabled.
-  - 1 : basic filtering. This prohibits syscalls not allowed by
-    Firecracker.
-  - 2 (default): advanced filtering. This adds further checks on some of the
-    parameters of the allowed syscalls.
+  jailed Firecracker).
   Please note the jailer already passes `--id` parameter to the
   Firecracker process.
 
