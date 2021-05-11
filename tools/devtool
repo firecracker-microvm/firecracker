@@ -774,7 +774,8 @@ cmd_strip() {
       -- \
       strip $strip_flags\
         "$CTR_CARGO_TARGET_DIR/$target/$profile/firecracker" \
-        "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer"
+        "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer" \
+        "$CTR_CARGO_TARGET_DIR/$target/$profile/seccompiler/seccompiler"
     ret=$?
 
     [ $ret -eq 0 ] && {
@@ -1022,7 +1023,8 @@ cmd_prepare_release() {
     # Update version in files.
     files_to_change=("$swagger"                                 \
                      "$FC_ROOT_DIR/src/firecracker/Cargo.toml"  \
-                     "$FC_ROOT_DIR/src/jailer/Cargo.toml")
+                     "$FC_ROOT_DIR/src/jailer/Cargo.toml"       \
+                     "$FC_ROOT_DIR/src/seccomp/Cargo.toml")
     say "Updating source files:"
     for file in "${files_to_change[@]}"; do
         say "- $file"
