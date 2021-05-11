@@ -1,6 +1,6 @@
 [package]
 name = "firecracker"
-version = "0.24.2"
+version = "0.24.3"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 build = "../../build.rs"

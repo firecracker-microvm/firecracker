@@ -44,7 +44,6 @@ Contributors to the Firecracker repository:
 * Babis Chalios <babis.chalios@gmail.com>
 * Begley Brothers Inc <begleybrothers@gmail.com>
 * Benjamin Fry <benjaminfry@me.com>
-* Liviu Berciu <lberciu@amazon.com>
 * bin liu <bin@hyper.sh>
 * Bob Potter <bobby.potter@gmail.com>
 * Bogdan Ionita <bci@amazon.com>
@@ -97,9 +96,11 @@ Contributors to the Firecracker repository:
 * Kazuyoshi Kato <katokazu@amazon.com>
 * keyangxie <keyang.xie@gmail.com>
 * Krishna Kumar T <krishna.thokala2010@gmail.com>
+* kumargu <kumargu@amazon.com>
 * Laura Loghin <lauralg@amazon.com>
 * lifupan <lifupan@gmail.com>
 * Liu Jiang <gerry@linux.alibaba.com>
+* Liviu Berciu <lberciu@amazon.com>
 * Lloyd <lloydmeta@gmail.com>
 * lloydmeta <lloydmeta@gmail.com>
 * LOU Xun <aquarhead@ela.build>
