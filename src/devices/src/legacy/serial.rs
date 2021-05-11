@@ -805,8 +805,8 @@ mod tests {
         let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(LCR), &[LCR_DLAB_BIT as u8]);
-        serial.write(u64::from(DLAB_LOW), &[0x12 as u8]);
-        serial.write(u64::from(DLAB_HIGH), &[0x34 as u8]);
+        serial.write(u64::from(DLAB_LOW), &[0x12_u8]);
+        serial.write(u64::from(DLAB_HIGH), &[0x34_u8]);
 
         let mut data = [0u8];
         serial.read(u64::from(LCR), &mut data[..]);
@@ -843,11 +843,11 @@ mod tests {
     fn test_serial_scratch() {
         let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
-        serial.write(u64::from(SCR), &[0x12 as u8]);
+        serial.write(u64::from(SCR), &[0x12_u8]);
 
         let mut data = [0u8];
         serial.read(u64::from(SCR), &mut data[..]);
-        assert_eq!(data[0], 0x12 as u8);
+        assert_eq!(data[0], 0x12_u8);
     }
 
     #[test]

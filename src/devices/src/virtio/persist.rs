@@ -266,16 +266,20 @@ mod tests {
             .unwrap();
 
         // Invalid max queue size.
-        let mut bad_q = QueueState::default();
-        bad_q.max_size = max_size + 1;
+        let bad_q = QueueState {
+            max_size: max_size + 1,
+            ..Default::default()
+        };
         state.queues = vec![bad_q];
         state
             .build_queues_checked(&mem, 0, state.queues.len(), max_size)
             .unwrap_err();
 
         // Invalid: size > max.
-        let mut bad_q = QueueState::default();
-        bad_q.size = max_size + 1;
+        let bad_q = QueueState {
+            size: max_size + 1,
+            ..Default::default()
+        };
         state.queues = vec![bad_q];
         state
             .build_queues_checked(&mem, 0, state.queues.len(), max_size)

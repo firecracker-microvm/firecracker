@@ -504,9 +504,11 @@ pub(crate) mod tests {
         assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
         // With Balloon Stats Vmm data.
-        let mut stats = BalloonStats::default();
-        stats.swap_in = Some(1);
-        stats.swap_out = Some(1);
+        let stats = BalloonStats {
+            swap_in: Some(1),
+            swap_out: Some(1),
+            ..Default::default()
+        };
         let mut buf = Cursor::new(vec![0]);
         let response =
             ParsedRequest::convert_to_response(&Ok(VmmData::BalloonStats(stats.clone())));

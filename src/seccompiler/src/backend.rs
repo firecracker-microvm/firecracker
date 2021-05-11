@@ -1028,7 +1028,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, std::u64::MAX);
+                libc::ioctl(0, 0, std::u64::MAX);
             },
             false,
         );
@@ -1082,8 +1082,8 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX));
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 1);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX));
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 1);
             },
             false,
         );
@@ -1091,7 +1091,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, 1);
+                libc::ioctl(0, 0, 1);
             },
             true,
         );
@@ -1142,7 +1142,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 11);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 11);
             },
             false,
         );
@@ -1150,7 +1150,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 10);
             },
             true,
         );
@@ -1202,8 +1202,8 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 9);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 10);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 9);
             },
             false,
         );
@@ -1211,7 +1211,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 11);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 11);
             },
             true,
         );
@@ -1262,7 +1262,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 9);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 9);
             },
             false,
         );
@@ -1270,7 +1270,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX) + 10);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX) + 10);
             },
             true,
         );
@@ -1328,8 +1328,8 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, u64::from(std::u32::MAX));
-                libc::ioctl(0, 0 as IoctlRequest, std::u64::MAX);
+                libc::ioctl(0, 0, u64::from(std::u32::MAX));
+                libc::ioctl(0, 0, std::u64::MAX);
             },
             false,
         );
@@ -1337,7 +1337,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, 0);
+                libc::ioctl(0, 0, 0);
             },
             true,
         );
@@ -1357,7 +1357,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest);
+                libc::ioctl(0, 0);
             },
             false,
         );
@@ -1382,7 +1382,7 @@ mod tests {
         validate_seccomp_filter(
             rules.clone(),
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, 0);
+                libc::ioctl(0, 0, 0);
             },
             false,
         );
@@ -1390,7 +1390,7 @@ mod tests {
         validate_seccomp_filter(
             rules,
             || unsafe {
-                libc::ioctl(0, 0 as IoctlRequest, std::u64::MAX);
+                libc::ioctl(0, 0, std::u64::MAX);
             },
             true,
         );

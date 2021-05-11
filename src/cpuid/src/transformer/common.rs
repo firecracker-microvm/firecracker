@@ -185,7 +185,7 @@ mod tests {
             function: 0x0,
             index: 0,
             flags: 0,
-            eax: *(0 as u32).write_bits_in_range(&eax::CACHE_LEVEL_BITRANGE, cache_level),
+            eax: *(0_u32).write_bits_in_range(&eax::CACHE_LEVEL_BITRANGE, cache_level),
             ebx: 0,
             ecx: 0,
             edx: 0,

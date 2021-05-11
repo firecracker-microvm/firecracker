@@ -196,7 +196,7 @@ impl CacheInfo {
             err_str.pop().unwrap();
         }
 
-        if err_str != "" {
+        if !err_str.is_empty() {
             return Err(Error::MissingOptionalAttr(err_str));
         }
 
@@ -290,7 +290,7 @@ pub(crate) fn sysfs_read_caches(
             // do not propagate it upwards. We were prudent enough to log a warning.
             Err(Error::MissingCacheConfig) => return Ok(()),
             Err(Error::MissingOptionalAttr(ref msg)) => {
-                if msg != "" && !logged_missing_attr {
+                if !msg.is_empty() && !logged_missing_attr {
                     warn!(
                         "{}",
                         format!(
@@ -459,8 +459,10 @@ mod tests {
     #[test]
     fn test_cache_shared_cpu_map() {
         let cache_dir = TempDir::new_with_prefix("/tmp/cachedir").unwrap();
-        let mut cache: CacheInfo = CacheInfo::default();
-        cache.cache_dir = PathBuf::from(cache_dir.as_path());
+        let mut cache = CacheInfo {
+            cache_dir: PathBuf::from(cache_dir.as_path()),
+            ..Default::default()
+        };
         let index_dir = min_viable_cache_setup(&mut cache);
 
         let mut shared_cpu_map_dir = index_dir;
@@ -490,8 +492,10 @@ mod tests {
     #[test]
     fn test_cache_coherency() {
         let cache_dir = TempDir::new_with_prefix("/tmp/cachedir").unwrap();
-        let mut cache: CacheInfo = CacheInfo::default();
-        cache.cache_dir = PathBuf::from(cache_dir.as_path());
+        let mut cache = CacheInfo {
+            cache_dir: PathBuf::from(cache_dir.as_path()),
+            ..Default::default()
+        };
         let index_dir = min_viable_cache_setup(&mut cache);
 
         let mut coherency_dir = index_dir;
@@ -514,8 +518,10 @@ mod tests {
     #[test]
     fn test_cache_size() {
         let cache_dir = TempDir::new_with_prefix("/tmp/cachedir").unwrap();
-        let mut cache: CacheInfo = CacheInfo::default();
-        cache.cache_dir = PathBuf::from(cache_dir.as_path());
+        let mut cache = CacheInfo {
+            cache_dir: PathBuf::from(cache_dir.as_path()),
+            ..Default::default()
+        };
         let index_dir = min_viable_cache_setup(&mut cache);
 
         let mut size_dir = index_dir;
@@ -545,8 +551,10 @@ mod tests {
     #[test]
     fn test_cache_no_sets() {
         let cache_dir = TempDir::new_with_prefix("/tmp/cachedir").unwrap();
-        let mut cache: CacheInfo = CacheInfo::default();
-        cache.cache_dir = PathBuf::from(cache_dir.as_path());
+        let mut cache = CacheInfo {
+            cache_dir: PathBuf::from(cache_dir.as_path()),
+            ..Default::default()
+        };
         let index_dir = min_viable_cache_setup(&mut cache);
 
         let mut sets_dir = index_dir;

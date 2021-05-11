@@ -590,7 +590,7 @@ impl Net {
                 &mut self.tap,
                 self.guest_mac,
             )
-            .unwrap_or_else(|_| false);
+            .unwrap_or(false);
             if frame_consumed_by_mmds && !self.rx_deferred_frame {
                 // MMDS consumed this frame/request, let's also try to process the response.
                 process_rx_for_mmds = true;

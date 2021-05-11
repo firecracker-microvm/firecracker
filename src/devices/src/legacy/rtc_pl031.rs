@@ -84,7 +84,7 @@ impl RTC {
     fn handle_read(&mut self, offset: u64) -> Result<u32> {
         let val;
 
-        if offset < AMBA_ID_HIGH && offset >= AMBA_ID_LOW {
+        if (AMBA_ID_LOW..AMBA_ID_HIGH).contains(&offset) {
             let index = ((offset - AMBA_ID_LOW) >> 2) as usize;
             val = u32::from(PL031_ID[index]);
         } else {

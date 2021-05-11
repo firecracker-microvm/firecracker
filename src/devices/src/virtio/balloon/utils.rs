@@ -135,19 +135,14 @@ mod tests {
 
         // Test single compact range.
         assert_eq!(
-            compact_page_frame_numbers(
-                &mut (0 as u32..100 as u32).collect::<Vec<u32>>().as_mut_slice()
-            ),
+            compact_page_frame_numbers(&mut (0_u32..100_u32).collect::<Vec<u32>>().as_mut_slice()),
             vec![(0, 100)]
         );
 
         // `compact_page_frame_numbers` works even when given out of order input.
         assert_eq!(
             compact_page_frame_numbers(
-                &mut (0 as u32..100 as u32)
-                    .rev()
-                    .collect::<Vec<u32>>()
-                    .as_mut_slice()
+                &mut (0_u32..100_u32).rev().collect::<Vec<u32>>().as_mut_slice()
             ),
             vec![(0, 100)]
         );
@@ -155,23 +150,21 @@ mod tests {
         // Test with 100 distinct ranges.
         assert_eq!(
             compact_page_frame_numbers(
-                &mut (0 as u32..10000 as u32)
+                &mut (0_u32..10000_u32)
                     .step_by(100)
                     .flat_map(|x| (x..x + 10).rev())
                     .collect::<Vec<u32>>()
             ),
-            (0 as u32..10000 as u32)
+            (0_u32..10000_u32)
                 .step_by(100)
-                .map(|x| (x, 10 as u32))
+                .map(|x| (x, 10_u32))
                 .collect::<Vec<(u32, u32)>>()
         );
 
         // Test range with duplicates.
         assert_eq!(
             compact_page_frame_numbers(
-                &mut (0 as u32..10000 as u32)
-                    .map(|x| x / 2)
-                    .collect::<Vec<u32>>()
+                &mut (0_u32..10000_u32).map(|x| x / 2).collect::<Vec<u32>>()
             ),
             vec![(0, 5000)]
         );
