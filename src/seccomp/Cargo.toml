@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 
+[[bin]]
+name = "seccompiler"
+path = "src/seccompiler.rs"
+
 [dependencies]
 libc = ">=0.2.39"
 
