@@ -111,6 +111,8 @@ CARGO_GIT_REGISTRY_DIR="${FC_BUILD_DIR}/cargo_git_registry"
 # Full path to the cargo target dir on the host.
 CARGO_TARGET_DIR="${FC_BUILD_DIR}/cargo_target"
 
+# Full path to the seccompiler cargo target dir on the host.
+CARGO_SECCOMPILER_TARGET_DIR="${FC_BUILD_DIR}/seccompiler"
 
 # Full path to the Firecracker sources dir, as bind-mounted in the container.
 CTR_FC_ROOT_DIR="/firecracker"
@@ -120,6 +122,9 @@ CTR_FC_BUILD_DIR="${CTR_FC_ROOT_DIR}/build"
 
 # Full path to the cargo target dir, as bind-mounted in the container.
 CTR_CARGO_TARGET_DIR="$CTR_FC_BUILD_DIR/cargo_target"
+
+# Full path to the seccompiler cargo target dir, as bind-mounted in the container.
+CTR_CARGO_SECCOMPILER_TARGET_DIR="$CTR_FC_BUILD_DIR/seccompiler"
 
 # Full path to the microVM images cache dir
 CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
@@ -675,6 +680,21 @@ cmd_build() {
     # Run the cargo build process inside the container.
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
+
+    # Build seccompiler.
+    run_devctr \
+        --user "$(id -u):$(id -g)" \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        ${extra_args} \
+        -- \
+        cargo build -p seccomp --bin seccompiler \
+            --target-dir "$CTR_CARGO_SECCOMPILER_TARGET_DIR" \
+            "${cargo_args[@]}"
+    ret=$?
+
+    [ $ret -ne 0 ] && return $ret
+
+    # Build Firecracker.
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
@@ -687,7 +707,7 @@ cmd_build() {
 
     [ $ret -ne 0 ] && return $ret
 
-    # Build jailer only in case of musl for compatibility reasons
+    # Build jailer only in case of musl for compatibility reasons.
     if [ "$libc" == "musl" ];then
         run_devctr \
             --user "$(id -u):$(id -g)" \
@@ -702,12 +722,16 @@ cmd_build() {
 
     ret=$?
 
-    # If `cargo build` was successful, let's copy the binaries to a more
-    # accessible location.
+    # If `cargo build` was successful, output a message.
     [ $ret -eq 0 ] && {
         cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
+        seccompiler_bin_dir="$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile"
+
+        # Seccompiler has a different build folder, we need to output two
+        # messages.
         say "Build successful."
-        say "Binaries placed under $cargo_bin_dir"
+        say "Firecracker and Jailer binaries placed under $cargo_bin_dir"
+        say "Seccompiler binary placed under $seccompiler_bin_dir"
     }
 
     return $ret
