@@ -166,6 +166,7 @@ pub fn get_default_filters() -> Result<BpfThreadMap, Error> {
         .into_iter()
         .collect(),
         SeccompAction::Trap,
+        std::env::consts::ARCH,
     )?
     .try_into()?;
 
