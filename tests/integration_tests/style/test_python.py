@@ -27,7 +27,7 @@ def test_python_style():
     python_files = utils.get_files_from(
         find_path="..",
         pattern="*.py",
-        exclude_names=["build"])
+        exclude_names=["build", ".kernel"])
 
     # Assert if somehow no python files were found
     assert len(python_files) != 0
