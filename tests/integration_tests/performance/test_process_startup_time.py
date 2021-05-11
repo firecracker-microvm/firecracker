@@ -4,8 +4,9 @@
 
 import json
 import os
-import platform
 import time
+import platform
+import framework.utils as utils
 
 import host_tools.logging as log_tools
 
@@ -25,6 +26,18 @@ def test_startup_time_new_pid_ns(test_microvm_with_api):
 def test_startup_time_daemonize(test_microvm_with_api):
     """Check startup time when jailer spawns Firecracker in a new PID ns."""
     microvm = test_microvm_with_api
+    _test_startup_time(microvm)
+
+
+def test_startup_time_custom_seccomp(test_microvm_with_api):
+    """Check the startup time for jailer and Firecracker up to socket bind, ...
+
+    when using custom seccomp filters via the `--seccomp-filter` param.
+    """
+    microvm = test_microvm_with_api
+
+    _custom_filter_setup(microvm)
+
     _test_startup_time(microvm)
 
 
@@ -57,3 +70,19 @@ def _test_startup_time(microvm):
 
     assert cpu_startup_time_us > 0
     assert cpu_startup_time_us <= MAX_STARTUP_TIME_CPU_US[platform.machine()]
+
+
+def _custom_filter_setup(test_microvm):
+    bpf_path = os.path.join(test_microvm.path, 'bpf.out')
+
+    cargo_target = '{}-unknown-linux-musl'.format(platform.machine())
+    json_path = '../resources/seccomp/{}.json'.format(cargo_target)
+
+    cmd = 'cargo run -p seccomp --target {} -- --input-file {} --target-arch\
+        {} --output-file {}'.format(cargo_target, json_path,
+                                    platform.machine(), bpf_path)
+
+    utils.run_cmd(cmd)
+
+    test_microvm.create_jailed_resource(bpf_path)
+    test_microvm.jailer.extra_args.update({"seccomp-filter": 'bpf.out'})
