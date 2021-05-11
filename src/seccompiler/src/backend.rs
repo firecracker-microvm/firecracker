@@ -62,7 +62,7 @@ const AUDIT_ARCH_AARCH64: u32 = 183 | 0x8000_0000 | 0x4000_0000;
 const ARG_NUMBER_MAX: u8 = 5;
 
 // The maximum number of BPF statements that a condition will be translated into.
-const CONDITION_MAX_LEN: u16 = 6;
+const CONDITION_MAX_LEN: u8 = 6;
 
 // `struct seccomp_data` offsets and sizes of fields in bytes:
 //
@@ -309,9 +309,11 @@ impl SeccompCondition {
         let (msb, lsb) = ((self.value >> 32) as u32, self.value as u32);
 
         // Offset to the argument specified by `arg_number`.
+        // Cannot overflow because the value will be at most 16 + 6 * 8 = 64.
         let arg_offset = SECCOMP_DATA_ARGS_OFFSET + self.arg_number * SECCOMP_DATA_ARG_SIZE;
 
         // Extracts offsets of most significant and least significant halves of argument.
+        // Addition cannot overflow because it's at most `arg_offset` + 4 = 68.
         let (msb_offset, lsb_offset) = { (arg_offset + SECCOMP_DATA_ARG_SIZE / 2, arg_offset) };
 
         (msb, lsb, msb_offset, lsb_offset)
@@ -575,8 +577,8 @@ impl SeccompRule {
         offset: &mut u8,
     ) {
         // Tries to detect whether prepending the current condition will produce an unjumpable
-        // offset (since BPF jumps are a maximum of 255 instructions).
-        if u16::from(*offset) + CONDITION_MAX_LEN + 1 > u16::from(::std::u8::MAX) {
+        // offset (since BPF jumps are a maximum of 255 instructions, which is std::u8::MAX).
+        if offset.checked_add(CONDITION_MAX_LEN + 1).is_none() {
             // If that is the case, three additional helper jumps are prepended and the offset
             // is reset to 1.
             //
