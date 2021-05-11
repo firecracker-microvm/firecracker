@@ -13,7 +13,7 @@ libc = ">=0.2.39"
 logger = { path = "../logger" }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "49240ce" }
 mmds = { path = "../mmds" }
-seccomp = { path = "../seccomp" }
+seccompiler = { path = "../seccompiler" }
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
 

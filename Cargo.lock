@@ -17,7 +17,7 @@ dependencies = [
  "logger",
  "micro_http",
  "mmds",
- "seccomp",
+ "seccompiler",
  "serde",
  "serde_derive",
  "serde_json",
@@ -312,7 +312,7 @@ dependencies = [
  "logger",
  "mmds",
  "polly",
- "seccomp",
+ "seccompiler",
  "snapshot",
  "timerfd",
  "utils",
@@ -631,7 +631,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 
 [[package]]
-name = "seccomp"
+name = "seccompiler"
 version = "0.24.0"
 dependencies = [
  "bincode",
@@ -846,7 +846,7 @@ dependencies = [
  "mmds",
  "polly",
  "rate_limiter",
- "seccomp",
+ "seccompiler",
  "serde",
  "serde_json",
  "snapshot",

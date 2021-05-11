@@ -275,7 +275,7 @@ impl Subscriber for SignalManager {
 mod tests {
     use super::*;
     use libc::{c_void, cpu_set_t, siginfo_t};
-    use seccomp::sock_filter;
+    use seccompiler::sock_filter;
     use std::convert::TryInto;
     use std::sync::{Arc, Mutex};
     use std::{mem, thread};
@@ -552,7 +552,7 @@ mod tests {
             }
             assert!(register_signal_handler(SIGSYS, signal_handler).is_ok());
             let filter = make_test_seccomp_bpf_filter();
-            assert!(seccomp::apply_filter(&filter).is_ok());
+            assert!(seccompiler::apply_filter(&filter).is_ok());
             assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
             // Call the forbidden `SYS_mkdirat`.
