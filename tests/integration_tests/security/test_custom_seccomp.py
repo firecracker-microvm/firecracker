@@ -70,7 +70,6 @@ def test_allow_all(test_microvm_with_api):
         }
     }""".encode('utf-8'))
 
-    test_microvm.jailer.extra_args.update({"seccomp-filter": 'bpf.out'})
     test_microvm.spawn()
 
     test_microvm.basic_config()
@@ -126,7 +125,6 @@ def test_working_filter(test_microvm_with_api):
         }
     }""".encode("utf-8"))
 
-    test_microvm.jailer.extra_args.update({"seccomp-filter": 'bpf.out'})
     test_microvm.spawn()
 
     test_microvm.basic_config()
