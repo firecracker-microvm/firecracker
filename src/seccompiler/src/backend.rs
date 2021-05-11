@@ -104,6 +104,8 @@ pub(crate) enum Error {
     InvalidArgumentNumber,
     /// Error related to the target arch.
     Arch(TargetArchError),
+    /// Conflicting rules in filter.
+    ConflictingRules(i64),
 }
 
 impl Display for Error {
@@ -117,6 +119,9 @@ impl Display for Error {
                 write!(f, "The seccomp rule contains an invalid argument number.")
             }
             Arch(ref err) => write!(f, "{:?}", err),
+            ConflictingRules(ref syscall_number) => {
+                write!(f, "Syscall {} has conflicting rules.", syscall_number)
+            }
         }
     }
 }
@@ -656,18 +661,49 @@ impl SeccompFilter {
         default_action: SeccompAction,
         target_arch: &str,
     ) -> Result<Self> {
-        // All inserted syscalls must have at least one rule, otherwise BPF code will break.
-        for (_, value) in rules.iter() {
-            if value.is_empty() {
-                return Err(Error::EmptyRulesVector);
-            }
-        }
-
-        Ok(Self {
+        let instance = Self {
             rules,
             default_action,
             target_arch: target_arch.try_into().map_err(Error::Arch)?,
-        })
+        };
+
+        instance.validate()?;
+
+        Ok(instance)
+    }
+
+    /// Performs semantic checks on the SeccompFilter.
+    fn validate(&self) -> Result<()> {
+        for (syscall_number, syscall_rules) in self.rules.iter() {
+            // All inserted syscalls must have at least one rule, otherwise BPF code will break.
+            if syscall_rules.is_empty() {
+                return Err(Error::EmptyRulesVector);
+            }
+
+            // Now check for conflicting rules.
+            // Match on the number of empty rules for the given syscall.
+            // An `empty rule` is a rule that doesn't have any argument checks.
+            match syscall_rules
+                .iter()
+                .filter(|rule| rule.conditions.is_empty())
+                .count()
+            {
+                // If the syscall has an empty rule, it may only have that rule.
+                1 if syscall_rules.len() > 1 => {
+                    return Err(Error::ConflictingRules(*syscall_number));
+                }
+                // This syscall only has the one rule, so is valid.
+                1 if syscall_rules.len() <= 1 => {}
+                // The syscall has no empty rules.
+                0 => {}
+                // For a greater than 1 number of empty rules, error out.
+                _ => {
+                    return Err(Error::ConflictingRules(*syscall_number));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Appends a chain of rules to an accumulator, updating the length of the filter.
@@ -1711,5 +1747,65 @@ mod tests {
 
         // Valid argument number
         assert!(Cond::new(0, ArgLen::DWORD, Eq, 65).is_ok());
+    }
+
+    #[test]
+    fn test_seccomp_filter_validate() {
+        // Failure cases.
+        {
+            // Syscall has no rules.
+            assert_eq!(
+                SeccompFilter::new(
+                    vec![(1, vec![]),].into_iter().collect(),
+                    SeccompAction::Trap,
+                    ARCH,
+                )
+                .unwrap_err(),
+                Error::EmptyRulesVector
+            );
+            // Syscall has multiple empty rules.
+            assert_eq!(
+                SeccompFilter::new(
+                    vec![(
+                        1,
+                        vec![
+                            SeccompRule::new(vec![], SeccompAction::Allow),
+                            SeccompRule::new(vec![], SeccompAction::Allow)
+                        ]
+                    ),]
+                    .into_iter()
+                    .collect(),
+                    SeccompAction::Trap,
+                    ARCH,
+                )
+                .unwrap_err(),
+                Error::ConflictingRules(1)
+            );
+
+            // Syscall has both empty rules condition-based rules.
+            assert_eq!(
+                SeccompFilter::new(
+                    vec![(
+                        1,
+                        vec![
+                            SeccompRule::new(vec![], SeccompAction::Allow),
+                            SeccompRule::new(
+                                vec![
+                                    Cond::new(2, ArgLen::DWORD, Le, 14).unwrap(),
+                                    Cond::new(1, ArgLen::DWORD, Ne, 10).unwrap(),
+                                ],
+                                SeccompAction::Allow,
+                            ),
+                        ]
+                    ),]
+                    .into_iter()
+                    .collect(),
+                    SeccompAction::Trap,
+                    ARCH,
+                )
+                .unwrap_err(),
+                Error::ConflictingRules(1)
+            );
+        }
     }
 }
