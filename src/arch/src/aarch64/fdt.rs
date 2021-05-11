@@ -716,7 +716,14 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
-        let mut dtb = create_fdt(
+
+        let saved_dtb_bytes = match gic.fdt_compatibility() {
+            "arm,gic-v3" => include_bytes!("output_GICv3.dtb"),
+            "arm,gic-400" => include_bytes!("output_GICv2.dtb"),
+            _ => panic!("Unexpected gic version!"),
+        };
+
+        let mut current_dtb_bytes = create_fdt(
             &mem,
             vec![0],
             &CString::new("console=tty0").unwrap(),
@@ -732,25 +739,29 @@ mod tests {
             use std::io::Write;
             use std::path::PathBuf;
             let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let dtb_path = match gic.fdt_compatibility() {
+                "arm,gic-v3" => "output_GICv3.dtb",
+                "arm,gic-400" => ("output_GICv2.dtb"),
+                _ => panic!("Unexpected gic version!"),
+            };
             let mut output = fs::OpenOptions::new()
                 .write(true)
                 .create(true)
-                .open(path.join("src/aarch64/output.dtb"))
+                .open(path.join(format!("src/aarch64/{}", dtb_path)))
                 .unwrap();
-            output.write_all(&dtb).unwrap();
+            output.write_all(&current_dtb_bytes).unwrap();
         }
         */
 
-        let bytes = include_bytes!("output.dtb");
         let pos = 4;
         let val = layout::FDT_MAX_SIZE;
         let mut buf = vec![];
-        buf.extend_from_slice(bytes);
+        buf.extend_from_slice(saved_dtb_bytes);
 
         set_size(&mut buf, pos, val);
-        set_size(&mut dtb, pos, val);
+        set_size(&mut current_dtb_bytes, pos, val);
         let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
-        let generated_fdt = device_tree::DeviceTree::load(&dtb).unwrap();
+        let generated_fdt = device_tree::DeviceTree::load(&current_dtb_bytes).unwrap();
         assert_eq!(
             format!("{:?}", original_fdt),
             format!("{:?}", generated_fdt)
@@ -764,12 +775,19 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
+
+        let saved_dtb_bytes = match gic.fdt_compatibility() {
+            "arm,gic-v3" => include_bytes!("output_initrd_GICv3.dtb"),
+            "arm,gic-400" => include_bytes!("output_initrd_GICv2.dtb"),
+            _ => panic!("Unexpected gic version!"),
+        };
+
         let initrd = InitrdConfig {
             address: GuestAddress(0x1000_0000),
             size: 0x1000,
         };
 
-        let mut dtb = create_fdt(
+        let mut current_dtb_bytes = create_fdt(
             &mem,
             vec![0],
             &CString::new("console=tty0").unwrap(),
@@ -785,25 +803,29 @@ mod tests {
             use std::io::Write;
             use std::path::PathBuf;
             let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let dtb_path = match gic.fdt_compatibility() {
+                "arm,gic-v3" => "output_initrd_GICv3.dtb",
+                "arm,gic-400" => ("output_initrd_GICv2.dtb"),
+                _ => panic!("Unexpected gic version!"),
+            };
             let mut output = fs::OpenOptions::new()
                 .write(true)
                 .create(true)
-                .open(path.join("src/aarch64/output_with_initrd.dtb"))
+                .open(path.join(format!("src/aarch64/{}", dtb_path)))
                 .unwrap();
-            output.write_all(&dtb).unwrap();
+            output.write_all(&current_dtb_bytes).unwrap();
         }
         */
 
-        let bytes = include_bytes!("output_with_initrd.dtb");
         let pos = 4;
         let val = layout::FDT_MAX_SIZE;
         let mut buf = vec![];
-        buf.extend_from_slice(bytes);
+        buf.extend_from_slice(saved_dtb_bytes);
 
         set_size(&mut buf, pos, val);
-        set_size(&mut dtb, pos, val);
+        set_size(&mut current_dtb_bytes, pos, val);
         let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
-        let generated_fdt = device_tree::DeviceTree::load(&dtb).unwrap();
+        let generated_fdt = device_tree::DeviceTree::load(&current_dtb_bytes).unwrap();
         assert_eq!(
             format!("{:?}", original_fdt),
             format!("{:?}", generated_fdt)
