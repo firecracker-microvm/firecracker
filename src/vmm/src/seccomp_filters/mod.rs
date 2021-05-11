@@ -6,6 +6,12 @@ use std::fs::File;
 
 const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 
+// This byte limit is passed to `bincode` to guard against a potential memory
+// allocation DOS caused by binary filters that are too large.
+// This limit can be safely determined since the maximum length of a BPF
+// filter is 4096 instructions and Firecracker has a finite number of threads.
+const DESERIALIZATION_BYTES_LIMIT: Option<u64> = Some(100_000);
+
 /// Error retrieving seccomp filters.
 #[derive(fmt::Debug)]
 pub enum FilterError {
@@ -70,7 +76,8 @@ fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterErr
 pub fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
     // Retrieve, at compile-time, the serialized binary filter generated with seccompiler.
     let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/seccomp_filter.bpf"));
-    let map = deserialize_binary(&mut &bytes[..]).map_err(FilterError::Deserialization)?;
+    let map = deserialize_binary(&mut &bytes[..], DESERIALIZATION_BYTES_LIMIT)
+        .map_err(FilterError::Deserialization)?;
     filter_thread_categories(map)
 }
 
@@ -85,7 +92,8 @@ pub fn get_empty_filters() -> BpfThreadMap {
 
 /// Retrieve custom seccomp filters.
 pub fn get_custom_filters(mut file: File) -> Result<BpfThreadMap, FilterError> {
-    let map = deserialize_binary(&mut file).map_err(FilterError::Deserialization)?;
+    let map = deserialize_binary(&mut file, DESERIALIZATION_BYTES_LIMIT)
+        .map_err(FilterError::Deserialization)?;
     filter_thread_categories(map)
 }
 
