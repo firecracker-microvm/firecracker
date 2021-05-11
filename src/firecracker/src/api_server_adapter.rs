@@ -142,7 +142,6 @@ pub(crate) fn run_with_api(
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
-
     let api_seccomp_filter = seccomp_filters
         .remove("api")
         .expect("Missing seccomp filter for API thread.");
@@ -159,7 +158,7 @@ pub(crate) fn run_with_api(
                 from_vmm,
                 to_vmm_event_fd,
             )
-            .bind_and_run(bind_path, process_time_reporter, api_seccomp_filter)
+            .bind_and_run(bind_path, process_time_reporter, &api_seccomp_filter)
             {
                 Ok(_) => (),
                 Err(api_server::Error::Io(inner)) => match inner.kind() {
