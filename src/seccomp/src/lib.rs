@@ -2130,4 +2130,16 @@ mod tests {
         expected_res.insert("vcpu".to_string(), bpf_prog);
         assert_eq!(deserialize_binary(&mut &bytes[..]).unwrap(), expected_res);
     }
+
+    #[test]
+    fn test_validate_condition() {
+        // Invalid argument number
+        assert_eq!(
+            Cond::new(90, ArgLen::DWORD, Eq, 65),
+            Err(Error::InvalidArgumentNumber)
+        );
+
+        // Valid argument number
+        assert!(Cond::new(0, ArgLen::DWORD, Eq, 65).is_ok());
+    }
 }
