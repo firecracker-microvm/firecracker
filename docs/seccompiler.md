@@ -67,7 +67,7 @@ This means that Firecracker has a JSON file for each supported target
 At the top level, the file requires an object that maps thread categories
 (vmm, api and vcpu) to seccomp filters:
 
-```json
+```
 {
     "vmm": {
        "default_action": {
@@ -117,7 +117,7 @@ values.
 
 Here is the structure of the object:
 
-```json
+```
 {
     "syscall": "accept4", // mandatory, the syscall name
     "action": "allow", // optional, overrides the filter_action if present
@@ -151,7 +151,7 @@ constants in the JSON file. You may however add an optional `comment` property
 to each condition object. This way, you can provide meaning to each numeric
 value, much like when using named parameters, like so:
 
-```json
+```
 {
     "syscall": "accept4",
     "args": [
