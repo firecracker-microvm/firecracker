@@ -8,7 +8,7 @@ use crate::common::{sock_filter, BpfProgram, BPF_MAX_LEN};
 use core::fmt::Formatter;
 use serde::{Deserialize, Deserializer};
 use std::collections::BTreeMap;
-use std::convert::{Into, TryInto};
+use std::convert::{Into, TryFrom, TryInto};
 use std::fmt::Display;
 
 // BPF Instruction classes.
@@ -601,7 +601,8 @@ impl SeccompRule {
 
         let condition = condition.into_bpf(*offset);
         *rule_len += condition.len();
-        *offset += condition.len() as u8;
+        // Safe to unwrap since we checked that condition length is less than `CONDITION_MAX_LEN`.
+        *offset += u8::try_from(condition.len()).unwrap();
         accumulator.push(condition);
     }
 }
@@ -617,11 +618,8 @@ impl Into<BpfProgram> for SeccompRule {
     fn into(self) -> BpfProgram {
         // Rule is built backwards, last statement is the action of the rule.
         // The offset to the next rule is 1.
-        let mut accumulator = Vec::with_capacity(
-            self.conditions.len()
-                + ((self.conditions.len() * CONDITION_MAX_LEN as usize) / ::std::u8::MAX as usize)
-                + 1,
-        );
+        let mut accumulator =
+            Vec::with_capacity(self.conditions.len() * CONDITION_MAX_LEN as usize);
         let mut rule_len = 1;
         let mut offset = 1;
         accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, u32::from(self.action))]);
