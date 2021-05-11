@@ -372,7 +372,7 @@ pub fn build_microvm_for_boot(
     .map_err(Internal)?;
 
     // Load seccomp filters for the VMM thread.
-    // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
+    // Execution panics if filters cannot be loaded, use --no-seccomp if skipping filters
     // altogether is the desired behaviour.
     // Keep this as the last step before resuming vcpus.
     seccomp::apply_filter(
