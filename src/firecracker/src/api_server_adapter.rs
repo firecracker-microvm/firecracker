@@ -13,7 +13,7 @@ use api_server::{ApiRequest, ApiResponse, ApiServer};
 use logger::{error, warn, ProcessTimeReporter};
 use mmds::MMDS;
 use polly::event_manager::{EventManager, Subscriber};
-use seccomp::BpfThreadMap;
+use seccompiler::BpfThreadMap;
 use utils::{
     epoll::{EpollEvent, EventSet},
     eventfd::EventFd,

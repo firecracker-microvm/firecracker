@@ -5,7 +5,7 @@ use std::fs::File;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
-use seccomp::{apply_filter, deserialize_binary};
+use seccompiler::{apply_filter, deserialize_binary};
 
 fn main() {
     let args: Vec<String> = args().collect();

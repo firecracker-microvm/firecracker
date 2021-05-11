@@ -114,12 +114,14 @@ def run_seccompiler(bpf_path, json_path=defs.SECCOMP_JSON_DIR):
     if json_path == defs.SECCOMP_JSON_DIR:
         json_path = json_path / "{}.json".format(cargo_target)
 
-    cmd = 'cargo run -p seccomp --target-dir {} --target {} -- --input-file {}\
-        --target-arch {} --output-file {}'.format(defs.SECCOMPILER_TARGET_DIR,
-                                                  cargo_target,
-                                                  json_path,
-                                                  platform.machine(),
-                                                  bpf_path)
+    cmd = 'cargo run -p seccompiler --target-dir {} --target {} --\
+        --input-file {} --target-arch {} --output-file {}'.format(
+        defs.SECCOMPILER_TARGET_DIR,
+        cargo_target,
+        json_path,
+        platform.machine(),
+        bpf_path
+    )
 
     rc, _, _ = utils.run_cmd(cmd)
 

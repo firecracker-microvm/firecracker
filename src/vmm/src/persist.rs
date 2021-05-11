@@ -28,7 +28,7 @@ use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use logger::{error, info};
 use polly::event_manager::EventManager;
-use seccomp::BpfThreadMap;
+use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
