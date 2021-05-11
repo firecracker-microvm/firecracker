@@ -13,7 +13,7 @@ use vmm::builder::{build_microvm_for_boot, setup_serial_device};
 use vmm::persist;
 use vmm::persist::{snapshot_state_sanity_check, LoadSnapshotError, MicrovmState};
 use vmm::resources::VmResources;
-use vmm::seccomp_filters::get_empty_filters;
+use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 
@@ -44,7 +44,7 @@ fn test_build_microvm() {
     {
         let resources: VmResources = MockVmResources::new().into();
         let mut event_manager = EventManager::new().unwrap();
-        let mut empty_seccomp_filters = get_empty_filters();
+        let mut empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
         let vmm_ret =
             build_microvm_for_boot(&resources, &mut event_manager, &mut empty_seccomp_filters);
@@ -308,7 +308,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         0 => {
             set_panic_hook();
             let mut event_manager = EventManager::new().unwrap();
-            let mut empty_seccomp_filters = get_empty_filters();
+            let mut empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
             // Deserialize microVM state.
             let snapshot_file_metadata = snapshot_file.as_file().metadata().unwrap();
