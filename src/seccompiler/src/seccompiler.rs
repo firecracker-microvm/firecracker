@@ -53,6 +53,7 @@ use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag};
 
 const SECCOMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
+const EXIT_CODE_ERROR: i32 = 1;
 
 #[derive(Debug)]
 enum Error {
@@ -172,29 +173,32 @@ fn main() {
              For more information try --help.",
             err
         );
-        process::exit(1);
+        process::exit(EXIT_CODE_ERROR);
     }
 
     if arg_parser.arguments().flag_present("help") {
         println!("Seccompiler v{}\n", SECCOMPILER_VERSION);
         println!("{}", arg_parser.formatted_help());
-        process::exit(0);
+        return;
     }
     if arg_parser.arguments().flag_present("version") {
         println!("Seccompiler v{}\n", SECCOMPILER_VERSION);
-        process::exit(0);
+        return;
     }
 
     let args = get_argument_values(arg_parser.arguments()).unwrap_or_else(|err| {
-        println!(
+        eprintln!(
             "{} \n\n\
             For more information try --help.",
             err
         );
-        process::exit(1);
+        process::exit(EXIT_CODE_ERROR);
     });
 
-    compile(&args).expect("Seccompiler error");
+    if let Err(err) = compile(&args) {
+        eprintln!("Seccompiler error: {}", err);
+        process::exit(EXIT_CODE_ERROR);
+    }
 
     println!("Filter successfully compiled into: {}", args.output_file);
 }
