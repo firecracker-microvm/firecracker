@@ -1,6 +1,6 @@
 [package]
 name = "seccomp"
-version = "0.1.0"
+version = "0.24.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 
