@@ -8,8 +8,8 @@ use std::panic;
 use std::sync::{Arc, Mutex};
 
 use crate::builder::build_microvm_for_boot;
-use crate::default_syscalls::get_empty_filters;
 use crate::resources::VmResources;
+use crate::seccomp_filters::get_empty_filters;
 use crate::utilities::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use polly::event_manager::EventManager;
