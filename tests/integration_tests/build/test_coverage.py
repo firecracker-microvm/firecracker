@@ -12,6 +12,7 @@
 import os
 import platform
 import re
+import shutil
 import pytest
 
 import framework.utils as utils
@@ -39,6 +40,8 @@ KCOV_COVERED_LINES_REGEX = r'"covered_lines":"(\d+)"'
 
 KCOV_TOTAL_LINES_REGEX = r'"total_lines" : "(\d+)"'
 """Regex for extracting number of total executable lines found by kcov."""
+
+SECCOMPILER_BUILD_DIR = '../build/seccompiler'
 
 
 @pytest.mark.timeout(400)
@@ -81,9 +84,16 @@ def test_coverage(test_fc_session_root_path, test_session_tmp_path):
         exclude_pattern,
         exclude_region
     )
+    # We remove the seccompiler custom build directory, created by the
+    # vmm-level `build.rs`.
+    # If we don't delete it before and after running the kcov command, we will
+    # run into linker errors.
+    shutil.rmtree(SECCOMPILER_BUILD_DIR, ignore_errors=True)
     # By default, `cargo kcov` passes `--exclude-pattern=$CARGO_HOME --verify`
     # to kcov. To pass others arguments, we need to include the defaults.
     utils.run_cmd(cmd)
+
+    shutil.rmtree(SECCOMPILER_BUILD_DIR)
 
     coverage_file = os.path.join(test_session_tmp_path, KCOV_COVERAGE_FILE)
     with open(coverage_file) as cov_output:
