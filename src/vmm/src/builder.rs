@@ -30,7 +30,7 @@ use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, V
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::{error, warn};
 use polly::event_manager::{Error as EventManagerError, EventManager, Subscriber};
-use seccomp::{BpfProgramRef, SeccompFilter};
+use seccomp::{BpfThreadMap, SeccompFilter};
 use snapshot::Persist;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
@@ -66,6 +66,8 @@ pub enum StartMicrovmError {
     MissingKernelConfig,
     /// Cannot start the VM because the size of the guest memory  was not specified.
     MissingMemSizeConfig,
+    /// The seccomp filter map is missing a key.
+    MissingSeccompFilters(String),
     /// The net device configuration is missing the tap device.
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file.
@@ -133,6 +135,11 @@ impl Display for StartMicrovmError {
             MissingMemSizeConfig => {
                 write!(f, "Cannot start microvm without guest mem_size config.")
             }
+            MissingSeccompFilters(thread_category) => write!(
+                f,
+                "No seccomp filter for thread category: {}",
+                thread_category
+            ),
             NetDeviceNotConfigured => {
                 write!(f, "The net device configuration is missing the tap device.")
             }
@@ -286,7 +293,7 @@ fn create_vmm_and_vcpus(
 pub fn build_microvm_for_boot(
     vm_resources: &super::resources::VmResources,
     event_manager: &mut EventManager,
-    seccomp_filter: BpfProgramRef,
+    seccomp_filters: &mut BpfThreadMap,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     use self::StartMicrovmError::*;
     let boot_config = vm_resources.boot_source().ok_or(MissingKernelConfig)?;
@@ -356,15 +363,25 @@ pub fn build_microvm_for_boot(
     )?;
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
-    vmm.start_vcpus(vcpus, seccomp_filter).map_err(Internal)?;
+    vmm.start_vcpus(
+        vcpus,
+        seccomp_filters
+            .remove("vcpu")
+            .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?,
+    )
+    .map_err(Internal)?;
 
     // Load seccomp filters for the VMM thread.
     // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
     // altogether is the desired behaviour.
     // Keep this as the last step before resuming vcpus.
-    SeccompFilter::apply(seccomp_filter.to_vec())
-        .map_err(Error::SeccompFilters)
-        .map_err(Internal)?;
+    SeccompFilter::apply(
+        seccomp_filters
+            .remove("vmm")
+            .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
+    )
+    .map_err(Error::SeccompFilters)
+    .map_err(Internal)?;
 
     // The vcpus start off in the `Paused` state, let them run.
     vmm.resume_vm().map_err(Internal)?;
@@ -386,7 +403,7 @@ pub fn build_microvm_from_snapshot(
     microvm_state: MicrovmState,
     guest_memory: GuestMemoryMmap,
     track_dirty_pages: bool,
-    seccomp_filter: BpfProgramRef,
+    seccomp_filters: &mut BpfThreadMap,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     use self::StartMicrovmError::*;
     let vcpu_count = u8::try_from(microvm_state.vcpu_states.len())
@@ -430,8 +447,13 @@ pub fn build_microvm_from_snapshot(
             .map_err(RestoreMicrovmState)?;
 
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
-    vmm.start_vcpus(vcpus, seccomp_filter)
-        .map_err(StartMicrovmError::Internal)?;
+    vmm.start_vcpus(
+        vcpus,
+        seccomp_filters
+            .remove("vcpu")
+            .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?,
+    )
+    .map_err(StartMicrovmError::Internal)?;
 
     // Restore vcpus kvm state.
     vmm.restore_vcpu_states(microvm_state.vcpu_states)
@@ -444,9 +466,13 @@ pub fn build_microvm_from_snapshot(
 
     // Load seccomp filters for the VMM thread.
     // Keep this as the last step of the building process.
-    SeccompFilter::apply(seccomp_filter.to_vec())
-        .map_err(Error::SeccompFilters)
-        .map_err(StartMicrovmError::Internal)?;
+    SeccompFilter::apply(
+        seccomp_filters
+            .remove("vmm")
+            .ok_or_else(|| MissingSeccompFilters("vmm".to_string()))?,
+    )
+    .map_err(Error::SeccompFilters)
+    .map_err(StartMicrovmError::Internal)?;
 
     Ok(vmm)
 }
