@@ -1,9 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 use seccomp::{
-    allow_syscall, allow_syscall_if, BpfProgram, BpfThreadMap, Error, SeccompAction,
-    SeccompCmpArgLen as ArgLen, SeccompCmpOp::Eq, SeccompCondition as Cond, SeccompFilter,
-    SeccompRule,
+    allow_syscall, allow_syscall_if, deserialize_binary, BpfProgram, BpfThreadMap,
+    DeserializationError, Error, SeccompAction, SeccompCmpArgLen as ArgLen, SeccompCmpOp::Eq,
+    SeccompCondition as Cond, SeccompFilter, SeccompRule,
 };
 use std::convert::TryInto;
 use std::fs::File;
@@ -187,8 +187,8 @@ pub fn get_empty_filters() -> BpfThreadMap {
 }
 
 /// Retrieve custom seccomp filters
-pub fn get_custom_filters(_: File) -> Result<BpfThreadMap, Error> {
-    Ok(get_empty_filters())
+pub fn get_custom_filters(mut file: File) -> Result<BpfThreadMap, DeserializationError> {
+    deserialize_binary(&mut file)
 }
 
 #[cfg(test)]
