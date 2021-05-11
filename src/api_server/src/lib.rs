@@ -24,7 +24,7 @@ pub use micro_http::{
 };
 use mmds::data_store;
 use mmds::data_store::Mmds;
-use seccomp::{BpfProgramRef, SeccompFilter};
+use seccomp::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::instance_info::InstanceInfo;
@@ -119,7 +119,6 @@ impl ApiServer {
     /// ```
     /// use api_server::ApiServer;
     /// use mmds::MMDS;
-    /// use seccomp::{BpfProgram, SeccompFilter};
     /// use std::{
     ///     convert::TryInto, io::Read, io::Write, os::unix::net::UnixStream, path::PathBuf,
     ///     sync::mpsc::channel, thread, time::Duration,
@@ -128,6 +127,7 @@ impl ApiServer {
     /// use utils::{eventfd::EventFd, tempfile::TempFile};
     /// use vmm::vmm_config::instance_info::InstanceInfo;
     /// use logger::ProcessTimeReporter;
+    /// use vmm::seccomp_filters;
     ///
     /// let mut tmp_socket = TempFile::new().unwrap();
     /// tmp_socket.remove().unwrap();
@@ -145,7 +145,7 @@ impl ApiServer {
     /// let (to_api, vmm_response_receiver) = channel();
     /// let mmds_info = MMDS.clone();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
-    /// let filter: BpfProgram = SeccompFilter::empty(ARCH).unwrap().try_into().unwrap();
+    /// let seccomp_filters = seccomp_filters::get_empty_filters();
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
@@ -160,7 +160,7 @@ impl ApiServer {
     ///         .bind_and_run(
     ///             PathBuf::from(api_thread_path_to_socket),
     ///             time_reporter,
-    ///             &filter,
+    ///             seccomp_filters.get("api").unwrap(),
     ///         )
     ///         .unwrap();
     ///     })
@@ -192,7 +192,7 @@ impl ApiServer {
         // Load seccomp filters on the API thread.
         // Execution panics if filters cannot be loaded, use --seccomp-level=0 if skipping filters
         // altogether is the desired behaviour.
-        if let Err(e) = SeccompFilter::apply(seccomp_filter) {
+        if let Err(e) = seccomp::apply_filter(seccomp_filter) {
             panic!(
                 "Failed to set the requested seccomp filters on the API thread: Error: {:?}",
                 e
@@ -397,8 +397,6 @@ impl ApiServer {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryInto;
-    use std::env::consts::ARCH;
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
     use std::sync::mpsc::channel;
@@ -409,11 +407,11 @@ mod tests {
     use logger::StoreMetric;
     use micro_http::HttpConnection;
     use mmds::MMDS;
-    use seccomp::BpfProgram;
     use utils::tempfile::TempFile;
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
     use vmm::rpc_interface::VmmActionError;
+    use vmm::seccomp_filters;
     use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::snapshot::CreateSnapshotParams;
 
@@ -742,7 +740,7 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
-        let seccomp_filter: BpfProgram = SeccompFilter::empty(ARCH).unwrap().try_into().unwrap();
+        let seccomp_filters = seccomp_filters::get_default_filters().unwrap();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
@@ -757,7 +755,7 @@ mod tests {
                 .bind_and_run(
                     PathBuf::from(api_thread_path_to_socket),
                     ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                    &seccomp_filter,
+                    seccomp_filters.get("api").unwrap(),
                 )
                 .unwrap();
             })

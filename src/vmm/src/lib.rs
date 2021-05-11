@@ -125,8 +125,8 @@ pub enum Error {
     Metrics(MetricsError),
     /// Cannot add a device to the MMIO Bus.
     RegisterMMIODevice(device_manager::mmio::Error),
-    /// Cannot build seccomp filters.
-    SeccompFilters(seccomp::Error),
+    /// Cannot install seccomp filters.
+    SeccompFilters(seccomp::InstallationError),
     /// Write to the serial console failed.
     Serial(io::Error),
     /// Cannot create Timer file descriptor.
@@ -178,7 +178,7 @@ impl Display for Error {
             Logger(e) => write!(f, "Logger error: {}", e),
             Metrics(e) => write!(f, "Metrics error: {}", e),
             RegisterMMIODevice(e) => write!(f, "Cannot add a device to the MMIO Bus. {}", e),
-            SeccompFilters(e) => write!(f, "Cannot build seccomp filters: {}", e),
+            SeccompFilters(e) => write!(f, "Cannot install seccomp filters: {}", e),
             Serial(e) => write!(f, "Error writing to the serial console: {}", e),
             TimerFd(e) => write!(f, "Error creating timer fd: {}", e),
             VcpuConfigure(e) => write!(f, "Error configuring the vcpu for boot: {}", e),
