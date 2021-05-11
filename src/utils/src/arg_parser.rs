@@ -16,6 +16,8 @@ const VERSION_ARG: &str = "--version";
 /// Errors associated with parsing and validating arguments.
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    /// The argument B cannot be used together with argument A.
+    ForbiddenArgument(String, String),
     /// The required argument was not provided.
     MissingArgument(String),
     /// A value for the argument was not provided.
@@ -31,6 +33,11 @@ impl fmt::Display for Error {
         use self::Error::*;
 
         match *self {
+            ForbiddenArgument(ref arg1, ref arg2) => write!(
+                f,
+                "Argument '{}' cannot be used together with argument '{}'.",
+                arg2, arg1
+            ),
             MissingArgument(ref arg) => write!(f, "Argument '{}' required, but not found.", arg),
             MissingValue(ref arg) => write!(
                 f,
@@ -133,6 +140,7 @@ pub struct Argument<'a> {
     name: &'a str,
     required: bool,
     requires: Option<&'a str>,
+    forbids: Vec<&'a str>,
     takes_value: bool,
     allow_multiple: bool,
     default_value: Option<Value>,
@@ -147,6 +155,7 @@ impl<'a> Argument<'a> {
             name,
             required: false,
             requires: None,
+            forbids: vec![],
             takes_value: false,
             allow_multiple: false,
             default_value: None,
@@ -164,6 +173,12 @@ impl<'a> Argument<'a> {
     /// Add `other_arg` as a required parameter when `self` is specified.
     pub fn requires(mut self, other_arg: &'a str) -> Self {
         self.requires = Some(other_arg);
+        self
+    }
+
+    /// Add `other_arg` as a forbidden parameter when `self` is specified.
+    pub fn forbids(mut self, args: Vec<&'a str>) -> Self {
+        self.forbids = args;
         self
     }
 
@@ -369,19 +384,28 @@ impl<'a> Arguments<'a> {
         self.populate_args(args)
     }
 
-    // Check if `required` and `requires` field rules are indeed followed by every argument.
+    // Check if `required`, `requires` and `forbids` field rules are indeed followed by every argument.
     fn validate_requirements(&self, args: &[String]) -> Result<()> {
         for argument in self.args.values() {
             // The arguments that are marked `required` must be provided by user.
             if argument.required && argument.user_value.is_none() {
                 return Err(Error::MissingArgument(argument.name.to_string()));
             }
-            // For the arguments that require a specific argument to be also present in the list
-            // of arguments provided by user, search for that argument.
             if argument.user_value.is_some() {
+                // For the arguments that require a specific argument to be also present in the list
+                // of arguments provided by user, search for that argument.
                 if let Some(arg_name) = argument.requires {
                     if !args.contains(&(format!("--{}", arg_name))) {
                         return Err(Error::MissingArgument(arg_name.to_string()));
+                    }
+                }
+                // Check the user-provided list for potential forbidden arguments.
+                for arg_name in argument.forbids.iter() {
+                    if args.contains(&(format!("--{}", arg_name))) {
+                        return Err(Error::ForbiddenArgument(
+                            argument.name.to_string(),
+                            arg_name.to_string(),
+                        ));
                     }
                 }
             }
@@ -450,7 +474,7 @@ impl<'a> Arguments<'a> {
             argument.user_value = Some(arg_val);
         }
 
-        // Check the constraints for the `required` and `requires` fields of all arguments.
+        // Check the constraints for the `required`, `requires` and `forbids` fields of all arguments.
         self.validate_requirements(&args)?;
 
         Ok(())
@@ -493,6 +517,11 @@ mod tests {
                     .takes_value(true)
                     .default_value("2")
                     .help("'seccomp-level' info."),
+            )
+            .arg(
+                Argument::new("no-seccomp")
+                    .help("'-no-seccomp' info.")
+                    .forbids(vec!["seccomp-level"]),
             )
             .arg(
                 Argument::new("config-file")
@@ -825,6 +854,32 @@ mod tests {
             "foo",
             "--api-sock",
             "bar",
+            "--id",
+            "foobar",
+            "--seccomp-level",
+            "0",
+            "--no-seccomp",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<String>>();
+
+        assert_eq!(
+            arguments.parse(&args),
+            Err(Error::ForbiddenArgument(
+                "no-seccomp".to_string(),
+                "seccomp-level".to_string(),
+            ))
+        );
+
+        arguments = arg_parser.arguments().clone();
+
+        let args = vec![
+            "binary-name",
+            "--exec-file",
+            "foo",
+            "--api-sock",
+            "bar",
             "foobar",
         ]
         .into_iter()
@@ -900,6 +955,13 @@ mod tests {
 
     #[test]
     fn test_error_display() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::ForbiddenArgument("foo".to_string(), "bar".to_string())
+            ),
+            "Argument 'bar' cannot be used together with argument 'foo'."
+        );
         assert_eq!(
             format!("{}", Error::MissingArgument("foo".to_string())),
             "Argument 'foo' required, but not found."
