@@ -15,7 +15,12 @@ use seccomp_rules::*;
 fn main() {
     let args: Vec<String> = args().collect();
     let exec_file = &args[1];
-    let mut filter = SeccompFilter::new(vec![].into_iter().collect(), SeccompAction::Trap).unwrap();
+    let mut filter = SeccompFilter::new(
+        vec![].into_iter().collect(),
+        SeccompAction::Trap,
+        std::env::consts::ARCH,
+    )
+    .unwrap();
 
     // Adds required rules.
     let mut all_rules = rust_required_rules();

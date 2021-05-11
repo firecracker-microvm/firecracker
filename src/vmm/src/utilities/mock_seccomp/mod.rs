@@ -308,7 +308,8 @@ impl Default for MockSeccomp {
 
 impl Into<BpfProgram> for MockSeccomp {
     fn into(self) -> BpfProgram {
-        let flt = SeccompFilter::new(self.rules, self.default_action).unwrap();
+        let flt =
+            SeccompFilter::new(self.rules, self.default_action, std::env::consts::ARCH).unwrap();
         let bpf_prog: BpfProgram = flt.try_into().unwrap();
         bpf_prog
     }
