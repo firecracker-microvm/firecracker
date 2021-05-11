@@ -6,8 +6,70 @@ use seccomp::{
     SeccompCondition as Cond, SeccompFilter, SeccompRule,
 };
 use std::convert::TryInto;
+use std::fmt;
 use std::fs::File;
 use utils::signal::sigrtmin;
+
+const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
+
+/// Error retrieving seccomp filters.
+#[derive(fmt::Debug)]
+pub enum FilterError {
+    /// Filter deserialitaion error.
+    Deserialization(DeserializationError),
+    /// Invalid thread categories.
+    ThreadCategories(String),
+    /// Missing Thread Category.
+    MissingThreadCategory(String),
+    /// Seccomp error occurred.
+    Seccomp(Error),
+}
+
+impl fmt::Display for FilterError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::FilterError::*;
+
+        match *self {
+            Deserialization(ref err) => write!(f, "Filter (de)serialization failed: {}", err),
+            ThreadCategories(ref categories) => {
+                write!(f, "Invalid thread categories: {}", categories)
+            }
+            MissingThreadCategory(ref category) => {
+                write!(f, "Missing thread category: {}", category)
+            }
+            Seccomp(ref err) => write!(f, "Seccomp error: {}", err),
+        }
+    }
+}
+
+/// Return an error if the BpfThreadMap contains invalid thread categories.
+fn filter_thread_categories(map: BpfThreadMap) -> Result<BpfThreadMap, FilterError> {
+    let (filters, invalid_filters): (BpfThreadMap, BpfThreadMap) = map
+        .into_iter()
+        .partition(|(k, _)| THREAD_CATEGORIES.contains(&k.as_str()));
+    if !invalid_filters.is_empty() {
+        // build the error message
+        let mut thread_categories_string =
+            invalid_filters
+                .keys()
+                .fold("".to_string(), |mut acc, elem| {
+                    acc.push_str(elem);
+                    acc.push_str(",");
+                    acc
+                });
+        thread_categories_string.pop();
+        return Err(FilterError::ThreadCategories(thread_categories_string));
+    }
+
+    for &category in THREAD_CATEGORIES.iter() {
+        let category_string = category.to_string();
+        if !filters.contains_key(&category_string) {
+            return Err(FilterError::MissingThreadCategory(category_string));
+        }
+    }
+
+    Ok(filters)
+}
 
 /// The default filter containing the allowed syscall rules required by `Firecracker` to
 /// function.
@@ -177,7 +239,7 @@ pub fn get_default_filters() -> Result<BpfThreadMap, Error> {
     Ok(filters)
 }
 
-/// Retrieve empty seccomp filters
+/// Retrieve empty seccomp filters.
 pub fn get_empty_filters() -> BpfThreadMap {
     let mut map = BpfThreadMap::new();
     map.insert("vmm".to_string(), vec![]);
@@ -186,21 +248,54 @@ pub fn get_empty_filters() -> BpfThreadMap {
     map
 }
 
-/// Retrieve custom seccomp filters
-pub fn get_custom_filters(mut file: File) -> Result<BpfThreadMap, DeserializationError> {
-    deserialize_binary(&mut file)
+/// Retrieve custom seccomp filters.
+pub fn get_custom_filters(mut file: File) -> Result<BpfThreadMap, FilterError> {
+    let map = deserialize_binary(&mut file).map_err(FilterError::Deserialization)?;
+    filter_thread_categories(map)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{get_custom_filters, get_default_filters};
-    use utils::tempfile::TempFile;
+    use super::*;
+    use seccomp::BpfThreadMap;
 
     #[test]
     fn get_filters() {
         assert!(get_default_filters().is_ok());
+    }
 
-        let file = TempFile::new().unwrap();
-        assert!(get_custom_filters(file.into_file()).is_ok());
+    #[test]
+    fn test_filter_thread_categories() {
+        // correct categories
+        let mut map = BpfThreadMap::new();
+        map.insert("vcpu".to_string(), vec![]);
+        map.insert("vmm".to_string(), vec![]);
+        map.insert("api".to_string(), vec![]);
+
+        assert_eq!(filter_thread_categories(map).unwrap().len(), 3);
+
+        // invalid categories
+        let mut map = BpfThreadMap::new();
+        map.insert("vcpu".to_string(), vec![]);
+        map.insert("vmm".to_string(), vec![]);
+        map.insert("thread1".to_string(), vec![]);
+        map.insert("thread2".to_string(), vec![]);
+
+        match filter_thread_categories(map).unwrap_err() {
+            FilterError::ThreadCategories(err) => {
+                assert!(err == "thread2,thread1" || err == "thread1,thread2")
+            }
+            _ => panic!("Expected ThreadCategories error."),
+        }
+
+        // missing category
+        let mut map = BpfThreadMap::new();
+        map.insert("vcpu".to_string(), vec![]);
+        map.insert("vmm".to_string(), vec![]);
+
+        match filter_thread_categories(map).unwrap_err() {
+            FilterError::MissingThreadCategory(name) => assert_eq!(name, "api"),
+            _ => panic!("Expected MissingThreadCategory error."),
+        }
     }
 }
