@@ -1,0 +1,1889 @@
+{
+    "vmm": {
+        "default_action": "trap",
+        "filter_action": "allow",
+        "filter": [
+            {
+                "syscall": "epoll_ctl"
+            },
+            {
+                "syscall": "epoll_pwait"
+            },
+            {
+                "syscall": "exit"
+            },
+            {
+                "syscall": "exit_group"
+            },
+            {
+                "syscall": "open"
+            },
+            {
+                "syscall": "read"
+            },
+            {
+                "syscall": "write"
+            },
+            {
+                "syscall": "fsync"
+            },
+            {
+                "syscall": "close"
+            },
+            {
+                "syscall": "brk",
+                "comment": "Called for expanding the heap"
+            },
+            {
+                "syscall": "clock_gettime",
+                "comment": "Used for metrics and logging, via the helpers in utils/src/time.rs. It's not called on some platforms, because of vdso optimisations."
+            },
+            {
+                "syscall": "connect",
+                "comment": "Needed for vsock"
+            },
+            {
+                "syscall": "fstat",
+                "comment": "Used for drive patching & rescanning, for reading the local timezone"
+            },
+            {
+                "syscall": "ftruncate",
+                "comment": "Used for snapshotting"
+            },
+            {
+                "syscall": "lseek",
+                "comment": "Used by the block device"
+            },
+            {
+                "syscall": "mremap",
+                "comment": "Used for re-allocating large memory regions, for example vectors"
+            },
+            {
+                "syscall": "munmap",
+                "comment": "Used for freeing memory"
+            },
+            {
+                "syscall": "recvfrom",
+                "comment": "Used by the API thread and vsock"
+            },
+            {
+                "syscall": "rt_sigreturn",
+                "comment": "rt_sigreturn is needed in case a fault does occur, so that the signal handler can return. Otherwise we get stuck in a fault loop."
+            },
+            {
+                "syscall": "accept4",
+                "comment": "Called by the api thread to receive data on socket",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 524288,
+                        "comment": "libc::SOCK_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Used by snapshotting, drive patching and rescanning",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2,
+                        "comment": "FCNTL_F_SETFD"
+                    },
+                    {
+                        "arg_index": 2,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FCNTL_FD_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 128,
+                        "comment": "FUTEX_WAIT_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 129,
+                        "comment": "FUTEX_WAKE_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "madvise",
+                "comment": "Triggered by musl for some customer workloads",
+                "args": [
+                    {
+                        "arg_index": 2,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 4,
+                        "comment": "libc::MADV_DONTNEED"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used for reading the timezone in LocalTime::now()",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::MAP_SHARED"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used by the VirtIO balloon device",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 50,
+                        "comment": "libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "socket",
+                "comment": "Used by the API thread and vsock",
+                "args": [
+                    {
+                        "arg_index": 0,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::AF_UNIX"
+                    },
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 524289,
+                        "comment": "libc::SOCK_STREAM | libc::SOCK_CLOEXEC"
+                    },
+                    {
+                        "arg_index": 2,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "tkill",
+                "comment": "Used to kick vcpus",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 35,
+                        "comment": "sigrtmin() + vcpu::VCPU_RTSIG_OFFSET"
+                    }
+                ]
+            },
+            {
+                "syscall": "timerfd_create",
+                "comment": "Needed for rate limiting",
+                "args": [
+                    {
+                        "arg_index": 0,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::CLOCK_MONOTONIC"
+                    },
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 526336,
+                        "comment": "libc::TFD_CLOEXEC | libc::TFD_NONBLOCK"
+                    }
+                ]
+            },
+            {
+                "syscall": "timerfd_settime",
+                "comment": "Needed for rate limiting",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 44672,
+                        "comment": "KVM_RUN"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074835010,
+                        "comment": "KVM_GET_DIRTY_LOG"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21537,
+                        "comment": "FIONBIO"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Triggered on shutdown, to restore the initial terminal settings.",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21523,
+                        "comment": "TIOCGWINSZ"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Triggered on shutdown, to restore the initial terminal settings, only when Firecracker was launched from a shell.",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21505,
+                        "comment": "TCGETS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Triggered on shutdown, to restore the initial terminal settings, only when Firecracker was launched from a shell.",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21506,
+                        "comment": "TCSETS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074025674,
+                        "comment": "TUNSETIFF"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074025680,
+                        "comment": "TUNSETOFFLOAD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074025688,
+                        "comment": "TUNSETVNETHDRSZ"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2147790488,
+                        "comment": "KVM_GET_MP_STATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074048665,
+                        "comment": "KVM_SET_MP_STATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2151722655,
+                        "comment": "KVM_GET_VCPU_EVENTS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1077980832,
+                        "comment": "KVM_SET_VCPU_EVENTS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2214637198,
+                        "comment": "KVM_GET_LAPIC"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2167975555,
+                        "comment": "KVM_GET_SREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074310800,
+                        "comment": "KVM_SET_CPUID2"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1140895375,
+                        "comment": "KVM_SET_LAPIC"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074310793,
+                        "comment": "KVM_SET_MSRS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1083223682,
+                        "comment": "KVM_SET_REGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1094233732,
+                        "comment": "KVM_SET_SREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 3255348834,
+                        "comment": "KVM_GET_IRQCHIP"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2150674044,
+                        "comment": "KVM_GET_CLOCK"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2154868383,
+                        "comment": "KVM_GET_PIT2"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2156965505,
+                        "comment": "KVM_GET_REGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 3221794440,
+                        "comment": "KVM_GET_MSRS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 3221794449,
+                        "comment": "KVM_GET_CPUID2"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2155916961,
+                        "comment": "KVM_GET_DEBUGREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1082175138,
+                        "comment": "KVM_SET_DEBUGREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2415963812,
+                        "comment": "KVM_GET_XSAVE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1342221989,
+                        "comment": "KVM_SET_XSAVE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2173218470,
+                        "comment": "KVM_GET_XCRS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1099476647,
+                        "comment": "KVM_SET_XCRS"
+                    }
+                ]
+            }
+        ]
+    },
+    "api": {
+        "default_action": "trap",
+        "filter_action": "allow",
+        "filter": [
+            {
+                "syscall": "epoll_ctl"
+            },
+            {
+                "syscall": "epoll_pwait"
+            },
+            {
+                "syscall": "exit"
+            },
+            {
+                "syscall": "exit_group"
+            },
+            {
+                "syscall": "open"
+            },
+            {
+                "syscall": "read"
+            },
+            {
+                "syscall": "write"
+            },
+            {
+                "syscall": "fsync"
+            },
+            {
+                "syscall": "close"
+            },
+            {
+                "syscall": "brk",
+                "comment": "Called for expanding the heap"
+            },
+            {
+                "syscall": "clock_gettime",
+                "comment": "Used for metrics and logging, via the helpers in utils/src/time.rs. It's not called on some platforms, because of vdso optimisations."
+            },
+            {
+                "syscall": "connect",
+                "comment": "Needed for vsock"
+            },
+            {
+                "syscall": "fstat",
+                "comment": "Used for drive patching & rescanning, for reading the local timezone"
+            },
+            {
+                "syscall": "ftruncate",
+                "comment": "Used for snapshotting"
+            },
+            {
+                "syscall": "lseek",
+                "comment": "Used by the block device"
+            },
+            {
+                "syscall": "mremap",
+                "comment": "Used for re-allocating large memory regions, for example vectors"
+            },
+            {
+                "syscall": "munmap",
+                "comment": "Used for freeing memory"
+            },
+            {
+                "syscall": "recvfrom",
+                "comment": "Used by the API thread and vsock"
+            },
+            {
+                "syscall": "rt_sigreturn",
+                "comment": "rt_sigreturn is needed in case a fault does occur, so that the signal handler can return. Otherwise we get stuck in a fault loop."
+            },
+            {
+                "syscall": "accept4",
+                "comment": "Called by the api thread to receive data on socket",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 524288,
+                        "comment": "libc::SOCK_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Used by snapshotting, drive patching and rescanning",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2,
+                        "comment": "FCNTL_F_SETFD"
+                    },
+                    {
+                        "arg_index": 2,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FCNTL_FD_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 128,
+                        "comment": "FUTEX_WAIT_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 129,
+                        "comment": "FUTEX_WAKE_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "madvise",
+                "comment": "Triggered by musl for some customer workloads",
+                "args": [
+                    {
+                        "arg_index": 2,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 4,
+                        "comment": "libc::MADV_DONTNEED"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used for reading the timezone in LocalTime::now()",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::MAP_SHARED"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used by the VirtIO balloon device",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 50,
+                        "comment": "libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "socket",
+                "comment": "Used by the API thread and vsock",
+                "args": [
+                    {
+                        "arg_index": 0,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::AF_UNIX"
+                    },
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 524289,
+                        "comment": "libc::SOCK_STREAM | libc::SOCK_CLOEXEC"
+                    },
+                    {
+                        "arg_index": 2,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "tkill",
+                "comment": "Used to kick vcpus",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 35,
+                        "comment": "sigrtmin() + vcpu::VCPU_RTSIG_OFFSET"
+                    }
+                ]
+            },
+            {
+                "syscall": "timerfd_create",
+                "comment": "Needed for rate limiting",
+                "args": [
+                    {
+                        "arg_index": 0,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::CLOCK_MONOTONIC"
+                    },
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 526336,
+                        "comment": "libc::TFD_CLOEXEC | libc::TFD_NONBLOCK"
+                    }
+                ]
+            },
+            {
+                "syscall": "timerfd_settime",
+                "comment": "Needed for rate limiting",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 44672,
+                        "comment": "KVM_RUN"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074835010,
+                        "comment": "KVM_GET_DIRTY_LOG"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21537,
+                        "comment": "FIONBIO"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Triggered on shutdown, to restore the initial terminal settings.",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21523,
+                        "comment": "TIOCGWINSZ"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Triggered on shutdown, to restore the initial terminal settings, only when Firecracker was launched from a shell.",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21505,
+                        "comment": "TCGETS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Triggered on shutdown, to restore the initial terminal settings, only when Firecracker was launched from a shell.",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21506,
+                        "comment": "TCSETS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074025674,
+                        "comment": "TUNSETIFF"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074025680,
+                        "comment": "TUNSETOFFLOAD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074025688,
+                        "comment": "TUNSETVNETHDRSZ"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2147790488,
+                        "comment": "KVM_GET_MP_STATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074048665,
+                        "comment": "KVM_SET_MP_STATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2151722655,
+                        "comment": "KVM_GET_VCPU_EVENTS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1077980832,
+                        "comment": "KVM_SET_VCPU_EVENTS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2214637198,
+                        "comment": "KVM_GET_LAPIC"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2167975555,
+                        "comment": "KVM_GET_SREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074310800,
+                        "comment": "KVM_SET_CPUID2"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1140895375,
+                        "comment": "KVM_SET_LAPIC"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074310793,
+                        "comment": "KVM_SET_MSRS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1083223682,
+                        "comment": "KVM_SET_REGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1094233732,
+                        "comment": "KVM_SET_SREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 3255348834,
+                        "comment": "KVM_GET_IRQCHIP"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2150674044,
+                        "comment": "KVM_GET_CLOCK"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2154868383,
+                        "comment": "KVM_GET_PIT2"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2156965505,
+                        "comment": "KVM_GET_REGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 3221794440,
+                        "comment": "KVM_GET_MSRS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 3221794449,
+                        "comment": "KVM_GET_CPUID2"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2155916961,
+                        "comment": "KVM_GET_DEBUGREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1082175138,
+                        "comment": "KVM_SET_DEBUGREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2415963812,
+                        "comment": "KVM_GET_XSAVE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1342221989,
+                        "comment": "KVM_SET_XSAVE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2173218470,
+                        "comment": "KVM_GET_XCRS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1099476647,
+                        "comment": "KVM_SET_XCRS"
+                    }
+                ]
+            }
+        ]
+    },
+    "vcpu": {
+        "default_action": "trap",
+        "filter_action": "allow",
+        "filter": [
+            {
+                "syscall": "epoll_ctl"
+            },
+            {
+                "syscall": "epoll_pwait"
+            },
+            {
+                "syscall": "exit"
+            },
+            {
+                "syscall": "exit_group"
+            },
+            {
+                "syscall": "open"
+            },
+            {
+                "syscall": "read"
+            },
+            {
+                "syscall": "write"
+            },
+            {
+                "syscall": "fsync"
+            },
+            {
+                "syscall": "close"
+            },
+            {
+                "syscall": "brk",
+                "comment": "Called for expanding the heap"
+            },
+            {
+                "syscall": "clock_gettime",
+                "comment": "Used for metrics and logging, via the helpers in utils/src/time.rs. It's not called on some platforms, because of vdso optimisations."
+            },
+            {
+                "syscall": "connect",
+                "comment": "Needed for vsock"
+            },
+            {
+                "syscall": "fstat",
+                "comment": "Used for drive patching & rescanning, for reading the local timezone"
+            },
+            {
+                "syscall": "ftruncate",
+                "comment": "Used for snapshotting"
+            },
+            {
+                "syscall": "lseek",
+                "comment": "Used by the block device"
+            },
+            {
+                "syscall": "mremap",
+                "comment": "Used for re-allocating large memory regions, for example vectors"
+            },
+            {
+                "syscall": "munmap",
+                "comment": "Used for freeing memory"
+            },
+            {
+                "syscall": "recvfrom",
+                "comment": "Used by the API thread and vsock"
+            },
+            {
+                "syscall": "rt_sigreturn",
+                "comment": "rt_sigreturn is needed in case a fault does occur, so that the signal handler can return. Otherwise we get stuck in a fault loop."
+            },
+            {
+                "syscall": "accept4",
+                "comment": "Called by the api thread to receive data on socket",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 524288,
+                        "comment": "libc::SOCK_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "fcntl",
+                "comment": "Used by snapshotting, drive patching and rescanning",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2,
+                        "comment": "FCNTL_F_SETFD"
+                    },
+                    {
+                        "arg_index": 2,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FCNTL_FD_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 128,
+                        "comment": "FUTEX_WAIT_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 129,
+                        "comment": "FUTEX_WAKE_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "madvise",
+                "comment": "Triggered by musl for some customer workloads",
+                "args": [
+                    {
+                        "arg_index": 2,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 4,
+                        "comment": "libc::MADV_DONTNEED"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used for reading the timezone in LocalTime::now()",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::MAP_SHARED"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used by the VirtIO balloon device",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 50,
+                        "comment": "libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "socket",
+                "comment": "Used by the API thread and vsock",
+                "args": [
+                    {
+                        "arg_index": 0,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::AF_UNIX"
+                    },
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 524289,
+                        "comment": "libc::SOCK_STREAM | libc::SOCK_CLOEXEC"
+                    },
+                    {
+                        "arg_index": 2,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "tkill",
+                "comment": "Used to kick vcpus",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 35,
+                        "comment": "sigrtmin() + vcpu::VCPU_RTSIG_OFFSET"
+                    }
+                ]
+            },
+            {
+                "syscall": "timerfd_create",
+                "comment": "Needed for rate limiting",
+                "args": [
+                    {
+                        "arg_index": 0,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::CLOCK_MONOTONIC"
+                    },
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 526336,
+                        "comment": "libc::TFD_CLOEXEC | libc::TFD_NONBLOCK"
+                    }
+                ]
+            },
+            {
+                "syscall": "timerfd_settime",
+                "comment": "Needed for rate limiting",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 44672,
+                        "comment": "KVM_RUN"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074835010,
+                        "comment": "KVM_GET_DIRTY_LOG"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21537,
+                        "comment": "FIONBIO"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Triggered on shutdown, to restore the initial terminal settings.",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21523,
+                        "comment": "TIOCGWINSZ"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Triggered on shutdown, to restore the initial terminal settings, only when Firecracker was launched from a shell.",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21505,
+                        "comment": "TCGETS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "comment": "Triggered on shutdown, to restore the initial terminal settings, only when Firecracker was launched from a shell.",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 21506,
+                        "comment": "TCSETS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074025674,
+                        "comment": "TUNSETIFF"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074025680,
+                        "comment": "TUNSETOFFLOAD"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074025688,
+                        "comment": "TUNSETVNETHDRSZ"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2147790488,
+                        "comment": "KVM_GET_MP_STATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074048665,
+                        "comment": "KVM_SET_MP_STATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2151722655,
+                        "comment": "KVM_GET_VCPU_EVENTS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1077980832,
+                        "comment": "KVM_SET_VCPU_EVENTS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2214637198,
+                        "comment": "KVM_GET_LAPIC"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2167975555,
+                        "comment": "KVM_GET_SREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074310800,
+                        "comment": "KVM_SET_CPUID2"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1140895375,
+                        "comment": "KVM_SET_LAPIC"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1074310793,
+                        "comment": "KVM_SET_MSRS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1083223682,
+                        "comment": "KVM_SET_REGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1094233732,
+                        "comment": "KVM_SET_SREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 3255348834,
+                        "comment": "KVM_GET_IRQCHIP"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2150674044,
+                        "comment": "KVM_GET_CLOCK"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2154868383,
+                        "comment": "KVM_GET_PIT2"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2156965505,
+                        "comment": "KVM_GET_REGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 3221794440,
+                        "comment": "KVM_GET_MSRS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 3221794449,
+                        "comment": "KVM_GET_CPUID2"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2155916961,
+                        "comment": "KVM_GET_DEBUGREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1082175138,
+                        "comment": "KVM_SET_DEBUGREGS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2415963812,
+                        "comment": "KVM_GET_XSAVE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1342221989,
+                        "comment": "KVM_SET_XSAVE"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 2173218470,
+                        "comment": "KVM_GET_XCRS"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1099476647,
+                        "comment": "KVM_SET_XCRS"
+                    }
+                ]
+            }
+        ]
+    }
+}
