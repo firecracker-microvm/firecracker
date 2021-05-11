@@ -14,6 +14,8 @@
   version of a snapshot state file provided as argument.
 - Added `--no-seccomp` parameter for disabling the default seccomp filters.
 - Added `--seccomp-filter` parameter for supplying user-provided, custom filters.
+- Added the `seccompiler` binary that is used to compile JSON seccomp filters
+  into serialized BPF for Firecracker consumption.
 
 ### Changed
 
@@ -22,6 +24,7 @@
 - Changed the `PATCH` request on `/balloon/statistics` to schedule the first
   statistics update immediately after processing the request.
 - Removed the `--seccomp-level parameter`.
+- Experimental gnu libc builds no longer use a default seccomp filter.
 
 ### Fixed
 
