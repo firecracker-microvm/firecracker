@@ -1,61 +1,44 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Module responsible for compiling the deserialized filter objects into BPF code.
+//! Module defining the logic for compiling the deserialized filter objects into the IR.
 //! Used by the seccompiler binary.
 //!
-//! It also defines most of the objects that a seccomp filter is deserialized into:
+//! Via the `Compiler::compile_blob()` method, it also drives the entire JSON -> BLOB
+//! transformation process.
+//!
+//! It also defines some of the objects that a JSON seccomp filter is deserialized into:
 //! [`Filter`](struct.Filter.html),
 //! [`SyscallRule`](struct.SyscallRule.html).
-//!
+//
 //! The rest of objects are deserialized directly into the IR (intermediate representation):
-//! [`SeccompCondition`](../../seccomp/struct.SeccompCondition.html),
-//! [`SeccompAction`](../../seccomp/enum.SeccompAction.html),
-//! [`SeccompCmpOp`](../../seccomp/enum.SeccompCmpOp.html),
-//! [`SeccompCmpArgLen`](../../seccomp/enum.SeccompCmpArgLen.html).
-//!
-//! ```text
-//! The compilation goes through a couple of steps, from JSON to BPF:
-//!
-//!                  JSON
-//!                   |
-//!            (via serde_json)
-//!                   |
-//!                   V
-//!       collection of `Filter` objects
-//!                   |
-//!      (via Compiler.compile_blob(...))
-//!                   |
-//!                   V
-//!   collection of `SeccompFilter` objects
-//!     (IR - intermediate representation)
-//!                   |
-//!    (via SeccompFilter.try_into::<BpfProgram>(...))
-//!                   |
-//!                   V
-//!     collection of `BpfProgram` objects
-//! ```
+//! [`SeccompCondition`](../backend/struct.SeccompCondition.html),
+//! [`SeccompAction`](../backend/enum.SeccompAction.html),
+//! [`SeccompCmpOp`](../backend/enum.SeccompCmpOp.html),
+//! [`SeccompCmpArgLen`](../backend/enum.SeccompCmpArgLen.html).
 
-use super::syscall_table::SyscallTable;
-use seccomp::{
-    BpfThreadMap, Comment, Error as SeccompFilterError, SeccompAction, SeccompCondition,
-    SeccompFilter, SeccompRule, SeccompRuleMap, TargetArch,
-};
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::convert::{Into, TryInto};
 use std::fmt;
 
+use crate::backend::{
+    Comment, Error as SeccompFilterError, SeccompAction, SeccompCondition, SeccompFilter,
+    SeccompRule, SeccompRuleMap, TargetArch,
+};
+use crate::common::BpfThreadMap;
+use crate::syscall_table::SyscallTable;
+use serde::Deserialize;
+
+type Result<T> = std::result::Result<T, Error>;
+
 /// Errors compiling Filters into BPF.
 #[derive(Debug, PartialEq)]
-pub enum Error {
+pub(crate) enum Error {
     /// Error from the SeccompFilter.
     SeccompFilter(SeccompFilterError),
     /// Invalid syscall name for the given arch.
     SyscallName(String, TargetArch),
 }
-
-type Result<T> = std::result::Result<T, Error>;
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -127,8 +110,9 @@ impl Filter {
     }
 }
 
-/// Object responsible for compiling `Filter`s into `BpfProgram`s.
-/// Uses the `SeccompFilter` defined in `src/lib.rs` interface as an IR language.
+/// Object responsible for compiling [`Filter`](struct.Filter.html)s into
+/// [`BpfProgram`](../common/type.BpfProgram.html)s.
+/// Uses the [`SeccompFilter`](../backend/struct.SeccompFilter.html) interface as an IR language.
 pub(crate) struct Compiler {
     /// Target architecture. Can be different from the current `target_arch`.
     arch: TargetArch,
@@ -137,6 +121,7 @@ pub(crate) struct Compiler {
 }
 
 impl Compiler {
+    /// Create a new `Compiler` instance, for the given target architecture.
     pub fn new(arch: TargetArch) -> Self {
         Self {
             arch,
@@ -201,9 +186,9 @@ impl Compiler {
 #[cfg(test)]
 mod tests {
     use super::{Compiler, Error, Filter, SyscallRule};
-    use seccomp::{
+    use crate::backend::{
         Error as SeccompFilterError, SeccompAction, SeccompCmpArgLen::*, SeccompCmpOp::*,
-        SeccompCondition as Cond, SeccompFilter, SeccompRule, SyscallRuleSet, TargetArch,
+        SeccompCondition as Cond, SeccompFilter, SeccompRule, TargetArch,
     };
     use std::collections::HashMap;
     use std::convert::TryInto;
@@ -238,11 +223,11 @@ mod tests {
         }
     }
 
-    fn match_syscall(syscall_number: i64, action: SeccompAction) -> SyscallRuleSet {
+    fn match_syscall(syscall_number: i64, action: SeccompAction) -> (i64, Vec<SeccompRule>) {
         (syscall_number, vec![SeccompRule::new(vec![], action)])
     }
 
-    fn match_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> SyscallRuleSet {
+    fn match_syscall_if(syscall_number: i64, rules: Vec<SeccompRule>) -> (i64, Vec<SeccompRule>) {
         (syscall_number, rules)
     }
 
