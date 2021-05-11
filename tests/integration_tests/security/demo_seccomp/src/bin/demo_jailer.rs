@@ -12,8 +12,8 @@ fn main() {
     let exec_file = &args[1];
     let bpf_path = &args[2];
 
-    let mut filter_file = File::open(bpf_path).unwrap();
-    let mut map = deserialize_binary(&mut filter_file, None).unwrap();
+    let filter_file = File::open(bpf_path).unwrap();
+    let map = deserialize_binary(&filter_file, None).unwrap();
 
     // Loads filters.
     apply_filter(map.get("main").unwrap()).unwrap();
