@@ -1,28 +1,61 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Seccompiler is a program that compiles multi-threaded seccomp-bpf filters expressed as JSON
+//! into raw BPF programs, serializing them and outputting them to a file.
+//!
+//! Used in conjunction with the provided library crate, one can deserialize the binary filters
+//! and easily install them on a per-thread basis, in order to achieve a quick and robust
+//! seccomp-based jailing solution.
+//!
+//! See the documentation on github for more information.
+//!
+//!  ```text
+//! The compilation goes through a couple of steps, from JSON to BPF:
+//!
+//!                  JSON
+//!                   |
+//!            (via serde_json)
+//!                   |
+//!                   V
+//!       collection of `Filter` objects
+//!                   |
+//!      (via Compiler.compile_blob(...))
+//!                   |
+//!                   V
+//!   collection of `SeccompFilter` objects
+//!     (IR - intermediate representation)
+//!                   |
+//!    (via SeccompFilter.try_into::<BpfProgram>(...))
+//!                   |
+//!                   V
+//!     collection of `BpfProgram` objects
+//! ```
+
+mod backend;
+mod common;
 mod compiler;
 mod syscall_table;
 
-use bincode::Error as BincodeError;
-use compiler::{Compiler, Error as FilterFormatError, Filter};
-use seccomp::{BpfThreadMap, TargetArch, TargetArchError};
-use serde_json::error::Error as JSONError;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::fmt;
 use std::fs::File;
-use std::io;
 use std::io::{BufReader, Read};
 use std::path::PathBuf;
-use std::process;
+use std::{fmt, io, process};
+
+use backend::{TargetArch, TargetArchError};
+use bincode::Error as BincodeError;
+use common::BpfThreadMap;
+use compiler::{Compiler, Error as FilterFormatError, Filter};
+use serde_json::error::Error as JSONError;
 use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag};
 
 const SECCOMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
 
 #[derive(Debug)]
-pub enum Error {
+enum Error {
     Bincode(BincodeError),
     FileOpen(PathBuf, io::Error),
     FileFormat(FilterFormatError),
@@ -168,16 +201,17 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::compiler::{Compiler, Error as FilterFormatError, Filter, SyscallRule};
+    use super::compiler::{Error as FilterFormatError, Filter, SyscallRule};
     use super::{
-        build_arg_parser, compile, get_argument_values, parse_json, Arguments, BpfThreadMap, Error,
+        build_arg_parser, compile, get_argument_values, parse_json, Arguments, Error,
         DEFAULT_OUTPUT_FILENAME,
     };
-    use bincode::Error as BincodeError;
-    use seccomp::{
-        deserialize_binary, SeccompAction, SeccompCmpArgLen::*, SeccompCmpOp::*,
-        SeccompCondition as Cond, TargetArch, TargetArchError,
+    use crate::backend::SeccompCmpOp::Le;
+    use crate::backend::{
+        SeccompAction, SeccompCmpArgLen::*, SeccompCmpOp::*, SeccompCondition as Cond, TargetArch,
+        TargetArchError,
     };
+    use bincode::Error as BincodeError;
     use std::collections::HashMap;
     use std::io;
     use std::io::Write;
@@ -729,19 +763,8 @@ mod tests {
                 target_arch: TargetArch::x86_64,
             };
 
-            // do the compilation & serialization
-            compile(&arguments).unwrap();
-
-            // simulate the compilation
-            let compiler = Compiler::new(arguments.target_arch);
-            let filters = parse_json(&mut json_input.as_ref()).unwrap();
-            let bpf_data: BpfThreadMap = compiler.compile_blob(filters).unwrap();
-
-            // deserialize and compare
-            assert_eq!(
-                deserialize_binary(&mut out_file.into_file(), None).unwrap(),
-                bpf_data
-            );
+            // do the compilation & check for errors
+            assert!(compile(&arguments).is_ok());
         }
     }
 }

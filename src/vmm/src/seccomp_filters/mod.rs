@@ -1,6 +1,6 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use seccomp::{deserialize_binary, BpfThreadMap, DeserializationError, Error};
+use seccomp::{deserialize_binary, BpfThreadMap, DeserializationError, InstallationError};
 use std::fmt;
 use std::fs::File;
 
@@ -21,8 +21,8 @@ pub enum FilterError {
     ThreadCategories(String),
     /// Missing Thread Category.
     MissingThreadCategory(String),
-    /// Seccomp error occurred.
-    Seccomp(Error),
+    /// Filter installation error.
+    Install(InstallationError),
 }
 
 impl fmt::Display for FilterError {
@@ -37,7 +37,7 @@ impl fmt::Display for FilterError {
             MissingThreadCategory(ref category) => {
                 write!(f, "Missing thread category: {}", category)
             }
-            Seccomp(ref err) => write!(f, "Seccomp error: {}", err),
+            Install(ref err) => write!(f, "Filter installation error: {}", err),
         }
     }
 }
