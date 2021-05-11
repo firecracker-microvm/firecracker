@@ -101,7 +101,7 @@ def get_rustflags():
     return rustflags
 
 
-def run_seccompiler(bpf_path, json_path=defs.SECCOMP_JSON_DIR):
+def run_seccompiler(bpf_path, json_path=defs.SECCOMP_JSON_DIR, basic=False):
     """
     Run seccompiler.
 
@@ -122,6 +122,9 @@ def run_seccompiler(bpf_path, json_path=defs.SECCOMP_JSON_DIR):
         platform.machine(),
         bpf_path
     )
+
+    if basic:
+        cmd += ' --basic'
 
     rc, _, _ = utils.run_cmd(cmd)
 

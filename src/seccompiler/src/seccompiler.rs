@@ -93,6 +93,7 @@ struct Arguments {
     input_file: String,
     output_file: String,
     target_arch: TargetArch,
+    is_basic: bool,
 }
 
 fn build_arg_parser() -> ArgParser<'static> {
@@ -115,6 +116,12 @@ fn build_arg_parser() -> ArgParser<'static> {
                 .required(true)
                 .takes_value(true)
                 .help("The computer architecture where the BPF program runs. Supported architectures: x86_64, aarch64."),
+        )
+        .arg(
+            Argument::new("basic")
+                .takes_value(false)
+                .help("Transforms the filters into basic filters. Drops all argument checks \
+                and rule-level actions. Not recommended."),
         )
 }
 
@@ -139,6 +146,7 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
         input_file: input_file.unwrap().to_owned(),
         // Safe to unwrap because it has a default value
         output_file: arguments.single_value("output-file").unwrap().to_owned(),
+        is_basic: arguments.flag_present("basic"),
     })
 }
 
@@ -154,7 +162,9 @@ fn compile(args: &Arguments) -> Result<()> {
     let compiler = Compiler::new(args.target_arch);
 
     // transform the IR into a Map of BPFPrograms
-    let bpf_data: BpfThreadMap = compiler.compile_blob(filters).map_err(Error::FileFormat)?;
+    let bpf_data: BpfThreadMap = compiler
+        .compile_blob(filters, args.is_basic)
+        .map_err(Error::FileFormat)?;
 
     // serialize the BPF programs & output them to a file
     let output_file = File::create(&args.output_file)
@@ -417,6 +427,7 @@ mod tests {
                 input_file: "foo.txt".to_string(),
                 output_file: DEFAULT_OUTPUT_FILENAME.to_string(),
                 target_arch: TargetArch::x86_64,
+                is_basic: false,
             }
         );
 
@@ -431,6 +442,7 @@ mod tests {
                     "x86_64",
                     "--output-file",
                     "/path.to/file.txt",
+                    "--basic",
                 ]
                 .into_iter()
                 .map(String::from)
@@ -444,6 +456,7 @@ mod tests {
                 input_file: "foo.txt".to_string(),
                 output_file: "/path.to/file.txt".to_string(),
                 target_arch: TargetArch::x86_64,
+                is_basic: true
             }
         );
 
@@ -503,6 +516,26 @@ mod tests {
             )
             .unwrap();
         assert!(get_argument_values(arguments).is_err());
+
+        // invalid value supplied to --basic
+        let arguments = &mut arg_parser.arguments().clone();
+        assert!(arguments
+            .parse(
+                vec![
+                    "seccompiler",
+                    "--input-file",
+                    "foo.txt",
+                    "--target-arch",
+                    "x86_64",
+                    "--basic",
+                    "invalid",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<String>>()
+                .as_ref(),
+            )
+            .is_err());
     }
 
     #[allow(clippy::useless_asref)]
@@ -743,6 +776,7 @@ mod tests {
                 input_file: in_file.as_path().to_str().unwrap().to_string(),
                 target_arch: TargetArch::x86_64,
                 output_file: "bpf.out".to_string(),
+                is_basic: false,
             };
 
             match compile(&args).unwrap_err() {
@@ -765,6 +799,18 @@ mod tests {
                 input_file: in_file.as_path().to_str().unwrap().to_string(),
                 output_file: out_file.as_path().to_str().unwrap().to_string(),
                 target_arch: TargetArch::x86_64,
+                is_basic: false,
+            };
+
+            // do the compilation & check for errors
+            assert!(compile(&arguments).is_ok());
+
+            // also check with is_basic: true
+            let arguments = Arguments {
+                input_file: in_file.as_path().to_str().unwrap().to_string(),
+                output_file: out_file.as_path().to_str().unwrap().to_string(),
+                target_arch: TargetArch::x86_64,
+                is_basic: true,
             };
 
             // do the compilation & check for errors
