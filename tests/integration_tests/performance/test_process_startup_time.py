@@ -6,9 +6,9 @@ import json
 import os
 import time
 import platform
-import framework.utils as utils
 
 import host_tools.logging as log_tools
+from host_tools.cargo_build import run_seccompiler
 
 MAX_STARTUP_TIME_CPU_US = {'x86_64': 5500, 'aarch64': 2800}
 """ The maximum acceptable startup time in CPU us. """
@@ -75,14 +75,7 @@ def _test_startup_time(microvm):
 def _custom_filter_setup(test_microvm):
     bpf_path = os.path.join(test_microvm.path, 'bpf.out')
 
-    cargo_target = '{}-unknown-linux-musl'.format(platform.machine())
-    json_path = '../resources/seccomp/{}.json'.format(cargo_target)
-
-    cmd = 'cargo run -p seccomp --target {} -- --input-file {} --target-arch\
-        {} --output-file {}'.format(cargo_target, json_path,
-                                    platform.machine(), bpf_path)
-
-    utils.run_cmd(cmd)
+    run_seccompiler(bpf_path)
 
     test_microvm.create_jailed_resource(bpf_path)
     test_microvm.jailer.extra_args.update({"seccomp-filter": 'bpf.out'})
