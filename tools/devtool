@@ -94,6 +94,9 @@ FC_BUILD_DIR="${FC_ROOT_DIR}/build"
 # Full path to devctr dir on the host.
 FC_DEVCTR_DIR="${FC_ROOT_DIR}/tools/devctr"
 
+# Path to the linux kernel directory on the host.
+KERNEL_DIR="${FC_ROOT_DIR}/.kernel"
+
 # Full path to the cargo registry dir on the host. This appears on the host
 # because we want to persist the cargo registry across container invocations.
 # Otherwise, any rust crates from crates.io would be downloaded again each time
@@ -126,6 +129,9 @@ PUB_KEY_PATH=/root/.ssh/id_rsa.pub
 
 # Full path to the private key mapping on the guest
 PRIV_KEY_PATH=/root/.ssh/id_rsa
+
+# Path to the linux kernel directory, as bind-mounted in the container.
+CTR_KERNEL_DIR="${CTR_FC_ROOT_DIR}/.kernel"
 
 # Global options received by $0
 # These options are not command-specific, so we store them as global vars
@@ -375,6 +381,20 @@ validate_version() {
 
 }
 
+# Validate the user supplied kernel version number.
+# It must be composed of 2 groups of integers separated by dot, with an optional third group.
+validate_kernel_version() {
+    local version_regex="^([0-9]+.)[0-9]+(.[0-9]+)?$"
+    version="$1"
+
+    if [ -z "$version" ]; then
+        die "Version cannot be empty."
+    elif [[ ! "$version" =~ $version_regex ]]; then
+        die "Invalid version number: $version (expected: \$Major.\$Minor.\$Patch(optional))."
+    fi
+
+}
+
 # Compose the text for a new release tag using the information in the changelog,
 # between the two specified releases.
 # The following transformations are applied:
@@ -557,11 +577,18 @@ cmd_help() {
     echo ""
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
+    echo ""
     echo "    fix_perms"
     echo "        Fixes permissions when devtool dies in the middle of a privileged session."
     echo "    build_devctr [--no-python-package-update]"
     echo "        Builds the development container from its Dockerfile."
     echo "        -n, --no-python-package-update  Do not update python packages."
+    echo ""
+    echo "    generate_syscall_tables <version>"
+    echo "        Generates the syscall tables for seccompiler, according to a given kernel version."
+    echo "        Release candidate (rc) linux versions are not allowed."
+    echo "        Outputs a rust file for supported each arch: src/seccomp/src/syscall_table/{arch}.rs"
+    echo "        Supported architectures: x86_64 and aarch64."
     echo ""
 }
 
@@ -1156,6 +1183,132 @@ cmd_checkenv() {
     check_L1TF
     check_SMT
     check_swap
+}
+
+generate_syscall_table_x86_64() {
+    path_to_rust_file="$FC_ROOT_DIR/src/seccomp/src/syscall_table/x86_64.rs"
+
+    echo "$header" > $path_to_rust_file
+
+    # the table for x86_64 is nicely formatted here: linux/arch/x86/entry/syscalls/syscall_64.tbl
+    cat linux/arch/x86/entry/syscalls/syscall_64.tbl | grep -v "^#" | grep -v -e '^$' |\
+        awk '{print $2,$3,$1}' | grep -v "^x32" |\
+        awk '{print "    map.insert(\""$2"\".to_string(), "$3");"}' | sort >> $path_to_rust_file
+
+    echo "$footer" >> $path_to_rust_file
+
+    say "Generated at: $path_to_rust_file"
+}
+
+generate_syscall_table_aarch64() {
+    path_to_rust_file="$FC_ROOT_DIR/src/seccomp/src/syscall_table/aarch64.rs"
+
+    # filter for substituting `#define`s that point to other macros;
+    # values taken from linux/include/uapi/asm-generic/unistd.h
+    replace+='s/__NR3264_fadvise64/223/;'
+    replace+='s/__NR3264_fcntl/25/;'
+    replace+='s/__NR3264_fstatat/79/;'
+    replace+='s/__NR3264_fstatfs/44/;'
+    replace+='s/__NR3264_fstat/80/;'
+    replace+='s/__NR3264_ftruncate/46/;'
+    replace+='s/__NR3264_lseek/62/;'
+    replace+='s/__NR3264_sendfile/71/;'
+    replace+='s/__NR3264_statfs/43/;'
+    replace+='s/__NR3264_truncate/45/;'
+    replace+='s/__NR3264_mmap/222/;'
+
+    echo "$header" > $path_to_rust_file
+
+    # run the gcc command in the Docker container (to make sure that we have gcc installed)
+    # the aarch64 syscall table is not located in a .tbl file, like x86; we run gcc's
+    # pre-processor to extract the numeric constants from header files.
+    run_devctr \
+        --user "$(id -u):$(id -g)" \
+        --workdir "$CTR_KERNEL_DIR" \
+        -- \
+            gcc -E -dM -D__ARCH_WANT_RENAMEAT -D__BITS_PER_LONG=64\
+                linux/arch/arm64/include/uapi/asm/unistd.h | grep "#define __NR_" |\
+                grep -v "__NR_syscalls" | grep -v "__NR_arch_specific_syscall" |\
+                awk -F '__NR_' '{print $2}' | sed $replace |\
+                awk '{ print "    map.insert(\""$1"\".to_string(), "$2");" }' |\
+                sort >> $path_to_rust_file
+    ret=$?
+
+    [ $ret -ne 0 ] && return $ret
+
+    echo "$footer" >> $path_to_rust_file
+
+    say "Generated at: $path_to_rust_file"
+}
+
+cmd_generate_syscall_tables() {
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")      { cmd_help; exit 1;    } ;;
+            *)                  { kern_version="$1"; break; } ;;
+        esac
+        shift
+    done
+
+    validate_kernel_version "$kern_version"
+
+    ensure_devctr
+
+    # Create the kernel clone directory
+    mkdir -p "$KERNEL_DIR" || die "Error: cannot create dir $dir"
+        [ -x "$KERNEL_DIR" ] && [ -w "$dir" ] || \
+            {
+                chmod +x+w "$KERNEL_DIR"
+            } || \
+            die "Error: wrong permissions for $KERNEL_DIR. Should be +x+w"
+    
+    cd "$KERNEL_DIR"
+    
+    say "Fetching linux kernel..."
+
+    if [ -d "linux" ] && git -C linux status &>/dev/null; then
+        git -C linux fetch --all
+    else
+        rm -rf linux
+        git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+    fi
+
+    git -C linux checkout v"$kern_version"
+    ret=$?
+    [ $ret -ne 0 ] && return $ret
+
+    # rust file header
+    read -r -d '' header << EOM
+// Copyright $(date +"%Y") Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+// This file is auto-generated by \`tools/devtool generate_syscall_tables\`.
+// Do NOT manually edit!
+// Generated at: $(date)
+// Kernel version: $kern_version
+
+use std::collections::HashMap;
+
+pub fn make_syscall_table(map: &mut HashMap<String, i64>) {
+EOM
+
+    # rust file footer
+    read -r -d '' footer << EOM
+}
+
+EOM
+
+    # generate syscall table for x86_64
+    say "Generating table for x86_64..."
+    generate_syscall_table_x86_64 $header $footer
+
+    # generate syscall table for aarch64
+    say "Generating table for aarch64..."
+    generate_syscall_table_aarch64 $header $footer
+
+    ret=$?
+    [ $ret -ne 0 ] && return $ret
 }
 
 main() {
