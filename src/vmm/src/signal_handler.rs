@@ -277,6 +277,7 @@ mod tests {
     use libc::{c_void, cpu_set_t, siginfo_t};
     use seccomp::{SeccompAction, SeccompFilter, SeccompRule, SyscallRuleSet};
     use std::convert::TryInto;
+    use std::env::consts::ARCH;
     use std::mem;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -427,6 +428,7 @@ mod tests {
             let filter = SeccompFilter::new(
                 vec![trap_syscall(libc::SYS_mkdirat)].into_iter().collect(),
                 SeccompAction::Allow,
+                ARCH,
             )
             .unwrap();
 
