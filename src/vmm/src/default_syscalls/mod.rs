@@ -10,8 +10,9 @@ use seccomp::{
 mod macros;
 mod filters;
 
-pub use self::filters::default_filter;
-pub use self::filters::get_seccomp_filter;
+pub use self::filters::get_custom_filters;
+pub use self::filters::get_default_filters;
+pub use self::filters::get_empty_filters;
 
 // See include/uapi/asm-generic/fcntl.h in the kernel code.
 const FCNTL_FD_CLOEXEC: u64 = 1;
@@ -145,62 +146,4 @@ fn create_ioctl_seccomp_rule() -> Result<Vec<SeccompRule>, Error> {
     rule.append(&mut create_arch_specific_ioctl_conditions()?);
 
     Ok(rule)
-}
-
-#[cfg(test)]
-#[cfg(target_env = "musl")]
-mod tests {
-    use super::*;
-    use seccomp::SeccompFilter;
-    use std::convert::TryInto;
-    use std::thread;
-
-    const EXTRA_SYSCALLS: [i64; 5] = [
-        libc::SYS_clone,
-        libc::SYS_mprotect,
-        libc::SYS_rt_sigprocmask,
-        libc::SYS_set_tid_address,
-        libc::SYS_sigaltstack,
-    ];
-
-    fn add_syscalls_install_filter(mut filter: SeccompFilter) {
-        // Test error case: add empty rule array.
-        assert!(filter.add_rules(0, vec![],).is_err());
-        // Add "Allow" rule for each syscall.
-        for syscall in EXTRA_SYSCALLS.iter() {
-            assert!(filter
-                .add_rules(
-                    *syscall,
-                    vec![SeccompRule::new(vec![], SeccompAction::Allow)],
-                )
-                .is_ok());
-        }
-        assert!(SeccompFilter::apply(filter.try_into().unwrap()).is_ok());
-    }
-
-    #[test]
-    fn test_basic_seccomp() {
-        // Spawn a new thread before running the tests because all tests run
-        // in the same thread. Otherwise other tests will fail because of the
-        // installed seccomp filters.
-        thread::spawn(move || {
-            let filter = default_filter().unwrap().allow_all();
-            add_syscalls_install_filter(filter);
-        })
-        .join()
-        .unwrap();
-    }
-
-    #[test]
-    fn test_advanced_seccomp() {
-        // Spawn a new thread before running the tests because all tests run
-        // in the same thread. Otherwise other tests will fail because of the
-        // installed seccomp filters.
-        thread::spawn(move || {
-            let filter = default_filter().unwrap();
-            add_syscalls_install_filter(filter);
-        })
-        .join()
-        .unwrap();
-    }
 }

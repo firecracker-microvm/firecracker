@@ -13,7 +13,7 @@ use api_server::{ApiRequest, ApiResponse, ApiServer};
 use logger::{error, warn, ProcessTimeReporter};
 use mmds::MMDS;
 use polly::event_manager::{EventManager, Subscriber};
-use seccomp::BpfProgram;
+use seccomp::BpfThreadMap;
 use utils::{
     epoll::{EpollEvent, EventSet},
     eventfd::EventFd,
@@ -121,7 +121,7 @@ impl Subscriber for ApiServerAdapter {
 }
 
 pub(crate) fn run_with_api(
-    seccomp_filter: BpfProgram,
+    seccomp_filters: &mut BpfThreadMap,
     config_json: Option<String>,
     bind_path: PathBuf,
     instance_info: InstanceInfo,
@@ -143,7 +143,9 @@ pub(crate) fn run_with_api(
         .try_clone()
         .expect("Failed to clone API event FD");
 
-    let api_seccomp_filter = seccomp_filter.clone();
+    let api_seccomp_filter = seccomp_filters
+        .remove("api")
+        .expect("Missing seccomp filter for API thread.");
     // Start the separate API thread.
     thread::Builder::new()
         .name("fc_api".to_owned())
@@ -199,14 +201,14 @@ pub(crate) fn run_with_api(
     // Configure, build and start the microVM.
     let (vm_resources, vmm) = match config_json {
         Some(json) => super::build_microvm_from_json(
-            seccomp_filter,
+            seccomp_filters,
             &mut event_manager,
             json,
             &instance_info,
             boot_timer_enabled,
         ),
         None => PrebootApiController::build_microvm_from_requests(
-            seccomp_filter,
+            seccomp_filters,
             &mut event_manager,
             instance_info,
             || {

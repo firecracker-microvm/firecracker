@@ -1,20 +1,22 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use std::convert::TryInto;
-
 use seccomp::{
-    allow_syscall, allow_syscall_if, BpfProgram, Error, SeccompAction, SeccompCmpArgLen as ArgLen,
-    SeccompCmpOp::Eq, SeccompCondition as Cond, SeccompError, SeccompFilter, SeccompLevel,
+    allow_syscall, allow_syscall_if, BpfProgram, BpfThreadMap, Error, SeccompAction,
+    SeccompCmpArgLen as ArgLen, SeccompCmpOp::Eq, SeccompCondition as Cond, SeccompFilter,
     SeccompRule,
 };
+use std::convert::TryInto;
+use std::fs::File;
 use utils::signal::sigrtmin;
 
 /// The default filter containing the allowed syscall rules required by `Firecracker` to
 /// function.
 /// Any non-trivial modification to this allow list needs a proper comment to specify its source
 /// or why the sycall/condition is needed.
-pub fn default_filter() -> Result<SeccompFilter, Error> {
-    Ok(SeccompFilter::new(
+pub fn get_default_filters() -> Result<BpfThreadMap, Error> {
+    let mut filters = BpfThreadMap::new();
+
+    let filter: BpfProgram = SeccompFilter::new(
         vec![
             // Called by the api thread to receive data on socket
             allow_syscall_if(
@@ -164,32 +166,40 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
         .into_iter()
         .collect(),
         SeccompAction::Trap,
-    )?)
+    )?
+    .try_into()?;
+
+    filters.insert("api".to_string(), filter.clone());
+    filters.insert("vmm".to_string(), filter.clone());
+    filters.insert("vcpu".to_string(), filter);
+
+    Ok(filters)
 }
 
-/// Generate a BPF program based on a seccomp level value.
-pub fn get_seccomp_filter(seccomp_level: SeccompLevel) -> Result<BpfProgram, SeccompError> {
-    match seccomp_level {
-        SeccompLevel::None => Ok(vec![]),
-        SeccompLevel::Basic => default_filter()
-            .map(|filter| filter.allow_all())
-            .and_then(|filter| filter.try_into())
-            .map_err(SeccompError::SeccompFilter),
-        SeccompLevel::Advanced => default_filter()
-            .and_then(|filter| filter.try_into())
-            .map_err(SeccompError::SeccompFilter),
-    }
+/// Retrieve empty seccomp filters
+pub fn get_empty_filters() -> BpfThreadMap {
+    let mut map = BpfThreadMap::new();
+    map.insert("vmm".to_string(), vec![]);
+    map.insert("api".to_string(), vec![]);
+    map.insert("vcpu".to_string(), vec![]);
+    map
+}
+
+/// Retrieve custom seccomp filters
+pub fn get_custom_filters(_: File) -> Result<BpfThreadMap, Error> {
+    Ok(get_empty_filters())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::get_seccomp_filter;
-    use seccomp::SeccompLevel;
+    use super::{get_custom_filters, get_default_filters};
+    use utils::tempfile::TempFile;
 
     #[test]
-    fn test_get_seccomp_filter() {
-        assert!(get_seccomp_filter(SeccompLevel::None).is_ok());
-        assert!(get_seccomp_filter(SeccompLevel::Basic).is_ok());
-        assert!(get_seccomp_filter(SeccompLevel::Advanced).is_ok());
+    fn get_filters() {
+        assert!(get_default_filters().is_ok());
+
+        let file = TempFile::new().unwrap();
+        assert!(get_custom_filters(file.into_file()).is_ok());
     }
 }
