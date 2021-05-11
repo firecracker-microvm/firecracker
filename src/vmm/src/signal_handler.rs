@@ -275,12 +275,10 @@ impl Subscriber for SignalManager {
 mod tests {
     use super::*;
     use libc::{c_void, cpu_set_t, siginfo_t};
-    use seccomp::{SeccompAction, SeccompFilter, SeccompRule, SyscallRuleSet};
+    use seccomp::{sock_filter, BpfProgram, SeccompFilter};
     use std::convert::TryInto;
-    use std::env::consts::ARCH;
-    use std::mem;
     use std::sync::{Arc, Mutex};
-    use std::thread;
+    use std::{mem, thread};
     use utils::signal::register_signal_handler;
 
     // This function is used when running unit tests, so all the unsafes are safe.
@@ -307,13 +305,6 @@ mod tests {
         num
     }
 
-    pub fn trap_syscall(syscall_number: i64) -> SyscallRuleSet {
-        (
-            syscall_number,
-            vec![SeccompRule::new(vec![], SeccompAction::Trap)],
-        )
-    }
-
     #[test]
     fn test_signal_handler() {
         // Test all signal handlers (except for SIGSYS, which has its own test),
@@ -332,7 +323,6 @@ mod tests {
                 .expect("Cannot register the signal handler fd to the event manager.");
 
             let thread_id = unsafe { libc::pthread_self() };
-
             assert_eq!(METRICS.signals.sigbus.count(), 0);
             unsafe {
                 libc::pthread_kill(thread_id, SIGBUS);
@@ -384,6 +374,143 @@ mod tests {
         assert!(METRICS.signals.sigill.count() >= 1);
     }
 
+    fn make_test_seccomp_bpf_filter() -> BpfProgram {
+        // Create seccomp filter that allows all syscalls, except for `SYS_mkdirat`.
+        // For some reason, directly calling `SYS_kill` with SIGSYS, like we do with the
+        // other signals, results in an error. Probably because of the way `cargo test` is
+        // handling signals.
+        #[cfg(target_arch = "aarch64")]
+        #[allow(clippy::unreadable_literal)]
+        let bpf_filter = vec![
+            sock_filter {
+                code: 32,
+                jt: 0,
+                jf: 0,
+                k: 4,
+            },
+            sock_filter {
+                code: 21,
+                jt: 1,
+                jf: 0,
+                k: 3221225655,
+            },
+            sock_filter {
+                code: 6,
+                jt: 0,
+                jf: 0,
+                k: 0,
+            },
+            sock_filter {
+                code: 32,
+                jt: 0,
+                jf: 0,
+                k: 0,
+            },
+            sock_filter {
+                code: 21,
+                jt: 0,
+                jf: 1,
+                k: 34,
+            },
+            sock_filter {
+                code: 5,
+                jt: 0,
+                jf: 0,
+                k: 1,
+            },
+            sock_filter {
+                code: 5,
+                jt: 0,
+                jf: 0,
+                k: 2,
+            },
+            sock_filter {
+                code: 6,
+                jt: 0,
+                jf: 0,
+                k: 196608,
+            },
+            sock_filter {
+                code: 6,
+                jt: 0,
+                jf: 0,
+                k: 2147418112,
+            },
+            sock_filter {
+                code: 6,
+                jt: 0,
+                jf: 0,
+                k: 2147418112,
+            },
+        ];
+        #[cfg(target_arch = "x86_64")]
+        #[allow(clippy::unreadable_literal)]
+        let bpf_filter = vec![
+            sock_filter {
+                code: 32,
+                jt: 0,
+                jf: 0,
+                k: 4,
+            },
+            sock_filter {
+                code: 21,
+                jt: 1,
+                jf: 0,
+                k: 3221225534,
+            },
+            sock_filter {
+                code: 6,
+                jt: 0,
+                jf: 0,
+                k: 0,
+            },
+            sock_filter {
+                code: 32,
+                jt: 0,
+                jf: 0,
+                k: 0,
+            },
+            sock_filter {
+                code: 21,
+                jt: 0,
+                jf: 1,
+                k: 258,
+            },
+            sock_filter {
+                code: 5,
+                jt: 0,
+                jf: 0,
+                k: 1,
+            },
+            sock_filter {
+                code: 5,
+                jt: 0,
+                jf: 0,
+                k: 2,
+            },
+            sock_filter {
+                code: 6,
+                jt: 0,
+                jf: 0,
+                k: 196608,
+            },
+            sock_filter {
+                code: 6,
+                jt: 0,
+                jf: 0,
+                k: 2147418112,
+            },
+            sock_filter {
+                code: 6,
+                jt: 0,
+                jf: 0,
+                k: 2147418112,
+            },
+        ];
+
+        bpf_filter
+    }
+
     // The `cargo test` process somehow receives the SIGSYS, before we get a chance to listen on the signalfd
     // (even if we explicitly direct it to the current thread).
     // This is likely because the test process does a `wait4()` for the test thread, and looks for a potential
@@ -424,15 +551,7 @@ mod tests {
                 SignalManager::handle_signal(signalfd_info);
             }
             assert!(register_signal_handler(SIGSYS, signal_handler).is_ok());
-
-            let filter = SeccompFilter::new(
-                vec![trap_syscall(libc::SYS_mkdirat)].into_iter().collect(),
-                SeccompAction::Allow,
-                ARCH,
-            )
-            .unwrap();
-
-            assert!(SeccompFilter::apply(filter.try_into().unwrap()).is_ok());
+            assert!(SeccompFilter::apply(make_test_seccomp_bpf_filter()).is_ok());
             assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
             // Call the forbidden `SYS_mkdirat`.
