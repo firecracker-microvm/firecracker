@@ -3,12 +3,12 @@
 """Tests that the --seccomp-filter parameter works as expected."""
 
 import os
-import platform
 import tempfile
 import time
 import psutil
 import pytest
 import framework.utils as utils
+from host_tools.cargo_build import run_seccompiler
 
 
 def _custom_filter_setup(test_microvm, json_filter):
@@ -18,11 +18,7 @@ def _custom_filter_setup(test_microvm, json_filter):
 
     bpf_path = os.path.join(test_microvm.path, 'bpf.out')
 
-    cargo_target = '{}-unknown-linux-musl'.format(platform.machine())
-    cmd = 'cargo run -p seccomp --target {} -- --input-file {} --target-arch\
-        {} --output-file {}'.format(cargo_target, json_temp.name,
-                                    platform.machine(), bpf_path)
-    utils.run_cmd(cmd)
+    run_seccompiler(bpf_path=bpf_path, json_path=json_temp.name)
 
     os.unlink(json_temp.name)
     test_microvm.create_jailed_resource(bpf_path)
