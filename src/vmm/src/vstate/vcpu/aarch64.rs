@@ -135,10 +135,10 @@ impl KvmVcpu {
 
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState> {
-        let mut state = VcpuState::default();
-
-        // Get this vCPUs multiprocessing state.
-        state.mp_state = arch::regs::get_mpstate(&self.fd).map_err(Error::SaveState)?;
+        let mut state = VcpuState {
+            mp_state: arch::regs::get_mpstate(&self.fd).map_err(Error::SaveState)?,
+            ..Default::default()
+        };
 
         arch::regs::save_core_registers(&self.fd, &mut state.regs).map_err(Error::SaveState)?;
 
@@ -277,8 +277,10 @@ mod tests {
         );
 
         // Try to restore the register using a faulty state.
-        let mut faulty_vcpu_state = VcpuState::default();
-        faulty_vcpu_state.regs = vec![kvm_one_reg { id: 0, addr: 0 }];
+        let faulty_vcpu_state = VcpuState {
+            regs: vec![kvm_one_reg { id: 0, addr: 0 }],
+            ..Default::default()
+        };
 
         let res = vcpu.restore_state(&faulty_vcpu_state);
         assert!(res.is_err());

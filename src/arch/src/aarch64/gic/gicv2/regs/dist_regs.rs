@@ -117,11 +117,7 @@ impl VgicRegEngine for DistRegEngine {
 }
 
 pub(crate) fn get_dist_regs(fd: &DeviceFd) -> Result<Vec<GicRegState<u32>>> {
-    Ok(DistRegEngine::get_regs_data(
-        fd,
-        Box::new(VGIC_DIST_REGS.iter()),
-        0,
-    )?)
+    DistRegEngine::get_regs_data(fd, Box::new(VGIC_DIST_REGS.iter()), 0)
 }
 
 pub(crate) fn set_dist_regs(fd: &DeviceFd, state: &[GicRegState<u32>]) -> Result<()> {

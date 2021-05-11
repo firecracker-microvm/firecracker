@@ -487,10 +487,10 @@ pub(crate) mod tests {
         q.next_avail = Wrapping(5);
         assert!(!q.is_valid(m));
         // avail_ring + 2 is the address of avail_idx in guest mem
-        m.write_obj::<u16>(64 as u16, q.avail_ring.unchecked_add(2))
+        m.write_obj::<u16>(64_u16, q.avail_ring.unchecked_add(2))
             .unwrap();
         assert!(!q.is_valid(m));
-        m.write_obj::<u16>(5 as u16, q.avail_ring.unchecked_add(2))
+        m.write_obj::<u16>(5_u16, q.avail_ring.unchecked_add(2))
             .unwrap();
         q.max_size = 2;
         assert!(!q.is_valid(m));

@@ -244,7 +244,7 @@ impl MmdsNetworkStack {
     fn write_arp_reply(&self, buf: &mut [u8]) -> Result<Option<NonZeroUsize>, WriteArpFrameError> {
         let arp_reply_dest = self
             .pending_arp_reply_dest
-            .ok_or_else(|| WriteArpFrameError::NoPendingArpReply)?;
+            .ok_or(WriteArpFrameError::NoPendingArpReply)?;
 
         let mut eth_unsized = self
             .prepare_eth_unsized(buf, ETHERTYPE_ARP)

@@ -70,7 +70,7 @@ impl BitRangeExt<u32> for BitRange {
     fn get_mask(&self) -> u32 {
         self.check();
 
-        ((((1 as u64) << (self.msb_index - self.lsb_index + 1)) - 1) << self.lsb_index) as u32
+        ((((1_u64) << (self.msb_index - self.lsb_index + 1)) - 1) << self.lsb_index) as u32
     }
 
     fn is_valid(&self) -> bool {

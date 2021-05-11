@@ -134,7 +134,7 @@ impl Snapshot {
         O: Versionize,
     {
         let data_version = Self::get_data_version(&mut reader, &version_map)?;
-        Ok(O::deserialize(&mut reader, &version_map, data_version).map_err(Error::Versionize)?)
+        O::deserialize(&mut reader, &version_map, data_version).map_err(Error::Versionize)
     }
 
     /// Attempts to load an existing snapshot and validate CRC.

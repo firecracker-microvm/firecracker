@@ -494,10 +494,8 @@ pub fn create_guest_memory(
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
-    Ok(
-        GuestMemoryMmap::from_ranges_guarded(&arch_mem_regions, track_dirty_pages)
-            .map_err(StartMicrovmError::GuestMemoryMmap)?,
-    )
+    GuestMemoryMmap::from_ranges_guarded(&arch_mem_regions, track_dirty_pages)
+        .map_err(StartMicrovmError::GuestMemoryMmap)
 }
 
 fn load_kernel(
@@ -636,8 +634,8 @@ pub fn setup_serial_device(
 
 #[cfg(target_arch = "aarch64")]
 /// Sets up the RTC device.
-pub fn setup_rtc_device() -> super::Result<Arc<Mutex<devices::legacy::RTC>>> {
-    let rtc = Arc::new(Mutex::new(devices::legacy::RTC::default()));
+pub fn setup_rtc_device() -> super::Result<Arc<Mutex<devices::legacy::Rtc>>> {
+    let rtc = Arc::new(Mutex::new(devices::legacy::Rtc::default()));
     Ok(rtc)
 }
 

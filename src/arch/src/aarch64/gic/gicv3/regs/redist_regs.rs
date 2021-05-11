@@ -94,7 +94,7 @@ mod tests {
         let res = get_redist_regs(&gic_fd.device_fd(), gicr_typer);
         assert!(res.is_ok());
         let state = res.unwrap();
-        assert_eq!(state.iter().count(), 14);
+        assert_eq!(state.len(), 14);
 
         assert!(set_redist_regs(&gic_fd.device_fd(), gicr_typer, &state).is_ok());
 
