@@ -6,7 +6,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const BINARY_FILTER_FILE_NAME: &str = "seccomp_filter.bpf";
+const ADVANCED_BINARY_FILTER_FILE_NAME: &str = "seccomp_filter.bpf";
+const BASIC_BINARY_FILTER_FILE_NAME: &str = "basic_seccomp_filter.bpf";
+
 const JSON_DIR: &str = "../../resources/seccomp";
 const SECCOMPILER_BUILD_DIR: &str = "../../build/seccompiler";
 const SECCOMPILER_SRC_DIR: &str = "../seccompiler/src";
@@ -17,7 +19,6 @@ const SECCOMPILER_SRC_DIR: &str = "../seccompiler/src";
 fn main() {
     let target = env::var("TARGET").expect("Missing target.");
     let out_dir = env::var("OUT_DIR").expect("Missing build-level OUT_DIR.");
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("Missing target arch.");
 
     // Path to the JSON seccomp policy.
     let mut json_path = PathBuf::from(JSON_DIR);
@@ -44,10 +45,30 @@ fn main() {
     // Also retrigger the build script on any seccompiler source code change.
     register_seccompiler_src_watchlist(Path::new(SECCOMPILER_SRC_DIR));
 
-    // Path of the generated binary file.
+    // Run seccompiler, getting the default, advanced filter.
     let mut bpf_out_path = PathBuf::from(&out_dir);
-    bpf_out_path.push(BINARY_FILTER_FILE_NAME);
-    let bpf_out_path = bpf_out_path.to_str().expect("Invalid bytes.");
+    bpf_out_path.push(ADVANCED_BINARY_FILTER_FILE_NAME);
+    run_seccompiler(
+        &target,
+        json_path,
+        bpf_out_path.to_str().expect("Invalid bytes."),
+        false,
+    );
+
+    // Run seccompiler with the `--basic` flag, getting the filter for `--seccomp-level 1`.
+    let mut bpf_out_path = PathBuf::from(&out_dir);
+    bpf_out_path.push(BASIC_BINARY_FILTER_FILE_NAME);
+    run_seccompiler(
+        &target,
+        json_path,
+        bpf_out_path.to_str().expect("Invalid bytes."),
+        true,
+    );
+}
+
+// Run seccompiler with the given arguments.
+fn run_seccompiler(cargo_target: &str, json_path: &str, out_path: &str, basic: bool) {
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("Missing target arch.");
 
     // Command for running seccompiler
     let mut command = Command::new("cargo");
@@ -57,7 +78,7 @@ fn main() {
         "seccompiler",
         "--verbose",
         "--target",
-        &target,
+        &cargo_target,
         // We need to specify a separate build directory for seccompiler. Otherwise, cargo will
         // deadlock waiting to acquire a lock on the build folder that the parent cargo process is
         // holding.
@@ -69,8 +90,12 @@ fn main() {
         "--target-arch",
         &target_arch,
         "--output-file",
-        bpf_out_path,
+        out_path,
     ]);
+
+    if basic {
+        command.arg("--basic");
+    }
 
     match command.output() {
         Err(error) => panic!("\nSeccompiler error: {:?}\n", error),
