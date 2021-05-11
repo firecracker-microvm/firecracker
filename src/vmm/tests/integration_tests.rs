@@ -10,10 +10,10 @@ use snapshot::Snapshot;
 use utils::tempfile::TempFile;
 use vmm::builder::build_microvm_from_snapshot;
 use vmm::builder::{build_microvm_for_boot, setup_serial_device};
-use vmm::default_syscalls::get_empty_filters;
 use vmm::persist;
 use vmm::persist::{snapshot_state_sanity_check, LoadSnapshotError, MicrovmState};
 use vmm::resources::VmResources;
+use vmm::seccomp_filters::get_empty_filters;
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
 

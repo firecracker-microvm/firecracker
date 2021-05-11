@@ -12,8 +12,6 @@
 
 /// Handles setup and initialization a `Vmm` object.
 pub mod builder;
-/// Syscalls allowed through the seccomp filter.
-pub mod default_syscalls;
 pub(crate) mod device_manager;
 pub mod memory_snapshot;
 /// Save/restore utilities.
@@ -22,6 +20,8 @@ pub mod persist;
 pub mod resources;
 /// microVM RPC API adapters.
 pub mod rpc_interface;
+/// Seccomp filter utilities.
+pub mod seccomp_filters;
 /// Signal handling utilities.
 pub mod signal_handler;
 /// Utility functions for integration and benchmark testing
