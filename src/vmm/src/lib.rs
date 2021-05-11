@@ -61,7 +61,7 @@ use devices::BusDevice;
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
 use rate_limiter::BucketUpdate;
-use seccomp::BpfProgram;
+use seccompiler::BpfProgram;
 use snapshot::Persist;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::eventfd::EventFd;
@@ -126,7 +126,7 @@ pub enum Error {
     /// Cannot add a device to the MMIO Bus.
     RegisterMMIODevice(device_manager::mmio::Error),
     /// Cannot install seccomp filters.
-    SeccompFilters(seccomp::InstallationError),
+    SeccompFilters(seccompiler::InstallationError),
     /// Write to the serial console failed.
     Serial(io::Error),
     /// Cannot create Timer file descriptor.

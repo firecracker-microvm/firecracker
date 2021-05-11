@@ -33,7 +33,7 @@ use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
 use polly::event_manager::EventManager;
-use seccomp::BpfThreadMap;
+use seccompiler::BpfThreadMap;
 #[cfg(test)]
 use tests::{
     build_microvm_for_boot, create_snapshot, restore_from_snapshot, MockVmRes as VmResources,
@@ -658,7 +658,7 @@ mod tests {
     use crate::vmm_config::vsock::VsockBuilder;
     use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
     use devices::virtio::VsockError;
-    use seccomp::BpfThreadMap;
+    use seccompiler::BpfThreadMap;
 
     use std::path::PathBuf;
 

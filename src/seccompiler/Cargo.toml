@@ -1,5 +1,5 @@
 [package]
-name = "seccomp"
+name = "seccompiler"
 version = "0.24.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"

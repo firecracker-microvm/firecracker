@@ -13,7 +13,7 @@ api_server = { path = "../api_server" }
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
 polly = { path = "../polly" }
-seccomp = { path = "../seccomp" }
+seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
 vmm = { path = "../vmm" }
