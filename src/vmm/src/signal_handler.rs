@@ -551,7 +551,8 @@ mod tests {
                 SignalManager::handle_signal(signalfd_info);
             }
             assert!(register_signal_handler(SIGSYS, signal_handler).is_ok());
-            assert!(SeccompFilter::apply(make_test_seccomp_bpf_filter()).is_ok());
+            let filter = make_test_seccomp_bpf_filter();
+            assert!(SeccompFilter::apply(&filter).is_ok());
             assert_eq!(METRICS.seccomp.num_faults.count(), 0);
 
             // Call the forbidden `SYS_mkdirat`.

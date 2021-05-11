@@ -24,7 +24,7 @@ pub use micro_http::{
 };
 use mmds::data_store;
 use mmds::data_store::Mmds;
-use seccomp::{BpfProgram, SeccompFilter};
+use seccomp::{BpfProgramRef, SeccompFilter};
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::instance_info::InstanceInfo;
@@ -119,7 +119,7 @@ impl ApiServer {
     /// ```
     /// use api_server::ApiServer;
     /// use mmds::MMDS;
-    /// use seccomp::SeccompFilter;
+    /// use seccomp::{BpfProgram, SeccompFilter};
     /// use std::{
     ///     convert::TryInto, io::Read, io::Write, os::unix::net::UnixStream, path::PathBuf,
     ///     sync::mpsc::channel, thread, time::Duration,
@@ -145,6 +145,7 @@ impl ApiServer {
     /// let (to_api, vmm_response_receiver) = channel();
     /// let mmds_info = MMDS.clone();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
+    /// let filter: BpfProgram = SeccompFilter::empty(ARCH).unwrap().try_into().unwrap();
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
@@ -159,7 +160,7 @@ impl ApiServer {
     ///         .bind_and_run(
     ///             PathBuf::from(api_thread_path_to_socket),
     ///             time_reporter,
-    ///             SeccompFilter::empty(ARCH).unwrap().try_into().unwrap(),
+    ///             &filter,
     ///         )
     ///         .unwrap();
     ///     })
@@ -176,7 +177,7 @@ impl ApiServer {
         &mut self,
         path: PathBuf,
         process_time_reporter: ProcessTimeReporter,
-        seccomp_filter: BpfProgram,
+        seccomp_filter: BpfProgramRef,
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|e| {
             error!("Error creating the HTTP server: {}", e);
@@ -408,6 +409,7 @@ mod tests {
     use logger::StoreMetric;
     use micro_http::HttpConnection;
     use mmds::MMDS;
+    use seccomp::BpfProgram;
     use utils::tempfile::TempFile;
     use utils::time::ClockType;
     use vmm::builder::StartMicrovmError;
@@ -740,6 +742,7 @@ mod tests {
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
+        let seccomp_filter: BpfProgram = SeccompFilter::empty(ARCH).unwrap().try_into().unwrap();
 
         thread::Builder::new()
             .name("fc_api_test".to_owned())
@@ -754,7 +757,7 @@ mod tests {
                 .bind_and_run(
                     PathBuf::from(api_thread_path_to_socket),
                     ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
-                    SeccompFilter::empty(ARCH).unwrap().try_into().unwrap(),
+                    &seccomp_filter,
                 )
                 .unwrap();
             })
