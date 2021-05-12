@@ -93,5 +93,6 @@ mod tests {
         assert_eq!(gicd_statusr.chunks[0], val);
         assert_eq!(vm_state.dist.len(), 12);
         assert!(restore_state(gic_fd, &mpidr, &vm_state).is_ok());
+        assert!(restore_state(gic_fd, &[1, 2], &vm_state).is_err());
     }
 }
