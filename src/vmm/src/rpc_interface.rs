@@ -258,7 +258,13 @@ impl<'a> PrebootApiController<'a> {
         G: Fn(ActionResult),
     {
         let mut vm_resources = VmResources::default();
-        vm_resources.boot_timer = boot_timer_enabled;
+        // Silence false clippy warning. Clippy suggests using
+        // VmResources { boot_timer: boot_timer_enabled, ..Default::default() }; but this will
+        // generate build errors because VmResources contains private fields.
+        #[allow(clippy::field_reassign_with_default)]
+        {
+            vm_resources.boot_timer = boot_timer_enabled;
+        }
         let mut preboot_controller = PrebootApiController::new(
             seccomp_filters,
             instance_info,

@@ -188,6 +188,7 @@ pub struct Queue {
     pub(crate) next_used: Wrapping<u16>,
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Queue {
     /// Constructs an empty virtio queue with the given `max_size`.
     pub fn new(max_size: u16) -> Queue {
