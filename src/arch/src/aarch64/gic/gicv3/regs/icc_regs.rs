@@ -209,4 +209,14 @@ mod tests {
             "DeviceAttribute(Error(9), false, 6)"
         );
     }
+
+    #[test]
+    fn test_icc_constructors() {
+        let sys_reg1 = SimpleReg::vgic_sys_reg(3, 0, 12, 12, 5);
+        let sys_reg2 = SimpleReg::sys_icc_ap0rn_el1(1);
+        let sys_reg3 = SimpleReg::sys_icc_ap1rn_el1(1);
+        assert!(sys_reg1 == SimpleReg::new(50789, 8));
+        assert!(sys_reg2 == SimpleReg::new(50757, 8));
+        assert!(sys_reg3 == SimpleReg::new(50761, 8));
+    }
 }

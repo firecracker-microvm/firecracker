@@ -157,4 +157,12 @@ mod tests {
             "DeviceAttribute(Error(9), false, 1)"
         );
     }
+
+    #[test]
+    fn test_dist_constructors() {
+        let simple_dist_reg = DistReg::simple(0, 4);
+        let shared_dist_reg = DistReg::shared_irq(0x0010, 2);
+        assert_eq!(simple_dist_reg.range(), Range { start: 0, end: 4 });
+        assert_eq!(shared_dist_reg.range(), Range { start: 24, end: 48 });
+    }
 }
