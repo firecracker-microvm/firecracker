@@ -121,6 +121,8 @@ The baseline for snapshot resume latency target on Intel is under **8ms** with
   Please see [Vsock device limitations](#vsock-device-limitations).
 - Poor entropy and replayable randomness when resuming multiple microvms which
   deal with cryptographic secrets. Please see [Snapshot security and uniqueness](#snapshot-security-and-uniqueness).
+- Snapshotting on arm64 works for both GICv2 and GICv3 enabled guests.
+  However, restoring between different GIC version is not possible.
 
 ## Firecracker Snapshotting characteristics
 

@@ -16,6 +16,7 @@
 - Added `--seccomp-filter` parameter for supplying user-provided, custom filters.
 - Added the `seccompiler` binary that is used to compile JSON seccomp filters
   into serialized BPF for Firecracker consumption.
+- Snapshotting support for GICv2 enabled guests.
 
 ### Changed
 
