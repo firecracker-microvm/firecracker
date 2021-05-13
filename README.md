@@ -146,8 +146,6 @@ mode, and Firecracker may not work correctly on such systems.
 - The [SendCtrlAltDel](docs/api_requests/actions.md#sendctrlaltdel) API request
   is not supported for aarch64 enabled microVMs.
 - Configuring CPU templates is only supported for Intel enabled microVMs.
-- The ability of [snapshotting a microVM](docs/snapshotting/snapshot-support.md)
-  on aarch64 is only supported for GICv3 powered microVMs.
 
 ## Performance
 
