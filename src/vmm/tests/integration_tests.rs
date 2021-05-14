@@ -23,6 +23,7 @@ use vmm::utilities::mock_resources::NOISY_KERNEL_IMAGE;
 #[cfg(target_arch = "x86_64")]
 use vmm::utilities::test_utils::dirty_tracking_vmm;
 use vmm::utilities::test_utils::{create_vmm, default_vmm, set_panic_hook, wait_vmm_child_process};
+use vmm::vmm_config::instance_info::InstanceInfo;
 
 #[test]
 fn test_setup_serial_device() {
@@ -46,8 +47,12 @@ fn test_build_microvm() {
         let mut event_manager = EventManager::new().unwrap();
         let mut empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
-        let vmm_ret =
-            build_microvm_for_boot(&resources, &mut event_manager, &mut empty_seccomp_filters);
+        let vmm_ret = build_microvm_for_boot(
+            &InstanceInfo::default(),
+            &resources,
+            &mut event_manager,
+            &mut empty_seccomp_filters,
+        );
         assert_eq!(format!("{:?}", vmm_ret.err()), "Some(MissingKernelConfig)");
     }
 
@@ -326,6 +331,7 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
 
             // Build microVM from state.
             let vmm = build_microvm_from_snapshot(
+                &InstanceInfo::default(),
                 &mut event_manager,
                 microvm_state,
                 mem,

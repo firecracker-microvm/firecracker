@@ -12,6 +12,7 @@ use crate::resources::VmResources;
 use crate::seccomp_filters::{get_filters, SeccompConfig};
 use crate::utilities::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
+use crate::vmm_config::instance_info::InstanceInfo;
 use polly::event_manager::EventManager;
 use utils::terminal::Terminal;
 
@@ -39,7 +40,13 @@ pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>
     };
 
     (
-        build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filters).unwrap(),
+        build_microvm_for_boot(
+            &InstanceInfo::default(),
+            &resources,
+            &mut event_manager,
+            &empty_seccomp_filters,
+        )
+        .unwrap(),
         event_manager,
     )
 }

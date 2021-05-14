@@ -3,7 +3,7 @@
 use serde::Serialize;
 
 /// The strongly typed that contains general information about the microVM.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct InstanceInfo {
     /// The ID of the microVM.
     pub id: String,

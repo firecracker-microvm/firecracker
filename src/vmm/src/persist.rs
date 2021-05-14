@@ -24,6 +24,7 @@ use crate::{Error as VmmError, Vmm};
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 
+use crate::vmm_config::instance_info::InstanceInfo;
 #[cfg(target_arch = "aarch64")]
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use logger::{error, info};
@@ -391,6 +392,7 @@ pub fn snapshot_state_sanity_check(
 
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
 pub fn restore_from_snapshot(
+    instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     seccomp_filters: &BpfThreadMap,
     params: &LoadSnapshotParams,
@@ -409,6 +411,7 @@ pub fn restore_from_snapshot(
         track_dirty_pages,
     )?;
     builder::build_microvm_from_snapshot(
+        instance_info,
         event_manager,
         microvm_state,
         guest_memory,
