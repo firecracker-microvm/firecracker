@@ -46,7 +46,7 @@ use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::memory_snapshot::SnapshotMemory;
 use crate::persist::{MicrovmState, MicrovmStateError, VmInfo};
-use crate::vmm_config::instance_info::InstanceInfo;
+use crate::vmm_config::instance_info::{InstanceInfo, VmState};
 use crate::vstate::vcpu::VcpuState;
 use crate::vstate::{
     vcpu::{Vcpu, VcpuEvent, VcpuHandle, VcpuResponse},
@@ -284,7 +284,7 @@ impl Vmm {
                     .map_err(Error::VcpuHandle)?,
             );
         }
-        self.instance_info.state = "Paused".to_string();
+        self.instance_info.state = VmState::Paused;
 
         Ok(())
     }
@@ -311,7 +311,7 @@ impl Vmm {
         self.mmio_device_manager.kick_devices();
         self.broadcast_vcpu_event(VcpuEvent::Resume, VcpuResponse::Resumed)
             .map_err(|_| Error::VcpuResume)?;
-        self.instance_info.state = "Running".to_string();
+        self.instance_info.state = VmState::Running;
         Ok(())
     }
 
@@ -319,7 +319,7 @@ impl Vmm {
     pub fn pause_vm(&mut self) -> Result<()> {
         self.broadcast_vcpu_event(VcpuEvent::Pause, VcpuResponse::Paused)
             .map_err(|_| Error::VcpuPause)?;
-        self.instance_info.state = "Paused".to_string();
+        self.instance_info.state = VmState::Paused;
         Ok(())
     }
 
