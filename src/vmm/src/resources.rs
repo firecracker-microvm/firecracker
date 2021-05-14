@@ -460,13 +460,7 @@ mod tests {
     fn test_from_json() {
         let kernel_file = TempFile::new().unwrap();
         let rootfs_file = TempFile::new().unwrap();
-
-        let default_instance_info = InstanceInfo {
-            id: "".to_string(),
-            state: "Not started".to_string(),
-            vmm_version: "SOME_VERSION".to_string(),
-            app_name: "".to_string(),
-        };
+        let default_instance_info = InstanceInfo::default();
 
         // We will test different scenarios with invalid resources configuration and
         // check the expected errors. We include configuration for the kernel and rootfs

@@ -943,12 +943,7 @@ mod tests {
         event_manager: &'a mut EventManager,
         seccomp_filters: &'a BpfThreadMap,
     ) -> PrebootApiController<'a> {
-        let instance_info = InstanceInfo {
-            id: String::new(),
-            state: "Not started".to_string(),
-            vmm_version: String::new(),
-            app_name: String::new(),
-        };
+        let instance_info = InstanceInfo::default();
         PrebootApiController::new(seccomp_filters, instance_info, vm_resources, event_manager)
     }
 
@@ -1277,12 +1272,7 @@ mod tests {
         let (_vm_res, _vmm) = PrebootApiController::build_microvm_from_requests(
             &BpfThreadMap::new(),
             &mut EventManager::new().unwrap(),
-            InstanceInfo {
-                id: String::new(),
-                state: "Not started".to_string(),
-                vmm_version: String::new(),
-                app_name: String::new(),
-            },
+            InstanceInfo::default(),
             commands,
             expected_resp,
             false,

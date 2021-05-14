@@ -27,7 +27,7 @@ use mmds::data_store::Mmds;
 use seccompiler::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
-use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::snapshot::SnapshotType;
 
 use vmm::FC_EXIT_CODE_BAD_CONFIGURATION;
@@ -133,13 +133,6 @@ impl ApiServer {
     /// tmp_socket.remove().unwrap();
     /// let path_to_socket = tmp_socket.as_path().to_str().unwrap().to_owned();
     /// let api_thread_path_to_socket = path_to_socket.clone();
-    /// let instance_info = InstanceInfo {
-    ///     state: "Not started".to_string(),
-    ///     id: "test_serve_action_req".to_string(),
-    ///     vmm_version: "version 0.1.0".to_string(),
-    ///     app_name: "app name".to_string(),
-    /// };
-    ///
     /// let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
     /// let (api_request_sender, _from_api) = channel();
     /// let (to_api, vmm_response_receiver) = channel();
@@ -152,7 +145,7 @@ impl ApiServer {
     ///     .spawn(move || {
     ///         ApiServer::new(
     ///             mmds_info,
-    ///             instance_info,
+    ///             InstanceInfo::default(),
     ///             api_request_sender,
     ///             vmm_response_receiver,
     ///             to_vmm_fd,
@@ -290,9 +283,9 @@ impl ApiServer {
         };
 
         let vmm_new_state = match *vmm_action {
-            VmmAction::StartMicroVm => "Running".to_string(),
-            VmmAction::Pause => "Paused".to_string(),
-            VmmAction::Resume => "Running".to_string(),
+            VmmAction::StartMicroVm => VmState::Running,
+            VmmAction::Pause => VmState::Paused,
+            VmmAction::Resume => VmState::Running,
             _ => self.instance_info.state.clone(),
         };
         self.api_request_sender
@@ -445,13 +438,6 @@ mod tests {
 
     #[test]
     fn test_serve_vmm_action_request() {
-        let instance_info = InstanceInfo {
-            state: "Not started".to_string(),
-            id: "test_serve_action_req".to_string(),
-            vmm_version: "version 0.1.0".to_string(),
-            app_name: "app name".to_string(),
-        };
-
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
@@ -459,7 +445,7 @@ mod tests {
 
         let mut api_server = ApiServer::new(
             mmds_info,
-            instance_info,
+            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -514,12 +500,6 @@ mod tests {
 
     #[test]
     fn test_get_instance_info() {
-        let instance_info = InstanceInfo {
-            state: "Not started".to_string(),
-            id: "test_get_instance_info".to_string(),
-            vmm_version: "version 0.1.0".to_string(),
-            app_name: "app name".to_string(),
-        };
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
@@ -527,7 +507,7 @@ mod tests {
 
         let api_server = ApiServer::new(
             mmds_info,
-            instance_info,
+            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -539,13 +519,6 @@ mod tests {
 
     #[test]
     fn test_get_mmds() {
-        let instance_info = InstanceInfo {
-            state: "Not started".to_string(),
-            id: "test_get_mmds".to_string(),
-            vmm_version: "version 0.1.0".to_string(),
-            app_name: "app name".to_string(),
-        };
-
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
@@ -553,7 +526,7 @@ mod tests {
 
         let api_server = ApiServer::new(
             mmds_info,
-            instance_info,
+            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -565,13 +538,6 @@ mod tests {
 
     #[test]
     fn test_put_mmds() {
-        let instance_info = InstanceInfo {
-            state: "Not started".to_string(),
-            id: "test_put_mmds".to_string(),
-            vmm_version: "version 0.1.0".to_string(),
-            app_name: "app name".to_string(),
-        };
-
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
@@ -579,7 +545,7 @@ mod tests {
 
         let api_server = ApiServer::new(
             mmds_info,
-            instance_info,
+            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -590,13 +556,6 @@ mod tests {
 
     #[test]
     fn test_patch_mmds() {
-        let instance_info = InstanceInfo {
-            state: "Not started".to_string(),
-            id: "test_patch_mmds".to_string(),
-            vmm_version: "version 0.1.0".to_string(),
-            app_name: "app name".to_string(),
-        };
-
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
@@ -604,7 +563,7 @@ mod tests {
 
         let api_server = ApiServer::new(
             mmds_info,
-            instance_info,
+            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -625,13 +584,6 @@ mod tests {
 
     #[test]
     fn test_handle_request() {
-        let instance_info = InstanceInfo {
-            state: "Not started".to_string(),
-            id: "test_handle_request".to_string(),
-            vmm_version: "version 0.1.0".to_string(),
-            app_name: "app name".to_string(),
-        };
-
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (to_api, vmm_response_receiver) = channel();
@@ -639,7 +591,7 @@ mod tests {
 
         let mut api_server = ApiServer::new(
             mmds_info,
-            instance_info,
+            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -729,13 +681,6 @@ mod tests {
         let path_to_socket = tmp_socket.as_path().to_str().unwrap().to_owned();
         let api_thread_path_to_socket = path_to_socket.clone();
 
-        let instance_info = InstanceInfo {
-            state: "Not started".to_string(),
-            id: "test_handle_request".to_string(),
-            vmm_version: "version 0.1.0".to_string(),
-            app_name: "app name".to_string(),
-        };
-
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
@@ -747,7 +692,7 @@ mod tests {
             .spawn(move || {
                 ApiServer::new(
                     mmds_info,
-                    instance_info,
+                    InstanceInfo::default(),
                     api_request_sender,
                     vmm_response_receiver,
                     to_vmm_fd,

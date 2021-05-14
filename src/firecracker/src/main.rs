@@ -21,7 +21,7 @@ use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::signal_handler::{mask_handled_signals, SignalManager};
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
-use vmm::vmm_config::instance_info::InstanceInfo;
+use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
 
 // The reason we place default API socket under /run is that API socket is a
@@ -202,7 +202,7 @@ fn main() {
 
     let instance_info = InstanceInfo {
         id: instance_id.clone(),
-        state: "Not started".to_string(),
+        state: VmState::NotStarted,
         vmm_version: FIRECRACKER_VERSION.to_string(),
         app_name: "Firecracker".to_string(),
     };

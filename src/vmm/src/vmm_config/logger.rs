@@ -163,12 +163,7 @@ mod tests {
 
     #[test]
     fn test_init_logger() {
-        let default_instance_info = InstanceInfo {
-            id: "".to_string(),
-            state: "Not started".to_string(),
-            vmm_version: "some_version".to_string(),
-            app_name: "".to_string(),
-        };
+        let default_instance_info = InstanceInfo::default();
 
         // Error case: initializing logger with invalid pipe returns error.
         let desc = LoggerConfig {
