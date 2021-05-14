@@ -26,7 +26,7 @@ use std::sync::Arc;
 use logger::{debug, error, warn, IncMetric, METRICS};
 use utils::byte_order;
 use utils::eventfd::EventFd;
-use vm_memory::GuestMemoryMmap;
+use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::super::super::Error as DeviceError;
 use super::super::{
@@ -40,6 +40,8 @@ use super::{defs, defs::uapi};
 pub(crate) const RXQ_INDEX: usize = 0;
 pub(crate) const TXQ_INDEX: usize = 1;
 pub(crate) const EVQ_INDEX: usize = 2;
+
+pub(crate) const VIRTIO_VSOCK_EVENT_TRANSPORT_RESET: u32 = 0;
 
 /// The virtio features supported by our vsock device:
 /// - VIRTIO_F_VERSION_1: the device conforms to at least version 1.0 of the VirtIO spec.
@@ -221,6 +223,35 @@ where
         }
 
         have_used
+    }
+
+    // Send TRANSPORT_RESET_EVENT to driver. According to specs, the driver shuts down established
+    // connections and the guest_cid configuration field is fetched again. Existing listen sockets remain
+    // but their CID is updated to reflect the current guest_cid.
+    pub fn send_transport_reset_event(&mut self) -> result::Result<(), DeviceError> {
+        let mem = match self.device_state {
+            DeviceState::Activated(ref mem) => mem,
+            // This should never happen, it's been already validated in the caller function.
+            DeviceState::Inactive => unreachable!(),
+        };
+
+        let head = self.queues[EVQ_INDEX].pop(mem).ok_or_else(|| {
+            METRICS.vsock.ev_queue_event_fails.inc();
+            DeviceError::VsockError(VsockError::EmptyQueue)
+        })?;
+
+        mem.write_obj::<u32>(VIRTIO_VSOCK_EVENT_TRANSPORT_RESET, head.addr)
+            .unwrap_or_else(|e| error!("Failed to write virtio vsock reset event: {:?}", e));
+
+        self.queues[EVQ_INDEX]
+            .add_used(mem, head.index, head.len)
+            .unwrap_or_else(|e| {
+                error!("Failed to add used descriptor {}: {}", head.index, e);
+            });
+
+        self.signal_used_queue()?;
+
+        Ok(())
     }
 }
 

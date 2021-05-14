@@ -19,6 +19,9 @@
 - Snapshotting support for GICv2 enabled guests.
 - Added `devtool install` to deploy built binaries in `/usr/local/bin` or a
   given path.
+- Added code logic to send `VIRTIO_VSOCK_EVENT_TRANSPORT_RESET` on snapshot
+  creation, when the Vsock device is active. The event will close active
+  connections on the guest.
 
 ### Changed
 
