@@ -203,7 +203,7 @@ pub(crate) fn run_with_api(
             &seccomp_filters,
             &mut event_manager,
             json,
-            &instance_info,
+            instance_info,
             boot_timer_enabled,
         ),
         None => PrebootApiController::build_microvm_from_requests(

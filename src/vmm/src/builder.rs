@@ -24,6 +24,7 @@ use crate::vstate::{
 };
 use crate::{device_manager, Error, Vmm, VmmEventsObserver};
 
+use crate::vmm_config::instance_info::InstanceInfo;
 use arch::InitrdConfig;
 use devices::legacy::Serial;
 use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
@@ -211,6 +212,7 @@ impl VmmEventsObserver for SerialStdin {
 
 #[cfg_attr(target_arch = "aarch64", allow(unused))]
 fn create_vmm_and_vcpus(
+    instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     guest_memory: GuestMemoryMmap,
     track_dirty_pages: bool,
@@ -271,6 +273,7 @@ fn create_vmm_and_vcpus(
 
     let vmm = Vmm {
         events_observer: Some(Box::new(SerialStdin::get())),
+        instance_info: instance_info.clone(),
         guest_memory,
         vcpus_handles: Vec::new(),
         exit_evt,
@@ -291,6 +294,7 @@ fn create_vmm_and_vcpus(
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
 /// is returned.
 pub fn build_microvm_for_boot(
+    instance_info: &InstanceInfo,
     vm_resources: &super::resources::VmResources,
     event_manager: &mut EventManager,
     seccomp_filters: &BpfThreadMap,
@@ -317,6 +321,7 @@ pub fn build_microvm_for_boot(
     let request_ts = TimestampUs::default();
 
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
+        instance_info,
         event_manager,
         guest_memory,
         track_dirty_pages,
@@ -400,6 +405,7 @@ pub fn build_microvm_for_boot(
 /// An `Arc` reference of the built `Vmm` is also plugged in the `EventManager`, while another
 /// is returned.
 pub fn build_microvm_from_snapshot(
+    instance_info: &InstanceInfo,
     event_manager: &mut EventManager,
     microvm_state: MicrovmState,
     guest_memory: GuestMemoryMmap,
@@ -413,6 +419,7 @@ pub fn build_microvm_from_snapshot(
 
     // Build Vmm.
     let (mut vmm, vcpus) = create_vmm_and_vcpus(
+        instance_info,
         event_manager,
         guest_memory.clone(),
         track_dirty_pages,
@@ -961,6 +968,7 @@ pub mod tests {
 
         Vmm {
             events_observer: Some(Box::new(SerialStdin::get())),
+            instance_info: InstanceInfo::default(),
             guest_memory,
             vcpus_handles: Vec::new(),
             exit_evt,

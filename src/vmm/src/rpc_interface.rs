@@ -385,6 +385,7 @@ impl<'a> PrebootApiController<'a> {
     // will be replaced by a runtime controller.
     fn start_microvm(&mut self) -> ActionResult {
         build_microvm_for_boot(
+            &self.instance_info,
             &self.vm_resources,
             &mut self.event_manager,
             self.seccomp_filters,
@@ -408,6 +409,7 @@ impl<'a> PrebootApiController<'a> {
         }
 
         let result = restore_from_snapshot(
+            &self.instance_info,
             &mut self.event_manager,
             self.seccomp_filters,
             load_params,
@@ -906,6 +908,7 @@ mod tests {
     // Need to redefine this since the non-test one uses real VmResources
     // and real Vmm instead of our mocks.
     pub fn build_microvm_for_boot(
+        _: &InstanceInfo,
         _: &VmResources,
         _: &mut EventManager,
         _: &BpfThreadMap,
@@ -926,6 +929,7 @@ mod tests {
     // Need to redefine this since the non-test one uses real Vmm
     // instead of our mocks.
     pub fn restore_from_snapshot(
+        _: &InstanceInfo,
         _: &mut EventManager,
         _: &BpfThreadMap,
         _: &LoadSnapshotParams,
