@@ -16,8 +16,9 @@
 /// to temporary buffers, before passing it on to the vsock backend.
 use std::result;
 
-use utils::byte_order;
-use vm_memory::{self, GuestAddress, GuestMemory, GuestMemoryError};
+use vm_memory::{
+    self, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
+};
 
 use super::super::DescriptorChain;
 use super::defs;
@@ -26,7 +27,6 @@ use super::{Result, VsockError};
 // The vsock packet header is defined by the C struct:
 //
 // ```C
-// struct virtio_vsock_hdr {
 //     le64 src_cid;
 //     le64 dst_cid;
 //     le32 src_port;
@@ -37,62 +37,59 @@ use super::{Result, VsockError};
 //     le32 flags;
 //     le32 buf_alloc;
 //     le32 fwd_cnt;
-// };
+// } __attribute__((packed));
 // ```
-//
-// This structed will occupy the buffer pointed to by the head descriptor. We'll be accessing it
-// as a byte slice. To that end, we define below the offsets for each field struct, as well as the
-// packed struct size, as a bunch of `usize` consts.
-// Note that these offsets are only used privately by the `VsockPacket` struct, the public interface
-// consisting of getter and setter methods, for each struct field, that will also handle the correct
-// endianess.
+// We create a rust structure that mirrors it.
+// The mirroring struct is only used privately by `VsockPacket`, that offers getter and setter
+// methods, for each struct field, that will also handle the correct endianess.
 
-/// The vsock packet header struct size (when packed).
+#[repr(packed)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct VsockPacketHeader {
+    // Source CID.
+    src_cid: u64,
+    // Destination CID.
+    dst_cid: u64,
+    // Source port.
+    src_port: u32,
+    // Destination port.
+    dst_port: u32,
+    // Data length (in bytes) - may be 0, if there is no data buffer.
+    len: u32,
+    // Socket type. Currently, only connection-oriented streams are defined by the vsock protocol.
+    type_: u16,
+    // Operation ID - one of the VSOCK_OP_* values; e.g.
+    // - VSOCK_OP_RW: a data packet;
+    // - VSOCK_OP_REQUEST: connection request;
+    // - VSOCK_OP_RST: forcefull connection termination;
+    // etc (see `super::defs::uapi` for the full list).
+    op: u16,
+    // Additional options (flags) associated with the current operation (`op`).
+    // Currently, only used with shutdown requests (VSOCK_OP_SHUTDOWN).
+    flags: u32,
+    // Size (in bytes) of the packet sender receive buffer (for the connection to which this packet
+    // belongs).
+    buf_alloc: u32,
+    // Number of bytes the sender has received and consumed (for the connection to which this packet
+    // belongs). For instance, for our Unix backend, this counter would be the total number of bytes
+    // we have successfully written to a backing Unix socket.
+    fwd_cnt: u32,
+}
+
+/// The vsock packet header struct size (the struct is packed).
 pub const VSOCK_PKT_HDR_SIZE: usize = 44;
 
-// Source CID.
-const HDROFF_SRC_CID: usize = 0;
-
-// Destination CID.
-const HDROFF_DST_CID: usize = 8;
-
-// Source port.
-const HDROFF_SRC_PORT: usize = 16;
-
-// Destination port.
-const HDROFF_DST_PORT: usize = 20;
-
-// Data length (in bytes) - may be 0, if there is no data buffer.
-const HDROFF_LEN: usize = 24;
-
-// Socket type. Currently, only connection-oriented streams are defined by the vsock protocol.
-const HDROFF_TYPE: usize = 28;
-
-// Operation ID - one of the VSOCK_OP_* values; e.g.
-// - VSOCK_OP_RW: a data packet;
-// - VSOCK_OP_REQUEST: connection request;
-// - VSOCK_OP_RST: forcefull connection termination;
-// etc (see `super::defs::uapi` for the full list).
-const HDROFF_OP: usize = 30;
-
-// Additional options (flags) associated with the current operation (`op`).
-// Currently, only used with shutdown requests (VSOCK_OP_SHUTDOWN).
-const HDROFF_FLAGS: usize = 32;
-
-// Size (in bytes) of the packet sender receive buffer (for the connection to which this packet
-// belongs).
-const HDROFF_BUF_ALLOC: usize = 36;
-
-// Number of bytes the sender has received and consumed (for the connection to which this packet
-// belongs). For instance, for our Unix backend, this counter would be the total number of bytes
-// we have successfully written to a backing Unix socket.
-const HDROFF_FWD_CNT: usize = 40;
+unsafe impl ByteValued for VsockPacketHeader {}
 
 /// The vsock packet, implemented as a wrapper over a virtq descriptor chain:
 /// - the chain head, holding the packet header; and
 /// - (an optional) data/buffer descriptor, only present for data packets (VSOCK_OP_RW).
 pub struct VsockPacket {
-    hdr: *mut u8,
+    hdr_addr: GuestAddress,
+    // For performance purposes we hold a local copy of the Packet header.
+    // This reduces the number of calls to `vm-memory` to a minimum:
+    // 1 write for Rx and 1 read for Tx, plus 1 `check_range` call for each.
+    hdr: VsockPacketHeader,
     buf: Option<*mut u8>,
     buf_size: usize,
 }
@@ -119,6 +116,11 @@ impl VsockPacket {
 
     fn check_hdr_desc(hdr_desc: &DescriptorChain, expected_write_only: bool) -> Result<()> {
         Self::check_desc_write_only(hdr_desc, expected_write_only)?;
+
+        // Validate the packet header address
+        if !hdr_desc.mem.check_range(hdr_desc.addr, VSOCK_PKT_HDR_SIZE) {
+            return Err(VsockError::GuestMemoryBounds);
+        }
 
         // The packet header should fit inside the head descriptor.
         if hdr_desc.len < VSOCK_PKT_HDR_SIZE as u32 {
@@ -153,8 +155,18 @@ impl VsockPacket {
     pub fn from_tx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self> {
         Self::check_hdr_desc(hdr_desc, false)?;
 
+        // Validate the packet header address
+        if !hdr_desc.mem.check_range(hdr_desc.addr, VSOCK_PKT_HDR_SIZE) {
+            return Err(VsockError::GuestMemoryBounds);
+        }
+
         let mut pkt = Self {
-            hdr: get_host_address(hdr_desc.mem, hdr_desc.addr, VSOCK_PKT_HDR_SIZE)
+            hdr_addr: hdr_desc.addr,
+            // On the Tx path the header is provided by the guest and is read only for Firecracker.
+            // So we read it here once and we work with the local copy from now on.
+            hdr: hdr_desc
+                .mem
+                .read_obj(hdr_desc.addr)
                 .map_err(VsockError::GuestMemoryMmap)?,
             buf: None,
             buf_size: 0,
@@ -190,8 +202,12 @@ impl VsockPacket {
         Self::check_hdr_desc(hdr_desc, true)?;
 
         let mut pkt = Self {
-            hdr: get_host_address(hdr_desc.mem, hdr_desc.addr, VSOCK_PKT_HDR_SIZE)
-                .map_err(VsockError::GuestMemoryMmap)?,
+            hdr_addr: hdr_desc.addr,
+            // On the Rx path the header has to be filled by Firecracker. The guest only provides
+            // a write-only memory area that Firecracker can write the header into. So we initialize
+            // the local copy with zeros, we write to it whenever we need to, and we only commit it
+            // to the guest memory once, before marking the RX descriptor chain as used.
+            hdr: VsockPacketHeader::default(),
             buf: None,
             buf_size: 0,
         };
@@ -201,18 +217,15 @@ impl VsockPacket {
         Ok(pkt)
     }
 
-    /// Provides in-place, byte-slice, access to the vsock packet header.
-    pub fn hdr(&self) -> &[u8] {
-        // This is safe since bound checks have already been performed when creating the packet
-        // from the virtq descriptor.
-        unsafe { std::slice::from_raw_parts(self.hdr as *const u8, VSOCK_PKT_HDR_SIZE) }
+    /// Provides in-place access to the local copy of the vsock packet header.
+    pub fn hdr(&self) -> &VsockPacketHeader {
+        &self.hdr
     }
 
-    /// Provides in-place, byte-slice, mutable access to the vsock packet header.
-    pub fn hdr_mut(&mut self) -> &mut [u8] {
-        // This is safe since bound checks have already been performed when creating the packet
-        // from the virtq descriptor.
-        unsafe { std::slice::from_raw_parts_mut(self.hdr, VSOCK_PKT_HDR_SIZE) }
+    /// Writes the local copy of the packet header to the guest memory.
+    pub fn commit_hdr(&self, mem: &GuestMemoryMmap) -> Result<()> {
+        mem.write_obj(self.hdr, self.hdr_addr)
+            .map_err(VsockError::GuestMemoryMmap)
     }
 
     /// Provides in-place, byte-slice access to the vsock packet data buffer.
@@ -246,74 +259,74 @@ impl VsockPacket {
     }
 
     pub fn src_cid(&self) -> u64 {
-        byte_order::read_le_u64(&self.hdr()[HDROFF_SRC_CID..])
+        u64::from_le(self.hdr.src_cid)
     }
 
     pub fn set_src_cid(&mut self, cid: u64) -> &mut Self {
-        byte_order::write_le_u64(&mut self.hdr_mut()[HDROFF_SRC_CID..], cid);
+        self.hdr.src_cid = cid.to_le();
         self
     }
 
     pub fn dst_cid(&self) -> u64 {
-        byte_order::read_le_u64(&self.hdr()[HDROFF_DST_CID..])
+        u64::from_le(self.hdr.dst_cid)
     }
 
     pub fn set_dst_cid(&mut self, cid: u64) -> &mut Self {
-        byte_order::write_le_u64(&mut self.hdr_mut()[HDROFF_DST_CID..], cid);
+        self.hdr.dst_cid = cid.to_le();
         self
     }
 
     pub fn src_port(&self) -> u32 {
-        byte_order::read_le_u32(&self.hdr()[HDROFF_SRC_PORT..])
+        u32::from_le(self.hdr.src_port)
     }
 
     pub fn set_src_port(&mut self, port: u32) -> &mut Self {
-        byte_order::write_le_u32(&mut self.hdr_mut()[HDROFF_SRC_PORT..], port);
+        self.hdr.src_port = port.to_le();
         self
     }
 
     pub fn dst_port(&self) -> u32 {
-        byte_order::read_le_u32(&self.hdr()[HDROFF_DST_PORT..])
+        u32::from_le(self.hdr.dst_port)
     }
 
     pub fn set_dst_port(&mut self, port: u32) -> &mut Self {
-        byte_order::write_le_u32(&mut self.hdr_mut()[HDROFF_DST_PORT..], port);
+        self.hdr.dst_port = port.to_le();
         self
     }
 
     pub fn len(&self) -> u32 {
-        byte_order::read_le_u32(&self.hdr()[HDROFF_LEN..])
+        u32::from_le(self.hdr.len)
     }
 
     pub fn set_len(&mut self, len: u32) -> &mut Self {
-        byte_order::write_le_u32(&mut self.hdr_mut()[HDROFF_LEN..], len);
+        self.hdr.len = len.to_le();
         self
     }
 
     pub fn type_(&self) -> u16 {
-        byte_order::read_le_u16(&self.hdr()[HDROFF_TYPE..])
+        u16::from_le(self.hdr.type_)
     }
 
     pub fn set_type(&mut self, type_: u16) -> &mut Self {
-        byte_order::write_le_u16(&mut self.hdr_mut()[HDROFF_TYPE..], type_);
+        self.hdr.type_ = type_.to_le();
         self
     }
 
     pub fn op(&self) -> u16 {
-        byte_order::read_le_u16(&self.hdr()[HDROFF_OP..])
+        u16::from_le(self.hdr.op)
     }
 
     pub fn set_op(&mut self, op: u16) -> &mut Self {
-        byte_order::write_le_u16(&mut self.hdr_mut()[HDROFF_OP..], op);
+        self.hdr.op = op.to_le();
         self
     }
 
     pub fn flags(&self) -> u32 {
-        byte_order::read_le_u32(&self.hdr()[HDROFF_FLAGS..])
+        u32::from_le(self.hdr.flags)
     }
 
     pub fn set_flags(&mut self, flags: u32) -> &mut Self {
-        byte_order::write_le_u32(&mut self.hdr_mut()[HDROFF_FLAGS..], flags);
+        self.hdr.flags = flags.to_le();
         self
     }
 
@@ -323,20 +336,20 @@ impl VsockPacket {
     }
 
     pub fn buf_alloc(&self) -> u32 {
-        byte_order::read_le_u32(&self.hdr()[HDROFF_BUF_ALLOC..])
+        u32::from_le(self.hdr.buf_alloc)
     }
 
     pub fn set_buf_alloc(&mut self, buf_alloc: u32) -> &mut Self {
-        byte_order::write_le_u32(&mut self.hdr_mut()[HDROFF_BUF_ALLOC..], buf_alloc);
+        self.hdr.buf_alloc = buf_alloc.to_le();
         self
     }
 
     pub fn fwd_cnt(&self) -> u32 {
-        byte_order::read_le_u32(&self.hdr()[HDROFF_FWD_CNT..])
+        u32::from_le(self.hdr.fwd_cnt)
     }
 
     pub fn set_fwd_cnt(&mut self, fwd_cnt: u32) -> &mut Self {
-        byte_order::write_le_u32(&mut self.hdr_mut()[HDROFF_FWD_CNT..], fwd_cnt);
+        self.hdr.fwd_cnt = fwd_cnt.to_le();
         self
     }
 }
@@ -383,11 +396,15 @@ mod tests {
     }
 
     fn set_pkt_len(len: u32, guest_desc: &GuestQDesc, mem: &GuestMemoryMmap) {
-        let hdr_gpa = guest_desc.addr.get();
-        let hdr_ptr = get_host_address(mem, GuestAddress(hdr_gpa), VSOCK_PKT_HDR_SIZE).unwrap();
-        let len_ptr = unsafe { hdr_ptr.add(HDROFF_LEN) };
+        let hdr_addr = GuestAddress(guest_desc.addr.get());
+        let mut hdr: VsockPacketHeader = mem.read_obj(hdr_addr).unwrap();
+        hdr.len = len.to_le();
+        mem.write_obj(hdr, hdr_addr).unwrap();
+    }
 
-        byte_order::write_le_u32(unsafe { std::slice::from_raw_parts_mut(len_ptr, 4) }, len);
+    #[test]
+    fn test_packet_hdr_size() {
+        assert_eq!(VSOCK_PKT_HDR_SIZE, std::mem::size_of::<VsockPacketHeader>());
     }
 
     #[test]
@@ -403,7 +420,6 @@ mod tests {
                     .unwrap(),
             )
             .unwrap();
-            assert_eq!(pkt.hdr().len(), VSOCK_PKT_HDR_SIZE);
             assert_eq!(
                 pkt.buf().unwrap().len(),
                 handler_ctx.guest_txvq.dtable[1].len.get() as usize
@@ -493,7 +509,6 @@ mod tests {
                     .unwrap(),
             )
             .unwrap();
-            assert_eq!(pkt.hdr().len(), VSOCK_PKT_HDR_SIZE);
             assert_eq!(
                 pkt.buf().unwrap().len(),
                 handler_ctx.guest_rxvq.dtable[1].len.get() as usize
@@ -576,44 +591,7 @@ mod tests {
         pkt.set_flag(0b1000);
         assert_eq!(pkt.flags(), flags);
 
-        // Test packet header as-slice access.
-        //
-
-        assert_eq!(pkt.hdr().len(), VSOCK_PKT_HDR_SIZE);
-
-        assert_eq!(
-            SRC_CID,
-            byte_order::read_le_u64(&pkt.hdr()[HDROFF_SRC_CID..])
-        );
-        assert_eq!(
-            DST_CID,
-            byte_order::read_le_u64(&pkt.hdr()[HDROFF_DST_CID..])
-        );
-        assert_eq!(
-            SRC_PORT,
-            byte_order::read_le_u32(&pkt.hdr()[HDROFF_SRC_PORT..])
-        );
-        assert_eq!(
-            DST_PORT,
-            byte_order::read_le_u32(&pkt.hdr()[HDROFF_DST_PORT..])
-        );
-        assert_eq!(LEN, byte_order::read_le_u32(&pkt.hdr()[HDROFF_LEN..]));
-        assert_eq!(TYPE, byte_order::read_le_u16(&pkt.hdr()[HDROFF_TYPE..]));
-        assert_eq!(OP, byte_order::read_le_u16(&pkt.hdr()[HDROFF_OP..]));
-        assert_eq!(FLAGS, byte_order::read_le_u32(&pkt.hdr()[HDROFF_FLAGS..]));
-        assert_eq!(
-            BUF_ALLOC,
-            byte_order::read_le_u32(&pkt.hdr()[HDROFF_BUF_ALLOC..])
-        );
-        assert_eq!(
-            FWD_CNT,
-            byte_order::read_le_u32(&pkt.hdr()[HDROFF_FWD_CNT..])
-        );
-
-        assert_eq!(pkt.hdr_mut().len(), VSOCK_PKT_HDR_SIZE);
-        for b in pkt.hdr_mut() {
-            *b = 0;
-        }
+        pkt.hdr = VsockPacketHeader::default();
         assert_eq!(pkt.src_cid(), 0);
         assert_eq!(pkt.dst_cid(), 0);
         assert_eq!(pkt.src_port(), 0);

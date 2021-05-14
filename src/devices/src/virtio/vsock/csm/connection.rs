@@ -648,13 +648,6 @@ where
 
     /// Prepare a packet header for transmission to our peer.
     fn init_pkt<'a>(&self, pkt: &'a mut VsockPacket) -> &'a mut VsockPacket {
-        // Make sure the header is zeroed-out first.
-        // This looks sub-optimal, but it is actually optimized-out in the compiled code to be
-        // faster than a memset().
-        for b in pkt.hdr_mut() {
-            *b = 0;
-        }
-
         pkt.set_src_cid(self.local_cid)
             .set_dst_cid(self.peer_cid)
             .set_src_port(self.local_port)
@@ -775,9 +768,6 @@ mod tests {
     }
 
     fn init_pkt(pkt: &mut VsockPacket, op: u16, len: u32) -> &mut VsockPacket {
-        for b in pkt.hdr_mut() {
-            *b = 0;
-        }
         pkt.set_src_cid(PEER_CID)
             .set_dst_cid(LOCAL_CID)
             .set_src_port(PEER_PORT)
