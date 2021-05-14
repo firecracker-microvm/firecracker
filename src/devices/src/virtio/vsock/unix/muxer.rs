@@ -824,9 +824,6 @@ mod tests {
         }
 
         fn init_pkt(&mut self, local_port: u32, peer_port: u32, op: u16) -> &mut VsockPacket {
-            for b in self.pkt.hdr_mut() {
-                *b = 0;
-            }
             self.pkt
                 .set_type(uapi::VSOCK_TYPE_STREAM)
                 .set_src_cid(PEER_CID)
