@@ -117,6 +117,7 @@ impl ParsedRequest {
                     Self::success_response_with_data(balloon_config)
                 }
                 VmmData::BalloonStats(stats) => Self::success_response_with_data(stats),
+                VmmData::InstanceInformation(info) => Self::success_response_with_data(info),
             },
             Err(vmm_action_error) => {
                 error!(
