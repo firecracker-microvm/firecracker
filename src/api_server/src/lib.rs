@@ -15,9 +15,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::{fmt, io};
 
 use crate::parsed_request::ParsedRequest;
-use logger::{
-    debug, error, info, update_metric_with_elapsed_time, IncMetric, ProcessTimeReporter, METRICS,
-};
+use logger::{debug, error, info, update_metric_with_elapsed_time, ProcessTimeReporter, METRICS};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
@@ -27,7 +25,6 @@ use mmds::data_store::Mmds;
 use seccompiler::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
-use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::snapshot::SnapshotType;
 
 use vmm::FC_EXIT_CODE_BAD_CONFIGURATION;
@@ -69,8 +66,6 @@ type Result<T> = std::result::Result<T, Error>;
 pub struct ApiServer {
     /// MMDS info directly accessible from the API thread.
     mmds_info: Arc<Mutex<Mmds>>,
-    /// Firecracker instance info exposed through API.
-    instance_info: InstanceInfo,
     /// Sender which allows passing messages to the VMM.
     api_request_sender: mpsc::Sender<ApiRequest>,
     /// Receiver which collects messages from the VMM.
@@ -89,14 +84,12 @@ impl ApiServer {
     /// Returns the newly formed `ApiServer`.
     pub fn new(
         mmds_info: Arc<Mutex<Mmds>>,
-        instance_info: InstanceInfo,
         api_request_sender: mpsc::Sender<ApiRequest>,
         vmm_response_receiver: mpsc::Receiver<ApiResponse>,
         to_vmm_fd: EventFd,
     ) -> Self {
         ApiServer {
             mmds_info,
-            instance_info,
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -125,9 +118,10 @@ impl ApiServer {
     /// };
     /// use std::env::consts::ARCH;
     /// use utils::{eventfd::EventFd, tempfile::TempFile};
-    /// use vmm::vmm_config::instance_info::InstanceInfo;
     /// use logger::ProcessTimeReporter;
+    /// use vmm::rpc_interface::VmmData;
     /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
+    /// use vmm::vmm_config::instance_info::InstanceInfo;
     ///
     /// let mut tmp_socket = TempFile::new().unwrap();
     /// tmp_socket.remove().unwrap();
@@ -145,7 +139,6 @@ impl ApiServer {
     ///     .spawn(move || {
     ///         ApiServer::new(
     ///             mmds_info,
-    ///             InstanceInfo::default(),
     ///             api_request_sender,
     ///             vmm_response_receiver,
     ///             to_vmm_fd,
@@ -159,7 +152,12 @@ impl ApiServer {
     ///     })
     ///     .unwrap();
     ///
-    /// thread::sleep(Duration::new(0, 10_000_000));
+    /// thread::sleep(Duration::from_millis(10));
+    /// to_api
+    ///     .send(Box::new(Ok(VmmData::InstanceInformation(
+    ///         InstanceInfo::default(),
+    ///     ))))
+    ///     .unwrap();
     /// let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
     /// // Send a GET instance-info request.
     /// assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
@@ -247,7 +245,6 @@ impl ApiServer {
             Ok(ParsedRequest::Sync(vmm_action)) => {
                 self.serve_vmm_action_request(vmm_action, request_processing_start_us)
             }
-            Ok(ParsedRequest::GetInstanceInfo) => self.get_instance_info(),
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
             Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
@@ -282,12 +279,6 @@ impl ApiServer {
             _ => None,
         };
 
-        let vmm_new_state = match *vmm_action {
-            VmmAction::StartMicroVm => VmState::Running,
-            VmmAction::Pause => VmState::Paused,
-            VmmAction::Resume => VmState::Running,
-            _ => self.instance_info.state.clone(),
-        };
         self.api_request_sender
             .send(vmm_action)
             .expect("Failed to send VMM message");
@@ -297,7 +288,6 @@ impl ApiServer {
         let response = ParsedRequest::convert_to_response(&vmm_outcome);
 
         if vmm_outcome.is_ok() {
-            self.instance_info.state = vmm_new_state;
             if let Some((metric, action)) = metric_with_action {
                 let elapsed_time_us =
                     update_metric_with_elapsed_time(metric, request_processing_start_us);
@@ -311,23 +301,6 @@ impl ApiServer {
         // Errors considered as fatal are added here
         if let Err(VmmActionError::LoadSnapshot(_)) = response {
             self.vmm_fatal_error = true;
-        }
-    }
-
-    fn get_instance_info(&self) -> Response {
-        let shared_info = self.instance_info.clone();
-        // Serialize it to a JSON string.
-        let body_result = serde_json::to_string(&shared_info);
-        match body_result {
-            Ok(body) => ApiServer::json_response(StatusCode::OK, body),
-            Err(e) => {
-                // This is an api server metrics as the shared info is obtained internally.
-                METRICS.get_api_requests.instance_info_fails.inc();
-                ApiServer::json_response(
-                    StatusCode::BadRequest,
-                    ApiServer::json_fault_message(e.to_string()),
-                )
-            }
         }
     }
 
@@ -445,7 +418,6 @@ mod tests {
 
         let mut api_server = ApiServer::new(
             mmds_info,
-            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -499,25 +471,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_instance_info() {
-        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let (api_request_sender, _from_api) = channel();
-        let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
-
-        let api_server = ApiServer::new(
-            mmds_info,
-            InstanceInfo::default(),
-            api_request_sender,
-            vmm_response_receiver,
-            to_vmm_fd,
-        );
-
-        let response = api_server.get_instance_info();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[test]
     fn test_get_mmds() {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
@@ -526,7 +479,6 @@ mod tests {
 
         let api_server = ApiServer::new(
             mmds_info,
-            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -545,7 +497,6 @@ mod tests {
 
         let api_server = ApiServer::new(
             mmds_info,
-            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -563,7 +514,6 @@ mod tests {
 
         let api_server = ApiServer::new(
             mmds_info,
-            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
@@ -591,16 +541,10 @@ mod tests {
 
         let mut api_server = ApiServer::new(
             mmds_info,
-            InstanceInfo::default(),
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
         );
-        to_api
-            .send(Box::new(Err(VmmActionError::StartMicrovm(
-                StartMicrovmError::MissingKernelConfig,
-            ))))
-            .unwrap();
 
         // Test an Actions request.
         let (mut sender, receiver) = UnixStream::pair().unwrap();
@@ -621,6 +565,11 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BadRequest);
 
         // Test a Get Info request.
+        to_api
+            .send(Box::new(Ok(VmmData::InstanceInformation(
+                InstanceInfo::default(),
+            ))))
+            .unwrap();
         sender.write_all(b"GET / HTTP/1.1\r\n\r\n").unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
@@ -692,7 +641,6 @@ mod tests {
             .spawn(move || {
                 ApiServer::new(
                     mmds_info,
-                    InstanceInfo::default(),
                     api_request_sender,
                     vmm_response_receiver,
                     to_vmm_fd,
@@ -707,11 +655,11 @@ mod tests {
             .unwrap();
 
         // Wait for the server to set itself up.
-        thread::sleep(Duration::new(0, 10_000_000));
+        thread::sleep(Duration::from_millis(10));
         let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
 
-        // Send a GET instance-info request.
-        assert!(sock.write_all(b"GET / HTTP/1.1\r\n\r\n").is_ok());
+        // Send a GET mmds request.
+        assert!(sock.write_all(b"GET /mmds HTTP/1.1\r\n\r\n").is_ok());
         let mut buf: [u8; 100] = [0; 100];
         assert!(sock.read(&mut buf[..]).unwrap() > 0);
 
