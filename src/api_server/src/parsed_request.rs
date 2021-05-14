@@ -1,6 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use serde::ser::Serialize;
 use serde_json::Value;
 
 use super::VmmData;
@@ -90,6 +91,16 @@ impl ParsedRequest {
         }
     }
 
+    fn success_response_with_data<T>(body_data: &T) -> Response
+    where
+        T: ?Sized + Serialize,
+    {
+        info!("The request was executed successfully. Status code: 200 OK.");
+        let mut response = Response::new(Version::Http11, StatusCode::OK);
+        response.set_body(Body::new(serde_json::to_string(body_data).unwrap()));
+        response
+    }
+
     pub(crate) fn convert_to_response(
         request_outcome: &std::result::Result<VmmData, VmmActionError>,
     ) -> Response {
@@ -100,23 +111,12 @@ impl ParsedRequest {
                     Response::new(Version::Http11, StatusCode::NoContent)
                 }
                 VmmData::MachineConfiguration(vm_config) => {
-                    info!("The request was executed successfully. Status code: 200 OK.");
-                    let mut response = Response::new(Version::Http11, StatusCode::OK);
-                    response.set_body(Body::new(vm_config.to_string()));
-                    response
+                    Self::success_response_with_data(vm_config)
                 }
                 VmmData::BalloonConfig(balloon_config) => {
-                    info!("The request was executed successfully. Status code: 200 OK.");
-                    let mut response = Response::new(Version::Http11, StatusCode::OK);
-                    response.set_body(Body::new(serde_json::to_string(balloon_config).unwrap()));
-                    response
+                    Self::success_response_with_data(balloon_config)
                 }
-                VmmData::BalloonStats(stats) => {
-                    info!("The request was executed successfully. Status code: 200 OK.");
-                    let mut response = Response::new(Version::Http11, StatusCode::OK);
-                    response.set_body(Body::new(serde_json::to_string(stats).unwrap()));
-                    response
-                }
+                VmmData::BalloonStats(stats) => Self::success_response_with_data(stats),
             },
             Err(vmm_action_error) => {
                 error!(
@@ -500,7 +500,8 @@ pub(crate) mod tests {
             VmConfig::default(),
         )));
         assert!(response.write_all(&mut buf).is_ok());
-        let expected_response = http_response(&VmConfig::default().to_string(), 200);
+        let expected_response =
+            http_response(&serde_json::to_string(&VmConfig::default()).unwrap(), 200);
         assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
         // With Balloon Stats Vmm data.
