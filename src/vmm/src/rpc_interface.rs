@@ -62,6 +62,8 @@ pub enum VmmAction {
     GetBalloonStats,
     /// Get the configuration of the microVM.
     GetVmConfiguration,
+    /// Get microVM instance information.
+    GetVmInstanceInfo,
     /// Flush the metrics. This action can only be called after the logger has been configured.
     FlushMetrics,
     /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
@@ -201,6 +203,8 @@ pub enum VmmData {
     Empty,
     /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(VmConfig),
+    /// The microVM instance information.
+    InstanceInformation(InstanceInfo),
 }
 
 /// Shorthand result type for external VMM commands.
@@ -294,6 +298,7 @@ impl<'a> PrebootApiController<'a> {
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
+            GetVmInstanceInfo => Ok(VmmData::InstanceInformation(self.instance_info.clone())),
             InsertBlockDevice(config) => self.insert_block_device(config),
             InsertNetworkDevice(config) => self.insert_net_device(config),
             LoadSnapshot(config) => self.load_snapshot(&config),
@@ -467,6 +472,9 @@ impl RuntimeApiController {
                 .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
             GetVmConfiguration => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
+            )),
+            GetVmInstanceInfo => Ok(VmmData::InstanceInformation(
+                self.vmm.lock().expect("Poisoned lock").instance_info(),
             )),
             Pause => self.pause(),
             Resume => self.resume(),
@@ -902,6 +910,10 @@ mod tests {
             }
             self.update_net_rate_limiters_called = true;
             Ok(())
+        }
+
+        pub fn instance_info(&self) -> InstanceInfo {
+            InstanceInfo::default()
         }
     }
 

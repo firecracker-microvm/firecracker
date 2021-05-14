@@ -248,6 +248,11 @@ pub struct Vmm {
 }
 
 impl Vmm {
+    /// Gets Vmm instance info.
+    pub fn instance_info(&self) -> InstanceInfo {
+        self.instance_info.clone()
+    }
+
     /// Gets the specified bus device.
     pub fn get_bus_device(
         &self,
