@@ -452,12 +452,8 @@ def test_negative_postload_api(bin_cloner_path):
     fail_msg = "The requested operation is not supported after starting " \
         "the microVM"
 
-    try:
-        microvm.start()
-    except AssertionError as error:
-        assert fail_msg in str(error)
-    else:
-        assert False, "Negative test failed"
+    response = microvm.actions.put(action_type='InstanceStart')
+    assert fail_msg in response.text
 
     try:
         microvm.basic_config()

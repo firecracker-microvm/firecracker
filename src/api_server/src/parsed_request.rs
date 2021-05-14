@@ -27,7 +27,6 @@ use logger::{error, info};
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 pub(crate) enum ParsedRequest {
-    GetInstanceInfo,
     GetMMDS,
     PatchMMDS(Value),
     PutMMDS(Value),
@@ -273,7 +272,6 @@ pub(crate) mod tests {
                 (&ParsedRequest::Sync(ref sync_req), &ParsedRequest::Sync(ref other_sync_req)) => {
                     sync_req == other_sync_req
                 }
-                (&ParsedRequest::GetInstanceInfo, &ParsedRequest::GetInstanceInfo) => true,
                 (&ParsedRequest::GetMMDS, &ParsedRequest::GetMMDS) => true,
                 (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
                     val == other_val

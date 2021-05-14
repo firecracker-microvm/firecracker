@@ -138,7 +138,6 @@ pub(crate) fn run_with_api(
 
     // MMDS only supported with API.
     let mmds_info = MMDS.clone();
-    let api_server_instance_info = instance_info.clone();
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
@@ -151,15 +150,11 @@ pub(crate) fn run_with_api(
         .spawn(move || {
             mask_handled_signals().expect("Unable to install signal mask on API thread.");
 
-            match ApiServer::new(
-                mmds_info,
-                api_server_instance_info,
-                to_vmm,
-                from_vmm,
-                to_vmm_event_fd,
-            )
-            .bind_and_run(bind_path, process_time_reporter, &api_seccomp_filter)
-            {
+            match ApiServer::new(mmds_info, to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
+                bind_path,
+                process_time_reporter,
+                &api_seccomp_filter,
+            ) {
                 Ok(_) => (),
                 Err(api_server::Error::Io(inner)) => match inner.kind() {
                     std::io::ErrorKind::AddrInUse => panic!(
