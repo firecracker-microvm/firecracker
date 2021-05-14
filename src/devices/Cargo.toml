@@ -24,4 +24,4 @@ utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
 
 [dev-dependencies]
-proptest = ">=0.9"
+proptest = ">=1.0.0"
