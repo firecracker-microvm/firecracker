@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use super::mmio::*;
 use crate::EventManager;
+use logger::error;
 
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
@@ -187,7 +188,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             let transport_state = mmio_transport.save();
 
-            let locked_device = mmio_transport.locked_device();
+            let mut locked_device = mmio_transport.locked_device();
             match locked_device.device_type() {
                 TYPE_BALLOON => {
                     let balloon_state = locked_device
@@ -226,14 +227,24 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
                 TYPE_VSOCK => {
                     let vsock = locked_device
-                        .as_any()
+                        .as_mut_any()
                         // Currently, VsockUnixBackend is the only implementation of VsockBackend.
-                        .downcast_ref::<Vsock<VsockUnixBackend>>()
+                        .downcast_mut::<Vsock<VsockUnixBackend>>()
                         .unwrap();
+
                     let vsock_state = VsockState {
                         backend: vsock.backend().save(),
                         frontend: vsock.save(),
                     };
+
+                    // Send Transport event to reset connections if device
+                    // is activated.
+                    if vsock.is_activated() {
+                        vsock.send_transport_reset_event().unwrap_or_else(|e| {
+                            error!("Failed to send reset transport event: {:?}", e);
+                        });
+                    }
+
                     states.vsock_device = Some(ConnectedVsockState {
                         device_id: devid.clone(),
                         device_state: vsock_state,
