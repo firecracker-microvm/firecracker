@@ -259,7 +259,7 @@ impl Vmm {
     pub fn start_vcpus(
         &mut self,
         mut vcpus: Vec<Vcpu>,
-        vcpu_seccomp_filter: BpfProgram,
+        vcpu_seccomp_filter: Arc<BpfProgram>,
     ) -> Result<()> {
         let vcpu_count = vcpus.len();
 
@@ -271,8 +271,6 @@ impl Vmm {
 
         self.vcpus_handles.reserve(vcpu_count as usize);
 
-        let filter = Arc::new(vcpu_seccomp_filter);
-
         for mut vcpu in vcpus.drain(..) {
             vcpu.set_mmio_bus(self.mmio_device_manager.bus.clone());
             #[cfg(target_arch = "x86_64")]
@@ -280,7 +278,7 @@ impl Vmm {
                 .set_pio_bus(self.pio_device_manager.io_bus.clone());
 
             self.vcpus_handles.push(
-                vcpu.start_threaded(filter.clone())
+                vcpu.start_threaded(Arc::clone(&vcpu_seccomp_filter))
                     .map_err(Error::VcpuHandle)?,
             );
         }
