@@ -349,16 +349,10 @@ pub struct ApiServerMetrics {
 pub struct GetRequestsMetrics {
     /// Number of GETs for getting information on the instance.
     pub instance_info_count: SharedIncMetric,
-    /// Number of failures when obtaining information on the current instance.
-    pub instance_info_fails: SharedIncMetric,
     /// Number of GETs for getting status on attaching machine configuration.
     pub machine_cfg_count: SharedIncMetric,
-    /// Number of failures during GETs for getting information on the instance.
-    pub machine_cfg_fails: SharedIncMetric,
     /// Number of GETs for getting mmds.
     pub mmds_count: SharedIncMetric,
-    /// Number of failures during GETs for getting mmds.
-    pub mmds_fails: SharedIncMetric,
 }
 
 /// Metrics specific to PUT API Requests for counting user triggered actions and/or failures.
