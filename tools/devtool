@@ -795,13 +795,13 @@ cmd_strip() {
       strip $strip_flags\
         "$CTR_CARGO_TARGET_DIR/$target/$profile/firecracker" \
         "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer" \
-        "$CTR_CARGO_TARGET_DIR/$target/$profile/seccompiler/seccompiler"
+        "$CTR_CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler"
     ret=$?
 
     [ $ret -eq 0 ] && {
-        cargo_bin_dir="$CARGO_TARGET_DIR/$target/$profile"
         say "Stripping was successful."
-        say "Stripped binaries placed under $cargo_bin_dir."
+        say "Stripped Firecracker and Jailer binaries placed under $CARGO_TARGET_DIR/$target/$profile."
+        say "Stripped seccompiler binary placed under $CARGO_SECCOMPILER_TARGET_DIR/$target/$profile."
     }
 
     return $ret
