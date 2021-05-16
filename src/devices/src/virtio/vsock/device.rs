@@ -144,7 +144,7 @@ where
         while let Some(head) = self.queues[RXQ_INDEX].pop(mem) {
             let used_len = match VsockPacket::from_rx_virtq_head(&head) {
                 Ok(mut pkt) => {
-                    if self.backend.recv_pkt(&mut pkt).is_ok() {
+                    if self.backend.recv_pkt(&mut pkt, mem).is_ok() {
                         match pkt.commit_hdr(mem) {
                             Ok(()) => VSOCK_PKT_HDR_SIZE as u32 + pkt.len(),
                             Err(e) => {
@@ -207,7 +207,7 @@ where
                 }
             };
 
-            if self.backend.send_pkt(&pkt).is_err() {
+            if self.backend.send_pkt(&pkt, mem).is_err() {
                 self.queues[TXQ_INDEX].undo_pop();
                 break;
             }

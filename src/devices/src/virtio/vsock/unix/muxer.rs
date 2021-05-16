@@ -37,6 +37,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
+use vm_memory::GuestMemoryMmap;
 
 use super::super::csm::ConnState;
 use super::super::defs::uapi;
@@ -118,7 +119,7 @@ impl VsockChannel for VsockMuxer {
     /// - `Ok(())`: `pkt` has been successfully filled in; or
     /// - `Err(VsockError::NoData)`: there was no available data with which to fill in the
     ///   packet.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> VsockResult<()> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // We'll look for instructions on how to build the RX packet in the RX queue. If the
         // queue is empty, that doesn't necessarily mean we don't have any pending RX, since
         // the queue might be out-of-sync. If that's the case, we'll attempt to sync it first,
@@ -154,7 +155,7 @@ impl VsockChannel for VsockMuxer {
                     let mut conn_res = Err(VsockError::NoData);
                     let mut do_pop = true;
                     self.apply_conn_mutation(key, |conn| {
-                        conn_res = conn.recv_pkt(pkt);
+                        conn_res = conn.recv_pkt(pkt, mem);
                         do_pop = !conn.has_pending_rx();
                     });
                     if do_pop {
@@ -191,7 +192,7 @@ impl VsockChannel for VsockMuxer {
     /// Returns:
     /// always `Ok(())` - the packet has been consumed, and its virtio TX buffers can be
     /// returned to the guest vsock driver.
-    fn send_pkt(&mut self, pkt: &VsockPacket) -> VsockResult<()> {
+    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         let conn_key = ConnMapKey {
             local_port: pkt.dst_port(),
             peer_port: pkt.src_port(),
@@ -245,7 +246,7 @@ impl VsockChannel for VsockMuxer {
         // Alright, everything looks in order - forward this packet to its owning connection.
         let mut res: VsockResult<()> = Ok(());
         self.apply_conn_mutation(conn_key, |conn| {
-            res = conn.send_pkt(pkt);
+            res = conn.send_pkt(pkt, mem);
         });
 
         res
@@ -848,11 +849,15 @@ mod tests {
         }
 
         fn send(&mut self) {
-            self.muxer.send_pkt(&self.pkt).unwrap();
+            self.muxer
+                .send_pkt(&self.pkt, &self._vsock_test_ctx.mem)
+                .unwrap();
         }
 
         fn recv(&mut self) {
-            self.muxer.recv_pkt(&mut self.pkt).unwrap();
+            self.muxer
+                .recv_pkt(&mut self.pkt, &self._vsock_test_ctx.mem)
+                .unwrap();
         }
 
         fn notify_muxer(&mut self) {
