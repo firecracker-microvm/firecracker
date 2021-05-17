@@ -389,7 +389,7 @@ pub fn snapshot_state_sanity_check(
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
 pub fn restore_from_snapshot(
     event_manager: &mut EventManager,
-    seccomp_filters: &mut BpfThreadMap,
+    seccomp_filters: &BpfThreadMap,
     params: &LoadSnapshotParams,
     version_map: VersionMap,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {

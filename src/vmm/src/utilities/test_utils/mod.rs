@@ -19,7 +19,7 @@ const VMM_ERR_EXIT: i32 = 42;
 
 pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>>, EventManager) {
     let mut event_manager = EventManager::new().unwrap();
-    let mut empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    let empty_seccomp_filters = get_filters(SeccompConfig::None).unwrap();
 
     let boot_source_cfg = MockBootSourceConfig::new().with_default_boot_args();
     #[cfg(target_arch = "aarch64")]
@@ -39,7 +39,7 @@ pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>
     };
 
     (
-        build_microvm_for_boot(&resources, &mut event_manager, &mut empty_seccomp_filters).unwrap(),
+        build_microvm_for_boot(&resources, &mut event_manager, &empty_seccomp_filters).unwrap(),
         event_manager,
     )
 }

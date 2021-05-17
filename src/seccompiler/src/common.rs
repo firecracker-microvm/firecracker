@@ -5,7 +5,6 @@
 //! and the seccompiler binary.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// The maximum seccomp-BPF program length allowed by the linux kernel.
 pub(crate) const BPF_MAX_LEN: usize = 4096;
@@ -24,6 +23,3 @@ pub struct sock_filter {
 
 /// Program made up of a sequence of BPF instructions.
 pub type BpfProgram = Vec<sock_filter>;
-
-/// Type that associates a thread category to a BPF program.
-pub type BpfThreadMap = HashMap<String, BpfProgram>;
