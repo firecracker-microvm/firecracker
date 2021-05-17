@@ -365,12 +365,10 @@ pub fn build_microvm_for_boot(
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(
         vcpus,
-        Arc::new(
-            seccomp_filters
-                .get("vcpu")
-                .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
-                .clone(),
-        ),
+        seccomp_filters
+            .get("vcpu")
+            .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
+            .clone(),
     )
     .map_err(Internal)?;
 
@@ -452,12 +450,10 @@ pub fn build_microvm_from_snapshot(
     // Move vcpus to their own threads and start their state machine in the 'Paused' state.
     vmm.start_vcpus(
         vcpus,
-        Arc::new(
-            seccomp_filters
-                .get("vcpu")
-                .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
-                .clone(),
-        ),
+        seccomp_filters
+            .get("vcpu")
+            .ok_or_else(|| MissingSeccompFilters("vcpu".to_string()))?
+            .clone(),
     )
     .map_err(Internal)?;
 

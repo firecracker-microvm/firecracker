@@ -25,7 +25,7 @@ use crate::backend::{
     Comment, Error as SeccompFilterError, SeccompAction, SeccompCondition, SeccompFilter,
     SeccompRule, SeccompRuleMap, TargetArch,
 };
-use crate::common::BpfThreadMap;
+use crate::common::BpfProgram;
 use crate::syscall_table::SyscallTable;
 use serde::Deserialize;
 
@@ -144,9 +144,9 @@ impl Compiler {
         &self,
         filters: HashMap<String, Filter>,
         is_basic: bool,
-    ) -> Result<BpfThreadMap> {
+    ) -> Result<HashMap<String, BpfProgram>> {
         self.validate_filters(&filters)?;
-        let mut bpf_map = BpfThreadMap::new();
+        let mut bpf_map: HashMap<String, BpfProgram> = HashMap::new();
 
         for (thread_name, filter) in filters.into_iter() {
             if is_basic {

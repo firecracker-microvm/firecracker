@@ -915,7 +915,7 @@ mod tests {
 
         let mut seccomp_filters = get_filters(SeccompConfig::None).unwrap();
         let vcpu_handle = vcpu
-            .start_threaded(Arc::new(seccomp_filters.remove("vcpu").unwrap()))
+            .start_threaded(seccomp_filters.remove("vcpu").unwrap())
             .expect("failed to start vcpu");
 
         (vcpu_handle, vcpu_exit_evt)
