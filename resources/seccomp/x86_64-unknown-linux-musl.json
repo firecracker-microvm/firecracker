@@ -156,6 +156,19 @@
                 ]
             },
             {
+                "syscall": "mmap",
+                "comment": "Used for reading the timezone in LocalTime::now()",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::MAP_SHARED"
+                    }
+                ]
+            },
+            {
                 "syscall": "socket",
                 "comment": "Called to open the vsock UDS",
                 "args": [
@@ -487,7 +500,14 @@
                 "syscall": "write"
             },
             {
+                "syscall": "open"
+            },
+            {
                 "syscall": "close"
+            },
+            {
+                "syscall": "fstat",
+                "comment": "Used for reading the local timezone from /etc/localtime"
             },
             {
                 "syscall": "brk",
@@ -532,6 +552,19 @@
                         "op": "eq",
                         "val": 129,
                         "comment": "FUTEX_WAKE_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
+                "comment": "Used for reading the timezone in LocalTime::now()",
+                "args": [
+                    {
+                        "arg_index": 3,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "libc::MAP_SHARED"
                     }
                 ]
             },
