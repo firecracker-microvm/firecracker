@@ -595,6 +595,8 @@ cmd_help() {
     echo "        Outputs a rust file for each supported arch: src/seccompiler/src/syscall_table/{arch}.rs"
     echo "        Supported architectures: x86_64 and aarch64."
     echo ""
+    echo "    distclean"
+    echo "        Clean up the build tree and remove the docker container."
 }
 
 # `$0 build` - build Firecracker
@@ -735,6 +737,24 @@ cmd_build() {
     }
 
     return $ret
+}
+
+cmd_distclean() {
+    # List of folders to remove.
+    dirs=("build" "test_results")
+
+    for dir in "${dirs[@]}"; do
+        if [ -d "$dir" ]; then
+            say "Removing $dir"
+            rm -rf "$dir"
+        fi
+    done
+
+    # Remove devctr if it exists
+    if [ $(docker images -q "$DEVCTR_IMAGE" | wc -l) -eq "1" ]; then
+        say "Removing $DEVCTR_IMAGE"
+        docker rmi -f "$DEVCTR_IMAGE"
+    fi
 }
 
 cmd_strip() {
@@ -1293,9 +1313,9 @@ cmd_generate_syscall_tables() {
                 chmod +x+w "$KERNEL_DIR"
             } || \
             die "Error: wrong permissions for $KERNEL_DIR. Should be +x+w"
-    
+
     cd "$KERNEL_DIR"
-    
+
     say "Fetching linux kernel..."
 
     # Get sha256 checksum.

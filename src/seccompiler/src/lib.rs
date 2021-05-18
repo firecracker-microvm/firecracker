@@ -10,11 +10,16 @@ mod common;
 use bincode::Error as BincodeError;
 use bincode::{DefaultOptions, Options};
 use common::BPF_MAX_LEN;
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Read;
+use std::sync::Arc;
 
 // Re-export the data types needed for calling the helper functions.
-pub use common::{sock_filter, BpfProgram, BpfThreadMap};
+pub use common::{sock_filter, BpfProgram};
+
+/// Type that associates a thread category to a BPF program.
+pub type BpfThreadMap = HashMap<String, Arc<BpfProgram>>;
 
 // BPF structure definition for filter array.
 // See /usr/include/linux/filter.h .
@@ -83,15 +88,15 @@ pub fn deserialize_binary<R: Read>(
             .with_fixint_encoding()
             .allow_trailing_bytes()
             .with_limit(limit)
-            .deserialize_from::<R, BpfThreadMap>(reader),
+            .deserialize_from::<R, HashMap<String, BpfProgram>>(reader),
         // No limit is the default.
-        None => bincode::deserialize_from::<R, BpfThreadMap>(reader),
+        None => bincode::deserialize_from::<R, HashMap<String, BpfProgram>>(reader),
     };
 
     Ok(result
         .map_err(DeserializationError::Bincode)?
         .into_iter()
-        .map(|(k, v)| (k.to_lowercase(), v))
+        .map(|(k, v)| (k.to_lowercase(), Arc::new(v)))
         .collect())
 }
 
@@ -140,6 +145,8 @@ pub fn apply_filter(bpf_filter: BpfProgramRef) -> std::result::Result<(), Instal
 mod tests {
     use super::*;
     use crate::common::BpfProgram;
+    use std::collections::HashMap;
+    use std::sync::Arc;
     use std::thread;
     #[test]
     fn test_deserialize_binary() {
@@ -166,12 +173,12 @@ mod tests {
                     k: 4,
                 },
             ];
-            let mut filter_map = BpfThreadMap::new();
+            let mut filter_map: HashMap<String, BpfProgram> = HashMap::new();
             filter_map.insert("VcpU".to_string(), bpf_prog.clone());
             let bytes = bincode::serialize(&filter_map).unwrap();
 
             let mut expected_res = BpfThreadMap::new();
-            expected_res.insert("vcpu".to_string(), bpf_prog);
+            expected_res.insert("vcpu".to_string(), Arc::new(bpf_prog));
             assert_eq!(deserialize_binary(&bytes[..], None).unwrap(), expected_res);
         }
 
@@ -184,8 +191,8 @@ mod tests {
                 k: 0,
             }];
 
-            let mut filter_map = BpfThreadMap::new();
-            filter_map.insert("t1".to_string(), bpf_prog);
+            let mut filter_map: HashMap<String, BpfProgram> = HashMap::new();
+            filter_map.insert("t1".to_string(), bpf_prog.clone());
 
             let bytes = bincode::serialize(&filter_map).unwrap();
 
@@ -196,10 +203,13 @@ mod tests {
                     if error.to_string() == "the size limit has been reached"
             ));
 
+            let mut expected_res = BpfThreadMap::new();
+            expected_res.insert("t1".to_string(), Arc::new(bpf_prog));
+
             // Correct binary limit.
             assert_eq!(
                 deserialize_binary(&bytes[..], Some(50)).unwrap(),
-                filter_map
+                expected_res
             );
         }
     }

@@ -5,6 +5,7 @@ use seccompiler::{deserialize_binary, BpfThreadMap, DeserializationError, Instal
 use std::fmt;
 use std::fs::File;
 use std::io::{BufReader, Read};
+use std::sync::Arc;
 
 const THREAD_CATEGORIES: [&str; 3] = ["vmm", "api", "vcpu"];
 
@@ -122,9 +123,9 @@ fn get_default_filters(basic: bool) -> Result<BpfThreadMap, FilterError> {
 /// Retrieve empty seccomp filters.
 fn get_empty_filters() -> BpfThreadMap {
     let mut map = BpfThreadMap::new();
-    map.insert("vmm".to_string(), vec![]);
-    map.insert("api".to_string(), vec![]);
-    map.insert("vcpu".to_string(), vec![]);
+    map.insert("vmm".to_string(), Arc::new(vec![]));
+    map.insert("api".to_string(), Arc::new(vec![]));
+    map.insert("vcpu".to_string(), Arc::new(vec![]));
     map
 }
 
@@ -199,18 +200,18 @@ mod tests {
     fn test_filter_thread_categories() {
         // correct categories
         let mut map = BpfThreadMap::new();
-        map.insert("vcpu".to_string(), vec![]);
-        map.insert("vmm".to_string(), vec![]);
-        map.insert("api".to_string(), vec![]);
+        map.insert("vcpu".to_string(), Arc::new(vec![]));
+        map.insert("vmm".to_string(), Arc::new(vec![]));
+        map.insert("api".to_string(), Arc::new(vec![]));
 
         assert_eq!(filter_thread_categories(map).unwrap().len(), 3);
 
         // invalid categories
         let mut map = BpfThreadMap::new();
-        map.insert("vcpu".to_string(), vec![]);
-        map.insert("vmm".to_string(), vec![]);
-        map.insert("thread1".to_string(), vec![]);
-        map.insert("thread2".to_string(), vec![]);
+        map.insert("vcpu".to_string(), Arc::new(vec![]));
+        map.insert("vmm".to_string(), Arc::new(vec![]));
+        map.insert("thread1".to_string(), Arc::new(vec![]));
+        map.insert("thread2".to_string(), Arc::new(vec![]));
 
         match filter_thread_categories(map).unwrap_err() {
             FilterError::ThreadCategories(err) => {
@@ -221,8 +222,8 @@ mod tests {
 
         // missing category
         let mut map = BpfThreadMap::new();
-        map.insert("vcpu".to_string(), vec![]);
-        map.insert("vmm".to_string(), vec![]);
+        map.insert("vcpu".to_string(), Arc::new(vec![]));
+        map.insert("vmm".to_string(), Arc::new(vec![]));
 
         match filter_thread_categories(map).unwrap_err() {
             FilterError::MissingThreadCategory(name) => assert_eq!(name, "api"),

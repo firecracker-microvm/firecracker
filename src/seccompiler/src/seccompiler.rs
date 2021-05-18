@@ -46,7 +46,7 @@ use std::{fmt, io, process};
 
 use backend::{TargetArch, TargetArchError};
 use bincode::Error as BincodeError;
-use common::BpfThreadMap;
+use common::BpfProgram;
 use compiler::{Compiler, Error as FilterFormatError, Filter};
 use serde_json::error::Error as JSONError;
 use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag};
@@ -162,7 +162,7 @@ fn compile(args: &Arguments) -> Result<()> {
     let compiler = Compiler::new(args.target_arch);
 
     // transform the IR into a Map of BPFPrograms
-    let bpf_data: BpfThreadMap = compiler
+    let bpf_data: HashMap<String, BpfProgram> = compiler
         .compile_blob(filters, args.is_basic)
         .map_err(Error::FileFormat)?;
 
