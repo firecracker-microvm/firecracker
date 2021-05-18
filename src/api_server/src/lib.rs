@@ -76,6 +76,8 @@ pub struct ApiServer {
     /// If this flag is set, the process encountered a fatal error
     /// and it is going to exit once it sends any pending API response.
     vmm_fatal_error: bool,
+    /// If this flag is set, the API thread will go down.
+    shutdown_flag: bool,
 }
 
 impl ApiServer {
@@ -94,6 +96,7 @@ impl ApiServer {
             vmm_response_receiver,
             to_vmm_fd,
             vmm_fatal_error: false,
+            shutdown_flag: false,
         }
     }
 
@@ -191,45 +194,57 @@ impl ApiServer {
         }
 
         server.start_server().expect("Cannot start HTTP server");
+
         loop {
-            match server.requests() {
-                Ok(request_vec) => {
-                    for server_request in request_vec {
-                        let request_processing_start_us =
-                            utils::time::get_time_us(utils::time::ClockType::Monotonic);
-                        server
-                            .respond(
-                                // Use `self.handle_request()` as the processing callback.
-                                server_request.process(|request| {
-                                    self.handle_request(request, request_processing_start_us)
-                                }),
-                            )
-                            .or_else(|e| {
-                                error!("API Server encountered an error on response: {}", e);
-                                Ok(())
-                            })?;
-                        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
-                            - request_processing_start_us;
-                        debug!("Total previous API call duration: {} us.", delta_us);
-                        if self.vmm_fatal_error {
-                            // Flush the remaining outgoing responses
-                            // and proceed to exit
-                            server.flush_outgoing_writes();
-                            error!(
-                                "Fatal error with exit code: {}",
-                                FC_EXIT_CODE_BAD_CONFIGURATION
-                            );
-                            unsafe {
-                                libc::_exit(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
-                            }
-                        }
-                    }
-                }
+            let request_vec = match server.requests() {
+                Ok(vec) => vec,
                 Err(e) => {
+                    // print request error, but keep server running
                     error!(
                         "API Server error on retrieving incoming request. Error: {}",
                         e
                     );
+                    continue;
+                }
+            };
+            for server_request in request_vec {
+                let request_processing_start_us =
+                    utils::time::get_time_us(utils::time::ClockType::Monotonic);
+                server
+                    .respond(
+                        // Use `self.handle_request()` as the processing callback.
+                        server_request.process(|request| {
+                            self.handle_request(request, request_processing_start_us)
+                        }),
+                    )
+                    .or_else(|e| {
+                        error!("API Server encountered an error on response: {}", e);
+                        Ok(())
+                    })?;
+
+                let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
+                    - request_processing_start_us;
+                debug!("Total previous API call duration: {} us.", delta_us);
+
+                if self.shutdown_flag {
+                    server.flush_outgoing_writes();
+                    debug!(
+                        "/shutdown-internal request received, API server thread now ending itself"
+                    );
+                    return Ok(());
+                }
+                // TODO: remove this workaround error-path exit when have end-to-end clean teardown.
+                if self.vmm_fatal_error {
+                    // Flush the remaining outgoing responses
+                    // and proceed to exit
+                    server.flush_outgoing_writes();
+                    error!(
+                        "Fatal error with exit code: {}",
+                        FC_EXIT_CODE_BAD_CONFIGURATION
+                    );
+                    unsafe {
+                        libc::_exit(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
+                    }
                 }
             }
         }
@@ -248,6 +263,10 @@ impl ApiServer {
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
             Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
+            Ok(ParsedRequest::ShutdownInternal) => {
+                self.shutdown_flag = true;
+                Response::new(Version::Http11, StatusCode::NoContent)
+            }
             Err(e) => {
                 error!("{}", e);
                 e.into()
