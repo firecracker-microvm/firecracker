@@ -33,7 +33,9 @@ import pytest
 from _pytest.mark import Expression, MarkMatcher
 from _pytest.main import ExitCode
 
+from . import defs  # pylint: disable=relative-beyond-top-level
 from . import mpsing  # pylint: disable=relative-beyond-top-level
+from . import report as treport  # pylint: disable=relative-beyond-top-level
 
 
 class PytestScheduler(mpsing.MultiprocessSingleton):
@@ -48,6 +50,9 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         super().__init__()
         self._mp_singletons = [self]
         self.session = None
+
+        # Initialize a report for this session
+        self._report = treport.Report(defs.TEST_RESULTS_DIR / "report")
 
     def register_mp_singleton(self, mp_singleton):
         """Register a multi-process singleton object.
@@ -91,6 +96,14 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         """
         self._add_report(report)
 
+        # Mark it as finished after the call
+        if report.when == "call":
+            self._report.finish_test_item(report)
+
+    def pytest_report_collectionfinish(self, items, *_):
+        """Pytest hook. Called after collecting all the tests."""
+        self._report.add_collected_items(items)
+
     @staticmethod
     def filter_batch(config, batch, marker_name):
         """Deselect marked tests which are not explicitly selected."""
@@ -105,6 +118,13 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
                     break
 
         config.hook.pytest_deselected(items=deselected)
+
+    def pytest_pyfunc_call(self, pyfuncitem):
+        """Pytest hook. Called before executing a test."""
+        # Overwrite the function with a custom one to catch return values.
+        # These are used to catch expected vs. actual values and used in
+        # reporting
+        self._report.catch_return(pyfuncitem)
 
     def pytest_runtestloop(self, session):
         """Pytest hook. The main test scheduling and running loop.
