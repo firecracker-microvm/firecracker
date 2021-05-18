@@ -152,7 +152,7 @@ def test_create_invalid_version(bin_cloner_path):
             version="invalid")
     except AssertionError as error:
         # Check if proper error is returned.
-        assert "Cannot translate microVM version to snapshot data version" in \
+        assert "Invalid microVM version format." in \
             str(error)
     else:
         assert False, "Negative test failed"
