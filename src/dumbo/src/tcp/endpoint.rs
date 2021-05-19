@@ -172,7 +172,7 @@ impl Endpoint {
             // If we got here, then we still have some response bytes to send (which are
             // stored in self.response_buf).
 
-            // It seems we just recevied the last ACK we were waiting for, so the entire
+            // It seems we just received the last ACK we were waiting for, so the entire
             // response has been successfully received. Set the new response_seq and clear
             // the response_buf.
             self.response_seq = self.connection.highest_ack_received();
