@@ -312,7 +312,9 @@ fn build_response(http_version: Version, status_code: StatusCode, body: Body) ->
 
 /// Parses the request bytes and builds a `micro_http::Response` by the given callback function.
 fn parse_request_bytes(byte_stream: &[u8], callback: fn(Request) -> Response) -> Response {
-    let request = Request::try_from(byte_stream);
+    // There is no need to bound the request length, because the byte stream comes from
+    // a source with maximum size of `RCV_BUF_MAX_SIZE`.
+    let request = Request::try_from(byte_stream, None);
     match request {
         Ok(request) => callback(request),
         Err(e) => match e {
