@@ -15,10 +15,9 @@
 /// in guest memory. This is done to avoid unnecessarily copying data from guest memory
 /// to temporary buffers, before passing it on to the vsock backend.
 use std::io::{Read, Write};
-use std::result;
 
 use vm_memory::{
-    self, Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
+    self, Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap,
     GuestMemoryRegion, GuestRegionMmap, MemoryRegionAddress,
 };
 
@@ -93,16 +92,7 @@ pub struct VsockPacket {
     // 1 write for Rx and 1 read for Tx, plus 1 `check_range` call for each.
     hdr: VsockPacketHeader,
     buf_addr: Option<GuestAddress>,
-    buf: Option<*mut u8>,
     buf_size: usize,
-}
-
-fn get_host_address<T: GuestMemory>(
-    mem: &T,
-    guest_addr: GuestAddress,
-    size: usize,
-) -> result::Result<*mut u8, GuestMemoryError> {
-    Ok(mem.get_slice(guest_addr, size)?.as_ptr())
 }
 
 impl VsockPacket {
@@ -150,10 +140,6 @@ impl VsockPacket {
         }
 
         self.buf_addr = Some(buf_desc.addr);
-        self.buf = Some(
-            get_host_address(buf_desc.mem, buf_desc.addr, buf_size)
-                .map_err(VsockError::GuestMemoryMmap)?,
-        );
         self.buf_size = buf_size;
 
         Ok(())
@@ -181,7 +167,6 @@ impl VsockPacket {
                 .read_obj(hdr_desc.addr)
                 .map_err(VsockError::GuestMemoryMmap)?,
             buf_addr: None,
-            buf: None,
             buf_size: 0,
         };
 
@@ -222,7 +207,6 @@ impl VsockPacket {
             // to the guest memory once, before marking the RX descriptor chain as used.
             hdr: VsockPacketHeader::default(),
             buf_addr: None,
-            buf: None,
             buf_size: 0,
         };
 
@@ -240,36 +224,6 @@ impl VsockPacket {
     pub fn commit_hdr(&self, mem: &GuestMemoryMmap) -> Result<()> {
         mem.write_obj(self.hdr, self.hdr_addr)
             .map_err(VsockError::GuestMemoryMmap)
-    }
-
-    /// Provides in-place, byte-slice access to the vsock packet data buffer.
-    ///
-    /// Note: control packets (e.g. connection request or reset) have no data buffer associated.
-    ///       For those packets, this method will return `None`.
-    /// Also note: calling `len()` on the returned slice will yield the buffer size, which may be
-    ///            (and often is) larger than the length of the packet data. The packet data length
-    ///            is stored in the packet header, and accessible via `VsockPacket::len()`.
-    pub fn buf(&self) -> Option<&[u8]> {
-        self.buf.map(|ptr| {
-            // This is safe since bound checks have already been performed when creating the packet
-            // from the virtq descriptor.
-            unsafe { std::slice::from_raw_parts(ptr as *const u8, self.buf_size) }
-        })
-    }
-
-    /// Provides in-place, byte-slice, mutable access to the vsock packet data buffer.
-    ///
-    /// Note: control packets (e.g. connection request or reset) have no data buffer associated.
-    ///       For those packets, this method will return `None`.
-    /// Also note: calling `len()` on the returned slice will yield the buffer size, which may be
-    ///            (and often is) larger than the length of the packet data. The packet data length
-    ///            is stored in the packet header, and accessible via `VsockPacket::len()`.
-    pub fn buf_mut(&mut self) -> Option<&mut [u8]> {
-        self.buf.map(|ptr| {
-            // This is safe since bound checks have already been performed when creating the packet
-            // from the virtq descriptor.
-            unsafe { std::slice::from_raw_parts_mut(ptr, self.buf_size) }
-        })
     }
 
     pub fn buf_size(&self) -> usize {
@@ -508,7 +462,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(
-                pkt.buf().unwrap().len(),
+                pkt.buf_size(),
                 handler_ctx.guest_txvq.dtable[1].len.get() as usize
             );
         }
@@ -535,14 +489,13 @@ mod tests {
         {
             create_context!(test_ctx, handler_ctx);
             set_pkt_len(0, &handler_ctx.guest_txvq.dtable[0], &test_ctx.mem);
-            let mut pkt = VsockPacket::from_tx_virtq_head(
+            let pkt = VsockPacket::from_tx_virtq_head(
                 &handler_ctx.device.queues[TXQ_INDEX]
                     .pop(&test_ctx.mem)
                     .unwrap(),
             )
             .unwrap();
-            assert!(pkt.buf().is_none());
-            assert!(pkt.buf_mut().is_none());
+            assert!(pkt.buf_addr.is_none());
         }
 
         // Test case: TX packet has more data than we can handle.
@@ -597,7 +550,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(
-                pkt.buf().unwrap().len(),
+                pkt.buf_size,
                 handler_ctx.guest_rxvq.dtable[1].len.get() as usize
             );
         }

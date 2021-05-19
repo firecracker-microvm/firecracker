@@ -841,10 +841,17 @@ mod tests {
             peer_port: u32,
             data: &[u8],
         ) -> &mut VsockPacket {
-            assert!(data.len() <= self.pkt.buf().unwrap().len() as usize);
+            assert!(data.len() <= self.pkt.buf_size());
             self.init_pkt(local_port, peer_port, uapi::VSOCK_OP_RW)
                 .set_len(data.len() as u32);
-            self.pkt.buf_mut().unwrap()[..data.len()].copy_from_slice(data);
+            self.pkt
+                .read_at_offset_from(
+                    &self._vsock_test_ctx.mem,
+                    0,
+                    &mut std::io::Cursor::new(data.to_vec()),
+                    data.len(),
+                )
+                .unwrap();
             &mut self.pkt
         }
 
@@ -1074,9 +1081,19 @@ mod tests {
         assert!(ctx.muxer.has_pending_rx());
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
-        assert_eq!(ctx.pkt.buf().unwrap()[..data.len()], data);
         assert_eq!(ctx.pkt.src_port(), LOCAL_PORT);
         assert_eq!(ctx.pkt.dst_port(), PEER_PORT);
+
+        let mut buf = vec![];
+        ctx.pkt
+            .write_from_offset_to(
+                &ctx._vsock_test_ctx.mem,
+                0,
+                &mut buf,
+                ctx.pkt.len() as usize,
+            )
+            .unwrap();
+        assert_eq!(&buf, &data);
 
         assert!(!ctx.muxer.has_pending_rx());
     }
@@ -1106,7 +1123,17 @@ mod tests {
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
         assert_eq!(ctx.pkt.src_port(), local_port);
         assert_eq!(ctx.pkt.dst_port(), peer_port);
-        assert_eq!(ctx.pkt.buf().unwrap()[..data.len()], data);
+
+        let mut buf = vec![];
+        ctx.pkt
+            .write_from_offset_to(
+                &ctx._vsock_test_ctx.mem,
+                0,
+                &mut buf,
+                ctx.pkt.len() as usize,
+            )
+            .unwrap();
+        assert_eq!(&buf, &data);
     }
 
     #[test]

@@ -57,14 +57,17 @@ impl Default for TestBackend {
 }
 
 impl VsockChannel for TestBackend {
-    fn recv_pkt(&mut self, _pkt: &mut VsockPacket, _mem: &GuestMemoryMmap) -> Result<()> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<()> {
         let cool_buf = [0xDu8, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF];
         match self.rx_err.take() {
             None => {
-                if let Some(buf) = _pkt.buf_mut() {
-                    for i in 0..buf.len() {
-                        buf[i] = cool_buf[i % cool_buf.len()];
-                    }
+                let buf_size = pkt.buf_size();
+                if buf_size > 0 {
+                    let buf: Vec<u8> = (0..buf_size)
+                        .map(|i| cool_buf[i % cool_buf.len()])
+                        .collect();
+                    pkt.read_at_offset_from(mem, 0, &mut std::io::Cursor::new(buf), buf_size)
+                        .unwrap();
                 }
                 self.rx_ok_cnt += 1;
                 Ok(())

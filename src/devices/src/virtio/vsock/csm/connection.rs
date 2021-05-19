@@ -890,9 +890,16 @@ mod tests {
         }
 
         fn init_data_pkt(&mut self, data: &[u8]) -> &VsockPacket {
-            assert!(data.len() <= self.pkt.buf().unwrap().len());
+            assert!(data.len() <= self.pkt.buf_size());
             self.init_pkt(uapi::VSOCK_OP_RW, data.len() as u32);
-            self.pkt.buf_mut().unwrap()[..data.len()].copy_from_slice(data);
+            self.pkt
+                .read_at_offset_from(
+                    &self._vsock_test_ctx.mem,
+                    0,
+                    &mut std::io::Cursor::new(data.to_vec()),
+                    data.len(),
+                )
+                .unwrap();
             &self.pkt
         }
     }
@@ -960,7 +967,17 @@ mod tests {
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
         assert_eq!(ctx.pkt.len() as usize, data.len());
-        assert_eq!(ctx.pkt.buf().unwrap()[..ctx.pkt.len() as usize], *data);
+
+        let mut buf = vec![];
+        ctx.pkt
+            .write_from_offset_to(
+                &ctx._vsock_test_ctx.mem,
+                0,
+                &mut buf,
+                ctx.pkt.len() as usize,
+            )
+            .unwrap();
+        assert_eq!(&buf, data);
 
         // There's no more data in the stream, so `recv_pkt` should yield `VsockError::NoData`.
         match ctx.conn.recv_pkt(&mut ctx.pkt, &ctx._vsock_test_ctx.mem) {
@@ -1030,7 +1047,17 @@ mod tests {
             ctx.notify_epollin();
             ctx.recv();
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
-            assert_eq!(&ctx.pkt.buf().unwrap()[..ctx.pkt.len() as usize], data);
+
+            let mut buf = vec![];
+            ctx.pkt
+                .write_from_offset_to(
+                    &ctx._vsock_test_ctx.mem,
+                    0,
+                    &mut buf,
+                    ctx.pkt.len() as usize,
+                )
+                .unwrap();
+            assert_eq!(&buf, data);
 
             ctx.init_data_pkt(data);
             ctx.send();
@@ -1222,7 +1249,7 @@ mod tests {
         ctx.set_stream(stream);
 
         // Fill up the TX buffer.
-        let data = vec![0u8; ctx.pkt.buf().unwrap().len()];
+        let data = vec![0u8; ctx.pkt.buf_size()];
         ctx.init_data_pkt(data.as_slice());
         for _i in 0..(csm_defs::CONN_TX_BUF_SIZE / data.len() as u32) {
             ctx.send();
