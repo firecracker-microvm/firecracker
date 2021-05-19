@@ -14,7 +14,7 @@
 /// `VsockPacket` wraps these two buffers and provides direct access to the data stored
 /// in guest memory. This is done to avoid unnecessarily copying data from guest memory
 /// to temporary buffers, before passing it on to the vsock backend.
-use std::io::Read;
+use std::io::{Read, Write};
 use std::result;
 
 use vm_memory::{
@@ -327,6 +327,19 @@ impl VsockPacket {
         let (region, region_addr) = self.buf_region_addr(mem, offset, count)?;
         region
             .read_from(region_addr, src, count)
+            .map_err(VsockError::GuestMemoryMmap)
+    }
+
+    pub fn write_from_offset_to<F: Write>(
+        &self,
+        mem: &GuestMemoryMmap,
+        offset: usize,
+        dst: &mut F,
+        count: usize,
+    ) -> Result<usize> {
+        let (region, region_addr) = self.buf_region_addr(mem, offset, count)?;
+        region
+            .write_to(region_addr, dst, count)
             .map_err(VsockError::GuestMemoryMmap)
     }
 
