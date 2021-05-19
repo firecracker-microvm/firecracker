@@ -14,6 +14,7 @@
 /// `VsockPacket` wraps these two buffers and provides direct access to the data stored
 /// in guest memory. This is done to avoid unnecessarily copying data from guest memory
 /// to temporary buffers, before passing it on to the vsock backend.
+use std::io::Read;
 use std::result;
 
 use vm_memory::{
@@ -314,6 +315,19 @@ impl VsockPacket {
                 Some((region, region_addr))
             })
             .ok_or(VsockError::GuestMemoryBounds)
+    }
+
+    pub fn read_at_offset_from<F: Read>(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        offset: usize,
+        src: &mut F,
+        count: usize,
+    ) -> Result<usize> {
+        let (region, region_addr) = self.buf_region_addr(mem, offset, count)?;
+        region
+            .read_from(region_addr, src, count)
+            .map_err(VsockError::GuestMemoryMmap)
     }
 
     pub fn src_cid(&self) -> u64 {

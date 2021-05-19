@@ -92,7 +92,7 @@ use super::super::{Result as VsockResult, VsockChannel, VsockEpollListener, Vsoc
 use super::defs;
 use super::txbuf::TxBuf;
 use super::{ConnState, Error, PendingRx, PendingRxSet, Result};
-use vm_memory::GuestMemoryMmap;
+use vm_memory::{GuestMemoryError, GuestMemoryMmap};
 
 /// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
 /// socket and a host-side `Read + Write + AsRawFd` stream.
@@ -151,7 +151,7 @@ where
     ///    packet;
     /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but
     ///    it is missing the data buffer.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket, _mem: &GuestMemoryMmap) -> VsockResult<()> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
         self.init_pkt(pkt);
@@ -205,14 +205,12 @@ where
                 return Ok(());
             }
 
-            let buf = pkt.buf_mut().ok_or(VsockError::PktBufMissing)?;
-
             // The maximum amount of data we can read in is limited by both the RX buffer size and
             // the peer available buffer space.
-            let max_len = std::cmp::min(buf.len(), self.peer_avail_credit());
+            let max_len = std::cmp::min(pkt.buf_size(), self.peer_avail_credit());
 
             // Read data from the stream straight to the RX buffer, for maximum throughput.
-            match self.stream.read(&mut buf[..max_len]) {
+            match pkt.read_at_offset_from(mem, 0, &mut self.stream, max_len) {
                 Ok(read_cnt) => {
                     if read_cnt == 0 {
                         // A 0-length read means the host stream was closed down. In that case,
@@ -235,7 +233,9 @@ where
                     self.last_fwd_cnt_to_peer = self.fwd_cnt;
                     return Ok(());
                 }
-                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(err)))
+                    if err.kind() == ErrorKind::WouldBlock =>
+                {
                     // This shouldn't actually happen (receiving EWOULDBLOCK after EPOLLIN), but
                     // apparently it does, so we need to handle it greacefully.
                     warn!(
