@@ -17,7 +17,8 @@
 use std::result;
 
 use vm_memory::{
-    self, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
+    self, Address, ByteValued, Bytes, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
+    GuestMemoryRegion, GuestRegionMmap, MemoryRegionAddress,
 };
 
 use super::super::DescriptorChain;
@@ -90,6 +91,7 @@ pub struct VsockPacket {
     // This reduces the number of calls to `vm-memory` to a minimum:
     // 1 write for Rx and 1 read for Tx, plus 1 `check_range` call for each.
     hdr: VsockPacketHeader,
+    buf_addr: Option<GuestAddress>,
     buf: Option<*mut u8>,
     buf_size: usize,
 }
@@ -138,6 +140,15 @@ impl VsockPacket {
 
         Self::check_desc_write_only(&buf_desc, expected_write_only)?;
 
+        // Validate the packet buf address
+        if !buf_desc
+            .mem
+            .check_range(buf_desc.addr, buf_desc.len as usize)
+        {
+            return Err(VsockError::GuestMemoryBounds);
+        }
+
+        self.buf_addr = Some(buf_desc.addr);
         self.buf = Some(
             get_host_address(buf_desc.mem, buf_desc.addr, buf_size)
                 .map_err(VsockError::GuestMemoryMmap)?,
@@ -168,6 +179,7 @@ impl VsockPacket {
                 .mem
                 .read_obj(hdr_desc.addr)
                 .map_err(VsockError::GuestMemoryMmap)?,
+            buf_addr: None,
             buf: None,
             buf_size: 0,
         };
@@ -208,6 +220,7 @@ impl VsockPacket {
             // the local copy with zeros, we write to it whenever we need to, and we only commit it
             // to the guest memory once, before marking the RX descriptor chain as used.
             hdr: VsockPacketHeader::default(),
+            buf_addr: None,
             buf: None,
             buf_size: 0,
         };
@@ -256,6 +269,51 @@ impl VsockPacket {
             // from the virtq descriptor.
             unsafe { std::slice::from_raw_parts_mut(ptr, self.buf_size) }
         })
+    }
+
+    pub fn buf_size(&self) -> usize {
+        self.buf_size
+    }
+
+    /// Gets the GuestRegion and the MemoryRegionAddress where the buf starts.
+    ///
+    /// As they are currently implemented, `GuestMemory::write_to()` and `GuestMemory::read_from()`
+    /// have 2 significant disadvantages:
+    /// 1. Performance: They process chunks of length 4K and they copy data to an auxiliary buffer.
+    /// 2. Error handling: They don't handle `EWOULDBLOCK` correctly. So for example if it manages to
+    ///    write 1K bytes out of 10K and then receives `EWOULDBLOCK`, it returns a
+    ///    `GuestMemory::IoError`. On the Rx path we read from a stream, but we don't know its
+    ///    length. We just try to write as much as possible. This is guaranteed to lead to an
+    ///    `EWOULDBLOCK` error eventually.
+    /// This makes them unusable. But the entire buffer should be placed inside a single
+    /// `GuestRegion`. Also `GuestRegion::write_to()` and `GuestRegion::read_from()` don't have
+    /// the problems mentioned above. So we will read/write directly to/from the `GuestRegion`.
+    ///
+    /// TODO: use `GuestMemory::write_to()` and `GuestMemory::read_from()` when they are stable
+    /// enough:
+    /// 1. https://github.com/rust-vmm/vm-memory/pull/125 should be merged.
+    /// 2. The `EWOULDBLOCK` scenario should be fixed.
+    fn buf_region_addr<'a>(
+        &self,
+        mem: &'a GuestMemoryMmap,
+        offset: usize,
+        count: usize,
+    ) -> Result<(&'a GuestRegionMmap, MemoryRegionAddress)> {
+        // Check that the desired slice is inside the buf.
+        self.buf_size
+            .checked_sub(offset)
+            .and_then(|remaining_size| remaining_size.checked_sub(count))
+            .ok_or(VsockError::GuestMemoryBounds)?;
+
+        let buf_addr = self.buf_addr.ok_or(VsockError::PktBufMissing)?;
+        buf_addr
+            .checked_add(offset as u64)
+            .and_then(|offset_addr| mem.to_region_addr(offset_addr))
+            .and_then(|(region, region_addr)| {
+                region.checked_offset(region_addr, count.checked_sub(1)?)?;
+                Some((region, region_addr))
+            })
+            .ok_or(VsockError::GuestMemoryBounds)
     }
 
     pub fn src_cid(&self) -> u64 {
