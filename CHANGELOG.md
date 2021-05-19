@@ -10,6 +10,8 @@
 
 - Snapshot related host files (vm-state, memory, block backing files) are now
   flushed to their backing mediums as part of the CreateSnapshot operation.
+- Fixed race between vcpu initialization and emulation thread which could
+  potentially lead to segmentation faults.
 
 ## [0.23.3]
 

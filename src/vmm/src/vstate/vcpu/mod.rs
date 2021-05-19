@@ -6,8 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use libc::{c_int, c_void, siginfo_t};
-#[cfg(not(test))]
-use std::sync::Barrier;
+use std::sync::{Arc, Barrier};
 use std::{
     cell::Cell,
     fmt::{Display, Formatter},
@@ -224,7 +223,11 @@ impl Vcpu {
 
     /// Moves the vcpu to its own thread and constructs a VcpuHandle.
     /// The handle can be used to control the remote vcpu.
-    pub fn start_threaded(mut self, seccomp_filter: BpfProgram) -> Result<VcpuHandle> {
+    pub fn start_threaded(
+        mut self,
+        seccomp_filter: BpfProgram,
+        barrier: Arc<Barrier>,
+    ) -> Result<VcpuHandle> {
         let event_sender = self.event_sender.take().expect("vCPU already started");
         let response_receiver = self.response_receiver.take().unwrap();
         let vcpu_thread = thread::Builder::new()
@@ -232,7 +235,8 @@ impl Vcpu {
             .spawn(move || {
                 self.init_thread_local_data()
                     .expect("Cannot cleanly initialize vcpu TLS.");
-
+                // Synchronization to make sure thread local data is initialized.
+                barrier.wait();
                 self.run(seccomp_filter);
             })
             .map_err(Error::VcpuSpawn)?;
@@ -588,12 +592,7 @@ pub enum VcpuEmulation {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        convert::TryInto,
-        fmt,
-        sync::{Arc, Barrier},
-        time::Duration,
-    };
+    use std::{convert::TryInto, fmt, time::Duration};
 
     use super::*;
     use crate::vstate::vm::{tests::setup_vm, Vm};
@@ -723,9 +722,12 @@ mod tests {
         }
 
         let seccomp_filter = seccomp::SeccompFilter::empty().try_into().unwrap();
+        let barrier = Arc::new(Barrier::new(2));
         let vcpu_handle = vcpu
-            .start_threaded(seccomp_filter)
+            .start_threaded(seccomp_filter, barrier.clone())
             .expect("failed to start vcpu");
+        // Wait for vCPUs to initialize their TLS before moving forward.
+        barrier.wait();
 
         (vcpu_handle, vcpu_exit_evt)
     }
