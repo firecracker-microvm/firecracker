@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed race between vcpu initialization and emulation thread which could
+  potentially lead to segmentation faults.
+
 ## [0.24.3]
 
 ### Changed
