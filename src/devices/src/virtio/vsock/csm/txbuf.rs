@@ -135,6 +135,18 @@ impl TxBuf {
     }
 }
 
+impl Write for TxBuf {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.push(buf)
+            .map(|()| buf.len())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +212,13 @@ mod tests {
         txbuf.push(&[5, 6, 7, 8]).unwrap();
         txbuf.flush_to(&mut sink).unwrap();
         assert_eq!(sink.data, [1, 2, 3, 4, 5, 6, 7, 8]);
+        sink.clear();
+
+        txbuf.write_all(&[10, 11, 12, 13]).unwrap();
+        txbuf.write_all(&[14, 15, 16, 17]).unwrap();
+        txbuf.flush_to(&mut sink).unwrap();
+        assert_eq!(sink.data, [10, 11, 12, 13, 14, 15, 16, 17]);
+        sink.clear();
     }
 
     #[test]
@@ -216,6 +235,11 @@ mod tests {
         txbuf.push(&[1, 2, 3, 4]).unwrap();
         assert_eq!(txbuf.flush_to(&mut sink).unwrap(), 4);
         assert_eq!(sink.data, [1, 2, 3, 4]);
+        sink.clear();
+
+        txbuf.write_all(&[5, 6, 7, 8]).unwrap();
+        assert_eq!(txbuf.flush_to(&mut sink).unwrap(), 4);
+        assert_eq!(sink.data, [5, 6, 7, 8]);
     }
 
     #[test]
@@ -227,6 +251,16 @@ mod tests {
         txbuf.push(tmp.as_slice()).unwrap();
         match txbuf.push(&[1, 2]) {
             Err(Error::TxBufFull) => (),
+            other => panic!("Unexpected result: {:?}", other),
+        }
+
+        match txbuf.write(&[1, 2]) {
+            Err(e) => {
+                assert_eq!(
+                    format!("{}", e),
+                    "Attempted to push data to a full TX buffer"
+                );
+            }
             other => panic!("Unexpected result: {:?}", other),
         }
     }
