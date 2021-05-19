@@ -6,11 +6,9 @@
 // found in the THIRD-PARTY file.
 
 use libc::{c_int, c_void, siginfo_t};
-use std::sync::Arc;
-#[cfg(not(test))]
-use std::sync::Barrier;
 #[cfg(test)]
 use std::sync::Mutex;
+use std::sync::{Arc, Barrier};
 use std::{
     cell::Cell,
     fmt::{Display, Formatter},
@@ -236,7 +234,11 @@ impl Vcpu {
 
     /// Moves the vcpu to its own thread and constructs a VcpuHandle.
     /// The handle can be used to control the remote vcpu.
-    pub fn start_threaded(mut self, seccomp_filter: Arc<BpfProgram>) -> Result<VcpuHandle> {
+    pub fn start_threaded(
+        mut self,
+        seccomp_filter: Arc<BpfProgram>,
+        barrier: Arc<Barrier>,
+    ) -> Result<VcpuHandle> {
         let event_sender = self.event_sender.take().expect("vCPU already started");
         let response_receiver = self.response_receiver.take().unwrap();
         let vcpu_thread = thread::Builder::new()
@@ -247,7 +249,8 @@ impl Vcpu {
                 let filter = &*seccomp_filter;
                 self.init_thread_local_data()
                     .expect("Cannot cleanly initialize vcpu TLS.");
-
+                // Synchronization to make sure thread local data is initialized.
+                barrier.wait();
                 self.run(filter);
             })
             .map_err(Error::VcpuSpawn)?;
@@ -914,9 +917,12 @@ mod tests {
         }
 
         let mut seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
         let vcpu_handle = vcpu
-            .start_threaded(seccomp_filters.remove("vcpu").unwrap())
+            .start_threaded(seccomp_filters.remove("vcpu").unwrap(), barrier.clone())
             .expect("failed to start vcpu");
+        // Wait for vCPUs to initialize their TLS before moving forward.
+        barrier.wait();
 
         (vcpu_handle, vcpu_exit_evt)
     }

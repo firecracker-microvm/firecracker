@@ -37,8 +37,8 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::sync::mpsc::RecvTimeoutError;
-use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
 #[cfg(target_arch = "x86_64")]
@@ -269,6 +269,7 @@ impl Vmm {
         vcpu_seccomp_filter: Arc<BpfProgram>,
     ) -> Result<()> {
         let vcpu_count = vcpus.len();
+        let barrier = Arc::new(Barrier::new(vcpu_count + 1));
 
         if let Some(observer) = self.events_observer.as_mut() {
             observer.on_vmm_boot().map_err(Error::VmmObserverInit)?;
@@ -285,11 +286,13 @@ impl Vmm {
                 .set_pio_bus(self.pio_device_manager.io_bus.clone());
 
             self.vcpus_handles.push(
-                vcpu.start_threaded(Arc::clone(&vcpu_seccomp_filter))
+                vcpu.start_threaded(vcpu_seccomp_filter.clone(), barrier.clone())
                     .map_err(Error::VcpuHandle)?,
             );
         }
         self.instance_info.state = VmState::Paused;
+        // Wait for vCPUs to initialize their TLS before moving forward.
+        barrier.wait();
 
         Ok(())
     }
