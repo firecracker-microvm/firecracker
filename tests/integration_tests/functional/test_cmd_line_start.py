@@ -52,6 +52,7 @@ def test_config_start_with_api(test_microvm_with_ssh, vm_config_file):
 
     response = test_microvm.machine_cfg.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert test_microvm.state == "Running"
 
 
 @pytest.mark.parametrize(
