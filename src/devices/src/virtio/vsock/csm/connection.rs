@@ -280,7 +280,7 @@ where
     ///
     /// Returns:
     /// always `Ok(())`: the packet has been consumed;
-    fn send_pkt(&mut self, pkt: &VsockPacket, _mem: &GuestMemoryMmap) -> VsockResult<()> {
+    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // Update the peer credit information.
         self.peer_buf_alloc = pkt.buf_alloc();
         self.peer_fwd_cnt = Wrapping(pkt.fwd_cnt());
@@ -293,7 +293,7 @@ where
             ConnState::Established | ConnState::PeerClosed(_, false)
                 if pkt.op() == uapi::VSOCK_OP_RW =>
             {
-                if pkt.buf().is_none() {
+                if pkt.buf_size() == 0 {
                     info!(
                         "vsock: dropping empty data packet from guest (lp={}, pp={}",
                         self.local_port, self.peer_port
@@ -302,8 +302,7 @@ where
                 }
 
                 // Unwrapping here is safe, since we just checked `pkt.buf()` above.
-                let buf_slice = &pkt.buf().unwrap()[..(pkt.len() as usize)];
-                if let Err(err) = self.send_bytes(buf_slice) {
+                if let Err(err) = self.send_bytes(mem, &pkt) {
                     // If we can't write to the host stream, that's an unrecoverable error, so
                     // we'll terminate this connection.
                     warn!(
@@ -591,28 +590,37 @@ where
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
-    fn send_bytes(&mut self, buf: &[u8]) -> Result<()> {
+    fn send_bytes(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        pkt: &VsockPacket,
+    ) -> std::result::Result<(), VsockError> {
+        let len = pkt.len() as usize;
+
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
         // events on the underlying stream. Therefore, there's no point in attempting a write
         // at this point. `self.notify()` will get called when EPOLLOUT arrives, and it will
         // attempt to drain the TX buffer then.
         if !self.tx_buf.is_empty() {
-            return self.tx_buf.push(buf);
+            return pkt
+                .write_from_offset_to(mem, 0, &mut self.tx_buf, len)
+                .map(|_| ());
         }
 
         // The TX buffer is empty, so we can try to write straight to the host stream.
-        let written = match self.stream.write(buf) {
+        let written = match pkt.write_from_offset_to(mem, 0, &mut self.stream, len) {
             Ok(cnt) => cnt,
-            Err(e) => {
+            Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(e)))
+                if e.kind() == ErrorKind::WouldBlock =>
+            {
                 // Absorb any would-block errors, since we can always try again later.
-                if e.kind() == ErrorKind::WouldBlock {
-                    0
-                } else {
-                    // We don't know how to handle any other write error, so we'll send it up
-                    // the call chain.
-                    METRICS.vsock.tx_write_fails.inc();
-                    return Err(Error::StreamWrite(e));
-                }
+                0
+            }
+            Err(e) => {
+                // We don't know how to handle any other write error, so we'll send it up
+                // the call chain.
+                METRICS.vsock.tx_write_fails.inc();
+                return Err(e);
             }
         };
         // Move the "forwarded bytes" counter ahead by how much we were able to send out.
@@ -621,8 +629,8 @@ where
 
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
         // buffer.
-        if written < buf.len() {
-            self.tx_buf.push(&buf[written..])?;
+        if written < len {
+            pkt.write_from_offset_to(mem, written, &mut self.tx_buf, len - written)?;
         }
 
         Ok(())
