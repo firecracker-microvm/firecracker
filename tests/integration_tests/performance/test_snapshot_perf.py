@@ -55,8 +55,8 @@ CREATE_LATENCY_BASELINES = {
 # TODO: Update the table after fix. Target is < 5ms.
 LOAD_LATENCY_BASELINES = {
     'x86_64': {
-        '2vcpu_256mb.json': 8,
-        '2vcpu_512mb.json': 8,
+        '2vcpu_256mb.json': 9,
+        '2vcpu_512mb.json': 9,
     },
     'aarch64': {
         '2vcpu_256mb.json': 3,
