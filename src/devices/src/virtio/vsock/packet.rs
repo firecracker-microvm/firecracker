@@ -442,6 +442,8 @@ impl VsockPacket {
 #[cfg(test)]
 mod tests {
 
+    use std::io::Cursor;
+
     use vm_memory::{GuestAddress, GuestMemoryMmap};
 
     use super::*;
@@ -699,18 +701,47 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            pkt.buf().unwrap().len(),
-            handler_ctx.guest_rxvq.dtable[1].len.get() as usize
-        );
-        assert_eq!(
-            pkt.buf_mut().unwrap().len(),
-            handler_ctx.guest_rxvq.dtable[1].len.get() as usize
-        );
+        let buf_desc = &mut handler_ctx.guest_rxvq.dtable[1];
+        assert_eq!(pkt.buf_size(), buf_desc.len.get() as usize);
+        assert_eq!(pkt.buf_addr.unwrap().raw_value(), buf_desc.addr.get());
 
-        for i in 0..pkt.buf().unwrap().len() {
-            pkt.buf_mut().unwrap()[i] = (i % 0x100) as u8;
-            assert_eq!(pkt.buf().unwrap()[i], (i % 0x100) as u8);
+        let mut buf = vec![];
+        let zeros = vec![0_u8; pkt.buf_size()];
+        let data: Vec<u8> = (0..pkt.buf_size()).map(|i| (i % 0x100) as u8).collect();
+        for offset in 0..pkt.buf_size() {
+            buf_desc.set_data(&zeros);
+
+            let mut expected_data = zeros[..offset].to_vec();
+            expected_data.extend_from_slice(&data[..pkt.buf_size() - offset]);
+
+            pkt.read_at_offset_from(
+                &test_ctx.mem,
+                offset,
+                &mut Cursor::new(data.clone()),
+                pkt.buf_size() - offset,
+            )
+            .unwrap();
+            buf_desc.check_data(&expected_data);
+
+            buf.clear();
+            pkt.write_from_offset_to(&test_ctx.mem, offset, &mut buf, pkt.buf_size() - offset)
+                .unwrap();
+            assert_eq!(buf.as_slice(), &expected_data[offset..]);
+        }
+
+        let oob_cases = vec![
+            (1, pkt.buf_size()),
+            (pkt.buf_size(), 1),
+            (usize::MAX, 1),
+            (1, usize::MAX),
+        ];
+        for (offset, count) in oob_cases {
+            assert!(pkt
+                .read_at_offset_from(&test_ctx.mem, offset, &mut Cursor::new(data.clone()), count,)
+                .is_err());
+            assert!(pkt
+                .write_from_offset_to(&test_ctx.mem, offset, &mut buf, count)
+                .is_err());
         }
     }
 }

@@ -165,6 +165,14 @@ impl<'a> VirtqDesc<'a> {
         self.next.set(next);
     }
 
+    pub fn set_data(&mut self, data: &[u8]) {
+        assert!(self.len.get() as usize >= data.len());
+        let mem = self.addr.mem;
+        assert!(mem
+            .write_slice(data, GuestAddress::new(self.addr.get()))
+            .is_ok());
+    }
+
     pub fn check_data(&self, expected_data: &[u8]) {
         assert!(self.len.get() as usize >= expected_data.len());
         let mem = self.addr.mem;
