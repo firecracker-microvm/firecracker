@@ -1167,7 +1167,7 @@ check_kernver () {
     {
       exit 1;
     } }') ||
-	say_err "FAILED: Kernel version must be >= $KERN_MAJOR.$KERN_MINOR"
+    say_err "FAILED: Kernel version must be >= $KERN_MAJOR.$KERN_MINOR"
 }
 
 # Check Production Host Setup
@@ -1175,44 +1175,44 @@ check_kernver () {
 
 check_SMT () {
     (grep -q "^forceoff$\|^notsupported$" \
-	  /sys/devices/system/cpu/smt/control) ||
-	say_warn "WARNING: Hyperthreading ENABLED."
+      /sys/devices/system/cpu/smt/control) ||
+    say_warn "WARNING: Hyperthreading ENABLED."
 }
 
 check_KPTI () {
     (grep -q "^Mitigation: PTI$" \
-	  /sys/devices/system/cpu/vulnerabilities/meltdown) || \
-	say_warn "WARNING: KPTI NOT SUPPORTED"
+      /sys/devices/system/cpu/vulnerabilities/meltdown) || \
+    say_warn "WARNING: KPTI NOT SUPPORTED"
 }
 
 check_KSM () {
     (grep -q "^0$" /sys/kernel/mm/ksm/run) || \
-	say_warn "WARNING: KSM ENABLED"
+    say_warn "WARNING: KSM ENABLED"
 }
 
 check_IBPB_IBRS () {
     (grep -q "^Mitigation: Full generic retpoline, IBPB, IBRS_FW$"\
-	  /sys/devices/system/cpu/vulnerabilities/spectre_v2) || \
-	say_warn "WARNING: retpoline, IBPB, IBRS: DISABLED."
+      /sys/devices/system/cpu/vulnerabilities/spectre_v2) || \
+    say_warn "WARNING: retpoline, IBPB, IBRS: DISABLED."
 }
 
 check_L1TF () {
     declare -a CONDITIONS=("Mitigation: PTE Inversion" "VMX: cache flushes")
     for cond in "${CONDITIONS[@]}";
     do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf) ||
-	   say_warn "WARNING: $cond: DISABLED";
+       say_warn "WARNING: $cond: DISABLED";
     done
 }
 
 check_swap () {
     (grep -q "swap.img" /proc/swaps ) && \
-	say_warn "WARNING: SWAP enabled"
+    say_warn "WARNING: SWAP enabled"
 }
 
 check_vm() {
     if [ $(dmesg | grep -c -i "hypervisor detected") -gt 0 ]; then
         say_warn "WARNING: you are running in a virtual machine." \
-	"Firecracker is not well tested under nested virtualization."
+    "Firecracker is not well tested under nested virtualization."
     fi
 }
 
@@ -1223,7 +1223,7 @@ cmd_checkenv() {
             "-h"|"--help")      { cmd_help; exit 1; } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
-		;;
+        ;;
         esac
         shift
     done
@@ -1380,7 +1380,7 @@ EOM
 main() {
 
     if [ $# = 0 ]; then
-	die "No command provided. Please use \`$0 help\` for help."
+    die "No command provided. Please use \`$0 help\` for help."
     fi
 
     # Parse main command line args.
