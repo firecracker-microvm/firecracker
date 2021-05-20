@@ -296,10 +296,15 @@ ensure_release_binaries_exist() {
     profile=$2
     firecracker_bin_path="$CARGO_TARGET_DIR/$target/$profile/firecracker"
     jailer_bin_path="$CARGO_TARGET_DIR/$target/$profile/jailer"
+    seccompiler_bin_path="$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler"
 
     # Both binaries must exist for the stripping to be successful.
-    [ -f $firecracker_bin_path ] && [ -f $jailer_bin_path ] || \
-    die "Missing release binaries. Needed files:\n* $firecracker_bin_path\n* $jailer_bin_path."
+    [ -f "$firecracker_bin_path" ] && [ -f "$jailer_bin_path" ] && [ -f "$seccompiler_bin_path" ] || \
+    die "Missing release binaries. Needed files:\n" \
+    "* $firecracker_bin_path\n" \
+    "* $jailer_bin_path\n" \
+    "* $seccompiler_bin_path\n" \
+    "Run '$0 build --$target' to build the binaries."
 }
 
 # Fix build/ dir permissions after a privileged container run.
