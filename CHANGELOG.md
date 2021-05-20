@@ -17,6 +17,8 @@
 - Added the `seccompiler` binary that is used to compile JSON seccomp filters
   into serialized BPF for Firecracker consumption.
 - Snapshotting support for GICv2 enabled guests.
+- Added `devtool install` to deploy built binaries in `/usr/local/bin` or a
+  given path.
 
 ### Changed
 

@@ -142,6 +142,9 @@ CTR_KERNEL_DIR="${CTR_FC_ROOT_DIR}/.kernel"
 # These options are not command-specific, so we store them as global vars
 OPT_UNATTENDED=false
 
+# Get the target prefix to avoid repeated calls to uname -m
+TARGET_PREFIX="$(uname -m)-unknown-linux-"
+
 DEFAULT_TEST_SESSION_ROOT_PATH=/srv
 DEFAULT_RAMDISK_PATH=/mnt/devtool-ramdisk
 
@@ -304,7 +307,7 @@ ensure_release_binaries_exist() {
     "* $firecracker_bin_path\n" \
     "* $jailer_bin_path\n" \
     "* $seccompiler_bin_path\n" \
-    "Run '$0 build --$target' to build the binaries."
+    "To build the binaries, run:\n\t$0 build --$profile"
 }
 
 # Fix build/ dir permissions after a privileged container run.
@@ -571,6 +574,13 @@ cmd_help() {
     echo "        Outputs a rust file for each supported arch: src/seccompiler/src/syscall_table/{arch}.rs"
     echo "        Supported architectures: x86_64 and aarch64."
     echo ""
+    echo "    install [-p|--path] [--debug|--release]"
+    echo "      Install firecracker, jailer and seccomp binaries to /usr/local/bin or a given path."
+    echo "      Only the musl linked binaries are supported."
+    echo "        --path                Install binaries to a specified path."
+    echo "        --debug               Install the debug binaries."
+    echo "        --release             Install the release binaries. This is the default."
+    echo ""
     echo "    help"
     echo "        Display this help message."
     echo ""
@@ -654,7 +664,7 @@ cmd_build() {
         shift
     done
 
-    target="$(uname -m)-unknown-linux-${libc}"
+    target="$TARGET_PREFIX${libc}"
 
     # Check prerequisites
     ensure_devctr
@@ -772,7 +782,7 @@ cmd_distclean() {
 cmd_strip() {
     profile="release"
     libc="musl"
-    target="$(uname -m)-unknown-linux-${libc}"
+    target="$TARGET_PREFIX${libc}"
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
@@ -783,7 +793,7 @@ cmd_strip() {
                 [[ "$1" =~ ^(musl|gnu)$ ]] || \
                     die "Invalid libc: $1. Valid options are \"musl\" and \"gnu\"."
                 libc="$1"
-                target="$(uname -m)-unknown-linux-${libc}"
+                target="$TARGET_PREFIX${libc}"
                 ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
@@ -1375,6 +1385,42 @@ EOM
 
     ret=$?
     [ $ret -ne 0 ] && return $ret
+}
+
+cmd_install() {
+    # By default we install release/musl binaries.
+    profile="release"
+    target="$TARGET_PREFIX""musl"
+    install_path="/usr/local/bin"
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help") { cmd_help; exit 1; } ;;
+            "-p"|"--path")
+                shift;
+                install_path=$1;
+                ;;
+            "--debug")      { profile="debug";      } ;;
+            "--release")    { profile="release";    } ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
+    # Check that the binaries exist first
+    ensure_release_binaries_exist $target $profile
+
+    say "Installing firecracker in $install_path"
+    install -m 755 "$CARGO_TARGET_DIR/$target/$profile/firecracker" "$install_path"
+
+    say "Installing jailer in $install_path"
+    install -m 755 "$CARGO_TARGET_DIR/$target/$profile/jailer" "$install_path"
+
+    say "Installing seccomp in $install_path"
+    install -m 755 "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler" "$install_path"
 }
 
 main() {
