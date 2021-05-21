@@ -184,9 +184,9 @@ impl TryInto<TargetArch> for &str {
     }
 }
 
-impl Into<&str> for TargetArch {
-    fn into(self) -> &'static str {
-        self.to_string()
+impl From<TargetArch> for &str {
+    fn from(target_arch: TargetArch) -> Self {
+        target_arch.to_string()
     }
 }
 
@@ -607,7 +607,7 @@ impl SeccompRule {
     }
 }
 
-impl Into<BpfProgram> for SeccompRule {
+impl From<SeccompRule> for BpfProgram {
     /// Translates a rule into BPF statements.
     ///
     /// Each rule starts with 2 jump statements:
@@ -615,17 +615,17 @@ impl Into<BpfProgram> for SeccompRule {
     /// * The second jump points to the end of the rule chain for one syscall, into the rule chain
     ///   for the next syscall or the default action if the current syscall is the last one. It
     ///   essentially jumps out of the current rule chain.
-    fn into(self) -> BpfProgram {
+    fn from(rule: SeccompRule) -> Self {
         // Rule is built backwards, last statement is the action of the rule.
         // The offset to the next rule is 1.
         let mut accumulator =
-            Vec::with_capacity(self.conditions.len() * CONDITION_MAX_LEN as usize);
+            Vec::with_capacity(rule.conditions.len() * CONDITION_MAX_LEN as usize);
         let mut rule_len = 1;
         let mut offset = 1;
-        accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, u32::from(self.action))]);
+        accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, u32::from(rule.action))]);
 
         // Conditions are translated into BPF statements and prepended to the rule.
-        self.conditions.into_iter().for_each(|condition| {
+        rule.conditions.into_iter().for_each(|condition| {
             SeccompRule::append_condition(condition, &mut accumulator, &mut rule_len, &mut offset)
         });
 

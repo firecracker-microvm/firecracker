@@ -36,9 +36,9 @@ impl From<CacheType> for CacheTypeState {
     }
 }
 
-impl Into<CacheType> for CacheTypeState {
-    fn into(self) -> CacheType {
-        match self {
+impl From<CacheTypeState> for CacheType {
+    fn from(cache_type_state: CacheTypeState) -> Self {
+        match cache_type_state {
             CacheTypeState::Unsafe => CacheType::Unsafe,
             CacheTypeState::Writeback => CacheType::Writeback,
         }
