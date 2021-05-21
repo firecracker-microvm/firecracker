@@ -183,7 +183,7 @@ kernel {}, disk {} """.format(snapshot_type,
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
     # Check if guest works.
-    exit_code, _, _ = ssh_connection.execute_command("sync")
+    exit_code, _, _ = ssh_connection.execute_command("ls")
     assert exit_code == 0
 
     logger.info("Create {}.".format(snapshot_type))
@@ -208,7 +208,7 @@ kernel {}, disk {} """.format(snapshot_type,
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
         # Verify if guest can run commands.
-        exit_code, _, _ = ssh_connection.execute_command("sync")
+        exit_code, _, _ = ssh_connection.execute_command("ls")
         assert exit_code == 0
 
         value = 0
@@ -364,7 +364,7 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
             # Attempt to connect to the fresh microvm.
             ssh_connection = net_tools.SSHConnection(vm_instance.vm.ssh_config)
 
-            exit_code, _, _ = ssh_connection.execute_command("sync")
+            exit_code, _, _ = ssh_connection.execute_command("ls")
             assert exit_code == 0
 
             # The snapshot builder expects disks as paths, not artifacts.
