@@ -19,9 +19,9 @@ lazy_static! {
     pub static ref MMDS: Arc<Mutex<Mmds>> = Arc::new(Mutex::new(Mmds::default()));
 }
 
-impl Into<OutputFormat> for MediaType {
-    fn into(self) -> OutputFormat {
-        match self {
+impl From<MediaType> for OutputFormat {
+    fn from(media_type: MediaType) -> Self {
+        match media_type {
             MediaType::ApplicationJson => OutputFormat::Json,
             MediaType::PlainText => OutputFormat::Imds,
         }

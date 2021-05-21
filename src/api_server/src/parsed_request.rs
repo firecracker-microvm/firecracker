@@ -224,10 +224,10 @@ impl std::fmt::Display for Error {
 }
 
 // It's convenient to turn errors into HTTP responses directly.
-impl Into<Response> for Error {
-    fn into(self) -> Response {
-        let msg = ApiServer::json_fault_message(format!("{}", self));
-        match self {
+impl From<Error> for Response {
+    fn from(e: Error) -> Self {
+        let msg = ApiServer::json_fault_message(format!("{}", e));
+        match e {
             Error::Generic(status, _) => ApiServer::json_response(status, msg),
             Error::EmptyID
             | Error::InvalidID
