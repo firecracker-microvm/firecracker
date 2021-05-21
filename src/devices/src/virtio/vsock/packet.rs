@@ -106,25 +106,55 @@ fn get_host_address<T: GuestMemory>(
 }
 
 impl VsockPacket {
+    fn check_desc_write_only(desc: &DescriptorChain, expected_write_only: bool) -> Result<()> {
+        if desc.is_write_only() != expected_write_only {
+            return match desc.is_write_only() {
+                true => Err(VsockError::UnreadableDescriptor),
+                false => Err(VsockError::UnwritableDescriptor),
+            };
+        }
+
+        Ok(())
+    }
+
+    fn check_hdr_desc(hdr_desc: &DescriptorChain, expected_write_only: bool) -> Result<()> {
+        Self::check_desc_write_only(hdr_desc, expected_write_only)?;
+
+        // The packet header should fit inside the head descriptor.
+        if hdr_desc.len < VSOCK_PKT_HDR_SIZE as u32 {
+            return Err(VsockError::HdrDescTooSmall(hdr_desc.len));
+        }
+
+        Ok(())
+    }
+
+    fn init_buf(&mut self, hdr_desc: &DescriptorChain, expected_write_only: bool) -> Result<()> {
+        let buf_desc = hdr_desc
+            .next_descriptor()
+            .ok_or(VsockError::BufDescMissing)?;
+        let buf_size = buf_desc.len as usize;
+
+        Self::check_desc_write_only(&buf_desc, expected_write_only)?;
+
+        self.buf = Some(
+            get_host_address(buf_desc.mem, buf_desc.addr, buf_size)
+                .map_err(VsockError::GuestMemoryMmap)?,
+        );
+        self.buf_size = buf_size;
+
+        Ok(())
+    }
+
     /// Create the packet wrapper from a TX virtq chain head.
     ///
     /// The chain head is expected to hold valid packet header data. A following packet buffer
     /// descriptor can optionally end the chain. Bounds and pointer checks are performed when
     /// creating the wrapper.
-    pub fn from_tx_virtq_head(head: &DescriptorChain) -> Result<Self> {
-        // All buffers in the TX queue must be readable.
-        //
-        if head.is_write_only() {
-            return Err(VsockError::UnreadableDescriptor);
-        }
-
-        // The packet header should fit inside the head descriptor.
-        if head.len < VSOCK_PKT_HDR_SIZE as u32 {
-            return Err(VsockError::HdrDescTooSmall(head.len));
-        }
+    pub fn from_tx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self> {
+        Self::check_hdr_desc(hdr_desc, false)?;
 
         let mut pkt = Self {
-            hdr: get_host_address(head.mem, head.addr, VSOCK_PKT_HDR_SIZE)
+            hdr: get_host_address(hdr_desc.mem, hdr_desc.addr, VSOCK_PKT_HDR_SIZE)
                 .map_err(VsockError::GuestMemoryMmap)?,
             buf: None,
             buf_size: 0,
@@ -141,25 +171,13 @@ impl VsockPacket {
             return Err(VsockError::InvalidPktLen(pkt.len()));
         }
 
-        // If the packet header showed a non-zero length, there should be a data descriptor here.
-        let buf_desc = head.next_descriptor().ok_or(VsockError::BufDescMissing)?;
-
-        // TX data should be read-only.
-        if buf_desc.is_write_only() {
-            return Err(VsockError::UnreadableDescriptor);
-        }
+        pkt.init_buf(hdr_desc, false)?;
 
         // The data buffer should be large enough to fit the size of the data, as described by
         // the header descriptor.
-        if buf_desc.len < pkt.len() {
+        if pkt.buf_size < pkt.len() as usize {
             return Err(VsockError::BufDescTooSmall);
         }
-
-        pkt.buf_size = buf_desc.len as usize;
-        pkt.buf = Some(
-            get_host_address(buf_desc.mem, buf_desc.addr, pkt.buf_size)
-                .map_err(VsockError::GuestMemoryMmap)?,
-        );
 
         Ok(pkt)
     }
@@ -168,34 +186,19 @@ impl VsockPacket {
     ///
     /// There must be two descriptors in the chain, both writable: a header descriptor and a data
     /// descriptor. Bounds and pointer checks are performed when creating the wrapper.
-    pub fn from_rx_virtq_head(head: &DescriptorChain) -> Result<Self> {
-        // All RX buffers must be writable.
-        //
-        if !head.is_write_only() {
-            return Err(VsockError::UnwritableDescriptor);
-        }
+    pub fn from_rx_virtq_head(hdr_desc: &DescriptorChain) -> Result<Self> {
+        Self::check_hdr_desc(hdr_desc, true)?;
 
-        // The packet header should fit inside the head descriptor.
-        if head.len < VSOCK_PKT_HDR_SIZE as u32 {
-            return Err(VsockError::HdrDescTooSmall(head.len));
-        }
-
-        // All RX descriptor chains should have a header and a data descriptor.
-        if !head.has_next() {
-            return Err(VsockError::BufDescMissing);
-        }
-        let buf_desc = head.next_descriptor().ok_or(VsockError::BufDescMissing)?;
-        let buf_size = buf_desc.len as usize;
-
-        Ok(Self {
-            hdr: get_host_address(head.mem, head.addr, VSOCK_PKT_HDR_SIZE)
+        let mut pkt = Self {
+            hdr: get_host_address(hdr_desc.mem, hdr_desc.addr, VSOCK_PKT_HDR_SIZE)
                 .map_err(VsockError::GuestMemoryMmap)?,
-            buf: Some(
-                get_host_address(buf_desc.mem, buf_desc.addr, buf_size)
-                    .map_err(VsockError::GuestMemoryMmap)?,
-            ),
-            buf_size,
-        })
+            buf: None,
+            buf_size: 0,
+        };
+
+        pkt.init_buf(hdr_desc, true)?;
+
+        Ok(pkt)
     }
 
     /// Provides in-place, byte-slice, access to the vsock packet header.
