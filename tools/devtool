@@ -611,14 +611,9 @@ cmd_help() {
                                                binaries, logs/metrics FIFOs
                                                and test created device files)."
     echo ""
-    echo "    strip [--target-libc musl|gnu]"
+    echo "    strip"
     echo "        Strip debug symbols from the Firecracker release binaries."
     echo ""
-    echo "        --target-libc musl|gnu   Choose the target libc flavor which determines the"
-    echo "                                 toolchain used to build Firecracker release binaries."
-    echo "                                 Stripping will occur only for the Firecracker release"
-    echo "                                 binaries corresponding to the inferred toolchain. Default"
-    echo "                                 is musl."
 }
 
 # `$0 build` - build Firecracker
@@ -781,20 +776,12 @@ cmd_distclean() {
 
 cmd_strip() {
     profile="release"
-    libc="musl"
-    target="$TARGET_PREFIX${libc}"
+    target="$TARGET_PREFIX""musl"
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")  { cmd_help; exit 1;     } ;;
-            "--target-libc")
-                shift
-                [[ "$1" =~ ^(musl|gnu)$ ]] || \
-                    die "Invalid libc: $1. Valid options are \"musl\" and \"gnu\"."
-                libc="$1"
-                target="$TARGET_PREFIX${libc}"
-                ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
             ;;
