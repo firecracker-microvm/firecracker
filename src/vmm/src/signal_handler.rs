@@ -21,7 +21,7 @@ const SYS_SECCOMP_CODE: i32 = 1;
 #[inline]
 fn exit_unexpected() {
     // Safe because we're terminating the process anyway.
-    unsafe { _exit(i32::from(super::FC_EXIT_CODE_UNEXPECTED_ERROR)) };
+    unsafe { _exit(super::FC_EXIT_CODE_UNEXPECTED_ERROR) };
 }
 
 macro_rules! generate_handler {
@@ -52,7 +52,7 @@ macro_rules! generate_handler {
             // running unit tests.
             #[cfg(not(test))]
             match si_signo {
-                $signal_name => unsafe { _exit(i32::from(super::$exit_code)) },
+                $signal_name => unsafe { _exit(super::$exit_code) },
                 _ => exit_unexpected(),
             };
         }

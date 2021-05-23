@@ -69,7 +69,7 @@ use utils::eventfd::EventFd;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap};
 
 /// Vmm exit-code type.
-pub type ExitCode = u8;
+pub type ExitCode = i32;
 /// Success exit code.
 pub const FC_EXIT_CODE_OK: ExitCode = 0;
 /// Generic error exit code.

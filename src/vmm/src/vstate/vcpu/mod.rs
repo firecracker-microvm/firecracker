@@ -409,7 +409,7 @@ impl Vcpu {
 
     #[cfg(not(test))]
     // Transition to the exited state.
-    fn exit(&mut self, exit_code: u8) -> StateMachine<Self> {
+    fn exit(&mut self, exit_code: i32) -> StateMachine<Self> {
         self.response_sender
             .send(VcpuResponse::Exited(exit_code))
             .expect("vcpu channel unexpectedly closed");
@@ -438,7 +438,7 @@ impl Vcpu {
     // In tests the main/vmm thread exits without 'exit()'ing the whole process.
     // All channels get closed on the other side while this Vcpu thread is still running.
     // This Vcpu thread should just do a clean finish without reporting back to the main thread.
-    fn exit(&mut self, _: u8) -> StateMachine<Self> {
+    fn exit(&mut self, _: i32) -> StateMachine<Self> {
         self.exit_evt.write(1).unwrap();
         // State machine reached its end.
         StateMachine::finish()
@@ -576,7 +576,7 @@ pub enum VcpuResponse {
     /// Requested action encountered an error.
     Error(Error),
     /// Vcpu is stopped.
-    Exited(u8),
+    Exited(i32),
     /// Requested action not allowed.
     NotAllowed(String),
     /// Vcpu is paused.
