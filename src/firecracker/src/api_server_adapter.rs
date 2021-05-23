@@ -183,7 +183,7 @@ pub(crate) fn run_with_api(
         .expect("Cannot register the metrics event to the event manager.");
 
     // Configure, build and start the microVM.
-    let (vm_resources, vmm) = match config_json {
+    let build_result = match config_json {
         Some(json) => super::build_microvm_from_json(
             &seccomp_filters,
             &mut event_manager,
@@ -215,20 +215,25 @@ pub(crate) fn run_with_api(
         ),
     };
 
-    // Start the metrics.
-    firecracker_metrics
-        .lock()
-        .expect("Poisoned lock")
-        .start(super::metrics::WRITE_METRICS_PERIOD_MS);
+    let exit_code = match build_result {
+        Ok((vm_resources, vmm)) => {
+            // Start the metrics.
+            firecracker_metrics
+                .lock()
+                .expect("Poisoned lock")
+                .start(super::metrics::WRITE_METRICS_PERIOD_MS);
 
-    let exit_code = ApiServerAdapter::run_microvm(
-        api_event_fd,
-        from_api,
-        to_api,
-        vm_resources,
-        vmm,
-        &mut event_manager,
-    );
+            ApiServerAdapter::run_microvm(
+                api_event_fd,
+                from_api,
+                to_api,
+                vm_resources,
+                vmm,
+                &mut event_manager,
+            )
+        }
+        Err(exit_code) => exit_code,
+    };
 
     // We want to tell the API thread to shut down for a clean exit.  But this is after
     // the Vmm.stop() has been called, so it's a moment of internal finalization (as
