@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(missing_docs)]
 
-use crate::Vmm;
+use crate::{ExitCode, Vmm};
 use std::io;
 use std::panic;
 use std::sync::{Arc, Mutex};
@@ -58,6 +58,22 @@ pub fn default_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager
 #[cfg(target_arch = "x86_64")]
 pub fn dirty_tracking_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
     create_vmm(kernel_image, true)
+}
+
+pub fn run_vmm_to_completion(
+    vmm: Arc<Mutex<Vmm>>,
+    mut event_manager: EventManager,
+) -> Option<ExitCode> {
+    event_manager.run_with_timeout(500).unwrap();
+    // On x86_64, the vmm should exit once its workload completes and signals the exit event.
+    // On aarch64, the test kernel doesn't exit, so the vmm is force-stopped.
+    #[cfg(target_arch = "aarch64")]
+    {
+        vmm.lock().unwrap().stop(0);
+        // Allow exit event to be processed.
+        event_manager.run_with_timeout(500).unwrap();
+    }
+    vmm.lock().unwrap().shutdown_exit_code()
 }
 
 pub fn wait_vmm_child_process(vmm_pid: i32) {

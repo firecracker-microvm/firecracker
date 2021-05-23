@@ -274,6 +274,7 @@ fn create_vmm_and_vcpus(
     let vmm = Vmm {
         events_observer: Some(Box::new(SerialStdin::get())),
         instance_info: instance_info.clone(),
+        shutdown_exit_code: None,
         guest_memory,
         vcpus_handles: Vec::new(),
         exit_evt,
@@ -967,6 +968,7 @@ pub mod tests {
         Vmm {
             events_observer: Some(Box::new(SerialStdin::get())),
             instance_info: InstanceInfo::default(),
+            shutdown_exit_code: None,
             guest_memory,
             vcpus_handles: Vec::new(),
             exit_evt,
