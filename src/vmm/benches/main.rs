@@ -15,12 +15,12 @@ use std::thread;
 use std::time::Duration;
 use utils::tempfile::TempFile;
 use versionize::VersionMap;
-use vmm::persist;
 use vmm::persist::MicrovmState;
 use vmm::utilities::mock_resources::NOISY_KERNEL_IMAGE;
-use vmm::utilities::test_utils::{create_vmm, set_panic_hook, wait_vmm_child_process};
+use vmm::utilities::test_utils::create_vmm;
 use vmm::version_map::VERSION_MAP;
 use vmm::vmm_config::snapshot::{CreateSnapshotParams, SnapshotType};
+use vmm::{persist, FC_EXIT_CODE_OK};
 
 #[inline]
 pub fn bench_restore_snapshot(
@@ -58,44 +58,32 @@ fn create_microvm_state(is_diff: bool) -> MicrovmState {
     let snapshot_file = TempFile::new().unwrap();
     let memory_file = TempFile::new().unwrap();
 
-    let pid = unsafe { libc::fork() };
-    match pid {
-        0 => {
-            set_panic_hook();
+    let (vmm, _) = create_vmm(Some(NOISY_KERNEL_IMAGE), is_diff);
 
-            let (vmm, _) = create_vmm(Some(NOISY_KERNEL_IMAGE), is_diff);
+    // Be sure that the microVM is running.
+    thread::sleep(Duration::from_millis(200));
 
-            // Be sure that the microVM is running.
-            thread::sleep(Duration::from_millis(200));
+    // Pause microVM.
+    vmm.lock().unwrap().pause_vm().unwrap();
 
-            // Pause microVM.
-            vmm.lock().unwrap().pause_vm().unwrap();
+    // Create snapshot.
+    let snapshot_type = match is_diff {
+        true => SnapshotType::Diff,
+        false => SnapshotType::Full,
+    };
+    let snapshot_params = CreateSnapshotParams {
+        snapshot_type,
+        snapshot_path: snapshot_file.as_path().to_path_buf(),
+        mem_file_path: memory_file.as_path().to_path_buf(),
+        version: None,
+    };
 
-            // Create snapshot.
-            let snapshot_type = match is_diff {
-                true => SnapshotType::Diff,
-                false => SnapshotType::Full,
-            };
-            let snapshot_params = CreateSnapshotParams {
-                snapshot_type,
-                snapshot_path: snapshot_file.as_path().to_path_buf(),
-                mem_file_path: memory_file.as_path().to_path_buf(),
-                version: None,
-            };
-
-            {
-                let mut locked_vmm = vmm.lock().unwrap();
-                persist::create_snapshot(&mut locked_vmm, &snapshot_params, VERSION_MAP.clone())
-                    .unwrap();
-            }
-
-            vmm.lock().unwrap().stop();
-        }
-        vmm_pid => {
-            // Parent process: wait for the vmm to exit.
-            wait_vmm_child_process(vmm_pid);
-        }
+    {
+        let mut locked_vmm = vmm.lock().unwrap();
+        persist::create_snapshot(&mut locked_vmm, &snapshot_params, VERSION_MAP.clone()).unwrap();
     }
+
+    vmm.lock().unwrap().stop(FC_EXIT_CODE_OK);
 
     // Deserialize the microVM state from `snapshot_file`.
     let snapshot_path = snapshot_file.as_path().to_path_buf();
