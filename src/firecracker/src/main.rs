@@ -355,7 +355,7 @@ fn main() {
     // See process_exitable() method of Subscriber trait for what triggers the exit_code.
     //
     let exit_code = main_exitable();
-    std::process::exit(i32::from(exit_code));
+    std::process::exit(exit_code);
 }
 
 // Exit gracefully with a generic error code.
@@ -395,27 +395,27 @@ fn print_supported_snapshot_versions() {
 // Print data format of provided snapshot state file.
 fn print_snapshot_data_format(snapshot_path: &str) {
     let mut snapshot_reader = File::open(snapshot_path).unwrap_or_else(|err| {
-        process::exit(i32::from(generic_error_exit(&format!(
+        process::exit(generic_error_exit(&format!(
             "Unable to open snapshot state file: {:?}",
             err
-        ))));
+        )));
     });
     let data_format_version = Snapshot::get_data_version(&mut snapshot_reader, &VERSION_MAP)
         .unwrap_or_else(|err| {
-            process::exit(i32::from(generic_error_exit(&format!(
+            process::exit(generic_error_exit(&format!(
                 "Invalid data format version of snapshot file: {:?}",
                 err
-            ))));
+            )));
         });
 
     let (key, _) = FC_VERSION_TO_SNAP_VERSION
         .iter()
         .find(|(_, &val)| val == data_format_version)
         .unwrap_or_else(|| {
-            process::exit(i32::from(generic_error_exit(&format!(
+            process::exit(generic_error_exit(&format!(
                 "Cannot translate snapshot data version {} to Firecracker microVM version",
                 data_format_version
-            ))));
+            )));
         });
     println!("v{}", key);
 }

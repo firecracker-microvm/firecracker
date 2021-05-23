@@ -169,7 +169,7 @@ impl ApiServer {
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|e| {
             error!("Error creating the HTTP server: {}", e);
-            std::process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+            std::process::exit(vmm::FC_EXIT_CODE_GENERIC_ERROR);
         });
 
         // Store process start time metric.
