@@ -89,7 +89,7 @@ fn create_microvm_state(is_diff: bool) -> MicrovmState {
                     .unwrap();
             }
 
-            vmm.lock().unwrap().stop(0);
+            vmm.lock().unwrap().stop();
         }
         vmm_pid => {
             // Parent process: wait for the vmm to exit.

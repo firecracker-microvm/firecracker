@@ -23,6 +23,7 @@ use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
+use vmm::ExitCode;
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.
@@ -63,14 +64,14 @@ pub fn enable_ssbd_mitigation() {
     }
 }
 
-fn main() {
+fn main_exitable() -> ExitCode {
     LOGGER
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
     if let Err(e) = register_signal_handlers() {
         error!("Failed to register signal handlers: {}", e);
-        process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+        return vmm::FC_EXIT_CODE_GENERIC_ERROR;
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -209,24 +210,24 @@ fn main() {
                  For more information try --help.",
                 err
             );
-            process::exit(i32::from(vmm::FC_EXIT_CODE_ARG_PARSING));
+            return vmm::FC_EXIT_CODE_ARG_PARSING;
         }
         _ => {
             if arg_parser.arguments().flag_present("help") {
                 println!("Firecracker v{}\n", FIRECRACKER_VERSION);
                 println!("{}", arg_parser.formatted_help());
-                process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+                return vmm::FC_EXIT_CODE_OK;
             }
 
             if arg_parser.arguments().flag_present("version") {
                 println!("Firecracker v{}\n", FIRECRACKER_VERSION);
                 print_supported_snapshot_versions();
-                process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+                return vmm::FC_EXIT_CODE_OK;
             }
 
             if let Some(snapshot_path) = arg_parser.arguments().single_value("describe-snapshot") {
                 print_snapshot_data_format(snapshot_path);
-                process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+                return vmm::FC_EXIT_CODE_OK;
             }
 
             arg_parser.arguments()
@@ -252,12 +253,16 @@ fn main() {
     if let Some(log) = arguments.single_value("log-path") {
         // It's safe to unwrap here because the field's been provided with a default value.
         let level = arguments.single_value("level").unwrap().to_owned();
-        let logger_level = LoggerLevel::from_string(level).unwrap_or_else(|err| {
-            process::exit(i32::from(generic_error_exit(&format!(
-                "Invalid value for logger level: {}. Possible values: [Error, Warning, Info, Debug]",
-                err
-            ))));
-        });
+        let logger_level = match LoggerLevel::from_string(level) {
+            Ok(level) => level,
+            Err(e) => {
+                return generic_error_exit(&format!(
+                    "Invalid value for logger level: {}.\
+                    Possible values: [Error, Warning, Info, Debug]",
+                    e
+                ));
+            }
+        };
         let show_level = arguments.flag_present("show-level");
         let show_log_origin = arguments.flag_present("show-log-origin");
 
@@ -267,28 +272,23 @@ fn main() {
             show_level,
             show_log_origin,
         );
-        init_logger(logger_config, &instance_info).unwrap_or_else(|err| {
-            process::exit(i32::from(generic_error_exit(&format!(
-                "Could not initialize logger:: {}",
-                err
-            ))));
-        });
+        if let Err(e) = init_logger(logger_config, &instance_info) {
+            return generic_error_exit(&format!("Could not initialize logger:: {}", e));
+        };
     }
 
-    let seccomp_config = SeccompConfig::from_args(
+    let mut seccomp_filters: BpfThreadMap = match SeccompConfig::from_args(
         arguments.single_value("seccomp-level"),
         arguments.flag_present("no-seccomp"),
         arguments.single_value("seccomp-filter"),
     )
-    .unwrap_or_else(|error| {
-        error!("Seccomp error: {}", error);
-        process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
-    });
-
-    let mut seccomp_filters = get_filters(seccomp_config).unwrap_or_else(|error| {
-        error!("Seccomp error: {}", error);
-        process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
-    });
+    .and_then(get_filters)
+    {
+        Ok(filters) => filters,
+        Err(e) => {
+            return generic_error_exit(&format!("Seccomp error: {}", e));
+        }
+    };
 
     let vmm_config_json = arguments
         .single_value("config-file")
@@ -328,7 +328,7 @@ fn main() {
             instance_info,
             process_time_reporter,
             boot_timer_enabled,
-        );
+        )
     } else {
         let seccomp_filters: BpfThreadMap = seccomp_filters
             .into_iter()
@@ -339,12 +339,27 @@ fn main() {
             vmm_config_json,
             instance_info,
             boot_timer_enabled,
-        );
+        )
     }
 }
 
+fn main() {
+    // This idiom is the prescribed way to get a clean shutdown of Rust (that will report
+    // no leaks in Valgrind or sanitizers).  Calling `unsafe { libc::exit() }` does no
+    // cleanup, and std::process::exit() does more--but does not run destructors.  So the
+    // best thing to do is to is bubble up the exit code through the whole stack, and
+    // only exit when everything potentially destructible has cleaned itself up.
+    //
+    // https://doc.rust-lang.org/std/process/fn.exit.html
+    //
+    // See process_exitable() method of Subscriber trait for what triggers the exit_code.
+    //
+    let exit_code = main_exitable();
+    std::process::exit(i32::from(exit_code));
+}
+
 // Exit gracefully with a generic error code.
-fn generic_error_exit(msg: &str) -> u8 {
+fn generic_error_exit(msg: &str) -> ExitCode {
     error!("{}", msg);
     vmm::FC_EXIT_CODE_GENERIC_ERROR
 }
@@ -445,7 +460,7 @@ fn run_without_api(
     config_json: Option<String>,
     instance_info: InstanceInfo,
     bool_timer_enabled: bool,
-) {
+) -> ExitCode {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
@@ -454,10 +469,8 @@ fn run_without_api(
         .add_subscriber(firecracker_metrics.clone())
         .expect("Cannot register the metrics event to the event manager.");
 
-    // Build the microVm. We can ignore the returned values here because:
-    // - VmResources is not used without api,
-    // - An `Arc` reference of the built `Vmm` is plugged in the `EventManager` by the builder.
-    build_microvm_from_json(
+    // Build the microVm. We can ignore VmResources since it's not used without api.
+    let (_, vmm) = build_microvm_from_json(
         seccomp_filters,
         &mut event_manager,
         // Safe to unwrap since '--no-api' requires this to be set.
@@ -477,5 +490,9 @@ fn run_without_api(
         event_manager
             .run()
             .expect("Failed to start the event manager");
+
+        if let Some(exit_code) = vmm.lock().unwrap().shutdown_exit_code() {
+            return exit_code;
+        }
     }
 }
