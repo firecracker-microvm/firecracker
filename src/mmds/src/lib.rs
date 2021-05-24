@@ -4,6 +4,7 @@
 pub mod data_store;
 pub mod ns;
 pub mod persist;
+mod token;
 pub mod token_headers;
 
 use serde_json::{Map, Value};
