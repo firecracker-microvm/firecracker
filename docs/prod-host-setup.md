@@ -46,6 +46,19 @@ for consuming and storing this data safely. We suggest using any upper-bounded
 forms of storage, such as fixed-size or ring buffers, programs like `journald`
 or `logrotate`, or redirecting to a named pipe.
 
+### Logging and performance
+
+We recommend adding `quiet loglevel=1` to the host kernel command line to limit
+the number of messages written to the serial console. This is because some host
+configurations can have an effect on Firecracker's performance as the process
+will generate host kernel logs during normal operations.
+
+The most recent example of this was the addition of `console=ttyAMA0` host
+kernel command line argument on one of our testing setups. This enabled console
+logging, which degraded the snapshot restore time from 3ms to 8.5ms on
+`aarch64`. In this case, creating the tap device for snapshot restore
+generated host kernel logs, which were very slow to write.
+
 ## Jailer Configuration
 
 Using Jailer in a production Firecracker deployment is highly recommended,
