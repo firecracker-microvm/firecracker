@@ -71,6 +71,10 @@
                 "comment": "rt_sigreturn is needed in case a fault does occur, so that the signal handler can return. Otherwise we get stuck in a fault loop."
             },
             {
+                "syscall": "sigaltstack",
+                "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
+            },
+            {
                 "syscall": "accept4",
                 "comment": "Called to accept vsock connections",
                 "args": [
@@ -100,6 +104,32 @@
                         "op": "eq",
                         "val": 1,
                         "comment": "FCNTL_FD_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization (during thread teardown when joining multiple vcpu threads at once)",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 0,
+                        "comment": "FUTEX_WAIT"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization (during thread teardown)",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FUTEX_WAKE"
                     }
                 ]
             },
@@ -394,6 +424,14 @@
                 "comment": "Used to retrieve data from the socket"
             },
             {
+                "syscall": "rt_sigprocmask",
+                "comment": "rt_sigprocmask is used by Rust stdlib to remove custom signal handler during thread teardown."
+            },
+            {
+                "syscall": "sigaltstack",
+                "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
+            },
+            {
                 "syscall": "accept4",
                 "comment": "Called to accept socket connections",
                 "args": [
@@ -403,6 +441,32 @@
                         "op": "eq",
                         "val": 524288,
                         "comment": "libc::SOCK_CLOEXEC"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization (during thread teardown)",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 0,
+                        "comment": "FUTEX_WAIT"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization (during thread teardown)",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FUTEX_WAKE"
                     }
                 ]
             },
@@ -526,8 +590,42 @@
                 "comment": "Used for freeing memory"
             },
             {
+                "syscall": "rt_sigprocmask",
+                "comment": "rt_sigprocmask is used by Rust stdlib to remove custom signal handler during thread teardown."
+            },
+            {
                 "syscall": "rt_sigreturn",
                 "comment": "rt_sigreturn is needed in case a fault does occur, so that the signal handler can return. Otherwise we get stuck in a fault loop."
+            },
+            {
+                "syscall": "sigaltstack",
+                "comment": "sigaltstack is used by Rust stdlib to remove alternative signal stack during thread teardown."
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization (during thread teardown when joining multiple vcpu threads at once)",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 0,
+                        "comment": "FUTEX_WAIT"
+                    }
+                ]
+            },
+            {
+                "syscall": "futex",
+                "comment": "Used for synchronization (during thread teardown)",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 1,
+                        "comment": "FUTEX_WAKE"
+                    }
+                ]
             },
             {
                 "syscall": "futex",
