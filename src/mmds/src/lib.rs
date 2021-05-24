@@ -5,6 +5,7 @@ pub mod custom_headers;
 pub mod data_store;
 pub mod ns;
 pub mod persist;
+mod token;
 
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
