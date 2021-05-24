@@ -7,12 +7,14 @@ FROM ubuntu:18.04
 ARG RUST_TOOLCHAIN="1.52.1"
 ARG TINI_VERSION_TAG="v0.18.0"
 ARG TMP_BUILD_DIR=/tmp/build
-ARG TMP_POERTY_DIR=/tmp/poetry
+ARG TMP_POETRY_DIR=/tmp/poetry
 ARG FIRECRACKER_SRC_DIR="/firecracker"
 ARG FIRECRACKER_BUILD_DIR="$FIRECRACKER_SRC_DIR/build"
 ARG CARGO_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_registry"
 ARG CARGO_GIT_REGISTRY_DIR="$FIRECRACKER_BUILD_DIR/cargo_git_registry"
 ARG DEBIAN_FRONTEND=noninteractive
+# By default we don't provide a poetry.lock file
+ARG POETRY_LOCK_PATH="/dev/null/*"
 
 ENV CARGO_HOME=/usr/local/rust
 ENV RUSTUP_HOME=/usr/local/rust
@@ -61,9 +63,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install poetry
-RUN mkdir "$TMP_POERTY_DIR"
-COPY tools/devctr/pyproject.toml "$TMP_POERTY_DIR/pyproject.toml"
-RUN cd "$TMP_POERTY_DIR" \
+RUN mkdir "$TMP_POETRY_DIR"
+COPY tools/devctr/pyproject.toml $POETRY_LOCK_PATH "$TMP_POETRY_DIR/"
+RUN cd "$TMP_POETRY_DIR" \
     &&  poetry config virtualenvs.create false \
     &&  poetry install --no-dev --no-interaction
 

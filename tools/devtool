@@ -321,6 +321,7 @@ cmd_build_devctr() {
     arch=$(uname -m)
     docker_file_name="Dockerfile.$arch"
     should_update_python_packages=true
+    build_args=""
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -328,6 +329,7 @@ cmd_build_devctr() {
             "-n"|"--no-python-package-update")
                 shift
                 should_update_python_packages=false
+                build_args="--build-arg POETRY_LOCK_PATH=tools/devctr/poetry.lock"
                 ;;
             "--")               { shift; break;     } ;;
             *)
@@ -337,7 +339,7 @@ cmd_build_devctr() {
         shift
     done
 
-    docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$FC_DEVCTR_DIR/$docker_file_name" .
+    docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$FC_DEVCTR_DIR/$docker_file_name" $build_args .
 
     if [ "$should_update_python_packages" = true ]; then
         update_python_package_version
