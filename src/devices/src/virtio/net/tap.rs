@@ -245,7 +245,7 @@ pub mod tests {
         tap.set_offload(0).unwrap();
 
         let faulty_tap = Tap {
-            tap_file: unsafe { File::from_raw_fd(-1) },
+            tap_file: unsafe { File::from_raw_fd(-2) },
             if_name: [0x01; 16],
         };
         assert!(faulty_tap.set_vnet_hdr_size(16).is_err());
