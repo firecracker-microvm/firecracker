@@ -396,34 +396,34 @@ impl MMIODeviceManager {
                 let mut virtio = mmio_dev.locked_device();
                 match virtio_type {
                     TYPE_BALLOON => {
-                        info!("kick balloon {}.", id);
                         let balloon = virtio.as_mut_any().downcast_mut::<Balloon>().unwrap();
                         // If device is activated, kick the balloon queue(s) to make up for any
                         // pending or in-flight epoll events we may have not captured in snapshot.
                         // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
                         if balloon.is_activated() {
+                            info!("kick balloon {}.", id);
                             balloon.process_virtio_queues();
                         }
                     }
                     TYPE_BLOCK => {
-                        info!("kick block {}.", id);
                         let block = virtio.as_mut_any().downcast_mut::<Block>().unwrap();
                         // If device is activated, kick the block queue(s) to make up for any
                         // pending or in-flight epoll events we may have not captured in snapshot.
                         // No need to kick Ratelimiters because they are restored 'unblocked' so
                         // any inflight `timer_fd` events can be safely discarded.
                         if block.is_activated() {
+                            info!("kick block {}.", id);
                             block.process_virtio_queues();
                         }
                     }
                     TYPE_NET => {
-                        info!("kick net {}.", id);
                         let net = virtio.as_mut_any().downcast_mut::<Net>().unwrap();
                         // If device is activated, kick the net queue(s) to make up for any
                         // pending or in-flight epoll events we may have not captured in snapshot.
                         // No need to kick Ratelimiters because they are restored 'unblocked' so
                         // any inflight `timer_fd` events can be safely discarded.
                         if net.is_activated() {
+                            info!("kick net {}.", id);
                             net.process_virtio_queues();
                         }
                     }

@@ -144,7 +144,7 @@ class MicrovmBuilder:
         """Build a microvm from a snapshot artifact."""
         vm = init_microvm(self.root_path, self.bin_cloner_path,
                           self._fc_binary, self._jailer_binary)
-        vm.spawn(log_level='Info')
+        vm.spawn(log_level='Error')
         vm.api_session.untime()
 
         metrics_file_path = os.path.join(vm.path, 'metrics.log')
