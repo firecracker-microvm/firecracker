@@ -270,4 +270,56 @@ mod tests {
             RemoveRegionError::MmapFail(_)
         );
     }
+
+    /// -------------------------------------
+    /// BEGIN PROPERTY BASED TESTING
+    use proptest::prelude::*;
+
+    fn random_pfn_u32_max() -> impl Strategy<Value = Vec<u32>> {
+        // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER elements) filled with random u32 elements.
+        prop::collection::vec(0..std::u32::MAX, 0..MAX_PAGE_COMPACT_BUFFER)
+    }
+
+    fn random_pfn_100() -> impl Strategy<Value = Vec<u32>> {
+        // Create a randomly sized vec (max MAX_PAGE_COMPACT_BUFFER/8) filled with random u32 elements (0 - 100).
+        prop::collection::vec(0..100u32, 0..MAX_PAGE_COMPACT_BUFFER / 8)
+    }
+
+    // The uncompactor will output deduplicated and sorted elements as compaction algorithm
+    // guarantees it.
+    fn uncompact(compacted: Vec<(u32, u32)>) -> Vec<u32> {
+        let mut result = Vec::new();
+        for (start, len) in compacted {
+            result.extend(start..start + len);
+        }
+        result
+    }
+
+    fn sort_and_dedup<T: Ord + Clone>(v: &[T]) -> Vec<T> {
+        let mut sorted_v = v.to_vec();
+        sorted_v.sort_unstable();
+        sorted_v.dedup();
+        sorted_v
+    }
+
+    // The below prop tests will validate the following output propreties:
+    // - vec elements are sorted by first tuple value
+    // - no pfn duplicates are present
+    // - no pfn is lost
+    #[test]
+    fn test_pfn_compact() {
+        let cfg = ProptestConfig::with_cases(1500);
+        proptest!(cfg, |(mut input1 in random_pfn_u32_max(), mut input2 in random_pfn_100())| {
+            // The uncompactor will output sorted elements.
+            prop_assert!(
+                uncompact(compact_page_frame_numbers(input1.as_mut_slice()))
+                    == sort_and_dedup(input1.as_slice())
+            );
+            // Input2 will ensure duplicate PFN cases are also covered.
+            prop_assert!(
+                uncompact(compact_page_frame_numbers(input2.as_mut_slice()))
+                    == sort_and_dedup(input2.as_slice())
+            );
+        });
+    }
 }
