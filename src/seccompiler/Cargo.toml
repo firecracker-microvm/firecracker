@@ -3,6 +3,9 @@ name = "seccompiler"
 version = "0.24.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
+description = "Program that compiles multi-threaded seccomp-bpf filters expressed as JSON into raw BPF programs, serializing them and outputting them to a file."
+homepage = "https://firecracker-microvm.github.io/"
+license = "Apache-2.0"
 
 [[bin]]
 name = "seccompiler"
