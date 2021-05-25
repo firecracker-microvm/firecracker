@@ -317,14 +317,14 @@ impl Serial {
     fn consume_buffer_ready_evt(&self) -> Result<u64, io::Error> {
         self.buffer_ready_evt
             .as_ref()
-            .map_or(Ok(0), |buf_ready| Ok(buf_ready.read()?))
+            .map_or(Ok(0), |buf_ready| buf_ready.read())
     }
 
     #[inline]
     fn signal_buffer_ready(&self) -> Result<(), io::Error> {
         self.buffer_ready_evt
             .as_ref()
-            .map_or(Ok(()), |buf_ready| Ok(buf_ready.write(1)?))
+            .map_or(Ok(()), |buf_ready| buf_ready.write(1))
     }
 
     fn handle_ewouldblock(&self, ev_mgr: &mut EventManager) {
@@ -805,8 +805,8 @@ mod tests {
         let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
         serial.write(u64::from(LCR), &[LCR_DLAB_BIT as u8]);
-        serial.write(u64::from(DLAB_LOW), &[0x12 as u8]);
-        serial.write(u64::from(DLAB_HIGH), &[0x34 as u8]);
+        serial.write(u64::from(DLAB_LOW), &[0x12_u8]);
+        serial.write(u64::from(DLAB_HIGH), &[0x34_u8]);
 
         let mut data = [0u8];
         serial.read(u64::from(LCR), &mut data[..]);
@@ -843,11 +843,11 @@ mod tests {
     fn test_serial_scratch() {
         let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
-        serial.write(u64::from(SCR), &[0x12 as u8]);
+        serial.write(u64::from(SCR), &[0x12_u8]);
 
         let mut data = [0u8];
         serial.read(u64::from(SCR), &mut data[..]);
-        assert_eq!(data[0], 0x12 as u8);
+        assert_eq!(data[0], 0x12_u8);
     }
 
     #[test]

@@ -169,7 +169,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
 
             #[cfg(target_arch = "aarch64")]
             {
-                if *devtype == DeviceType::Serial || *devtype == DeviceType::RTC {
+                if *devtype == DeviceType::Serial || *devtype == DeviceType::Rtc {
                     states.legacy_devices.push(ConnectedLegacyState {
                         type_: *devtype,
                         mmio_slot: devinfo.clone(),
@@ -273,7 +273,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                         .register_mmio_serial(vm, serial, Some(state.mmio_slot.clone()))
                         .map_err(Error::DeviceManager)?;
                 }
-                if state.type_ == DeviceType::RTC {
+                if state.type_ == DeviceType::Rtc {
                     let rtc = crate::builder::setup_rtc_device().map_err(Error::Legacy)?;
                     dev_manager
                         .register_mmio_rtc(rtc, Some(state.mmio_slot.clone()))

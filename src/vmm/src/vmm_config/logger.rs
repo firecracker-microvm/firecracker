@@ -46,9 +46,9 @@ impl Default for LoggerLevel {
     }
 }
 
-impl Into<LevelFilter> for LoggerLevel {
-    fn into(self) -> LevelFilter {
-        match self {
+impl From<LoggerLevel> for LevelFilter {
+    fn from(logger_level: LoggerLevel) -> Self {
+        match logger_level {
             LoggerLevel::Error => LevelFilter::Error,
             LoggerLevel::Warning => LevelFilter::Warn,
             LoggerLevel::Info => LevelFilter::Info,

@@ -258,7 +258,13 @@ impl<'a> PrebootApiController<'a> {
         G: Fn(ActionResult),
     {
         let mut vm_resources = VmResources::default();
-        vm_resources.boot_timer = boot_timer_enabled;
+        // Silence false clippy warning. Clippy suggests using
+        // VmResources { boot_timer: boot_timer_enabled, ..Default::default() }; but this will
+        // generate build errors because VmResources contains private fields.
+        #[allow(clippy::field_reassign_with_default)]
+        {
+            vm_resources.boot_timer = boot_timer_enabled;
+        }
         let mut preboot_controller = PrebootApiController::new(
             seccomp_filters,
             instance_info,
@@ -514,7 +520,7 @@ impl RuntimeApiController {
 
     /// Creates a new `RuntimeApiController`.
     pub fn new(vm_resources: VmResources, vmm: Arc<Mutex<Vmm>>) -> Self {
-        Self { vm_resources, vmm }
+        Self { vmm, vm_resources }
     }
 
     /// Pauses the microVM by pausing the vCPUs.
@@ -675,26 +681,26 @@ mod tests {
     impl PartialEq for VmmActionError {
         fn eq(&self, other: &VmmActionError) -> bool {
             use VmmActionError::*;
-            match (self, other) {
-                (BalloonConfig(_), BalloonConfig(_)) => true,
-                (BootSource(_), BootSource(_)) => true,
-                (CreateSnapshot(_), CreateSnapshot(_)) => true,
-                (DriveConfig(_), DriveConfig(_)) => true,
-                (InternalVmm(_), InternalVmm(_)) => true,
-                (LoadSnapshot(_), LoadSnapshot(_)) => true,
-                (LoadSnapshotNotAllowed, LoadSnapshotNotAllowed) => true,
-                (Logger(_), Logger(_)) => true,
-                (MachineConfig(_), MachineConfig(_)) => true,
-                (Metrics(_), Metrics(_)) => true,
-                (MmdsConfig(_), MmdsConfig(_)) => true,
-                (NetworkConfig(_), NetworkConfig(_)) => true,
-                (NotSupported(_), NotSupported(_)) => true,
-                (OperationNotSupportedPostBoot, OperationNotSupportedPostBoot) => true,
-                (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot) => true,
-                (StartMicrovm(_), StartMicrovm(_)) => true,
-                (VsockConfig(_), VsockConfig(_)) => true,
-                _ => false,
-            }
+            matches!(
+                (self, other),
+                (BalloonConfig(_), BalloonConfig(_))
+                    | (BootSource(_), BootSource(_))
+                    | (CreateSnapshot(_), CreateSnapshot(_))
+                    | (DriveConfig(_), DriveConfig(_))
+                    | (InternalVmm(_), InternalVmm(_))
+                    | (LoadSnapshot(_), LoadSnapshot(_))
+                    | (LoadSnapshotNotAllowed, LoadSnapshotNotAllowed)
+                    | (Logger(_), Logger(_))
+                    | (MachineConfig(_), MachineConfig(_))
+                    | (Metrics(_), Metrics(_))
+                    | (MmdsConfig(_), MmdsConfig(_))
+                    | (NetworkConfig(_), NetworkConfig(_))
+                    | (NotSupported(_), NotSupported(_))
+                    | (OperationNotSupportedPostBoot, OperationNotSupportedPostBoot)
+                    | (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot)
+                    | (StartMicrovm(_), StartMicrovm(_))
+                    | (VsockConfig(_), VsockConfig(_))
+            )
         }
     }
 
@@ -973,8 +979,10 @@ mod tests {
 
     // Forces error and validates error kind against expected.
     fn check_preboot_request_err(request: VmmAction, expected_err: VmmActionError) {
-        let mut vm_resources = MockVmRes::default();
-        vm_resources.force_errors = true;
+        let mut vm_resources = MockVmRes {
+            force_errors: true,
+            ..Default::default()
+        };
         let mut evmgr = EventManager::new().unwrap();
         let seccomp_filters = BpfThreadMap::new();
         let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
