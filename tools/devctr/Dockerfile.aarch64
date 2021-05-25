@@ -38,6 +38,7 @@ RUN apt-get update \
         libbfd-dev \
         libcurl4-openssl-dev \
         libdw-dev \
+        libfdt-dev \
         libiberty-dev \
         libssl-dev \
         lsof \
@@ -59,20 +60,6 @@ RUN apt-get update \
         wheel \
     && python3 -m pip install --upgrade pip \ 
     && rm -rf /var/lib/apt/lists/*
-
-# We need to build libfdt-dev using -fno-stack-protector
-# See https://github.com/rust-lang/rust/issues/79791
-RUN mkdir "$TMP_BUILD_DIR" \
-    && sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list \
-    && apt update \
-    && apt -y install build-essential fakeroot dpkg-dev \
-    && apt source libfdt-dev \
-    && apt -y build-dep libfdt-dev \
-    && cd device-tree-compiler-1.4.5 \
-    && echo "CFLAGS += -fno-stack-protector" >> libfdt/Makefile.libfdt \
-    && dpkg-buildpackage -uc -us -b \
-    && dpkg -i ../libfdt1_1.4.5-3_arm64.deb ../libfdt-dev_1.4.5-3_arm64.deb \
-    && rm -rf "$TMP_BUILD_DIR"
 
 RUN python3 -m pip install poetry
 RUN mkdir "$TMP_POETRY_DIR"
