@@ -6,6 +6,8 @@
 
 - Fixed race between vcpu initialization and emulation thread which could
   potentially lead to segmentation faults.
+- Fixed the SSBD mitigation not being enabled on `aarch64` with the provided
+  `prod-host-setup.md`, by force-enabling it.
 
 ## [0.24.3]
 
