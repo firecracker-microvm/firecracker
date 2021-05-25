@@ -89,8 +89,7 @@ impl VsockBuilder {
         let backend = VsockUnixBackend::new(u64::from(cfg.guest_cid), cfg.uds_path)
             .map_err(VsockConfigError::CreateVsockBackend)?;
 
-        Ok(Vsock::new(u64::from(cfg.guest_cid), backend)
-            .map_err(VsockConfigError::CreateVsockDevice)?)
+        Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
     }
 }
 

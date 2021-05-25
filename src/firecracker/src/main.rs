@@ -31,10 +31,45 @@ const DEFAULT_API_SOCK_PATH: &str = "/run/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 const FIRECRACKER_VERSION: &str = env!("FIRECRACKER_VERSION");
 
+#[cfg(target_arch = "aarch64")]
+/// Enable SSBD mitigation through `prctl`.
+pub fn enable_ssbd_mitigation() {
+    // Parameters for `prctl`
+    // TODO: generate bindings for these from the kernel sources.
+    // https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/prctl.h#L212
+    const PR_SET_SPECULATION_CTRL: i32 = 53;
+    const PR_SPEC_STORE_BYPASS: u64 = 0;
+    const PR_SPEC_FORCE_DISABLE: u64 = 1u64 << 3;
+
+    let ret = unsafe {
+        libc::prctl(
+            PR_SET_SPECULATION_CTRL,
+            PR_SPEC_STORE_BYPASS,
+            PR_SPEC_FORCE_DISABLE,
+            0,
+            0,
+        )
+    };
+
+    if ret < 0 {
+        let last_error = std::io::Error::last_os_error().raw_os_error().unwrap();
+        error!(
+            "Could not enable SSBD mitigation through prctl, error {}",
+            last_error
+        );
+        if last_error == libc::EINVAL {
+            error!("The host does not support SSBD mitigation through prctl.");
+        }
+    }
+}
+
 fn main() {
     LOGGER
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
+
+    #[cfg(target_arch = "aarch64")]
+    enable_ssbd_mitigation();
 
     // We need this so that we can reset terminal to canonical mode if panic occurs.
     let stdin = io::stdin();

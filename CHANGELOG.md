@@ -41,6 +41,8 @@
   to use "MiB" instead.
 - Snapshot related host files (vm-state, memory, block backing files) are now
   flushed to their backing mediums as part of the CreateSnapshot operation.
+- Fixed the SSBD mitigation not being enabled on `aarch64` with the provided
+  `prod-host-setup.md`.
 
 ## [0.24.0]
 

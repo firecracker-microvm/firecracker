@@ -287,27 +287,27 @@ mod tests {
                     "futex".to_string(),
                     Some(SeccompAction::Log),
                     Some(vec![
-                        Cond::new(2, DWORD, Le, 65).unwrap(),
-                        Cond::new(1, QWORD, Ne, 80).unwrap(),
+                        Cond::new(2, Dword, Le, 65).unwrap(),
+                        Cond::new(1, Qword, Ne, 80).unwrap(),
                     ]),
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
                     None,
                     Some(vec![
-                        Cond::new(3, QWORD, Gt, 65).unwrap(),
-                        Cond::new(1, QWORD, Lt, 80).unwrap(),
+                        Cond::new(3, Qword, Gt, 65).unwrap(),
+                        Cond::new(1, Qword, Lt, 80).unwrap(),
                     ]),
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
                     None,
-                    Some(vec![Cond::new(3, QWORD, Ge, 65).unwrap()]),
+                    Some(vec![Cond::new(3, Qword, Ge, 65).unwrap()]),
                 ),
                 SyscallRule::new(
                     "ioctl".to_string(),
                     None,
-                    Some(vec![Cond::new(3, DWORD, MaskedEq(100), 65).unwrap()]),
+                    Some(vec![Cond::new(3, Dword, MaskedEq(100), 65).unwrap()]),
                 ),
             ],
         );
@@ -324,20 +324,20 @@ mod tests {
                     vec![
                         SeccompRule::new(
                             vec![
-                                Cond::new(2, DWORD, Le, 65).unwrap(),
-                                Cond::new(1, QWORD, Ne, 80).unwrap(),
+                                Cond::new(2, Dword, Le, 65).unwrap(),
+                                Cond::new(1, Qword, Ne, 80).unwrap(),
                             ],
                             SeccompAction::Log,
                         ),
                         SeccompRule::new(
                             vec![
-                                Cond::new(3, QWORD, Gt, 65).unwrap(),
-                                Cond::new(1, QWORD, Lt, 80).unwrap(),
+                                Cond::new(3, Qword, Gt, 65).unwrap(),
+                                Cond::new(1, Qword, Lt, 80).unwrap(),
                             ],
                             SeccompAction::Allow,
                         ),
                         SeccompRule::new(
-                            vec![Cond::new(3, QWORD, Ge, 65).unwrap()],
+                            vec![Cond::new(3, Qword, Ge, 65).unwrap()],
                             SeccompAction::Allow,
                         ),
                     ],
@@ -345,7 +345,7 @@ mod tests {
                 match_syscall_if(
                     compiler.syscall_table.get_syscall_nr("ioctl").unwrap(),
                     vec![SeccompRule::new(
-                        vec![Cond::new(3, DWORD, MaskedEq(100), 65).unwrap()],
+                        vec![Cond::new(3, Dword, MaskedEq(100), 65).unwrap()],
                         SeccompAction::Allow,
                     )],
                 ),
@@ -379,27 +379,27 @@ mod tests {
                     "futex".to_string(),
                     Some(SeccompAction::Log),
                     Some(vec![
-                        Cond::new(2, DWORD, Le, 65).unwrap(),
-                        Cond::new(1, QWORD, Ne, 80).unwrap(),
+                        Cond::new(2, Dword, Le, 65).unwrap(),
+                        Cond::new(1, Qword, Ne, 80).unwrap(),
                     ]),
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
                     None,
                     Some(vec![
-                        Cond::new(3, QWORD, Gt, 65).unwrap(),
-                        Cond::new(1, QWORD, Lt, 80).unwrap(),
+                        Cond::new(3, Qword, Gt, 65).unwrap(),
+                        Cond::new(1, Qword, Lt, 80).unwrap(),
                     ]),
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
                     None,
-                    Some(vec![Cond::new(3, QWORD, Ge, 65).unwrap()]),
+                    Some(vec![Cond::new(3, Qword, Ge, 65).unwrap()]),
                 ),
                 SyscallRule::new(
                     "ioctl".to_string(),
                     None,
-                    Some(vec![Cond::new(3, DWORD, MaskedEq(100), 65).unwrap()]),
+                    Some(vec![Cond::new(3, Dword, MaskedEq(100), 65).unwrap()]),
                 ),
             ],
         );
@@ -469,16 +469,16 @@ mod tests {
                         "futex".to_string(),
                         None,
                         Some(vec![
-                            Cond::new(1, DWORD, Eq, 65).unwrap(),
-                            Cond::new(2, QWORD, Le, 80).unwrap(),
+                            Cond::new(1, Dword, Eq, 65).unwrap(),
+                            Cond::new(2, Qword, Le, 80).unwrap(),
                         ]),
                     ),
                     SyscallRule::new(
                         "futex".to_string(),
                         None,
                         Some(vec![
-                            Cond::new(3, DWORD, Eq, 65).unwrap(),
-                            Cond::new(2, QWORD, Le, 80).unwrap(),
+                            Cond::new(3, Dword, Eq, 65).unwrap(),
+                            Cond::new(2, Qword, Le, 80).unwrap(),
                         ]),
                     ),
                 ],

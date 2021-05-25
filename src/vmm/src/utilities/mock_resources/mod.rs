@@ -25,11 +25,11 @@ fn kernel_image_path(kernel_image: Option<&str>) -> String {
     path.as_os_str().to_str().unwrap().to_string()
 }
 
-macro_rules! generate_into {
+macro_rules! generate_from {
     ($src_type: ty, $dst_type: ty) => {
-        impl Into<$dst_type> for $src_type {
-            fn into(self) -> $dst_type {
-                self.0
+        impl From<$src_type> for $dst_type {
+            fn from(src: $src_type) -> $dst_type {
+                src.0
             }
         }
     };
@@ -97,6 +97,6 @@ impl MockVmConfig {
     }
 }
 
-generate_into!(MockBootSourceConfig, BootSourceConfig);
-generate_into!(MockVmResources, VmResources);
-generate_into!(MockVmConfig, VmConfig);
+generate_from!(MockBootSourceConfig, BootSourceConfig);
+generate_from!(MockVmResources, VmResources);
+generate_from!(MockVmConfig, VmConfig);

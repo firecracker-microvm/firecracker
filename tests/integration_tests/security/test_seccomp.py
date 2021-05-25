@@ -30,7 +30,8 @@ def _get_basic_syscall_list():
             "sched_getaffinity",
             "sigaltstack",
             "munmap",
-            "exit_group"
+            "exit_group",
+            "poll"
         ]
     else:
         # platform.machine() == "aarch64"
@@ -47,7 +48,8 @@ def _get_basic_syscall_list():
             "sched_getaffinity",
             "sigaltstack",
             "munmap",
-            "exit_group"
+            "exit_group",
+            "ppoll"
         ]
 
     json = ""

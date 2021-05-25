@@ -285,7 +285,7 @@ impl MMIODeviceManager {
     /// otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_rtc(
         &mut self,
-        rtc: Arc<Mutex<devices::legacy::RTC>>,
+        rtc: Arc<Mutex<devices::legacy::Rtc>>,
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         // Create and attach a new RTC device.
@@ -293,7 +293,7 @@ impl MMIODeviceManager {
         // we do not break snapshot compatibility.
         let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(1)?);
 
-        let identifier = (DeviceType::RTC, DeviceType::RTC.to_string());
+        let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
         self.register_mmio_device(identifier, slot, rtc)
     }
 

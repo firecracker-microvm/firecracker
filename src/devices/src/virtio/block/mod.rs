@@ -15,7 +15,7 @@ use vm_memory::GuestMemoryError;
 
 pub const CONFIG_SPACE_SIZE: usize = 8;
 pub const SECTOR_SHIFT: u8 = 9;
-pub const SECTOR_SIZE: u64 = (0x01 as u64) << SECTOR_SHIFT;
+pub const SECTOR_SIZE: u64 = (0x01_u64) << SECTOR_SHIFT;
 pub const QUEUE_SIZE: u16 = 256;
 pub const NUM_QUEUES: usize = 1;
 pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE];

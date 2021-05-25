@@ -224,10 +224,10 @@ impl std::fmt::Display for Error {
 }
 
 // It's convenient to turn errors into HTTP responses directly.
-impl Into<Response> for Error {
-    fn into(self) -> Response {
-        let msg = ApiServer::json_fault_message(format!("{}", self));
-        match self {
+impl From<Error> for Response {
+    fn from(e: Error) -> Self {
+        let msg = ApiServer::json_fault_message(format!("{}", e));
+        match e {
             Error::Generic(status, _) => ApiServer::json_response(status, msg),
             Error::EmptyID
             | Error::InvalidID
@@ -504,9 +504,11 @@ pub(crate) mod tests {
         assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
         // With Balloon Stats Vmm data.
-        let mut stats = BalloonStats::default();
-        stats.swap_in = Some(1);
-        stats.swap_out = Some(1);
+        let stats = BalloonStats {
+            swap_in: Some(1),
+            swap_out: Some(1),
+            ..Default::default()
+        };
         let mut buf = Cursor::new(vec![0]);
         let response =
             ParsedRequest::convert_to_response(&Ok(VmmData::BalloonStats(stats.clone())));

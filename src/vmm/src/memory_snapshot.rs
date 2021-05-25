@@ -200,7 +200,7 @@ impl SnapshotMemory for GuestMemoryMmap {
             mmap_regions.push(mmap_region);
         }
 
-        Ok(Self::from_regions(mmap_regions).map_err(Error::CreateMemory)?)
+        Self::from_regions(mmap_regions).map_err(Error::CreateMemory)
     }
 }
 

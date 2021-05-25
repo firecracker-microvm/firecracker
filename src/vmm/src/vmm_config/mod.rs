@@ -5,7 +5,7 @@ use std::convert::{From, TryInto};
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
-use std::path::PathBuf;
+use std::path::Path;
 
 use libc::O_NONBLOCK;
 use serde::Deserialize;
@@ -134,7 +134,7 @@ type Result<T> = std::result::Result<T, std::io::Error>;
 /// In case we open a FIFO, in order to not block the instance if nobody is consuming the message
 /// that is flushed to the two pipes, we are opening it with `O_NONBLOCK` flag.
 /// In this case, writing to a pipe will start failing when reaching 64K of unconsumed content.
-fn open_file_nonblock(path: &PathBuf) -> Result<File> {
+fn open_file_nonblock(path: &Path) -> Result<File> {
     OpenOptions::new()
         .custom_flags(O_NONBLOCK)
         .read(true)

@@ -6,7 +6,7 @@
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::builder::{self, StartMicrovmError};
@@ -230,7 +230,7 @@ pub fn create_snapshot(
 
 fn snapshot_state_to_file(
     microvm_state: &MicrovmState,
-    snapshot_path: &PathBuf,
+    snapshot_path: &Path,
     snapshot_data_version: u16,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
@@ -251,7 +251,7 @@ fn snapshot_state_to_file(
 
 fn snapshot_memory_to_file(
     vmm: &Vmm,
-    mem_file_path: &PathBuf,
+    mem_file_path: &Path,
     snapshot_type: &SnapshotType,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
@@ -422,7 +422,7 @@ pub fn restore_from_snapshot(
 }
 
 fn snapshot_state_from_file(
-    snapshot_path: &PathBuf,
+    snapshot_path: &Path,
     version_map: VersionMap,
 ) -> std::result::Result<MicrovmState, LoadSnapshotError> {
     use self::LoadSnapshotError::{
@@ -435,7 +435,7 @@ fn snapshot_state_from_file(
 }
 
 fn guest_memory_from_file(
-    mem_file_path: &PathBuf,
+    mem_file_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
 ) -> std::result::Result<GuestMemoryMmap, LoadSnapshotError> {

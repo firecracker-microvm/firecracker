@@ -220,13 +220,23 @@ See more details [here](https://www.kernel.org/doc/html/latest/admin-guide/hw-vu
 This will mitigate variants of Spectre side-channel issues such as
 Speculative Store Bypass and SpectreNG.
 
-It can be enabled by adding the following Linux kernel boot parameter:
+On x86_64 systems, it can be enabled by adding the following Linux kernel boot
+parameter:
 
 ```console
 spec_store_bypass_disable=seccomp
 ```
 
 which will apply SSB if seccomp is enabled by Firecracker.
+
+On aarch64 systems, it is enabled by Firecracker
+[using the `prctl` interface][3]. However, this is only availabe on host
+kernels Linux >=4.17 and also Amazon Linux 4.14. Alternatively, a global
+mitigation can be enabled by adding the following Linux kernel boot parameter:
+
+```console
+ssbd=force-on
+```
 
 Verification can be done by running:
 
@@ -329,3 +339,4 @@ to trap and control this in the hypervisor.
 
 [1]: https://elixir.free-electrons.com/linux/v4.14.203/source/virt/kvm/arm/hyp/timer-sr.c#L63
 [2]: https://lists.cs.columbia.edu/pipermail/kvmarm/2017-January/023323.html
+[3]: https://elixir.bootlin.com/linux/v4.17/source/include/uapi/linux/prctl.h#L212
