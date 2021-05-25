@@ -5,7 +5,7 @@
 import os
 import framework.utils as utils
 
-AMAZON_COPYRIGHT_YEARS = (2018, 2019, 2020)
+AMAZON_COPYRIGHT_YEARS = (2018, 2019, 2020, 2021)
 AMAZON_COPYRIGHT = (
     "Copyright {} Amazon.com, Inc. or its affiliates. All Rights Reserved."
 )
@@ -52,21 +52,21 @@ def _validate_license(filename):
             copy = file.readline()
             local_license = file.readline()
             has_amazon_copyright = (
-                    _has_amazon_copyright(copy) and
-                    AMAZON_LICENSE in local_license
+                _has_amazon_copyright(copy) and
+                AMAZON_LICENSE in local_license
             )
             has_chromium_copyright = (
-                    CHROMIUM_COPYRIGHT in copy and
-                    CHROMIUM_LICENSE in local_license
+                CHROMIUM_COPYRIGHT in copy and
+                CHROMIUM_LICENSE in local_license
             )
             has_tuntap_copyright = (
-                    TUNTAP_COPYRIGHT in copy and
-                    TUNTAP_LICENSE in local_license
+                TUNTAP_COPYRIGHT in copy and
+                TUNTAP_LICENSE in local_license
             )
             return (
-                    has_amazon_copyright or
-                    has_chromium_copyright or
-                    has_tuntap_copyright
+                has_amazon_copyright or
+                has_chromium_copyright or
+                has_tuntap_copyright
             )
     return True
 
