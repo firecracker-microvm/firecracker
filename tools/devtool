@@ -1206,6 +1206,27 @@ check_swap () {
     say_warn "WARNING: SWAP enabled"
 }
 
+check_SSBD () {
+    arch=$(uname -m)
+    if [ "$arch" = "aarch64" ]; then
+        local param="ssbd=force-on"
+    elif [ "$arch" = "x86_64" ]; then
+        local param="spec_store_bypass_disable=on"
+    fi
+
+    ssbd_sysfs_file="/sys/devices/system/cpu/vulnerabilities/spec_store_bypass"
+
+    if [ -f "$ssbd_sysfs_file" ]; then
+        (grep -q "^Vulnerable" $ssbd_sysfs_file) && \
+        say_warn "WARNING: SSBD mitigation is either globally disabled or"\
+            "system does not support mitigation via prctl or seccomp. Try"\
+            "enabling it system-wide, using the \`${param}\` boot parameter."
+    else
+        say_warn "WARNING: SSBD mitigation not supported on this kernel."\
+            "View the prod-host-setup.md for more details."
+    fi
+}
+
 check_vm() {
     if [ $(dmesg | grep -c -i "hypervisor detected") -gt 0 ]; then
         say_warn "WARNING: you are running in a virtual machine." \
@@ -1238,6 +1259,7 @@ cmd_checkenv() {
     check_L1TF
     check_SMT
     check_swap
+    check_SSBD
 }
 
 generate_syscall_table_x86_64() {
