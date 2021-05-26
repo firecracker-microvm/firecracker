@@ -1,8 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 use libc::{
-    _exit, c_int, signalfd_siginfo, sigset_t, SFD_CLOEXEC, SFD_NONBLOCK, SIGBUS, SIGHUP, SIGILL,
-    SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ, SIG_BLOCK,
+    _exit, c_int, c_void, siginfo_t, signalfd_siginfo, sigset_t, SFD_CLOEXEC, SFD_NONBLOCK, SIGBUS,
+    SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ, SIG_BLOCK,
 };
 use logger::{error, IncMetric, METRICS};
 use polly::event_manager::{EventManager, Subscriber};
@@ -13,9 +13,16 @@ use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::ptr;
 use utils::epoll::{EpollEvent, EventSet};
 use utils::errno::Error as ErrnoError;
-use utils::signal::{create_sigset, validate_signal_num};
+use utils::signal::{create_sigset, register_signal_handler, validate_signal_num};
 use utils::syscall::SyscallReturnCode;
 use vm_memory::ByteValued;
+
+// The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
+// expressed as an `(u)int*`.
+// Offset `6` for an `i32` field means that the needed information is located at `6 * sizeof(i32)`.
+// See /usr/include/linux/signal.h for the C struct definition.
+// See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
+const SI_OFF_SYSCALL: isize = 6;
 
 // We need this wrapper in order to be able to implement the `ByteValued` trait,
 // since the `signalfd_siginfo` type is foreign.
@@ -36,9 +43,9 @@ impl Default for SignalInfoWrapper {
 
 unsafe impl ByteValued for SignalInfoWrapper {}
 
-const HANDLED_SIGNALS: [c_int; 8] = [
-    SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ,
-];
+// SIGSYS is handled separately because it doesn't have proper signalfd support in older kernels.
+// No SIL_SYS entry in https://elixir.bootlin.com/linux/v4.14/source/fs/signalfd.c#L100
+const HANDLED_SIGNALS: [c_int; 7] = [SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGXCPU, SIGXFSZ];
 
 const SYS_SECCOMP_CODE: i32 = 1;
 
@@ -52,6 +59,51 @@ pub enum Error {
 }
 
 type Result<T> = std::result::Result<T, Error>;
+
+// SIGSYS is handled separately because it doesn't have proper signalfd support in older kernels.
+#[inline(always)]
+extern "C" fn sigsys_handler(num: c_int, info: *mut siginfo_t, _unused: *mut c_void) {
+    // Safe because we're just reading some fields from a supposedly valid argument.
+    let si_signo = unsafe { (*info).si_signo };
+    let si_code = unsafe { (*info).si_code };
+
+    if num != si_signo || num != SIGSYS {
+        error!(
+            "SIGSYS signal handler called for wrong signal.\n\
+            Shutting down VM after intercepting signal {}, code {}.",
+            si_signo, si_code
+        );
+        exit_unexpected();
+    }
+
+    if si_code != SYS_SECCOMP_CODE as i32 {
+        error!(
+            "Shutting down VM after intercepting signal {}, code {}.",
+            si_signo, si_code
+        );
+        exit_unexpected();
+    }
+
+    METRICS.seccomp.num_faults.inc();
+    if let Err(e) = METRICS.write() {
+        error!("Failed to write metrics while stopping: {}", e);
+    }
+
+    // Other signals which might do async unsafe things incompatible with the rest of this
+    // function are blocked due to the sa_mask used when registering the signal handler.
+    let syscall = unsafe { *(info as *const i32).offset(SI_OFF_SYSCALL) as usize };
+    error!(
+        "Shutting down VM after intercepting signal {}, code {}, \
+        caused by seccomp violation on syscall number {}.",
+        si_signo, si_code, syscall
+    );
+    // Safe because we're terminating the process anyway.
+    // We don't actually do anything when running unit tests.
+    #[cfg(not(test))]
+    unsafe {
+        _exit(i32::from(super::FC_EXIT_CODE_BAD_SYSCALL))
+    };
+}
 
 /// Install the default signal mask so that the signals are no longer picked up by any default handlers.
 /// This must be installed on the VMM thread because otherwise, the default signal handler will run before
@@ -124,24 +176,6 @@ fn get_metric_and_exitcode(signo: c_int) -> Option<(&'static dyn IncMetric, Opti
     }
 }
 
-// Special handling of logging for the SIGSYS signal.
-fn log_sigsys_err(info: signalfd_siginfo) {
-    if info.ssi_code != SYS_SECCOMP_CODE {
-        // We received a SIGSYS for a reason other than `bad syscall`.
-        error!(
-            "Shutting down VM after intercepting signal {}, code {}.",
-            info.ssi_signo, info.ssi_code
-        );
-        exit_unexpected();
-    }
-
-    let syscall = info.ssi_syscall;
-    error!(
-        "Shutting down VM after intercepting a bad syscall ({}).",
-        syscall
-    );
-}
-
 // Create and return the signal mask corresponding to the signals we want to handle.
 fn get_mask() -> Result<sigset_t> {
     // Validate that all signals are valid.
@@ -166,6 +200,16 @@ impl SignalManager {
         .into_result()
         .map_err(Error::SyscallError)?;
 
+        // SIGSYS is handled separately because it doesn't have proper
+        // signalfd support in older kernels.
+        //
+        // Call to register_signal_handler is considered unsafe because it will register a signal
+        // handler which will be called in the current thread and will interrupt whatever work
+        // is done on the current thread, so we have to keep in mind that the registered
+        // signal handler must only do async-signal-safe operations.
+        register_signal_handler(SIGSYS, sigsys_handler)
+            .map_err(|e| Error::SyscallError(e.into()))?;
+
         Ok(Self {
             // Create a File instance so that we can leverage safe Read abstractions.
             // Safe because the fd is valid.
@@ -179,8 +223,6 @@ impl SignalManager {
         let si_code = info.ssi_code;
 
         match si_signo {
-            // For SIGSYS, we have some special logging.
-            SIGSYS => log_sigsys_err(info),
             // For SIGPIPE we just log the signal and code.
             SIGPIPE => error!("Received signal {}, code {}.", si_signo, si_code),
             _ => error!(
@@ -279,7 +321,6 @@ mod tests {
     use std::convert::TryInto;
     use std::sync::{Arc, Mutex};
     use std::{mem, thread};
-    use utils::signal::register_signal_handler;
 
     // This function is used when running unit tests, so all the unsafes are safe.
     fn cpu_count() -> usize {
@@ -534,13 +575,6 @@ mod tests {
 
         let child = thread::spawn(move || {
             extern "C" fn signal_handler(_: c_int, siginfo: *mut siginfo_t, _: *mut c_void) {
-                // The offset of `si_syscall` (offending syscall identifier) within the siginfo structure
-                // expressed as an `(u)int*`.
-                // Offset `6` for an `i32` field means that the needed information is located at `6 * sizeof(i32)`.
-                // See /usr/include/linux/signal.h for the C struct definition.
-                // See https://github.com/rust-lang/libc/issues/716 for why the offset is different in Rust.
-                const SI_OFF_SYSCALL: isize = 6;
-
                 // Transfer the important information from the siginfo_t struct to a signalfd_siginfo struct.
                 let mut signalfd_info: signalfd_siginfo = unsafe { mem::zeroed() };
                 signalfd_info.ssi_signo = unsafe { (*siginfo).si_signo.try_into().unwrap() };
