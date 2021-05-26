@@ -377,7 +377,7 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
                 response.status_code,
                 response.text)
     assert vm.api_session.is_status_bad_request(response.status_code)
-    assert "Cannot deserialize MicrovmState" in response.text
+    assert "Cannot deserialize the microVM state" in response.text
 
     # Check if FC process is closed
     wait_process_termination(vm.jailer_clone_pid)
@@ -516,7 +516,7 @@ def test_negative_snapshot_permissions(bin_cloner_path):
         _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
     except AssertionError as error:
         # Check if proper error is returned.
-        assert "Cannot open memory file: Permission denied" in str(error)
+        assert "Cannot open the memory file: Permission denied" in str(error)
     else:
         assert False, "Negative test failed"
 
@@ -527,7 +527,8 @@ def test_negative_snapshot_permissions(bin_cloner_path):
         _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
     except AssertionError as error:
         # Check if proper error is returned.
-        assert "Cannot open snapshot file: Permission denied" in str(error)
+        assert "Cannot perform open on the snapshot backing file:" \
+               " Permission denied" in str(error)
     else:
         assert False, "Negative test failed"
 
