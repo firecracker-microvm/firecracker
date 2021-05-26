@@ -334,8 +334,10 @@ impl ApiServer {
         match mmds_response {
             Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
             Err(e) => match e {
-                data_store::Error::NotFound => unreachable!(),
-                data_store::Error::UnsupportedValueType => unreachable!(),
+                data_store::Error::NotFound
+                | data_store::Error::UnsupportedValueType
+                | data_store::Error::AlreadyAtRequestedVersion(_)
+                | data_store::Error::TokenAuthority(_) => unreachable!(),
                 data_store::Error::NotInitialized => ApiServer::json_response(
                     StatusCode::BadRequest,
                     ApiServer::json_fault_message(e.to_string()),

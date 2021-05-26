@@ -39,6 +39,8 @@ pub enum Error {
     ExpiryExtraction,
     /// Time to live value for token is invalid.
     InvalidTtlValue(u32),
+    /// Token authority not initialized.
+    NotInitialized,
     /// Failed to create token authority entity.
     TokenAuthorityCreation(io::Error),
     /// Failed to generate token.
@@ -55,6 +57,7 @@ impl fmt::Display for Error {
                 Please provide a value between {} and {}.",
                 value, MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS,
             ),
+            Error::NotInitialized => write!(f, "Token Authority not initialized."),
             Error::TokenAuthorityCreation(err) => {
                 write!(f, "Failed to create token authority: {}.", err)
             }
@@ -477,6 +480,11 @@ mod tests {
                 Please provide a value between {} and {}.",
                 MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS
             )
+        );
+
+        assert_eq!(
+            Error::NotInitialized.to_string(),
+            "Token Authority not initialized."
         );
 
         assert_eq!(
