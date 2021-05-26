@@ -30,6 +30,8 @@
   which specifies the lifetime of the session token in seconds.
 - `GET` requests to MMDS require a session token to be provided through
   `X-aws-ec2-metadata-token` header when MMDSv2 is configured.
+- Allow `PUT` requests to MMDSv2 in order to generate a session token
+  to be used for future `GET` requests.
 
 ### Changed
 
