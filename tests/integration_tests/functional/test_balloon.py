@@ -651,6 +651,9 @@ def _test_balloon_snapshot(context):
     # Get the firecracker from snapshot pid, and open an ssh connection.
     firecracker_pid = microvm.jailer_clone_pid
 
+    # Get the stats right after we take a snapshot.
+    stats_after_snap = microvm.balloon.get_stats().json()
+
     # Check memory usage.
     third_reading = get_stable_rss_mem_by_pid(firecracker_pid)
 
@@ -671,6 +674,17 @@ def _test_balloon_snapshot(context):
     # There should be a reduction in RSS, but it's inconsistent.
     # We only test that the reduction happens.
     assert fourth_reading > fifth_reading
+
+    # Get the stats after we take a snapshot and dirty some memory,
+    # then reclaim it.
+    latest_stats = microvm.balloon.get_stats().json()
+
+    # Ensure the stats are still working after restore and show
+    # that the balloon inflated.
+    assert (
+        stats_after_snap['available_memory'] >
+        latest_stats['available_memory']
+    )
 
     microvm.kill()
 
