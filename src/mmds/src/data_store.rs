@@ -98,6 +98,17 @@ impl Mmds {
         }
     }
 
+    /// Generate a new Mmds V2 token and add it to the store.
+    pub fn generate_token(&mut self, ttl_seconds: u32) -> Result<String, TokenError> {
+        match &self.token_authority {
+            None => Err(TokenError::NotInitialized),
+            Some(ta) => match ta.generate_token_secret(ttl_seconds) {
+                Ok(token) => Ok(token),
+                Err(err) => Err(err),
+            },
+        }
+    }
+
     /// Set the MMDS version.
     pub fn set_version(&mut self, version: MmdsVersion) -> Result<(), Error> {
         match version {
