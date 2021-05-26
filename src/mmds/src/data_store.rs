@@ -156,12 +156,20 @@ impl Mmds {
             .map(|ta| ta.is_valid(token))
     }
 
+    /// Generate a new Mmds token using the token authority.
+    pub fn generate_token(&mut self, ttl_seconds: u32) -> Result<String, TokenError> {
+        self.token_authority
+            .as_mut()
+            .ok_or(TokenError::InvalidState)
+            .and_then(|ta| ta.generate_token_secret(ttl_seconds))
+    }
+
     pub fn set_data_store_limit(&mut self, data_store_limit: usize) {
         self.data_store_limit = data_store_limit;
     }
 
     // We do not check data_store size here because a request with a body
-    // bigger than the imposed limit will be stoped by micro_http before
+    // bigger than the imposed limit will be stopped by micro_http before
     // reaching here.
     pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
         self.data_store = data;
@@ -573,5 +581,19 @@ mod tests {
             mmds.is_valid_token("aaa").unwrap_err().to_string(),
             TokenError::InvalidState.to_string()
         )
+    }
+
+    #[test]
+    fn test_generate_token() {
+        let mut mmds = Mmds::new().unwrap();
+
+        let token = mmds.generate_token(1).unwrap();
+        assert!(mmds.is_valid_token(&token).unwrap());
+
+        mmds.token_authority = None;
+        assert_eq!(
+            mmds.generate_token(1).err().unwrap().to_string(),
+            TokenError::InvalidState.to_string()
+        );
     }
 }
