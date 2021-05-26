@@ -11,6 +11,14 @@ pub struct Mmds {
     data_store: Value,
     is_initialized: bool,
     data_store_limit: usize,
+    version: MmdsVersion,
+}
+
+/// MMDS version.
+#[derive(Clone, Copy)]
+pub enum MmdsVersion {
+    V1,
+    V2,
 }
 
 /// MMDS possible outputs.
@@ -21,22 +29,22 @@ pub enum OutputFormat {
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    DataStoreLimitExceeded,
     NotFound,
     NotInitialized,
     UnsupportedValueType,
-    DataStoreLimitExceeded,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            Error::DataStoreLimitExceeded => write!(f, "The MMDS patch request doesn't fit."),
             Error::NotFound => write!(f, "The MMDS resource does not exist."),
             Error::NotInitialized => write!(f, "The MMDS data store is not initialized."),
             Error::UnsupportedValueType => write!(
                 f,
                 "Cannot retrieve value. The value has an unsupported type."
             ),
-            Error::DataStoreLimitExceeded => write!(f, "The MMDS patch request doesn't fit."),
         }
     }
 }
@@ -47,6 +55,7 @@ impl Default for Mmds {
             data_store: Value::default(),
             is_initialized: false,
             data_store_limit: MAX_DATA_STORE_SIZE,
+            version: MmdsVersion::V1,
         }
     }
 }
@@ -61,6 +70,16 @@ impl Mmds {
         } else {
             Err(Error::NotInitialized)
         }
+    }
+
+    /// Set the MMDS version.
+    pub fn set_version(&mut self, version: MmdsVersion) {
+        self.version = version;
+    }
+
+    /// Return the MMDS version.
+    pub fn version(&self) -> MmdsVersion {
+        self.version
     }
 
     pub fn set_data_store_limit(&mut self, data_store_limit: usize) {
