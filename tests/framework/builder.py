@@ -140,11 +140,11 @@ class MicrovmBuilder:
                             snapshot: Snapshot,
                             resume=False,
                             # Enable incremental snapshot capability.
-                            enable_diff_snapshots=False):
+                            enable_diff_snapshots=False, use_ramdisk=False):
         """Build a microvm from a snapshot artifact."""
         vm = init_microvm(self.root_path, self.bin_cloner_path,
-                          self._fc_binary, self._jailer_binary)
-        vm.spawn(log_level='Error')
+                          self._fc_binary, self._jailer_binary,)
+        vm.spawn(log_level='Error', use_ramdisk=use_ramdisk)
         vm.api_session.untime()
 
         metrics_file_path = os.path.join(vm.path, 'metrics.log')
@@ -155,12 +155,16 @@ class MicrovmBuilder:
         assert vm.api_session.is_status_no_content(response.status_code)
 
         # Hardlink all the snapshot files into the microvm jail.
-        jailed_mem = vm.create_jailed_resource(snapshot.mem)
-        jailed_vmstate = vm.create_jailed_resource(snapshot.vmstate)
+        jailed_mem = vm.copy_to_jail_ramfs(snapshot.mem) if use_ramdisk else \
+            vm.create_jailed_resource(snapshot.mem)
+        jailed_vmstate = vm.copy_to_jail_ramfs(snapshot.vmstate) \
+            if use_ramdisk else vm.create_jailed_resource(snapshot.vmstate)
+
         assert len(snapshot.disks) > 0, "Snapshot requires at least one disk."
         _jailed_disks = []
         for disk in snapshot.disks:
-            _jailed_disks.append(vm.create_jailed_resource(disk))
+            _jailed_disks.append(vm.copy_to_jail_ramfs(disk) if use_ramdisk
+                                 else vm.create_jailed_resource(disk))
         vm.ssh_config['ssh_key_path'] = snapshot.ssh_key
 
         # Create network interfaces.
