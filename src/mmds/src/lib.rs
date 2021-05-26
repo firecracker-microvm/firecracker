@@ -12,6 +12,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
+use crate::token::PATH_TO_TOKEN;
 
 use lazy_static::lazy_static;
 use logger::warn;
@@ -26,6 +27,8 @@ pub enum Error {
     MethodNotAllowed,
     NoMmds,
     NoTokenProvided,
+    NoTtlProvided,
+    ResourceNotFound(String),
 }
 
 impl fmt::Display for Error {
@@ -44,6 +47,14 @@ impl fmt::Display for Error {
                 "No MMDS token provided. Use `X-metadata-token` \
                 header to specify the session token."
             ),
+            Error::NoTtlProvided => write!(
+                f,
+                "Token time to live value not found. Use `X-metadata-token-ttl_seconds` \
+                header to specify the token's lifetime."
+            ),
+            Error::ResourceNotFound(ref uri) => {
+                write!(f, "{}", format!("Resource not found: {}.", uri))
+            }
         }
     }
 }
@@ -169,23 +180,6 @@ fn respond_to_request_mmdsv1(request: Request) -> Response {
 }
 
 fn respond_to_request_mmdsv2(request: Request) -> Response {
-    // Allow only GET requests.
-    // Will allow PUT requests for MMDSv2 in a subsequent commit.
-    match request.method() {
-        Method::Get => respond_to_get_request_checked(request),
-        _ => {
-            let mut response = build_response(
-                request.http_version(),
-                StatusCode::MethodNotAllowed,
-                Body::new(Error::MethodNotAllowed.to_string()),
-            );
-            response.allow_method(Method::Get);
-            response
-        }
-    }
-}
-
-fn respond_to_get_request_checked(request: Request) -> Response {
     // Fetch custom headers from request.
     let token_headers = match TokenHeaders::try_from(request.headers.custom_entries()) {
         Ok(token_headers) => token_headers,
@@ -198,6 +192,24 @@ fn respond_to_get_request_checked(request: Request) -> Response {
         }
     };
 
+    // Allow only GET and PUT requests.
+    match request.method() {
+        Method::Get => respond_to_get_request_checked(request, token_headers),
+        Method::Put => respond_to_put_request(request, token_headers),
+        _ => {
+            let mut response = build_response(
+                request.http_version(),
+                StatusCode::MethodNotAllowed,
+                Body::new(Error::MethodNotAllowed.to_string()),
+            );
+            response.allow_method(Method::Get);
+            response.allow_method(Method::Put);
+            response
+        }
+    }
+}
+
+fn respond_to_get_request_checked(request: Request, token_headers: TokenHeaders) -> Response {
     // Get MMDS token from custom headers.
     let token = match token_headers.x_metadata_token() {
         Some(token) => token,
@@ -254,7 +266,7 @@ fn respond_to_get_request_unchecked(request: Request) -> Response {
         ),
         Err(e) => match e {
             MmdsError::NotFound => {
-                let error_msg = format!("Resource not found: {}.", uri);
+                let error_msg = Error::ResourceNotFound(String::from(uri)).to_string();
                 build_response(
                     request.http_version(),
                     StatusCode::NotFound,
@@ -276,9 +288,60 @@ fn respond_to_get_request_unchecked(request: Request) -> Response {
     }
 }
 
+fn respond_to_put_request(request: Request, token_headers: TokenHeaders) -> Response {
+    let uri = request.uri().get_abs_path();
+    // Sanitize the URI into a strict json path.
+    let json_path = sanitize_uri(uri.to_string());
+
+    // Only accept PUT requests towards TOKEN_PATH.
+    if json_path != PATH_TO_TOKEN {
+        let error_msg = Error::ResourceNotFound(String::from(uri)).to_string();
+        return build_response(
+            request.http_version(),
+            StatusCode::NotFound,
+            Body::new(error_msg),
+        );
+    }
+
+    // Get token lifetime value.
+    let ttl_seconds = match token_headers.x_metadata_token_ttl_seconds() {
+        Some(ttl_seconds) => ttl_seconds,
+        None => {
+            return build_response(
+                request.http_version(),
+                StatusCode::BadRequest,
+                Body::new(Error::NoTtlProvided.to_string()),
+            );
+        }
+    };
+
+    // Generate token.
+    let result = match MMDS.lock().expect("Poisoned lock").as_mut() {
+        Some(mmds) => mmds.generate_token(ttl_seconds),
+        // This path is unreachable because MMDS entity has been previously
+        // checked.
+        None => unreachable!(),
+    };
+    match result {
+        Ok(token) => {
+            let mut response =
+                build_response(request.http_version(), StatusCode::OK, Body::new(token));
+            response.set_content_type(MediaType::PlainText);
+            response
+        }
+        Err(err) => build_response(
+            request.http_version(),
+            StatusCode::BadRequest,
+            Body::new(err.to_string()),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::token::{MAX_TOKEN_TTL_SECONDS, MIN_TOKEN_TTL_SECONDS};
+    use std::time::Duration;
 
     fn populate_mmds() -> Arc<Mutex<Option<Mmds>>> {
         let data = r#"{
@@ -368,7 +431,9 @@ mod tests {
         let request_bytes = b"GET http://169.254.169.254/invalid HTTP/1.0\r\n\r\n";
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
-        expected_response.set_body(Body::new("Resource not found: /invalid.".to_string()));
+        expected_response.set_body(Body::new(
+            Error::ResourceNotFound(String::from("/invalid")).to_string(),
+        ));
         let actual_response = convert_to_response(request);
         assert_eq!(actual_response, expected_response);
 
@@ -446,6 +511,16 @@ mod tests {
             MmdsVersion::V2.to_string()
         );
 
+        // Test not allowed PATCH HTTP Method.
+        let request_bytes = b"PATCH http://169.254.169.255/ HTTP/1.0\r\n\r\n";
+        let request = Request::try_from(request_bytes, None).unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::MethodNotAllowed);
+        expected_response.set_body(Body::new(Error::MethodNotAllowed.to_string()));
+        expected_response.allow_method(Method::Get);
+        expected_response.allow_method(Method::Put);
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+
         // Test invalid value for custom header.
         let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\
                                     Accept: application/json\r\n
@@ -456,6 +531,97 @@ mod tests {
             "Invalid header. Reason: Invalid value. \
             Key:X-metadata-token-ttl-seconds; Value:application/json"
                 .to_string(),
+        ));
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test PUT requests.
+        // Test invalid path.
+        let request_bytes = b"PUT http://169.254.169.254/token HTTP/1.0\r\n\
+                                    X-metadata-token-ttl-seconds: 60\r\n\r\n";
+        let request = Request::try_from(request_bytes, None).unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
+        expected_response.set_body(Body::new(
+            Error::ResourceNotFound(String::from("/token")).to_string(),
+        ));
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test invalid lifetime values for token.
+        let invalid_values = [MIN_TOKEN_TTL_SECONDS - 1, MAX_TOKEN_TTL_SECONDS + 1];
+        for invalid_value in invalid_values.iter() {
+            let request_bytes = format!(
+                "PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+                X-metadata-token-ttl-seconds: {}\r\n\r\n",
+                invalid_value
+            );
+            let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
+            let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+            let error_msg = format!(
+                "Invalid time to live value provided for token: {}. \
+                Please provide a value between {} and {}.",
+                invalid_value, MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS
+            );
+            expected_response.set_body(Body::new(error_msg));
+            let actual_response = convert_to_response(request);
+            assert_eq!(actual_response, expected_response);
+        }
+
+        // Test no lifetime value provided for token.
+        let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\r\n";
+        let request = Request::try_from(request_bytes, None).unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+        expected_response.set_body(Body::new(Error::NoTtlProvided.to_string()));
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test valid PUT.
+        let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+                                    X-metadata-token-ttl-seconds: 60\r\n\r\n";
+        let request = Request::try_from(request_bytes, None).unwrap();
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response.status(), StatusCode::OK);
+        assert_eq!(actual_response.content_type(), MediaType::PlainText);
+
+        // Test valid GET.
+        let valid_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
+        let request_bytes = format!(
+            "GET http://169.254.169.254/ HTTP/1.0\r\n\
+            Accept: application/json\r\n\
+            X-metadata-token: {}\r\n\r\n",
+            valid_token
+        );
+        let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
+        let mut body = get_json_data().to_string();
+        body.retain(|c| !c.is_whitespace());
+        expected_response.set_body(Body::new(body));
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test GET request towards unsupported value type.
+        let request_bytes = format!(
+            "GET /age HTTP/1.1\r\n\
+            X-metadata-token: {}\r\n\r\n",
+            valid_token
+        );
+        let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
+        let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
+        let body = "Cannot retrieve value. The value has an unsupported type.".to_string();
+        expected_response.set_body(Body::new(body));
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test GET request towards invalid resource.
+        let request_bytes = format!(
+            "GET http://169.254.169.254/invalid HTTP/1.0\r\n\
+            X-metadata-token: {}\r\n\r\n",
+            valid_token
+        );
+        let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
+        expected_response.set_body(Body::new(
+            Error::ResourceNotFound(String::from("/invalid")).to_string(),
         ));
         let actual_response = convert_to_response(request);
         assert_eq!(actual_response, expected_response);
@@ -476,6 +642,35 @@ mod tests {
         expected_response.set_body(Body::new(Error::InvalidToken.to_string()));
         let actual_response = convert_to_response(request);
         assert_eq!(actual_response, expected_response);
+
+        // Create a new MMDS token that expires in one second.
+        let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+                                    X-metadata-token-ttl-seconds: 1\r\n\r\n";
+        let request = Request::try_from(request_bytes, None).unwrap();
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response.status(), StatusCode::OK);
+        assert_eq!(actual_response.content_type(), MediaType::PlainText);
+
+        // Test GET request with invalid tokens.
+        // `valid_token` will become invalid after one second, when it expires.
+        let valid_token = String::from_utf8(actual_response.body().unwrap().body).unwrap();
+        let invalid_token = std::iter::repeat("a").take(58).collect::<String>();
+        let tokens = [invalid_token, valid_token];
+        for token in tokens.iter() {
+            let request_bytes = format!(
+                "GET http://169.254.169.254/ HTTP/1.0\r\n\
+                X-metadata-token: {}\r\n\r\n",
+                token
+            );
+            let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
+            let mut expected_response = Response::new(Version::Http10, StatusCode::Unauthorized);
+            expected_response.set_body(Body::new(Error::InvalidToken.to_string()));
+            let actual_response = convert_to_response(request);
+            assert_eq!(actual_response, expected_response);
+
+            // Wait for the second token to expire.
+            std::thread::sleep(Duration::from_secs(1));
+        }
     }
 
     #[test]
@@ -553,5 +748,16 @@ mod tests {
             Error::NoTokenProvided.to_string(),
             "No MMDS token provided. Use `X-metadata-token` header to specify the session token."
         );
+
+        assert_eq!(
+            Error::NoTtlProvided.to_string(),
+            "Token time to live value not found. Use `X-metadata-token-ttl_seconds` \
+            header to specify the token's lifetime."
+        );
+
+        assert_eq!(
+            Error::ResourceNotFound(String::from("invalid/")).to_string(),
+            "Resource not found: invalid/."
+        )
     }
 }
