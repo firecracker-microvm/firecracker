@@ -8,21 +8,45 @@ mod token;
 pub mod token_headers;
 
 use serde_json::{Map, Value};
+use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
 
 use lazy_static::lazy_static;
+use logger::warn;
 use micro_http::{Body, MediaType, Method, Request, Response, StatusCode, Version};
 use token_headers::TokenHeaders;
 
 pub const MAX_DATA_STORE_SIZE: usize = 51200;
 
+pub enum Error {
+    NoMmds,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::NoMmds => write!(
+                f,
+                "Default MMDS (version 2) was not successfully created and it is not \
+                currently available for requests."
+            ),
+        }
+    }
+}
+
 lazy_static! {
     // A static reference to a global Mmds instance. We currently use this for ease of access during
     // prototyping. We'll consider something like passing Arc<Mutex<Mmds>> references to the
     // appropriate threads in the future.
-    pub static ref MMDS: Arc<Mutex<Mmds>> = Arc::new(Mutex::new(Mmds::default()));
+    pub static ref MMDS: Arc<Mutex<Option<Mmds>>> = Arc::new(Mutex::new(Mmds::new().map_or_else(
+        |_| {
+            warn!("Unable to create MMDS. MicroVM data store will not be available.");
+            None
+        },
+        Some
+    )));
 }
 
 impl From<MediaType> for OutputFormat {
@@ -83,6 +107,15 @@ fn sanitize_uri(mut uri: String) -> String {
 }
 
 fn convert_to_response(request: Request) -> Response {
+    // Check that MMDS entity has been successfully created.
+    if MMDS.lock().unwrap().is_none() {
+        return build_response(
+            request.http_version(),
+            StatusCode::BadRequest,
+            Body::new(Error::NoMmds.to_string()),
+        );
+    }
+
     let uri = request.uri().get_abs_path();
     if uri.is_empty() {
         return build_response(
@@ -96,7 +129,11 @@ fn convert_to_response(request: Request) -> Response {
 }
 
 fn respond_to_request(request: Request) -> Response {
-    let mmds_version = MMDS.lock().expect("Poisoned lock").version();
+    let mmds_version = match MMDS.lock().expect("Poisoned lock").as_ref() {
+        Some(mmds) => mmds.version(),
+        None => unreachable!(),
+    };
+
     match mmds_version {
         MmdsVersion::V1 => respond_to_request_mmdsv1(request),
         // TODO: return valid response once MMDSv2 support is implemented
@@ -144,10 +181,12 @@ fn respond_to_get_request(request: Request) -> Response {
 
     // The lock can be held by one thread only, so it is safe to unwrap.
     // If another thread poisoned the lock, we abort the execution.
-    let response = MMDS
-        .lock()
-        .expect("Poisoned lock")
-        .get_value(json_pointer, request.headers.accept().into());
+    let response = match MMDS.lock().expect("Poisoned lock").as_ref() {
+        Some(mmds) => mmds.get_value(json_pointer, request.headers.accept().into()),
+        // This path is unreachable because MMDS entity has been previously
+        // checked.
+        None => unreachable!(),
+    };
 
     match response {
         Ok(response_body) => build_response(
@@ -174,7 +213,7 @@ fn respond_to_get_request(request: Request) -> Response {
                 StatusCode::PayloadTooLarge,
                 Body::new(e.to_string()),
             ),
-            MmdsError::NotInitialized => unreachable!(),
+            _ => unreachable!(),
         },
     }
 }
@@ -220,7 +259,15 @@ mod tests {
         }"#;
         MMDS.lock()
             .unwrap()
+            .as_mut()
+            .unwrap()
             .put_data(serde_json::from_str(data).unwrap())
+            .unwrap();
+        MMDS.lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .set_version(MmdsVersion::V1)
             .unwrap();
 
         // Test resource not found.
@@ -362,6 +409,15 @@ mod tests {
         assert_eq!(
             data["phones"]["mobile"]["UK"],
             patch["phones"]["mobile"]["UK"]
+        );
+    }
+
+    #[test]
+    fn test_error_display() {
+        assert_eq!(
+            Error::NoMmds.to_string(),
+            "Default MMDS (version 2) was not successfully created and it is not \
+            currently available for requests."
         );
     }
 }

@@ -136,10 +136,14 @@ pub(crate) fn run_with_api(
 
     // MMDS only supported with API.
     let mmds_info = MMDS.clone();
-    mmds_info
+    if let Some(mmds) = mmds_info
         .lock()
         .expect("Failed to acquire lock on MMDS info")
-        .set_data_store_limit(payload_limit.unwrap_or(MAX_DATA_STORE_SIZE));
+        .as_mut()
+    {
+        mmds.set_data_store_limit(payload_limit.unwrap_or(MAX_DATA_STORE_SIZE));
+    }
+
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");

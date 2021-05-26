@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::token::{Error as TokenError, TokenAuthority};
 use crate::MAX_DATA_STORE_SIZE;
 use serde::{Deserialize, Serialize};
 use serde_json::{to_vec, Value};
@@ -8,16 +9,16 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
-#[derive(Clone)]
 pub struct Mmds {
     data_store: Value,
+    // None when MMDS V1 is configured, Some for MMDS V2.
+    token_authority: Option<TokenAuthority>,
     is_initialized: bool,
     data_store_limit: usize,
-    version: MmdsVersion,
 }
 
 /// MMDS version.
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum MmdsVersion {
     V1,
     V2,
@@ -25,7 +26,7 @@ pub enum MmdsVersion {
 
 impl Default for MmdsVersion {
     fn default() -> Self {
-        MmdsVersion::V1
+        MmdsVersion::V2
     }
 }
 
@@ -66,20 +67,22 @@ impl From<MmdsVersion> for MmdsVersionType {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     DataStoreLimitExceeded,
     NotFound,
     NotInitialized,
+    TokenAuthority(TokenError),
     UnsupportedValueType,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self {
             Error::DataStoreLimitExceeded => write!(f, "The MMDS patch request doesn't fit."),
             Error::NotFound => write!(f, "The MMDS resource does not exist."),
             Error::NotInitialized => write!(f, "The MMDS data store is not initialized."),
+            Error::TokenAuthority(err) => write!(f, "Token Authority error: {}", err),
             Error::UnsupportedValueType => write!(
                 f,
                 "Cannot retrieve value. The value has an unsupported type."
@@ -88,18 +91,26 @@ impl fmt::Display for Error {
     }
 }
 
-impl Default for Mmds {
-    fn default() -> Self {
-        Mmds {
+impl Mmds {
+    /// Create a new Mmds entity.
+    pub fn new() -> Result<Self, Error> {
+        Ok(Mmds {
             data_store: Value::default(),
+            token_authority: Some(TokenAuthority::new().map_err(Error::TokenAuthority)?),
             is_initialized: false,
             data_store_limit: MAX_DATA_STORE_SIZE,
-            version: MmdsVersion::default(),
+        })
+    }
+
+    pub fn new_with_v1() -> Self {
+        Mmds {
+            data_store: Value::default(),
+            token_authority: None,
+            is_initialized: false,
+            data_store_limit: MAX_DATA_STORE_SIZE,
         }
     }
-}
 
-impl Mmds {
     /// This method is needed to check if data store is initialized.
     /// When a PATCH request is made on an uninitialized Mmds structure this method
     /// should return a NotFound error.
@@ -112,13 +123,29 @@ impl Mmds {
     }
 
     /// Set the MMDS version.
-    pub fn set_version(&mut self, version: MmdsVersion) {
-        self.version = version;
+    pub fn set_version(&mut self, version: MmdsVersion) -> Result<(), Error> {
+        match version {
+            MmdsVersion::V1 => {
+                self.token_authority = None;
+                Ok(())
+            }
+            MmdsVersion::V2 => {
+                if self.token_authority.is_none() {
+                    self.token_authority =
+                        Some(TokenAuthority::new().map_err(Error::TokenAuthority)?);
+                }
+                Ok(())
+            }
+        }
     }
 
-    /// Return the MMDS version.
+    /// Return the MMDS version by checking the token authority field.
     pub fn version(&self) -> MmdsVersion {
-        self.version
+        if self.token_authority.is_none() {
+            MmdsVersion::V1
+        } else {
+            MmdsVersion::V2
+        }
     }
 
     pub fn set_data_store_limit(&mut self, data_store_limit: usize) {
@@ -260,23 +287,23 @@ mod tests {
 
     #[test]
     fn test_mmds_version() {
-        let mut mmds = Mmds::default();
+        let mut mmds = Mmds::new().unwrap();
 
         // Test default MMDS version.
-        assert_eq!(mmds.version().to_string(), MmdsVersion::V1.to_string());
-
-        // Test setting MMDS version to v1.
-        mmds.set_version(MmdsVersion::V2);
         assert_eq!(mmds.version().to_string(), MmdsVersion::V2.to_string());
 
-        // Test setting MMDS version back to default.
-        mmds.set_version(MmdsVersion::V1);
+        // Test setting MMDS version to v1.
+        mmds.set_version(MmdsVersion::V1).unwrap();
         assert_eq!(mmds.version().to_string(), MmdsVersion::V1.to_string());
+
+        // Test setting MMDS version back to default.
+        mmds.set_version(MmdsVersion::V2).unwrap();
+        assert_eq!(mmds.version().to_string(), MmdsVersion::V2.to_string());
     }
 
     #[test]
     fn test_mmds() {
-        let mut mmds = Mmds::default();
+        let mut mmds = Mmds::new().unwrap();
 
         assert_eq!(
             mmds.check_data_store_initialized().unwrap_err().to_string(),
@@ -301,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_get_value() {
-        let mut mmds = Mmds::default();
+        let mut mmds = Mmds::new().unwrap();
         let data = r#"{
             "name": {
                 "first": "John",
@@ -321,12 +348,16 @@ mod tests {
 
         // Test invalid path.
         assert_eq!(
-            mmds.get_value("/invalid_path".to_string(), OutputFormat::Json),
-            Err(Error::NotFound)
+            mmds.get_value("/invalid_path".to_string(), OutputFormat::Json)
+                .unwrap_err()
+                .to_string(),
+            Error::NotFound.to_string()
         );
         assert_eq!(
-            mmds.get_value("/invalid_path".to_string(), OutputFormat::Imds),
-            Err(Error::NotFound)
+            mmds.get_value("/invalid_path".to_string(), OutputFormat::Imds)
+                .unwrap_err()
+                .to_string(),
+            Error::NotFound.to_string()
         );
 
         // Retrieve an object.
@@ -357,8 +388,9 @@ mod tests {
         assert_eq!(
             mmds.get_value("/age".to_string(), OutputFormat::Imds)
                 .err()
-                .unwrap(),
-            Error::UnsupportedValueType
+                .unwrap()
+                .to_string(),
+            Error::UnsupportedValueType.to_string()
         );
 
         // Test path ends with /; Value is a dictionary.
@@ -377,8 +409,9 @@ mod tests {
         assert_eq!(
             mmds.get_value("/phones/".to_string(), OutputFormat::Imds)
                 .err()
-                .unwrap(),
-            Error::UnsupportedValueType
+                .unwrap()
+                .to_string(),
+            Error::UnsupportedValueType.to_string()
         );
 
         // Test path does NOT end with /; Value is a dictionary.
@@ -390,8 +423,9 @@ mod tests {
         assert_eq!(
             mmds.get_value("/phones".to_string(), OutputFormat::Imds)
                 .err()
-                .unwrap(),
-            Error::UnsupportedValueType
+                .unwrap()
+                .to_string(),
+            Error::UnsupportedValueType.to_string()
         );
 
         // Retrieve the first element of an array.
@@ -415,8 +449,9 @@ mod tests {
         assert_eq!(
             mmds.get_value("/member".to_string(), OutputFormat::Imds)
                 .err()
-                .unwrap(),
-            Error::UnsupportedValueType
+                .unwrap()
+                .to_string(),
+            Error::UnsupportedValueType.to_string()
         );
 
         // Retrieve a float.
@@ -428,8 +463,9 @@ mod tests {
         assert_eq!(
             mmds.get_value("/shares_percentage".to_string(), OutputFormat::Imds)
                 .err()
-                .unwrap(),
-            Error::UnsupportedValueType
+                .unwrap()
+                .to_string(),
+            Error::UnsupportedValueType.to_string()
         );
 
         // Retrieve a negative integer.
@@ -441,14 +477,15 @@ mod tests {
         assert_eq!(
             mmds.get_value("/balance".to_string(), OutputFormat::Imds)
                 .err()
-                .unwrap(),
-            Error::UnsupportedValueType
+                .unwrap()
+                .to_string(),
+            Error::UnsupportedValueType.to_string()
         );
     }
 
     #[test]
     fn test_update_data_store() {
-        let mut mmds = Mmds::default();
+        let mut mmds = Mmds::new().unwrap();
         mmds.set_data_store_limit(MAX_DATA_STORE_SIZE);
 
         let data = r#"{
@@ -500,8 +537,8 @@ mod tests {
         let data = "{\"new_key2\" : \"smth\"}";
         let data_store: Value = serde_json::from_str(&data).unwrap();
         assert_eq!(
-            mmds.patch_data(data_store).unwrap_err(),
-            Error::DataStoreLimitExceeded
+            mmds.patch_data(data_store).unwrap_err().to_string(),
+            Error::DataStoreLimitExceeded.to_string()
         );
         assert!(!mmds.get_data_str().contains("smth"));
 
