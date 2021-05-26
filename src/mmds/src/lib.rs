@@ -9,11 +9,12 @@ pub mod token_headers;
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
-use token_headers::TokenHeaders;
+use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
 
-use crate::data_store::{Error as MmdsError, Mmds, OutputFormat};
 use lazy_static::lazy_static;
 use micro_http::{Body, MediaType, Method, Request, Response, StatusCode, Version};
+use token_headers::TokenHeaders;
+
 pub const MAX_DATA_STORE_SIZE: usize = 51200;
 
 lazy_static! {
@@ -90,15 +91,40 @@ fn convert_to_response(request: Request) -> Response {
         );
     }
 
-    if request.method() != Method::Get {
-        let mut response = build_response(
+    respond_to_request(request)
+}
+
+fn respond_to_request(request: Request) -> Response {
+    let mmds_version = MMDS.lock().expect("Poisoned lock").version();
+    match mmds_version {
+        MmdsVersion::V1 => respond_to_request_mmdsv1(request),
+        // TODO: return valid response once MMDSv2 support is implemented
+        MmdsVersion::V2 => build_response(
             request.http_version(),
             StatusCode::MethodNotAllowed,
-            Body::new("Not allowed HTTP method."),
-        );
-        response.allow_method(Method::Get);
-        return response;
+            Body::new("MMDSv2 not implemented yet."),
+        ),
     }
+}
+
+fn respond_to_request_mmdsv1(request: Request) -> Response {
+    // Allow only GET requests.
+    match request.method() {
+        Method::Get => respond_to_get_request(request),
+        _ => {
+            let mut response = build_response(
+                request.http_version(),
+                StatusCode::MethodNotAllowed,
+                Body::new("Not allowed HTTP method."),
+            );
+            response.allow_method(Method::Get);
+            response
+        }
+    }
+}
+
+fn respond_to_get_request(request: Request) -> Response {
+    let uri = request.uri().get_abs_path();
 
     let _token_headers = match TokenHeaders::try_from(request.headers.custom_entries()) {
         Ok(token_headers) => token_headers,
