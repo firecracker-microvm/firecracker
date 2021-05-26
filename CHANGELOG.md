@@ -45,6 +45,7 @@
   flushed to their backing mediums as part of the CreateSnapshot operation.
 - Fixed the SSBD mitigation not being enabled on `aarch64` with the provided
   `prod-host-setup.md`.
+- Fixed the balloon statistics not working after a snapshot restore event.
 
 ## [0.24.0]
 
