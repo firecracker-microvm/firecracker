@@ -137,49 +137,43 @@ def test_working_filter(test_microvm_with_api):
 )
 def test_failing_filter(test_microvm_with_ssh, vm_config_file):
     """Test --seccomp-filter, denying some needed syscalls."""
-    test_microvm = test_microvm_with_ssh
+    microvm = test_microvm_with_ssh
 
     # Configure VM from JSON. Otherwise, the test will error because
     # the process will be killed before configuring the API socket.
     _config_file_setup(test_microvm_with_ssh, vm_config_file)
 
-    _custom_filter_setup(test_microvm, """{
+    _custom_filter_setup(microvm, """{
         "Vmm": {
-            "default_action": "kill",
-            "filter_action": "allow",
-            "filter": [
-                {
-                    "syscall": "read"
-                }
-            ]
+            "default_action": "allow",
+            "filter_action": "trap",
+            "filter": []
         },
         "Api": {
-            "default_action": "kill",
-            "filter_action": "allow",
-            "filter": [
-                {
-                    "syscall": "read"
-                }
-            ]
+            "default_action": "allow",
+            "filter_action": "trap",
+            "filter": []
         },
         "Vcpu": {
-            "default_action": "kill",
-            "filter_action": "allow",
+            "default_action": "allow",
+            "filter_action": "trap",
             "filter": [
                 {
-                    "syscall": "read"
+                    "syscall": "ioctl"
                 }
             ]
         }
     }""".encode('utf-8'))
 
-    test_microvm.spawn()
+    microvm.spawn()
 
     # give time for the process to get killed
     time.sleep(1)
 
+    # assert ioctl was trapped
+    assert "seccomp violation on syscall number 16" in microvm.log_data
     # assert that the process was killed
-    assert not psutil.pid_exists(test_microvm.jailer_clone_pid)
+    assert not psutil.pid_exists(microvm.jailer_clone_pid)
 
 
 @pytest.mark.parametrize(
