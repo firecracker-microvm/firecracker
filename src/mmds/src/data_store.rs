@@ -4,6 +4,7 @@
 use crate::MAX_DATA_STORE_SIZE;
 use serde_json::{to_vec, Value};
 use std::fmt;
+use std::fmt::{Display, Formatter};
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
 #[derive(Clone)]
@@ -19,6 +20,15 @@ pub struct Mmds {
 pub enum MmdsVersion {
     V1,
     V2,
+}
+
+impl Display for MmdsVersion {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            MmdsVersion::V1 => write!(f, "V1"),
+            MmdsVersion::V2 => write!(f, "V2"),
+        }
+    }
 }
 
 /// MMDS possible outputs.
@@ -212,6 +222,28 @@ impl Mmds {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_display_mmds_version() {
+        assert_eq!(MmdsVersion::V1.to_string(), "V1");
+        assert_eq!(MmdsVersion::V2.to_string(), "V2");
+    }
+
+    #[test]
+    fn test_mmds_version() {
+        let mut mmds = Mmds::default();
+
+        // Test default MMDS version.
+        assert_eq!(mmds.version().to_string(), MmdsVersion::V1.to_string());
+
+        // Test setting MMDS version to v1.
+        mmds.set_version(MmdsVersion::V2);
+        assert_eq!(mmds.version().to_string(), MmdsVersion::V2.to_string());
+
+        // Test setting MMDS version back to default.
+        mmds.set_version(MmdsVersion::V1);
+        assert_eq!(mmds.version().to_string(), MmdsVersion::V1.to_string());
+    }
 
     #[test]
     fn test_mmds() {
