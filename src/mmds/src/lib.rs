@@ -9,9 +9,9 @@ pub mod persist;
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
-use custom_headers::CustomHeaders;
+use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
 
-use crate::data_store::{Error as MmdsError, Mmds, OutputFormat};
+use custom_headers::CustomHeaders;
 use lazy_static::lazy_static;
 use micro_http::{Body, MediaType, Method, Request, Response, StatusCode, Version};
 
@@ -89,15 +89,36 @@ fn convert_to_response(request: Request) -> Response {
         );
     }
 
-    if request.method() != Method::Get {
-        let mut response = build_response(
+    let mmds_version = MMDS.lock().expect("Poisoned lock").version();
+    match mmds_version {
+        MmdsVersion::MMDSv1 => respond_to_request_mmdsv1(request),
+        // TODO: return valid response once MMDSv2 support is implemented
+        MmdsVersion::MMDSv2 => build_response(
             request.http_version(),
             StatusCode::MethodNotAllowed,
-            Body::new("Not allowed HTTP method."),
-        );
-        response.allow_method(Method::Get);
-        return response;
+            Body::new("MMDSv2 not implemented yet."),
+        ),
     }
+}
+
+fn respond_to_request_mmdsv1(request: Request) -> Response {
+    // Allow only GET requests.
+    match request.method() {
+        Method::Get => respond_to_get_request(request),
+        _ => {
+            let mut response = build_response(
+                request.http_version(),
+                StatusCode::MethodNotAllowed,
+                Body::new("Not allowed HTTP method."),
+            );
+            response.allow_method(Method::Get);
+            response
+        }
+    }
+}
+
+fn respond_to_get_request(request: Request) -> Response {
+    let uri = request.uri().get_abs_path();
 
     let _custom_headers = match CustomHeaders::try_from(request.headers.custom_entries()) {
         Ok(custom_headers) => custom_headers,

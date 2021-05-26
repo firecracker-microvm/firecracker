@@ -9,6 +9,14 @@ use std::fmt;
 pub struct Mmds {
     data_store: Value,
     is_initialized: bool,
+    version: MmdsVersion,
+}
+
+/// MMDS version.
+#[derive(Clone, Copy)]
+pub enum MmdsVersion {
+    MMDSv1,
+    MMDSv2,
 }
 
 /// MMDS possible outputs.
@@ -42,6 +50,7 @@ impl Default for Mmds {
         Mmds {
             data_store: Value::default(),
             is_initialized: false,
+            version: MmdsVersion::MMDSv1,
         }
     }
 }
@@ -56,6 +65,16 @@ impl Mmds {
         } else {
             Err(Error::NotInitialized)
         }
+    }
+
+    /// Set the MMDS version.
+    pub fn set_version(&mut self, version: MmdsVersion) {
+        self.version = version;
+    }
+
+    /// Return the MMDS version.
+    pub fn version(&self) -> MmdsVersion {
+        self.version
     }
 
     pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
