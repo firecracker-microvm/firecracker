@@ -28,6 +28,8 @@
   `X-aws-ec2-metadata-token`, which accepts a string value that provides a
   session token for MMDS requests; and `X-aws-ec2-metadata-token-ttl-seconds`,
   which specifies the lifetime of the session token in seconds.
+- `GET` requests to MMDS require a session token to be provided through
+  `X-aws-ec2-metadata-token` header when MMDSv2 is configured.
 
 ### Changed
 

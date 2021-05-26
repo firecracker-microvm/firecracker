@@ -97,6 +97,16 @@ impl CustomHeaders {
     pub fn x_aws_metadata_token_ttl_seconds(&self) -> Option<u32> {
         self.x_aws_metadata_token_ttl_seconds
     }
+
+    /// Sets the `XAwsMetadataToken` token.
+    pub fn set_x_aws_metadata_token(&mut self, token: String) {
+        self.x_aws_metadata_token = Some(token)
+    }
+
+    /// Sets the `XAwsMetadataTokenTtlSeconds` token.
+    pub fn set_x_aws_metadata_token_ttl_seconds(&mut self, ttl: u32) {
+        self.x_aws_metadata_token_ttl_seconds = Some(ttl);
+    }
 }
 
 #[cfg(test)]

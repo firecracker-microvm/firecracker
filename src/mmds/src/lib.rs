@@ -93,19 +93,14 @@ fn convert_to_response(request: Request) -> Response {
     let mmds_version = MMDS.lock().expect("Poisoned lock").version();
     match mmds_version {
         MmdsVersion::MMDSv1 => respond_to_request_mmdsv1(request),
-        // TODO: return valid response once MMDSv2 support is implemented
-        MmdsVersion::MMDSv2 => build_response(
-            request.http_version(),
-            StatusCode::MethodNotAllowed,
-            Body::new("MMDSv2 not implemented yet."),
-        ),
+        MmdsVersion::MMDSv2 => respond_to_request_mmdsv2(request),
     }
 }
 
 fn respond_to_request_mmdsv1(request: Request) -> Response {
     // Allow only GET requests.
     match request.method() {
-        Method::Get => respond_to_get_request(request),
+        Method::Get => respond_to_get_request_unchecked(request),
         _ => {
             let mut response = build_response(
                 request.http_version(),
@@ -118,10 +113,26 @@ fn respond_to_request_mmdsv1(request: Request) -> Response {
     }
 }
 
-fn respond_to_get_request(request: Request) -> Response {
-    let uri = request.uri().get_abs_path();
+fn respond_to_request_mmdsv2(request: Request) -> Response {
+    // Allow only GET requests.
+    // Will allow PUT requests for MMDSv2 in a subsequent commit.
+    match request.method() {
+        Method::Get => respond_to_get_request_checked(request),
+        _ => {
+            let mut response = build_response(
+                request.http_version(),
+                StatusCode::MethodNotAllowed,
+                Body::new("Not allowed HTTP method."),
+            );
+            response.allow_method(Method::Get);
+            response
+        }
+    }
+}
 
-    let _custom_headers = match CustomHeaders::try_from(request.headers.custom_entries()) {
+fn respond_to_get_request_checked(request: Request) -> Response {
+    // Fetch custom headers from request.
+    let custom_headers = match CustomHeaders::try_from(request.headers.custom_entries()) {
         Ok(custom_headers) => custom_headers,
         Err(err) => {
             return build_response(
@@ -131,6 +142,36 @@ fn respond_to_get_request(request: Request) -> Response {
             )
         }
     };
+
+    // Get MMDSv2 token from custom headers.
+    let token = match custom_headers.x_aws_metadata_token() {
+        Some(token) => token,
+        None => {
+            let error_msg = "MMDSv2 token not provided.".to_string();
+            return build_response(
+                request.http_version(),
+                StatusCode::BadRequest,
+                Body::new(error_msg),
+            );
+        }
+    };
+
+    // Validate MMDSv2 token.
+    match MMDS.lock().expect("Poisoned lock").is_valid_token(token) {
+        true => respond_to_get_request_unchecked(request),
+        false => {
+            let error_msg = "MMDSv2 token not valid.".to_string();
+            build_response(
+                request.http_version(),
+                StatusCode::BadRequest,
+                Body::new(error_msg),
+            )
+        }
+    }
+}
+
+fn respond_to_get_request_unchecked(request: Request) -> Response {
+    let uri = request.uri().get_abs_path();
 
     // The data store expects a strict json path, so we need to
     // sanitize the URI.
@@ -172,6 +213,46 @@ fn respond_to_get_request(request: Request) -> Response {
 mod tests {
     use super::*;
 
+    fn populate_mmds() -> Arc<Mutex<Mmds>> {
+        let data = r#"{
+            "name": {
+                "first": "John",
+                "second": "Doe"
+            },
+            "age": 43,
+            "phones": {
+                "home": {
+                    "RO": "+401234567",
+                    "UK": "+441234567"
+                },
+                "mobile": "+442345678"
+            }
+        }"#;
+        let mmds = MMDS.clone();
+        mmds.lock()
+            .unwrap()
+            .put_data(serde_json::from_str(data).unwrap())
+            .unwrap();
+        mmds
+    }
+
+    fn get_json_data() -> &'static str {
+        r#"{
+            "age": 43,
+            "name": {
+                "first": "John",
+                "second": "Doe"
+            },
+            "phones": {
+                "home": {
+                    "RO": "+401234567",
+                    "UK": "+441234567"
+                },
+                "mobile": "+442345678"
+            }
+        }"#
+    }
+
     #[test]
     fn test_sanitize_uri() {
         let sanitized = "/a/b/c/d";
@@ -192,25 +273,9 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_to_response() {
-        let data = r#"{
-            "name": {
-                "first": "John",
-                "second": "Doe"
-            },
-            "age": 43,
-            "phones": {
-                "home": {
-                    "RO": "+401234567",
-                    "UK": "+441234567"
-                },
-                "mobile": "+442345678"
-            }
-        }"#;
-        MMDS.lock()
-            .unwrap()
-            .put_data(serde_json::from_str(data).unwrap())
-            .unwrap();
+    fn test_respond_to_request_mmdsv1() {
+        // Populate MMDS with data. Default MMDS version is MMDSv1.
+        let _ = populate_mmds();
 
         // Test resource not found.
         let request_bytes = b"GET http://169.254.169.254/invalid HTTP/1.0\r\n\r\n";
@@ -250,6 +315,37 @@ mod tests {
         let actual_response = convert_to_response(request);
         assert_eq!(actual_response, expected_response);
 
+        // Test invalid custom header value is ignored when MMDSv1 is configured.
+        let request_bytes = b"GET http://169.254.169.254/name/first HTTP/1.0\r\n\
+                                    Accept: application/json\r\n
+                                    X-aws-ec2-metadata-token-ttl-seconds: application/json\r\n\r\n";
+        let request = Request::try_from(request_bytes, None).unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
+        expected_response.set_body(Body::new("\"John\""));
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test Ok path.
+        let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\
+                                    Accept: application/json\r\n\r\n";
+        let request = Request::try_from(request_bytes, None).unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
+        let mut body = get_json_data().to_string();
+        body.retain(|c| !c.is_whitespace());
+        expected_response.set_body(Body::new(body));
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+    }
+
+    #[test]
+    fn test_respond_to_request_mmdsv2() {
+        // Populate MMDS with data.
+        let mmds = populate_mmds();
+        // Set MMDS version.
+        mmds.lock()
+            .expect("Poisoned lock")
+            .set_version(MmdsVersion::MMDSv2);
+
         // Test invalid value for custom header.
         let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\
                                     Accept: application/json\r\n
@@ -264,38 +360,20 @@ mod tests {
         let actual_response = convert_to_response(request);
         assert_eq!(actual_response, expected_response);
 
-        // Test valid values for custom headers.
-        let request_bytes = b"GET http://169.254.169.254/name/first HTTP/1.0\r\n\
-                                    X-aws-ec2-metadata-token: application/json\r\n
-                                    X-aws-ec2-metadata-token-ttl-seconds: 100\r\n\r\n";
+        // Test GET request without token.
+        let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\r\n";
         let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
-        expected_response.set_body(Body::new("John"));
+        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+        expected_response.set_body(Body::new("MMDSv2 token not provided.".to_string()));
         let actual_response = convert_to_response(request);
         assert_eq!(actual_response, expected_response);
 
-        // Test Ok path.
+        // Test GET request with invalid token.
         let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\
-                                    Accept: application/json\r\n\r\n";
+                                    X-aws-ec2-metadata-token: foo\r\n\r\n";
         let request = Request::try_from(request_bytes, None).unwrap();
-        let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
-        let mut body = r#"{
-                "age": 43,
-                "name": {
-                    "first": "John",
-                    "second": "Doe"
-                },
-                "phones": {
-                    "home": {
-                        "RO": "+401234567",
-                        "UK": "+441234567"
-                    },
-                    "mobile": "+442345678"
-                }
-        }"#
-        .to_string();
-        body.retain(|c| !c.is_whitespace());
-        expected_response.set_body(Body::new(body));
+        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+        expected_response.set_body(Body::new("MMDSv2 token not valid.".to_string()));
         let actual_response = convert_to_response(request);
         assert_eq!(actual_response, expected_response);
     }

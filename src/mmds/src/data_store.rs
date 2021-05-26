@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::token::TokenStore;
 use serde_json::Value;
 use std::fmt;
 
@@ -8,6 +9,7 @@ use std::fmt;
 #[derive(Clone)]
 pub struct Mmds {
     data_store: Value,
+    token_store: TokenStore,
     is_initialized: bool,
     version: MmdsVersion,
 }
@@ -49,6 +51,7 @@ impl Default for Mmds {
     fn default() -> Self {
         Mmds {
             data_store: Value::default(),
+            token_store: TokenStore::default(),
             is_initialized: false,
             version: MmdsVersion::MMDSv1,
         }
@@ -65,6 +68,11 @@ impl Mmds {
         } else {
             Err(Error::NotInitialized)
         }
+    }
+
+    /// Check if the provided token is valid.
+    pub fn is_valid_token(&mut self, token_value: &str) -> bool {
+        self.token_store.is_valid(token_value)
     }
 
     /// Set the MMDS version.

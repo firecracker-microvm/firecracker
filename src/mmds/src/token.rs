@@ -148,6 +148,7 @@ impl Token {
     }
 }
 
+#[derive(Clone)]
 pub struct TokenStore {
     tokens: HashMap<String, TokenTTL>,
 }
