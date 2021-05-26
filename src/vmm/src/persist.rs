@@ -180,7 +180,7 @@ pub enum LoadSnapshotError {
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(&'static str, io::Error),
     /// Snapshot cpu vendor differs than host cpu vendor.
-    CpuVendorMismatch(String),
+    CpuVendorCheck(String),
     /// Snapshot failed sanity checks.
     InvalidSnapshot(String),
 }
@@ -205,7 +205,7 @@ impl Display for LoadSnapshotError {
                 "Cannot perform {} on the snapshot backing file: {}",
                 action, err
             ),
-            CpuVendorMismatch(err) => write!(f, "Snapshot cpu vendor mismatch: {}", err),
+            CpuVendorCheck(err) => write!(f, "CPU vendor check failed: {}", err),
             InvalidSnapshot(err) => write!(f, "Snapshot sanity check failed: {}", err),
         }
     }
@@ -316,26 +316,26 @@ pub fn get_snapshot_data_version(
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
 #[cfg(target_arch = "x86_64")]
-pub fn validate_x86_64_cpu_vendor(
+pub fn validate_cpu_vendor(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<(), LoadSnapshotError> {
     let host_vendor_id = get_vendor_id_from_host().map_err(|_| {
-        LoadSnapshotError::CpuVendorMismatch("Failed to read vendor from CPUID.".to_owned())
+        LoadSnapshotError::CpuVendorCheck("Failed to read vendor from host.".to_owned())
     })?;
 
     let snapshot_vendor_id = get_vendor_id_from_cpuid(&microvm_state.vcpu_states[0].cpuid)
         .map_err(|_| {
             error!("Snapshot CPU vendor is missing.");
-            LoadSnapshotError::CpuVendorMismatch("Failed to read vendor from CPUID.".to_owned())
+            LoadSnapshotError::CpuVendorCheck("Failed to read vendor from CPUID.".to_owned())
         })?;
 
     if host_vendor_id != snapshot_vendor_id {
         let error_string = format!(
-            "Host CPU vendor id: {:?}, Snapshot CPU vendor id: {:?}",
+            "Host CPU vendor id: {:?} differs from the snapshotted one: {:?}",
             &host_vendor_id, &snapshot_vendor_id
         );
         error!("{}", error_string);
-        return Err(LoadSnapshotError::CpuVendorMismatch(error_string));
+        return Err(LoadSnapshotError::CpuVendorCheck(error_string));
     } else {
         info!("Snapshot CPU vendor id: {:?}", &snapshot_vendor_id);
     }
@@ -348,23 +348,23 @@ pub fn validate_x86_64_cpu_vendor(
 ///
 /// The manufacturer ID for the Snapshot is taken from each VCPU state.
 #[cfg(target_arch = "aarch64")]
-pub fn validate_aarch64_cpu_manufacturer_id(
+pub fn validate_cpu_manufacturer_id(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<(), LoadSnapshotError> {
     let host_man_id = get_manufacturer_id_from_host()
-        .map_err(|e| LoadSnapshotError::CpuVendorMismatch(e.to_string()))?;
+        .map_err(|e| LoadSnapshotError::CpuVendorCheck(e.to_string()))?;
 
     for state in &microvm_state.vcpu_states {
         let state_man_id = get_manufacturer_id_from_state(state.regs.as_slice())
-            .map_err(|e| LoadSnapshotError::CpuVendorMismatch(e.to_string()))?;
+            .map_err(|e| LoadSnapshotError::CpuVendorCheck(e.to_string()))?;
 
         if host_man_id != state_man_id {
             let error_string = format!(
-                "Host CPU manufacturer ID: {:?}, Snapshot CPU manufacturer ID: {:?}",
+                "Host CPU manufacturer ID: {} differs from snapshotted one: {}",
                 &host_man_id, &state_man_id
             );
             error!("{}", error_string);
-            return Err(LoadSnapshotError::CpuVendorMismatch(error_string));
+            return Err(LoadSnapshotError::CpuVendorCheck(error_string));
         } else {
             info!("Snapshot CPU manufacturer ID: {:?}", &state_man_id);
         }
@@ -396,9 +396,9 @@ pub fn snapshot_state_sanity_check(
     }
 
     #[cfg(target_arch = "x86_64")]
-    validate_x86_64_cpu_vendor(&microvm_state)?;
+    validate_cpu_vendor(&microvm_state)?;
     #[cfg(target_arch = "aarch64")]
-    validate_aarch64_cpu_manufacturer_id(&microvm_state)?;
+    validate_cpu_manufacturer_id(&microvm_state)?;
 
     Ok(())
 }
@@ -705,7 +705,7 @@ mod tests {
         let err = SnapshotBackingFile("open", io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = CpuVendorMismatch(String::new());
+        let err = CpuVendorCheck(String::new());
         let _ = format!("{}{:?}", err, err);
     }
 
