@@ -176,7 +176,8 @@ kernel {}, disk {} """.format(snapshot_type,
                               disks=[rw_disk],
                               ssh_key=ssh_key,
                               config=context.microvm,
-                              enable_diff_snapshots=enable_diff_snapshots)
+                              enable_diff_snapshots=enable_diff_snapshots,
+                              use_ramdisk=True)
 
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -191,7 +192,8 @@ kernel {}, disk {} """.format(snapshot_type,
 
     snapshot = snapshot_builder.create([rw_disk.local_path()],
                                        ssh_key,
-                                       snapshot_type)
+                                       snapshot_type,
+                                       use_ramdisk=True)
 
     basevm.kill()
 
@@ -199,7 +201,8 @@ kernel {}, disk {} """.format(snapshot_type,
         microvm, metrics_fifo = vm_builder.build_from_snapshot(
             snapshot,
             True,
-            enable_diff_snapshots)
+            enable_diff_snapshots,
+            use_ramdisk=True)
 
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
