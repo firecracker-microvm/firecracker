@@ -140,8 +140,11 @@ impl Persist<'_> for Balloon {
         if state.virtio_state.activated {
             balloon.device_state = DeviceState::Activated(constructor_args.mem);
 
-            // Restart timer if needed.
             if balloon.stats_enabled() {
+                // Restore the stats descriptor.
+                balloon.set_stats_desc_index(state.stats_desc_index);
+
+                // Restart timer if needed.
                 let timer_state = TimerState::Periodic {
                     current: Duration::from_secs(state.stats_polling_interval_s as u64),
                     interval: Duration::from_secs(state.stats_polling_interval_s as u64),

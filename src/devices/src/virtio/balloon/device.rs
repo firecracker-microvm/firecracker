@@ -501,6 +501,10 @@ impl Balloon {
     pub(crate) fn stats_enabled(&self) -> bool {
         self.stats_polling_interval_s > 0
     }
+
+    pub(crate) fn set_stats_desc_index(&mut self, stats_desc_index: Option<u16>) {
+        self.stats_desc_index = stats_desc_index;
+    }
 }
 
 impl VirtioDevice for Balloon {
