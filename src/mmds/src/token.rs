@@ -1,10 +1,6 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Temporarily disable unused warnings.
-// TODO: remove these once the Token integration is completed.
-#![allow(dead_code)]
-
 use aes_gcm::aead::NewAead;
 use aes_gcm::{AeadInPlace, Aes256Gcm, Key, Nonce};
 use bincode::{DefaultOptions, Error as BincodeError, Options};
