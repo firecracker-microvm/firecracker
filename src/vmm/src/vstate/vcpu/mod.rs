@@ -244,8 +244,6 @@ impl Vcpu {
         let vcpu_thread = thread::Builder::new()
             .name(format!("fc_vcpu {}", self.kvm_vcpu.index))
             .spawn(move || {
-                // We don't need to install the signal block mask on VCPU threads since they inherit
-                // the one from the VMM thread.
                 let filter = &*seccomp_filter;
                 self.init_thread_local_data()
                     .expect("Cannot cleanly initialize vcpu TLS.");
