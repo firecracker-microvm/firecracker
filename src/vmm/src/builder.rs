@@ -26,6 +26,8 @@ use crate::{device_manager, Error, EventManager, Vmm, VmmEventsObserver};
 
 use crate::vmm_config::instance_info::InstanceInfo;
 use arch::InitrdConfig;
+#[cfg(target_arch = "x86_64")]
+use cpuid::common::is_same_model;
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCDevice;
 use devices::legacy::Serial;
@@ -426,6 +428,41 @@ pub fn build_microvm_from_snapshot(
         track_dirty_pages,
         vcpu_count,
     )?;
+
+    #[cfg(target_arch = "x86_64")]
+    // Check if we need to scale the TSC.
+    // We start by checking if the CPU model in the snapshot is
+    // the same as this host's. If they are the same, we don't
+    // need to do anything else.
+    if !is_same_model(&microvm_state.vcpu_states[0].cpuid) {
+        // Extract the TSC freq from the state.
+        // No TSC freq in snapshot means we have to fail-fast.
+        let state_tsc = microvm_state.vcpu_states[0]
+            .tsc_khz
+            .ok_or_else(|| {
+                MicrovmStateError::IncompatibleState(
+                    "Error configuring the TSC, frequency not \
+                    present in snapshot."
+                        .to_string(),
+                )
+            })
+            .map_err(RestoreMicrovmState)?;
+
+        // Scale the TSC frequency for all VCPUs, if needed.
+        if vcpus[0]
+            .kvm_vcpu
+            .is_tsc_scaling_required(state_tsc)
+            .map_err(|e| MicrovmStateError::IncompatibleState(e.to_string()))
+            .map_err(RestoreMicrovmState)?
+        {
+            for vcpu in &vcpus {
+                vcpu.kvm_vcpu
+                    .set_tsc_khz(state_tsc)
+                    .map_err(|e| MicrovmStateError::IncompatibleState(e.to_string()))
+                    .map_err(RestoreMicrovmState)?;
+            }
+        }
+    }
 
     #[cfg(target_arch = "aarch64")]
     {

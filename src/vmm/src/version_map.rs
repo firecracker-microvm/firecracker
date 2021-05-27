@@ -6,6 +6,8 @@
 use std::collections::HashMap;
 
 use crate::device_manager::persist::DeviceStates;
+#[cfg(target_arch = "x86_64")]
+use crate::vstate::vcpu::VcpuState;
 use devices::virtio::block::persist::BlockState;
 
 use lazy_static::lazy_static;
@@ -16,9 +18,17 @@ lazy_static! {
     // Note: until we have a better design, this needs to be updated when the version changes.
     /// Static instance used for handling microVM state versions.
     pub static ref VERSION_MAP: VersionMap = {
+        // v0.23 - all structs and root version are set to 1.
         let mut version_map = VersionMap::new();
+
+        // v0.24 state change mappings.
         version_map.new_version().set_type_version(DeviceStates::type_id(), 2);
+
+        // v0.25 state change mappings.
         version_map.new_version().set_type_version(BlockState::type_id(), 2);
+        #[cfg(target_arch = "x86_64")]
+        version_map.set_type_version(VcpuState::type_id(), 2);
+
         version_map
     };
 
