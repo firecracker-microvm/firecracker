@@ -3,11 +3,15 @@
 """Tests that the --seccomp-filter parameter works as expected."""
 
 import os
+import platform
+import json
 import tempfile
 import time
 import psutil
 import pytest
 import framework.utils as utils
+import host_tools.logging as log_tools
+
 from host_tools.cargo_build import run_seccompiler
 
 
@@ -131,43 +135,27 @@ def test_working_filter(test_microvm_with_api):
     utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "2")
 
 
-@pytest.mark.parametrize(
-    "vm_config_file",
-    ["framework/vm_config.json"]
-)
-def test_failing_filter(test_microvm_with_ssh, vm_config_file):
+def test_failing_filter(test_microvm_with_api):
     """Test --seccomp-filter, denying some needed syscalls."""
-    test_microvm = test_microvm_with_ssh
-
-    # Configure VM from JSON. Otherwise, the test will error because
-    # the process will be killed before configuring the API socket.
-    _config_file_setup(test_microvm_with_ssh, vm_config_file)
+    test_microvm = test_microvm_with_api
 
     _custom_filter_setup(test_microvm, """{
         "Vmm": {
-            "default_action": "kill",
-            "filter_action": "allow",
-            "filter": [
-                {
-                    "syscall": "read"
-                }
-            ]
+            "default_action": "allow",
+            "filter_action": "trap",
+            "filter": []
         },
         "Api": {
-            "default_action": "kill",
-            "filter_action": "allow",
-            "filter": [
-                {
-                    "syscall": "read"
-                }
-            ]
+            "default_action": "allow",
+            "filter_action": "trap",
+            "filter": []
         },
         "Vcpu": {
-            "default_action": "kill",
-            "filter_action": "allow",
+            "default_action": "allow",
+            "filter_action": "trap",
             "filter": [
                 {
-                    "syscall": "read"
+                    "syscall": "ioctl"
                 }
             ]
         }
@@ -175,8 +163,34 @@ def test_failing_filter(test_microvm_with_ssh, vm_config_file):
 
     test_microvm.spawn()
 
-    # give time for the process to get killed
+    test_microvm.basic_config(vcpu_count=1)
+
+    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
+    response = test_microvm.metrics.put(
+        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Start the VM with error checking off, because it will fail.
+    test_microvm.start(check=False)
+
+    # Give time for the process to get killed
     time.sleep(1)
+
+    # Check the logger output
+    ioctl_num = 16 if platform.machine() == "x86_64" else 29
+    assert "Shutting down VM after intercepting a bad syscall ({})".format(
+        str(ioctl_num)) in test_microvm.log_data
+
+    # Check the metrics
+    lines = metrics_fifo.sequential_reader(100)
+
+    num_faults = 0
+    for line in lines:
+        num_faults += json.loads(line)["seccomp"]["num_faults"]
+
+    assert num_faults == 1
 
     # assert that the process was killed
     assert not psutil.pid_exists(test_microvm.jailer_clone_pid)

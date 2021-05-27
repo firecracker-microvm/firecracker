@@ -18,7 +18,6 @@ use utils::{
     epoll::{EpollEvent, EventSet},
     eventfd::EventFd,
 };
-use vmm::signal_handler::{mask_handled_signals, SignalManager};
 use vmm::{
     resources::VmResources,
     rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction},
@@ -148,8 +147,6 @@ pub(crate) fn run_with_api(
     thread::Builder::new()
         .name("fc_api".to_owned())
         .spawn(move || {
-            mask_handled_signals().expect("Unable to install signal mask on API thread.");
-
             match ApiServer::new(mmds_info, to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
                 bind_path,
                 process_time_reporter,
@@ -174,18 +171,6 @@ pub(crate) fn run_with_api(
         .expect("API thread spawn failed.");
 
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-    // Right before creating the signalfd,
-    // mask the handled signals so that the default handlers are bypassed.
-    mask_handled_signals().expect("Unable to install signal mask on VMM thread.");
-    let signal_manager = Arc::new(Mutex::new(
-        SignalManager::new().expect("Unable to create SignalManager."),
-    ));
-
-    // Register the signal handler event fd.
-    event_manager
-        .add_subscriber(signal_manager)
-        .expect("Cannot register the signal handler fd to the event manager.");
-
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(super::metrics::PeriodicMetrics::new()));
     event_manager

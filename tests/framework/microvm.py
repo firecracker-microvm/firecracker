@@ -731,7 +731,7 @@ class Microvm:
         """Configure ssh."""
         self.ssh_config['hostname'] = guest_ip
 
-    def start(self):
+    def start(self, check=True):
         """Start the microvm.
 
         This function has asserts to validate that the microvm boot success.
@@ -743,14 +743,17 @@ class Microvm:
             assert self.started is False
 
         response = self.actions.put(action_type='InstanceStart')
-        assert self._api_session.is_status_no_content(response.status_code), \
-            response.text
 
-        # Check that the VM has started
-        try:
-            assert self.state == "Running"
-        except KeyError:
-            assert self.started is True
+        if check:
+            assert \
+                self._api_session.is_status_no_content(response.status_code), \
+                response.text
+
+            # Check that the VM has started
+            try:
+                assert self.state == "Running"
+            except KeyError:
+                assert self.started is True
 
     def pause_to_snapshot(self,
                           mem_file_path=None,
