@@ -19,7 +19,7 @@ arch = { path = "../arch" }
 devices = { path = "../devices" }
 kernel = { path = "../kernel" }
 kvm-bindings = { version = ">=0.4.0", features = ["fam-wrappers"] }
-kvm-ioctls = ">=0.8.0"
+kvm-ioctls = ">=0.9.0"
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
 rate_limiter = { path = "../rate_limiter" }
