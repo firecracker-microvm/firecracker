@@ -28,6 +28,37 @@ sudo iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 sudo iptables -A FORWARD -i tap0 -o eth0 -j ACCEPT
 ```
 
+Note - If the Ubuntu host's IP address is in 172.x.x.x, please choose a different IP address for the tap device and guest VM's IP address.
+For example , make sure the IP address of tap0 is not 172.x.y.z, use as below.
+
+```
+ubuntu@ip-172-0-0-29:~$ ifconfig
+enp4s0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 9001
+        inet 172.0.0.29  netmask 255.255.255.0  broadcast 172.0.0.255
+        inet6 fe80::8ce:83ff:fe1d:2941  prefixlen 64  scopeid 0x20<link>
+        ether 0a:ce:83:1d:29:41  txqueuelen 1000  (Ethernet)
+        RX packets 527785  bytes 59335375 (59.3 MB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 946326  bytes 1177495590 (1.1 GB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 354  bytes 31425 (31.4 KB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 354  bytes 31425 (31.4 KB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+tap0: flags=4099<UP,BROADCAST,MULTICAST>  mtu 1500
+        inet 192.16.0.1  netmask 255.255.255.0  broadcast 0.0.0.0
+        inet6 fe80::d042:74ff:fec0:d4dc  prefixlen 64  scopeid 0x20<link>
+        ether d2:42:74:c0:d4:dc  txqueuelen 1000  (Ethernet)
+        RX packets 98  bytes 7434 (7.4 KB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 38  bytes 3006 (3.0 KB)
+        TX errors 0  dropped 4 overruns 0  carrier 0  collisions 0
+```
+
 *Advanced:* If you are running multiple Firecracker MicroVMs in parallel, or
 have something else on your system using `tap0` then you need to create a `tap`
 for each one, with a unique name.
