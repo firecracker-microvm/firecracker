@@ -5,12 +5,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use libc::{c_char, c_int, c_void};
+use libc::{c_int, c_void};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, NulError};
 use std::fmt::Debug;
 use std::ptr::null;
 use std::{io, result};
+
+use libfdt_bindings::*;
 
 use super::super::DeviceType;
 use super::super::InitrdConfig;
@@ -44,21 +46,6 @@ const GIC_FDT_IRQ_TYPE_PPI: u32 = 1;
 // From https://elixir.bootlin.com/linux/v4.9.62/source/include/dt-bindings/interrupt-controller/irq.h#L17
 const IRQ_TYPE_EDGE_RISING: u32 = 1;
 const IRQ_TYPE_LEVEL_HI: u32 = 4;
-
-// This links to libfdt which handles the creation of the binary blob
-// flattened device tree (fdt) that is passed to the kernel and indicates
-// the hardware configuration of the machine.
-extern "C" {
-    fn fdt_create(buf: *mut c_void, bufsize: c_int) -> c_int;
-    fn fdt_finish_reservemap(fdt: *mut c_void) -> c_int;
-    fn fdt_begin_node(fdt: *mut c_void, name: *const c_char) -> c_int;
-    fn fdt_property(fdt: *mut c_void, name: *const c_char, val: *const c_void, len: c_int)
-        -> c_int;
-    fn fdt_end_node(fdt: *mut c_void) -> c_int;
-    fn fdt_open_into(fdt: *const c_void, buf: *mut c_void, bufsize: c_int) -> c_int;
-    fn fdt_finish(fdt: *const c_void) -> c_int;
-    fn fdt_pack(fdt: *mut c_void) -> c_int;
-}
 
 /// Trait for devices to be added to the Flattened Device Tree.
 pub trait DeviceInfoForFDT {
