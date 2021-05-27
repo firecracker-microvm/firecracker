@@ -8,6 +8,7 @@ use libc::{c_char, c_int, c_void};
 // flattened device tree (fdt) that is passed to the kernel and indicates
 // the hardware configuration of the machine.
 #[cfg(target_arch = "aarch64")]
+#[link(name = "fdt", kind = "static")]
 extern "C" {
     pub fn fdt_create(buf: *mut c_void, bufsize: c_int) -> c_int;
     pub fn fdt_finish_reservemap(fdt: *mut c_void) -> c_int;
