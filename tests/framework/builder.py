@@ -197,7 +197,8 @@ class MicrovmBuilder:
         for disk in snapshot.disks:
             _jailed_disks.append(vm.copy_to_jail_ramfs(disk) if use_ramdisk
                                  else vm.create_jailed_resource(disk))
-        vm.ssh_config['ssh_key_path'] = snapshot.ssh_key
+
+        vm.ssh_config['ssh_key_path'] = snapshot.ssh_key.local_path()
 
         # Create network interfaces.
         for iface in snapshot.net_ifaces:
@@ -353,4 +354,4 @@ class SnapshotBuilder:  # pylint: disable=too-few-public-methods
                         # that resume from S3 snapshot artifacts.
                         disks=disks,
                         net_ifaces=net_ifaces or [NetIfaceConfig()],
-                        ssh_key=ssh_key_copy.local_path())
+                        ssh_key=ssh_key_copy)

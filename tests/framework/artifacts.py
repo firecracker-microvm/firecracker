@@ -43,12 +43,14 @@ class Artifact:
                  bucket,
                  key,
                  artifact_type=ArtifactType.MISC,
-                 local_folder=None):
+                 local_folder=None,
+                 is_copy=False):
         """Initialize bucket, key and type."""
         self._bucket = bucket
         self._key = key
         self._local_folder = local_folder
         self._type = artifact_type
+        self._is_copy = is_copy
 
     @property
     def type(self):
@@ -133,7 +135,12 @@ class Artifact:
         # bucket assert.
         return Artifact(None, new_key,
                         artifact_type=self.type,
-                        local_folder=local_folder)
+                        local_folder=local_folder, is_copy=True)
+
+    def __del__(self):
+        """Teardown the object."""
+        if self._is_copy and os.path.exists(self._key):
+            os.remove(self._key)
 
 
 class SnapshotArtifact:
