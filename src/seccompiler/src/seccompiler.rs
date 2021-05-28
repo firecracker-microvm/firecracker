@@ -243,16 +243,13 @@ mod tests {
                 "filter_action": "allow",
                 "filter": [
                     {
-                        "syscall": "open",
-                        "action": "log"
+                        "syscall": "open"
                     },
                     {
-                        "syscall": "close",
-                        "action": "trap"
+                        "syscall": "close"
                     },
                     {
-                        "syscall": "stat",
-                        "action": "trap"
+                        "syscall": "stat"
                     },
                     {
                         "syscall": "futex",
@@ -273,7 +270,6 @@ mod tests {
                     },
                     {
                         "syscall": "futex",
-                        "action": "log",
                         "args": [
                             {
                                 "arg_index": 3,
@@ -706,12 +702,11 @@ mod tests {
                     SeccompAction::Errno(12),
                     SeccompAction::Allow,
                     vec![
-                        SyscallRule::new("open".to_string(), Some(SeccompAction::Log), None),
-                        SyscallRule::new("close".to_string(), Some(SeccompAction::Trap), None),
-                        SyscallRule::new("stat".to_string(), Some(SeccompAction::Trap), None),
+                        SyscallRule::new("open".to_string(), None),
+                        SyscallRule::new("close".to_string(), None),
+                        SyscallRule::new("stat".to_string(), None),
                         SyscallRule::new(
                             "futex".to_string(),
-                            None,
                             Some(vec![
                                 Cond::new(2, Dword, Le, 65).unwrap(),
                                 Cond::new(1, Qword, Ne, 80).unwrap(),
@@ -719,7 +714,6 @@ mod tests {
                         ),
                         SyscallRule::new(
                             "futex".to_string(),
-                            Some(SeccompAction::Log),
                             Some(vec![
                                 Cond::new(3, Qword, Gt, 65).unwrap(),
                                 Cond::new(1, Qword, Lt, 80).unwrap(),
@@ -727,12 +721,10 @@ mod tests {
                         ),
                         SyscallRule::new(
                             "futex".to_string(),
-                            None,
                             Some(vec![Cond::new(3, Qword, Ge, 65).unwrap()]),
                         ),
                         SyscallRule::new(
                             "ioctl".to_string(),
-                            None,
                             Some(vec![Cond::new(3, Dword, MaskedEq(100), 65).unwrap()]),
                         ),
                     ],
@@ -746,7 +738,6 @@ mod tests {
                     SeccompAction::Allow,
                     vec![SyscallRule::new(
                         "ioctl".to_string(),
-                        None,
                         Some(vec![Cond::new(3, Dword, Eq, 65).unwrap()]),
                     )],
                 ),

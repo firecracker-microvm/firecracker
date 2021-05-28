@@ -29,8 +29,8 @@ Example usage:
     --input-file "x86_64_musl.json" # File path of the JSON input.
     --output-file "bpf_x86_64_musl" # Optional path of the output file.
                                     # [default: "seccomp_binary_filter.out"]
-    --basic # Optional, creates basic filters, discarding rule-level actions
-            # and any parameter checks. Not recommended.
+    --basic # Optional, creates basic filters, discarding any parameter checks.
+            # (Not recommended).
 ```
 
 ### Seccompiler library
@@ -120,7 +120,6 @@ Here is the structure of the object:
 ```
 {
     "syscall": "accept4", // mandatory, the syscall name
-    "action": "allow", // optional, overrides the filter_action if present
     "comment": "Used by vsock & api thread", // optional, for adding meaningful comments
     "args": [...] // optional, vector of and-bound conditions for the parameters
 }
@@ -134,8 +133,8 @@ In order to allow a syscall with multiple alternatives for the same parameters,
 you can write multiple syscall rule objects at the filter-level, each with its
 own rules.
 
-Note that, when passing the `--basic` flag to seccompiler, all `action` and
-`args` fields of the `SeccompRule`s are ignored.
+Note that, when passing the `--basic` flag to seccompiler, all `args` fields
+of the `SeccompRule`s are ignored.
 
 A **condition object** is made up of the following mandatory properties:
 

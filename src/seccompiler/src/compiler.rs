@@ -61,8 +61,6 @@ impl fmt::Display for Error {
 pub(crate) struct SyscallRule {
     /// Name of the syscall.
     syscall: String,
-    /// Optional on-match action.
-    action: Option<SeccompAction>,
     /// Rule conditions.
     #[serde(rename = "args")]
     conditions: Option<Vec<SeccompCondition>>,
@@ -175,10 +173,7 @@ impl Compiler {
 
         for syscall_rule in filter.filter {
             let syscall_name = syscall_rule.syscall;
-            let action = match syscall_rule.action {
-                Some(action) => action,
-                None => filter_action.clone(),
-            };
+            let action = filter_action.clone();
             let syscall_nr = self
                 .syscall_table
                 .get_syscall_nr(&syscall_name)
@@ -249,14 +244,9 @@ mod tests {
     }
 
     impl SyscallRule {
-        pub fn new(
-            syscall: String,
-            action: Option<SeccompAction>,
-            conditions: Option<Vec<Cond>>,
-        ) -> SyscallRule {
+        pub fn new(syscall: String, conditions: Option<Vec<Cond>>) -> SyscallRule {
             SyscallRule {
                 syscall,
-                action,
                 conditions,
                 comment: None,
             }
@@ -282,10 +272,9 @@ mod tests {
             SeccompAction::Trap,
             SeccompAction::Allow,
             vec![
-                SyscallRule::new("read".to_string(), Some(SeccompAction::Log), None),
+                SyscallRule::new("read".to_string(), None),
                 SyscallRule::new(
                     "futex".to_string(),
-                    Some(SeccompAction::Log),
                     Some(vec![
                         Cond::new(2, Dword, Le, 65).unwrap(),
                         Cond::new(1, Qword, Ne, 80).unwrap(),
@@ -293,7 +282,6 @@ mod tests {
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
-                    None,
                     Some(vec![
                         Cond::new(3, Qword, Gt, 65).unwrap(),
                         Cond::new(1, Qword, Lt, 80).unwrap(),
@@ -301,12 +289,10 @@ mod tests {
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
-                    None,
                     Some(vec![Cond::new(3, Qword, Ge, 65).unwrap()]),
                 ),
                 SyscallRule::new(
                     "ioctl".to_string(),
-                    None,
                     Some(vec![Cond::new(3, Dword, MaskedEq(100), 65).unwrap()]),
                 ),
             ],
@@ -317,7 +303,7 @@ mod tests {
             vec![
                 match_syscall(
                     compiler.syscall_table.get_syscall_nr("read").unwrap(),
-                    SeccompAction::Log,
+                    SeccompAction::Allow,
                 ),
                 match_syscall_if(
                     compiler.syscall_table.get_syscall_nr("futex").unwrap(),
@@ -327,7 +313,7 @@ mod tests {
                                 Cond::new(2, Dword, Le, 65).unwrap(),
                                 Cond::new(1, Qword, Ne, 80).unwrap(),
                             ],
-                            SeccompAction::Log,
+                            SeccompAction::Allow,
                         ),
                         SeccompRule::new(
                             vec![
@@ -365,8 +351,7 @@ mod tests {
 
     #[test]
     // Test the transformation of Filter objects into SeccompFilter objects.
-    // This `basic` alternative version of the make_seccomp_filter method drops argument checks
-    // and rule-level actions.
+    // This `basic` alternative version of the make_seccomp_filter method drops argument checks.
     fn test_make_basic_seccomp_filter() {
         let compiler = Compiler::new(ARCH.try_into().unwrap());
         // Test a well-formed filter. Malformed filters are tested in test_compile_blob().
@@ -374,10 +359,9 @@ mod tests {
             SeccompAction::Trap,
             SeccompAction::Allow,
             vec![
-                SyscallRule::new("read".to_string(), Some(SeccompAction::Log), None),
+                SyscallRule::new("read".to_string(), None),
                 SyscallRule::new(
                     "futex".to_string(),
-                    Some(SeccompAction::Log),
                     Some(vec![
                         Cond::new(2, Dword, Le, 65).unwrap(),
                         Cond::new(1, Qword, Ne, 80).unwrap(),
@@ -385,7 +369,6 @@ mod tests {
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
-                    None,
                     Some(vec![
                         Cond::new(3, Qword, Gt, 65).unwrap(),
                         Cond::new(1, Qword, Lt, 80).unwrap(),
@@ -393,12 +376,10 @@ mod tests {
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
-                    None,
                     Some(vec![Cond::new(3, Qword, Ge, 65).unwrap()]),
                 ),
                 SyscallRule::new(
                     "ioctl".to_string(),
-                    None,
                     Some(vec![Cond::new(3, Dword, MaskedEq(100), 65).unwrap()]),
                 ),
             ],
@@ -444,7 +425,7 @@ mod tests {
             Filter::new(
                 SeccompAction::Trap,
                 SeccompAction::Allow,
-                vec![SyscallRule::new("wrong_syscall".to_string(), None, None)],
+                vec![SyscallRule::new("wrong_syscall".to_string(), None)],
             ),
         );
 
@@ -464,10 +445,9 @@ mod tests {
                 SeccompAction::Trap,
                 SeccompAction::Allow,
                 vec![
-                    SyscallRule::new("read".to_string(), None, None),
+                    SyscallRule::new("read".to_string(), None),
                     SyscallRule::new(
                         "futex".to_string(),
-                        None,
                         Some(vec![
                             Cond::new(1, Dword, Eq, 65).unwrap(),
                             Cond::new(2, Qword, Le, 80).unwrap(),
@@ -475,7 +455,6 @@ mod tests {
                     ),
                     SyscallRule::new(
                         "futex".to_string(),
-                        None,
                         Some(vec![
                             Cond::new(3, Dword, Eq, 65).unwrap(),
                             Cond::new(2, Qword, Le, 80).unwrap(),
