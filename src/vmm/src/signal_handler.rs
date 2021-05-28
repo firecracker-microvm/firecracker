@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use libc::{
-    _exit, c_int, c_void, siginfo_t, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU,
-    SIGXFSZ,
+    c_int, c_void, siginfo_t, SIGBUS, SIGHUP, SIGILL, SIGPIPE, SIGSEGV, SIGSYS, SIGXCPU, SIGXFSZ,
 };
 
+use crate::{ExitCode, FC_EXIT_CODE_UNEXPECTED_ERROR};
 use logger::{error, IncMetric, METRICS};
 use utils::signal::register_signal_handler;
 
@@ -19,9 +19,13 @@ const SI_OFF_SYSCALL: isize = 6;
 const SYS_SECCOMP_CODE: i32 = 1;
 
 #[inline]
-fn exit_unexpected() {
+fn exit_with_code(exit_code: ExitCode) {
+    // Write the metrics before exiting.
+    if let Err(e) = METRICS.write() {
+        error!("Failed to write metrics while stopping: {}", e);
+    }
     // Safe because we're terminating the process anyway.
-    unsafe { _exit(super::FC_EXIT_CODE_UNEXPECTED_ERROR) };
+    unsafe { libc::_exit(exit_code) };
 }
 
 macro_rules! generate_handler {
@@ -33,42 +37,30 @@ macro_rules! generate_handler {
             let si_code = unsafe { (*info).si_code };
 
             if num != si_signo || num != $signal_name {
-                exit_unexpected();
+                exit_with_code(FC_EXIT_CODE_UNEXPECTED_ERROR);
             }
             $signal_metric.inc();
-
-            $body(si_code, info);
 
             error!(
                 "Shutting down VM after intercepting signal {}, code {}.",
                 si_signo, si_code
             );
-            // Write the metrics before exiting.
-            if let Err(e) = METRICS.write() {
-                error!("Failed to write metrics while stopping: {}", e);
-            }
 
-            // Safe because we're terminating the process anyway. We don't actually do anything when
-            // running unit tests.
+            $body(si_code, info);
+
             #[cfg(not(test))]
             match si_signo {
-                $signal_name => unsafe { _exit(super::$exit_code) },
-                _ => exit_unexpected(),
+                $signal_name => exit_with_code(crate::$exit_code),
+                _ => exit_with_code(FC_EXIT_CODE_UNEXPECTED_ERROR),
             };
         }
     };
 }
 
 fn log_sigsys_err(si_code: c_int, info: *mut siginfo_t) {
-    let si_signo = unsafe { (*info).si_signo };
     if si_code != SYS_SECCOMP_CODE as i32 {
         // We received a SIGSYS for a reason other than `bad syscall`.
-        error!(
-            "Shutting down VM after intercepting signal {}, code {}.",
-            si_signo, si_code
-        );
-
-        exit_unexpected();
+        exit_with_code(FC_EXIT_CODE_UNEXPECTED_ERROR);
     }
 
     // Other signals which might do async unsafe things incompatible with the rest of this
