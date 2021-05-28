@@ -76,9 +76,7 @@ def test_allow_all(test_microvm_with_api):
 
     test_microvm.start()
 
-    # because Firecracker receives empty filters, the seccomp-level will
-    # remain 0
-    utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "0")
+    utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "2")
 
 
 def test_working_filter(test_microvm_with_api):
