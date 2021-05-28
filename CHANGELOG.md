@@ -28,7 +28,8 @@
   statistics update immediately after processing the request.
 - Deprecated the `--seccomp-level parameter`. It will be removed  in a future
   release. Using it logs a runtime warning.
-- Experimental gnu libc builds no longer use a default seccomp filter.
+- Experimental gnu libc builds use empty default seccomp filters, allowing all
+  system calls.
 
 ### Fixed
 

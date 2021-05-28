@@ -125,7 +125,8 @@ def test_advanced_seccomp(bin_seccomp_paths):
     Test seccompiler with `demo_jailer`.
 
     Test that the demo jailer (with advanced seccomp) allows the harmless demo
-    binary and denies the malicious demo binary.
+    binary, denies the malicious demo binary and that an empty allowlist
+    denies everything.
     """
     # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check
@@ -200,6 +201,28 @@ def test_advanced_seccomp(bin_seccomp_paths):
     # The malicious binary also terminates gracefully, since the --basic option
     # disables all argument checks.
     assert outcome.returncode == 0
+
+    os.unlink(bpf_path)
+
+    # Run the mini jailer with an empty allowlist. It should trap on any
+    # syscall.
+    json_filter = """{
+        "main": {
+            "default_action": "trap",
+            "filter_action": "allow",
+            "filter": []
+        }
+    }"""
+
+    # Run seccompiler.
+    bpf_path = _run_seccompiler(json_filter)
+
+    outcome = utils.run_cmd([demo_jailer, demo_harmless, bpf_path],
+                            no_shell=True,
+                            ignore_return_code=True)
+
+    # The demo binary should have received `SIGSYS`.
+    assert outcome.returncode == -31
 
     os.unlink(bpf_path)
 

@@ -762,9 +762,18 @@ impl SeccompFilter {
 impl TryInto<BpfProgram> for SeccompFilter {
     type Error = Error;
     fn try_into(self) -> Result<BpfProgram> {
-        // If no rules are set up, return an empty vector.
+        // Initialize the result with the precursory architecture check.
+        let mut result = VALIDATE_ARCHITECTURE(self.target_arch);
+
+        // If no rules are set up, the filter will always return the default action,
+        // so let's short-circuit the function.
         if self.rules.is_empty() {
-            return Ok(vec![]);
+            result.extend(vec![BPF_STMT(
+                BPF_RET + BPF_K,
+                u32::from(self.default_action),
+            )]);
+
+            return Ok(result);
         }
 
         // The called syscall number is loaded.
@@ -793,9 +802,7 @@ impl TryInto<BpfProgram> for SeccompFilter {
         accumulator.push(vec![BPF_STMT(BPF_RET + BPF_K, default_action)]);
 
         // Finally, builds the translated filter by consuming the accumulator.
-        let mut result = Vec::with_capacity(filter_len);
-        // Add the precursory architecture check
-        result.extend(VALIDATE_ARCHITECTURE(self.target_arch));
+        result.reserve(filter_len);
         accumulator
             .into_iter()
             .for_each(|mut instructions| result.append(&mut instructions));
@@ -926,6 +933,28 @@ mod tests {
         libc::SYS_futex,
     ];
 
+    fn install_filter(bpf_filter: BpfProgram) {
+        unsafe {
+            {
+                let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+                assert_eq!(rc, 0);
+            }
+            let bpf_prog = sock_fprog {
+                len: bpf_filter.len() as u16,
+                filter: bpf_filter.as_ptr(),
+            };
+            let bpf_prog_ptr = &bpf_prog as *const sock_fprog;
+            {
+                let rc = libc::prctl(
+                    libc::PR_SET_SECCOMP,
+                    libc::SECCOMP_MODE_FILTER,
+                    bpf_prog_ptr,
+                );
+                assert_eq!(rc, 0);
+            }
+        }
+    }
+
     fn validate_seccomp_filter(
         rules: Vec<(i64, Vec<SeccompRule>)>,
         validation_fn: fn(),
@@ -949,28 +978,8 @@ mod tests {
         // We need to run the validation inside another thread in order to avoid setting
         // the seccomp filter for the entire unit tests process.
         let errno = thread::spawn(move || {
-            let bpf_filter: BpfProgram = filter.try_into().unwrap();
-
             // Install the filter.
-            unsafe {
-                {
-                    let rc = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
-                    assert_eq!(rc, 0);
-                }
-                let bpf_prog = sock_fprog {
-                    len: bpf_filter.len() as u16,
-                    filter: bpf_filter.as_ptr(),
-                };
-                let bpf_prog_ptr = &bpf_prog as *const sock_fprog;
-                {
-                    let rc = libc::prctl(
-                        libc::PR_SET_SECCOMP,
-                        libc::SECCOMP_MODE_FILTER,
-                        bpf_prog_ptr,
-                    );
-                    assert_eq!(rc, 0);
-                }
-            }
+            install_filter(filter.try_into().unwrap());
 
             // Call the validation fn.
             validation_fn();
@@ -1702,6 +1711,36 @@ mod tests {
             }];
             assert_eq!(ret, instructions);
         }
+    }
+
+    #[test]
+    fn test_empty_filter() {
+        // An empty filter should always return the default action.
+        // For example, for an empty allowlist, it should always trap/kill,
+        // for an empty denylist, it should allow allow all system calls.
+
+        let mut expected_program = Vec::new();
+        expected_program.extend(VALIDATE_ARCHITECTURE(ARCH.try_into().unwrap()));
+        expected_program.extend(vec![BPF_STMT(0x06, 0x7fff_0000)]);
+
+        let empty_rule_map = BTreeMap::new();
+        let filter = SeccompFilter::new(empty_rule_map, SeccompAction::Allow, ARCH).unwrap();
+        let prog: BpfProgram = filter.try_into().unwrap();
+
+        assert_eq!(expected_program, prog);
+
+        // This should allow any system calls.
+        let pid = thread::spawn(move || {
+            // Install the filter.
+            install_filter(prog);
+
+            unsafe { libc::getpid() }
+        })
+        .join()
+        .unwrap();
+
+        // Check that the getpid syscall returned successfully.
+        assert!(pid > 0);
     }
 
     #[test]
