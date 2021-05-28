@@ -8,15 +8,14 @@ import platform
 from host_tools.cargo_build import get_firecracker_binaries
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection
-from framework.builder import SnapshotBuilder, SnapshotType
-from framework.microvms import VMNano
+from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import get_firecracker_version_from_toml, run_cmd
 
 
 def test_describe_snapshot_all_versions(bin_cloner_path):
     """Test `--describe-snapshot` correctness for all snapshot versions."""
     logger = logging.getLogger("describe_snapshot")
-
+    builder = MicrovmBuilder(bin_cloner_path)
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     # Fetch all firecracker binaries.
     # For each binary create a snapshot and verify the data version
@@ -42,10 +41,9 @@ def test_describe_snapshot_all_versions(bin_cloner_path):
 
         # v0.23 does not support creating diff snapshots.
         diff_snapshots = "0.23" not in target_version
-        vm_instance = VMNano.spawn(bin_cloner_path, False,
-                                   fc_binary=firecracker.local_path(),
-                                   jailer_binary=jailer.local_path(),
-                                   diff_snapshots=diff_snapshots)
+        vm_instance = builder.build_vm_nano(fc_binary=firecracker.local_path(),
+                                            jailer_binary=jailer.local_path(),
+                                            diff_snapshots=diff_snapshots)
         vm = vm_instance.vm
         vm.start()
 

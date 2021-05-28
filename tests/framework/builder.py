@@ -4,16 +4,55 @@
 
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
-from conftest import init_microvm
+from conftest import init_microvm, _test_images_s3_bucket
 from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
 from framework.artifacts import (
-    Artifact, DiskArtifact, Snapshot, SnapshotType, NetIfaceConfig
+    ArtifactCollection, Artifact, DiskArtifact, Snapshot,
+    SnapshotType, NetIfaceConfig
 )
 import framework.utils as utils
 import host_tools.logging as log_tools
 import host_tools.network as net_tools
+
+
+class VmInstance:
+    """A class that describes a microvm instance resources."""
+
+    def __init__(self, config, kernel, disks, ssh_key, vm):
+        """Initialize a Vm configuration based on artifacts."""
+        self._config = config
+        self._kernel = kernel
+        self._disks = disks
+        self._ssh_key = ssh_key
+        self._vm = vm
+
+    @property
+    def config(self):
+        """Return machine config artifact."""
+        return self._config
+
+    @property
+    def kernel(self):
+        """Return the kernel artifact."""
+        return self._kernel
+
+    @property
+    def disks(self):
+        """Return an array of block file paths."""
+        return self._disks
+
+    @property
+    def ssh_key(self):
+        """Return ssh key artifact linked to the root block device."""
+        return self._ssh_key
+
+    @property
+    def vm(self):
+        """Return the Microvm object instance."""
+        return self._vm
 
 
 class MicrovmBuilder:
@@ -21,21 +60,12 @@ class MicrovmBuilder:
 
     ROOT_PREFIX = "fctest-"
 
-    def __init__(self, bin_cloner_path,
-                 fc_binary=None,
-                 jailer_binary=None):
+    _root_path = None
+
+    def __init__(self, bin_cloner_path):
         """Initialize microvm root and cloning binary."""
         self.bin_cloner_path = bin_cloner_path
         self.init_root_path()
-
-        # Update permissions for custom binaries.
-        if fc_binary is not None:
-            os.chmod(fc_binary, 0o555)
-        if jailer_binary is not None:
-            os.chmod(jailer_binary, 0o555)
-
-        self._fc_binary = fc_binary
-        self._jailer_binary = jailer_binary
 
     @property
     def root_path(self):
@@ -54,12 +84,14 @@ class MicrovmBuilder:
               ssh_key: Artifact,
               config: Artifact,
               net_ifaces=None,
-              enable_diff_snapshots=False,
+              diff_snapshots=False,
               cpu_template=None,
+              fc_binary=None,
+              jailer_binary=None,
               use_ramdisk=False):
         """Build a fresh microvm."""
         vm = init_microvm(self.root_path, self.bin_cloner_path,
-                          self._fc_binary, self._jailer_binary)
+                          fc_binary, jailer_binary)
 
         # Start firecracker.
         vm.spawn(use_ramdisk=use_ramdisk)
@@ -72,7 +104,7 @@ class MicrovmBuilder:
             use_ramdisk else vm.create_jailed_resource(vm.rootfs_file)
 
         # Download ssh key into the microvm root.
-        ssh_key.download(self.root_path)
+        ssh_key.download(vm.path)
         vm.ssh_config['ssh_key_path'] = ssh_key.local_path()
         os.chmod(vm.ssh_config['ssh_key_path'], 0o400)
 
@@ -121,16 +153,14 @@ class MicrovmBuilder:
             vcpu_count=int(microvm_config['vcpu_count']),
             mem_size_mib=int(microvm_config['mem_size_mib']),
             ht_enabled=bool(microvm_config['ht_enabled']),
-            track_dirty_pages=enable_diff_snapshots,
+            track_dirty_pages=diff_snapshots,
             cpu_template=cpu_template,
         )
         assert vm.api_session.is_status_no_content(response.status_code)
 
         vm.vcpus_count = int(microvm_config['vcpu_count'])
 
-        # Reset root path so next microvm is built some place else.
-        self.init_root_path()
-        return vm
+        return VmInstance(config, kernel, disks, ssh_key, vm)
 
     # This function currently returns the vm and a metrics_fifo which
     # is needed by the performance integration tests.
@@ -140,10 +170,12 @@ class MicrovmBuilder:
                             snapshot: Snapshot,
                             resume=False,
                             # Enable incremental snapshot capability.
-                            enable_diff_snapshots=False, use_ramdisk=False):
+                            diff_snapshots=False,
+                            use_ramdisk=False,
+                            fc_binary=None, jailer_binary=None):
         """Build a microvm from a snapshot artifact."""
         vm = init_microvm(self.root_path, self.bin_cloner_path,
-                          self._fc_binary, self._jailer_binary,)
+                          fc_binary, jailer_binary,)
         vm.spawn(log_level='Error', use_ramdisk=use_ramdisk)
         vm.api_session.untime()
 
@@ -175,12 +207,9 @@ class MicrovmBuilder:
                                          tapname=iface.tap_name)
         response = vm.snapshot.load(mem_file_path=jailed_mem,
                                     snapshot_path=jailed_vmstate,
-                                    diff=enable_diff_snapshots,
+                                    diff=diff_snapshots,
                                     resume=resume)
         status_ok = vm.api_session.is_status_no_content(response.status_code)
-
-        # Reset root path so next microvm is built some place else.
-        self.init_root_path()
 
         # Verify response status and cleanup if needed before assert.
         if not status_ok:
@@ -193,10 +222,69 @@ class MicrovmBuilder:
         # Return a resumed microvm.
         return vm, metrics_fifo
 
-    def create_basevm(self):
+    def build_from_artifacts(self, config,
+                             kernel, disks, cpu_template,
+                             net_ifaces=None, diff_snapshots=False,
+                             fc_binary=None, jailer_binary=None):
+        """Spawns a new Firecracker and applies specified config."""
+        artifacts = ArtifactCollection(_test_images_s3_bucket())
+        # Pick the first artifact in the set.
+        config = artifacts.microvms(keyword=config)[0]
+        kernel = artifacts.kernels(keyword=kernel)[0]
+        disks = artifacts.disks(keyword=disks)
+        config.download()
+        kernel.download()
+        attached_disks = []
+        for disk in disks:
+            disk.download()
+            attached_disks.append(disk.copy())
+
+        # SSH key is attached to root disk artifact.
+        # Builder will download ssh key in the VM root.
+        ssh_key = disks[0].ssh_key()
+        # Create a fresh microvm from artifacts.
+        return self.build(kernel=kernel,
+                          disks=attached_disks,
+                          ssh_key=ssh_key,
+                          config=config,
+                          net_ifaces=net_ifaces,
+                          diff_snapshots=diff_snapshots,
+                          cpu_template=cpu_template,
+                          fc_binary=fc_binary,
+                          jailer_binary=jailer_binary)
+
+    def build_vm_nano(self, fc_binary=None, jailer_binary=None,
+                      net_ifaces=None, diff_snapshots=False):
         """Create a clean VM in an initial state."""
-        return init_microvm(self.root_path, self.bin_cloner_path,
-                            self._fc_binary, self._jailer_binary)
+        return self.build_from_artifacts("2vcpu_256mb",
+                                         "vmlinux-4.14",
+                                         "ubuntu-18.04",
+                                         None,
+                                         net_ifaces=net_ifaces,
+                                         diff_snapshots=diff_snapshots,
+                                         fc_binary=fc_binary,
+                                         jailer_binary=jailer_binary)
+
+    def build_vm_micro(self, fc_binary=None, jailer_binary=None,
+                       net_ifaces=None, diff_snapshots=False):
+        """Create a clean VM in an initial state."""
+        return self.build_from_artifacts("2vcpu_512mb",
+                                         "vmlinux-4.14",
+                                         "ubuntu-18.04",
+                                         None,
+                                         net_ifaces=net_ifaces,
+                                         diff_snapshots=diff_snapshots,
+                                         fc_binary=fc_binary,
+                                         jailer_binary=jailer_binary)
+
+    def cleanup(self):
+        """Clean up this builder context."""
+        if self._root_path:
+            shutil.rmtree(self._root_path, ignore_errors=True)
+
+    def __del__(self):
+        """Teardown the object."""
+        self.cleanup()
 
 
 class SnapshotBuilder:  # pylint: disable=too-few-public-methods

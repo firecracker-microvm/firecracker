@@ -3,7 +3,7 @@
 """Basic tests scenarios for snapshot save/restore."""
 
 import os
-from framework.microvms import VMNano
+from framework.builder import MicrovmBuilder
 from framework.resources import DescribeInstance
 import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -31,7 +31,8 @@ def verify_net_emulation_paused(metrics):
 
 def test_pause_resume(bin_cloner_path):
     """Test scenario: boot/pause/resume."""
-    vm_instance = VMNano.spawn(bin_cloner_path)
+    builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = builder.build_vm_nano()
     microvm = vm_instance.vm
 
     # Pausing the microVM before being started is not allowed.
@@ -103,7 +104,8 @@ def test_pause_resume(bin_cloner_path):
 
 def test_describe_instance(bin_cloner_path):
     """Test scenario: DescribeInstance different states."""
-    vm_instance = VMNano.spawn(bin_cloner_path)
+    builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = builder.build_vm_nano()
     microvm = vm_instance.vm
     descr_inst = DescribeInstance(microvm.api_socket, microvm.api_session)
 

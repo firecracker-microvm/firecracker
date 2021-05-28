@@ -10,7 +10,6 @@ from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
 from framework.matrix import TestMatrix, TestContext
-from framework.microvms import VMMicro
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import CpuMap, get_firecracker_version_from_toml
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -69,7 +68,7 @@ def _test_snapshot_create_latency(context):
     logger = context.custom['logger']
     vm_builder = context.custom['builder']
     snapshot_type = context.custom['snapshot_type']
-    enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
+    diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     # Create a rw copy artifact.
     rw_disk = context.disk.copy()
@@ -96,13 +95,13 @@ def _test_snapshot_create_latency(context):
         # Measure a burst of snapshot create calls.
         for i in range(SAMPLE_COUNT):
             # Create a fresh microVM from artifacts.
-            vm = vm_builder.build(kernel=context.kernel,
-                                  disks=[rw_disk],
-                                  ssh_key=ssh_key,
-                                  config=context.microvm,
-                                  enable_diff_snapshots=enable_diff_snapshots,
-                                  use_ramdisk=True)
-
+            vm_instance = vm_builder.build(kernel=context.kernel,
+                                           disks=[rw_disk],
+                                           ssh_key=ssh_key,
+                                           config=context.microvm,
+                                           diff_snapshots=diff_snapshots,
+                                           use_ramdisk=True)
+            vm = vm_instance.vm
             # Configure metrics system.
             metrics_fifo_path = os.path.join(vm.path, 'metrics_fifo')
             metrics_fifo = log_tools.Fifo(metrics_fifo_path)
@@ -159,7 +158,7 @@ def _test_snapshot_resume_latency(context):
     logger = context.custom['logger']
     vm_builder = context.custom['builder']
     snapshot_type = context.custom['snapshot_type']
-    enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
+    diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     logger.info("""Measuring snapshot resume({}) latency for microvm: \"{}\",
 kernel {}, disk {} """.format(snapshot_type,
@@ -172,13 +171,13 @@ kernel {}, disk {} """.format(snapshot_type,
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
-    basevm = vm_builder.build(kernel=context.kernel,
-                              disks=[rw_disk],
-                              ssh_key=ssh_key,
-                              config=context.microvm,
-                              enable_diff_snapshots=enable_diff_snapshots,
-                              use_ramdisk=True)
-
+    vm_instance = vm_builder.build(kernel=context.kernel,
+                                   disks=[rw_disk],
+                                   ssh_key=ssh_key,
+                                   config=context.microvm,
+                                   diff_snapshots=diff_snapshots,
+                                   use_ramdisk=True)
+    basevm = vm_instance.vm
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
@@ -201,7 +200,7 @@ kernel {}, disk {} """.format(snapshot_type,
         microvm, metrics_fifo = vm_builder.build_from_snapshot(
             snapshot,
             True,
-            enable_diff_snapshots,
+            diff_snapshots,
             use_ramdisk=True)
 
         # Attempt to connect to resumed microvm.
@@ -339,6 +338,8 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
     """Test scenario: Older snapshot load performance measurement."""
     logger = logging.getLogger("old_snapshot_load")
 
+    builder = MicrovmBuilder(bin_cloner_path)
+
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     # Fetch all firecracker binaries.
     # With each binary create a snapshot and try to restore in current
@@ -358,12 +359,13 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
 
         for i in range(SAMPLE_COUNT):
             # Create a fresh microvm with the binary artifacts.
-            vm_instance = VMMicro.spawn(bin_cloner_path, True,
-                                        firecracker.local_path(),
-                                        jailer.local_path())
-            # Attempt to connect to the fresh microvm.
-            ssh_connection = net_tools.SSHConnection(vm_instance.vm.ssh_config)
+            vm_instance = builder.build_vm_micro(firecracker.local_path(),
+                                                 jailer.local_path())
+            basevm = vm_instance.vm
+            basevm.start()
+            ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
+            # Check if guest works.
             exit_code, _, _ = ssh_connection.execute_command("ls")
             assert exit_code == 0
 
@@ -373,13 +375,12 @@ def test_older_snapshot_resume_latency(bin_cloner_path):
                 disks.append(disk.local_path())
 
             # Create a snapshot builder from a microvm.
-            snapshot_builder = SnapshotBuilder(vm_instance.vm)
+            snapshot_builder = SnapshotBuilder(basevm)
             snapshot = snapshot_builder.create(disks,
                                                vm_instance.ssh_key,
                                                SnapshotType.FULL)
 
-            vm_instance.vm.kill()
-            builder = MicrovmBuilder(bin_cloner_path)
+            basevm.kill()
             microvm, metrics_fifo = builder.build_from_snapshot(snapshot,
                                                                 True,
                                                                 False)
