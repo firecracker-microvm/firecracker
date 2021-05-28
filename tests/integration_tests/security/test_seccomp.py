@@ -204,23 +204,6 @@ def test_advanced_seccomp(bin_seccomp_paths):
     os.unlink(bpf_path)
 
 
-def test_seccomp_applies_to_all_threads(test_microvm_with_api):
-    """Test all Firecracker threads get default filters."""
-    test_microvm = test_microvm_with_api
-    test_microvm.spawn()
-
-    # Set up the microVM with 2 vCPUs, 256 MiB of RAM and
-    # a root file system with the rw permission.
-    test_microvm.basic_config()
-
-    test_microvm.start()
-
-    # Get Firecracker PID so we can count the number of threads.
-    firecracker_pid = test_microvm.jailer_clone_pid
-
-    utils.assert_seccomp_level(firecracker_pid, "2")
-
-
 def test_no_seccomp(test_microvm_with_api):
     """Test Firecracker --no-seccomp."""
     test_microvm = test_microvm_with_api
@@ -235,12 +218,14 @@ def test_no_seccomp(test_microvm_with_api):
 
 
 # The possible Firecracker --seccomp-level values.
-SECCOMP_LEVELS = ["0", "1", "2"]
+# "default" stands for no custom parameter.
+SECCOMP_LEVELS = ["default", "0", "1", "2"]
 
 # Map FC seccomp-level to kernel seccomp-level.
 # Note that level 1 also maps to kernel level 2, which stands for
 # any custom BPF filter.
-KERNEL_LEVEL = {"0": "0", "1": "2", "2": "2"}
+# The default is 2.
+KERNEL_LEVEL = {"default": "2", "0": "0", "1": "2", "2": "2"}
 
 
 @pytest.mark.parametrize(
@@ -250,7 +235,8 @@ KERNEL_LEVEL = {"0": "0", "1": "2", "2": "2"}
 def test_seccomp_level(test_microvm_with_api, level):
     """Test Firecracker --seccomp-level value."""
     test_microvm = test_microvm_with_api
-    test_microvm.jailer.extra_args.update({"seccomp-level": level})
+    if level != "default":
+        test_microvm.jailer.extra_args.update({"seccomp-level": level})
     test_microvm.spawn()
 
     test_microvm.basic_config()
