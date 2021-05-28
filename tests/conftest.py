@@ -160,6 +160,12 @@ def init_microvm(root_path, bin_cloner_path,
     # The fixture pattern causes a pylint false positive for that rule.
     microvm_id = str(uuid.uuid4())
 
+    # Update permissions for custom binaries.
+    if fc_binary is not None:
+        os.chmod(fc_binary, 0o555)
+    if jailer_binary is not None:
+        os.chmod(jailer_binary, 0o555)
+
     if fc_binary is None or jailer_binary is None:
         fc_binary, jailer_binary = build_tools.get_firecracker_binaries()
 

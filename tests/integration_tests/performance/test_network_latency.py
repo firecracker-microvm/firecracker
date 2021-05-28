@@ -180,11 +180,11 @@ def _g2h_send_ping(context):
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
-    basevm = vm_builder.build(kernel=context.kernel,
-                              disks=[rw_disk],
-                              ssh_key=ssh_key,
-                              config=context.microvm)
-
+    vm_instance = vm_builder.build(kernel=context.kernel,
+                                   disks=[rw_disk],
+                                   ssh_key=ssh_key,
+                                   config=context.microvm)
+    basevm = vm_instance.vm
     basevm.start()
 
     # Check if the needed CPU cores are available. We have the API thread, VMM
