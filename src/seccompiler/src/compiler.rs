@@ -34,6 +34,8 @@ type Result<T> = std::result::Result<T, Error>;
 /// Errors compiling Filters into BPF.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Error {
+    /// Filter and default actions are equal.
+    IdenticalActions,
     /// Error from the SeccompFilter.
     SeccompFilter(SeccompFilterError),
     /// Invalid syscall name for the given arch.
@@ -45,6 +47,7 @@ impl fmt::Display for Error {
         use self::Error::*;
 
         match *self {
+            IdenticalActions => write!(f, "`filter_action` and `default_action` are equal."),
             SeccompFilter(ref err) => write!(f, "{}", err),
             SyscallName(ref syscall_name, ref arch) => write!(
                 f,
@@ -99,6 +102,11 @@ pub(crate) struct Filter {
 impl Filter {
     /// Perform semantic checks after deserialization.
     fn validate(&self) -> Result<()> {
+        // Doesn't make sense to have equal default and on-match actions.
+        if self.default_action == self.filter_action {
+            return Err(Error::IdenticalActions);
+        }
+
         // Validate all `SyscallRule`s.
         self.filter
             .iter()
@@ -437,6 +445,17 @@ mod tests {
             ))
         );
 
+        let mut identical_action_filters = HashMap::new();
+        identical_action_filters.insert(
+            "T1".to_string(),
+            Filter::new(SeccompAction::Allow, SeccompAction::Allow, vec![]),
+        );
+
+        assert_eq!(
+            compiler.compile_blob(identical_action_filters, false),
+            Err(Error::IdenticalActions)
+        );
+
         // Test with correct filters.
         let mut correct_filters = HashMap::new();
         correct_filters.insert(
@@ -476,6 +495,10 @@ mod tests {
 
     #[test]
     fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::IdenticalActions),
+            "`filter_action` and `default_action` are equal."
+        );
         assert_eq!(
             format!(
                 "{}",
