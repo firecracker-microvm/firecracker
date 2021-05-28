@@ -144,11 +144,21 @@ class Microvm:
         # External clone/exec tool, because Python can't into clone
         self.bin_cloner_path = bin_cloner_path
 
+        # Flag checked in destructor to see abnormal signal-induced crashes.
+        self.expect_kill_by_signal = False
+
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
         if self.logging_thread is not None:
             self.logging_thread.stop()
+
+        if self.expect_kill_by_signal is False and \
+                "Shutting down VM after intercepting signal" in self.log_data:
+            # Too late to assert at this point, pytest will still report the
+            # test as passed. BUT we can dump full logs for debugging,
+            # as well as an intentional eye-sore in the test report.
+            LOG.error(self.log_data)
 
         if self._jailer.daemonize:
             if self.jailer_clone_pid:
@@ -156,6 +166,9 @@ class Microvm:
                     'kill -9 {}'.format(self.jailer_clone_pid),
                     ignore_return_code=True)
         else:
+            # Killing screen will send SIGHUP to underlying Firecracker.
+            # Needed to avoid false positives in case kill() is called again.
+            self.expect_kill_by_signal = True
             utils.run_cmd(
                 'screen -XS {} kill || true'.format(self._session_name))
 

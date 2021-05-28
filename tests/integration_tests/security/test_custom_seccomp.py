@@ -176,6 +176,7 @@ def test_failing_filter(test_microvm_with_api):
     # Give time for the process to get killed
     time.sleep(1)
 
+    test_microvm.expect_kill_by_signal = True
     # Check the logger output
     ioctl_num = 16 if platform.machine() == "x86_64" else 29
     assert "Shutting down VM after intercepting a bad syscall ({})".format(
