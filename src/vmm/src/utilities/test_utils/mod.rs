@@ -10,8 +10,7 @@ use crate::seccomp_filters::{get_filters, SeccompConfig};
 use crate::utilities::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use crate::Vmm;
-use polly::event_manager::EventManager;
+use crate::{EventManager, Vmm};
 
 pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>>, EventManager) {
     let mut event_manager = EventManager::new().unwrap();

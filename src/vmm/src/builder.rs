@@ -22,15 +22,15 @@ use crate::vstate::{
     vcpu::{Vcpu, VcpuConfig},
     vm::Vm,
 };
-use crate::{device_manager, Error, Vmm, VmmEventsObserver};
+use crate::{device_manager, Error, EventManager, Vmm, VmmEventsObserver};
 
 use crate::vmm_config::instance_info::InstanceInfo;
 use arch::InitrdConfig;
 use devices::legacy::Serial;
 use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
+use event_manager::{MutEventSubscriber, SubscriberOps};
 use kernel::cmdline::Cmdline as KernelCmdline;
 use logger::{error, warn};
-use polly::event_manager::{Error as EventManagerError, EventManager, Subscriber};
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
 use utils::eventfd::EventFd;
@@ -73,8 +73,6 @@ pub enum StartMicrovmError {
     NetDeviceNotConfigured,
     /// Cannot open the block device backing file.
     OpenBlockDevice(io::Error),
-    /// Cannot register an EventHandler.
-    RegisterEvent(EventManagerError),
     /// Cannot initialize a MMIO Device or add a device to the MMIO Bus or cmdline.
     RegisterMmioDevice(device_manager::mmio::Error),
     /// Cannot restore microvm state.
@@ -150,7 +148,6 @@ impl Display for StartMicrovmError {
 
                 write!(f, "Cannot open the block device backing file. {}", err_msg)
             }
-            RegisterEvent(err) => write!(f, "Cannot register EventHandler. {:?}", err),
             RegisterMmioDevice(err) => {
                 let mut err_msg = format!("{}", err);
                 err_msg = err_msg.replace("\"", "");
@@ -393,9 +390,7 @@ pub fn build_microvm_for_boot(
     vmm.resume_vm().map_err(Internal)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
-    event_manager
-        .add_subscriber(vmm.clone())
-        .map_err(RegisterEvent)?;
+    event_manager.add_subscriber(vmm.clone());
 
     Ok(vmm)
 }
@@ -469,9 +464,7 @@ pub fn build_microvm_from_snapshot(
         .map_err(RestoreMicrovmState)?;
 
     let vmm = Arc::new(Mutex::new(vmm));
-    event_manager
-        .add_subscriber(vmm.clone())
-        .map_err(StartMicrovmError::RegisterEvent)?;
+    event_manager.add_subscriber(vmm.clone());
 
     // Load seccomp filters for the VMM thread.
     // Keep this as the last step of the building process.
@@ -621,14 +614,7 @@ pub fn setup_serial_device(
         out,
         Some(kick_stdin_read_evt),
     )));
-    if let Err(e) = event_manager.add_subscriber(serial.clone()) {
-        // TODO: We just log this message, and immediately return Ok, instead of returning the
-        // actual error because this operation always fails with EPERM when adding a fd which
-        // has been redirected to /dev/null via dup2 (this may happen inside the jailer).
-        // Find a better solution to this (and think about the state of the serial device
-        // while we're at it).
-        warn!("Could not add serial input event to epoll: {:?}", e);
-    }
+    event_manager.add_subscriber(serial.clone());
     Ok(serial)
 }
 
@@ -765,7 +751,7 @@ pub fn configure_system_for_boot(
 }
 
 /// Attaches a VirtioDevice device to the device manager and event manager.
-fn attach_virtio_device<T: 'static + VirtioDevice + Subscriber>(
+fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber>(
     event_manager: &mut EventManager,
     vmm: &mut Vmm,
     id: String,
@@ -774,9 +760,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + Subscriber>(
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
-    event_manager
-        .add_subscriber(device.clone())
-        .map_err(RegisterEvent)?;
+    event_manager.add_subscriber(device.clone());
 
     // The device mutex mustn't be locked here otherwise it will deadlock.
     let device = MmioTransport::new(vmm.guest_memory().clone(), device);
@@ -891,7 +875,6 @@ pub mod tests {
     use arch::DeviceType;
     use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use kernel::cmdline::Cmdline;
-    use polly::event_manager::EventManager;
     use utils::tempfile::TempFile;
 
     pub(crate) struct CustomBlockConfig {
@@ -1448,11 +1431,6 @@ pub mod tests {
         let _ = format!("{}{:?}", err, err);
 
         let err = OpenBlockDevice(io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = RegisterEvent(EventManagerError::EpollCreate(
-            io::Error::from_raw_os_error(0),
-        ));
         let _ = format!("{}{:?}", err, err);
     }
 

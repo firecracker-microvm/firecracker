@@ -58,14 +58,17 @@ use devices::virtio::{
     TYPE_BLOCK, TYPE_NET,
 };
 use devices::BusDevice;
+use event_manager::{EventManager as BaseEventManager, EventOps, Events, MutEventSubscriber};
 use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
-use polly::event_manager::{EventManager, Subscriber};
 use rate_limiter::BucketUpdate;
 use seccompiler::BpfProgram;
 use snapshot::Persist;
-use utils::epoll::{EpollEvent, EventSet};
+use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap};
+
+/// Shorthand type for the EventManager flavour used by Firecracker.
+pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
 
 /// Vmm exit-code type.
 pub type ExitCode = i32;
@@ -763,9 +766,9 @@ impl Drop for Vmm {
     }
 }
 
-impl Subscriber for Vmm {
+impl MutEventSubscriber for Vmm {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: &EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: Events, _: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -795,10 +798,9 @@ impl Subscriber for Vmm {
         }
     }
 
-    fn interest_list(&self) -> Vec<EpollEvent> {
-        vec![EpollEvent::new(
-            EventSet::IN,
-            self.vcpus_exit_evt.as_raw_fd() as u64,
-        )]
+    fn init(&mut self, ops: &mut EventOps) {
+        if let Err(e) = ops.add(Events::new(&self.vcpus_exit_evt, EventSet::IN)) {
+            error!("Failed to register vmm exit event: {}", e);
+        }
     }
 }
