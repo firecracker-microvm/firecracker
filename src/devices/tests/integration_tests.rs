@@ -7,9 +7,10 @@ use std::io;
 use std::os::raw::{c_int, c_void};
 use std::sync::{Arc, Mutex};
 
+use event_manager::{EventManager, SubscriberOps};
+
 use devices::legacy::Serial;
 use devices::BusDevice;
-use polly::event_manager::EventManager;
 use serial_utils::MockSerialInput;
 use utils::eventfd::EventFd;
 
@@ -47,7 +48,7 @@ fn test_issue_serial_hangup_anon_pipe_while_registered_stdin() {
 
     // Register the reading end of the pipe to the event manager, to be processed later on.
     let mut event_manager = EventManager::new().unwrap();
-    event_manager.add_subscriber(serial.clone()).unwrap();
+    let _id = event_manager.add_subscriber(serial.clone());
 
     // `EventSet::IN` was received on stdin. The event handling will consume
     // 64 bytes from stdin. The stdin monitoring is still armed.
@@ -165,7 +166,7 @@ fn test_issue_hangup() {
 
     // Register the reading end of the pipe to the event manager, to be processed later on.
     let mut event_manager = EventManager::new().unwrap();
-    event_manager.add_subscriber(serial.clone()).unwrap();
+    let _id = event_manager.add_subscriber(serial.clone());
 
     let mut ev_count = event_manager.run().unwrap();
     assert_eq!(ev_count, 1);
@@ -209,7 +210,7 @@ fn test_issue_serial_hangup_anon_pipe_while_unregistered_stdin() {
 
     // Register the reading end of the pipe to the event manager, to be processed later on.
     let mut event_manager = EventManager::new().unwrap();
-    event_manager.add_subscriber(serial.clone()).unwrap();
+    let _id = event_manager.add_subscriber(serial.clone());
 
     // `EventSet::IN` was received on stdin. The event handling will consume
     // 64 bytes from stdin. The stdin monitoring is still armed.

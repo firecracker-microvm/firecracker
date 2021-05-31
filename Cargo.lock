@@ -285,6 +285,7 @@ name = "devices"
 version = "0.1.0"
 dependencies = [
  "dumbo",
+ "event-manager",
  "libc",
  "logger",
  "mmds",
@@ -318,6 +319,16 @@ name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
+
+[[package]]
+name = "event-manager"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "377fa591135fbe23396a18e2655a6d5481bf7c5823cdfa3cc81b01a229cbe640"
+dependencies = [
+ "libc",
+ "vmm-sys-util",
+]
 
 [[package]]
 name = "firecracker"
