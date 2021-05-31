@@ -290,7 +290,6 @@ dependencies = [
  "logger",
  "mmds",
  "net_gen",
- "polly",
  "proptest",
  "rate_limiter",
  "serde",
@@ -551,14 +550,6 @@ dependencies = [
  "num-traits",
  "wasm-bindgen",
  "web-sys",
-]
-
-[[package]]
-name = "polly"
-version = "0.0.1"
-dependencies = [
- "libc",
- "utils",
 ]
 
 [[package]]
