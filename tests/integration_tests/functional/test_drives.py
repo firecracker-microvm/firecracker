@@ -468,11 +468,12 @@ def test_block_default_cache_old_version(test_microvm_with_ssh):
 
 def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
     """Verify if the rate limiter throttles block iops using dd."""
+    obs = block_size
     byte_count = block_size * count
-    dd = "dd if=/dev/vdb of=/dev/null ibs={} count={} iflag=direct".format(
-        block_size, count)
+    dd = "dd if=/dev/zero of=/dev/vdb ibs={} obs={} count={} oflag=direct"\
+        .format(block_size, obs, count)
     print("Running cmd {}".format(dd))
-    # Check read iops.
+    # Check write iops (writing with oflag=direct is more reliable).
     exit_code, _, stderr = ssh_connection.execute_command(dd)
     assert exit_code == 0
 
@@ -531,9 +532,10 @@ def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
 
     # Validate IOPS stays within above configured limits.
     # For example, the below call will validate that reading 1000 blocks
-    # of 512b will complete in at 0.85-1.25 seconds.
-    check_iops_limit(ssh_connection, 512, 1000, 0.85, 1.25)
-    check_iops_limit(ssh_connection, 4096, 1000, 0.85, 1.25)
+    # of 512b will complete in at 0.8-1.2 seconds ('dd' is not very accurate,
+    # so we target to stay within 20% error).
+    check_iops_limit(ssh_connection, 512, 1000, 0.8, 1.2)
+    check_iops_limit(ssh_connection, 4096, 1000, 0.8, 1.2)
 
     # Patch ratelimiter
     response = test_microvm.drive.patch(
@@ -551,23 +553,23 @@ def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    check_iops_limit(ssh_connection, 512, 2000, 0.85, 1.5)
-    check_iops_limit(ssh_connection, 4096, 2000, 0.85, 1.5)
+    check_iops_limit(ssh_connection, 512, 2000, 0.8, 1.2)
+    check_iops_limit(ssh_connection, 4096, 2000, 0.8, 1.2)
 
     # Patch ratelimiter
     response = test_microvm.drive.patch(
         drive_id='scratch',
         rate_limiter={
             'ops': {
-                'size': 1250,
+                'size': 1000,
                 'refill_time': 100
             }
         }
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    check_iops_limit(ssh_connection, 512, 10000, 0.85, 1.5)
-    check_iops_limit(ssh_connection, 4096, 10000, 0.85, 1.5)
+    check_iops_limit(ssh_connection, 512, 10000, 0.8, 1.2)
+    check_iops_limit(ssh_connection, 4096, 10000, 0.8, 1.2)
 
 
 def _check_block_size(ssh_connection, dev_path, size):
