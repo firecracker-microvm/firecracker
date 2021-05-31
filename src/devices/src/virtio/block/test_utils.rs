@@ -1,12 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::os::unix::io::AsRawFd;
-
 use crate::virtio::{Block, CacheType, Queue};
-use polly::event_manager::{EventManager, Subscriber};
 use rate_limiter::RateLimiter;
-use utils::epoll::{EpollEvent, EventSet};
 use utils::tempfile::TempFile;
 
 /// Create a default Block instance to be used in tests.
@@ -41,10 +37,7 @@ pub fn invoke_handler_for_queue_event(b: &mut Block) {
     // Trigger the queue event.
     b.queue_evts[0].write(1).unwrap();
     // Handle event.
-    b.process(
-        &EpollEvent::new(EventSet::IN, b.queue_evts[0].as_raw_fd() as u64),
-        &mut EventManager::new().unwrap(),
-    );
+    b.process_queue_event();
     // Validate the queue operation finished successfully.
     assert_eq!(b.interrupt_evt.read().unwrap(), 1);
 }
