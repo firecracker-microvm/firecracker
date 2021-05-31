@@ -5,6 +5,7 @@ authors = ["The Chromium OS Authors"]
 edition = "2018"
 
 [dependencies]
+event-manager = ">=0.2.1"
 libc = ">=0.2.39"
 timerfd = ">=1.0"
 versionize = ">=0.1.6"
