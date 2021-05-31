@@ -18,8 +18,8 @@ use devices::virtio::{
     TYPE_VSOCK,
 };
 use devices::BusDevice;
-use kernel::cmdline as kernel_cmdline;
 use kvm_ioctls::{IoEventAddress, VmFd};
+use linux_loader::cmdline as kernel_cmdline;
 use logger::info;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
@@ -30,7 +30,7 @@ pub enum Error {
     /// Failed to perform an operation on the bus.
     BusError(devices::BusError),
     /// Appending to kernel command line failed.
-    Cmdline(kernel_cmdline::Error),
+    Cmdline(linux_loader::cmdline::Error),
     /// The device couldn't be found.
     DeviceNotFound,
     /// Failure in creating or cloning an event fd.
@@ -655,7 +655,7 @@ mod tests {
             assert!(!msg.is_empty());
         };
         check_fmt_err(Error::BusError(devices::BusError::Overlap));
-        check_fmt_err(Error::Cmdline(kernel_cmdline::Error::CommandLineCopy));
+        check_fmt_err(Error::Cmdline(linux_loader::cmdline::Error::TooLarge));
         check_fmt_err(Error::DeviceNotFound);
         check_fmt_err(Error::EventFd(io::Error::from_raw_os_error(0)));
         check_fmt_err(Error::IncorrectDeviceType);

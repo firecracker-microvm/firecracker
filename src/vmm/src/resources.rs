@@ -274,7 +274,7 @@ impl VmResources {
             Some(path) => Some(File::open(path).map_err(InvalidInitrdPath)?),
             None => None,
         };
-        let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
+        let mut cmdline = linux_loader::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
         let boot_args = match boot_source_cfg.boot_args.as_ref() {
             None => DEFAULT_KERNEL_CMDLINE,
             Some(str) => str.as_str(),
@@ -411,7 +411,7 @@ mod tests {
     }
 
     fn default_boot_cfg() -> BootConfig {
-        let mut kernel_cmdline = kernel::cmdline::Cmdline::new(4096);
+        let mut kernel_cmdline = linux_loader::cmdline::Cmdline::new(4096);
         kernel_cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
         let tmp_file = TempFile::new().unwrap();
         BootConfig {
@@ -881,7 +881,7 @@ mod tests {
         let expected_boot_cfg = vm_resources.boot_config.as_ref().unwrap();
         let actual_boot_cfg = vm_resources.boot_source().unwrap();
 
-        assert_eq!(actual_boot_cfg, expected_boot_cfg);
+        assert!(actual_boot_cfg == expected_boot_cfg);
     }
 
     #[test]

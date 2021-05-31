@@ -401,14 +401,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kernel"
-version = "0.1.0"
-dependencies = [
- "utils",
- "vm-memory 0.1.0",
-]
-
-[[package]]
 name = "kvm-bindings"
 version = "0.4.0"
 source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.4.0-1#9a5fbd29ad9011aa1e004849de7f28b2b3002b01"
@@ -440,6 +432,14 @@ name = "libc"
 version = "0.2.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1482821306169ec4d07f6aca392a4681f66c75c9918aa49641a2595db64053cb"
+
+[[package]]
+name = "linux-loader"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "vm-memory 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "log"

@@ -64,10 +64,9 @@ impl Display for BootSourceConfigError {
 }
 
 /// Holds the kernel configuration.
-#[derive(Debug)]
 pub struct BootConfig {
     /// The commandline validated against correctness.
-    pub cmdline: kernel::cmdline::Cmdline,
+    pub cmdline: linux_loader::cmdline::Cmdline,
     /// The descriptor to the kernel file.
     pub kernel_file: std::fs::File,
     /// The descriptor to the initrd file, if there is one
