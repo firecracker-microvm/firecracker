@@ -10,19 +10,16 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
+use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use mmds::MMDS;
-use polly::event_manager::{EventManager, Subscriber};
 use seccompiler::BpfThreadMap;
-use utils::{
-    epoll::{EpollEvent, EventSet},
-    eventfd::EventFd,
-};
+use utils::{epoll::EventSet, eventfd::EventFd};
 use vmm::{
     resources::VmResources,
     rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction},
     vmm_config::instance_info::InstanceInfo,
-    ExitCode, Vmm,
+    EventManager, ExitCode, Vmm,
 };
 
 struct ApiServerAdapter {
@@ -49,10 +46,7 @@ impl ApiServerAdapter {
             to_api,
             controller: RuntimeApiController::new(vm_resources, vmm.clone()),
         }));
-        event_manager
-            .add_subscriber(api_adapter)
-            .expect("Cannot register the api event to the event manager.");
-
+        event_manager.add_subscriber(api_adapter);
         loop {
             event_manager
                 .run()
@@ -72,9 +66,9 @@ impl ApiServerAdapter {
             .expect("one-shot channel closed");
     }
 }
-impl Subscriber for ApiServerAdapter {
+impl MutEventSubscriber for ApiServerAdapter {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: &EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: Events, _: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -115,11 +109,10 @@ impl Subscriber for ApiServerAdapter {
         }
     }
 
-    fn interest_list(&self) -> Vec<EpollEvent> {
-        vec![EpollEvent::new(
-            EventSet::IN,
-            self.api_event_fd.as_raw_fd() as u64,
-        )]
+    fn init(&mut self, ops: &mut EventOps) {
+        if let Err(e) = ops.add(Events::new(&self.api_event_fd, EventSet::IN)) {
+            error!("Failed to register activate event: {}", e);
+        }
     }
 }
 
@@ -178,9 +171,7 @@ pub(crate) fn run_with_api(
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(super::metrics::PeriodicMetrics::new()));
-    event_manager
-        .add_subscriber(firecracker_metrics.clone())
-        .expect("Cannot register the metrics event to the event manager.");
+    event_manager.add_subscriber(firecracker_metrics.clone());
 
     // Configure, build and start the microVM.
     let build_result = match config_json {

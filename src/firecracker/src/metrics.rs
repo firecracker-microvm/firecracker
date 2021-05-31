@@ -4,10 +4,10 @@
 use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 
+use event_manager::{EventOps, Events, MutEventSubscriber};
 use logger::{error, warn, IncMetric, METRICS};
-use polly::event_manager::{EventManager, Subscriber};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
-use utils::epoll::{EpollEvent, EventSet};
+use utils::epoll::EventSet;
 
 /// Metrics reporting period.
 pub(crate) const WRITE_METRICS_PERIOD_MS: u64 = 60000;
@@ -60,9 +60,9 @@ impl PeriodicMetrics {
     }
 }
 
-impl Subscriber for PeriodicMetrics {
+impl MutEventSubscriber for PeriodicMetrics {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: &EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: Events, _: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -85,11 +85,10 @@ impl Subscriber for PeriodicMetrics {
         }
     }
 
-    fn interest_list(&self) -> Vec<EpollEvent> {
-        vec![EpollEvent::new(
-            EventSet::IN,
-            self.write_metrics_event_fd.as_raw_fd() as u64,
-        )]
+    fn init(&mut self, ops: &mut EventOps) {
+        if let Err(e) = ops.add(Events::new(&self.write_metrics_event_fd, EventSet::IN)) {
+            error!("Failed to register metrics event: {}", e);
+        }
     }
 }
 
@@ -98,48 +97,13 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use polly::event_manager::EventManager;
-    use utils::eventfd::EventFd;
-
-    #[test]
-    fn test_interest_list() {
-        let metrics = PeriodicMetrics::new();
-        let interest_list = metrics.interest_list();
-        assert_eq!(interest_list.len(), 1);
-        assert_eq!(
-            interest_list[0].data() as i32,
-            metrics.write_metrics_event_fd.as_raw_fd()
-        );
-        assert_eq!(
-            EventSet::from_bits(interest_list[0].events()).unwrap(),
-            EventSet::IN
-        );
-    }
+    use event_manager::{EventManager, SubscriberOps};
 
     #[test]
     fn test_periodic_metrics() {
         let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-        let mut metrics = PeriodicMetrics::new();
-
-        // Test invalid read event.
-        let unrelated_object = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let unrelated_event = EpollEvent::new(EventSet::IN, unrelated_object.as_raw_fd() as u64);
-        metrics.process(&unrelated_event, &mut event_manager);
-        // No flush happened.
-        assert_eq!(metrics.flush_counter, 0);
-
-        // Test unsupported event type.
-        let unsupported_event = EpollEvent::new(
-            EventSet::OUT,
-            metrics.write_metrics_event_fd.as_raw_fd() as u64,
-        );
-        metrics.process(&unsupported_event, &mut event_manager);
-        assert_eq!(metrics.flush_counter, 0);
-
-        let metrics = Arc::new(Mutex::new(metrics));
-        event_manager
-            .add_subscriber(metrics.clone())
-            .expect("Cannot register the metrics event to the event manager.");
+        let metrics = Arc::new(Mutex::new(PeriodicMetrics::new()));
+        event_manager.add_subscriber(metrics.clone());
 
         let flush_period_ms = 50;
         metrics
