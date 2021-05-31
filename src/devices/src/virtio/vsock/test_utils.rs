@@ -10,7 +10,7 @@ use crate::virtio::{
     VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
     VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
 };
-use utils::epoll::{EpollEvent, EventSet};
+use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
@@ -186,13 +186,11 @@ impl<'a> EventHandlerContext<'a> {
 
     pub fn signal_txq_event(&mut self) {
         self.device.queue_events[TXQ_INDEX].write(1).unwrap();
-        self.device
-            .handle_txq_event(&EpollEvent::new(EventSet::IN, 0));
+        self.device.handle_txq_event(EventSet::IN);
     }
     pub fn signal_rxq_event(&mut self) {
         self.device.queue_events[RXQ_INDEX].write(1).unwrap();
-        self.device
-            .handle_rxq_event(&EpollEvent::new(EventSet::IN, 0));
+        self.device.handle_rxq_event(EventSet::IN);
     }
 }
 
