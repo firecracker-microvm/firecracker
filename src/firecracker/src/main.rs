@@ -10,20 +10,19 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::{Arc, Mutex};
 
+use event_manager::SubscriberOps;
 use logger::{error, info, warn, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
-use polly::event_manager::EventManager;
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use utils::arg_parser::{ArgParser, Argument, Arguments};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
-use vmm::resources::VmResources;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
 use vmm::vmm_config::instance_info::{InstanceInfo, VmState};
 use vmm::vmm_config::logger::{init_logger, LoggerConfig, LoggerLevel};
-use vmm::ExitCode;
+use vmm::{resources::VmResources, EventManager, ExitCode};
 
 // The reason we place default API socket under /run is that API socket is a
 // runtime file.
@@ -464,9 +463,7 @@ fn run_without_api(
 
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(metrics::PeriodicMetrics::new()));
-    event_manager
-        .add_subscriber(firecracker_metrics.clone())
-        .expect("Cannot register the metrics event to the event manager.");
+    event_manager.add_subscriber(firecracker_metrics.clone());
 
     // Build the microVm. We can ignore VmResources since it's not used without api.
     let (_, vmm) = match build_microvm_from_json(

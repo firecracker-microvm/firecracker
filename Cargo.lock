@@ -335,10 +335,10 @@ name = "firecracker"
 version = "0.24.0"
 dependencies = [
  "api_server",
+ "event-manager",
  "libc",
  "logger",
  "mmds",
- "polly",
  "seccompiler",
  "snapshot",
  "timerfd",
