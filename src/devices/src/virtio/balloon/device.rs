@@ -598,7 +598,6 @@ impl VirtioDevice for Balloon {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::os::unix::io::AsRawFd;
     use std::u32;
 
     use super::super::CONFIG_SPACE_SIZE;
@@ -609,8 +608,6 @@ pub(crate) mod tests {
     };
     use crate::virtio::test_utils::{default_mem, VirtQueue};
     use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
-    use ::utils::epoll::{EpollEvent, EventSet};
-    use polly::event_manager::{EventManager, Subscriber};
     use vm_memory::GuestAddress;
 
     impl Balloon {
@@ -837,12 +834,6 @@ pub(crate) mod tests {
         balloon.set_queue(INFLATE_INDEX, infq.create_queue());
         balloon.activate(mem.clone()).unwrap();
 
-        let mut event_manager = EventManager::new().unwrap();
-        let queue_evt = EpollEvent::new(
-            EventSet::IN,
-            balloon.queue_evts[INFLATE_INDEX].as_raw_fd() as u64,
-        );
-
         // Fill the third page with non-zero bytes.
         for i in 0..0x1000 {
             assert!(mem.write_obj::<u8>(1, GuestAddress((1 << 12) + i)).is_ok());
@@ -861,7 +852,9 @@ pub(crate) mod tests {
             check_metric_after_block!(
                 METRICS.balloon.event_fails,
                 1,
-                balloon.process(&queue_evt, &mut event_manager)
+                balloon
+                    .process_inflate_queue_event()
+                    .unwrap_or_else(report_balloon_event_fail)
             );
             // Verify that nothing got processed.
             assert_eq!(infq.used.idx.get(), 0);
@@ -899,12 +892,6 @@ pub(crate) mod tests {
         balloon.set_queue(DEFLATE_INDEX, defq.create_queue());
         balloon.activate(mem.clone()).unwrap();
 
-        let mut event_manager = EventManager::new().unwrap();
-        let queue_evt = EpollEvent::new(
-            EventSet::IN,
-            balloon.queue_evts[DEFLATE_INDEX].as_raw_fd() as u64,
-        );
-
         let page_addr = 0x10;
 
         // Error case: forgot to trigger deflate event queue.
@@ -913,7 +900,9 @@ pub(crate) mod tests {
             check_metric_after_block!(
                 METRICS.balloon.event_fails,
                 1,
-                balloon.process(&queue_evt, &mut event_manager)
+                balloon
+                    .process_deflate_queue_event()
+                    .unwrap_or_else(report_balloon_event_fail)
             );
             // Verify that nothing got processed.
             assert_eq!(defq.used.idx.get(), 0);
@@ -939,12 +928,6 @@ pub(crate) mod tests {
         balloon.set_queue(STATS_INDEX, statsq.create_queue());
         balloon.activate(mem.clone()).unwrap();
 
-        let mut event_manager = EventManager::new().unwrap();
-        let queue_evt = EpollEvent::new(
-            EventSet::IN,
-            balloon.queue_evts[STATS_INDEX].as_raw_fd() as u64,
-        );
-
         let page_addr = 0x100;
 
         // Error case: forgot to trigger stats event queue.
@@ -953,7 +936,9 @@ pub(crate) mod tests {
             check_metric_after_block!(
                 METRICS.balloon.event_fails,
                 1,
-                balloon.process(&queue_evt, &mut event_manager)
+                balloon
+                    .process_stats_queue_event()
+                    .unwrap_or_else(report_balloon_event_fail)
             );
             // Verify that nothing got processed.
             assert_eq!(statsq.used.idx.get(), 0);
@@ -989,7 +974,7 @@ pub(crate) mod tests {
             check_metric_after_block!(METRICS.balloon.stats_updates_count, 1, {
                 // Trigger the queue event.
                 balloon.queue_events()[STATS_INDEX].write(1).unwrap();
-                balloon.process(&queue_evt, &mut event_manager);
+                balloon.process_stats_queue_event().unwrap();
                 // Don't check for completion yet.
             });
 

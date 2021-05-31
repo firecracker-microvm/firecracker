@@ -1,24 +1,22 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::os::unix::io::AsRawFd;
 use std::u32;
 
-use crate::virtio::balloon::NUM_QUEUES;
 use crate::virtio::test_utils::VirtQueue;
-use crate::virtio::Balloon;
-use ::utils::epoll::{EpollEvent, EventSet};
-use polly::event_manager::{EventManager, Subscriber};
+use crate::virtio::{balloon::NUM_QUEUES, Balloon, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
 
 pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
     assert!(queue_index < NUM_QUEUES);
     // Trigger the queue event.
     b.queue_evts[queue_index].write(1).unwrap();
     // Handle event.
-    b.process(
-        &EpollEvent::new(EventSet::IN, b.queue_evts[queue_index].as_raw_fd() as u64),
-        &mut EventManager::new().unwrap(),
-    );
+    match queue_index {
+        INFLATE_INDEX => b.process_inflate_queue_event().unwrap(),
+        DEFLATE_INDEX => b.process_deflate_queue_event().unwrap(),
+        STATS_INDEX => b.process_stats_queue_event().unwrap(),
+        _ => unreachable!(),
+    };
     // Validate the queue operation finished successfully.
     assert_eq!(b.interrupt_evt.read().unwrap(), 1);
 }
