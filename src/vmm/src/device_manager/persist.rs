@@ -8,6 +8,7 @@ use std::result::Result;
 use std::sync::{Arc, Mutex};
 
 use super::mmio::*;
+use crate::EventManager;
 
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
@@ -23,8 +24,8 @@ use devices::virtio::vsock::{Vsock, VsockError, VsockUnixBackend, VsockUnixBacke
 use devices::virtio::{
     MmioTransport, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET, TYPE_VSOCK,
 };
+use event_manager::{MutEventSubscriber, SubscriberOps};
 use kvm_ioctls::VmFd;
-use polly::event_manager::{Error as EventMgrError, EventManager, Subscriber};
 use snapshot::Persist;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
@@ -35,7 +36,6 @@ use vm_memory::GuestMemoryMmap;
 pub enum Error {
     Balloon(BalloonError),
     Block(io::Error),
-    EventManager(EventMgrError),
     DeviceManager(super::mmio::Error),
     MmioTransport,
     #[cfg(target_arch = "aarch64")]
@@ -283,7 +283,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
         }
 
         let mut restore_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
-                                  as_subscriber: Arc<Mutex<dyn Subscriber>>,
+                                  as_subscriber: Arc<Mutex<dyn MutEventSubscriber>>,
                                   id: &String,
                                   state: &MmioTransportState,
                                   slot: &MMIODeviceInfo,
@@ -303,9 +303,8 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .register_mmio_virtio(vm, id.clone(), mmio_transport, slot)
                 .map_err(Error::DeviceManager)?;
 
-            event_manager
-                .add_subscriber(as_subscriber)
-                .map_err(Error::EventManager)
+            event_manager.add_subscriber(as_subscriber);
+            Ok(())
         };
 
         if let Some(balloon_state) = &state.balloon_device {
@@ -402,7 +401,6 @@ mod tests {
     use crate::vmm_config::net::NetworkInterfaceConfig;
     use crate::vmm_config::vsock::VsockDeviceConfig;
     use devices::virtio::block::CacheType;
-    use polly::event_manager::EventManager;
     use utils::tempfile::TempFile;
 
     impl PartialEq for ConnectedBalloonState {

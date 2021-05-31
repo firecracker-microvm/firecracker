@@ -20,7 +20,7 @@ use crate::device_manager::persist::DeviceStates;
 use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
-use crate::{Error as VmmError, Vmm};
+use crate::{Error as VmmError, EventManager, Vmm};
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 
@@ -28,7 +28,6 @@ use crate::vmm_config::instance_info::InstanceInfo;
 #[cfg(target_arch = "aarch64")]
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use logger::{error, info};
-use polly::event_manager::EventManager;
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -498,7 +497,6 @@ mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::Vmm;
 
-    use polly::event_manager::EventManager;
     use snapshot::Persist;
     use utils::{errno, tempfile::TempFile};
 

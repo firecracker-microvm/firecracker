@@ -11,7 +11,6 @@ use super::{
     builder::build_microvm_for_boot, persist::create_snapshot, persist::restore_from_snapshot,
     resources::VmResources, Vmm,
 };
-use crate::builder::StartMicrovmError;
 use crate::persist::{CreateSnapshotError, LoadSnapshotError};
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config::balloon::{
@@ -31,9 +30,9 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
+use crate::{builder::StartMicrovmError, EventManager};
 use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
-use polly::event_manager::EventManager;
 use seccompiler::BpfThreadMap;
 #[cfg(test)]
 use tests::{
