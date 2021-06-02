@@ -12,6 +12,5 @@ mod serial;
 
 pub use self::i8042::Error as I8042DeviceError;
 pub use self::i8042::I8042Device;
-#[cfg(target_arch = "aarch64")]
-pub use self::rtc_pl031::Rtc;
+pub use self::rtc_pl031::RTCDevice;
 pub use self::serial::{ReadableFd, Serial};
