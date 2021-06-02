@@ -60,11 +60,13 @@
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
+use std::fmt;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[cfg(target_arch = "aarch64")]
+use std::sync::Arc;
 use std::sync::Mutex;
-use std::{fmt, sync::Arc};
 
 #[cfg(target_arch = "aarch64")]
 use crate::warn;
