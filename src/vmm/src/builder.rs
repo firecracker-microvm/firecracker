@@ -26,10 +26,14 @@ use crate::{device_manager, Error, EventManager, Vmm, VmmEventsObserver};
 
 use crate::vmm_config::instance_info::InstanceInfo;
 use arch::InitrdConfig;
+#[cfg(target_arch = "aarch64")]
+use devices::legacy::RTCDevice;
 use devices::legacy::Serial;
 use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
 use event_manager::{MutEventSubscriber, SubscriberOps};
 use kernel::cmdline::Cmdline as KernelCmdline;
+#[cfg(target_arch = "aarch64")]
+use logger::METRICS;
 use logger::{error, warn};
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
@@ -37,6 +41,8 @@ use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
+#[cfg(target_arch = "aarch64")]
+use vm_superio::RTC;
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -620,9 +626,9 @@ pub fn setup_serial_device(
 
 #[cfg(target_arch = "aarch64")]
 /// Sets up the RTC device.
-pub fn setup_rtc_device() -> super::Result<Arc<Mutex<devices::legacy::Rtc>>> {
-    let rtc = Arc::new(Mutex::new(devices::legacy::Rtc::default()));
-    Ok(rtc)
+pub fn setup_rtc_device() -> Arc<Mutex<RTCDevice>> {
+    let rtc = RTC::with_events(METRICS.rtc.clone());
+    Arc::new(Mutex::new(rtc))
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -662,7 +668,7 @@ fn attach_legacy_devices_aarch64(
             .map_err(Error::RegisterMMIODevice)?;
     }
 
-    let rtc = setup_rtc_device()?;
+    let rtc = setup_rtc_device();
     vmm.mmio_device_manager
         .register_mmio_rtc(rtc, None)
         .map_err(Error::RegisterMMIODevice)

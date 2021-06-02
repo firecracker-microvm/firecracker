@@ -12,6 +12,8 @@ use std::{fmt, io};
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
+#[cfg(target_arch = "aarch64")]
+use devices::legacy::RTCDevice;
 use devices::pseudo::BootTimer;
 use devices::virtio::{
     Balloon, Block, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
@@ -285,7 +287,7 @@ impl MMIODeviceManager {
     /// otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_rtc(
         &mut self,
-        rtc: Arc<Mutex<devices::legacy::Rtc>>,
+        rtc: Arc<Mutex<RTCDevice>>,
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         // Create and attach a new RTC device.
