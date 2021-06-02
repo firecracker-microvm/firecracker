@@ -60,14 +60,18 @@
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
-use std::fmt;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::{fmt, sync::Arc};
 
+#[cfg(target_arch = "aarch64")]
+use crate::warn;
 use lazy_static::lazy_static;
 use serde::{Serialize, Serializer};
+#[cfg(target_arch = "aarch64")]
+use vm_superio::rtc_pl031::RTCEvents;
 
 use super::extract_guard;
 
@@ -616,6 +620,7 @@ pub struct PerformanceMetrics {
 }
 
 /// Metrics specific to the RTC device.
+#[cfg(target_arch = "aarch64")]
 #[derive(Default, Serialize)]
 pub struct RTCDeviceMetrics {
     /// Errors triggered while using the RTC device.
@@ -624,6 +629,21 @@ pub struct RTCDeviceMetrics {
     pub missed_read_count: SharedIncMetric,
     /// Number of superfluous write intents on this RTC device.
     pub missed_write_count: SharedIncMetric,
+}
+
+#[cfg(target_arch = "aarch64")]
+impl RTCEvents for RTCDeviceMetrics {
+    fn invalid_read(&self) {
+        self.missed_read_count.inc();
+        self.error_count.inc();
+        warn!("Guest read at invalid offset.")
+    }
+
+    fn invalid_write(&self) {
+        self.missed_write_count.inc();
+        self.error_count.inc();
+        warn!("Guest write at invalid offset.")
+    }
 }
 
 /// Metrics for the seccomp filtering.
@@ -778,8 +798,9 @@ pub struct FirecrackerMetrics {
     pub patch_api_requests: PatchRequestsMetrics,
     /// Metrics related to API PUT requests.
     pub put_api_requests: PutRequestsMetrics,
+    #[cfg(target_arch = "aarch64")]
     /// Metrics related to the RTC device.
-    pub rtc: RTCDeviceMetrics,
+    pub rtc: Arc<RTCDeviceMetrics>,
     /// Metrics related to seccomp filtering.
     pub seccomp: SeccompMetrics,
     /// Metrics related to a vcpu's functioning.
