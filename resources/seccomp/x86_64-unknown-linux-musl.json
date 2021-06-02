@@ -238,26 +238,6 @@
                 ]
             },
             {
-                "syscall": "timerfd_create",
-                "comment": "Needed for rate limiting and metrics",
-                "args": [
-                    {
-                        "arg_index": 0,
-                        "arg_type": "dword",
-                        "op": "eq",
-                        "val": 1,
-                        "comment": "libc::CLOCK_MONOTONIC"
-                    },
-                    {
-                        "arg_index": 1,
-                        "arg_type": "dword",
-                        "op": "eq",
-                        "val": 526336,
-                        "comment": "libc::TFD_CLOEXEC | libc::TFD_NONBLOCK"
-                    }
-                ]
-            },
-            {
                 "syscall": "timerfd_settime",
                 "comment": "Needed for rate limiting and metrics",
                 "args": [
