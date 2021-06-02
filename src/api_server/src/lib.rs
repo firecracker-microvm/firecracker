@@ -27,8 +27,6 @@ use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
 use vmm::vmm_config::snapshot::SnapshotType;
 
-use vmm::FC_EXIT_CODE_BAD_CONFIGURATION;
-
 /// Shorthand type for a request containing a boxed VmmAction.
 pub type ApiRequest = Box<VmmAction>;
 /// Shorthand type for a response containing a boxed Result.
@@ -73,9 +71,8 @@ pub struct ApiServer {
     /// FD on which we notify the VMM that we have sent at least one
     /// `VmmRequest`.
     to_vmm_fd: EventFd,
-    /// If this flag is set, the process encountered a fatal error
-    /// and it is going to exit once it sends any pending API response.
-    vmm_fatal_error: bool,
+    /// If this flag is set, the API thread will go down.
+    shutdown_flag: bool,
 }
 
 impl ApiServer {
@@ -93,7 +90,7 @@ impl ApiServer {
             api_request_sender,
             vmm_response_receiver,
             to_vmm_fd,
-            vmm_fatal_error: false,
+            shutdown_flag: false,
         }
     }
 
@@ -172,7 +169,7 @@ impl ApiServer {
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|e| {
             error!("Error creating the HTTP server: {}", e);
-            std::process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
+            std::process::exit(vmm::FC_EXIT_CODE_GENERIC_ERROR);
         });
 
         // Store process start time metric.
@@ -191,45 +188,44 @@ impl ApiServer {
         }
 
         server.start_server().expect("Cannot start HTTP server");
+
         loop {
-            match server.requests() {
-                Ok(request_vec) => {
-                    for server_request in request_vec {
-                        let request_processing_start_us =
-                            utils::time::get_time_us(utils::time::ClockType::Monotonic);
-                        server
-                            .respond(
-                                // Use `self.handle_request()` as the processing callback.
-                                server_request.process(|request| {
-                                    self.handle_request(request, request_processing_start_us)
-                                }),
-                            )
-                            .or_else(|e| {
-                                error!("API Server encountered an error on response: {}", e);
-                                Ok(())
-                            })?;
-                        let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
-                            - request_processing_start_us;
-                        debug!("Total previous API call duration: {} us.", delta_us);
-                        if self.vmm_fatal_error {
-                            // Flush the remaining outgoing responses
-                            // and proceed to exit
-                            server.flush_outgoing_writes();
-                            error!(
-                                "Fatal error with exit code: {}",
-                                FC_EXIT_CODE_BAD_CONFIGURATION
-                            );
-                            unsafe {
-                                libc::_exit(i32::from(FC_EXIT_CODE_BAD_CONFIGURATION));
-                            }
-                        }
-                    }
-                }
+            let request_vec = match server.requests() {
+                Ok(vec) => vec,
                 Err(e) => {
+                    // print request error, but keep server running
                     error!(
                         "API Server error on retrieving incoming request. Error: {}",
                         e
                     );
+                    continue;
+                }
+            };
+            for server_request in request_vec {
+                let request_processing_start_us =
+                    utils::time::get_time_us(utils::time::ClockType::Monotonic);
+                server
+                    .respond(
+                        // Use `self.handle_request()` as the processing callback.
+                        server_request.process(|request| {
+                            self.handle_request(request, request_processing_start_us)
+                        }),
+                    )
+                    .or_else(|e| {
+                        error!("API Server encountered an error on response: {}", e);
+                        Ok(())
+                    })?;
+
+                let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic)
+                    - request_processing_start_us;
+                debug!("Total previous API call duration: {} us.", delta_us);
+
+                if self.shutdown_flag {
+                    server.flush_outgoing_writes();
+                    debug!(
+                        "/shutdown-internal request received, API server thread now ending itself"
+                    );
+                    return Ok(());
                 }
             }
         }
@@ -248,6 +244,10 @@ impl ApiServer {
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
             Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
+            Ok(ParsedRequest::ShutdownInternal) => {
+                self.shutdown_flag = true;
+                Response::new(Version::Http11, StatusCode::NoContent)
+            }
             Err(e) => {
                 error!("{}", e);
                 e.into()
@@ -284,7 +284,6 @@ impl ApiServer {
             .expect("Failed to send VMM message");
         self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
         let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
-        self.check_for_fatal_error(&vmm_outcome);
         let response = ParsedRequest::convert_to_response(&vmm_outcome);
 
         if vmm_outcome.is_ok() {
@@ -295,13 +294,6 @@ impl ApiServer {
             }
         }
         response
-    }
-
-    fn check_for_fatal_error(&mut self, response: &std::result::Result<VmmData, VmmActionError>) {
-        // Errors considered as fatal are added here
-        if let Err(VmmActionError::LoadSnapshot(_)) = response {
-            self.vmm_fatal_error = true;
-        }
     }
 
     fn get_mmds(&self) -> Response {

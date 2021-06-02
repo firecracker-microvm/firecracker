@@ -37,6 +37,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 use logger::{debug, error, info, warn, IncMetric, METRICS};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
+use vm_memory::GuestMemoryMmap;
 
 use super::super::csm::ConnState;
 use super::super::defs::uapi;
@@ -118,7 +119,7 @@ impl VsockChannel for VsockMuxer {
     /// - `Ok(())`: `pkt` has been successfully filled in; or
     /// - `Err(VsockError::NoData)`: there was no available data with which to fill in the
     ///   packet.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> VsockResult<()> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // We'll look for instructions on how to build the RX packet in the RX queue. If the
         // queue is empty, that doesn't necessarily mean we don't have any pending RX, since
         // the queue might be out-of-sync. If that's the case, we'll attempt to sync it first,
@@ -154,7 +155,7 @@ impl VsockChannel for VsockMuxer {
                     let mut conn_res = Err(VsockError::NoData);
                     let mut do_pop = true;
                     self.apply_conn_mutation(key, |conn| {
-                        conn_res = conn.recv_pkt(pkt);
+                        conn_res = conn.recv_pkt(pkt, mem);
                         do_pop = !conn.has_pending_rx();
                     });
                     if do_pop {
@@ -191,7 +192,7 @@ impl VsockChannel for VsockMuxer {
     /// Returns:
     /// always `Ok(())` - the packet has been consumed, and its virtio TX buffers can be
     /// returned to the guest vsock driver.
-    fn send_pkt(&mut self, pkt: &VsockPacket) -> VsockResult<()> {
+    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         let conn_key = ConnMapKey {
             local_port: pkt.dst_port(),
             peer_port: pkt.src_port(),
@@ -245,7 +246,7 @@ impl VsockChannel for VsockMuxer {
         // Alright, everything looks in order - forward this packet to its owning connection.
         let mut res: VsockResult<()> = Ok(());
         self.apply_conn_mutation(conn_key, |conn| {
-            res = conn.send_pkt(pkt);
+            res = conn.send_pkt(pkt, mem);
         });
 
         res
@@ -824,9 +825,6 @@ mod tests {
         }
 
         fn init_pkt(&mut self, local_port: u32, peer_port: u32, op: u16) -> &mut VsockPacket {
-            for b in self.pkt.hdr_mut() {
-                *b = 0;
-            }
             self.pkt
                 .set_type(uapi::VSOCK_TYPE_STREAM)
                 .set_src_cid(PEER_CID)
@@ -843,19 +841,30 @@ mod tests {
             peer_port: u32,
             data: &[u8],
         ) -> &mut VsockPacket {
-            assert!(data.len() <= self.pkt.buf().unwrap().len() as usize);
+            assert!(data.len() <= self.pkt.buf_size());
             self.init_pkt(local_port, peer_port, uapi::VSOCK_OP_RW)
                 .set_len(data.len() as u32);
-            self.pkt.buf_mut().unwrap()[..data.len()].copy_from_slice(data);
+            self.pkt
+                .read_at_offset_from(
+                    &self._vsock_test_ctx.mem,
+                    0,
+                    &mut std::io::Cursor::new(data.to_vec()),
+                    data.len(),
+                )
+                .unwrap();
             &mut self.pkt
         }
 
         fn send(&mut self) {
-            self.muxer.send_pkt(&self.pkt).unwrap();
+            self.muxer
+                .send_pkt(&self.pkt, &self._vsock_test_ctx.mem)
+                .unwrap();
         }
 
         fn recv(&mut self) {
-            self.muxer.recv_pkt(&mut self.pkt).unwrap();
+            self.muxer
+                .recv_pkt(&mut self.pkt, &self._vsock_test_ctx.mem)
+                .unwrap();
         }
 
         fn notify_muxer(&mut self) {
@@ -1072,9 +1081,19 @@ mod tests {
         assert!(ctx.muxer.has_pending_rx());
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
-        assert_eq!(ctx.pkt.buf().unwrap()[..data.len()], data);
         assert_eq!(ctx.pkt.src_port(), LOCAL_PORT);
         assert_eq!(ctx.pkt.dst_port(), PEER_PORT);
+
+        let mut buf = vec![];
+        ctx.pkt
+            .write_from_offset_to(
+                &ctx._vsock_test_ctx.mem,
+                0,
+                &mut buf,
+                ctx.pkt.len() as usize,
+            )
+            .unwrap();
+        assert_eq!(&buf, &data);
 
         assert!(!ctx.muxer.has_pending_rx());
     }
@@ -1104,7 +1123,17 @@ mod tests {
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
         assert_eq!(ctx.pkt.src_port(), local_port);
         assert_eq!(ctx.pkt.dst_port(), peer_port);
-        assert_eq!(ctx.pkt.buf().unwrap()[..data.len()], data);
+
+        let mut buf = vec![];
+        ctx.pkt
+            .write_from_offset_to(
+                &ctx._vsock_test_ctx.mem,
+                0,
+                &mut buf,
+                ctx.pkt.len() as usize,
+            )
+            .unwrap();
+        assert_eq!(&buf, &data);
     }
 
     #[test]

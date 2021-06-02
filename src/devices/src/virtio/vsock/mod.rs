@@ -22,7 +22,7 @@ pub use self::device::Vsock;
 pub use self::unix::{Error as VsockUnixBackendError, VsockUnixBackend};
 
 use utils::epoll::EventSet;
-use vm_memory::GuestMemoryError;
+use vm_memory::{GuestMemoryError, GuestMemoryMmap};
 
 use packet::VsockPacket;
 
@@ -147,10 +147,10 @@ pub trait VsockEpollListener: AsRawFd {
 ///       - `send_pkt(&pkt)` will fetch data from `pkt`, and place it into the channel.
 pub trait VsockChannel {
     /// Read/receive an incoming packet from the channel.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> Result<()>;
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<()>;
 
     /// Write/send a packet through the channel.
-    fn send_pkt(&mut self, pkt: &VsockPacket) -> Result<()>;
+    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> Result<()>;
 
     /// Checks whether there is pending incoming data inside the channel, meaning that a subsequent
     /// call to `recv_pkt()` won't fail.

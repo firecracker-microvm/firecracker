@@ -33,7 +33,7 @@ use super::super::{
     ActivateError, ActivateResult, DeviceState, Queue as VirtQueue, VirtioDevice, VsockError,
     VIRTIO_MMIO_INT_VRING,
 };
-use super::packet::VsockPacket;
+use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use super::VsockBackend;
 use super::{defs, defs::uapi};
 
@@ -144,8 +144,17 @@ where
         while let Some(head) = self.queues[RXQ_INDEX].pop(mem) {
             let used_len = match VsockPacket::from_rx_virtq_head(&head) {
                 Ok(mut pkt) => {
-                    if self.backend.recv_pkt(&mut pkt).is_ok() {
-                        pkt.hdr().len() as u32 + pkt.len()
+                    if self.backend.recv_pkt(&mut pkt, mem).is_ok() {
+                        match pkt.commit_hdr(mem) {
+                            Ok(()) => VSOCK_PKT_HDR_SIZE as u32 + pkt.len(),
+                            Err(e) => {
+                                warn!(
+                                    "vsock: Error writing packet header to guest memory: {:?}",
+                                    e
+                                );
+                                0
+                            }
+                        }
                     } else {
                         // We are using a consuming iterator over the virtio buffers, so, if we can't
                         // fill in this buffer, we'll need to undo the last iterator step.
@@ -198,7 +207,7 @@ where
                 }
             };
 
-            if self.backend.send_pkt(&pkt).is_err() {
+            if self.backend.send_pkt(&pkt, mem).is_err() {
                 self.queues[TXQ_INDEX].undo_pop();
                 break;
             }

@@ -109,7 +109,7 @@ mod tests {
         assert!(tb.partial_eq(&restored_tb));
 
         // Check that TokenBucket restores correctly after replenishing tokens.
-        tb.replenish(100);
+        tb.force_replenish(100);
         let restored_tb = TokenBucket::restore((), &tb.save()).unwrap();
         assert!(tb.partial_eq(&restored_tb));
 

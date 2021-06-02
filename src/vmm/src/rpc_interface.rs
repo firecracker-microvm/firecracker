@@ -31,6 +31,7 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
+use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
 use polly::event_manager::EventManager;
 use seccompiler::BpfThreadMap;
@@ -220,6 +221,9 @@ pub struct PrebootApiController<'a> {
     // Configuring boot specific resources will set this to true.
     // Loading from snapshot will not be allowed once this is true.
     boot_path: bool,
+    // Some PrebootApiRequest errors are irrecoverable and Firecracker
+    // should cleanly teardown if they occur.
+    fatal_error: Option<ExitCode>,
 }
 
 impl<'a> PrebootApiController<'a> {
@@ -237,6 +241,7 @@ impl<'a> PrebootApiController<'a> {
             event_manager,
             built_vmm: None,
             boot_path: false,
+            fatal_error: None,
         }
     }
 
@@ -252,7 +257,7 @@ impl<'a> PrebootApiController<'a> {
         recv_req: F,
         respond: G,
         boot_timer_enabled: bool,
-    ) -> (VmResources, Arc<Mutex<Vmm>>)
+    ) -> result::Result<(VmResources, Arc<Mutex<Vmm>>), ExitCode>
     where
         F: Fn() -> VmmAction,
         G: Fn(ActionResult),
@@ -277,11 +282,15 @@ impl<'a> PrebootApiController<'a> {
         while preboot_controller.built_vmm.is_none() {
             // Get request, process it, send back the response.
             respond(preboot_controller.handle_preboot_request(recv_req()));
+            // If any fatal errors were encountered, break the loop.
+            if let Some(exit_code) = preboot_controller.fatal_error {
+                return Err(exit_code);
+            }
         }
 
         // Safe to unwrap because previous loop cannot end on None.
         let vmm = preboot_controller.built_vmm.unwrap();
-        (vm_resources, vmm)
+        Ok((vm_resources, vmm))
     }
 
     /// Handles the incoming preboot request and provides a response for it.
@@ -438,7 +447,11 @@ impl<'a> PrebootApiController<'a> {
             })
             .map_err(LoadSnapshotError::ResumeMicroVm)
         })
-        .map_err(VmmActionError::LoadSnapshot);
+        .map_err(|e| {
+            // The process is too dirty to recover at this point.
+            self.fatal_error = Some(FC_EXIT_CODE_BAD_CONFIGURATION);
+            VmmActionError::LoadSnapshot(e)
+        });
 
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);
@@ -1296,7 +1309,8 @@ mod tests {
             commands,
             expected_resp,
             false,
-        );
+        )
+        .unwrap();
     }
 
     fn check_runtime_request<F>(request: VmmAction, check_success: F)

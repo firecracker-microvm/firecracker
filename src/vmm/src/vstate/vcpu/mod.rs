@@ -103,7 +103,7 @@ pub struct Vcpu {
     // Offers kvm-arch specific functionality.
     pub kvm_vcpu: KvmVcpu,
 
-    // File descriptor for triggering exit event.
+    // File descriptor for vcpu to trigger exit event on vmm.
     exit_evt: EventFd,
     // The receiving end of events channel owned by the vcpu side.
     event_receiver: Receiver<VcpuEvent>,
@@ -116,7 +116,7 @@ pub struct Vcpu {
 
     // Exit reason used to test run_emulation function.
     #[cfg(test)]
-    vcpu_exit_reason: Mutex<Option<std::result::Result<VcpuExit<'static>, errno::Error>>>,
+    test_vcpu_exit_reason: Mutex<Option<std::result::Result<VcpuExit<'static>, errno::Error>>>,
 }
 
 impl Vcpu {
@@ -223,7 +223,7 @@ impl Vcpu {
             response_sender,
             kvm_vcpu,
             #[cfg(test)]
-            vcpu_exit_reason: Mutex::new(None),
+            test_vcpu_exit_reason: Mutex::new(None),
         })
     }
 
@@ -294,8 +294,6 @@ impl Vcpu {
                 // - vCPU0 will always exit out of `KVM_RUN` with KVM_EXIT_SHUTDOWN or
                 //   KVM_EXIT_HLT.
                 // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
-                // Moreover if we allow the vCPU0 thread to finish execution, this might generate a
-                // seccomp failure because musl calls `sigprocmask` as part of `pthread_exit`.
                 // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
                 Ok(VcpuEmulation::Stopped) => return self.exit(FC_EXIT_CODE_OK),
                 // Emulation errors lead to vCPU exit.
@@ -334,7 +332,7 @@ impl Vcpu {
                     )))
                     .expect("failed to send save not allowed status");
             }
-            Ok(VcpuEvent::Exit) => return self.exit(FC_EXIT_CODE_GENERIC_ERROR),
+            Ok(VcpuEvent::Finish) => return StateMachine::finish(),
             // Unhandled exit of the other end.
             Err(TryRecvError::Disconnected) => {
                 // Move to 'exited' state.
@@ -398,7 +396,7 @@ impl Vcpu {
 
                 StateMachine::next(Self::paused)
             }
-            Ok(VcpuEvent::Exit) => self.exit(FC_EXIT_CODE_GENERIC_ERROR),
+            Ok(VcpuEvent::Finish) => StateMachine::finish(),
             // Unhandled exit of the other end.
             Err(_) => {
                 // Move to 'exited' state.
@@ -407,40 +405,42 @@ impl Vcpu {
         }
     }
 
-    #[cfg(not(test))]
-    // Transition to the exited state.
-    fn exit(&mut self, exit_code: u8) -> StateMachine<Self> {
-        self.response_sender
-            .send(VcpuResponse::Exited(exit_code))
-            .expect("vcpu channel unexpectedly closed");
-
+    // Transition to the exited state and finish on command.
+    fn exit(&mut self, exit_code: i32) -> StateMachine<Self> {
+        /*
+           To avoid cycles, all teardown paths take the following route:
+           +------------------------+----------------------------+------------------------+
+           |        Vmm             |           Action           |           Vcpu         |
+           +------------------------+----------------------------+------------------------+
+         1 |                        |                            | vcpu.exit(exit_code)   |
+         2 |                        |                            | vcpu.exit_evt.write(1) |
+         3 |                        | <--- EventFd::exit_evt --- |                        |
+         4 | vmm.stop()             |                            |                        |
+         5 |                        | --- VcpuEvent::Finish ---> |                        |
+         6 |                        |                            | StateMachine::finish() |
+         7 | VcpuHandle::join()     |                            |                        |
+         8 | vmm.shutdown_exit_code becomes Some(exit_code) breaking the main event loop  |
+           +------------------------+----------------------------+------------------------+
+            Vcpu initiated teardown starts from `fn Vcpu::exit()` (step 1).
+            Vmm initiated teardown starts from `pub fn Vmm::stop()` (step 4).
+            Once `vmm.shutdown_exit_code` becomes `Some(exit_code)`, it is the upper layer's
+            responsibility to break main event loop and propagate the exit code value.
+        */
+        // Signal Vmm of Vcpu exit.
         if let Err(e) = self.exit_evt.write(1) {
             METRICS.vcpu.failures.inc();
             error!("Failed signaling vcpu exit event: {}", e);
         }
-
-        // State machine reached its end.
-        StateMachine::next(Self::exited)
-    }
-
-    #[cfg(not(test))]
-    // This is the main loop of the `Exited` state.
-    fn exited(&mut self) -> StateMachine<Self> {
-        // Wait indefinitely.
-        // The VMM thread will kill the entire process.
-        let barrier = Barrier::new(2);
-        barrier.wait();
-
-        StateMachine::finish()
-    }
-
-    #[cfg(test)]
-    // In tests the main/vmm thread exits without 'exit()'ing the whole process.
-    // All channels get closed on the other side while this Vcpu thread is still running.
-    // This Vcpu thread should just do a clean finish without reporting back to the main thread.
-    fn exit(&mut self, _: u8) -> StateMachine<Self> {
-        self.exit_evt.write(1).unwrap();
-        // State machine reached its end.
+        // From this state we only accept going to finished.
+        loop {
+            self.response_sender
+                .send(VcpuResponse::Exited(exit_code))
+                .expect("vcpu channel unexpectedly closed");
+            // Wait for and only accept 'VcpuEvent::Finish'.
+            if let Ok(VcpuEvent::Finish) = self.event_receiver.recv() {
+                break;
+            }
+        }
         StateMachine::finish()
     }
 
@@ -559,8 +559,8 @@ impl Drop for Vcpu {
 #[derive(Clone)]
 /// List of events that the Vcpu can receive.
 pub enum VcpuEvent {
-    /// The vCPU will go to exited state when receiving this message.
-    Exit,
+    /// The vCPU thread will end when receiving this message.
+    Finish,
     /// Pause the Vcpu.
     Pause,
     /// Event to resume the Vcpu.
@@ -576,7 +576,7 @@ pub enum VcpuResponse {
     /// Requested action encountered an error.
     Error(Error),
     /// Vcpu is stopped.
-    Exited(u8),
+    Exited(i32),
     /// Requested action not allowed.
     NotAllowed(String),
     /// Vcpu is paused.
@@ -631,6 +631,20 @@ impl VcpuHandle {
     }
 }
 
+// Wait for the Vcpu thread to finish execution
+impl Drop for VcpuHandle {
+    fn drop(&mut self) {
+        // We assume that by the time a VcpuHandle is dropped, other code has run to
+        // get the state machine loop to finish so the thread is ready to join.
+        // The strategy of avoiding more complex messaging protocols during the Drop
+        // helps avoid cycles which were preventing a truly clean shutdown.
+        //
+        // If the code hangs at this point, that means that a Finish event was not
+        // sent by Vmm.
+        self.vcpu_thread.take().unwrap().join().unwrap();
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum VcpuEmulation {
     Handled,
@@ -660,7 +674,7 @@ mod tests {
 
     impl Vcpu {
         pub fn emulate(&self) -> std::result::Result<VcpuExit, errno::Error> {
-            self.vcpu_exit_reason
+            self.test_vcpu_exit_reason
                 .lock()
                 .unwrap()
                 .take()
@@ -671,17 +685,17 @@ mod tests {
     #[test]
     fn test_run_emulation() {
         let (_vm, mut vcpu, _vm_mem) = setup_vcpu(0x1000);
-        vcpu.vcpu_exit_reason = Mutex::new(Some(Ok(VcpuExit::Hlt)));
+        vcpu.test_vcpu_exit_reason = Mutex::new(Some(Ok(VcpuExit::Hlt)));
         let res = vcpu.run_emulation();
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::Shutdown));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::Shutdown));
         let res = vcpu.run_emulation();
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::FailEntry));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::FailEntry));
         let res = vcpu.run_emulation();
         assert!(res.is_err());
         assert_eq!(
@@ -692,7 +706,7 @@ mod tests {
             )
         );
 
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::InternalError));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::InternalError));
         let res = vcpu.run_emulation();
         assert!(res.is_err());
         assert_eq!(
@@ -703,17 +717,17 @@ mod tests {
             )
         );
 
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(2, 0)));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(2, 0)));
         let res = vcpu.run_emulation();
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(1, 0)));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(1, 0)));
         let res = vcpu.run_emulation();
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Stopped);
 
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(3, 0)));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::SystemEvent(3, 0)));
         let res = vcpu.run_emulation();
         assert!(res.is_err());
         assert_eq!(
@@ -725,7 +739,7 @@ mod tests {
         );
 
         // Check what happens with an unhandled exit reason.
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::Unknown));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::Unknown));
         let res = vcpu.run_emulation();
         assert!(res.is_err());
         assert_eq!(
@@ -733,12 +747,12 @@ mod tests {
             "Unexpected kvm exit received: Unknown".to_string()
         );
 
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EAGAIN)));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EAGAIN)));
         let res = vcpu.run_emulation();
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Handled);
 
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::ENOSYS)));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::ENOSYS)));
         let res = vcpu.run_emulation();
         assert!(res.is_err());
         assert_eq!(
@@ -752,12 +766,12 @@ mod tests {
             )
         );
 
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EINTR)));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EINTR)));
         let res = vcpu.run_emulation();
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), VcpuEmulation::Interrupted);
 
-        *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EINVAL)));
+        *(vcpu.test_vcpu_exit_reason.lock().unwrap()) = Some(Err(errno::Error::new(libc::EINVAL)));
         let res = vcpu.run_emulation();
         assert!(res.is_err());
         assert_eq!(
@@ -776,7 +790,7 @@ mod tests {
         static mut DATA: [u8; 4] = [0, 0, 0, 0];
 
         unsafe {
-            *(vcpu.vcpu_exit_reason.lock().unwrap()) =
+            *(vcpu.test_vcpu_exit_reason.lock().unwrap()) =
                 Some(Ok(VcpuExit::MmioRead(addr, &mut DATA)));
         }
         let res = vcpu.run_emulation();
@@ -784,7 +798,8 @@ mod tests {
         assert_eq!(res.unwrap(), VcpuEmulation::Handled);
 
         unsafe {
-            *(vcpu.vcpu_exit_reason.lock().unwrap()) = Some(Ok(VcpuExit::MmioWrite(addr, &DATA)));
+            *(vcpu.test_vcpu_exit_reason.lock().unwrap()) =
+                Some(Ok(VcpuExit::MmioWrite(addr, &DATA)));
         }
         let res = vcpu.run_emulation();
         assert!(res.is_ok());
@@ -825,19 +840,6 @@ mod tests {
                 Error(ref err) => write!(f, "VcpuResponse::Error({:?})", err),
                 NotAllowed(ref reason) => write!(f, "VcpuResponse::NotAllowed({})", reason),
             }
-        }
-    }
-
-    // In tests we need to close any pending Vcpu threads on test completion.
-    impl Drop for VcpuHandle {
-        fn drop(&mut self) {
-            // Make sure the Vcpu is out of KVM_RUN.
-            self.send_event(VcpuEvent::Pause).unwrap();
-            // Close the original channel so that the Vcpu thread errors and goes to exit state.
-            let (event_sender, _event_receiver) = channel();
-            self.event_sender = event_sender;
-            // Wait for the Vcpu thread to finish execution
-            self.vcpu_thread.take().unwrap().join().unwrap();
         }
     }
 
@@ -1057,6 +1059,8 @@ mod tests {
 
         // Queue a Resume event, expect a response.
         queue_event_expect_response(&vcpu_handle, VcpuEvent::Resume, VcpuResponse::Resumed);
+
+        vcpu_handle.send_event(VcpuEvent::Finish).unwrap();
     }
 
     #[test]
@@ -1095,6 +1099,8 @@ mod tests {
             VcpuEvent::RestoreState(vcpu_state),
             VcpuResponse::RestoredState,
         );
+
+        vcpu_handle.send_event(VcpuEvent::Finish).unwrap();
     }
 
     #[test]

@@ -92,6 +92,7 @@ use super::super::{Result as VsockResult, VsockChannel, VsockEpollListener, Vsoc
 use super::defs;
 use super::txbuf::TxBuf;
 use super::{ConnState, Error, PendingRx, PendingRxSet, Result};
+use vm_memory::{GuestMemoryError, GuestMemoryMmap};
 
 /// A self-managing connection object, that handles communication between a guest-side AF_VSOCK
 /// socket and a host-side `Read + Write + AsRawFd` stream.
@@ -150,7 +151,7 @@ where
     ///    packet;
     /// - `Err(VsockError::PktBufMissing)`: the packet would've been filled in with data, but
     ///    it is missing the data buffer.
-    fn recv_pkt(&mut self, pkt: &mut VsockPacket) -> VsockResult<()> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // Perform some generic initialization that is the same for any packet operation (e.g.
         // source, destination, credit, etc).
         self.init_pkt(pkt);
@@ -204,14 +205,12 @@ where
                 return Ok(());
             }
 
-            let buf = pkt.buf_mut().ok_or(VsockError::PktBufMissing)?;
-
             // The maximum amount of data we can read in is limited by both the RX buffer size and
             // the peer available buffer space.
-            let max_len = std::cmp::min(buf.len(), self.peer_avail_credit());
+            let max_len = std::cmp::min(pkt.buf_size(), self.peer_avail_credit());
 
             // Read data from the stream straight to the RX buffer, for maximum throughput.
-            match self.stream.read(&mut buf[..max_len]) {
+            match pkt.read_at_offset_from(mem, 0, &mut self.stream, max_len) {
                 Ok(read_cnt) => {
                     if read_cnt == 0 {
                         // A 0-length read means the host stream was closed down. In that case,
@@ -234,7 +233,9 @@ where
                     self.last_fwd_cnt_to_peer = self.fwd_cnt;
                     return Ok(());
                 }
-                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(err)))
+                    if err.kind() == ErrorKind::WouldBlock =>
+                {
                     // This shouldn't actually happen (receiving EWOULDBLOCK after EPOLLIN), but
                     // apparently it does, so we need to handle it greacefully.
                     warn!(
@@ -279,7 +280,7 @@ where
     ///
     /// Returns:
     /// always `Ok(())`: the packet has been consumed;
-    fn send_pkt(&mut self, pkt: &VsockPacket) -> VsockResult<()> {
+    fn send_pkt(&mut self, pkt: &VsockPacket, mem: &GuestMemoryMmap) -> VsockResult<()> {
         // Update the peer credit information.
         self.peer_buf_alloc = pkt.buf_alloc();
         self.peer_fwd_cnt = Wrapping(pkt.fwd_cnt());
@@ -292,7 +293,7 @@ where
             ConnState::Established | ConnState::PeerClosed(_, false)
                 if pkt.op() == uapi::VSOCK_OP_RW =>
             {
-                if pkt.buf().is_none() {
+                if pkt.buf_size() == 0 {
                     info!(
                         "vsock: dropping empty data packet from guest (lp={}, pp={}",
                         self.local_port, self.peer_port
@@ -301,8 +302,7 @@ where
                 }
 
                 // Unwrapping here is safe, since we just checked `pkt.buf()` above.
-                let buf_slice = &pkt.buf().unwrap()[..(pkt.len() as usize)];
-                if let Err(err) = self.send_bytes(buf_slice) {
+                if let Err(err) = self.send_bytes(mem, &pkt) {
                     // If we can't write to the host stream, that's an unrecoverable error, so
                     // we'll terminate this connection.
                     warn!(
@@ -590,28 +590,37 @@ where
     ///
     /// Raw data can either be sent straight to the host stream, or to our TX buffer, if the
     /// former fails.
-    fn send_bytes(&mut self, buf: &[u8]) -> Result<()> {
+    fn send_bytes(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        pkt: &VsockPacket,
+    ) -> std::result::Result<(), VsockError> {
+        let len = pkt.len() as usize;
+
         // If there is data in the TX buffer, that means we're already registered for EPOLLOUT
         // events on the underlying stream. Therefore, there's no point in attempting a write
         // at this point. `self.notify()` will get called when EPOLLOUT arrives, and it will
         // attempt to drain the TX buffer then.
         if !self.tx_buf.is_empty() {
-            return self.tx_buf.push(buf);
+            return pkt
+                .write_from_offset_to(mem, 0, &mut self.tx_buf, len)
+                .map(|_| ());
         }
 
         // The TX buffer is empty, so we can try to write straight to the host stream.
-        let written = match self.stream.write(buf) {
+        let written = match pkt.write_from_offset_to(mem, 0, &mut self.stream, len) {
             Ok(cnt) => cnt,
-            Err(e) => {
+            Err(VsockError::GuestMemoryMmap(GuestMemoryError::IOError(e)))
+                if e.kind() == ErrorKind::WouldBlock =>
+            {
                 // Absorb any would-block errors, since we can always try again later.
-                if e.kind() == ErrorKind::WouldBlock {
-                    0
-                } else {
-                    // We don't know how to handle any other write error, so we'll send it up
-                    // the call chain.
-                    METRICS.vsock.tx_write_fails.inc();
-                    return Err(Error::StreamWrite(e));
-                }
+                0
+            }
+            Err(e) => {
+                // We don't know how to handle any other write error, so we'll send it up
+                // the call chain.
+                METRICS.vsock.tx_write_fails.inc();
+                return Err(e);
             }
         };
         // Move the "forwarded bytes" counter ahead by how much we were able to send out.
@@ -620,8 +629,8 @@ where
 
         // If we couldn't write the whole slice, we'll need to push the remaining data to our
         // buffer.
-        if written < buf.len() {
-            self.tx_buf.push(&buf[written..])?;
+        if written < len {
+            pkt.write_from_offset_to(mem, written, &mut self.tx_buf, len - written)?;
         }
 
         Ok(())
@@ -648,13 +657,6 @@ where
 
     /// Prepare a packet header for transmission to our peer.
     fn init_pkt<'a>(&self, pkt: &'a mut VsockPacket) -> &'a mut VsockPacket {
-        // Make sure the header is zeroed-out first.
-        // This looks sub-optimal, but it is actually optimized-out in the compiled code to be
-        // faster than a memset().
-        for b in pkt.hdr_mut() {
-            *b = 0;
-        }
-
         pkt.set_src_cid(self.local_cid)
             .set_dst_cid(self.peer_cid)
             .set_src_port(self.local_port)
@@ -775,9 +777,6 @@ mod tests {
     }
 
     fn init_pkt(pkt: &mut VsockPacket, op: u16, len: u32) -> &mut VsockPacket {
-        for b in pkt.hdr_mut() {
-            *b = 0;
-        }
         pkt.set_src_cid(PEER_CID)
             .set_dst_cid(LOCAL_CID)
             .set_src_port(PEER_PORT)
@@ -840,7 +839,7 @@ mod tests {
                         PEER_BUF_ALLOC,
                     );
                     assert!(conn.has_pending_rx());
-                    conn.recv_pkt(&mut pkt).unwrap();
+                    conn.recv_pkt(&mut pkt, &vsock_test_ctx.mem).unwrap();
                     assert_eq!(pkt.op(), uapi::VSOCK_OP_RESPONSE);
                     conn
                 }
@@ -866,11 +865,15 @@ mod tests {
         }
 
         fn send(&mut self) {
-            self.conn.send_pkt(&self.pkt).unwrap();
+            self.conn
+                .send_pkt(&self.pkt, &self._vsock_test_ctx.mem)
+                .unwrap();
         }
 
         fn recv(&mut self) {
-            self.conn.recv_pkt(&mut self.pkt).unwrap();
+            self.conn
+                .recv_pkt(&mut self.pkt, &self._vsock_test_ctx.mem)
+                .unwrap();
         }
 
         fn notify_epollin(&mut self) {
@@ -887,9 +890,16 @@ mod tests {
         }
 
         fn init_data_pkt(&mut self, data: &[u8]) -> &VsockPacket {
-            assert!(data.len() <= self.pkt.buf().unwrap().len());
+            assert!(data.len() <= self.pkt.buf_size());
             self.init_pkt(uapi::VSOCK_OP_RW, data.len() as u32);
-            self.pkt.buf_mut().unwrap()[..data.len()].copy_from_slice(data);
+            self.pkt
+                .read_at_offset_from(
+                    &self._vsock_test_ctx.mem,
+                    0,
+                    &mut std::io::Cursor::new(data.to_vec()),
+                    data.len(),
+                )
+                .unwrap();
             &self.pkt
         }
     }
@@ -957,10 +967,20 @@ mod tests {
         ctx.recv();
         assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
         assert_eq!(ctx.pkt.len() as usize, data.len());
-        assert_eq!(ctx.pkt.buf().unwrap()[..ctx.pkt.len() as usize], *data);
+
+        let mut buf = vec![];
+        ctx.pkt
+            .write_from_offset_to(
+                &ctx._vsock_test_ctx.mem,
+                0,
+                &mut buf,
+                ctx.pkt.len() as usize,
+            )
+            .unwrap();
+        assert_eq!(&buf, data);
 
         // There's no more data in the stream, so `recv_pkt` should yield `VsockError::NoData`.
-        match ctx.conn.recv_pkt(&mut ctx.pkt) {
+        match ctx.conn.recv_pkt(&mut ctx.pkt, &ctx._vsock_test_ctx.mem) {
             Err(VsockError::NoData) => (),
             other => panic!("{:?}", other),
         }
@@ -1027,7 +1047,17 @@ mod tests {
             ctx.notify_epollin();
             ctx.recv();
             assert_eq!(ctx.pkt.op(), uapi::VSOCK_OP_RW);
-            assert_eq!(&ctx.pkt.buf().unwrap()[..ctx.pkt.len() as usize], data);
+
+            let mut buf = vec![];
+            ctx.pkt
+                .write_from_offset_to(
+                    &ctx._vsock_test_ctx.mem,
+                    0,
+                    &mut buf,
+                    ctx.pkt.len() as usize,
+                )
+                .unwrap();
+            assert_eq!(&buf, data);
 
             ctx.init_data_pkt(data);
             ctx.send();
@@ -1219,7 +1249,7 @@ mod tests {
         ctx.set_stream(stream);
 
         // Fill up the TX buffer.
-        let data = vec![0u8; ctx.pkt.buf().unwrap().len()];
+        let data = vec![0u8; ctx.pkt.buf_size()];
         ctx.init_data_pkt(data.as_slice());
         for _i in 0..(csm_defs::CONN_TX_BUF_SIZE / data.len() as u32) {
             ctx.send();
