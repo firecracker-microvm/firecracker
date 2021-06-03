@@ -12,7 +12,6 @@ from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.matrix import TestMatrix, TestContext
-from framework.microvms import VMNano
 from framework.utils import wait_process_termination
 from framework.utils_vsock import make_blob, \
     check_host_connections, check_guest_connections
@@ -62,7 +61,7 @@ def _test_seq_snapshots(context):
     seq_len = context.custom['seq_len']
     vm_builder = context.custom['builder']
     snapshot_type = context.custom['snapshot_type']
-    enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
+    diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
                 .format(snapshot_type,
@@ -75,12 +74,12 @@ def _test_seq_snapshots(context):
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from artifacts.
-    basevm = vm_builder.build(kernel=context.kernel,
-                              disks=[root_disk],
-                              ssh_key=ssh_key,
-                              config=context.microvm,
-                              enable_diff_snapshots=enable_diff_snapshots)
-
+    vm_instance = vm_builder.build(kernel=context.kernel,
+                                   disks=[root_disk],
+                                   ssh_key=ssh_key,
+                                   config=context.microvm,
+                                   diff_snapshots=diff_snapshots)
+    basevm = vm_instance.vm
     # The vsock device is configured for Full snapshots only.
     if snapshot_type == SnapshotType.FULL:
         basevm.vsock.put(
@@ -124,7 +123,7 @@ def _test_seq_snapshots(context):
         logger.info("Load snapshot #{}, mem {}".format(i, snapshot.mem))
         microvm, _ = vm_builder.build_from_snapshot(snapshot,
                                                     True,
-                                                    enable_diff_snapshots)
+                                                    diff_snapshots)
 
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
@@ -173,12 +172,12 @@ def _test_compare_mem_files(context):
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
-    basevm = vm_builder.build(kernel=context.kernel,
-                              disks=[root_disk],
-                              ssh_key=ssh_key,
-                              config=context.microvm,
-                              enable_diff_snapshots=True)
-
+    vm_instance = vm_builder.build(kernel=context.kernel,
+                                   disks=[root_disk],
+                                   ssh_key=ssh_key,
+                                   config=context.microvm,
+                                   diff_snapshots=True)
+    basevm = vm_instance.vm
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
@@ -213,10 +212,10 @@ def test_patch_drive_snapshot(bin_cloner_path):
 
     vm_builder = MicrovmBuilder(bin_cloner_path)
     snapshot_type = SnapshotType.FULL
-    enable_diff_snapshots = False
+    diff_snapshots = False
 
     # Use a predefined vm instance.
-    vm_instance = VMNano.spawn(bin_cloner_path)
+    vm_instance = vm_builder.build_vm_nano()
     basevm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
@@ -255,7 +254,7 @@ def test_patch_drive_snapshot(bin_cloner_path):
     logger.info("Load snapshot, mem %s", snapshot.mem)
     microvm, _ = vm_builder.build_from_snapshot(snapshot,
                                                 True,
-                                                enable_diff_snapshots)
+                                                diff_snapshots)
     # Attempt to connect to resumed microvm.
     ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
@@ -421,7 +420,7 @@ def test_negative_postload_api(bin_cloner_path):
     logger = logging.getLogger("snapshot_api_fail")
 
     vm_builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = VMNano.spawn(bin_cloner_path, diff_snapshots=True)
+    vm_instance = vm_builder.build_vm_nano(diff_snapshots=True)
     basevm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
@@ -471,7 +470,7 @@ def test_negative_snapshot_permissions(bin_cloner_path):
     vm_builder = MicrovmBuilder(bin_cloner_path)
 
     # Use a predefined vm instance.
-    vm_instance = VMNano.spawn(bin_cloner_path)
+    vm_instance = vm_builder.build_vm_nano()
     basevm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
@@ -550,7 +549,8 @@ def test_negative_snapshot_permissions(bin_cloner_path):
 
 def test_negative_snapshot_create(bin_cloner_path):
     """Test create snapshot before pause."""
-    vm_instance = VMNano.spawn(bin_cloner_path)
+    vm_builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = vm_builder.build_vm_nano()
     vm = vm_instance.vm
 
     vm.start()

@@ -4,8 +4,7 @@
 
 import platform
 import pytest
-from framework.builder import SnapshotBuilder
-from framework.microvms import VMNano
+from framework.builder import SnapshotBuilder, MicrovmBuilder
 
 import host_tools.network as net_tools  # pylint: disable=import-error
 
@@ -140,7 +139,8 @@ def test_create_with_too_many_devices(test_microvm_with_ssh, network_config):
 def test_create_invalid_version(bin_cloner_path):
     """Test scenario: create snapshot targeting invalid version."""
     # Use a predefined vm instance.
-    test_microvm = VMNano.spawn(bin_cloner_path).vm
+    builder = MicrovmBuilder(bin_cloner_path)
+    test_microvm = builder.build_vm_nano().vm
     test_microvm.start()
 
     try:

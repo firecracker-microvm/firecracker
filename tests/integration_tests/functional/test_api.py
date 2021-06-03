@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from framework.microvms import VMNano
+from framework.builder import MicrovmBuilder
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
 import host_tools.network as net_tools
@@ -929,7 +929,8 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
 
 def test_negative_api_lifecycle(bin_cloner_path):
     """Test some vm lifecycle error scenarios."""
-    vm_instance = VMNano.spawn(bin_cloner_path)
+    builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = builder.build_vm_nano()
     basevm = vm_instance.vm
 
     # Try to pause microvm when not running, it must fail.
