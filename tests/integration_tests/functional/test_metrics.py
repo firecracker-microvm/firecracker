@@ -4,6 +4,7 @@
 
 import os
 import json
+import platform
 import host_tools.logging as log_tools
 
 
@@ -40,7 +41,6 @@ def test_flush_metrics(test_microvm_with_api):
         'net',
         'patch_api_requests',
         'put_api_requests',
-        'rtc',
         'seccomp',
         'vcpu',
         'vmm',
@@ -48,6 +48,9 @@ def test_flush_metrics(test_microvm_with_api):
         'signals',
         'vsock'
     ]
+
+    if platform.machine() == "aarch64":
+        exp_keys.append("rtc")
 
     assert set(metrics.keys()) == set(exp_keys)
 
