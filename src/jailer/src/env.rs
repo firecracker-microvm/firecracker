@@ -12,6 +12,7 @@ use std::process::{Command, Stdio};
 use crate::cgroup;
 use crate::cgroup::Cgroup;
 use crate::chroot::chroot;
+use crate::resource_limits::ResourceLimits;
 use crate::{Error, Result};
 use std::io;
 use std::io::Write;
@@ -72,6 +73,7 @@ pub struct Env {
     jailer_cpu_time_us: u64,
     extra_args: Vec<String>,
     cgroups: Vec<Cgroup>,
+    resource_limits: ResourceLimits,
 }
 
 impl Env {
@@ -167,6 +169,8 @@ impl Env {
             }
         }
 
+        let resource_limits = ResourceLimits::default();
+
         Ok(Env {
             id: id.to_owned(),
             chroot_dir,
@@ -181,6 +185,7 @@ impl Env {
             jailer_cpu_time_us: 0,
             extra_args: arguments.extra_args(),
             cgroups,
+            resource_limits,
         })
     }
 
@@ -450,6 +455,9 @@ impl Env {
         if let Some(ref path) = self.netns {
             Env::join_netns(path)?;
         }
+
+        // Set limits on resources.
+        self.resource_limits.install()?;
 
         // We have to setup cgroups at this point, because we can't do it anymore after chrooting.
         // cgroups are iterated two times as some cgroups may require others (e.g cpuset requires
