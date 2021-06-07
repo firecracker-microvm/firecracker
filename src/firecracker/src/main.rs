@@ -368,7 +368,7 @@ fn warn_deprecated_parameters(arguments: &Arguments) {
     // --seccomp-level is deprecated.
     if let Some(value) = arguments.single_value("seccomp-level") {
         warn!(
-            "You are using a deprecated parameter: --seccomp-level {}, that will be removed in a\
+            "You are using a deprecated parameter: --seccomp-level {}, that will be removed in a \
             future version.",
             value
         );
