@@ -3,6 +3,7 @@
 mod cgroup;
 mod chroot;
 mod env;
+mod resource_limits;
 
 use std::ffi::{CString, NulError, OsString};
 use std::fmt;
@@ -59,6 +60,7 @@ pub enum Error {
     RmOldRootDir(io::Error),
     SetCurrentDir(io::Error),
     SetNetNs(io::Error),
+    Setrlimit(String),
     SetSid(io::Error),
     Uid(String),
     UmountOldRoot(io::Error),
@@ -192,6 +194,7 @@ impl fmt::Display for Error {
             RmOldRootDir(ref err) => write!(f, "Failed to remove old jail root directory: {}", err),
             SetCurrentDir(ref err) => write!(f, "Failed to change current directory: {}", err),
             SetNetNs(ref err) => write!(f, "Failed to join network namespace: netns: {}", err),
+            Setrlimit(ref err) => write!(f, "Failed to set limit for resource: {}", err),
             SetSid(ref err) => write!(f, "Failed to daemonize: setsid: {}", err),
             Uid(ref uid) => write!(f, "Invalid uid: {}", uid),
             UmountOldRoot(ref err) => write!(f, "Failed to unmount the old jail root: {}", err),
@@ -653,6 +656,10 @@ mod tests {
         assert_eq!(
             format!("{}", Error::SetNetNs(io::Error::from_raw_os_error(42))),
             "Failed to join network namespace: netns: No message of desired type (os error 42)",
+        );
+        assert_eq!(
+            format!("{}", Error::Setrlimit("foobar".to_string())),
+            "Failed to set limit for resource: foobar",
         );
         assert_eq!(
             format!("{}", Error::SetSid(io::Error::from_raw_os_error(42))),
