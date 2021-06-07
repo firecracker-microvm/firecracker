@@ -1,7 +1,6 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![allow(unused)]
 use super::{Error, Result};
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -9,6 +8,10 @@ use utils::syscall::SyscallReturnCode;
 
 // Default limit for the maximum number of file descriptors open at a time.
 const NO_FILE: u64 = 2048;
+// File size resource argument name.
+pub(crate) const FSIZE_ARG: &str = "fsize";
+// Number of files resource argument name.
+pub(crate) const NO_FILE_ARG: &str = "no-file";
 
 #[derive(Clone, Copy)]
 pub enum Resource {
