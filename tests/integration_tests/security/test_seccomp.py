@@ -5,6 +5,7 @@
 import os
 import tempfile
 import platform
+import time
 import pytest
 
 from host_tools.cargo_build import run_seccompiler
@@ -258,9 +259,12 @@ KERNEL_LEVEL = {"default": "2", "0": "0", "1": "2", "2": "2"}
 def test_seccomp_level(test_microvm_with_api, level):
     """Test Firecracker --seccomp-level value."""
     test_microvm = test_microvm_with_api
+    test_microvm.jailer.daemonize = False
+
     if level != "default":
         test_microvm.jailer.extra_args.update({"seccomp-level": level})
-    test_microvm.spawn()
+
+    test_microvm.spawn(create_logger=False)
 
     test_microvm.basic_config()
 
@@ -268,3 +272,14 @@ def test_seccomp_level(test_microvm_with_api, level):
 
     utils.assert_seccomp_level(
         test_microvm.jailer_clone_pid, KERNEL_LEVEL[level])
+
+    test_microvm.kill()
+
+    # For seccomp-level, check that we output the deprecation warnings.
+    if level != "default":
+        time.sleep(0.5)
+        with open(test_microvm.screen_log, 'r') as file:
+            log_data = file.read()
+            assert "You are using a deprecated parameter: --seccomp-level " \
+                f"{level}, that will be removed in a future version." \
+                in log_data
