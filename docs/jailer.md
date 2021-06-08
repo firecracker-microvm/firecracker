@@ -18,6 +18,7 @@ jailer --id <id> \
        [--cgroup <cgroup>]
        [--chroot-base-dir <chroot_base>]
        [--netns <netns>]
+       [--resource-limit <resource=value>]
        [--daemonize]
        [--new-pid-ns]
        [--...extra arguments for Firecracker]
@@ -44,6 +45,21 @@ jailer --id <id> \
   default is `/srv/jailer`.
 - `netns` represents the path to a network namespace handle. If present, the
   jailer will use this to join the associated network namespace.
+- For extra security and control over resource usage, `resource-limit` can be
+  used to set bounds to the process resources. The `--resource-limit` argument
+  must follow this format: `<resource>=<value>` (e.g `no-file=1024`) and can be
+  used multiple times to set multiple bounds. Current available resources that
+  can be limited using this argument are:
+  - `fsize`: The maximum size in bytes for files created by the process.
+  - `no-file`: Specifies a value one greater than the maximum file descriptor
+  number that can be opened by this process.
+
+Here is an example on how to set multiple resource limits using this argument:
+
+  ```bash
+  --resource-limit fsize=250000000 --resource-limit no-file=1024
+  ```
+
 - When present, the `--daemonize` flag causes the jailer to cal `setsid()` and
   redirect all three standard I/O file descriptors to `/dev/null`.
 - When present, the `--new-pid-ns` flag causes the jailer to `fork()` and then
@@ -73,6 +89,10 @@ After starting, the Jailer goes through the following operations:
   exists (it should not, since `id` is supposed to be unique).
 - Copy `exec_file` to
   `<chroot_base>/<exec_file_name>/<id>/root/<exec_file_name>`.
+- Set resource bounds for current process and its children through
+  `--resource-limit` argument, by calling `setrlimit()` system call with the
+  specific resource argument. If no limits are provided, the jailer bounds
+  `no-file` to a maximum default value of 2048.
 - Create the `cgroup` sub-folders. At the moment, the jailer uses `cgroup v1`.
   On most systems, this is mounted by default in `/sys/fs/cgroup`
   (should be mounted by the user otherwise). The jailer will parse
