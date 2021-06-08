@@ -71,6 +71,17 @@ pub type EntryTransformerFn =
 
 /// Generic trait that provides methods for transforming the cpuid
 pub trait CpuidTransformer {
+    fn valid_leaves_filter(&self) -> Option<&'static [u32]> {
+        None
+    }
+
+    fn filter_cpuid(&self, cpuid: &mut CpuId) {
+        let maybe_valid_leaves = self.valid_leaves_filter();
+        if let Some(valid_leaves) = maybe_valid_leaves {
+            cpuid.retain(|entry| valid_leaves.contains(&entry.function));
+        }
+    }
+
     /// Hook that is called by `process_cpuid` before executing the main logic.
     fn preprocess_cpuid(&self, _cpuid: &mut CpuId, _vm_spec: &VmSpec) -> Result<(), Error> {
         Ok(())
@@ -78,6 +89,7 @@ pub trait CpuidTransformer {
 
     /// Trait main function. It processes the cpuid and makes the desired transformations.
     fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
+        self.filter_cpuid(cpuid);
         self.preprocess_cpuid(cpuid, vm_spec)?;
         self.process_entries(cpuid, vm_spec)
     }
@@ -133,14 +145,59 @@ mod tests {
         Ok(())
     }
 
-    struct MockCpuidTransformer {}
+    struct MockCpuidTransformer {
+        valid_leaves_filter: Option<&'static [u32]>,
+    }
+
+    impl MockCpuidTransformer {
+        const VALID_LEAVES: &'static [u32] = &[0x10000, 0x20000, 0x30000];
+        const INVALID_LEAVES: &'static [u32] = &[0x40000, 0x50000, 0x60000];
+    }
 
     impl CpuidTransformer for MockCpuidTransformer {
+        fn valid_leaves_filter(&self) -> Option<&'static [u32]> {
+            // inexistent leafs
+            self.valid_leaves_filter
+        }
+
         fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
             match entry.function {
                 PROCESSED_FN => Some(transform_entry),
                 _ => None,
             }
+        }
+    }
+
+    #[test]
+    fn test_filter_cpuid() {
+        let mut cpuid = CpuId::new(0).unwrap();
+        let vm_spec = VmSpec::new(0, 1, false);
+
+        let cpuid_transformer = MockCpuidTransformer {
+            valid_leaves_filter: Some(MockCpuidTransformer::VALID_LEAVES),
+        };
+        for leaf in MockCpuidTransformer::VALID_LEAVES
+            .iter()
+            .chain(MockCpuidTransformer::INVALID_LEAVES)
+        {
+            cpuid
+                .push(kvm_cpuid_entry2 {
+                    function: *leaf,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+
+        assert!(cpuid_transformer
+            .process_cpuid(&mut cpuid, &vm_spec.unwrap())
+            .is_ok());
+
+        assert_eq!(
+            cpuid.as_slice().len(),
+            MockCpuidTransformer::VALID_LEAVES.len()
+        );
+        for leaf in cpuid.as_slice() {
+            assert!(!MockCpuidTransformer::INVALID_LEAVES.contains(&leaf.function));
         }
     }
 
@@ -151,9 +208,11 @@ mod tests {
         let mut cpuid = CpuId::new(num_entries).unwrap();
         let vm_spec = VmSpec::new(0, 1, false);
         cpuid.as_mut_slice()[0].function = PROCESSED_FN;
-        assert!(MockCpuidTransformer {}
-            .process_cpuid(&mut cpuid, &vm_spec.unwrap())
-            .is_ok());
+        assert!(MockCpuidTransformer {
+            valid_leaves_filter: None
+        }
+        .process_cpuid(&mut cpuid, &vm_spec.unwrap())
+        .is_ok());
 
         assert!(cpuid.as_mut_slice().len() == num_entries);
         for entry in cpuid.as_mut_slice().iter() {

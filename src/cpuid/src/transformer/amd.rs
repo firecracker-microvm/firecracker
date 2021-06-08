@@ -129,10 +129,34 @@ pub fn update_extended_apic_id_entry(
 pub struct AmdCpuidTransformer {}
 
 impl CpuidTransformer for AmdCpuidTransformer {
+    fn valid_leaves_filter(&self) -> Option<&'static [u32]> {
+        Some(&[
+            // Standard functions
+            leaf_0x0::LEAF_NUM,
+            leaf_0x1::LEAF_NUM,
+            leaf_0x5::LEAF_NUM,
+            leaf_0x6::LEAF_NUM,
+            leaf_0x7::LEAF_NUM,
+            leaf_0xd::LEAF_NUM,
+            // Extended Functions
+            leaf_0x80000000::LEAF_NUM,
+            leaf_0x80000001::LEAF_NUM,
+            leaf_0x80000002::LEAF_NUM,
+            leaf_0x80000003::LEAF_NUM,
+            leaf_0x80000004::LEAF_NUM,
+            leaf_0x80000005::LEAF_NUM,
+            leaf_0x80000006::LEAF_NUM,
+            leaf_0x80000007::LEAF_NUM,
+            leaf_0x80000008::LEAF_NUM,
+            leaf_0x8000000a::LEAF_NUM,
+            leaf_0x80000019::LEAF_NUM,
+            leaf_0x8000001b::LEAF_NUM,
+            leaf_0x8000001d::LEAF_NUM,
+            leaf_0x8000001e::LEAF_NUM,
+        ])
+    }
+
     fn preprocess_cpuid(&self, cpuid: &mut CpuId, _vm_spec: &VmSpec) -> Result<(), Error> {
-        // Some versions of kernel may return the 0xB leaf for AMD even if this is an
-        // Intel-specific leaf. Remove it.
-        cpuid.retain(|entry| entry.function != leaf_0xb::LEAF_NUM);
         use_host_cpuid_function(cpuid, leaf_0x8000001e::LEAF_NUM, false)?;
         use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)
     }
@@ -155,28 +179,6 @@ impl CpuidTransformer for AmdCpuidTransformer {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_preprocess_cpuid() {
-        let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
-        let mut cpuid = CpuId::new(0).unwrap();
-        let entry = kvm_cpuid_entry2 {
-            function: leaf_0xb::LEAF_NUM,
-            index: 0,
-            flags: 0,
-            eax: 0,
-            ebx: 0,
-            ecx: 0,
-            edx: 0,
-            padding: [0, 0, 0],
-        };
-        cpuid.push(entry).unwrap();
-
-        assert!(AmdCpuidTransformer {}
-            .process_cpuid(&mut cpuid, &vm_spec)
-            .is_ok());
-        assert!(!cpuid.as_slice().contains(&entry));
-    }
 
     #[test]
     fn test_update_structured_extended_entry() {

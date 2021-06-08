@@ -1,6 +1,10 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod leaf_0x0 {
+    pub const LEAF_NUM: u32 = 0x0;
+}
+
 // Basic CPUID Information
 pub mod leaf_0x1 {
     pub const LEAF_NUM: u32 = 0x1;
@@ -67,6 +71,14 @@ pub mod leaf_0x1 {
     }
 }
 
+pub mod leaf_0x2 {
+    pub const LEAF_NUM: u32 = 0x2;
+}
+
+pub mod leaf_0x3 {
+    pub const LEAF_NUM: u32 = 0x3;
+}
+
 pub mod leaf_cache_parameters {
     pub mod eax {
         use crate::bit_helper::BitRange;
@@ -88,6 +100,10 @@ pub mod leaf_0x4 {
 
         pub const MAX_CORES_PER_PACKAGE_BITRANGE: BitRange = bit_range!(31, 26);
     }
+}
+
+pub mod leaf_0x5 {
+    pub const LEAF_NUM: u32 = 0x5;
 }
 
 // Thermal and Power Management Leaf
@@ -195,6 +211,14 @@ pub mod leaf_0x7 {
     }
 }
 
+pub mod leaf_0x8 {
+    pub const LEAF_NUM: u32 = 0x8;
+}
+
+pub mod leaf_0x9 {
+    pub const LEAF_NUM: u32 = 0x9;
+}
+
 pub mod leaf_0xa {
     pub const LEAF_NUM: u32 = 0xa;
 }
@@ -228,6 +252,10 @@ pub mod leaf_0xb {
         pub const LEVEL_TYPE_BITRANGE: BitRange = bit_range!(15, 8);
         pub const LEVEL_NUMBER_BITRANGE: BitRange = bit_range!(7, 0);
     }
+}
+
+pub mod leaf_0xc {
+    pub const LEAF_NUM: u32 = 0xc;
 }
 
 // Processor Extended State Enumeration Sub-leaves
@@ -277,6 +305,30 @@ pub mod leaf_0x80000001 {
     }
 }
 
+pub mod leaf_0x80000002 {
+    pub const LEAF_NUM: u32 = 0x8000_0002;
+}
+
+pub mod leaf_0x80000003 {
+    pub const LEAF_NUM: u32 = 0x8000_0003;
+}
+
+pub mod leaf_0x80000004 {
+    pub const LEAF_NUM: u32 = 0x8000_0004;
+}
+
+pub mod leaf_0x80000005 {
+    pub const LEAF_NUM: u32 = 0x8000_0005;
+}
+
+pub mod leaf_0x80000006 {
+    pub const LEAF_NUM: u32 = 0x8000_0006;
+}
+
+pub mod leaf_0x80000007 {
+    pub const LEAF_NUM: u32 = 0x8000_0007;
+}
+
 pub mod leaf_0x80000008 {
     pub const LEAF_NUM: u32 = 0x8000_0008;
 
@@ -292,6 +344,18 @@ pub mod leaf_0x80000008 {
         // The number of threads in the package - 1
         pub const NUM_THREADS_BITRANGE: BitRange = bit_range!(7, 0);
     }
+}
+
+pub mod leaf_0x8000000a {
+    pub const LEAF_NUM: u32 = 0x8000_000a;
+}
+
+pub mod leaf_0x80000019 {
+    pub const LEAF_NUM: u32 = 0x8000_0019;
+}
+
+pub mod leaf_0x8000001b {
+    pub const LEAF_NUM: u32 = 0x8000_001b;
 }
 
 // Extended Cache Topology Leaf

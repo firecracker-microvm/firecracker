@@ -118,6 +118,36 @@ fn update_extended_topology_entry(
 pub struct IntelCpuidTransformer {}
 
 impl CpuidTransformer for IntelCpuidTransformer {
+    fn valid_leaves_filter(&self) -> Option<&'static [u32]> {
+        Some(&[
+            // Standard functions
+            leaf_0x0::LEAF_NUM,
+            leaf_0x1::LEAF_NUM,
+            leaf_0x2::LEAF_NUM,
+            leaf_0x3::LEAF_NUM,
+            leaf_0x4::LEAF_NUM,
+            leaf_0x5::LEAF_NUM,
+            leaf_0x6::LEAF_NUM,
+            leaf_0x7::LEAF_NUM,
+            leaf_0x8::LEAF_NUM,
+            leaf_0x9::LEAF_NUM,
+            leaf_0xa::LEAF_NUM,
+            leaf_0xb::LEAF_NUM,
+            leaf_0xc::LEAF_NUM,
+            leaf_0xd::LEAF_NUM,
+            // Extended Functions
+            leaf_0x80000000::LEAF_NUM,
+            leaf_0x80000001::LEAF_NUM,
+            leaf_0x80000002::LEAF_NUM,
+            leaf_0x80000003::LEAF_NUM,
+            leaf_0x80000004::LEAF_NUM,
+            leaf_0x80000005::LEAF_NUM,
+            leaf_0x80000006::LEAF_NUM,
+            leaf_0x80000007::LEAF_NUM,
+            leaf_0x80000008::LEAF_NUM,
+        ])
+    }
+
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
         match entry.function {
             leaf_0x1::LEAF_NUM => Some(common::update_feature_info_entry),
