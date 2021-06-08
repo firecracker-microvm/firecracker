@@ -97,10 +97,85 @@ To set up the jailer correctly, you'll need to:
   their individually owned resources in the unlikely case where any one of the
   jails is broken out of.
 
+Firecracker's customers are strongly advised to use the provided
+`resource-limits` and `cgroup` functionalities encapsulated within jailer,
+in order to control Firecracker's resource consumption in a way that makes
+the most sense to their specific workload. While aiming to provide as much
+control as possible, we cannot enforce aggressive default constraints
+resources such as memory or CPU because these are highly dependent on the
+workload type and usecase.
+
+Here are some recommendations on how to limit the process's resources:
+
+### Disk
+
+- `cgroup` provides a
+  [Block IO Controller](https://www.kernel.org/doc/Documentation/cgroup-v1/blkio-controller.txt)
+  which allows users to control I/O operations through the following files:
+  - `blkio.throttle.io_serviced` - bounds the number of I/Os issued to disk
+  - `blkio.throttle.io_service_bytes` - sets a limit on the number of bytes
+    transferred to/from the disk
+
+- Jailer's `resource-limit` provides control on the disk usage through:
+  - `fsize` - limits the size in bytes for files created by the process
+  - `no-file` - specifies a value one greater than the maximum file
+    descriptor number that can be opened by the process. If not specified,
+    it defaults to 4096.
+
+### Memory
+
+- `cgroup` provides a
+  [Memory Resource Controller](https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt)
+  to allow setting upper limits to memory usage:
+  - `memory.limit_in_bytes` - bounds the memory usage
+  - `memory.memsw.limit_in_bytes` - limits the memory+swap usage
+  - `memory.soft_limit_in_bytes` -  enables flexible sharing of memory. Under
+    normal circumstances, control groups are allowed to use as much of the
+    memory as needed, constrained only by their hard limits set with the
+    `memory.limit_in_bytes` parameter. However, when the system detects
+    memory contention or low memory, control groups are forced to restrict
+    their consumption to their soft limits.
+
+### vCPU
+
+- `cgroup`’s
+  [CPU Controller](https://www.kernel.org/doc/Documentation/cgroup-v1/cpuacct.txt)
+  can guarantee a minimum number of CPU shares when a system is busy and
+  provides CPU bandwidth control through:
+  - `cpu.shares` - limits the amount of CPU that each group it is expected to
+    get. The percentage of CPU assigned is the value of shares divided by the
+    sum of all shares in all `cgroups` in the same level
+  - `cpu.cfs_period_us` - bounds the duration in us of each scheduler period,
+    for bandwidth decisions. This defaults to 100ms
+  - `cpu.cfs_quota_us` - sets the maximum time in microseconds during each
+    `cfs_period_us` for which the current group will be allowed to run
+  - `cpuacct.usage_percpu` - limits the CPU time, in ns, consumed by the
+    process in the group, separated by CPU
+
 Additional details of Jailer features can be found in the
 [Jailer documentation](jailer.md).
 
 ## Host Security Configuration
+
+### Mitigating Network flooding issues
+
+Network can be flooded by creating connections and sending/receiving a
+significant amount of requests. This issue can be mitigated either by
+configuring rate limiters for the network interface as explained within
+[Network Interface documentation](api_requests/patch-network-interface.md),
+or by using one of the tools presented below:
+
+- `tc qdisk` - manipulate traffic control settings by configuring filters.
+
+When traffic enters a classful qdisc, the filters are consulted and the
+packet is enqueued into one of the classes within. Besides
+containing other qdiscs, most classful qdiscs perform rate control.
+
+- `netnamespace` and `iptables`
+  - `--pid-owner` -  can be used to match packets based on the PID that was
+    responsible for them
+  - `connlimit` - restricts the number of connections for a destination IP
+    address/from a source IP address, as well as limit the bandwidth
 
 ### Mitigating Side-Channel Issues
 
