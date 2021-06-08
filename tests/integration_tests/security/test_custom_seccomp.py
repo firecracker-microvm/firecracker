@@ -9,6 +9,7 @@ import tempfile
 import time
 import psutil
 import pytest
+import requests
 import framework.utils as utils
 import host_tools.logging as log_tools
 
@@ -170,8 +171,11 @@ def test_failing_filter(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    # Start the VM with error checking off, because it will fail.
-    test_microvm.start(check=False)
+    # Try to start the VM with error checking off, because it will fail.
+    try:
+        test_microvm.start(check=False)
+    except requests.exceptions.ConnectionError:
+        pass
 
     # Give time for the process to get killed
     time.sleep(1)
