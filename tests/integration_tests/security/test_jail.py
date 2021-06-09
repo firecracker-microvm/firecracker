@@ -1,10 +1,18 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests that verify the jailer's behavior."""
+import http.client as http_client
 import os
+import resource
 import stat
 import subprocess
+import time
 
+import psutil
+import requests
+import urllib3
+
+from framework.builder import SnapshotBuilder
 from framework.defs import FC_BINARY_NAME
 from framework.jailer import JailerContext
 import host_tools.cargo_build as build_tools
@@ -19,6 +27,15 @@ FILE_STATS = stat.S_IFREG | REG_PERMS
 SOCK_STATS = stat.S_IFSOCK | REG_PERMS
 # These are the stats of the devices created by tha jailer.
 CHAR_STATS = stat.S_IFCHR | stat.S_IRUSR | stat.S_IWUSR
+# Limit on file size in bytes.
+FSIZE = 2097151
+# Limit on number of file descriptors.
+NOFILE = 1024
+# Resource limits to be set by the jailer.
+RESOURCE_LIMITS = [
+    'no-file={}'.format(NOFILE),
+    'fsize={}'.format(FSIZE),
+]
 
 
 def check_stats(filepath, stats, uid, gid):
@@ -146,6 +163,19 @@ def get_cpus(node):
     return open(node_cpus_path, 'r').readline().strip()
 
 
+def check_limits(pid, no_file, fsize):
+    """Verify resource limits against expected values."""
+    # Fetch firecracker process limits for number of open fds
+    (soft, hard) = resource.prlimit(pid, resource.RLIMIT_NOFILE)
+    assert soft == no_file
+    assert hard == no_file
+
+    # Fetch firecracker process limits for maximum file size
+    (soft, hard) = resource.prlimit(pid, resource.RLIMIT_FSIZE)
+    assert soft == fsize
+    assert hard == fsize
+
+
 def test_cgroups(test_microvm_with_initrd):
     """
     Test the cgroups are correctly set by the jailer.
@@ -224,6 +254,135 @@ def test_cgroups_without_numa(test_microvm_with_initrd):
         sys_cgroup,
         test_microvm.jailer.jailer_id
     )
+
+
+def test_args_default_resource_limits(test_microvm_with_initrd):
+    """
+    Test the default resource limits are correctly set by the jailer.
+
+    @type: security
+    """
+    test_microvm = test_microvm_with_initrd
+
+    test_microvm.spawn()
+
+    # Get firecracker's PID
+    pid = int(test_microvm.jailer_clone_pid)
+    assert pid != 0
+
+    # Fetch firecracker process limits for number of open fds
+    (soft, hard) = resource.prlimit(pid, resource.RLIMIT_NOFILE)
+    # Check that the default limit was set.
+    assert soft == 2048
+    assert hard == 2048
+
+    # Fetch firecracker process limits for number of open fds
+    (soft, hard) = resource.prlimit(pid, resource.RLIMIT_FSIZE)
+    # Check that no limit was set
+    assert soft == -1
+    assert hard == -1
+
+
+def test_args_resource_limits(test_microvm_with_initrd):
+    """
+    Test the resource limits are correctly set by the jailer.
+
+    @type: security
+    """
+    test_microvm = test_microvm_with_initrd
+    test_microvm.jailer.resource_limits = RESOURCE_LIMITS
+
+    test_microvm.spawn()
+
+    # Get firecracker's PID
+    pid = int(test_microvm.jailer_clone_pid)
+    assert pid != 0
+
+    # Check limit values were correctly set.
+    check_limits(pid, NOFILE, FSIZE)
+
+
+def test_negative_file_size_limit(test_microvm_with_ssh):
+    """
+    Test creating snapshot file fails when size exceeds `fsize` limit.
+
+    @type: negative
+    """
+    test_microvm = test_microvm_with_ssh
+    test_microvm.jailer.resource_limits = ['fsize=1024']
+
+    test_microvm.spawn()
+    test_microvm.basic_config()
+    test_microvm.start()
+
+    snapshot_builder = SnapshotBuilder(test_microvm)
+    # Create directory and files for saving snapshot state and memory.
+    _snapshot_dir = snapshot_builder.create_snapshot_dir()
+
+    # Pause microVM for snapshot.
+    response = test_microvm.vm.patch(state='Paused')
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Attempt to create a snapshot.
+    try:
+        test_microvm.snapshot.create(
+            mem_file_path="/snapshot/vm.mem",
+            snapshot_path="/snapshot/vm.vmstate",
+        )
+    except (
+            http_client.RemoteDisconnected,
+            urllib3.exceptions.ProtocolError,
+            requests.exceptions.ConnectionError
+    ) as _error:
+        test_microvm.expect_kill_by_signal = True
+        # Check the microVM received signal `SIGXFSZ` (25),
+        # which corresponds to exceeding file size limit.
+        msg = 'Shutting down VM after intercepting signal 25, code 0'
+        test_microvm.check_log_message(msg)
+        time.sleep(1)
+        # Check that the process was terminated.
+        assert not psutil.pid_exists(test_microvm.jailer_clone_pid)
+    else:
+        assert False, "Negative test failed"
+
+
+def test_negative_no_file_limit(test_microvm_with_ssh):
+    """
+    Test microVM is killed when exceeding `no-file` limit.
+
+    @type: negative
+    """
+    test_microvm = test_microvm_with_ssh
+    test_microvm.jailer.resource_limits = ['no-file=3']
+
+    # pylint: disable=W0703
+    try:
+        test_microvm.spawn()
+    except Exception as error:
+        assert "No file descriptors available (os error 24)" in str(error)
+        assert test_microvm.jailer_clone_pid is None
+    else:
+        assert False, "Negative test failed"
+
+
+def test_new_pid_ns_resource_limits(test_microvm_with_ssh):
+    """
+    Test that Firecracker process inherits jailer resource limits.
+
+    @type: security
+    """
+    test_microvm = test_microvm_with_ssh
+
+    test_microvm.jailer.daemonize = False
+    test_microvm.jailer.new_pid_ns = True
+    test_microvm.jailer.resource_limits = RESOURCE_LIMITS
+
+    test_microvm.spawn()
+
+    # Get Firecracker's PID.
+    fc_pid = test_microvm.pid_in_new_ns
+    # Check limit values were correctly set.
+    check_limits(fc_pid, NOFILE, FSIZE)
 
 
 def test_new_pid_namespace(test_microvm_with_ssh):
