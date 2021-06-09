@@ -129,13 +129,12 @@ pub fn update_extended_apic_id_entry(
 pub struct AmdCpuidTransformer {}
 
 impl CpuidTransformer for AmdCpuidTransformer {
-    fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
+    fn preprocess_cpuid(&self, cpuid: &mut CpuId, _vm_spec: &VmSpec) -> Result<(), Error> {
         // Some versions of kernel may return the 0xB leaf for AMD even if this is an
         // Intel-specific leaf. Remove it.
         cpuid.retain(|entry| entry.function != leaf_0xb::LEAF_NUM);
         use_host_cpuid_function(cpuid, leaf_0x8000001e::LEAF_NUM, false)?;
-        use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)?;
-        self.process_entries(cpuid, vm_spec)
+        use_host_cpuid_function(cpuid, leaf_0x8000001d::LEAF_NUM, true)
     }
 
     fn entry_transformer_fn(&self, entry: &mut kvm_cpuid_entry2) -> Option<EntryTransformerFn> {
@@ -158,7 +157,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_process_cpuid() {
+    fn test_preprocess_cpuid() {
         let vm_spec = VmSpec::new(0, 1, false).expect("Error creating vm_spec");
         let mut cpuid = CpuId::new(0).unwrap();
         let entry = kvm_cpuid_entry2 {

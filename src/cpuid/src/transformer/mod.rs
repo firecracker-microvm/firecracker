@@ -71,9 +71,14 @@ pub type EntryTransformerFn =
 
 /// Generic trait that provides methods for transforming the cpuid
 pub trait CpuidTransformer {
+    /// Hook that is called by `process_cpuid` before executing the main logic.
+    fn preprocess_cpuid(&self, _cpuid: &mut CpuId, _vm_spec: &VmSpec) -> Result<(), Error> {
+        Ok(())
+    }
+
     /// Trait main function. It processes the cpuid and makes the desired transformations.
-    /// The default logic can be overwritten if needed. For example see `AmdCpuidTransformer`.
     fn process_cpuid(&self, cpuid: &mut CpuId, vm_spec: &VmSpec) -> Result<(), Error> {
+        self.preprocess_cpuid(cpuid, vm_spec)?;
         self.process_entries(cpuid, vm_spec)
     }
 
