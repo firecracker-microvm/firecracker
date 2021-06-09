@@ -170,7 +170,7 @@ class Microvm:
             # Needed to avoid false positives in case kill() is called again.
             self.expect_kill_by_signal = True
             utils.run_cmd(
-                'screen -XS {} kill || true'.format(self._session_name))
+                'kill -9 {} || true'.format(self.screen_pid))
 
         if self._memory_monitor and self._memory_monitor.is_alive():
             self._memory_monitor.signal_stop()
