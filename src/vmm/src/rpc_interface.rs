@@ -594,15 +594,6 @@ impl RuntimeApiController {
     }
 
     fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
-        // Diff snapshots are not allowed on uVMs with vsock device.
-        if create_params.snapshot_type == SnapshotType::Diff
-            && self.vm_resources.vsock.get().is_some()
-        {
-            return Err(VmmActionError::NotSupported(
-                "Diff snapshots are not allowed on uVMs with vsock device.".to_string(),
-            ));
-        }
-
         let mut locked_vmm = self.vmm.lock().unwrap();
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 

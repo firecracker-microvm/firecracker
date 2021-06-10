@@ -81,12 +81,11 @@ def _test_seq_snapshots(context):
                                    diff_snapshots=diff_snapshots)
     basevm = vm_instance.vm
     # The vsock device is configured for Full snapshots only.
-    if snapshot_type == SnapshotType.FULL:
-        basevm.vsock.put(
-            vsock_id="vsock0",
-            guest_cid=3,
-            uds_path="/{}".format(VSOCK_UDS_PATH)
-        )
+    basevm.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path="/{}".format(VSOCK_UDS_PATH)
+    )
 
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -95,17 +94,16 @@ def _test_seq_snapshots(context):
     exit_code, _, _ = ssh_connection.execute_command("sync")
     assert exit_code == 0
 
-    if snapshot_type == SnapshotType.FULL:
-        test_fc_session_root_path = context.custom['test_fc_session_root_path']
-        vsock_helper = context.custom['bin_vsock_path']
-        vm_blob_path = "/tmp/vsock/test.blob"
-        # Generate a random data file for vsock.
-        blob_path, blob_hash = make_blob(test_fc_session_root_path)
-        # Copy the data file and a vsock helper to the guest.
-        _copy_vsock_data_to_guest(ssh_connection,
-                                  blob_path,
-                                  vm_blob_path,
-                                  vsock_helper)
+    test_fc_session_root_path = context.custom['test_fc_session_root_path']
+    vsock_helper = context.custom['bin_vsock_path']
+    vm_blob_path = "/tmp/vsock/test.blob"
+    # Generate a random data file for vsock.
+    blob_path, blob_hash = make_blob(test_fc_session_root_path)
+    # Copy the data file and a vsock helper to the guest.
+    _copy_vsock_data_to_guest(ssh_connection,
+                              blob_path,
+                              vm_blob_path,
+                              vsock_helper)
 
     logger.info("Create {} #0.".format(snapshot_type))
     # Create a snapshot builder from a microvm.
@@ -128,16 +126,15 @@ def _test_seq_snapshots(context):
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
-        if snapshot_type == SnapshotType.FULL:
-            # Test vsock guest-initiated connections.
-            path = os.path.join(
-                microvm.path,
-                "{}_{}".format(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
-            )
-            check_guest_connections(microvm, path, vm_blob_path, blob_hash)
-            # Test vsock host-initiated connections.
-            path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
-            check_host_connections(microvm, path, blob_path, blob_hash)
+        # Test vsock guest-initiated connections.
+        path = os.path.join(
+            microvm.path,
+            "{}_{}".format(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
+        )
+        check_guest_connections(microvm, path, vm_blob_path, blob_hash)
+        # Test vsock host-initiated connections.
+        path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
+        check_host_connections(microvm, path, blob_path, blob_hash)
 
         # Start a new instance of fio on each iteration.
         _guest_run_fio_iteration(ssh_connection, i)
@@ -306,7 +303,9 @@ def test_5_full_snapshots(network_config,
 
 
 def test_5_inc_snapshots(network_config,
-                         bin_cloner_path):
+                         bin_cloner_path,
+                         bin_vsock_path,
+                         test_fc_session_root_path):
     """Test scenario: 5 incremental snapshots with disk intensive workload."""
     logger = logging.getLogger("snapshot_sequence")
 
@@ -327,7 +326,9 @@ def test_5_inc_snapshots(network_config,
         'network_config': network_config,
         'logger': logger,
         'snapshot_type': SnapshotType.DIFF,
-        'seq_len': 5
+        'seq_len': 5,
+        'bin_vsock_path': bin_vsock_path,
+        'test_fc_session_root_path': test_fc_session_root_path
     }
 
     # Create the test matrix.
