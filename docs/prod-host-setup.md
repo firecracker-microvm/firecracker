@@ -59,6 +59,22 @@ logging, which degraded the snapshot restore time from 3ms to 8.5ms on
 `aarch64`. In this case, creating the tap device for snapshot restore
 generated host kernel logs, which were very slow to write.
 
+### Logging and signal handlers
+
+Firecracker installs custom signal handlers for some of the POSIX signals, such
+as SIGSEGV, SIGSYS, etc.
+
+The custom signal handlers used by Firecracker are not async-signal-safe, since
+they write logs and flush the metrics, which use locks for synchronization.
+While very unlikely, it is possible that the handler will intercept a signal on
+a thread which is already holding a lock to the log or metrics buffer.
+This can result in a deadlock, where the specific Firecracker thread becomes
+unresponsive.
+
+While there is no security impact caused by the deadlock, we recommend that
+customers have an overwatcher process on the host, that periodically looks
+for Firecracker processes that are unresponsive, and kills them, by SIGKILL.
+
 ## Jailer Configuration
 
 Using Jailer in a production Firecracker deployment is highly recommended,
