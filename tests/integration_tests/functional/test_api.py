@@ -828,13 +828,6 @@ def test_api_vsock(test_microvm_with_api):
     response = test_microvm.vm.patch(state='Paused')
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    # Diff snapshots should not be allowed on uVMs with vsock device.
-    response = test_microvm.snapshot.create(mem_file_path='memfile',
-                                            snapshot_path='snapsfile',
-                                            diff=True)
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Diff snapshots are not allowed on uVMs with vsock" in response.text
-
 
 def test_api_balloon(test_microvm_with_ssh_and_balloon):
     """Test balloon related API commands."""
