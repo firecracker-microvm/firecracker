@@ -570,5 +570,10 @@ def test_negative_snapshot_create(bin_cloner_path):
     response = vm.snapshot.create(mem_file_path='memfile',
                                   snapshot_path='statefile',
                                   diff=True)
-    assert "Cannot get dirty bitmap" in response.text
+    msg = "Diff snapshots are not allowed on uVMs with dirty page" \
+          " tracking disabled"
+    assert msg in response.text
+    assert not os.path.exists('statefile')
+    assert not os.path.exists('memfile')
+
     vm.kill()
