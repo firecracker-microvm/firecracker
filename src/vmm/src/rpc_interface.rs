@@ -427,6 +427,10 @@ impl<'a> PrebootApiController<'a> {
             return Err(err);
         }
 
+        if load_params.enable_diff_snapshots {
+            self.vm_resources.set_track_dirty_pages(true);
+        }
+
         let result = restore_from_snapshot(
             &self.instance_info,
             &mut self.event_manager,
@@ -594,6 +598,15 @@ impl RuntimeApiController {
     }
 
     fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
+        if create_params.snapshot_type == SnapshotType::Diff
+            && !self.vm_resources.track_dirty_pages()
+        {
+            return Err(VmmActionError::NotSupported(
+                "Diff snapshots are not allowed on uVMs with dirty page tracking disabled."
+                    .to_string(),
+            ));
+        }
+
         let mut locked_vmm = self.vmm.lock().unwrap();
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
 
@@ -736,6 +749,14 @@ mod tests {
             }
             self.balloon_config_called = true;
             Ok(BalloonConfig::default())
+        }
+
+        pub fn track_dirty_pages(&self) -> bool {
+            self.vm_config().track_dirty_pages
+        }
+
+        pub fn set_track_dirty_pages(&mut self, dirty_page_tracking: bool) {
+            self.vm_config.track_dirty_pages = dirty_page_tracking;
         }
 
         pub fn set_vm_config(&mut self, machine_config: &VmConfig) -> Result<(), VmConfigError> {
