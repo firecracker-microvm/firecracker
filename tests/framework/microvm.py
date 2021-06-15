@@ -657,11 +657,15 @@ class Microvm:
             is_read_only=False,
             partuuid=None,
             cache_type=None,
+            use_ramdisk=False,
     ):
         """Add a block device."""
         response = self.drive.put(
             drive_id=drive_id,
-            path_on_host=self.create_jailed_resource(file_path),
+            path_on_host=(
+                self.copy_to_jail_ramfs(file_path) if
+                use_ramdisk else self.create_jailed_resource(file_path)
+            ),
             is_root_device=root_device,
             is_read_only=is_read_only,
             partuuid=partuuid,
