@@ -16,6 +16,9 @@
 - Added `--seccomp-filter` parameter for supplying user-provided, custom filters.
 - Added the `seccompiler` binary that is used to compile JSON seccomp filters
   into serialized BPF for Firecracker consumption.
+- Snapshotting support for GICv2 enabled guests.
+- Added `devtool install` to deploy built binaries in `/usr/local/bin` or a
+  given path.
 
 ### Changed
 
@@ -25,7 +28,8 @@
   statistics update immediately after processing the request.
 - Deprecated the `--seccomp-level parameter`. It will be removed  in a future
   release. Using it logs a runtime warning.
-- Experimental gnu libc builds no longer use a default seccomp filter.
+- Experimental gnu libc builds use empty default seccomp filters, allowing all
+  system calls.
 
 ### Fixed
 
@@ -40,6 +44,9 @@
   to use "MiB" instead.
 - Snapshot related host files (vm-state, memory, block backing files) are now
   flushed to their backing mediums as part of the CreateSnapshot operation.
+- Fixed the SSBD mitigation not being enabled on `aarch64` with the provided
+  `prod-host-setup.md`.
+- Fixed the balloon statistics not working after a snapshot restore event.
 
 ## [0.24.0]
 

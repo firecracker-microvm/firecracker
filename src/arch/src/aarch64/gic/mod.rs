@@ -12,7 +12,8 @@ use kvm_ioctls::{DeviceFd, VmFd};
 use super::layout;
 use gicv2::GICv2;
 use gicv3::GICv3;
-pub use regs::{restore_state, save_state, GicState};
+
+pub use regs::GicState;
 
 /// Errors thrown while setting up the GIC.
 #[derive(Debug)]
@@ -27,6 +28,14 @@ pub enum Error {
     InvalidVgicSysRegState,
 }
 type Result<T> = result::Result<T, Error>;
+
+/// List of implemented GICs.
+pub enum GICVersion {
+    /// Legacy version.
+    GICV2,
+    /// GICV3 without ITS.
+    GICV3,
+}
 
 /// Trait for GIC devices.
 pub trait GICDevice {
@@ -86,10 +95,10 @@ pub trait GICDevice {
         Self: Sized,
     {
         let attr = kvm_bindings::kvm_device_attr {
+            flags,
             group,
             attr,
             addr,
-            flags,
         };
         fd.set_device_attr(&attr)
             .map_err(|e| Error::DeviceAttribute(e, true, group))?;
@@ -132,8 +141,14 @@ pub trait GICDevice {
         Ok(())
     }
 
+    /// Method to save the state of the GIC device.
+    fn save_device(&self, mpidrs: &[u64]) -> Result<GicState>;
+
+    /// Method to restore the state of the GIC device.
+    fn restore_device(&self, mpidrs: &[u64], state: &GicState) -> Result<()>;
+
     /// Method to initialize the GIC device
-    fn new(vm: &VmFd, vcpu_count: u64) -> Result<Box<dyn GICDevice>>
+    fn create(vm: &VmFd, vcpu_count: u64) -> Result<Box<dyn GICDevice>>
     where
         Self: Sized,
     {
@@ -150,26 +165,20 @@ pub trait GICDevice {
 }
 
 /// Create a GIC device.
-///
-/// It will try to create by default a GICv3 device. If that fails it will try
-/// to fall-back to a GICv2 device.
-pub fn create_gic(vm: &VmFd, vcpu_count: u64) -> Result<Box<dyn GICDevice>> {
-    GICv3::new(vm, vcpu_count).or_else(|_| GICv2::new(vm, vcpu_count))
-}
 
-/// Function that flushes
-/// RDIST pending tables into guest RAM.
-///
-/// The tables get flushed to guest RAM whenever the VM gets stopped.
-pub fn save_pending_tables(fd: &DeviceFd) -> Result<()> {
-    let init_gic_attr = kvm_bindings::kvm_device_attr {
-        group: kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL,
-        attr: u64::from(kvm_bindings::KVM_DEV_ARM_VGIC_SAVE_PENDING_TABLES),
-        addr: 0,
-        flags: 0,
-    };
-    fd.set_device_attr(&init_gic_attr)
-        .map_err(|e| Error::DeviceAttribute(e, true, kvm_bindings::KVM_DEV_ARM_VGIC_GRP_CTRL))
+/// If "version" parameter is "None" the function will try to create by default a GICv3 device.
+/// If that fails it will try to fall-back to a GICv2 device.
+/// If version is Some the function will try to create a device of exactly the specified version.
+pub fn create_gic(
+    vm: &VmFd,
+    vcpu_count: u64,
+    version: Option<GICVersion>,
+) -> Result<Box<dyn GICDevice>> {
+    match version {
+        Some(GICVersion::GICV2) => GICv2::create(vm, vcpu_count),
+        Some(GICVersion::GICV3) => GICv3::create(vm, vcpu_count),
+        None => GICv3::create(vm, vcpu_count).or_else(|_| GICv2::create(vm, vcpu_count)),
+    }
 }
 
 #[cfg(test)]
@@ -182,25 +191,6 @@ mod tests {
     fn test_create_gic() {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        assert!(create_gic(&vm, 1).is_ok());
-    }
-
-    #[test]
-    fn test_save_pending_tables() {
-        use std::os::unix::io::AsRawFd;
-
-        let kvm = Kvm::new().unwrap();
-        let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).expect("Cannot create gic");
-        assert!(save_pending_tables(&gic.device_fd()).is_ok());
-
-        unsafe { libc::close(gic.device_fd().as_raw_fd()) };
-
-        let res = save_pending_tables(&gic.device_fd());
-        assert!(res.is_err());
-        assert_eq!(
-            format!("{:?}", res.unwrap_err()),
-            "DeviceAttribute(Error(9), true, 4)"
-        );
+        assert!(create_gic(&vm, 1, None).is_ok());
     }
 }

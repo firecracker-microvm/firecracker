@@ -26,6 +26,7 @@ const GICR_IPRIORITYR0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0400, 32)
 const GICR_ICFGR0: SimpleReg = SimpleReg::new(GICR_SGI_OFFSET + 0x0C00, 8);
 
 // List with relevant redistributor registers that we will be restoring.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 static VGIC_RDIST_REGS: &[SimpleReg] = &[
     GICR_CTLR,
     GICR_STATUSR,
@@ -35,6 +36,7 @@ static VGIC_RDIST_REGS: &[SimpleReg] = &[
 ];
 
 // List with relevant SGI associated redistributor registers that we will be restoring.
+// NOTICE: Any changes to this structure require a snapshot version bump.
 static VGIC_SGI_REGS: &[SimpleReg] = &[
     GICR_IGROUPR0,
     GICR_ICENABLER0,
@@ -77,7 +79,7 @@ pub(crate) fn set_redist_regs(fd: &DeviceFd, mpidr: u64, data: &[GicRegState<u32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::aarch64::gic::create_gic;
+    use crate::aarch64::gic::{create_gic, GICVersion};
     use kvm_ioctls::Kvm;
     use std::os::unix::io::AsRawFd;
 
@@ -86,13 +88,13 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let _ = vm.create_vcpu(0).unwrap();
-        let gic_fd = create_gic(&vm, 1).expect("Cannot create gic");
+        let gic_fd = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
 
         let gicr_typer = 123;
         let res = get_redist_regs(&gic_fd.device_fd(), gicr_typer);
         assert!(res.is_ok());
         let state = res.unwrap();
-        assert_eq!(state.iter().count(), 14);
+        assert_eq!(state.len(), 14);
 
         assert!(set_redist_regs(&gic_fd.device_fd(), gicr_typer, &state).is_ok());
 

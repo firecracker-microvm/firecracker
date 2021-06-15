@@ -1,29 +1,25 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    os::unix::io::AsRawFd,
-    path::PathBuf,
-    sync::mpsc::{channel, Receiver, Sender, TryRecvError},
-    sync::{Arc, Mutex},
-    thread,
-};
+use std::io::prelude::*;
+use std::os::unix::io::AsRawFd;
+use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
+use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
 use logger::{error, warn, ProcessTimeReporter};
 use mmds::MMDS;
-use polly::event_manager::{EventManager, Subscriber};
 use seccompiler::BpfThreadMap;
-use utils::{
-    epoll::{EpollEvent, EventSet},
-    eventfd::EventFd,
-};
-use vmm::signal_handler::{mask_handled_signals, SignalManager};
+use utils::{epoll::EventSet, eventfd::EventFd};
 use vmm::{
     resources::VmResources,
     rpc_interface::{PrebootApiController, RuntimeApiController, VmmAction},
     vmm_config::instance_info::InstanceInfo,
-    Vmm,
+    EventManager, ExitCode, Vmm,
 };
 
 struct ApiServerAdapter {
@@ -43,20 +39,21 @@ impl ApiServerAdapter {
         vm_resources: VmResources,
         vmm: Arc<Mutex<Vmm>>,
         event_manager: &mut EventManager,
-    ) {
+    ) -> ExitCode {
         let api_adapter = Arc::new(Mutex::new(Self {
             api_event_fd,
             from_api,
             to_api,
-            controller: RuntimeApiController::new(vm_resources, vmm),
+            controller: RuntimeApiController::new(vm_resources, vmm.clone()),
         }));
-        event_manager
-            .add_subscriber(api_adapter)
-            .expect("Cannot register the api event to the event manager.");
+        event_manager.add_subscriber(api_adapter);
         loop {
             event_manager
                 .run()
                 .expect("EventManager events driver fatal error");
+            if let Some(exit_code) = vmm.lock().unwrap().shutdown_exit_code() {
+                return exit_code;
+            }
         }
     }
 
@@ -69,9 +66,9 @@ impl ApiServerAdapter {
             .expect("one-shot channel closed");
     }
 }
-impl Subscriber for ApiServerAdapter {
+impl MutEventSubscriber for ApiServerAdapter {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: &EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: Events, _: &mut EventOps) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -112,11 +109,10 @@ impl Subscriber for ApiServerAdapter {
         }
     }
 
-    fn interest_list(&self) -> Vec<EpollEvent> {
-        vec![EpollEvent::new(
-            EventSet::IN,
-            self.api_event_fd.as_raw_fd() as u64,
-        )]
+    fn init(&mut self, ops: &mut EventOps) {
+        if let Err(e) = ops.add(Events::new(&self.api_event_fd, EventSet::IN)) {
+            error!("Failed to register activate event: {}", e);
+        }
     }
 }
 
@@ -127,7 +123,7 @@ pub(crate) fn run_with_api(
     instance_info: InstanceInfo,
     process_time_reporter: ProcessTimeReporter,
     boot_timer_enabled: bool,
-) {
+) -> ExitCode {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
     // which only consumes API events.
@@ -141,17 +137,16 @@ pub(crate) fn run_with_api(
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
+    let api_bind_path = bind_path.clone();
     let api_seccomp_filter = seccomp_filters
         .remove("api")
         .expect("Missing seccomp filter for API thread.");
     // Start the separate API thread.
-    thread::Builder::new()
+    let api_thread = thread::Builder::new()
         .name("fc_api".to_owned())
         .spawn(move || {
-            mask_handled_signals().expect("Unable to install signal mask on API thread.");
-
             match ApiServer::new(mmds_info, to_vmm, from_vmm, to_vmm_event_fd).bind_and_run(
-                bind_path,
+                api_bind_path,
                 process_time_reporter,
                 &api_seccomp_filter,
             ) {
@@ -174,26 +169,12 @@ pub(crate) fn run_with_api(
         .expect("API thread spawn failed.");
 
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
-    // Right before creating the signalfd,
-    // mask the handled signals so that the default handlers are bypassed.
-    mask_handled_signals().expect("Unable to install signal mask on VMM thread.");
-    let signal_manager = Arc::new(Mutex::new(
-        SignalManager::new().expect("Unable to create SignalManager."),
-    ));
-
-    // Register the signal handler event fd.
-    event_manager
-        .add_subscriber(signal_manager)
-        .expect("Cannot register the signal handler fd to the event manager.");
-
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(super::metrics::PeriodicMetrics::new()));
-    event_manager
-        .add_subscriber(firecracker_metrics.clone())
-        .expect("Cannot register the metrics event to the event manager.");
+    event_manager.add_subscriber(firecracker_metrics.clone());
 
     // Configure, build and start the microVM.
-    let (vm_resources, vmm) = match config_json {
+    let build_result = match config_json {
         Some(json) => super::build_microvm_from_json(
             &seccomp_filters,
             &mut event_manager,
@@ -225,18 +206,40 @@ pub(crate) fn run_with_api(
         ),
     };
 
-    // Start the metrics.
-    firecracker_metrics
-        .lock()
-        .expect("Poisoned lock")
-        .start(super::metrics::WRITE_METRICS_PERIOD_MS);
+    let exit_code = match build_result {
+        Ok((vm_resources, vmm)) => {
+            // Start the metrics.
+            firecracker_metrics
+                .lock()
+                .expect("Poisoned lock")
+                .start(super::metrics::WRITE_METRICS_PERIOD_MS);
 
-    ApiServerAdapter::run_microvm(
-        api_event_fd,
-        from_api,
-        to_api,
-        vm_resources,
-        vmm,
-        &mut event_manager,
-    );
+            ApiServerAdapter::run_microvm(
+                api_event_fd,
+                from_api,
+                to_api,
+                vm_resources,
+                vmm,
+                &mut event_manager,
+            )
+        }
+        Err(exit_code) => exit_code,
+    };
+
+    // We want to tell the API thread to shut down for a clean exit.  But this is after
+    // the Vmm.stop() has been called, so it's a moment of internal finalization (as
+    // opposed to be something the client might call to shut the Vm down).  Since it's
+    // an internal signal implementing it with an HTTP request is probably not the ideal
+    // way to do it...but having another way would involve multiplexing micro-http server
+    // with some other communication mechanism, or enhancing micro-http with exit
+    // conditions.
+    let mut sock = UnixStream::connect(bind_path).unwrap();
+    sock.write_all(b"PUT /shutdown-internal HTTP/1.1\r\n\r\n")
+        .unwrap();
+
+    // This call to thread::join() should block until the API thread has processed the
+    // shutdown-internal and returns from its function.
+    api_thread.join().unwrap();
+
+    exit_code
 }

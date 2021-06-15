@@ -2,9 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(missing_docs)]
 
-use crate::Vmm;
-use std::io;
-use std::panic;
 use std::sync::{Arc, Mutex};
 
 use crate::builder::build_microvm_for_boot;
@@ -13,10 +10,7 @@ use crate::seccomp_filters::{get_filters, SeccompConfig};
 use crate::utilities::mock_resources::{MockBootSourceConfig, MockVmConfig, MockVmResources};
 use crate::vmm_config::boot_source::BootSourceConfig;
 use crate::vmm_config::instance_info::InstanceInfo;
-use polly::event_manager::EventManager;
-use utils::terminal::Terminal;
-
-const VMM_ERR_EXIT: i32 = 42;
+use crate::{EventManager, Vmm};
 
 pub fn create_vmm(_kernel_image: Option<&str>, is_diff: bool) -> (Arc<Mutex<Vmm>>, EventManager) {
     let mut event_manager = EventManager::new().unwrap();
@@ -58,29 +52,4 @@ pub fn default_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager
 #[cfg(target_arch = "x86_64")]
 pub fn dirty_tracking_vmm(kernel_image: Option<&str>) -> (Arc<Mutex<Vmm>>, EventManager) {
     create_vmm(kernel_image, true)
-}
-
-pub fn wait_vmm_child_process(vmm_pid: i32) {
-    // Parent process: wait for the vmm to exit.
-    let mut vmm_status: i32 = -1;
-    let pid_done = unsafe { libc::waitpid(vmm_pid, &mut vmm_status, 0) };
-    assert_eq!(pid_done, vmm_pid);
-    restore_stdin();
-    // If any panics occurred, its exit status will be != 0.
-    assert!(libc::WIFEXITED(vmm_status));
-    assert_eq!(libc::WEXITSTATUS(vmm_status), 0);
-}
-
-pub fn restore_stdin() {
-    let stdin = io::stdin();
-    stdin.lock().set_canon_mode().unwrap();
-}
-
-pub fn set_panic_hook() {
-    panic::set_hook(Box::new(move |_| {
-        restore_stdin();
-        unsafe {
-            libc::exit(VMM_ERR_EXIT);
-        }
-    }));
 }

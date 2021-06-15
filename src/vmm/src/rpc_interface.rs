@@ -11,7 +11,6 @@ use super::{
     builder::build_microvm_for_boot, persist::create_snapshot, persist::restore_from_snapshot,
     resources::VmResources, Vmm,
 };
-use crate::builder::StartMicrovmError;
 use crate::persist::{CreateSnapshotError, LoadSnapshotError};
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config::balloon::{
@@ -31,8 +30,9 @@ use crate::vmm_config::net::{
 use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
 use crate::vmm_config::vsock::{VsockConfigError, VsockDeviceConfig};
 use crate::vmm_config::{self, RateLimiterUpdate};
+use crate::{builder::StartMicrovmError, EventManager};
+use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
-use polly::event_manager::EventManager;
 use seccompiler::BpfThreadMap;
 #[cfg(test)]
 use tests::{
@@ -220,6 +220,9 @@ pub struct PrebootApiController<'a> {
     // Configuring boot specific resources will set this to true.
     // Loading from snapshot will not be allowed once this is true.
     boot_path: bool,
+    // Some PrebootApiRequest errors are irrecoverable and Firecracker
+    // should cleanly teardown if they occur.
+    fatal_error: Option<ExitCode>,
 }
 
 impl<'a> PrebootApiController<'a> {
@@ -237,6 +240,7 @@ impl<'a> PrebootApiController<'a> {
             event_manager,
             built_vmm: None,
             boot_path: false,
+            fatal_error: None,
         }
     }
 
@@ -252,13 +256,19 @@ impl<'a> PrebootApiController<'a> {
         recv_req: F,
         respond: G,
         boot_timer_enabled: bool,
-    ) -> (VmResources, Arc<Mutex<Vmm>>)
+    ) -> result::Result<(VmResources, Arc<Mutex<Vmm>>), ExitCode>
     where
         F: Fn() -> VmmAction,
         G: Fn(ActionResult),
     {
         let mut vm_resources = VmResources::default();
-        vm_resources.boot_timer = boot_timer_enabled;
+        // Silence false clippy warning. Clippy suggests using
+        // VmResources { boot_timer: boot_timer_enabled, ..Default::default() }; but this will
+        // generate build errors because VmResources contains private fields.
+        #[allow(clippy::field_reassign_with_default)]
+        {
+            vm_resources.boot_timer = boot_timer_enabled;
+        }
         let mut preboot_controller = PrebootApiController::new(
             seccomp_filters,
             instance_info,
@@ -271,11 +281,15 @@ impl<'a> PrebootApiController<'a> {
         while preboot_controller.built_vmm.is_none() {
             // Get request, process it, send back the response.
             respond(preboot_controller.handle_preboot_request(recv_req()));
+            // If any fatal errors were encountered, break the loop.
+            if let Some(exit_code) = preboot_controller.fatal_error {
+                return Err(exit_code);
+            }
         }
 
         // Safe to unwrap because previous loop cannot end on None.
         let vmm = preboot_controller.built_vmm.unwrap();
-        (vm_resources, vmm)
+        Ok((vm_resources, vmm))
     }
 
     /// Handles the incoming preboot request and provides a response for it.
@@ -413,6 +427,10 @@ impl<'a> PrebootApiController<'a> {
             return Err(err);
         }
 
+        if load_params.enable_diff_snapshots {
+            self.vm_resources.set_track_dirty_pages(true);
+        }
+
         let result = restore_from_snapshot(
             &self.instance_info,
             &mut self.event_manager,
@@ -432,7 +450,11 @@ impl<'a> PrebootApiController<'a> {
             })
             .map_err(LoadSnapshotError::ResumeMicroVm)
         })
-        .map_err(VmmActionError::LoadSnapshot);
+        .map_err(|e| {
+            // The process is too dirty to recover at this point.
+            self.fatal_error = Some(FC_EXIT_CODE_BAD_CONFIGURATION);
+            VmmActionError::LoadSnapshot(e)
+        });
 
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);
@@ -514,7 +536,7 @@ impl RuntimeApiController {
 
     /// Creates a new `RuntimeApiController`.
     pub fn new(vm_resources: VmResources, vmm: Arc<Mutex<Vmm>>) -> Self {
-        Self { vm_resources, vmm }
+        Self { vmm, vm_resources }
     }
 
     /// Pauses the microVM by pausing the vCPUs.
@@ -576,12 +598,12 @@ impl RuntimeApiController {
     }
 
     fn create_snapshot(&mut self, create_params: &CreateSnapshotParams) -> ActionResult {
-        // Diff snapshots are not allowed on uVMs with vsock device.
         if create_params.snapshot_type == SnapshotType::Diff
-            && self.vm_resources.vsock.get().is_some()
+            && !self.vm_resources.track_dirty_pages()
         {
             return Err(VmmActionError::NotSupported(
-                "Diff snapshots are not allowed on uVMs with vsock device.".to_string(),
+                "Diff snapshots are not allowed on uVMs with dirty page tracking disabled."
+                    .to_string(),
             ));
         }
 
@@ -675,26 +697,26 @@ mod tests {
     impl PartialEq for VmmActionError {
         fn eq(&self, other: &VmmActionError) -> bool {
             use VmmActionError::*;
-            match (self, other) {
-                (BalloonConfig(_), BalloonConfig(_)) => true,
-                (BootSource(_), BootSource(_)) => true,
-                (CreateSnapshot(_), CreateSnapshot(_)) => true,
-                (DriveConfig(_), DriveConfig(_)) => true,
-                (InternalVmm(_), InternalVmm(_)) => true,
-                (LoadSnapshot(_), LoadSnapshot(_)) => true,
-                (LoadSnapshotNotAllowed, LoadSnapshotNotAllowed) => true,
-                (Logger(_), Logger(_)) => true,
-                (MachineConfig(_), MachineConfig(_)) => true,
-                (Metrics(_), Metrics(_)) => true,
-                (MmdsConfig(_), MmdsConfig(_)) => true,
-                (NetworkConfig(_), NetworkConfig(_)) => true,
-                (NotSupported(_), NotSupported(_)) => true,
-                (OperationNotSupportedPostBoot, OperationNotSupportedPostBoot) => true,
-                (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot) => true,
-                (StartMicrovm(_), StartMicrovm(_)) => true,
-                (VsockConfig(_), VsockConfig(_)) => true,
-                _ => false,
-            }
+            matches!(
+                (self, other),
+                (BalloonConfig(_), BalloonConfig(_))
+                    | (BootSource(_), BootSource(_))
+                    | (CreateSnapshot(_), CreateSnapshot(_))
+                    | (DriveConfig(_), DriveConfig(_))
+                    | (InternalVmm(_), InternalVmm(_))
+                    | (LoadSnapshot(_), LoadSnapshot(_))
+                    | (LoadSnapshotNotAllowed, LoadSnapshotNotAllowed)
+                    | (Logger(_), Logger(_))
+                    | (MachineConfig(_), MachineConfig(_))
+                    | (Metrics(_), Metrics(_))
+                    | (MmdsConfig(_), MmdsConfig(_))
+                    | (NetworkConfig(_), NetworkConfig(_))
+                    | (NotSupported(_), NotSupported(_))
+                    | (OperationNotSupportedPostBoot, OperationNotSupportedPostBoot)
+                    | (OperationNotSupportedPreBoot, OperationNotSupportedPreBoot)
+                    | (StartMicrovm(_), StartMicrovm(_))
+                    | (VsockConfig(_), VsockConfig(_))
+            )
         }
     }
 
@@ -727,6 +749,14 @@ mod tests {
             }
             self.balloon_config_called = true;
             Ok(BalloonConfig::default())
+        }
+
+        pub fn track_dirty_pages(&self) -> bool {
+            self.vm_config().track_dirty_pages
+        }
+
+        pub fn set_track_dirty_pages(&mut self, dirty_page_tracking: bool) {
+            self.vm_config.track_dirty_pages = dirty_page_tracking;
         }
 
         pub fn set_vm_config(&mut self, machine_config: &VmConfig) -> Result<(), VmConfigError> {
@@ -973,8 +1003,10 @@ mod tests {
 
     // Forces error and validates error kind against expected.
     fn check_preboot_request_err(request: VmmAction, expected_err: VmmActionError) {
-        let mut vm_resources = MockVmRes::default();
-        vm_resources.force_errors = true;
+        let mut vm_resources = MockVmRes {
+            force_errors: true,
+            ..Default::default()
+        };
         let mut evmgr = EventManager::new().unwrap();
         let seccomp_filters = BpfThreadMap::new();
         let mut preboot = default_preboot(&mut vm_resources, &mut evmgr, &seccomp_filters);
@@ -1288,7 +1320,8 @@ mod tests {
             commands,
             expected_resp,
             false,
-        );
+        )
+        .unwrap();
     }
 
     fn check_runtime_request<F>(request: VmmAction, check_success: F)

@@ -576,7 +576,7 @@ def _test_balloon_snapshot(context):
     logger = context.custom['logger']
     vm_builder = context.custom['builder']
     snapshot_type = context.custom['snapshot_type']
-    enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
+    diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
                 .format(snapshot_type,
@@ -586,15 +586,16 @@ def _test_balloon_snapshot(context):
 
     # Create a rw copy artifact.
     root_disk = context.disk.copy()
+
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
-    basevm = vm_builder.build(kernel=context.kernel,
-                              disks=[root_disk],
-                              ssh_key=ssh_key,
-                              config=context.microvm,
-                              enable_diff_snapshots=enable_diff_snapshots)
-
+    vm_instance = vm_builder.build(kernel=context.kernel,
+                                   disks=[root_disk],
+                                   ssh_key=ssh_key,
+                                   config=context.microvm,
+                                   diff_snapshots=diff_snapshots)
+    basevm = vm_instance.vm
     copy_util_to_rootfs(root_disk.local_path(), 'fillmem')
 
     # Add a memory balloon with stats enabled.
@@ -643,13 +644,15 @@ def _test_balloon_snapshot(context):
     logger.info("Load snapshot #{}, mem {}".format(1, snapshot.mem))
     microvm, _ = vm_builder.build_from_snapshot(snapshot,
                                                 True,
-                                                enable_diff_snapshots)
-
+                                                diff_snapshots)
     # Attempt to connect to resumed microvm.
     ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
     # Get the firecracker from snapshot pid, and open an ssh connection.
     firecracker_pid = microvm.jailer_clone_pid
+
+    # Get the stats right after we take a snapshot.
+    stats_after_snap = microvm.balloon.get_stats().json()
 
     # Check memory usage.
     third_reading = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -672,6 +675,17 @@ def _test_balloon_snapshot(context):
     # We only test that the reduction happens.
     assert fourth_reading > fifth_reading
 
+    # Get the stats after we take a snapshot and dirty some memory,
+    # then reclaim it.
+    latest_stats = microvm.balloon.get_stats().json()
+
+    # Ensure the stats are still working after restore and show
+    # that the balloon inflated.
+    assert (
+        stats_after_snap['available_memory'] >
+        latest_stats['available_memory']
+    )
+
     microvm.kill()
 
 
@@ -692,7 +706,7 @@ def _test_snapshot_compatibility(context):
     logger = context.custom['logger']
     vm_builder = context.custom['builder']
     snapshot_type = context.custom['snapshot_type']
-    enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
+    diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
                 .format(snapshot_type,
@@ -705,14 +719,14 @@ def _test_snapshot_compatibility(context):
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
-    microvm = vm_builder.build(
+    vm_instance = vm_builder.build(
         kernel=context.kernel,
         disks=[root_disk],
         ssh_key=ssh_key,
         config=context.microvm,
-        enable_diff_snapshots=enable_diff_snapshots
+        diff_snapshots=diff_snapshots
     )
-
+    microvm = vm_instance.vm
     # Add a memory balloon with stats enabled.
     response = microvm.balloon.put(
         amount_mib=0,
@@ -781,12 +795,13 @@ def _test_memory_scrub(context):
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
-    microvm = vm_builder.build(
+    vm_instance = vm_builder.build(
         kernel=context.kernel,
         disks=[root_disk],
         ssh_key=ssh_key,
         config=context.microvm
     )
+    microvm = vm_instance.vm
 
     copy_util_to_rootfs(root_disk.local_path(), 'fillmem')
     copy_util_to_rootfs(root_disk.local_path(), 'readmem')

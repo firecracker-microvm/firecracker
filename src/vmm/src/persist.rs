@@ -6,7 +6,7 @@
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::builder::{self, StartMicrovmError};
@@ -20,7 +20,7 @@ use crate::device_manager::persist::DeviceStates;
 use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
-use crate::{Error as VmmError, Vmm};
+use crate::{Error as VmmError, EventManager, Vmm};
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
 
@@ -28,7 +28,6 @@ use crate::vmm_config::instance_info::InstanceInfo;
 #[cfg(target_arch = "aarch64")]
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use logger::{error, info};
-use polly::event_manager::EventManager;
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -67,6 +66,8 @@ pub struct MicrovmState {
 /// Errors related to saving and restoring Microvm state.
 #[derive(Debug)]
 pub enum MicrovmStateError {
+    /// Compatibility checks failed.
+    IncompatibleState(String),
     /// Provided MicroVM state is invalid.
     InvalidInput,
     /// Operation not allowed.
@@ -91,6 +92,7 @@ impl Display for MicrovmStateError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::MicrovmStateError::*;
         match self {
+            IncompatibleState(msg) => write!(f, "Compatibility checks failed: {}", msg),
             InvalidInput => write!(f, "Provided MicroVM state is invalid."),
             NotAllowed(msg) => write!(f, "Operation not allowed: {}", msg),
             RestoreDevices(err) => write!(f, "Cannot restore devices. Error: {:?}", err),
@@ -108,27 +110,21 @@ impl Display for MicrovmStateError {
 #[derive(Debug)]
 pub enum CreateSnapshotError {
     /// Failed to get dirty bitmap.
-    DirtyBitmap,
+    DirtyBitmap(VmmError),
     /// Invalid microVM version format
     InvalidVersionFormat,
     /// MicroVM version does not support snapshot.
     UnsupportedVersion,
-    /// Failed to save VM state.
-    InvalidVmState(vstate::vm::Error),
     /// Failed to write memory to snapshot.
     Memory(memory_snapshot::Error),
     /// Failed to open memory backing file.
-    MemoryBackingFile(io::Error),
-    /// Failed to flush memory backing file contents.
-    MemoryFileFlush(io::Error),
+    MemoryBackingFile(&'static str, io::Error),
     /// Failed to save MicrovmState.
     MicrovmState(MicrovmStateError),
     /// Failed to serialize microVM state.
     SerializeMicrovmState(snapshot::Error),
     /// Failed to open the snapshot backing file.
-    SnapshotBackingFile(io::Error),
-    /// Failed to flush the snapshot backing file.
-    SnapshotFileFlush(io::Error),
+    SnapshotBackingFile(&'static str, io::Error),
     #[cfg(target_arch = "x86_64")]
     /// Number of devices exceeds the maximum supported devices for the snapshot data version.
     TooManyDevices(usize),
@@ -138,20 +134,27 @@ impl Display for CreateSnapshotError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::CreateSnapshotError::*;
         match self {
-            DirtyBitmap => write!(f, "Cannot get dirty bitmap"),
-            InvalidVersionFormat => write!(f, "Invalid microVM version format."),
+            DirtyBitmap(err) => write!(f, "Cannot get dirty bitmap: {}", err),
+            InvalidVersionFormat => write!(f, "Invalid microVM version format"),
             UnsupportedVersion => write!(
                 f,
                 "Cannot translate microVM version to snapshot data version",
             ),
-            InvalidVmState(err) => write!(f, "Cannot save Vm state. Error: {:?}", err),
-            Memory(err) => write!(f, "Cannot write memory file: {:?}", err),
-            MemoryBackingFile(err) => write!(f, "Cannot open memory file: {:?}", err),
-            MemoryFileFlush(err) => write!(f, "Cannot flush memory file contents: {:?}", err),
-            MicrovmState(err) => write!(f, "Cannot save microvm state: {}", err),
-            SerializeMicrovmState(err) => write!(f, "Cannot serialize MicrovmState: {:?}", err),
-            SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {:?}", err),
-            SnapshotFileFlush(err) => write!(f, "Cannot flush snapshot file: {:?}", err),
+            Memory(err) => write!(f, "Cannot write memory file: {}", err),
+            MemoryBackingFile(action, err) => write!(
+                f,
+                "Cannot perform {} on the memory backing file: {}",
+                action, err
+            ),
+            MicrovmState(err) => write!(f, "Cannot save the microVM state: {}", err),
+            SerializeMicrovmState(err) => {
+                write!(f, "Cannot serialize the microVM state: {:?}", err)
+            }
+            SnapshotBackingFile(action, err) => write!(
+                f,
+                "Cannot perform {} on the snapshot backing file: {}",
+                action, err
+            ),
             #[cfg(target_arch = "x86_64")]
             TooManyDevices(val) => write!(
                 f,
@@ -177,11 +180,9 @@ pub enum LoadSnapshotError {
     /// Failed to resume Vm after loading snapshot.
     ResumeMicroVm(VmmError),
     /// Failed to open the snapshot backing file.
-    SnapshotBackingFile(io::Error),
-    /// Failed to retrieve the metadata of the snapshot backing file.
-    SnapshotBackingFileMetadata(io::Error),
+    SnapshotBackingFile(&'static str, io::Error),
     /// Snapshot cpu vendor differs than host cpu vendor.
-    CpuVendorMismatch(String),
+    CpuVendorCheck(String),
     /// Snapshot failed sanity checks.
     InvalidSnapshot(String),
 }
@@ -192,12 +193,21 @@ impl Display for LoadSnapshotError {
         match self {
             BuildMicroVm(err) => write!(f, "Cannot build a microVM from snapshot: {}", err),
             DeserializeMemory(err) => write!(f, "Cannot deserialize memory: {}", err),
-            DeserializeMicrovmState(err) => write!(f, "Cannot deserialize MicrovmState: {:?}", err),
-            MemoryBackingFile(err) => write!(f, "Cannot open memory file: {}", err),
-            ResumeMicroVm(err) => write!(f, "Failed to resume Vm after loading snapshot: {}", err),
-            SnapshotBackingFile(err) => write!(f, "Cannot open snapshot file: {}", err),
-            SnapshotBackingFileMetadata(err) => write!(f, "Cannot retrieve file metadata: {}", err),
-            CpuVendorMismatch(err) => write!(f, "Snapshot cpu vendor mismatch: {}", err),
+            DeserializeMicrovmState(err) => {
+                write!(f, "Cannot deserialize the microVM state: {:?}", err)
+            }
+            MemoryBackingFile(err) => write!(f, "Cannot open the memory file: {}", err),
+            ResumeMicroVm(err) => write!(
+                f,
+                "Failed to resume microVM after loading snapshot: {}",
+                err
+            ),
+            SnapshotBackingFile(action, err) => write!(
+                f,
+                "Cannot perform {} on the snapshot backing file: {}",
+                action, err
+            ),
+            CpuVendorCheck(err) => write!(f, "CPU vendor check failed: {}", err),
             InvalidSnapshot(err) => write!(f, "Snapshot sanity check failed: {}", err),
         }
     }
@@ -230,7 +240,7 @@ pub fn create_snapshot(
 
 fn snapshot_state_to_file(
     microvm_state: &MicrovmState,
-    snapshot_path: &PathBuf,
+    snapshot_path: &Path,
     snapshot_data_version: u16,
     version_map: VersionMap,
 ) -> std::result::Result<(), CreateSnapshotError> {
@@ -239,19 +249,23 @@ fn snapshot_state_to_file(
         .create(true)
         .write(true)
         .open(snapshot_path)
-        .map_err(SnapshotBackingFile)?;
+        .map_err(|e| SnapshotBackingFile("open", e))?;
 
     let mut snapshot = Snapshot::new(version_map, snapshot_data_version);
     snapshot
         .save(&mut snapshot_file, microvm_state)
         .map_err(SerializeMicrovmState)?;
-    snapshot_file.flush().map_err(SnapshotFileFlush)?;
-    snapshot_file.sync_all().map_err(SnapshotFileFlush)
+    snapshot_file
+        .flush()
+        .map_err(|e| SnapshotBackingFile("flush", e))?;
+    snapshot_file
+        .sync_all()
+        .map_err(|e| SnapshotBackingFile("sync_all", e))
 }
 
 fn snapshot_memory_to_file(
     vmm: &Vmm,
-    mem_file_path: &PathBuf,
+    mem_file_path: &Path,
     snapshot_type: &SnapshotType,
 ) -> std::result::Result<(), CreateSnapshotError> {
     use self::CreateSnapshotError::*;
@@ -260,24 +274,25 @@ fn snapshot_memory_to_file(
         .create(true)
         .truncate(true)
         .open(mem_file_path)
-        .map_err(MemoryBackingFile)?;
+        .map_err(|e| MemoryBackingFile("open", e))?;
 
     // Set the length of the file to the full size of the memory area.
     let mem_size_mib = mem_size_mib(vmm.guest_memory());
     file.set_len((mem_size_mib * 1024 * 1024) as u64)
-        .map_err(MemoryBackingFile)?;
+        .map_err(|e| MemoryBackingFile("set_length", e))?;
 
     match snapshot_type {
         SnapshotType::Diff => {
-            let dirty_bitmap = vmm.get_dirty_bitmap().map_err(|_| DirtyBitmap)?;
+            let dirty_bitmap = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
             vmm.guest_memory()
                 .dump_dirty(&mut file, &dirty_bitmap)
                 .map_err(Memory)
         }
         SnapshotType::Full => vmm.guest_memory().dump(&mut file).map_err(Memory),
     }?;
-    file.flush().map_err(MemoryFileFlush)?;
-    file.sync_all().map_err(MemoryFileFlush)
+    file.flush().map_err(|e| MemoryBackingFile("flush", e))?;
+    file.sync_all()
+        .map_err(|e| MemoryBackingFile("sync_all", e))
 }
 
 /// Validate the microVM version and translate it to its corresponding snapshot data format.
@@ -303,26 +318,26 @@ pub fn get_snapshot_data_version(
 
 /// Validates that snapshot CPU vendor matches the host CPU vendor.
 #[cfg(target_arch = "x86_64")]
-pub fn validate_x86_64_cpu_vendor(
+pub fn validate_cpu_vendor(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<(), LoadSnapshotError> {
     let host_vendor_id = get_vendor_id_from_host().map_err(|_| {
-        LoadSnapshotError::CpuVendorMismatch("Failed to read vendor from CPUID.".to_owned())
+        LoadSnapshotError::CpuVendorCheck("Failed to read vendor from host.".to_owned())
     })?;
 
     let snapshot_vendor_id = get_vendor_id_from_cpuid(&microvm_state.vcpu_states[0].cpuid)
         .map_err(|_| {
             error!("Snapshot CPU vendor is missing.");
-            LoadSnapshotError::CpuVendorMismatch("Failed to read vendor from CPUID.".to_owned())
+            LoadSnapshotError::CpuVendorCheck("Failed to read vendor from CPUID.".to_owned())
         })?;
 
     if host_vendor_id != snapshot_vendor_id {
         let error_string = format!(
-            "Host CPU vendor id: {:?}, Snapshot CPU vendor id: {:?}",
+            "Host CPU vendor id: {:?} differs from the snapshotted one: {:?}",
             &host_vendor_id, &snapshot_vendor_id
         );
         error!("{}", error_string);
-        return Err(LoadSnapshotError::CpuVendorMismatch(error_string));
+        return Err(LoadSnapshotError::CpuVendorCheck(error_string));
     } else {
         info!("Snapshot CPU vendor id: {:?}", &snapshot_vendor_id);
     }
@@ -335,23 +350,23 @@ pub fn validate_x86_64_cpu_vendor(
 ///
 /// The manufacturer ID for the Snapshot is taken from each VCPU state.
 #[cfg(target_arch = "aarch64")]
-pub fn validate_aarch64_cpu_manufacturer_id(
+pub fn validate_cpu_manufacturer_id(
     microvm_state: &MicrovmState,
 ) -> std::result::Result<(), LoadSnapshotError> {
     let host_man_id = get_manufacturer_id_from_host()
-        .map_err(|e| LoadSnapshotError::CpuVendorMismatch(e.to_string()))?;
+        .map_err(|e| LoadSnapshotError::CpuVendorCheck(e.to_string()))?;
 
     for state in &microvm_state.vcpu_states {
         let state_man_id = get_manufacturer_id_from_state(state.regs.as_slice())
-            .map_err(|e| LoadSnapshotError::CpuVendorMismatch(e.to_string()))?;
+            .map_err(|e| LoadSnapshotError::CpuVendorCheck(e.to_string()))?;
 
         if host_man_id != state_man_id {
             let error_string = format!(
-                "Host CPU manufacturer ID: {:?}, Snapshot CPU manufacturer ID: {:?}",
+                "Host CPU manufacturer ID: {} differs from snapshotted one: {}",
                 &host_man_id, &state_man_id
             );
             error!("{}", error_string);
-            return Err(LoadSnapshotError::CpuVendorMismatch(error_string));
+            return Err(LoadSnapshotError::CpuVendorCheck(error_string));
         } else {
             info!("Snapshot CPU manufacturer ID: {:?}", &state_man_id);
         }
@@ -383,9 +398,9 @@ pub fn snapshot_state_sanity_check(
     }
 
     #[cfg(target_arch = "x86_64")]
-    validate_x86_64_cpu_vendor(&microvm_state)?;
+    validate_cpu_vendor(&microvm_state)?;
     #[cfg(target_arch = "aarch64")]
-    validate_aarch64_cpu_manufacturer_id(&microvm_state)?;
+    validate_cpu_manufacturer_id(&microvm_state)?;
 
     Ok(())
 }
@@ -422,20 +437,20 @@ pub fn restore_from_snapshot(
 }
 
 fn snapshot_state_from_file(
-    snapshot_path: &PathBuf,
+    snapshot_path: &Path,
     version_map: VersionMap,
 ) -> std::result::Result<MicrovmState, LoadSnapshotError> {
-    use self::LoadSnapshotError::{
-        DeserializeMicrovmState, SnapshotBackingFile, SnapshotBackingFileMetadata,
-    };
-    let mut snapshot_reader = File::open(snapshot_path).map_err(SnapshotBackingFile)?;
-    let metadata = std::fs::metadata(snapshot_path).map_err(SnapshotBackingFileMetadata)?;
+    use self::LoadSnapshotError::{DeserializeMicrovmState, SnapshotBackingFile};
+    let mut snapshot_reader =
+        File::open(snapshot_path).map_err(|e| SnapshotBackingFile("open", e))?;
+    let metadata = std::fs::metadata(snapshot_path)
+        .map_err(|e| SnapshotBackingFile("metadata retrieval", e))?;
     let snapshot_len = metadata.len() as usize;
     Snapshot::load(&mut snapshot_reader, snapshot_len, version_map).map_err(DeserializeMicrovmState)
 }
 
 fn guest_memory_from_file(
-    mem_file_path: &PathBuf,
+    mem_file_path: &Path,
     mem_state: &GuestMemoryState,
     track_dirty_pages: bool,
 ) -> std::result::Result<GuestMemoryMmap, LoadSnapshotError> {
@@ -475,6 +490,8 @@ mod tests {
         default_kernel_cmdline, default_vmm, insert_balloon_device, insert_block_devices,
         insert_net_device, insert_vsock_device, CustomBlockConfig,
     };
+    #[cfg(target_arch = "aarch64")]
+    use crate::construct_kvm_mpidrs;
     use crate::memory_snapshot::SnapshotMemory;
     use crate::version_map::{FC_VERSION_TO_SNAP_VERSION, VERSION_MAP};
     use crate::vmm_config::balloon::BalloonDeviceConfig;
@@ -483,7 +500,6 @@ mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::Vmm;
 
-    use polly::event_manager::EventManager;
     use snapshot::Persist;
     use utils::{errno, tempfile::TempFile};
 
@@ -553,14 +569,16 @@ mod tests {
         assert!(states.balloon_device.is_some());
 
         let memory_state = vmm.guest_memory().describe();
-
+        let vcpu_states = vec![VcpuState::default()];
+        #[cfg(target_arch = "aarch64")]
+        let mpidrs = construct_kvm_mpidrs(&vcpu_states);
         let microvm_state = MicrovmState {
             device_states: states,
             memory_state,
-            vcpu_states: vec![VcpuState::default()],
+            vcpu_states,
             vm_info: VmInfo { mem_size_mib: 1u64 },
             #[cfg(target_arch = "aarch64")]
-            vm_state: vmm.vm.save_state(&[1]).unwrap(),
+            vm_state: vmm.vm.save_state(&mpidrs).unwrap(),
             #[cfg(target_arch = "x86_64")]
             vm_state: vmm.vm.save_state().unwrap(),
         };
@@ -634,7 +652,7 @@ mod tests {
         use crate::persist::CreateSnapshotError::*;
         use vm_memory::GuestMemoryError;
 
-        let err = DirtyBitmap;
+        let err = DirtyBitmap(VmmError::DirtyBitmap(kvm_ioctls::Error::new(20)));
         let _ = format!("{}{:?}", err, err);
 
         let err = InvalidVersionFormat;
@@ -643,18 +661,12 @@ mod tests {
         let err = UnsupportedVersion;
         let _ = format!("{}{:?}", err, err);
 
-        let err = InvalidVmState(vstate::vm::Error::NotEnoughMemorySlots);
-        let _ = format!("{}{:?}", err, err);
-
         let err = Memory(memory_snapshot::Error::WriteMemory(
             GuestMemoryError::HostAddressNotAvailable,
         ));
         let _ = format!("{}{:?}", err, err);
 
-        let err = MemoryBackingFile(io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = MemoryFileFlush(io::Error::from_raw_os_error(0));
+        let err = MemoryBackingFile("open", io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
         let err = MicrovmState(MicrovmStateError::UnexpectedVcpuResponse);
@@ -663,10 +675,7 @@ mod tests {
         let err = SerializeMicrovmState(snapshot::Error::InvalidMagic(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = SnapshotBackingFile(io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = SnapshotFileFlush(io::Error::from_raw_os_error(0));
+        let err = SnapshotBackingFile("open", io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
         #[cfg(target_arch = "x86_64")]
@@ -694,13 +703,10 @@ mod tests {
         let err = MemoryBackingFile(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = SnapshotBackingFile(io::Error::from_raw_os_error(0));
+        let err = SnapshotBackingFile("open", io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
-        let err = SnapshotBackingFileMetadata(io::Error::from_raw_os_error(0));
-        let _ = format!("{}{:?}", err, err);
-
-        let err = CpuVendorMismatch(String::new());
+        let err = CpuVendorCheck(String::new());
         let _ = format!("{}{:?}", err, err);
     }
 

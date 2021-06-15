@@ -10,7 +10,7 @@ use crate::virtio::{
     VirtioDevice, Vsock, VsockBackend, VsockChannel, VsockEpollListener, VsockError,
     VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
 };
-use utils::epoll::{EpollEvent, EventSet};
+use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
@@ -57,14 +57,17 @@ impl Default for TestBackend {
 }
 
 impl VsockChannel for TestBackend {
-    fn recv_pkt(&mut self, _pkt: &mut VsockPacket) -> Result<()> {
+    fn recv_pkt(&mut self, pkt: &mut VsockPacket, mem: &GuestMemoryMmap) -> Result<()> {
         let cool_buf = [0xDu8, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF];
         match self.rx_err.take() {
             None => {
-                if let Some(buf) = _pkt.buf_mut() {
-                    for i in 0..buf.len() {
-                        buf[i] = cool_buf[i % cool_buf.len()];
-                    }
+                let buf_size = pkt.buf_size();
+                if buf_size > 0 {
+                    let buf: Vec<u8> = (0..buf_size)
+                        .map(|i| cool_buf[i % cool_buf.len()])
+                        .collect();
+                    pkt.read_at_offset_from(mem, 0, &mut std::io::Cursor::new(buf), buf_size)
+                        .unwrap();
                 }
                 self.rx_ok_cnt += 1;
                 Ok(())
@@ -73,7 +76,7 @@ impl VsockChannel for TestBackend {
         }
     }
 
-    fn send_pkt(&mut self, _pkt: &VsockPacket) -> Result<()> {
+    fn send_pkt(&mut self, _pkt: &VsockPacket, _mem: &GuestMemoryMmap) -> Result<()> {
         match self.tx_err.take() {
             None => {
                 self.tx_ok_cnt += 1;
@@ -183,13 +186,11 @@ impl<'a> EventHandlerContext<'a> {
 
     pub fn signal_txq_event(&mut self) {
         self.device.queue_events[TXQ_INDEX].write(1).unwrap();
-        self.device
-            .handle_txq_event(&EpollEvent::new(EventSet::IN, 0));
+        self.device.handle_txq_event(EventSet::IN);
     }
     pub fn signal_rxq_event(&mut self) {
         self.device.queue_events[RXQ_INDEX].write(1).unwrap();
-        self.device
-            .handle_rxq_event(&EpollEvent::new(EventSet::IN, 0));
+        self.device.handle_rxq_event(EventSet::IN);
     }
 }
 

@@ -474,7 +474,7 @@ mod tests {
         vm.get_preferred_target(&mut kvi).unwrap();
         vcpu.vcpu_init(&kvi).unwrap();
 
-        assert!(setup_boot_regs(&vcpu, 0, 0x0, &mem).is_ok());
+        setup_boot_regs(&vcpu, 0, 0x0, &mem).unwrap();
     }
     #[test]
     fn test_read_mpidr() {
@@ -538,10 +538,10 @@ mod tests {
         );
 
         vcpu.vcpu_init(&kvi).unwrap();
-        assert!(save_core_registers(&vcpu, &mut state).is_ok());
-        assert!(save_system_registers(&vcpu, &mut state).is_ok());
+        save_core_registers(&vcpu, &mut state).unwrap();
+        save_system_registers(&vcpu, &mut state).unwrap();
 
-        assert!(restore_registers(&vcpu, &state).is_ok());
+        restore_registers(&vcpu, &state).unwrap();
         let off = offset__of!(user_pt_regs, pstate);
         let id = arm64_core_reg_id!(KVM_REG_SIZE_U64, off);
         let pstate = vcpu

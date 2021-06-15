@@ -62,10 +62,10 @@ pub fn update_brand_string_entry(
     vm_spec: &VmSpec,
 ) -> Result<(), Error> {
     let brand_string = &vm_spec.brand_string;
-    entry.eax = brand_string.get_reg_for_leaf(entry.function, BsReg::EAX);
-    entry.ebx = brand_string.get_reg_for_leaf(entry.function, BsReg::EBX);
-    entry.ecx = brand_string.get_reg_for_leaf(entry.function, BsReg::ECX);
-    entry.edx = brand_string.get_reg_for_leaf(entry.function, BsReg::EDX);
+    entry.eax = brand_string.get_reg_for_leaf(entry.function, BsReg::Eax);
+    entry.ebx = brand_string.get_reg_for_leaf(entry.function, BsReg::Ebx);
+    entry.ecx = brand_string.get_reg_for_leaf(entry.function, BsReg::Ecx);
+    entry.edx = brand_string.get_reg_for_leaf(entry.function, BsReg::Edx);
 
     Ok(())
 }
@@ -185,7 +185,7 @@ mod tests {
             function: 0x0,
             index: 0,
             flags: 0,
-            eax: *(0 as u32).write_bits_in_range(&eax::CACHE_LEVEL_BITRANGE, cache_level),
+            eax: *(0_u32).write_bits_in_range(&eax::CACHE_LEVEL_BITRANGE, cache_level),
             ebx: 0,
             ecx: 0,
             edx: 0,

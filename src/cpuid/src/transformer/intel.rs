@@ -57,9 +57,9 @@ fn update_extended_topology_entry(
     use crate::cpu_leaf::leaf_0xb::*;
 
     //reset eax, ebx, ecx
-    entry.eax = 0 as u32;
-    entry.ebx = 0 as u32;
-    entry.ecx = 0 as u32;
+    entry.eax = 0_u32;
+    entry.ebx = 0_u32;
+    entry.ecx = 0_u32;
     // EDX bits 31..0 contain x2APIC ID of current logical processor
     // x2APIC increases the size of the APIC ID from 8 bits to 32 bits
     entry.edx = u32::from(vm_spec.cpu_index);
@@ -173,7 +173,7 @@ mod tests {
             function: 0x0,
             index: 0,
             flags: 0,
-            eax: *(0 as u32).write_bits_in_range(&eax::CACHE_LEVEL_BITRANGE, cache_level),
+            eax: *(0_u32).write_bits_in_range(&eax::CACHE_LEVEL_BITRANGE, cache_level),
             ebx: 0,
             ecx: 0,
             edx: 0,

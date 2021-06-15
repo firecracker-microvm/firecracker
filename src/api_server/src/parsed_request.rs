@@ -31,6 +31,7 @@ pub(crate) enum ParsedRequest {
     PatchMMDS(Value),
     PutMMDS(Value),
     Sync(Box<VmmAction>),
+    ShutdownInternal, // !!! not an API, used by shutdown to thread::join the API thread
 }
 
 impl ParsedRequest {
@@ -72,6 +73,7 @@ impl ParsedRequest {
             (Method::Put, "network-interfaces", Some(body)) => {
                 parse_put_net(body, path_tokens.get(1))
             }
+            (Method::Put, "shutdown-internal", None) => Ok(ParsedRequest::ShutdownInternal),
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.get(1)),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
             (Method::Put, _, None) => method_to_error(Method::Put),
@@ -224,10 +226,10 @@ impl std::fmt::Display for Error {
 }
 
 // It's convenient to turn errors into HTTP responses directly.
-impl Into<Response> for Error {
-    fn into(self) -> Response {
-        let msg = ApiServer::json_fault_message(format!("{}", self));
-        match self {
+impl From<Error> for Response {
+    fn from(e: Error) -> Self {
+        let msg = ApiServer::json_fault_message(format!("{}", e));
+        match e {
             Error::Generic(status, _) => ApiServer::json_response(status, msg),
             Error::EmptyID
             | Error::InvalidID
@@ -504,9 +506,11 @@ pub(crate) mod tests {
         assert_eq!(buf.into_inner(), expected_response.as_bytes());
 
         // With Balloon Stats Vmm data.
-        let mut stats = BalloonStats::default();
-        stats.swap_in = Some(1);
-        stats.swap_out = Some(1);
+        let stats = BalloonStats {
+            swap_in: Some(1),
+            swap_out: Some(1),
+            ..Default::default()
+        };
         let mut buf = Cursor::new(vec![0]);
         let response =
             ParsedRequest::convert_to_response(&Ok(VmmData::BalloonStats(stats.clone())));
@@ -803,6 +807,21 @@ pub(crate) mod tests {
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_put_shutdown() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(http_request("PUT", "/shutdown-internal", None).as_bytes())
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        match ParsedRequest::try_from_request(&req).unwrap() {
+            ParsedRequest::ShutdownInternal => (),
+            _ => panic!("wrong parsed request"),
+        };
     }
 
     #[test]

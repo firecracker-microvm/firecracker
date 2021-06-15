@@ -72,7 +72,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG="v28"
+DEVCTR_IMAGE_TAG="v30"
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -141,6 +141,9 @@ CTR_KERNEL_DIR="${CTR_FC_ROOT_DIR}/.kernel"
 # Global options received by $0
 # These options are not command-specific, so we store them as global vars
 OPT_UNATTENDED=false
+
+# Get the target prefix to avoid repeated calls to uname -m
+TARGET_PREFIX="$(uname -m)-unknown-linux-"
 
 DEFAULT_TEST_SESSION_ROOT_PATH=/srv
 DEFAULT_RAMDISK_PATH=/mnt/devtool-ramdisk
@@ -296,10 +299,15 @@ ensure_release_binaries_exist() {
     profile=$2
     firecracker_bin_path="$CARGO_TARGET_DIR/$target/$profile/firecracker"
     jailer_bin_path="$CARGO_TARGET_DIR/$target/$profile/jailer"
+    seccompiler_bin_path="$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler"
 
     # Both binaries must exist for the stripping to be successful.
-    [ -f $firecracker_bin_path ] && [ -f $jailer_bin_path ] || \
-    die "Missing release binaries. Needed files:\n* $firecracker_bin_path\n* $jailer_bin_path."
+    [ -f "$firecracker_bin_path" ] && [ -f "$jailer_bin_path" ] && [ -f "$seccompiler_bin_path" ] || \
+    die "Missing release binaries. Needed files:\n" \
+    "* $firecracker_bin_path\n" \
+    "* $jailer_bin_path\n" \
+    "* $seccompiler_bin_path\n" \
+    "To build the binaries, run:\n\t$0 build --$profile"
 }
 
 # Fix build/ dir permissions after a privileged container run.
@@ -321,6 +329,7 @@ cmd_build_devctr() {
     arch=$(uname -m)
     docker_file_name="Dockerfile.$arch"
     should_update_python_packages=true
+    build_args=""
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -328,6 +337,7 @@ cmd_build_devctr() {
             "-n"|"--no-python-package-update")
                 shift
                 should_update_python_packages=false
+                build_args="--build-arg POETRY_LOCK_PATH=tools/devctr/poetry.lock"
                 ;;
             "--")               { shift; break;     } ;;
             *)
@@ -337,7 +347,7 @@ cmd_build_devctr() {
         shift
     done
 
-    docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$FC_DEVCTR_DIR/$docker_file_name" .
+    docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$FC_DEVCTR_DIR/$docker_file_name" $build_args .
 
     if [ "$should_update_python_packages" = true ]; then
         update_python_package_version
@@ -564,6 +574,13 @@ cmd_help() {
     echo "        Outputs a rust file for each supported arch: src/seccompiler/src/syscall_table/{arch}.rs"
     echo "        Supported architectures: x86_64 and aarch64."
     echo ""
+    echo "    install [-p|--path] [--debug|--release]"
+    echo "      Install firecracker, jailer and seccomp binaries to /usr/local/bin or a given path."
+    echo "      Only the musl linked binaries are supported."
+    echo "        --path                Install binaries to a specified path."
+    echo "        --debug               Install the debug binaries."
+    echo "        --release             Install the release binaries. This is the default."
+    echo ""
     echo "    help"
     echo "        Display this help message."
     echo ""
@@ -594,14 +611,9 @@ cmd_help() {
                                                binaries, logs/metrics FIFOs
                                                and test created device files)."
     echo ""
-    echo "    strip [--target-libc musl|gnu]"
+    echo "    strip"
     echo "        Strip debug symbols from the Firecracker release binaries."
     echo ""
-    echo "        --target-libc musl|gnu   Choose the target libc flavor which determines the"
-    echo "                                 toolchain used to build Firecracker release binaries."
-    echo "                                 Stripping will occur only for the Firecracker release"
-    echo "                                 binaries corresponding to the inferred toolchain. Default"
-    echo "                                 is musl."
 }
 
 # `$0 build` - build Firecracker
@@ -647,7 +659,7 @@ cmd_build() {
         shift
     done
 
-    target="$(uname -m)-unknown-linux-${libc}"
+    target="$TARGET_PREFIX${libc}"
 
     # Check prerequisites
     ensure_devctr
@@ -764,20 +776,12 @@ cmd_distclean() {
 
 cmd_strip() {
     profile="release"
-    libc="musl"
-    target="$(uname -m)-unknown-linux-${libc}"
+    target="$TARGET_PREFIX""musl"
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")  { cmd_help; exit 1;     } ;;
-            "--target-libc")
-                shift
-                [[ "$1" =~ ^(musl|gnu)$ ]] || \
-                    die "Invalid libc: $1. Valid options are \"musl\" and \"gnu\"."
-                libc="$1"
-                target="$(uname -m)-unknown-linux-${libc}"
-                ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
             ;;
@@ -1160,7 +1164,7 @@ check_kernver () {
     {
       exit 1;
     } }') ||
-	say_err "FAILED: Kernel version must be >= $KERN_MAJOR.$KERN_MINOR"
+    say_err "FAILED: Kernel version must be >= $KERN_MAJOR.$KERN_MINOR"
 }
 
 # Check Production Host Setup
@@ -1168,44 +1172,65 @@ check_kernver () {
 
 check_SMT () {
     (grep -q "^forceoff$\|^notsupported$" \
-	  /sys/devices/system/cpu/smt/control) ||
-	say_warn "WARNING: Hyperthreading ENABLED."
+      /sys/devices/system/cpu/smt/control) ||
+    say_warn "WARNING: Hyperthreading ENABLED."
 }
 
 check_KPTI () {
     (grep -q "^Mitigation: PTI$" \
-	  /sys/devices/system/cpu/vulnerabilities/meltdown) || \
-	say_warn "WARNING: KPTI NOT SUPPORTED"
+      /sys/devices/system/cpu/vulnerabilities/meltdown) || \
+    say_warn "WARNING: KPTI NOT SUPPORTED"
 }
 
 check_KSM () {
     (grep -q "^0$" /sys/kernel/mm/ksm/run) || \
-	say_warn "WARNING: KSM ENABLED"
+    say_warn "WARNING: KSM ENABLED"
 }
 
 check_IBPB_IBRS () {
     (grep -q "^Mitigation: Full generic retpoline, IBPB, IBRS_FW$"\
-	  /sys/devices/system/cpu/vulnerabilities/spectre_v2) || \
-	say_warn "WARNING: retpoline, IBPB, IBRS: DISABLED."
+      /sys/devices/system/cpu/vulnerabilities/spectre_v2) || \
+    say_warn "WARNING: retpoline, IBPB, IBRS: DISABLED."
 }
 
 check_L1TF () {
     declare -a CONDITIONS=("Mitigation: PTE Inversion" "VMX: cache flushes")
     for cond in "${CONDITIONS[@]}";
     do (grep -q "$cond" /sys/devices/system/cpu/vulnerabilities/l1tf) ||
-	   say_warn "WARNING: $cond: DISABLED";
+       say_warn "WARNING: $cond: DISABLED";
     done
 }
 
 check_swap () {
     (grep -q "swap.img" /proc/swaps ) && \
-	say_warn "WARNING: SWAP enabled"
+    say_warn "WARNING: SWAP enabled"
+}
+
+check_SSBD () {
+    arch=$(uname -m)
+    if [ "$arch" = "aarch64" ]; then
+        local param="ssbd=force-on"
+    elif [ "$arch" = "x86_64" ]; then
+        local param="spec_store_bypass_disable=on"
+    fi
+
+    ssbd_sysfs_file="/sys/devices/system/cpu/vulnerabilities/spec_store_bypass"
+
+    if [ -f "$ssbd_sysfs_file" ]; then
+        (grep -q "^Vulnerable" $ssbd_sysfs_file) && \
+        say_warn "WARNING: SSBD mitigation is either globally disabled or"\
+            "system does not support mitigation via prctl or seccomp. Try"\
+            "enabling it system-wide, using the \`${param}\` boot parameter."
+    else
+        say_warn "WARNING: SSBD mitigation not supported on this kernel."\
+            "View the prod-host-setup.md for more details."
+    fi
 }
 
 check_vm() {
     if [ $(dmesg | grep -c -i "hypervisor detected") -gt 0 ]; then
         say_warn "WARNING: you are running in a virtual machine." \
-	"Firecracker is not well tested under nested virtualization."
+    "Firecracker is not well tested under nested virtualization."
     fi
 }
 
@@ -1216,7 +1241,7 @@ cmd_checkenv() {
             "-h"|"--help")      { cmd_help; exit 1; } ;;
             *)
                 die "Unknown argument: $1. Please use --help for help."
-		;;
+        ;;
         esac
         shift
     done
@@ -1234,6 +1259,7 @@ cmd_checkenv() {
     check_L1TF
     check_SMT
     check_swap
+    check_SSBD
 }
 
 generate_syscall_table_x86_64() {
@@ -1370,10 +1396,46 @@ EOM
     [ $ret -ne 0 ] && return $ret
 }
 
+cmd_install() {
+    # By default we install release/musl binaries.
+    profile="release"
+    target="$TARGET_PREFIX""musl"
+    install_path="/usr/local/bin"
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help") { cmd_help; exit 1; } ;;
+            "-p"|"--path")
+                shift;
+                install_path=$1;
+                ;;
+            "--debug")      { profile="debug";      } ;;
+            "--release")    { profile="release";    } ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
+    # Check that the binaries exist first
+    ensure_release_binaries_exist $target $profile
+
+    say "Installing firecracker in $install_path"
+    install -m 755 "$CARGO_TARGET_DIR/$target/$profile/firecracker" "$install_path"
+
+    say "Installing jailer in $install_path"
+    install -m 755 "$CARGO_TARGET_DIR/$target/$profile/jailer" "$install_path"
+
+    say "Installing seccomp in $install_path"
+    install -m 755 "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler" "$install_path"
+}
+
 main() {
 
     if [ $# = 0 ]; then
-	die "No command provided. Please use \`$0 help\` for help."
+    die "No command provided. Please use \`$0 help\` for help."
     fi
 
     # Parse main command line args.

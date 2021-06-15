@@ -67,6 +67,7 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
         response = microvm.actions.put(action_type='FlushMetrics')
         assert microvm.api_session.is_status_no_content(response.status_code)
     else:
+        microvm.expect_kill_by_signal = True
         # Ensure that the process was terminated.
         utils.wait_process_termination(firecracker_pid)
         msg = 'Shutting down VM after intercepting signal {}'.format(signum)
@@ -119,6 +120,7 @@ def test_sigxfsz_handler(test_microvm_with_api):
         except ChildProcessError:
             break
 
+    microvm.expect_kill_by_signal = True
     msg = 'Shutting down VM after intercepting signal 25, code 0'
     microvm.check_log_message(msg)
     metric_line = json.loads(metrics_fd.readlines()[0])

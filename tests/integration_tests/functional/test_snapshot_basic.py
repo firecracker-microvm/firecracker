@@ -12,7 +12,6 @@ from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.matrix import TestMatrix, TestContext
-from framework.microvms import VMNano
 from framework.utils import wait_process_termination
 from framework.utils_vsock import make_blob, \
     check_host_connections, check_guest_connections
@@ -62,7 +61,7 @@ def _test_seq_snapshots(context):
     seq_len = context.custom['seq_len']
     vm_builder = context.custom['builder']
     snapshot_type = context.custom['snapshot_type']
-    enable_diff_snapshots = snapshot_type == SnapshotType.DIFF
+    diff_snapshots = snapshot_type == SnapshotType.DIFF
 
     logger.info("Testing {} with microvm: \"{}\", kernel {}, disk {} "
                 .format(snapshot_type,
@@ -75,19 +74,18 @@ def _test_seq_snapshots(context):
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from artifacts.
-    basevm = vm_builder.build(kernel=context.kernel,
-                              disks=[root_disk],
-                              ssh_key=ssh_key,
-                              config=context.microvm,
-                              enable_diff_snapshots=enable_diff_snapshots)
-
+    vm_instance = vm_builder.build(kernel=context.kernel,
+                                   disks=[root_disk],
+                                   ssh_key=ssh_key,
+                                   config=context.microvm,
+                                   diff_snapshots=diff_snapshots)
+    basevm = vm_instance.vm
     # The vsock device is configured for Full snapshots only.
-    if snapshot_type == SnapshotType.FULL:
-        basevm.vsock.put(
-            vsock_id="vsock0",
-            guest_cid=3,
-            uds_path="/{}".format(VSOCK_UDS_PATH)
-        )
+    basevm.vsock.put(
+        vsock_id="vsock0",
+        guest_cid=3,
+        uds_path="/{}".format(VSOCK_UDS_PATH)
+    )
 
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
@@ -96,17 +94,16 @@ def _test_seq_snapshots(context):
     exit_code, _, _ = ssh_connection.execute_command("sync")
     assert exit_code == 0
 
-    if snapshot_type == SnapshotType.FULL:
-        test_fc_session_root_path = context.custom['test_fc_session_root_path']
-        vsock_helper = context.custom['bin_vsock_path']
-        vm_blob_path = "/tmp/vsock/test.blob"
-        # Generate a random data file for vsock.
-        blob_path, blob_hash = make_blob(test_fc_session_root_path)
-        # Copy the data file and a vsock helper to the guest.
-        _copy_vsock_data_to_guest(ssh_connection,
-                                  blob_path,
-                                  vm_blob_path,
-                                  vsock_helper)
+    test_fc_session_root_path = context.custom['test_fc_session_root_path']
+    vsock_helper = context.custom['bin_vsock_path']
+    vm_blob_path = "/tmp/vsock/test.blob"
+    # Generate a random data file for vsock.
+    blob_path, blob_hash = make_blob(test_fc_session_root_path)
+    # Copy the data file and a vsock helper to the guest.
+    _copy_vsock_data_to_guest(ssh_connection,
+                              blob_path,
+                              vm_blob_path,
+                              vsock_helper)
 
     logger.info("Create {} #0.".format(snapshot_type))
     # Create a snapshot builder from a microvm.
@@ -124,21 +121,20 @@ def _test_seq_snapshots(context):
         logger.info("Load snapshot #{}, mem {}".format(i, snapshot.mem))
         microvm, _ = vm_builder.build_from_snapshot(snapshot,
                                                     True,
-                                                    enable_diff_snapshots)
+                                                    diff_snapshots)
 
         # Attempt to connect to resumed microvm.
         ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
-        if snapshot_type == SnapshotType.FULL:
-            # Test vsock guest-initiated connections.
-            path = os.path.join(
-                microvm.path,
-                "{}_{}".format(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
-            )
-            check_guest_connections(microvm, path, vm_blob_path, blob_hash)
-            # Test vsock host-initiated connections.
-            path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
-            check_host_connections(microvm, path, blob_path, blob_hash)
+        # Test vsock guest-initiated connections.
+        path = os.path.join(
+            microvm.path,
+            "{}_{}".format(VSOCK_UDS_PATH, ECHO_SERVER_PORT)
+        )
+        check_guest_connections(microvm, path, vm_blob_path, blob_hash)
+        # Test vsock host-initiated connections.
+        path = os.path.join(microvm.jailer.chroot_path(), VSOCK_UDS_PATH)
+        check_host_connections(microvm, path, blob_path, blob_hash)
 
         # Start a new instance of fio on each iteration.
         _guest_run_fio_iteration(ssh_connection, i)
@@ -173,12 +169,12 @@ def _test_compare_mem_files(context):
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from aftifacts.
-    basevm = vm_builder.build(kernel=context.kernel,
-                              disks=[root_disk],
-                              ssh_key=ssh_key,
-                              config=context.microvm,
-                              enable_diff_snapshots=True)
-
+    vm_instance = vm_builder.build(kernel=context.kernel,
+                                   disks=[root_disk],
+                                   ssh_key=ssh_key,
+                                   config=context.microvm,
+                                   diff_snapshots=True)
+    basevm = vm_instance.vm
     basevm.start()
     ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
 
@@ -213,10 +209,10 @@ def test_patch_drive_snapshot(bin_cloner_path):
 
     vm_builder = MicrovmBuilder(bin_cloner_path)
     snapshot_type = SnapshotType.FULL
-    enable_diff_snapshots = False
+    diff_snapshots = False
 
     # Use a predefined vm instance.
-    vm_instance = VMNano.spawn(bin_cloner_path)
+    vm_instance = vm_builder.build_vm_nano()
     basevm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
@@ -255,7 +251,7 @@ def test_patch_drive_snapshot(bin_cloner_path):
     logger.info("Load snapshot, mem %s", snapshot.mem)
     microvm, _ = vm_builder.build_from_snapshot(snapshot,
                                                 True,
-                                                enable_diff_snapshots)
+                                                diff_snapshots)
     # Attempt to connect to resumed microvm.
     ssh_connection = net_tools.SSHConnection(microvm.ssh_config)
 
@@ -307,7 +303,9 @@ def test_5_full_snapshots(network_config,
 
 
 def test_5_inc_snapshots(network_config,
-                         bin_cloner_path):
+                         bin_cloner_path,
+                         bin_vsock_path,
+                         test_fc_session_root_path):
     """Test scenario: 5 incremental snapshots with disk intensive workload."""
     logger = logging.getLogger("snapshot_sequence")
 
@@ -328,7 +326,9 @@ def test_5_inc_snapshots(network_config,
         'network_config': network_config,
         'logger': logger,
         'snapshot_type': SnapshotType.DIFF,
-        'seq_len': 5
+        'seq_len': 5,
+        'bin_vsock_path': bin_vsock_path,
+        'test_fc_session_root_path': test_fc_session_root_path
     }
 
     # Create the test matrix.
@@ -377,7 +377,7 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
                 response.status_code,
                 response.text)
     assert vm.api_session.is_status_bad_request(response.status_code)
-    assert "Cannot deserialize MicrovmState" in response.text
+    assert "Cannot deserialize the microVM state" in response.text
 
     # Check if FC process is closed
     wait_process_termination(vm.jailer_clone_pid)
@@ -421,7 +421,7 @@ def test_negative_postload_api(bin_cloner_path):
     logger = logging.getLogger("snapshot_api_fail")
 
     vm_builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = VMNano.spawn(bin_cloner_path, diff_snapshots=True)
+    vm_instance = vm_builder.build_vm_nano(diff_snapshots=True)
     basevm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
@@ -471,7 +471,7 @@ def test_negative_snapshot_permissions(bin_cloner_path):
     vm_builder = MicrovmBuilder(bin_cloner_path)
 
     # Use a predefined vm instance.
-    vm_instance = VMNano.spawn(bin_cloner_path)
+    vm_instance = vm_builder.build_vm_nano()
     basevm = vm_instance.vm
     root_disk = vm_instance.disks[0]
     ssh_key = vm_instance.ssh_key
@@ -516,7 +516,7 @@ def test_negative_snapshot_permissions(bin_cloner_path):
         _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
     except AssertionError as error:
         # Check if proper error is returned.
-        assert "Cannot open memory file: Permission denied" in str(error)
+        assert "Cannot open the memory file: Permission denied" in str(error)
     else:
         assert False, "Negative test failed"
 
@@ -527,7 +527,8 @@ def test_negative_snapshot_permissions(bin_cloner_path):
         _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
     except AssertionError as error:
         # Check if proper error is returned.
-        assert "Cannot open snapshot file: Permission denied" in str(error)
+        assert "Cannot perform open on the snapshot backing file:" \
+               " Permission denied" in str(error)
     else:
         assert False, "Negative test failed"
 
@@ -549,7 +550,8 @@ def test_negative_snapshot_permissions(bin_cloner_path):
 
 def test_negative_snapshot_create(bin_cloner_path):
     """Test create snapshot before pause."""
-    vm_instance = VMNano.spawn(bin_cloner_path)
+    vm_builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = vm_builder.build_vm_nano()
     vm = vm_instance.vm
 
     vm.start()
@@ -568,5 +570,10 @@ def test_negative_snapshot_create(bin_cloner_path):
     response = vm.snapshot.create(mem_file_path='memfile',
                                   snapshot_path='statefile',
                                   diff=True)
-    assert "Cannot get dirty bitmap" in response.text
+    msg = "Diff snapshots are not allowed on uVMs with dirty page" \
+          " tracking disabled"
+    assert msg in response.text
+    assert not os.path.exists('statefile')
+    assert not os.path.exists('memfile')
+
     vm.kill()

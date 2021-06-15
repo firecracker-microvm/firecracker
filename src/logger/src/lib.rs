@@ -7,6 +7,8 @@ mod metrics;
 use std::sync::LockResult;
 
 pub use crate::logger::{LoggerError, LOGGER};
+#[cfg(target_arch = "aarch64")]
+pub use crate::metrics::RTCDeviceMetrics;
 pub use crate::metrics::{
     IncMetric, MetricsError, ProcessTimeReporter, SharedIncMetric, SharedStoreMetric, StoreMetric,
     METRICS,

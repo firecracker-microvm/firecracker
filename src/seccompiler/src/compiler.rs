@@ -34,6 +34,8 @@ type Result<T> = std::result::Result<T, Error>;
 /// Errors compiling Filters into BPF.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Error {
+    /// Filter and default actions are equal.
+    IdenticalActions,
     /// Error from the SeccompFilter.
     SeccompFilter(SeccompFilterError),
     /// Invalid syscall name for the given arch.
@@ -45,6 +47,7 @@ impl fmt::Display for Error {
         use self::Error::*;
 
         match *self {
+            IdenticalActions => write!(f, "`filter_action` and `default_action` are equal."),
             SeccompFilter(ref err) => write!(f, "{}", err),
             SyscallName(ref syscall_name, ref arch) => write!(
                 f,
@@ -61,8 +64,6 @@ impl fmt::Display for Error {
 pub(crate) struct SyscallRule {
     /// Name of the syscall.
     syscall: String,
-    /// Optional on-match action.
-    action: Option<SeccompAction>,
     /// Rule conditions.
     #[serde(rename = "args")]
     conditions: Option<Vec<SeccompCondition>>,
@@ -101,6 +102,11 @@ pub(crate) struct Filter {
 impl Filter {
     /// Perform semantic checks after deserialization.
     fn validate(&self) -> Result<()> {
+        // Doesn't make sense to have equal default and on-match actions.
+        if self.default_action == self.filter_action {
+            return Err(Error::IdenticalActions);
+        }
+
         // Validate all `SyscallRule`s.
         self.filter
             .iter()
@@ -175,10 +181,7 @@ impl Compiler {
 
         for syscall_rule in filter.filter {
             let syscall_name = syscall_rule.syscall;
-            let action = match syscall_rule.action {
-                Some(action) => action,
-                None => filter_action.clone(),
-            };
+            let action = filter_action.clone();
             let syscall_nr = self
                 .syscall_table
                 .get_syscall_nr(&syscall_name)
@@ -249,14 +252,9 @@ mod tests {
     }
 
     impl SyscallRule {
-        pub fn new(
-            syscall: String,
-            action: Option<SeccompAction>,
-            conditions: Option<Vec<Cond>>,
-        ) -> SyscallRule {
+        pub fn new(syscall: String, conditions: Option<Vec<Cond>>) -> SyscallRule {
             SyscallRule {
                 syscall,
-                action,
                 conditions,
                 comment: None,
             }
@@ -282,32 +280,28 @@ mod tests {
             SeccompAction::Trap,
             SeccompAction::Allow,
             vec![
-                SyscallRule::new("read".to_string(), Some(SeccompAction::Log), None),
+                SyscallRule::new("read".to_string(), None),
                 SyscallRule::new(
                     "futex".to_string(),
-                    Some(SeccompAction::Log),
                     Some(vec![
-                        Cond::new(2, DWORD, Le, 65).unwrap(),
-                        Cond::new(1, QWORD, Ne, 80).unwrap(),
+                        Cond::new(2, Dword, Le, 65).unwrap(),
+                        Cond::new(1, Qword, Ne, 80).unwrap(),
                     ]),
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
-                    None,
                     Some(vec![
-                        Cond::new(3, QWORD, Gt, 65).unwrap(),
-                        Cond::new(1, QWORD, Lt, 80).unwrap(),
+                        Cond::new(3, Qword, Gt, 65).unwrap(),
+                        Cond::new(1, Qword, Lt, 80).unwrap(),
                     ]),
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
-                    None,
-                    Some(vec![Cond::new(3, QWORD, Ge, 65).unwrap()]),
+                    Some(vec![Cond::new(3, Qword, Ge, 65).unwrap()]),
                 ),
                 SyscallRule::new(
                     "ioctl".to_string(),
-                    None,
-                    Some(vec![Cond::new(3, DWORD, MaskedEq(100), 65).unwrap()]),
+                    Some(vec![Cond::new(3, Dword, MaskedEq(100), 65).unwrap()]),
                 ),
             ],
         );
@@ -317,27 +311,27 @@ mod tests {
             vec![
                 match_syscall(
                     compiler.syscall_table.get_syscall_nr("read").unwrap(),
-                    SeccompAction::Log,
+                    SeccompAction::Allow,
                 ),
                 match_syscall_if(
                     compiler.syscall_table.get_syscall_nr("futex").unwrap(),
                     vec![
                         SeccompRule::new(
                             vec![
-                                Cond::new(2, DWORD, Le, 65).unwrap(),
-                                Cond::new(1, QWORD, Ne, 80).unwrap(),
-                            ],
-                            SeccompAction::Log,
-                        ),
-                        SeccompRule::new(
-                            vec![
-                                Cond::new(3, QWORD, Gt, 65).unwrap(),
-                                Cond::new(1, QWORD, Lt, 80).unwrap(),
+                                Cond::new(2, Dword, Le, 65).unwrap(),
+                                Cond::new(1, Qword, Ne, 80).unwrap(),
                             ],
                             SeccompAction::Allow,
                         ),
                         SeccompRule::new(
-                            vec![Cond::new(3, QWORD, Ge, 65).unwrap()],
+                            vec![
+                                Cond::new(3, Qword, Gt, 65).unwrap(),
+                                Cond::new(1, Qword, Lt, 80).unwrap(),
+                            ],
+                            SeccompAction::Allow,
+                        ),
+                        SeccompRule::new(
+                            vec![Cond::new(3, Qword, Ge, 65).unwrap()],
                             SeccompAction::Allow,
                         ),
                     ],
@@ -345,7 +339,7 @@ mod tests {
                 match_syscall_if(
                     compiler.syscall_table.get_syscall_nr("ioctl").unwrap(),
                     vec![SeccompRule::new(
-                        vec![Cond::new(3, DWORD, MaskedEq(100), 65).unwrap()],
+                        vec![Cond::new(3, Dword, MaskedEq(100), 65).unwrap()],
                         SeccompAction::Allow,
                     )],
                 ),
@@ -365,8 +359,7 @@ mod tests {
 
     #[test]
     // Test the transformation of Filter objects into SeccompFilter objects.
-    // This `basic` alternative version of the make_seccomp_filter method drops argument checks
-    // and rule-level actions.
+    // This `basic` alternative version of the make_seccomp_filter method drops argument checks.
     fn test_make_basic_seccomp_filter() {
         let compiler = Compiler::new(ARCH.try_into().unwrap());
         // Test a well-formed filter. Malformed filters are tested in test_compile_blob().
@@ -374,32 +367,28 @@ mod tests {
             SeccompAction::Trap,
             SeccompAction::Allow,
             vec![
-                SyscallRule::new("read".to_string(), Some(SeccompAction::Log), None),
+                SyscallRule::new("read".to_string(), None),
                 SyscallRule::new(
                     "futex".to_string(),
-                    Some(SeccompAction::Log),
                     Some(vec![
-                        Cond::new(2, DWORD, Le, 65).unwrap(),
-                        Cond::new(1, QWORD, Ne, 80).unwrap(),
+                        Cond::new(2, Dword, Le, 65).unwrap(),
+                        Cond::new(1, Qword, Ne, 80).unwrap(),
                     ]),
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
-                    None,
                     Some(vec![
-                        Cond::new(3, QWORD, Gt, 65).unwrap(),
-                        Cond::new(1, QWORD, Lt, 80).unwrap(),
+                        Cond::new(3, Qword, Gt, 65).unwrap(),
+                        Cond::new(1, Qword, Lt, 80).unwrap(),
                     ]),
                 ),
                 SyscallRule::new(
                     "futex".to_string(),
-                    None,
-                    Some(vec![Cond::new(3, QWORD, Ge, 65).unwrap()]),
+                    Some(vec![Cond::new(3, Qword, Ge, 65).unwrap()]),
                 ),
                 SyscallRule::new(
                     "ioctl".to_string(),
-                    None,
-                    Some(vec![Cond::new(3, DWORD, MaskedEq(100), 65).unwrap()]),
+                    Some(vec![Cond::new(3, Dword, MaskedEq(100), 65).unwrap()]),
                 ),
             ],
         );
@@ -444,7 +433,7 @@ mod tests {
             Filter::new(
                 SeccompAction::Trap,
                 SeccompAction::Allow,
-                vec![SyscallRule::new("wrong_syscall".to_string(), None, None)],
+                vec![SyscallRule::new("wrong_syscall".to_string(), None)],
             ),
         );
 
@@ -456,6 +445,17 @@ mod tests {
             ))
         );
 
+        let mut identical_action_filters = HashMap::new();
+        identical_action_filters.insert(
+            "T1".to_string(),
+            Filter::new(SeccompAction::Allow, SeccompAction::Allow, vec![]),
+        );
+
+        assert_eq!(
+            compiler.compile_blob(identical_action_filters, false),
+            Err(Error::IdenticalActions)
+        );
+
         // Test with correct filters.
         let mut correct_filters = HashMap::new();
         correct_filters.insert(
@@ -464,21 +464,19 @@ mod tests {
                 SeccompAction::Trap,
                 SeccompAction::Allow,
                 vec![
-                    SyscallRule::new("read".to_string(), None, None),
+                    SyscallRule::new("read".to_string(), None),
                     SyscallRule::new(
                         "futex".to_string(),
-                        None,
                         Some(vec![
-                            Cond::new(1, DWORD, Eq, 65).unwrap(),
-                            Cond::new(2, QWORD, Le, 80).unwrap(),
+                            Cond::new(1, Dword, Eq, 65).unwrap(),
+                            Cond::new(2, Qword, Le, 80).unwrap(),
                         ]),
                     ),
                     SyscallRule::new(
                         "futex".to_string(),
-                        None,
                         Some(vec![
-                            Cond::new(3, DWORD, Eq, 65).unwrap(),
-                            Cond::new(2, QWORD, Le, 80).unwrap(),
+                            Cond::new(3, Dword, Eq, 65).unwrap(),
+                            Cond::new(2, Qword, Le, 80).unwrap(),
                         ]),
                     ),
                 ],
@@ -497,6 +495,10 @@ mod tests {
 
     #[test]
     fn test_error_messages() {
+        assert_eq!(
+            format!("{}", Error::IdenticalActions),
+            "`filter_action` and `default_action` are equal."
+        );
         assert_eq!(
             format!(
                 "{}",

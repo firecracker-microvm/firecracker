@@ -18,9 +18,9 @@ pub enum ClockType {
     ThreadCpu,
 }
 
-impl Into<libc::clockid_t> for ClockType {
-    fn into(self) -> libc::clockid_t {
-        match self {
+impl From<ClockType> for libc::clockid_t {
+    fn from(clock_type: ClockType) -> Self {
+        match clock_type {
             ClockType::Monotonic => libc::CLOCK_MONOTONIC,
             ClockType::Real => libc::CLOCK_REALTIME,
             ClockType::ProcessCpu => libc::CLOCK_PROCESS_CPUTIME_ID,

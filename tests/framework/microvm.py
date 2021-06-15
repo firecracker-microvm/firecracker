@@ -144,11 +144,21 @@ class Microvm:
         # External clone/exec tool, because Python can't into clone
         self.bin_cloner_path = bin_cloner_path
 
+        # Flag checked in destructor to see abnormal signal-induced crashes.
+        self.expect_kill_by_signal = False
+
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
         if self.logging_thread is not None:
             self.logging_thread.stop()
+
+        if self.expect_kill_by_signal is False and \
+                "Shutting down VM after intercepting signal" in self.log_data:
+            # Too late to assert at this point, pytest will still report the
+            # test as passed. BUT we can dump full logs for debugging,
+            # as well as an intentional eye-sore in the test report.
+            LOG.error(self.log_data)
 
         if self._jailer.daemonize:
             if self.jailer_clone_pid:
@@ -156,8 +166,11 @@ class Microvm:
                     'kill -9 {}'.format(self.jailer_clone_pid),
                     ignore_return_code=True)
         else:
+            # Killing screen will send SIGHUP to underlying Firecracker.
+            # Needed to avoid false positives in case kill() is called again.
+            self.expect_kill_by_signal = True
             utils.run_cmd(
-                'screen -XS {} kill || true'.format(self._session_name))
+                'kill -9 {} || true'.format(self.screen_pid))
 
         if self._memory_monitor and self._memory_monitor.is_alive():
             self._memory_monitor.signal_stop()
@@ -731,7 +744,7 @@ class Microvm:
         """Configure ssh."""
         self.ssh_config['hostname'] = guest_ip
 
-    def start(self):
+    def start(self, check=True):
         """Start the microvm.
 
         This function has asserts to validate that the microvm boot success.
@@ -743,14 +756,17 @@ class Microvm:
             assert self.started is False
 
         response = self.actions.put(action_type='InstanceStart')
-        assert self._api_session.is_status_no_content(response.status_code), \
-            response.text
 
-        # Check that the VM has started
-        try:
-            assert self.state == "Running"
-        except KeyError:
-            assert self.started is True
+        if check:
+            assert \
+                self._api_session.is_status_no_content(response.status_code), \
+                response.text
+
+            # Check that the VM has started
+            try:
+                assert self.state == "Running"
+            except KeyError:
+                assert self.started is True
 
     def pause_to_snapshot(self,
                           mem_file_path=None,

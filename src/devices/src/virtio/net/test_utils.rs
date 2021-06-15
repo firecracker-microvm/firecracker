@@ -88,7 +88,6 @@ pub enum NetQueue {
 }
 
 pub enum NetEvent {
-    Custom(i32),
     RxQueue,
     RxRateLimiter,
     Tap,
@@ -304,19 +303,19 @@ pub mod test {
         Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
         VIRTQ_DESC_F_WRITE,
     };
+    use event_manager::{EventManager, SubscriberId, SubscriberOps};
     use logger::{IncMetric, METRICS};
     use net_gen::ETH_HLEN;
-    use polly::event_manager::{EventManager, Subscriber};
+    use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
+
     use std::cmp;
     use std::mem;
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::io::AsRawFd;
     use std::sync::{Arc, Mutex, MutexGuard};
-    use utils::epoll::{EpollEvent, EventSet};
-    use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryMmap};
 
     pub struct TestHelper<'a> {
-        pub event_manager: EventManager,
+        pub event_manager: EventManager<Arc<Mutex<Net>>>,
+        pub subscriber_id: SubscriberId,
         pub net: Arc<Mutex<Net>>,
         pub mem: GuestMemoryMmap,
         pub rxq: VirtQueue<'a>,
@@ -342,10 +341,11 @@ pub mod test {
             assign_queues(&mut net, rxq.create_queue(), txq.create_queue());
 
             let net = Arc::new(Mutex::new(net));
-            event_manager.add_subscriber(net.clone()).unwrap();
+            let subscriber_id = event_manager.add_subscriber(net.clone());
 
             Self {
                 event_manager,
+                subscriber_id,
                 net,
                 mem,
                 rxq,
@@ -365,18 +365,13 @@ pub mod test {
         }
 
         pub fn simulate_event(&mut self, event: NetEvent) {
-            let event_fd = match event {
-                NetEvent::Custom(event_fd) => event_fd,
-                NetEvent::RxQueue => self.net().queue_evts[RX_INDEX].as_raw_fd(),
-                NetEvent::RxRateLimiter => self.net().rx_rate_limiter.as_raw_fd(),
-                NetEvent::Tap => self.net().tap.as_raw_fd(),
-                NetEvent::TxQueue => self.net().queue_evts[TX_INDEX].as_raw_fd(),
-                NetEvent::TxRateLimiter => self.net().tx_rate_limiter.as_raw_fd(),
+            match event {
+                NetEvent::RxQueue => self.net().process_rx_queue_event(),
+                NetEvent::RxRateLimiter => self.net().process_rx_rate_limiter_event(),
+                NetEvent::Tap => self.net().process_tap_rx_event(),
+                NetEvent::TxQueue => self.net().process_tx_queue_event(),
+                NetEvent::TxRateLimiter => self.net().process_tx_rate_limiter_event(),
             };
-            self.net.lock().unwrap().process(
-                &EpollEvent::new(EventSet::IN, event_fd as u64),
-                &mut self.event_manager,
-            );
         }
 
         pub fn data_addr(&self) -> u64 {

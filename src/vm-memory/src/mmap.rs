@@ -339,27 +339,15 @@ impl GuestMemoryRegion for GuestRegionMmap {
         self.mapping.file_offset()
     }
 
-    // TODO: This implementation is temporary.
-    // We need to return None here once we refactor vsock.
     unsafe fn as_slice(&self) -> Option<&[u8]> {
-        // This is safe because we mapped the area at addr ourselves, so this slice will not
-        // overflow. However, it is possible to alias.
-        Some(std::slice::from_raw_parts(
-            self.mapping.as_ptr(),
-            self.mapping.size(),
-        ))
+        // We don't use this method.
+        None
     }
 
-    // TODO: This implementation is temporary.
-    // We need to return None here once we refactor vsock.
     #[allow(clippy::mut_from_ref)]
     unsafe fn as_mut_slice(&self) -> Option<&mut [u8]> {
-        // This is safe because we mapped the area at addr ourselves, so this slice will not
-        // overflow. However, it is possible to alias.
-        Some(std::slice::from_raw_parts_mut(
-            self.mapping.as_ptr(),
-            self.mapping.size(),
-        ))
+        // We don't use this method.
+        None
     }
 
     fn get_host_address(&self, addr: MemoryRegionAddress) -> guest_memory::Result<*mut u8> {
@@ -370,15 +358,13 @@ impl GuestMemoryRegion for GuestRegionMmap {
             .map(|addr| self.as_ptr().wrapping_offset(addr.raw_value() as isize))
     }
 
-    // TODO: This implementation is temporary.
-    // We need to return None here once we refactor vsock.
     fn get_slice(
         &self,
-        offset: MemoryRegionAddress,
-        count: usize,
+        _offset: MemoryRegionAddress,
+        _count: usize,
     ) -> guest_memory::Result<VolatileSlice> {
-        let slice = self.mapping.get_slice(offset.raw_value() as usize, count)?;
-        Ok(slice)
+        // We don't use this method.
+        Err(guest_memory::Error::HostAddressNotAvailable)
     }
 
     fn as_volatile_slice(&self) -> guest_memory::Result<VolatileSlice> {
@@ -784,14 +770,14 @@ mod tests {
 
     #[test]
     fn test_bitmap_update_on_write() {
-        let page_size = 4096 as usize;
+        let page_size = 4096_usize;
         let mut mmap =
             GuestRegionMmap::new(MmapRegion::new(page_size * 5).unwrap(), GuestAddress(0x0))
                 .unwrap();
         mmap.enable_dirty_page_tracking();
 
         // check write_obj
-        let sample_val = 0xaa55_aa55_aa55_aa55 as u64;
+        let sample_val = 0xaa55_aa55_aa55_aa55_u64;
         assert!(!mmap.dirty_bitmap().unwrap().is_addr_set(0));
         assert!(mmap.write_obj(sample_val, MemoryRegionAddress(0)).is_ok());
         assert!(mmap.dirty_bitmap().unwrap().is_addr_set(0));
@@ -971,10 +957,7 @@ mod tests {
 
     #[test]
     fn test_overlapping_memory_regions() {
-        let regions_summary = [
-            (GuestAddress(0), 100 as usize),
-            (GuestAddress(99), 100 as usize),
-        ];
+        let regions_summary = [(GuestAddress(0), 100_usize), (GuestAddress(99), 100_usize)];
 
         assert_eq!(
             format!(
@@ -1027,10 +1010,7 @@ mod tests {
 
     #[test]
     fn test_unsorted_memory_regions() {
-        let regions_summary = [
-            (GuestAddress(100), 100 as usize),
-            (GuestAddress(0), 100 as usize),
-        ];
+        let regions_summary = [(GuestAddress(100), 100_usize), (GuestAddress(0), 100_usize)];
 
         assert_eq!(
             format!(
@@ -1083,10 +1063,7 @@ mod tests {
 
     #[test]
     fn test_valid_memory_regions() {
-        let regions_summary = [
-            (GuestAddress(0), 100 as usize),
-            (GuestAddress(100), 100 as usize),
-        ];
+        let regions_summary = [(GuestAddress(0), 100_usize), (GuestAddress(100), 100_usize)];
 
         let guest_mem = GuestMemoryMmap::new();
         assert_eq!(guest_mem.regions.len(), 0);

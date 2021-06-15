@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from framework.microvms import VMNano
+from framework.builder import MicrovmBuilder
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
 import host_tools.network as net_tools
@@ -828,13 +828,6 @@ def test_api_vsock(test_microvm_with_api):
     response = test_microvm.vm.patch(state='Paused')
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    # Diff snapshots should not be allowed on uVMs with vsock device.
-    response = test_microvm.snapshot.create(mem_file_path='memfile',
-                                            snapshot_path='snapsfile',
-                                            diff=True)
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "Diff snapshots are not allowed on uVMs with vsock" in response.text
-
 
 def test_api_balloon(test_microvm_with_ssh_and_balloon):
     """Test balloon related API commands."""
@@ -929,7 +922,8 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
 
 def test_negative_api_lifecycle(bin_cloner_path):
     """Test some vm lifecycle error scenarios."""
-    vm_instance = VMNano.spawn(bin_cloner_path)
+    builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = builder.build_vm_nano()
     basevm = vm_instance.vm
 
     # Try to pause microvm when not running, it must fail.

@@ -112,11 +112,6 @@ if "AMD" not in proc.proc_type():
     collect_ignore = [os.path.join(SCRIPT_FOLDER, "integration_tests/style")]
 
 
-if "AMD" in proc.proc_type():
-    collect_ignore = [os.path.join(
-        SCRIPT_FOLDER, "integration_tests/performance/test_snapshot_perf.py")]
-
-
 def _test_images_s3_bucket():
     """Auxiliary function for getting this session's bucket name."""
     return os.environ.get(
@@ -159,6 +154,12 @@ def init_microvm(root_path, bin_cloner_path,
     # pylint: disable=redefined-outer-name
     # The fixture pattern causes a pylint false positive for that rule.
     microvm_id = str(uuid.uuid4())
+
+    # Update permissions for custom binaries.
+    if fc_binary is not None:
+        os.chmod(fc_binary, 0o555)
+    if jailer_binary is not None:
+        os.chmod(jailer_binary, 0o555)
 
     if fc_binary is None or jailer_binary is None:
         fc_binary, jailer_binary = build_tools.get_firecracker_binaries()

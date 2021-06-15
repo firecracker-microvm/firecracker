@@ -13,10 +13,10 @@ pub enum Error {
 
 /// Register designations used to get/set specific register values within the brand string buffer.
 pub enum Reg {
-    EAX = 0,
-    EBX = 1,
-    ECX = 2,
-    EDX = 3,
+    Eax = 0,
+    Ebx = 1,
+    Ecx = 2,
+    Edx = 3,
 }
 
 const BRAND_STRING_INTEL: &[u8] = b"Intel(R) Xeon(R) Processor";
@@ -112,10 +112,10 @@ impl BrandString {
 
         for leaf in 0x8000_0002..=0x8000_0004 {
             cpuid_regs = unsafe { host_cpuid(leaf) };
-            this.set_reg_for_leaf(leaf, Reg::EAX, cpuid_regs.eax);
-            this.set_reg_for_leaf(leaf, Reg::EBX, cpuid_regs.ebx);
-            this.set_reg_for_leaf(leaf, Reg::ECX, cpuid_regs.ecx);
-            this.set_reg_for_leaf(leaf, Reg::EDX, cpuid_regs.edx);
+            this.set_reg_for_leaf(leaf, Reg::Eax, cpuid_regs.eax);
+            this.set_reg_for_leaf(leaf, Reg::Ebx, cpuid_regs.ebx);
+            this.set_reg_for_leaf(leaf, Reg::Ecx, cpuid_regs.ecx);
+            this.set_reg_for_leaf(leaf, Reg::Edx, cpuid_regs.edx);
         }
 
         let mut len = Self::MAX_LEN;
@@ -222,7 +222,7 @@ impl BrandString {
             FoundFreqUnitSize,
             /// Found the H in 'Hz'.
             FoundH,
-        };
+        }
 
         let mut freq_start = 0;
         let mut decimal_start = 0;
@@ -329,19 +329,19 @@ mod tests {
                 let ecx_offs = (4 * 4) * i + 8;
                 let edx_offs = (4 * 4) * i + 12;
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::EAX),
+                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::Eax),
                     pack_u32(&TEST_STR[eax_offs..(eax_offs + 4)])
                 );
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::EBX),
+                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::Ebx),
                     pack_u32(&TEST_STR[ebx_offs..(ebx_offs + 4)])
                 );
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::ECX),
+                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::Ecx),
                     pack_u32(&TEST_STR[ecx_offs..(ecx_offs + 4)])
                 );
                 assert_eq!(
-                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::EDX),
+                    bstr.get_reg_for_leaf(0x8000_0002 + i as u32, Reg::Edx),
                     pack_u32(&TEST_STR[edx_offs..(edx_offs + 4)])
                 );
             }
@@ -353,8 +353,8 @@ mod tests {
 
         // Test mutable bitwise casting and finding the frequency substring
         //
-        bstr.set_reg_for_leaf(0x8000_0003, Reg::EBX, pack_u32(b"5.20"));
-        bstr.set_reg_for_leaf(0x8000_0003, Reg::ECX, pack_u32(b"GHz "));
+        bstr.set_reg_for_leaf(0x8000_0003, Reg::Ebx, pack_u32(b"5.20"));
+        bstr.set_reg_for_leaf(0x8000_0003, Reg::Ecx, pack_u32(b"GHz "));
         assert_eq!(bstr.find_freq().unwrap(), b"5.20GHz");
 
         let _overflow: [u8; 50] = [b'a'; 50];
@@ -388,10 +388,10 @@ mod tests {
             Ok(bstr) => {
                 for leaf in 0x8000_0002..=0x8000_0004_u32 {
                     let host_regs = unsafe { host_cpuid(leaf) };
-                    assert_eq!(bstr.get_reg_for_leaf(leaf, Reg::EAX), host_regs.eax);
-                    assert_eq!(bstr.get_reg_for_leaf(leaf, Reg::EBX), host_regs.ebx);
-                    assert_eq!(bstr.get_reg_for_leaf(leaf, Reg::ECX), host_regs.ecx);
-                    assert_eq!(bstr.get_reg_for_leaf(leaf, Reg::EDX), host_regs.edx);
+                    assert_eq!(bstr.get_reg_for_leaf(leaf, Reg::Eax), host_regs.eax);
+                    assert_eq!(bstr.get_reg_for_leaf(leaf, Reg::Ebx), host_regs.ebx);
+                    assert_eq!(bstr.get_reg_for_leaf(leaf, Reg::Ecx), host_regs.ecx);
+                    assert_eq!(bstr.get_reg_for_leaf(leaf, Reg::Edx), host_regs.edx);
                 }
             }
             Err(Error::NotSupported) => {

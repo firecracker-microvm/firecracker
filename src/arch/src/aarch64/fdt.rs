@@ -5,16 +5,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
-use libc::{c_char, c_int, c_void};
+use libc::{c_int, c_void};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, NulError};
 use std::fmt::Debug;
 use std::ptr::null;
 use std::{io, result};
 
+use libfdt_bindings::*;
+
 use super::super::DeviceType;
 use super::super::InitrdConfig;
-use super::cache_info::{sysfs_read_caches, CacheInfo, Error as CacheError};
+use super::cache_info::{read_cache_config, CacheEntry};
 use super::get_fdt_addr;
 use super::gic::GICDevice;
 use super::layout::FDT_MAX_SIZE;
@@ -45,21 +47,6 @@ const GIC_FDT_IRQ_TYPE_PPI: u32 = 1;
 const IRQ_TYPE_EDGE_RISING: u32 = 1;
 const IRQ_TYPE_LEVEL_HI: u32 = 4;
 
-// This links to libfdt which handles the creation of the binary blob
-// flattened device tree (fdt) that is passed to the kernel and indicates
-// the hardware configuration of the machine.
-extern "C" {
-    fn fdt_create(buf: *mut c_void, bufsize: c_int) -> c_int;
-    fn fdt_finish_reservemap(fdt: *mut c_void) -> c_int;
-    fn fdt_begin_node(fdt: *mut c_void, name: *const c_char) -> c_int;
-    fn fdt_property(fdt: *mut c_void, name: *const c_char, val: *const c_void, len: c_int)
-        -> c_int;
-    fn fdt_end_node(fdt: *mut c_void) -> c_int;
-    fn fdt_open_into(fdt: *const c_void, buf: *mut c_void, bufsize: c_int) -> c_int;
-    fn fdt_finish(fdt: *const c_void) -> c_int;
-    fn fdt_pack(fdt: *mut c_void) -> c_int;
-}
-
 /// Trait for devices to be added to the Flattened Device Tree.
 pub trait DeviceInfoForFDT {
     /// Returns the address where this device will be loaded.
@@ -84,7 +71,7 @@ pub enum Error {
     /// Failure in calling syscall for terminating this FDT.
     FinishFDTReserveMap(io::Error),
     /// Failure in populating the cache information for the vcpus.
-    ReadCacheInfo(CacheError),
+    ReadCacheInfo(String),
     /// Failure in writing FDT in memory.
     WriteFDTToMemory(GuestMemoryError),
 }
@@ -318,10 +305,11 @@ fn generate_prop64(cells: &[u64]) -> Vec<u8> {
 fn create_cpu_nodes(fdt: &mut Vec<u8>, vcpu_mpidr: &[u64]) -> Result<()> {
     // Since the L1 caches are not shareable among CPUs and they are direct attributes of the
     // cpu in the device tree, we process the L1 and non-L1 caches separately.
-    let mut l1_caches: Vec<CacheInfo> = Vec::new();
-    let mut non_l1_caches: Vec<CacheInfo> = Vec::new();
+    let mut l1_caches: Vec<CacheEntry> = Vec::new();
+    let mut non_l1_caches: Vec<CacheEntry> = Vec::new();
     // We use sysfs for extracting the cache information.
-    sysfs_read_caches(&mut l1_caches, &mut non_l1_caches).map_err(Error::ReadCacheInfo)?;
+    read_cache_config(&mut l1_caches, &mut non_l1_caches)
+        .map_err(|e| Error::ReadCacheInfo(e.to_string()))?;
 
     // See https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/arm/cpus.yaml.
     append_begin_node(fdt, "cpus")?;
@@ -617,7 +605,7 @@ fn create_devices_node<T: DeviceInfoForFDT + Clone + Debug, S: std::hash::BuildH
     for ((device_type, _device_id), info) in dev_info {
         match device_type {
             DeviceType::BootTimer => (), // since it's not a real device
-            DeviceType::RTC => create_rtc_node(fdt, info)?,
+            DeviceType::Rtc => create_rtc_node(fdt, info)?,
             DeviceType::Serial => create_serial_node(fdt, info)?,
             DeviceType::Virtio(_) => {
                 ordered_virtio_device.push(info);
@@ -684,7 +672,7 @@ mod tests {
                 MMIODeviceInfo { addr: LEN, irq: 2 },
             ),
             (
-                (DeviceType::RTC, "rtc".to_string()),
+                (DeviceType::Rtc, "rtc".to_string()),
                 MMIODeviceInfo {
                     addr: 2 * LEN,
                     irq: 3,
@@ -696,7 +684,7 @@ mod tests {
         .collect();
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).unwrap();
+        let gic = create_gic(&vm, 1, None).unwrap();
         assert!(create_fdt(
             &mem,
             vec![0],
@@ -714,8 +702,15 @@ mod tests {
         let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).unwrap();
-        let mut dtb = create_fdt(
+        let gic = create_gic(&vm, 1, None).unwrap();
+
+        let saved_dtb_bytes = match gic.fdt_compatibility() {
+            "arm,gic-v3" => include_bytes!("output_GICv3.dtb"),
+            "arm,gic-400" => include_bytes!("output_GICv2.dtb"),
+            _ => panic!("Unexpected gic version!"),
+        };
+
+        let mut current_dtb_bytes = create_fdt(
             &mem,
             vec![0],
             &CString::new("console=tty0").unwrap(),
@@ -731,25 +726,29 @@ mod tests {
             use std::io::Write;
             use std::path::PathBuf;
             let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let dtb_path = match gic.fdt_compatibility() {
+                "arm,gic-v3" => "output_GICv3.dtb",
+                "arm,gic-400" => ("output_GICv2.dtb"),
+                _ => panic!("Unexpected gic version!"),
+            };
             let mut output = fs::OpenOptions::new()
                 .write(true)
                 .create(true)
-                .open(path.join("src/aarch64/output.dtb"))
+                .open(path.join(format!("src/aarch64/{}", dtb_path)))
                 .unwrap();
-            output.write_all(&dtb).unwrap();
+            output.write_all(&current_dtb_bytes).unwrap();
         }
         */
 
-        let bytes = include_bytes!("output.dtb");
         let pos = 4;
         let val = layout::FDT_MAX_SIZE;
         let mut buf = vec![];
-        buf.extend_from_slice(bytes);
+        buf.extend_from_slice(saved_dtb_bytes);
 
         set_size(&mut buf, pos, val);
-        set_size(&mut dtb, pos, val);
+        set_size(&mut current_dtb_bytes, pos, val);
         let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
-        let generated_fdt = device_tree::DeviceTree::load(&dtb).unwrap();
+        let generated_fdt = device_tree::DeviceTree::load(&current_dtb_bytes).unwrap();
         assert_eq!(
             format!("{:?}", original_fdt),
             format!("{:?}", generated_fdt)
@@ -762,13 +761,20 @@ mod tests {
         let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
-        let gic = create_gic(&vm, 1).unwrap();
+        let gic = create_gic(&vm, 1, None).unwrap();
+
+        let saved_dtb_bytes = match gic.fdt_compatibility() {
+            "arm,gic-v3" => include_bytes!("output_initrd_GICv3.dtb"),
+            "arm,gic-400" => include_bytes!("output_initrd_GICv2.dtb"),
+            _ => panic!("Unexpected gic version!"),
+        };
+
         let initrd = InitrdConfig {
             address: GuestAddress(0x1000_0000),
             size: 0x1000,
         };
 
-        let mut dtb = create_fdt(
+        let mut current_dtb_bytes = create_fdt(
             &mem,
             vec![0],
             &CString::new("console=tty0").unwrap(),
@@ -784,25 +790,29 @@ mod tests {
             use std::io::Write;
             use std::path::PathBuf;
             let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let dtb_path = match gic.fdt_compatibility() {
+                "arm,gic-v3" => "output_initrd_GICv3.dtb",
+                "arm,gic-400" => ("output_initrd_GICv2.dtb"),
+                _ => panic!("Unexpected gic version!"),
+            };
             let mut output = fs::OpenOptions::new()
                 .write(true)
                 .create(true)
-                .open(path.join("src/aarch64/output_with_initrd.dtb"))
+                .open(path.join(format!("src/aarch64/{}", dtb_path)))
                 .unwrap();
-            output.write_all(&dtb).unwrap();
+            output.write_all(&current_dtb_bytes).unwrap();
         }
         */
 
-        let bytes = include_bytes!("output_with_initrd.dtb");
         let pos = 4;
         let val = layout::FDT_MAX_SIZE;
         let mut buf = vec![];
-        buf.extend_from_slice(bytes);
+        buf.extend_from_slice(saved_dtb_bytes);
 
         set_size(&mut buf, pos, val);
-        set_size(&mut dtb, pos, val);
+        set_size(&mut current_dtb_bytes, pos, val);
         let original_fdt = device_tree::DeviceTree::load(&buf).unwrap();
-        let generated_fdt = device_tree::DeviceTree::load(&dtb).unwrap();
+        let generated_fdt = device_tree::DeviceTree::load(&current_dtb_bytes).unwrap();
         assert_eq!(
             format!("{:?}", original_fdt),
             format!("{:?}", generated_fdt)

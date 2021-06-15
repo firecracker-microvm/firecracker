@@ -52,14 +52,16 @@ impl Init {
     where
         F: FnOnce() -> bool,
     {
-        match self
-            .state
-            .compare_and_swap(Self::UNINITIALIZED, Self::INITIALIZING, Ordering::SeqCst)
-        {
-            Self::INITIALIZING => {
+        match self.state.compare_exchange(
+            Self::UNINITIALIZED,
+            Self::INITIALIZING,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Err(Self::INITIALIZING) => {
                 return Err(Error::InitializationInProgress);
             }
-            Self::INITIALIZED => {
+            Err(Self::INITIALIZED) => {
                 return Err(Error::AlreadyInitialized);
             }
             _ => {}

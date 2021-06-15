@@ -1,17 +1,16 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::aarch64::gic::regs::{GicRegState, SimpleReg, VgicRegEngine};
-use crate::aarch64::gic::{Error, Result};
 use kvm_bindings::*;
 use kvm_ioctls::DeviceFd;
 
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
+use crate::aarch64::gic::regs::{SimpleReg, VgicRegEngine, VgicSysRegsState};
+use crate::aarch64::gic::{Error, Result};
 
 const ICC_CTLR_EL1_PRIBITS_SHIFT: u64 = 8;
 const ICC_CTLR_EL1_PRIBITS_MASK: u64 = 7 << ICC_CTLR_EL1_PRIBITS_SHIFT;
 
+// These registers are taken from the kernel. Look for `gic_v3_icc_reg_descs`.
 const SYS_ICC_SRE_EL1: SimpleReg = SimpleReg::vgic_sys_reg(3, 0, 12, 12, 5);
 const SYS_ICC_CTLR_EL1: SimpleReg = SimpleReg::vgic_sys_reg(3, 0, 12, 12, 4);
 const SYS_ICC_IGRPEN0_EL1: SimpleReg = SimpleReg::vgic_sys_reg(3, 0, 12, 12, 6);
@@ -30,6 +29,7 @@ const SYS_ICC_AP1R1_EL1: SimpleReg = SimpleReg::sys_icc_ap1rn_el1(1);
 const SYS_ICC_AP1R2_EL1: SimpleReg = SimpleReg::sys_icc_ap1rn_el1(2);
 const SYS_ICC_AP1R3_EL1: SimpleReg = SimpleReg::sys_icc_ap1rn_el1(3);
 
+// NOTICE: Any changes to this structure require a snapshot version bump.
 static MAIN_VGIC_ICC_REGS: &[SimpleReg] = &[
     SYS_ICC_SRE_EL1,
     SYS_ICC_CTLR_EL1,
@@ -40,6 +40,7 @@ static MAIN_VGIC_ICC_REGS: &[SimpleReg] = &[
     SYS_ICC_BPR1_EL1,
 ];
 
+// NOTICE: Any changes to this structure require a snapshot version bump.
 static AP_VGIC_ICC_REGS: &[SimpleReg] = &[
     SYS_ICC_AP0R0_EL1,
     SYS_ICC_AP0R1_EL1,
@@ -64,7 +65,7 @@ impl SimpleReg {
             | (((op2 as u64) << KVM_REG_ARM64_SYSREG_OP2_SHIFT)
                 & KVM_REG_ARM64_SYSREG_OP2_MASK as u64);
 
-        SimpleReg { offset, size: 8 }
+        SimpleReg::new(offset, 8)
     }
 
     const fn sys_icc_ap0rn_el1(n: u64) -> SimpleReg {
@@ -74,13 +75,6 @@ impl SimpleReg {
     const fn sys_icc_ap1rn_el1(n: u64) -> SimpleReg {
         Self::vgic_sys_reg(3, 0, 12, 9, n)
     }
-}
-
-/// Structure for serializing the state of the Vgic ICC regs
-#[derive(Debug, Default, Versionize)]
-pub struct VgicSysRegsState {
-    main_icc_regs: Vec<GicRegState<u64>>,
-    ap_icc_regs: Vec<Option<GicRegState<u64>>>,
 }
 
 struct VgicSysRegEngine {}
@@ -172,7 +166,7 @@ pub(crate) fn set_icc_regs(fd: &DeviceFd, mpidr: u64, state: &VgicSysRegsState) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::aarch64::gic::create_gic;
+    use crate::aarch64::gic::{create_gic, GICVersion};
     use kvm_ioctls::Kvm;
     use std::os::unix::io::AsRawFd;
 
@@ -181,7 +175,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let _ = vm.create_vcpu(0).unwrap();
-        let gic_fd = create_gic(&vm, 1).expect("Cannot create gic");
+        let gic_fd = create_gic(&vm, 1, Some(GICVersion::GICV3)).expect("Cannot create gic");
 
         let gicr_typer = 123;
         let res = get_icc_regs(&gic_fd.device_fd(), gicr_typer);
@@ -214,5 +208,15 @@ mod tests {
             format!("{:?}", res.unwrap_err()),
             "DeviceAttribute(Error(9), false, 6)"
         );
+    }
+
+    #[test]
+    fn test_icc_constructors() {
+        let sys_reg1 = SimpleReg::vgic_sys_reg(3, 0, 12, 12, 5);
+        let sys_reg2 = SimpleReg::sys_icc_ap0rn_el1(1);
+        let sys_reg3 = SimpleReg::sys_icc_ap1rn_el1(1);
+        assert!(sys_reg1 == SimpleReg::new(50789, 8));
+        assert!(sys_reg2 == SimpleReg::new(50757, 8));
+        assert!(sys_reg3 == SimpleReg::new(50761, 8));
     }
 }

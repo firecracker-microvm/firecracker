@@ -12,6 +12,8 @@ use std::{fmt, io};
 #[cfg(target_arch = "aarch64")]
 use arch::aarch64::DeviceInfoForFDT;
 use arch::DeviceType;
+#[cfg(target_arch = "aarch64")]
+use devices::legacy::RTCDevice;
 use devices::pseudo::BootTimer;
 use devices::virtio::{
     Balloon, Block, MmioTransport, Net, VirtioDevice, TYPE_BALLOON, TYPE_BLOCK, TYPE_NET,
@@ -285,7 +287,7 @@ impl MMIODeviceManager {
     /// otherwise allocate a new MMIO slot for it.
     pub fn register_mmio_rtc(
         &mut self,
-        rtc: Arc<Mutex<devices::legacy::RTC>>,
+        rtc: Arc<Mutex<RTCDevice>>,
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         // Create and attach a new RTC device.
@@ -293,7 +295,7 @@ impl MMIODeviceManager {
         // we do not break snapshot compatibility.
         let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(1)?);
 
-        let identifier = (DeviceType::RTC, DeviceType::RTC.to_string());
+        let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
         self.register_mmio_device(identifier, slot, rtc)
     }
 
@@ -396,34 +398,34 @@ impl MMIODeviceManager {
                 let mut virtio = mmio_dev.locked_device();
                 match virtio_type {
                     TYPE_BALLOON => {
-                        info!("kick balloon {}.", id);
                         let balloon = virtio.as_mut_any().downcast_mut::<Balloon>().unwrap();
                         // If device is activated, kick the balloon queue(s) to make up for any
                         // pending or in-flight epoll events we may have not captured in snapshot.
                         // Stats queue doesn't need kicking as it is notified via a `timer_fd`.
                         if balloon.is_activated() {
+                            info!("kick balloon {}.", id);
                             balloon.process_virtio_queues();
                         }
                     }
                     TYPE_BLOCK => {
-                        info!("kick block {}.", id);
                         let block = virtio.as_mut_any().downcast_mut::<Block>().unwrap();
                         // If device is activated, kick the block queue(s) to make up for any
                         // pending or in-flight epoll events we may have not captured in snapshot.
                         // No need to kick Ratelimiters because they are restored 'unblocked' so
                         // any inflight `timer_fd` events can be safely discarded.
                         if block.is_activated() {
+                            info!("kick block {}.", id);
                             block.process_virtio_queues();
                         }
                     }
                     TYPE_NET => {
-                        info!("kick net {}.", id);
                         let net = virtio.as_mut_any().downcast_mut::<Net>().unwrap();
                         // If device is activated, kick the net queue(s) to make up for any
                         // pending or in-flight epoll events we may have not captured in snapshot.
                         // No need to kick Ratelimiters because they are restored 'unblocked' so
                         // any inflight `timer_fd` events can be safely discarded.
                         if net.is_activated() {
+                            info!("kick net {}.", id);
                             net.process_virtio_queues();
                         }
                     }

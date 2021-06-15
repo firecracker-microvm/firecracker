@@ -527,15 +527,12 @@ impl VirtioDevice for Block {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fs::metadata;
-    use std::os::unix::io::AsRawFd;
     use std::thread;
     use std::time::Duration;
     use std::u32;
 
     use super::*;
     use crate::virtio::queue::tests::*;
-    use polly::event_manager::{EventManager, Subscriber};
-    use utils::epoll::{EpollEvent, EventSet};
     use utils::tempfile::TempFile;
     use vm_memory::GuestAddress;
 
@@ -1097,16 +1094,12 @@ pub(crate) mod tests {
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
-        let mut event_manager = EventManager::new().unwrap();
-        let queue_evt = EpollEvent::new(EventSet::IN, block.queue_evts[0].as_raw_fd() as u64);
-
         // Create bandwidth rate limiter that allows only 80 bytes/s with bucket size of 8 bytes.
         let mut rl = RateLimiter::new(8, 0, 100, 0, 0, 0).unwrap();
         // Use up the budget.
         assert!(rl.consume(8, TokenType::Bytes));
 
         set_rate_limiter(&mut block, rl);
-        let rate_limiter_evt = EpollEvent::new(EventSet::IN, block.rate_limiter.as_raw_fd() as u64);
 
         mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
             .unwrap();
@@ -1122,7 +1115,7 @@ pub(crate) mod tests {
             check_metric_after_block!(
                 &METRICS.block.rate_limiter_throttled_events,
                 1,
-                block.process(&queue_evt, &mut event_manager)
+                block.process_queue_event()
             );
 
             // Assert that limiter is blocked.
@@ -1142,7 +1135,7 @@ pub(crate) mod tests {
             check_metric_after_block!(
                 &METRICS.block.rate_limiter_throttled_events,
                 0,
-                block.process(&rate_limiter_evt, &mut event_manager)
+                block.process_rate_limiter_event()
             );
             // Validate the rate_limiter is no longer blocked.
             assert!(!block.rate_limiter.is_blocked());
@@ -1171,16 +1164,12 @@ pub(crate) mod tests {
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
-        let mut event_manager = EventManager::new().unwrap();
-        let queue_evt = EpollEvent::new(EventSet::IN, block.queue_evts[0].as_raw_fd() as u64);
-
         // Create ops rate limiter that allows only 10 ops/s with bucket size of 1 ops.
         let mut rl = RateLimiter::new(0, 0, 0, 1, 0, 100).unwrap();
         // Use up the budget.
         assert!(rl.consume(1, TokenType::Ops));
 
         set_rate_limiter(&mut block, rl);
-        let rate_limiter_evt = EpollEvent::new(EventSet::IN, block.rate_limiter.as_raw_fd() as u64);
 
         mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
             .unwrap();
@@ -1196,7 +1185,7 @@ pub(crate) mod tests {
             check_metric_after_block!(
                 &METRICS.block.rate_limiter_throttled_events,
                 1,
-                block.process(&queue_evt, &mut event_manager)
+                block.process_queue_event()
             );
 
             // Assert that limiter is blocked.
@@ -1214,7 +1203,7 @@ pub(crate) mod tests {
             check_metric_after_block!(
                 &METRICS.block.rate_limiter_throttled_events,
                 1,
-                block.process(&queue_evt, &mut event_manager)
+                block.process_queue_event()
             );
 
             // Assert that limiter is blocked.
@@ -1234,7 +1223,7 @@ pub(crate) mod tests {
             check_metric_after_block!(
                 &METRICS.block.rate_limiter_throttled_events,
                 0,
-                block.process(&rate_limiter_evt, &mut event_manager)
+                block.process_rate_limiter_event()
             );
             // Validate the rate_limiter is no longer blocked.
             assert!(!block.rate_limiter.is_blocked());

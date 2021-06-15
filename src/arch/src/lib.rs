@@ -43,7 +43,7 @@ pub enum DeviceType {
     Serial,
     /// Device Type: RTC.
     #[cfg(target_arch = "aarch64")]
-    RTC,
+    Rtc,
     /// Device Type: BootTimer.
     BootTimer,
 }
