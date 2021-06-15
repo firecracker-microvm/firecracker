@@ -10,8 +10,8 @@ use std::io::SeekFrom;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{
-    Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
-    GuestMemoryRegion, GuestRegionMmap, MemoryRegionAddress,
+    Bitmap, Bytes, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryMmap,
+    GuestMemoryRegion, MemoryRegionAddress,
 };
 
 use crate::DirtyBitmap;
@@ -69,7 +69,7 @@ pub enum Error {
     /// Cannot create memory.
     CreateMemory(vm_memory::Error),
     /// Cannot create region.
-    CreateRegion(vm_memory::mmap::MmapRegionError),
+    CreateRegion(vm_memory::MmapRegionError),
     /// Cannot fetch system's page size.
     PageSize(errno::Error),
     /// Cannot dump memory.
@@ -126,7 +126,7 @@ impl SnapshotMemory for GuestMemoryMmap {
 
         self.with_regions_mut(|slot, region| {
             let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
-            let firecracker_bitmap = region.dirty_bitmap().unwrap();
+            let firecracker_bitmap = region.bitmap();
             let mut write_size = 0;
             let mut dirty_batch_start: u64 = 0;
 
@@ -134,7 +134,7 @@ impl SnapshotMemory for GuestMemoryMmap {
                 for j in 0..64 {
                     let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
                     let page_offset = ((i * 64) + j) * page_size;
-                    let is_firecracker_page_dirty = firecracker_bitmap.is_addr_set(page_offset);
+                    let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
                     if is_kvm_page_dirty || is_firecracker_page_dirty {
                         // We are at the start of a new batch of dirty pages.
                         if write_size == 0 {
@@ -162,7 +162,9 @@ impl SnapshotMemory for GuestMemoryMmap {
             }
 
             writer_offset += region.len();
-            firecracker_bitmap.reset();
+            if let Some(bitmap) = firecracker_bitmap {
+                bitmap.reset();
+            }
 
             Ok(())
         })
@@ -176,31 +178,21 @@ impl SnapshotMemory for GuestMemoryMmap {
         state: &GuestMemoryState,
         track_dirty_pages: bool,
     ) -> std::result::Result<Self, Error> {
-        let mut mmap_regions = Vec::new();
-        for region in state.regions.iter() {
-            let mmap_region = GuestRegionMmap::build_guarded(
-                Some(FileOffset::new(
-                    file.try_clone().map_err(Error::FileHandle)?,
-                    region.offset,
-                )),
-                region.size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_NORESERVE | libc::MAP_PRIVATE,
-            )
-            .map(|r| {
-                let mut region = GuestRegionMmap::new(r, GuestAddress(region.base_address))?;
-                if track_dirty_pages {
-                    region.enable_dirty_page_tracking();
-                }
-                Ok(region)
-            })
-            .map_err(Error::CreateRegion)?
-            .map_err(Error::CreateMemory)?;
-
-            mmap_regions.push(mmap_region);
-        }
-
-        Self::from_regions(mmap_regions).map_err(Error::CreateMemory)
+        vm_memory::create_guest_memory(
+            &state
+                .regions
+                .iter()
+                .map(|r| {
+                    (
+                        Some(FileOffset::new(file.try_clone().unwrap(), r.offset)),
+                        GuestAddress(r.base_address),
+                        r.size,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            track_dirty_pages,
+        )
+        .map_err(Error::CreateMemory)
     }
 }
 
@@ -281,14 +273,14 @@ mod tests {
 
         // Two regions of two pages each, with a one page gap between them.
         let mem_regions = [
-            (GuestAddress(0), page_size * 2),
-            (GuestAddress(page_size as u64 * 3), page_size * 2),
+            (None, GuestAddress(0), page_size * 2),
+            (None, GuestAddress(page_size as u64 * 3), page_size * 2),
         ];
-        let guest_memory = GuestMemoryMmap::from_ranges_with_tracking(&mem_regions[..]).unwrap();
+        let guest_memory = vm_memory::create_guest_memory(&mem_regions[..], true).unwrap();
         // Check that Firecracker bitmap is clean.
-        let _res: std::result::Result<(), Error> = guest_memory.with_regions(|_, r| {
-            assert!(!r.dirty_bitmap().unwrap().is_bit_set(0));
-            assert!(!r.dirty_bitmap().unwrap().is_bit_set(1));
+        let _res: std::result::Result<(), Error> = guest_memory.iter().try_for_each(|r| {
+            assert!(!r.bitmap().dirty_at(0));
+            assert!(!r.bitmap().dirty_at(1));
             Ok(())
         });
 
