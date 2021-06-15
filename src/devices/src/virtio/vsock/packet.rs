@@ -465,6 +465,10 @@ mod tests {
                 pkt.buf_size(),
                 handler_ctx.guest_txvq.dtable[1].len.get() as usize
             );
+            assert_eq!(
+                pkt.buf_addr.unwrap().0,
+                handler_ctx.guest_txvq.dtable[1].addr.get()
+            );
         }
 
         // Test case: error on write-only hdr descriptor.
@@ -552,6 +556,10 @@ mod tests {
             assert_eq!(
                 pkt.buf_size,
                 handler_ctx.guest_rxvq.dtable[1].len.get() as usize
+            );
+            assert_eq!(
+                pkt.buf_addr.unwrap().0,
+                handler_ctx.guest_rxvq.dtable[1].addr.get()
             );
         }
 
@@ -695,6 +703,40 @@ mod tests {
             assert!(pkt
                 .write_from_offset_to(&test_ctx.mem, offset, &mut buf, count)
                 .is_err());
+        }
+    }
+
+    #[test]
+    fn test_buf_region_addr_edge_cases() {
+        let mut test_ctx = TestContext::new();
+
+        test_ctx.mem = GuestMemoryMmap::from_ranges(&[
+            (GuestAddress(0), 500),
+            (GuestAddress(500), 100),
+            (GuestAddress(600), 100),
+        ])
+        .unwrap();
+
+        let edge_cases = vec![
+            // valid packet, but offset = buf_size
+            (GuestAddress(100), 100, 100, 0),
+            // valid packet, but offset > buf_size
+            (GuestAddress(100), 100, 101, 0),
+            // valid packet, but offset + count > buf_size
+            (GuestAddress(100), 100, 50, 51),
+            // packet that crosses into the Gap
+            (GuestAddress(450), 100, 0, 100),
+            // packet that crosses over the Gap
+            (GuestAddress(450), 200, 0, 200),
+        ];
+        for (buf_addr, buf_size, offset, count) in edge_cases {
+            let pkt = VsockPacket {
+                hdr_addr: GuestAddress(0),
+                hdr: Default::default(),
+                buf_addr: Some(buf_addr),
+                buf_size,
+            };
+            assert!(pkt.buf_region_addr(&test_ctx.mem, offset, count).is_err());
         }
     }
 }
