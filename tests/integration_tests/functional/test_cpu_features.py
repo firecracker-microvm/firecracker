@@ -146,6 +146,35 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     containing all features on a t2/c3 instance and check that the cpuid in
     the guest is an exact match of the template.
     """
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    test_microvm.basic_config(vcpu_count=1)
+    # Set template as specified in the `cpu_template` parameter.
+    response = test_microvm.machine_cfg.put(
+        vcpu_count=1,
+        mem_size_mib=256,
+        ht_enabled=False,
+        cpu_template=cpu_template,
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+
+    response = test_microvm.actions.put(action_type='InstanceStart')
+    if utils.get_cpu_vendor() != utils.CpuVendor.INTEL:
+        # We shouldn't be able to apply Intel templates on AMD hosts
+        assert test_microvm.api_session.is_status_bad_request(
+            response.status_code)
+        return
+
+    assert test_microvm.api_session.is_status_no_content(
+            response.status_code)
+    check_masked_features(test_microvm, cpu_template)
+    check_enabled_features(test_microvm, cpu_template)
+
+
+def check_masked_features(test_microvm, cpu_template):
+    """Check that AVX2 & AVX512 instructions are disabled."""
     common_masked_features_lscpu = ["dtes64", "monitor", "ds_cpl", "tm2",
                                     "cnxt-id", "sdbg", "xtpr", "pdcm",
                                     "osxsave",
@@ -173,31 +202,6 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     # These are all discoverable by cpuid -1.
     c3_masked_features = {"FMA": "false", "MOVBE": "false", "BMI": "false",
                           "AVX2": "false", "BMI2": "false", "INVPCID": "false"}
-
-    test_microvm = test_microvm_with_ssh
-    test_microvm.spawn()
-
-    test_microvm.basic_config(vcpu_count=1)
-    # Set template as specified in the `cpu_template` parameter.
-    response = test_microvm.machine_cfg.put(
-        vcpu_count=1,
-        mem_size_mib=256,
-        ht_enabled=False,
-        cpu_template=cpu_template,
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
-
-    response = test_microvm.actions.put(action_type='InstanceStart')
-    if utils.get_cpu_vendor() != utils.CpuVendor.INTEL:
-        # We shouldn't be able to apply Intel templates on AMD hosts
-        assert test_microvm.api_session.is_status_bad_request(
-            response.status_code)
-        return
-
-    assert test_microvm.api_session.is_status_no_content(
-            response.status_code)
-
     # Check that all common features discoverable with lscpu
     # are properly masked.
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
@@ -226,3 +230,75 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
 
     utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
                                    expected_cpu_features)
+
+
+def check_enabled_features(test_microvm, cpu_template):
+    """Test for checking that all expected features are enabled in guest."""
+    enabled_list = {  # feature_info_1_edx
+                      "x87 FPU on chip": "true", "CMPXCHG8B inst": "true",
+                      "virtual-8086 mode enhancement": "true",
+                      "SSE extensions": "true", "SSE2 extensions": "true",
+                      "debugging extensions": "true",
+                      "page size extensions": "true",
+                      "time stamp counter": "true",
+                      "RDMSR and WRMSR support": "true",
+                      "physical address extensions": "true",
+                      "machine check exception": "true",
+                      "APIC on chip": "true", "MMX Technology": "true",
+                      "SYSENTER and SYSEXIT": "true",
+                      "memory type range registers": "true",
+                      "PTE global bit": "true", "FXSAVE/FXRSTOR": "true",
+                      "machine check architecture": "true",
+                      "conditional move/compare instruction": "true",
+                      "page attribute table": "true",
+                      "page size extension": "true",
+                      "CLFLUSH instruction": "true",
+                      # feature_info_1_ecx
+                      "PNI/SSE3: Prescott New Instructions": "true",
+                      "PCLMULDQ instruction": "true",
+                      "SSSE3 extensions": "true",
+                      "AES instruction": "true",
+                      "CMPXCHG16B instruction": "true",
+                      "process context identifiers": "true",
+                      "SSE4.1 extensions": "true",
+                      "SSE4.2 extensions": "true",
+                      "extended xAPIC support": "true",
+                      "POPCNT instruction": "true",
+                      "time stamp counter deadline": "true",
+                      "XSAVE/XSTOR states": "true",
+                      "OS-enabled XSAVE/XSTOR": "true",
+                      "AVX: advanced vector extensions": "true",
+                      "F16C half-precision convert instruction": "true",
+                      "RDRAND instruction": "true",
+                      "hypervisor guest status": "true",
+                      # thermal_and_power_mgmt
+                      "ARAT always running APIC timer": "true",
+                      # extended_features
+                      "FSGSBASE instructions": "true",
+                      "IA32_TSC_ADJUST MSR supported": "true",
+                      "SMEP supervisor mode exec protection": "true",
+                      "enhanced REP MOVSB/STOSB": "true",
+                      "SMAP: supervisor mode access prevention": "true",
+                      # xsave_0xd_0
+                      "XCR0 supported: x87 state": "true",
+                      "XCR0 supported: SSE state": "true",
+                      "XCR0 supported: AVX state": "true",
+                      # xsave_0xd_1
+                      "XSAVEOPT instruction": "true",
+                      # extended_080000001_edx
+                      "SYSCALL and SYSRET instructions": "true",
+                      "64-bit extensions technology available": "true",
+                      "execution disable": "true", "RDTSCP": "true",
+                      # intel_080000001_ecx
+                      "LAHF/SAHF supported in 64-bit mode": "true",
+                      # adv_pwr_mgmt
+                      "TscInvariant": "true"}
+
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   enabled_list)
+    if cpu_template == "T2":
+        t2_enabled_features = {"FMA": "true", "BMI": "true", "BMI2": "true",
+                               "AVX2": "true", "MOVBE": "true",
+                               "INVPCID": "true"}
+        utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                       t2_enabled_features)
