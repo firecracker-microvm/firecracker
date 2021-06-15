@@ -11,17 +11,20 @@ from typing import List
 from providers.types import FileDataProvider
 from providers.iperf3 import Iperf3DataParser
 from providers.block import BlockDataParser
+from providers.snapshot_restore import SnapshotRestoreDataParser
 
 OUTPUT_FILENAMES = {
     'vsock_throughput': 'test_vsock_throughput',
     'network_tcp_throughput': 'test_network_tcp_throughput',
-    'block_performance': 'test_block_performance'
+    'block_performance': 'test_block_performance',
+    'snapshot_restore_performance': 'test_snap_restore_performance'
 }
 
 DATA_PARSERS = {
     'vsock_throughput': Iperf3DataParser,
     'network_tcp_throughput': Iperf3DataParser,
-    'block_performance': BlockDataParser
+    'block_performance': BlockDataParser,
+    'snapshot_restore_performance': SnapshotRestoreDataParser,
 }
 
 
@@ -67,7 +70,8 @@ def main():
                         action="store",
                         choices=['vsock_throughput',
                                  'network_tcp_throughput',
-                                 'block_performance'],
+                                 'block_performance',
+                                 'snapshot_restore_performance'],
                         required=True)
     args = parser.parse_args()
 

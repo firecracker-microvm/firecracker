@@ -1,0 +1,537 @@
+{
+  "measurements": {
+    "restore_latency": {
+      "unit": "ms",
+      "statistics": [
+        {
+          "name": "P50",
+          "function": "Percentile50",
+          "criteria": "EqualWith"
+        },
+        {
+          "name": "P90",
+          "function": "Percentile90",
+          "criteria": "EqualWith"
+        }
+      ]
+    }
+  },
+  "hosts": {
+    "instances": {
+      "m5d.metal": {
+        "baselines": {
+          "restore_latency": {
+            "vmlinux-4.14.bin": {
+              "ubuntu-18.04.ext4": {
+                "1vcpu_128mb": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 37
+                  }
+                },
+                "2vcpu_128mb": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 68
+                  }
+                },
+                "3vcpu_128mb": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 32
+                  }
+                },
+                "4vcpu_128mb": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 34
+                  }
+                },
+                "5vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 14
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 44
+                  }
+                },
+                "6vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 89
+                  }
+                },
+                "7vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 8
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 20
+                  }
+                },
+                "8vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 11
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 34
+                  }
+                },
+                "9vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 14
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 30
+                  }
+                },
+                "10vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 32
+                  }
+                },
+                "1vcpu_256mb": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 7
+                  }
+                },
+                "1vcpu_512mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 31
+                  }
+                },
+                "1vcpu_1024mb": {
+                  "P50": {
+                    "target": 7,
+                    "delta_percentage": 8
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 16
+                  }
+                },
+                "1vcpu_2048mb": {
+                  "P50": {
+                    "target": 9,
+                    "delta_percentage": 8
+                  },
+                  "P90": {
+                    "target": 10,
+                    "delta_percentage": 25
+                  }
+                },
+                "1vcpu_4096mb": {
+                  "P50": {
+                    "target": 13,
+                    "delta_percentage": 7
+                  },
+                  "P90": {
+                    "target": 14,
+                    "delta_percentage": 16
+                  }
+                },
+                "1vcpu_8192mb": {
+                  "P50": {
+                    "target": 22,
+                    "delta_percentage": 18
+                  },
+                  "P90": {
+                    "target": 22,
+                    "delta_percentage": 14
+                  }
+                },
+                "1vcpu_16384mb": {
+                  "P50": {
+                    "target": 37,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 38,
+                    "delta_percentage": 10
+                  }
+                },
+                "1vcpu_32768mb": {
+                  "P50": {
+                    "target": 68,
+                    "delta_percentage": 5
+                  },
+                  "P90": {
+                    "target": 70,
+                    "delta_percentage": 8
+                  }
+                },
+                "2net_dev": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 7
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 42
+                  }
+                },
+                "3net_dev": {
+                  "P50": {
+                    "target": 7,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 8,
+                    "delta_percentage": 30
+                  }
+                },
+                "4net_dev": {
+                  "P50": {
+                    "target": 8,
+                    "delta_percentage": 10
+                  },
+                  "P90": {
+                    "target": 9,
+                    "delta_percentage": 21
+                  }
+                },
+                "2block_dev": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 11
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 29
+                  }
+                },
+                "3block_dev": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 13
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 27
+                  }
+                },
+                "4block_dev": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 12
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 34
+                  }
+                },
+                "all_dev": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 12
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 39
+                  }
+                }
+              }
+            },
+            "vmlinux-4.9.bin": {
+              "ubuntu-18.04.ext4": {
+                "1vcpu_128mb": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 8
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 39
+                  }
+                },
+                "2vcpu_128mb": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 43
+                  }
+                },
+                "3vcpu_128mb": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 11
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 41
+                  }
+                },
+                "4vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 10
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 27
+                  }
+                },
+                "5vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 6
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 43
+                  }
+                },
+                "6vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 10
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 23
+                  }
+                },
+                "7vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 11
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 7
+                  }
+                },
+                "8vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 13
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 31
+                  }
+                },
+                "9vcpu_128mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 11
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 28
+                  }
+                },
+                "10vcpu_128mb": {
+                  "P50": {
+                    "target": 7,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 8,
+                    "delta_percentage": 32
+                  }
+                },
+                "1vcpu_256mb": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 10
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 35
+                  }
+                },
+                "1vcpu_512mb": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 8
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 38
+                  }
+                },
+                "1vcpu_1024mb": {
+                  "P50": {
+                    "target": 7,
+                    "delta_percentage": 7
+                  },
+                  "P90": {
+                    "target": 8,
+                    "delta_percentage": 30
+                  }
+                },
+                "1vcpu_2048mb": {
+                  "P50": {
+                    "target": 9,
+                    "delta_percentage": 6
+                  },
+                  "P90": {
+                    "target": 9,
+                    "delta_percentage": 22
+                  }
+                },
+                "1vcpu_4096mb": {
+                  "P50": {
+                    "target": 13,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 14,
+                    "delta_percentage": 17
+                  }
+                },
+                "1vcpu_8192mb": {
+                  "P50": {
+                    "target": 21,
+                    "delta_percentage": 8
+                  },
+                  "P90": {
+                    "target": 23,
+                    "delta_percentage": 14
+                  }
+                },
+                "1vcpu_16384mb": {
+                  "P50": {
+                    "target": 36,
+                    "delta_percentage": 8
+                  },
+                  "P90": {
+                    "target": 39,
+                    "delta_percentage": 15
+                  }
+                },
+                "1vcpu_32768mb": {
+                  "P50": {
+                    "target": 69,
+                    "delta_percentage": 12
+                  },
+                  "P90": {
+                    "target": 79,
+                    "delta_percentage": 29
+                  }
+                },
+                "2net_dev": {
+                  "P50": {
+                    "target": 6,
+                    "delta_percentage": 8
+                  },
+                  "P90": {
+                    "target": 7,
+                    "delta_percentage": 11
+                  }
+                },
+                "3net_dev": {
+                  "P50": {
+                    "target": 7,
+                    "delta_percentage": 10
+                  },
+                  "P90": {
+                    "target": 9,
+                    "delta_percentage": 31
+                  }
+                },
+                "4net_dev": {
+                  "P50": {
+                    "target": 8,
+                    "delta_percentage": 9
+                  },
+                  "P90": {
+                    "target": 9,
+                    "delta_percentage": 36
+                  }
+                },
+                "2block_dev": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 13
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 47
+                  }
+                },
+                "3block_dev": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 8
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 34
+                  }
+                },
+                "4block_dev": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 7
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 42
+                  }
+                },
+                "all_dev": {
+                  "P50": {
+                    "target": 5,
+                    "delta_percentage": 8
+                  },
+                  "P90": {
+                    "target": 6,
+                    "delta_percentage": 50
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
