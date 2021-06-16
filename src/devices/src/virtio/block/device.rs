@@ -333,25 +333,22 @@ impl Block {
                         }
                         Err(e) => {
                             METRICS.block.invalid_reqs_count.inc();
-                            match e {
+                            error!(
+                                "Failed to execute {:?} virtio block request: {:?}",
+                                request.request_type, e
+                            );
+                            len = match e {
                                 ExecuteError::Read(GuestMemoryError::PartialBuffer {
                                     completed,
-                                    expected,
+                                    ..
                                 }) => {
-                                    error!(
-                                        "Failed to execute virtio block read request: can only \
-                                        write {} of {} bytes.",
-                                        completed, expected
-                                    );
-                                    METRICS.block.read_bytes.add(completed);
                                     // This can not overflow since `completed` < data len which is
                                     // an u32.
-                                    len = completed as u32 + 1;
+                                    completed as u32 + 1
                                 }
                                 _ => {
-                                    error!("Failed to execute virtio block request: {:?}", e);
                                     // Status byte only.
-                                    len = 1;
+                                    1
                                 }
                             };
                             e.status()
