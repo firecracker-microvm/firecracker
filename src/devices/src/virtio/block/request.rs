@@ -208,7 +208,12 @@ impl Request {
                     METRICS.block.read_count.inc();
                     self.data_len
                 })
-                .map_err(ExecuteError::Read),
+                .map_err(|e| {
+                    if let GuestMemoryError::PartialBuffer { completed, .. } = e {
+                        METRICS.block.read_bytes.add(completed);
+                    }
+                    ExecuteError::Read(e)
+                }),
             RequestType::Out => mem
                 .write_all_to(self.data_addr, diskfile, self.data_len as usize)
                 .map(|_| {
@@ -216,7 +221,12 @@ impl Request {
                     METRICS.block.write_count.inc();
                     0
                 })
-                .map_err(ExecuteError::Write),
+                .map_err(|e| {
+                    if let GuestMemoryError::PartialBuffer { completed, .. } = e {
+                        METRICS.block.write_bytes.add(completed);
+                    }
+                    ExecuteError::Write(e)
+                }),
             RequestType::Flush => {
                 match cache_type {
                     CacheType::Writeback => {
