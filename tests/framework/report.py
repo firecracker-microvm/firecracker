@@ -90,7 +90,7 @@ class Report(mpsing.MultiprocessSingleton):
         "name": ReportItem("", False, None),
 
         # What the test does
-        "description": ReportItem("", False, None),
+        "description": ReportItem("", True, None),
 
         # If the test passed, failed or was skipped
         "outcome": ReportItem("", False, None),
