@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Seccompiler is a program that compiles multi-threaded seccomp-bpf filters expressed as JSON
+//! seccompiler-bin is a program that compiles multi-threaded seccomp-bpf filters expressed as JSON
 //! into raw BPF programs, serializing them and outputting them to a file.
 //!
 //! Used in conjunction with the provided library crate, one can deserialize the binary filters

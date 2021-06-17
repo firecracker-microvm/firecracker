@@ -8,8 +8,8 @@ homepage = "https://firecracker-microvm.github.io/"
 license = "Apache-2.0"
 
 [[bin]]
-name = "seccompiler"
-path = "src/seccompiler.rs"
+name = "seccompiler-bin"
+path = "src/seccompiler_bin.rs"
 
 [dependencies]
 utils = { path = "../utils" }
