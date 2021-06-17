@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Module defining the logic for compiling the deserialized filter objects into the IR.
-//! Used by the seccompiler binary.
+//! Used by seccompiler-bin.
 //!
 //! Via the `Compiler::compile_blob()` method, it also drives the entire JSON -> BLOB
 //! transformation process.

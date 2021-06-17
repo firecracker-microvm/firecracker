@@ -8,7 +8,7 @@ import time
 import platform
 
 import host_tools.logging as log_tools
-from host_tools.cargo_build import run_seccompiler
+from host_tools.cargo_build import run_seccompiler_bin
 
 MAX_STARTUP_TIME_CPU_US = {'x86_64': 5500, 'aarch64': 2900}
 """ The maximum acceptable startup time in CPU us. """
@@ -75,7 +75,7 @@ def _test_startup_time(microvm):
 def _custom_filter_setup(test_microvm):
     bpf_path = os.path.join(test_microvm.path, 'bpf.out')
 
-    run_seccompiler(bpf_path)
+    run_seccompiler_bin(bpf_path)
 
     test_microvm.create_jailed_resource(bpf_path)
     test_microvm.jailer.extra_args.update({"seccomp-filter": 'bpf.out'})

@@ -13,7 +13,7 @@ import requests
 import framework.utils as utils
 import host_tools.logging as log_tools
 
-from host_tools.cargo_build import run_seccompiler
+from host_tools.cargo_build import run_seccompiler_bin
 
 
 def _custom_filter_setup(test_microvm, json_filter):
@@ -23,7 +23,7 @@ def _custom_filter_setup(test_microvm, json_filter):
 
     bpf_path = os.path.join(test_microvm.path, 'bpf.out')
 
-    run_seccompiler(bpf_path=bpf_path, json_path=json_temp.name)
+    run_seccompiler_bin(bpf_path=bpf_path, json_path=json_temp.name)
 
     os.unlink(json_temp.name)
     test_microvm.create_jailed_resource(bpf_path)
