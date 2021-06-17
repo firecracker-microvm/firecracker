@@ -183,22 +183,27 @@ impl Request {
         disk: &mut DiskProperties,
         mem: &GuestMemoryMmap,
     ) -> result::Result<u32, ExecuteError> {
-        let mut top: u64 = u64::from(self.data_len) / SECTOR_SIZE;
-        if u64::from(self.data_len) % SECTOR_SIZE != 0 {
-            top += 1;
-        }
-        top = top
-            .checked_add(self.sector)
-            .ok_or(ExecuteError::BadRequest(Error::InvalidOffset))?;
-        if top > disk.nsectors() {
-            return Err(ExecuteError::BadRequest(Error::InvalidOffset));
+        if self.request_type == RequestType::In || self.request_type == RequestType::Out {
+            // Check that the data length is a multiple of 512 as specified in the virtio standard.
+            // TODO: perform this logic at request parsing level in the future.
+            if u64::from(self.data_len) % SECTOR_SIZE != 0 {
+                return Err(ExecuteError::BadRequest(Error::InvalidDataLength));
+            }
+            let top_sector = self
+                .sector
+                .checked_add(u64::from(self.data_len) >> SECTOR_SHIFT)
+                .ok_or(ExecuteError::BadRequest(Error::InvalidOffset))?;
+            if top_sector > disk.nsectors() {
+                return Err(ExecuteError::BadRequest(Error::InvalidOffset));
+            }
+
+            disk.file_mut()
+                .seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
+                .map_err(ExecuteError::Seek)?;
         }
 
         let cache_type = disk.cache_type();
         let diskfile = disk.file_mut();
-        diskfile
-            .seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
-            .map_err(ExecuteError::Seek)?;
 
         match self.request_type {
             RequestType::In => mem
