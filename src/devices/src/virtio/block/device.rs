@@ -318,18 +318,11 @@ impl Block {
                     let status = match request.execute(&mut self.disk, mem) {
                         Ok(l) => {
                             // Account for the status byte as well.
-                            // With a non-faulty driver, we shouldn't get to the point where we
-                            // overflow here (since data len must be a multiple of 512 bytes, so
-                            // it can't be u32::MAX). In the future, this should be fixed at the
-                            // request parsing level, so no data will actually be transferred in
-                            // scenarios like this one.
-                            if let Some(l) = l.checked_add(1) {
-                                len = l;
-                                VIRTIO_BLK_S_OK
-                            } else {
-                                len = l;
-                                VIRTIO_BLK_S_IOERR
-                            }
+                            // We shouldn't overflow here since inside `request.execute()` we check
+                            // if data_len is a multiple of 512 bytes.
+                            // So the result can't be u32::MAX.
+                            len = l + 1;
+                            VIRTIO_BLK_S_OK
                         }
                         Err(e) => {
                             METRICS.block.invalid_reqs_count.inc();
@@ -524,6 +517,8 @@ impl VirtioDevice for Block {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fs::metadata;
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
     use std::thread;
     use std::time::Duration;
     use std::u32;
@@ -832,14 +827,46 @@ pub(crate) mod tests {
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
-        // Write.
+        let empty_data = vec![0; 512];
+        let rand_data = utils::rand::rand_alphanumerics(1024).as_bytes().to_vec();
+
+        // Write with invalid data len (not a multiple of 512).
         {
             mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
                 .unwrap();
-            // Make data read only, 8 bytes in len, and set the actual value to be written.
+            // Make data read only, 512 bytes in len, and set the actual value to be written.
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
-            vq.dtable[1].len.set(8);
-            mem.write_obj::<u64>(123_456_789, data_addr).unwrap();
+            vq.dtable[1].len.set(511);
+            mem.write_slice(&rand_data[..511], data_addr).unwrap();
+
+            invoke_handler_for_queue_event(&mut block);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                mem.read_obj::<u32>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR
+            );
+
+            // Check that the data wasn't written to the file
+            let mut buf = [0u8; 512];
+            block.disk.file.seek(SeekFrom::Start(0)).unwrap();
+            block.disk.file.read_exact(&mut buf).unwrap();
+            assert_eq!(buf, empty_data.as_slice());
+        }
+
+        // Write.
+        {
+            vq.used.idx.set(0);
+            set_queue(&mut block, 0, vq.create_queue());
+
+            mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
+                .unwrap();
+            // Make data read only, 512 bytes in len, and set the actual value to be written.
+            vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
+            vq.dtable[1].len.set(512);
+            mem.write_slice(&rand_data[..512], data_addr).unwrap();
 
             check_metric_after_block!(
                 &METRICS.block.write_count,
@@ -853,6 +880,37 @@ pub(crate) mod tests {
             assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
         }
 
+        // Read with invalid data len (not a multiple of 512).
+        {
+            vq.used.idx.set(0);
+            set_queue(&mut block, 0, vq.create_queue());
+
+            mem.write_obj::<u32>(VIRTIO_BLK_T_IN, request_type_addr)
+                .unwrap();
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+            vq.dtable[1].len.set(511);
+            mem.write_slice(empty_data.as_slice(), data_addr).unwrap();
+
+            invoke_handler_for_queue_event(&mut block);
+
+            assert_eq!(vq.used.idx.get(), 1);
+            assert_eq!(vq.used.ring[0].get().id, 0);
+
+            // Only status byte length.
+            assert_eq!(vq.used.ring[0].get().len, 1);
+            assert_eq!(
+                mem.read_obj::<u32>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR
+            );
+
+            // Check that no data was read.
+            let mut buf = [0u8; 512];
+            mem.read_slice(&mut buf, data_addr).unwrap();
+            assert_eq!(buf, empty_data.as_slice());
+        }
+
         // Read.
         {
             vq.used.idx.set(0);
@@ -863,6 +921,8 @@ pub(crate) mod tests {
             vq.dtable[1]
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+            vq.dtable[1].len.set(512);
+            mem.write_slice(empty_data.as_slice(), data_addr).unwrap();
 
             check_metric_after_block!(
                 &METRICS.block.read_count,
@@ -875,6 +935,11 @@ pub(crate) mod tests {
             // Added status byte length.
             assert_eq!(vq.used.ring[0].get().len, vq.dtable[1].len.get() + 1);
             assert_eq!(mem.read_obj::<u32>(status_addr).unwrap(), VIRTIO_BLK_S_OK);
+
+            // Check that the data is the same that we wrote before
+            let mut buf = [0u8; 512];
+            mem.read_slice(&mut buf, data_addr).unwrap();
+            assert_eq!(buf, &rand_data[..512]);
         }
 
         // Read with error.
@@ -887,6 +952,7 @@ pub(crate) mod tests {
             vq.dtable[1]
                 .flags
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+            mem.write_slice(empty_data.as_slice(), data_addr).unwrap();
 
             let size = block.disk.file.seek(SeekFrom::End(0)).unwrap();
             block.disk.file.set_len(size / 2).unwrap();
@@ -904,7 +970,11 @@ pub(crate) mod tests {
                 mem.read_obj::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_IOERR
             );
-            assert_eq!(mem.read_obj::<u64>(data_addr).unwrap(), 123_456_789);
+
+            // Check that no data was read.
+            let mut buf = [0u8; 512];
+            mem.read_slice(&mut buf, data_addr).unwrap();
+            assert_eq!(buf, empty_data.as_slice());
         }
 
         // Partial buffer error on read.
@@ -936,7 +1006,11 @@ pub(crate) mod tests {
                 mem.read_obj::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_IOERR
             );
-            assert_eq!(mem.read_obj::<u64>(data_addr).unwrap(), 123_456_789);
+
+            // Check that no data was read since we can't read past the end of the file.
+            let mut buf = [0u8; 512];
+            mem.read_slice(&mut buf, data_addr).unwrap();
+            assert_eq!(buf, empty_data.as_slice());
         }
 
         {
@@ -953,6 +1027,9 @@ pub(crate) mod tests {
             mem.write_obj(1, GuestAddress(request_type_addr.0 + 8))
                 .unwrap();
 
+            block.disk.file.seek(SeekFrom::Start(512)).unwrap();
+            block.disk.file.write_all(&rand_data[512..]).unwrap();
+
             invoke_handler_for_queue_event(&mut block);
 
             assert_eq!(vq.used.idx.get(), 1);
@@ -965,6 +1042,11 @@ pub(crate) mod tests {
                 mem.read_obj::<u32>(status_addr).unwrap(),
                 VIRTIO_BLK_S_IOERR
             );
+
+            // Check that we correctly read the second file sector.
+            let mut buf = [0u8; 512];
+            mem.read_slice(&mut buf, data_addr).unwrap();
+            assert_eq!(buf, rand_data[512..]);
         }
     }
 
@@ -1091,18 +1173,18 @@ pub(crate) mod tests {
         let data_addr = GuestAddress(vq.dtable[1].addr.get());
         let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
-        // Create bandwidth rate limiter that allows only 80 bytes/s with bucket size of 8 bytes.
-        let mut rl = RateLimiter::new(8, 0, 100, 0, 0, 0).unwrap();
+        // Create bandwidth rate limiter that allows only 5120 bytes/s with bucket size of 8 bytes.
+        let mut rl = RateLimiter::new(512, 0, 100, 0, 0, 0).unwrap();
         // Use up the budget.
-        assert!(rl.consume(8, TokenType::Bytes));
+        assert!(rl.consume(512, TokenType::Bytes));
 
         set_rate_limiter(&mut block, rl);
 
         mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
             .unwrap();
-        // Make data read only, 8 bytes in len, and set the actual value to be written
+        // Make data read only, 512 bytes in len, and set the actual value to be written
         vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
-        vq.dtable[1].len.set(8);
+        vq.dtable[1].len.set(512);
         mem.write_obj::<u64>(123_456_789, data_addr).unwrap();
 
         // Following write procedure should fail because of bandwidth rate limiting.
@@ -1170,9 +1252,9 @@ pub(crate) mod tests {
 
         mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
             .unwrap();
-        // Make data read only, 8 bytes in len, and set the actual value to be written.
+        // Make data read only, 512 bytes in len, and set the actual value to be written.
         vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
-        vq.dtable[1].len.set(8);
+        vq.dtable[1].len.set(512);
         mem.write_obj::<u64>(123_456_789, data_addr).unwrap();
 
         // Following write procedure should fail because of ops rate limiting.

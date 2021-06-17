@@ -30,6 +30,8 @@ pub enum Error {
     GetFileMetadata(std::io::Error),
     /// Guest gave us bad memory addresses.
     GuestMemory(GuestMemoryError),
+    /// The data length is invalid.
+    InvalidDataLength,
     /// The requested operation would cause a seek beyond disk end.
     InvalidOffset,
     /// Guest gave us a read only descriptor that protocol says to write to.
