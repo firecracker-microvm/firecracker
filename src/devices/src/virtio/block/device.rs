@@ -19,7 +19,7 @@ use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
-use vm_memory::{Bytes, GuestMemoryError, GuestMemoryMmap};
+use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::{
     super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING},
@@ -283,8 +283,7 @@ impl Block {
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
         while let Some(head) = queue.pop(mem) {
-            let len;
-            match Request::parse(&head, mem) {
+            let len = match Request::parse(&head, mem) {
                 Ok(request) => {
                     // If limiter.consume() fails it means there is no more TokenType::Ops
                     // budget and rate limiting is in effect.
@@ -315,49 +314,29 @@ impl Block {
                         }
                     }
 
-                    let status = match request.execute(&mut self.disk, mem) {
-                        Ok(l) => {
-                            // Account for the status byte as well.
-                            // We shouldn't overflow here since inside `request.execute()` we check
-                            // if data_len is a multiple of 512 bytes.
-                            // So the result can't be u32::MAX.
-                            len = l + 1;
-                            VIRTIO_BLK_S_OK
-                        }
-                        Err(e) => {
-                            METRICS.block.invalid_reqs_count.inc();
-                            error!(
-                                "Failed to execute {:?} virtio block request: {:?}",
-                                request.request_type, e
-                            );
-                            len = match e {
-                                ExecuteError::Read(GuestMemoryError::PartialBuffer {
-                                    completed,
-                                    ..
-                                }) => {
-                                    // This can not overflow since `completed` < data len which is
-                                    // an u32.
-                                    completed as u32 + 1
-                                }
-                                _ => {
-                                    // Status byte only.
-                                    1
-                                }
-                            };
-                            e.status()
-                        }
-                    };
+                    let status = Status::from_result(request.execute(&mut self.disk, mem));
+                    let virtio_blk_status = status.virtio_blk_status();
+                    let num_used_bytes = status.num_used_bytes();
+                    if let Status::Err(err_status) = status {
+                        METRICS.block.invalid_reqs_count.inc();
+                        error!(
+                            "Failed to execute {:?} virtio block request: {:?}",
+                            request.request_type, err_status
+                        );
+                    }
 
-                    if let Err(e) = mem.write_obj(status, request.status_addr) {
+                    if let Err(e) = mem.write_obj(virtio_blk_status, request.status_addr) {
                         error!("Failed to write virtio block status: {:?}", e)
                     }
+
+                    num_used_bytes
                 }
                 Err(e) => {
                     error!("Failed to parse available descriptor chain: {:?}", e);
                     METRICS.block.execute_fails.inc();
-                    len = 0;
+                    0
                 }
-            }
+            };
 
             queue.add_used(mem, head.index, len).unwrap_or_else(|e| {
                 error!(
