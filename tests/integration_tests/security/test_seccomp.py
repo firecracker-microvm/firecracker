@@ -8,7 +8,7 @@ import platform
 import time
 import pytest
 
-from host_tools.cargo_build import run_seccompiler
+from host_tools.cargo_build import run_seccompiler_bin
 import framework.utils as utils
 
 
@@ -70,15 +70,15 @@ def _get_basic_syscall_list():
     return json
 
 
-def _run_seccompiler(json_data, basic=False):
+def _run_seccompiler_bin(json_data, basic=False):
     json_temp = tempfile.NamedTemporaryFile(delete=False)
     json_temp.write(json_data.encode('utf-8'))
     json_temp.flush()
 
     bpf_temp = tempfile.NamedTemporaryFile(delete=False)
 
-    run_seccompiler(bpf_path=bpf_temp.name,
-                    json_path=json_temp.name, basic=basic)
+    run_seccompiler_bin(bpf_path=bpf_temp.name,
+                        json_path=json_temp.name, basic=basic)
 
     os.unlink(json_temp.name)
     return bpf_temp.name
@@ -106,8 +106,8 @@ def test_seccomp_ls(bin_seccomp_paths):
         }}
     }}""".format(_get_basic_syscall_list())
 
-    # Run seccompiler.
-    bpf_path = _run_seccompiler(json_filter)
+    # Run seccompiler-bin.
+    bpf_path = _run_seccompiler_bin(json_filter)
 
     # Run the mini jailer.
     outcome = utils.run_cmd([demo_jailer, ls_command_path, bpf_path],
@@ -123,7 +123,7 @@ def test_seccomp_ls(bin_seccomp_paths):
 
 def test_advanced_seccomp(bin_seccomp_paths):
     """
-    Test seccompiler with `demo_jailer`.
+    Test seccompiler-bin with `demo_jailer`.
 
     Test that the demo jailer (with advanced seccomp) allows the harmless demo
     binary, denies the malicious demo binary and that an empty allowlist
@@ -170,8 +170,8 @@ def test_advanced_seccomp(bin_seccomp_paths):
         }}
     }}""".format(_get_basic_syscall_list())
 
-    # Run seccompiler.
-    bpf_path = _run_seccompiler(json_filter)
+    # Run seccompiler-bin.
+    bpf_path = _run_seccompiler_bin(json_filter)
 
     # Run the mini jailer for harmless binary.
     outcome = utils.run_cmd([demo_jailer, demo_harmless, bpf_path],
@@ -191,8 +191,8 @@ def test_advanced_seccomp(bin_seccomp_paths):
 
     os.unlink(bpf_path)
 
-    # Run seccompiler with `--basic` flag.
-    bpf_path = _run_seccompiler(json_filter, basic=True)
+    # Run seccompiler-bin with `--basic` flag.
+    bpf_path = _run_seccompiler_bin(json_filter, basic=True)
 
     # Run the mini jailer for malicious binary.
     outcome = utils.run_cmd([demo_jailer, demo_malicious, bpf_path],
@@ -215,8 +215,8 @@ def test_advanced_seccomp(bin_seccomp_paths):
         }
     }"""
 
-    # Run seccompiler.
-    bpf_path = _run_seccompiler(json_filter)
+    # Run seccompiler-bin.
+    bpf_path = _run_seccompiler_bin(json_filter)
 
     outcome = utils.run_cmd([demo_jailer, demo_harmless, bpf_path],
                             no_shell=True,

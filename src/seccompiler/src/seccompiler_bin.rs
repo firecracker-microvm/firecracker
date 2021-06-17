@@ -187,12 +187,12 @@ fn main() {
     }
 
     if arg_parser.arguments().flag_present("help") {
-        println!("Seccompiler v{}\n", SECCOMPILER_VERSION);
+        println!("Seccompiler-bin v{}\n", SECCOMPILER_VERSION);
         println!("{}", arg_parser.formatted_help());
         return;
     }
     if arg_parser.arguments().flag_present("version") {
-        println!("Seccompiler v{}\n", SECCOMPILER_VERSION);
+        println!("Seccompiler-bin v{}\n", SECCOMPILER_VERSION);
         return;
     }
 
@@ -405,7 +405,7 @@ mod tests {
         arguments
             .parse(
                 vec![
-                    "seccompiler",
+                    "seccompiler-bin",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",
@@ -431,7 +431,7 @@ mod tests {
         arguments
             .parse(
                 vec![
-                    "seccompiler",
+                    "seccompiler-bin",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",
@@ -460,7 +460,7 @@ mod tests {
         let arguments = &mut arg_parser.arguments().clone();
         assert!(arguments
             .parse(
-                vec!["seccompiler"]
+                vec!["seccompiler-bin"]
                     .into_iter()
                     .map(String::from)
                     .collect::<Vec<String>>()
@@ -472,7 +472,7 @@ mod tests {
         let arguments = &mut arg_parser.arguments().clone();
         assert!(arguments
             .parse(
-                vec!["seccompiler", "--input-file", "foo.txt"]
+                vec!["seccompiler-bin", "--input-file", "foo.txt"]
                     .into_iter()
                     .map(String::from)
                     .collect::<Vec<String>>()
@@ -484,7 +484,7 @@ mod tests {
         let arguments = &mut arg_parser.arguments().clone();
         assert!(arguments
             .parse(
-                vec!["seccompiler", "--target-arch", "x86_64"]
+                vec!["seccompiler-bin", "--target-arch", "x86_64"]
                     .into_iter()
                     .map(String::from)
                     .collect::<Vec<String>>()
@@ -497,7 +497,7 @@ mod tests {
         arguments
             .parse(
                 vec![
-                    "seccompiler",
+                    "seccompiler-bin",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",
@@ -518,7 +518,7 @@ mod tests {
         assert!(arguments
             .parse(
                 vec![
-                    "seccompiler",
+                    "seccompiler-bin",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",

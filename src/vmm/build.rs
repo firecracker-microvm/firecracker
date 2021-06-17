@@ -14,7 +14,7 @@ const SECCOMPILER_BUILD_DIR: &str = "../../build/seccompiler";
 const SECCOMPILER_SRC_DIR: &str = "../seccompiler/src";
 
 // This script is run on every modification in the target-specific JSON file in `resources/seccomp`.
-// It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler.
+// It compiles the JSON seccomp policies into a serializable BPF format, using seccompiler-bin.
 // The generated binary code will get included in Firecracker's code, at compile-time.
 fn main() {
     let target = env::var("TARGET").expect("Missing target.");
@@ -45,20 +45,20 @@ fn main() {
     // Also retrigger the build script on any seccompiler source code change.
     register_seccompiler_src_watchlist(Path::new(SECCOMPILER_SRC_DIR));
 
-    // Run seccompiler, getting the default, advanced filter.
+    // Run seccompiler-bin, getting the default, advanced filter.
     let mut bpf_out_path = PathBuf::from(&out_dir);
     bpf_out_path.push(ADVANCED_BINARY_FILTER_FILE_NAME);
-    run_seccompiler(
+    run_seccompiler_bin(
         &target,
         json_path,
         bpf_out_path.to_str().expect("Invalid bytes."),
         false,
     );
 
-    // Run seccompiler with the `--basic` flag, getting the filter for `--seccomp-level 1`.
+    // Run seccompiler-bin with the `--basic` flag, getting the filter for `--seccomp-level 1`.
     let mut bpf_out_path = PathBuf::from(&out_dir);
     bpf_out_path.push(BASIC_BINARY_FILTER_FILE_NAME);
-    run_seccompiler(
+    run_seccompiler_bin(
         &target,
         json_path,
         bpf_out_path.to_str().expect("Invalid bytes."),
@@ -67,10 +67,10 @@ fn main() {
 }
 
 // Run seccompiler with the given arguments.
-fn run_seccompiler(cargo_target: &str, json_path: &str, out_path: &str, basic: bool) {
+fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str, basic: bool) {
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("Missing target arch.");
 
-    // Command for running seccompiler
+    // Command for running seccompiler-bin
     let mut command = Command::new("cargo");
     command.args(&[
         "run",
@@ -79,7 +79,7 @@ fn run_seccompiler(cargo_target: &str, json_path: &str, out_path: &str, basic: b
         "--verbose",
         "--target",
         &cargo_target,
-        // We need to specify a separate build directory for seccompiler. Otherwise, cargo will
+        // We need to specify a separate build directory for seccompiler-bin. Otherwise, cargo will
         // deadlock waiting to acquire a lock on the build folder that the parent cargo process is
         // holding.
         "--target-dir",
@@ -98,10 +98,10 @@ fn run_seccompiler(cargo_target: &str, json_path: &str, out_path: &str, basic: b
     }
 
     match command.output() {
-        Err(error) => panic!("\nSeccompiler error: {:?}\n", error),
+        Err(error) => panic!("\nSeccompiler-bin error: {:?}\n", error),
         Ok(result) if !result.status.success() => {
             panic!(
-                "\nSeccompiler returned non-zero exit code:\nstderr: {}\nstdout: {}\n",
+                "\nSeccompiler-bin returned non-zero exit code:\nstderr: {}\nstdout: {}\n",
                 String::from_utf8(result.stderr).unwrap(),
                 String::from_utf8(result.stdout).unwrap(),
             );

@@ -101,11 +101,13 @@ def get_rustflags():
     return rustflags
 
 
-def run_seccompiler(bpf_path, json_path=defs.SECCOMP_JSON_DIR, basic=False):
+def run_seccompiler_bin(bpf_path,
+                        json_path=defs.SECCOMP_JSON_DIR,
+                        basic=False):
     """
-    Run seccompiler.
+    Run seccompiler-bin.
 
-    :param bpf_path: path to the seccompiler output file
+    :param bpf_path: path to the output file
     :param json_path: optional path to json file
     """
     cargo_target = '{}-unknown-linux-musl'.format(platform.machine())
