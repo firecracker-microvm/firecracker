@@ -178,67 +178,72 @@ impl Request {
         Ok(req)
     }
 
+    fn execute_seek(&self, disk: &mut DiskProperties) -> result::Result<(), ExecuteError> {
+        // TODO: perform this logic at request parsing level in the future.
+        // Check that the data length is a multiple of 512 as specified in the virtio standard.
+        if u64::from(self.data_len) % SECTOR_SIZE != 0 {
+            return Err(ExecuteError::BadRequest(Error::InvalidDataLength));
+        }
+        let top_sector = self
+            .sector
+            .checked_add(u64::from(self.data_len) >> SECTOR_SHIFT)
+            .ok_or(ExecuteError::BadRequest(Error::InvalidOffset))?;
+        if top_sector > disk.nsectors() {
+            return Err(ExecuteError::BadRequest(Error::InvalidOffset));
+        }
+
+        disk.file_mut()
+            .seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
+            .map_err(ExecuteError::Seek)?;
+
+        Ok(())
+    }
+
     pub(crate) fn execute(
         &self,
         disk: &mut DiskProperties,
         mem: &GuestMemoryMmap,
     ) -> result::Result<u32, ExecuteError> {
-        if self.request_type == RequestType::In || self.request_type == RequestType::Out {
-            // Check that the data length is a multiple of 512 as specified in the virtio standard.
-            // TODO: perform this logic at request parsing level in the future.
-            if u64::from(self.data_len) % SECTOR_SIZE != 0 {
-                return Err(ExecuteError::BadRequest(Error::InvalidDataLength));
-            }
-            let top_sector = self
-                .sector
-                .checked_add(u64::from(self.data_len) >> SECTOR_SHIFT)
-                .ok_or(ExecuteError::BadRequest(Error::InvalidOffset))?;
-            if top_sector > disk.nsectors() {
-                return Err(ExecuteError::BadRequest(Error::InvalidOffset));
-            }
-
-            disk.file_mut()
-                .seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
-                .map_err(ExecuteError::Seek)?;
-        }
-
         let cache_type = disk.cache_type();
-        let diskfile = disk.file_mut();
 
         match self.request_type {
-            RequestType::In => mem
-                .read_exact_from(self.data_addr, diskfile, self.data_len as usize)
-                .map(|_| {
-                    METRICS.block.read_bytes.add(self.data_len as usize);
-                    METRICS.block.read_count.inc();
-                    self.data_len
-                })
-                .map_err(|e| {
-                    if let GuestMemoryError::PartialBuffer { completed, .. } = e {
-                        METRICS.block.read_bytes.add(completed);
-                    }
-                    ExecuteError::Read(e)
-                }),
-            RequestType::Out => mem
-                .write_all_to(self.data_addr, diskfile, self.data_len as usize)
-                .map(|_| {
-                    METRICS.block.write_bytes.add(self.data_len as usize);
-                    METRICS.block.write_count.inc();
-                    0
-                })
-                .map_err(|e| {
-                    if let GuestMemoryError::PartialBuffer { completed, .. } = e {
-                        METRICS.block.write_bytes.add(completed);
-                    }
-                    ExecuteError::Write(e)
-                }),
+            RequestType::In => {
+                self.execute_seek(disk)?;
+                mem.read_exact_from(self.data_addr, disk.file_mut(), self.data_len as usize)
+                    .map(|_| {
+                        METRICS.block.read_bytes.add(self.data_len as usize);
+                        METRICS.block.read_count.inc();
+                        self.data_len
+                    })
+                    .map_err(|e| {
+                        if let GuestMemoryError::PartialBuffer { completed, .. } = e {
+                            METRICS.block.read_bytes.add(completed);
+                        }
+                        ExecuteError::Read(e)
+                    })
+            }
+            RequestType::Out => {
+                self.execute_seek(disk)?;
+                mem.write_all_to(self.data_addr, disk.file_mut(), self.data_len as usize)
+                    .map(|_| {
+                        METRICS.block.write_bytes.add(self.data_len as usize);
+                        METRICS.block.write_count.inc();
+                        0
+                    })
+                    .map_err(|e| {
+                        if let GuestMemoryError::PartialBuffer { completed, .. } = e {
+                            METRICS.block.write_bytes.add(completed);
+                        }
+                        ExecuteError::Write(e)
+                    })
+            }
             RequestType::Flush => {
                 match cache_type {
                     CacheType::Writeback => {
                         // flush() first to force any cached data out.
-                        diskfile.flush().map_err(ExecuteError::Flush)?;
+                        disk.file_mut().flush().map_err(ExecuteError::Flush)?;
                         // Sync data out to physical media on host.
-                        diskfile.sync_all().map_err(ExecuteError::SyncAll)?;
+                        disk.file_mut().sync_all().map_err(ExecuteError::SyncAll)?;
                         METRICS.block.flush_count.inc();
                     }
                     CacheType::Unsafe => {
