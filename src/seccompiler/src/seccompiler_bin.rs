@@ -120,7 +120,7 @@ fn build_arg_parser() -> ArgParser<'static> {
         .arg(
             Argument::new("basic")
                 .takes_value(false)
-                .help("Transforms the filters into basic filters. Drops all argument checks \
+                .help("Deprecated! Transforms the filters into basic filters. Drops all argument checks \
                 and rule-level actions. Not recommended."),
         )
 }
@@ -141,12 +141,20 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
         return Err(Error::MissingInputFile);
     }
 
+    let is_basic = arguments.flag_present("basic");
+    if is_basic {
+        println!(
+            "Warning! You are using a deprecated parameter: --basic, that will be removed in a \
+            future version.\n"
+        );
+    }
+
     Ok(Arguments {
         target_arch,
         input_file: input_file.unwrap().to_owned(),
         // Safe to unwrap because it has a default value
         output_file: arguments.single_value("output-file").unwrap().to_owned(),
-        is_basic: arguments.flag_present("basic"),
+        is_basic,
     })
 }
 
@@ -178,7 +186,7 @@ fn main() {
     let mut arg_parser = build_arg_parser();
 
     if let Err(err) = arg_parser.parse_from_cmdline() {
-        println!(
+        eprintln!(
             "Arguments parsing error: {} \n\n\
              For more information try --help.",
             err
