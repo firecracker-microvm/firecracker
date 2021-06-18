@@ -47,7 +47,7 @@ use std::{fmt, io, process};
 use backend::{TargetArch, TargetArchError};
 use bincode::Error as BincodeError;
 use common::BpfProgram;
-use compiler::{Compiler, Error as FilterFormatError, Filter};
+use compiler::{Compiler, Error as FilterFormatError, JsonFile};
 use serde_json::error::Error as JSONError;
 use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag};
 
@@ -158,7 +158,7 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
     })
 }
 
-fn parse_json(reader: &mut dyn Read) -> Result<HashMap<String, Filter>> {
+fn parse_json(reader: &mut dyn Read) -> Result<JsonFile> {
     serde_json::from_reader(reader).map_err(Error::Json)
 }
 
@@ -171,7 +171,7 @@ fn compile(args: &Arguments) -> Result<()> {
 
     // transform the IR into a Map of BPFPrograms
     let bpf_data: HashMap<String, BpfProgram> = compiler
-        .compile_blob(filters, args.is_basic)
+        .compile_blob(filters.0, args.is_basic)
         .map_err(Error::FileFormat)?;
 
     // serialize the BPF programs & output them to a file
@@ -681,6 +681,25 @@ mod tests {
             .to_string();
             let json_input = unsafe { json_input.as_bytes_mut() };
             assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // duplicate filter keys
+            let mut json_input = r#"
+            {
+                "thread_1": {
+                    "default_action": "trap",
+                    "filter_action": "allow",
+                    "filter": []
+                },
+                "thread_1": {
+                    "default_action": "trap",
+                    "filter_action": "allow",
+                    "filter": []
+                }
+            }
+            "#
+            .to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
         }
 
         // test with correctly formed JSON
@@ -689,7 +708,7 @@ mod tests {
             let mut json_input = "{}".to_string();
             let json_input = unsafe { json_input.as_bytes_mut() };
 
-            assert_eq!(parse_json(&mut json_input.as_ref()).unwrap().len(), 0);
+            assert_eq!(parse_json(&mut json_input.as_ref()).unwrap().0.len(), 0);
 
             // empty Filter
             let mut json_input =
@@ -757,6 +776,7 @@ mod tests {
 
             let mut v2: Vec<_> = parse_json(&mut json_input.as_ref())
                 .unwrap()
+                .0
                 .into_iter()
                 .collect();
             v2.sort_by(|x, y| x.0.cmp(&y.0));
