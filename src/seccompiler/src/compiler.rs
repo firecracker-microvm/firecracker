@@ -20,6 +20,7 @@
 use std::collections::HashMap;
 use std::convert::{Into, TryInto};
 use std::fmt;
+use std::result;
 
 use crate::backend::{
     Comment, Error as SeccompFilterError, SeccompAction, SeccompCondition, SeccompFilter,
@@ -27,9 +28,10 @@ use crate::backend::{
 };
 use crate::common::BpfProgram;
 use crate::syscall_table::SyscallTable;
+use serde::de::{self, Error as _, MapAccess, Visitor};
 use serde::Deserialize;
 
-type Result<T> = std::result::Result<T, Error>;
+type Result<T> = result::Result<T, Error>;
 
 /// Errors compiling Filters into BPF.
 #[derive(Debug, PartialEq)]
@@ -55,6 +57,43 @@ impl fmt::Display for Error {
                 syscall_name, arch
             ),
         }
+    }
+}
+
+/// Deserializable object that represents the Json filter file.
+pub(crate) struct JsonFile(pub HashMap<String, Filter>);
+
+// Implement a custom deserializer, that returns an error for duplicate thread keys.
+impl<'de> Deserialize<'de> for JsonFile {
+    fn deserialize<D>(deserializer: D) -> result::Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        struct JsonFileVisitor;
+
+        impl<'d> Visitor<'d> for JsonFileVisitor {
+            type Value = HashMap<String, Filter>;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
+                f.write_str("a map of filters")
+            }
+
+            fn visit_map<M>(self, mut access: M) -> result::Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'d>,
+            {
+                let mut values = Self::Value::with_capacity(access.size_hint().unwrap_or(0));
+
+                while let Some((key, value)) = access.next_entry()? {
+                    if values.insert(key, value).is_some() {
+                        return Err(M::Error::custom("duplicate filter key"));
+                    };
+                }
+
+                Ok(values)
+            }
+        }
+        Ok(JsonFile(deserializer.deserialize_map(JsonFileVisitor)?))
     }
 }
 
