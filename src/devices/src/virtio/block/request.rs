@@ -49,14 +49,16 @@ impl Status {
         }
     }
 
-    pub fn virtio_blk_status(&self) -> u32 {
-        match self {
+    pub fn virtio_blk_status(&self) -> u8 {
+        let virtio_blk_status = match self {
             Status::Ok(_) => VIRTIO_BLK_S_OK,
             Status::Err(status) => match status {
                 ErrStatus::IoErr(_) => VIRTIO_BLK_S_IOERR,
                 ErrStatus::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
             },
-        }
+        };
+
+        virtio_blk_status as u8
     }
 
     pub fn num_used_bytes(&self) -> u32 {
@@ -367,7 +369,7 @@ mod tests {
     fn test_status() {
         {
             let status = Status::from_result(Ok(10));
-            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_OK);
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_OK as u8);
             assert_eq!(status.num_used_bytes(), 11);
         }
 
@@ -375,7 +377,7 @@ mod tests {
             let status = Status::from_result(Err(ErrStatus::IoErr(IoErrStatus::BadRequest(
                 Error::InvalidOffset,
             ))));
-            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR);
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
             assert_eq!(status.num_used_bytes(), 1);
         }
 
@@ -383,7 +385,7 @@ mod tests {
             let status = Status::from_result(Err(ErrStatus::IoErr(IoErrStatus::Flush(
                 io::Error::from_raw_os_error(42),
             ))));
-            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR);
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
             assert_eq!(status.num_used_bytes(), 1);
         }
 
@@ -392,7 +394,7 @@ mod tests {
                 0,
                 GuestMemoryError::InvalidBackendAddress,
             ))));
-            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR);
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
             assert_eq!(status.num_used_bytes(), 1);
         }
 
@@ -404,7 +406,7 @@ mod tests {
                     completed: 20,
                 },
             ))));
-            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR);
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
             assert_eq!(status.num_used_bytes(), 11);
         }
 
@@ -412,7 +414,7 @@ mod tests {
             let status = Status::from_result(Err(ErrStatus::IoErr(IoErrStatus::Seek(
                 io::Error::from_raw_os_error(42),
             ))));
-            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR);
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
             assert_eq!(status.num_used_bytes(), 1);
         }
 
@@ -420,13 +422,13 @@ mod tests {
             let status = Status::from_result(Err(ErrStatus::IoErr(IoErrStatus::Write(
                 GuestMemoryError::InvalidBackendAddress,
             ))));
-            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR);
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
             assert_eq!(status.num_used_bytes(), 1);
         }
 
         {
             let status = Status::from_result(Err(ErrStatus::Unsupported(0)));
-            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_UNSUPP);
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_UNSUPP as u8);
             assert_eq!(status.num_used_bytes(), 1);
         }
     }
