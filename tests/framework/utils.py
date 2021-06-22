@@ -11,6 +11,7 @@ import subprocess
 import threading
 import typing
 import time
+
 from collections import namedtuple, defaultdict
 import psutil
 from retry import retry
@@ -287,7 +288,7 @@ class ExceptionAggregator(Exception):
 
     def __str__(self):
         """Return custom as string implementation."""
-        return "\n".join(self.failures)
+        return "\n\n".join(self.failures)
 
 
 def search_output_from_cmd(cmd: str,
