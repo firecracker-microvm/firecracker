@@ -80,7 +80,6 @@ def _test_seq_snapshots(context):
                                    config=context.microvm,
                                    diff_snapshots=diff_snapshots)
     basevm = vm_instance.vm
-    # The vsock device is configured for Full snapshots only.
     basevm.vsock.put(
         vsock_id="vsock0",
         guest_cid=3,
