@@ -21,10 +21,16 @@ use kvm_bindings::{
     kvm_xsave, CpuId, MsrList, Msrs,
 };
 use kvm_ioctls::{VcpuExit, VcpuFd};
-use logger::{error, IncMetric, METRICS};
+use logger::{error, warn, IncMetric, METRICS};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{Address, GuestAddress, GuestMemoryMmap};
+
+// Tolerance for TSC frequency expected variation.
+// The value of 250 parts per million is based on
+// the QEMU approach, more details here:
+// https://bugzilla.redhat.com/show_bug.cgi?id=1839095
+const TSC_KHZ_TOL: f64 = 250.0 / 1_000_000.0;
 
 /// Errors associated with the wrappers over KVM ioctls.
 #[derive(Debug)]
@@ -67,6 +73,8 @@ pub enum Error {
     VcpuGetXsave(kvm_ioctls::Error),
     /// Failed to get KVM vcpu cpuid.
     VcpuGetCpuid(kvm_ioctls::Error),
+    /// Failed to get KVM TSC freq.
+    VcpuGetTSC(kvm_ioctls::Error),
     /// Failed to set KVM vcpu cpuid.
     VcpuSetCpuid(kvm_ioctls::Error),
     /// Failed to set KVM vcpu debug regs.
@@ -87,6 +95,8 @@ pub enum Error {
     VcpuSetXcrs(kvm_ioctls::Error),
     /// Failed to set KVM vcpu xsave.
     VcpuSetXsave(kvm_ioctls::Error),
+    /// Failed to set KVM TSC freq.
+    VcpuSetTSC(kvm_ioctls::Error),
 }
 
 impl Display for Error {
@@ -125,6 +135,7 @@ impl Display for Error {
             VcpuGetXcrs(e) => write!(f, "Failed to get KVM vcpu xcrs: {}", e),
             VcpuGetXsave(e) => write!(f, "Failed to get KVM vcpu xsave: {}", e),
             VcpuGetCpuid(e) => write!(f, "Failed to get KVM vcpu cpuid: {}", e),
+            VcpuGetTSC(e) => write!(f, "Failed to get KVM TSC frequency: {}", e),
             VcpuSetCpuid(e) => write!(f, "Failed to set KVM vcpu cpuid: {}", e),
             VcpuSetDebugRegs(e) => write!(f, "Failed to set KVM vcpu debug regs: {}", e),
             VcpuSetLapic(e) => write!(f, "Failed to set KVM vcpu lapic: {}", e),
@@ -135,6 +146,7 @@ impl Display for Error {
             VcpuSetVcpuEvents(e) => write!(f, "Failed to set KVM vcpu event: {}", e),
             VcpuSetXcrs(e) => write!(f, "Failed to set KVM vcpu xcrs: {}", e),
             VcpuSetXsave(e) => write!(f, "Failed to set KVM vcpu xsave: {}", e),
+            VcpuSetTSC(e) => write!(f, "Failed to set KVM TSC frequency: {}", e),
         }
     }
 }
@@ -225,6 +237,11 @@ impl KvmVcpu {
         self.pio_bus = Some(pio_bus);
     }
 
+    /// Get the current TSC frequency for this vCPU.
+    pub fn get_tsc_khz(&self) -> Result<u32> {
+        self.fd.get_tsc_khz().map_err(Error::VcpuGetTSC)
+    }
+
     /// Save the KVM internal state.
     pub fn save_state(&self) -> Result<VcpuState> {
         /*
@@ -268,6 +285,16 @@ impl KvmVcpu {
         let xcrs = self.fd.get_xcrs().map_err(Error::VcpuGetXcrs)?;
         let debug_regs = self.fd.get_debug_regs().map_err(Error::VcpuGetDebugRegs)?;
         let lapic = self.fd.get_lapic().map_err(Error::VcpuGetLapic)?;
+        let tsc_khz = self.get_tsc_khz().ok().or_else(|| {
+            // v0.25 and newer snapshots without TSC will only work on
+            // the same CPU model as the host on which they were taken.
+            // TODO: Add negative test for this warning failure.
+            warn!(
+                "TSC freq not available. Snapshot cannot be loaded on a \
+                different CPU model."
+            );
+            None
+        });
         let nmsrs = self.fd.get_msrs(&mut msrs).map_err(Error::VcpuGetMsrs)?;
         if nmsrs != num_msrs {
             return Err(Error::VcpuGetMSRSIncomplete);
@@ -291,7 +318,25 @@ impl KvmVcpu {
             vcpu_events,
             xcrs,
             xsave,
+            tsc_khz,
         })
+    }
+
+    // Checks whether the TSC needs scaling when restoring a snapshot.
+    pub fn is_tsc_scaling_required(&self, state_tsc_freq: u32) -> Result<bool> {
+        // Compare the current TSC freq to the one found
+        // in the state. If they are different, we need to
+        // scale the TSC to the freq found in the state.
+        // We accept values within a tolerance of 250 parts
+        // per million beacuse it is common for TSC frequency
+        // to differ due to calibration at boot time.
+        let diff = (self.get_tsc_khz()? as i64 - state_tsc_freq as i64).abs();
+        Ok(diff > (state_tsc_freq as f64 * TSC_KHZ_TOL).round() as i64)
+    }
+
+    // Scale the TSC frequency of this vCPU to the one provided as a parameter.
+    pub fn set_tsc_khz(&self, tsc_freq: u32) -> Result<()> {
+        self.fd.set_tsc_khz(tsc_freq).map_err(Error::VcpuSetTSC)
     }
 
     /// Use provided state to populate KVM internal state.
@@ -318,6 +363,7 @@ impl KvmVcpu {
          * SET_LAPIC must come before SET_MSRS, because the TSC deadline MSR
          * only restores successfully, when the LAPIC is correctly configured.
          */
+
         self.fd
             .set_cpuid2(&state.cpuid)
             .map_err(Error::VcpuSetCpuid)?;
@@ -392,6 +438,28 @@ pub struct VcpuState {
     vcpu_events: kvm_vcpu_events,
     xcrs: kvm_xcrs,
     xsave: kvm_xsave,
+    #[version(start = 2, default_fn = "default_tsc_khz", ser_fn = "ser_tsc")]
+    pub tsc_khz: Option<u32>,
+}
+
+impl VcpuState {
+    fn default_tsc_khz(_: u16) -> Option<u32> {
+        warn!("CPU TSC freq not found in snapshot");
+        None
+    }
+
+    fn ser_tsc(&mut self, _target_version: u16) -> VersionizeResult<()> {
+        // v0.24 and older versions do not support TSC scaling.
+        warn!(
+            "Saving to older snapshot version, TSC freq {}",
+            self.tsc_khz
+                .clone()
+                .map(|freq| freq.to_string() + "KHz not included in snapshot.")
+                .unwrap_or_else(|| "not available.".to_string())
+        );
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -403,6 +471,7 @@ mod tests {
     use super::*;
     use crate::vstate::vm::{tests::setup_vm, Vm};
     use cpuid::common::{get_vendor_id_from_host, VENDOR_ID_INTEL};
+    use kvm_ioctls::Cap;
 
     impl Default for VcpuState {
         fn default() -> Self {
@@ -417,6 +486,7 @@ mod tests {
                 vcpu_events: Default::default(),
                 xcrs: Default::default(),
                 xsave: Default::default(),
+                tsc_khz: Some(0),
             }
         }
     }
@@ -491,5 +561,49 @@ mod tests {
 
         // Validate the mutated cpuid is saved.
         assert!(vcpu.save_state().unwrap().cpuid.as_slice()[0].eax == 0x1234_5678);
+    }
+
+    #[test]
+    fn test_is_tsc_scaling_required() {
+        // Test `is_tsc_scaling_required` as if it were on the same
+        // CPU model as the one in the snapshot state.
+        let (_vm, vcpu, _) = setup_vcpu(0x1000);
+        let orig_state = vcpu.save_state().unwrap();
+
+        {
+            // The frequency difference is within tolerance.
+            let mut state = orig_state.clone();
+            state.tsc_khz = Some(state.tsc_khz.unwrap() + (TSC_KHZ_TOL / 2.0).round() as u32);
+            assert!(!vcpu
+                .is_tsc_scaling_required(state.tsc_khz.unwrap())
+                .unwrap());
+        }
+
+        {
+            // The frequency difference is over the tolerance.
+            let mut state = orig_state;
+            state.tsc_khz = Some(state.tsc_khz.unwrap() + (TSC_KHZ_TOL * 2.0).round() as u32);
+            assert!(!vcpu
+                .is_tsc_scaling_required(state.tsc_khz.unwrap())
+                .unwrap());
+        }
+    }
+
+    #[test]
+    fn test_set_tsc() {
+        let (vm, vcpu, _) = setup_vcpu(0x1000);
+        let mut state = vcpu.save_state().unwrap();
+        state.tsc_khz = Some(state.tsc_khz.unwrap() + (TSC_KHZ_TOL * 2.0).round() as u32);
+
+        if vm.fd().check_extension(Cap::TscControl) {
+            assert!(vcpu.set_tsc_khz(state.tsc_khz.unwrap()).is_ok());
+            if vm.fd().check_extension(Cap::GetTscKhz) {
+                assert_eq!(vcpu.get_tsc_khz().ok(), state.tsc_khz);
+            } else {
+                assert!(vcpu.get_tsc_khz().is_err());
+            }
+        } else {
+            assert!(vcpu.set_tsc_khz(state.tsc_khz.unwrap()).is_err());
+        }
     }
 }

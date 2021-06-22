@@ -921,6 +921,30 @@
                         "comment": "KVM_SET_XCRS"
                     }
                 ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 44706,
+                        "comment": "KVM_SET_TSC_KHZ"
+                    }
+                ]
+            },
+            {
+                "syscall": "ioctl",
+                "args": [
+                    {
+                        "arg_index": 1,
+                        "arg_type": "dword",
+                        "op": "eq",
+                        "val": 44707,
+                        "comment": "KVM_GET_TSC_KHZ"
+                    }
+                ]
             }
         ]
     }

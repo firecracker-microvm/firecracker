@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 kvm-bindings = { version = ">=0.4.0", features = ["fam-wrappers"] }
-kvm-ioctls = ">=0.8.0"
+kvm-ioctls = ">=0.9.0"
 libc = ">=0.2.39"
 vm-memory = { path = "../vm-memory" }
 versionize = ">=0.1.6"

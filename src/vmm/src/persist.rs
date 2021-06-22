@@ -66,6 +66,8 @@ pub struct MicrovmState {
 /// Errors related to saving and restoring Microvm state.
 #[derive(Debug)]
 pub enum MicrovmStateError {
+    /// Compatibility checks failed.
+    IncompatibleState(String),
     /// Provided MicroVM state is invalid.
     InvalidInput,
     /// Operation not allowed.
@@ -90,6 +92,7 @@ impl Display for MicrovmStateError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::MicrovmStateError::*;
         match self {
+            IncompatibleState(msg) => write!(f, "Compatibility checks failed: {}", msg),
             InvalidInput => write!(f, "Provided MicroVM state is invalid."),
             NotAllowed(msg) => write!(f, "Operation not allowed: {}", msg),
             RestoreDevices(err) => write!(f, "Cannot restore devices. Error: {:?}", err),

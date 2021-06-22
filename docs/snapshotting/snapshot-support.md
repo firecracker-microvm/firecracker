@@ -532,8 +532,20 @@ Firecracker.
 to vsock packet loss, leads to Vsock device breakage when doing a snapshot while
 there are active Vsock connections.
 
-   _**Workaround**_: Close all active Vsock connections prior to snapshotting
-   the VM.
+   As a solution to the above issue, active Vsock connections prior to
+snapshotting the VM are forcibly closed by sending a specific event called
+`VIRTIO_VSOCK_EVENT_TRANSPORT_RESET`. The event is sent on `SnapshotCreate`.
+On `SnapshotResume`, when the VM becomes active again,
+the vsock driver closes all existing connections.
+Listen sockets still remain active. Users wanting to build vsock applications that
+use the snapshot capability have to take this into consideration. More details
+about this event can be found in the official Virtio document
+[here](https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.pdf),
+section 5.10.6.6 Device Events.
+
+   Firecracker handles sending the `reset` event to the vsock driver,
+thus the customers are no longer responsible for closing
+active connections.
 
 1. _Incremental/diff_ snapshots are not yet supported for Vsock devices.
    Creating a `diff` snapshot on a microVM with a `vsock` device configured
