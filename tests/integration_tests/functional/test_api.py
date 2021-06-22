@@ -223,12 +223,6 @@ def test_api_put_machine_config(test_microvm_with_api):
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
-    # Test invalid mem_size_mib < 0.
-    response = test_microvm.machine_cfg.put(
-        mem_size_mib='-2'
-    )
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-
     # Test invalid type for ht_enabled flag.
     response = test_microvm.machine_cfg.put(
         ht_enabled='random_string'
@@ -258,6 +252,43 @@ def test_api_put_machine_config(test_microvm_with_api):
             response.status_code
         )
         assert "CPU templates are not supported on aarch64" in response.text
+
+    # Test invalid mem_size_mib < 0.
+    response = test_microvm.machine_cfg.put(
+        mem_size_mib='-2'
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+    # Test invalid mem_size_mib > usize::MAX.
+    bad_size = 1 << 64
+    response = test_microvm.machine_cfg.put(
+        mem_size_mib=bad_size
+    )
+    fail_msg = "error occurred when deserializing the json body of a " \
+               "request: invalid type"
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert fail_msg in response.text
+
+    # Test invalid mem_size_mib = usize::MAX.
+    test_microvm.basic_config()
+    bad_size = (1 << 64) - 1
+    response = test_microvm.machine_cfg.patch(
+        mem_size_mib=bad_size
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.actions.put(action_type='InstanceStart')
+    fail_msg = "Invalid Memory Configuration: MmapRegion(Mmap(Os { code: " \
+               "12, kind: Other, message: Out of memory }))"
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert fail_msg in response.text
+
+    # Test invalid mem_size_mib = 0.
+    response = test_microvm.machine_cfg.patch(
+        mem_size_mib=0
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "The memory size (MiB) is invalid." in response.text
 
 
 def test_api_put_update_post_boot(test_microvm_with_api):
