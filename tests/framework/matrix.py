@@ -7,6 +7,8 @@ of the cartesian product of all artifact sets.
 """
 
 import os
+import sys
+import traceback
 from framework.artifacts import ARTIFACTS_LOCAL_ROOT
 from framework.utils import ExceptionAggregator
 
@@ -115,8 +117,10 @@ class TestMatrix:
         if len(self._sets) == len(cartesian_product):
             try:
                 self._run_test_fn(cartesian_product, test_fn)
-            except Exception as err:  # pylint: disable=W0703
-                self._failure_aggregator.add_row(err)
+            except Exception as _err:  # pylint: disable=W0703
+                self._failure_aggregator.add_row(
+                    "".join(traceback.format_exception(*sys.exc_info()))
+                )
             return
 
         current_set = self._sets[self._set_index]
