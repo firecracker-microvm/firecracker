@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Module that defines common data structures used by both the library crate
-//! and the seccompiler binary.
+//! and seccompiler-bin.
 
 use serde::{Deserialize, Serialize};
 

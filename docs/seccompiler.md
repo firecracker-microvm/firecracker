@@ -2,35 +2,35 @@
 
 ## Overview
 
-Seccompiler is a tool that compiles seccomp filters expressed as JSON files
+Seccompiler-bin is a tool that compiles seccomp filters expressed as JSON files
 into serialized, binary BPF code that is directly consumed by Firecracker,
 at build or launch time.
 
-Seccompiler defines a custom [JSON file structure](#json-file-format), detailed
-further below, that the filters must adhere to.
+Seccompiler-bin uses a custom [JSON file structure](#json-file-format),
+detailed further below, that the filters must adhere to.
 
-Besides the compiler binary, seccompiler also exports a small library
-interface, with a couple of helper functions, for deserializing and installing
-the binary filters.
+Besides the seccompiler-bin executable, seccompiler also exports a library
+interface, with helper functions for deserializing and installing the binary
+filters.
 
 ## Usage
 
-### Seccompiler binary
+### Seccompiler-bin
 
-To view the seccompiler command line arguments, pass the `--help` parameter to
-the executable.
+To view the seccompiler-bin command line arguments, pass the `--help` parameter
+to the executable.
 
 Example usage:
 
 ```bash
-./seccompiler
+./seccompiler-bin
     --target-arch "x86_64"  # The CPU arch where the BPF program will run.
                             # Supported architectures: x86_64, aarch64.
     --input-file "x86_64_musl.json" # File path of the JSON input.
     --output-file "bpf_x86_64_musl" # Optional path of the output file.
                                     # [default: "seccomp_binary_filter.out"]
     --basic # Optional, creates basic filters, discarding any parameter checks.
-            # (Not recommended).
+            # (Deprecated).
 ```
 
 ### Seccompiler library
@@ -45,12 +45,12 @@ workspace. The code is located at `firecracker/src/seccompiler/src`.
 
 ## Supported platforms
 
-Seccompiler is supported on the
+Seccompiler-bin is supported on the
 [same platforms as Firecracker](../README.md#supported-platforms).
 
 ## Release policy
 
-Seccompiler follows Firecracker's [release policy](RELEASE_POLICY.md) and
+Seccompiler-bin follows Firecracker's [release policy](RELEASE_POLICY.md) and
 version (it's released at the same time, with the same version number and
 adheres to the same support window).
 
@@ -133,8 +133,8 @@ In order to allow a syscall with multiple alternatives for the same parameters,
 you can write multiple syscall rule objects at the filter-level, each with its
 own rules.
 
-Note that, when passing the `--basic` flag to seccompiler, all `args` fields
-of the `SeccompRule`s are ignored.
+Note that, when passing the deprecated `--basic` flag to seccompiler-bin, all
+`args` fields of the `SeccompRule`s are ignored.
 
 A **condition object** is made up of the following mandatory properties:
 

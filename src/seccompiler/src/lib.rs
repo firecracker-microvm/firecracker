@@ -3,7 +3,7 @@
 #![deny(missing_docs)]
 
 //! The library crate that defines common helper functions that are generally used in
-//! conjunction with the seccompiler binary.
+//! conjunction with seccompiler-bin.
 
 mod common;
 

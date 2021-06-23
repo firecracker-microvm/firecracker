@@ -14,7 +14,7 @@
   version of a snapshot state file provided as argument.
 - Added `--no-seccomp` parameter for disabling the default seccomp filters.
 - Added `--seccomp-filter` parameter for supplying user-provided, custom filters.
-- Added the `seccompiler` binary that is used to compile JSON seccomp filters
+- Added the `seccompiler-bin` binary that is used to compile JSON seccomp filters
   into serialized BPF for Firecracker consumption.
 - Snapshotting support for GICv2 enabled guests.
 - Added `devtool install` to deploy built binaries in `/usr/local/bin` or a

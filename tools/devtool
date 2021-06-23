@@ -299,7 +299,7 @@ ensure_release_binaries_exist() {
     profile=$2
     firecracker_bin_path="$CARGO_TARGET_DIR/$target/$profile/firecracker"
     jailer_bin_path="$CARGO_TARGET_DIR/$target/$profile/jailer"
-    seccompiler_bin_path="$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler"
+    seccompiler_bin_path="$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin"
 
     # Both binaries must exist for the stripping to be successful.
     [ -f "$firecracker_bin_path" ] && [ -f "$jailer_bin_path" ] && [ -f "$seccompiler_bin_path" ] || \
@@ -700,13 +700,13 @@ cmd_build() {
     # We don't need any special privileges for the build phase, so we run the
     # container as the current user/group.
 
-    # Build seccompiler.
+    # Build seccompiler-bin.
     run_devctr \
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_FC_ROOT_DIR" \
         ${extra_args} \
         -- \
-        cargo build -p seccompiler --bin seccompiler \
+        cargo build -p seccompiler --bin seccompiler-bin \
             --target-dir "$CTR_CARGO_SECCOMPILER_TARGET_DIR" \
             "${cargo_args[@]}"
     ret=$?
@@ -750,7 +750,7 @@ cmd_build() {
         # messages.
         say "Build successful."
         say "Firecracker and Jailer binaries placed under $cargo_bin_dir"
-        say "Seccompiler binary placed under $seccompiler_bin_dir"
+        say "Seccompiler-bin binary placed under $seccompiler_bin_dir"
     }
 
     return $ret
@@ -804,13 +804,13 @@ cmd_strip() {
       strip $strip_flags\
         "$CTR_CARGO_TARGET_DIR/$target/$profile/firecracker" \
         "$CTR_CARGO_TARGET_DIR/$target/$profile/jailer" \
-        "$CTR_CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler"
+        "$CTR_CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin"
     ret=$?
 
     [ $ret -eq 0 ] && {
         say "Stripping was successful."
         say "Stripped Firecracker and Jailer binaries placed under $CARGO_TARGET_DIR/$target/$profile."
-        say "Stripped seccompiler binary placed under $CARGO_SECCOMPILER_TARGET_DIR/$target/$profile."
+        say "Stripped seccompiler-bin binary placed under $CARGO_SECCOMPILER_TARGET_DIR/$target/$profile."
     }
 
     return $ret
@@ -1429,7 +1429,7 @@ cmd_install() {
     install -m 755 "$CARGO_TARGET_DIR/$target/$profile/jailer" "$install_path"
 
     say "Installing seccomp in $install_path"
-    install -m 755 "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler" "$install_path"
+    install -m 755 "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin" "$install_path"
 }
 
 main() {
