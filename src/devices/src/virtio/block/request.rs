@@ -18,27 +18,62 @@ use super::device::{CacheType, DiskProperties};
 use super::{Error, SECTOR_SHIFT, SECTOR_SIZE};
 
 #[derive(Debug)]
-pub enum ExecuteError {
+pub enum IoErrStatus {
     BadRequest(Error),
     Flush(io::Error),
-    Read(GuestMemoryError),
+    // Read(num_used_bytes, GuestMemoryError)
+    Read(u32, GuestMemoryError),
     Seek(io::Error),
     SyncAll(io::Error),
     Write(GuestMemoryError),
+}
+
+#[derive(Debug)]
+pub enum ErrStatus {
+    IoErr(IoErrStatus),
     Unsupported(u32),
 }
 
-impl ExecuteError {
-    pub fn status(&self) -> u32 {
-        match *self {
-            ExecuteError::BadRequest(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Flush(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Read(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Seek(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::SyncAll(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Write(_) => VIRTIO_BLK_S_IOERR,
-            ExecuteError::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
+#[derive(Debug)]
+pub enum Status {
+    // Ok(num_used_bytes)
+    Ok(u32),
+    Err(ErrStatus),
+}
+
+impl Status {
+    pub fn from_result(result: result::Result<u32, ErrStatus>) -> Status {
+        match result {
+            Ok(status) => Status::Ok(status),
+            Err(status) => Status::Err(status),
         }
+    }
+
+    pub fn virtio_blk_status(&self) -> u8 {
+        let virtio_blk_status = match self {
+            Status::Ok(_) => VIRTIO_BLK_S_OK,
+            Status::Err(status) => match status {
+                ErrStatus::IoErr(_) => VIRTIO_BLK_S_IOERR,
+                ErrStatus::Unsupported(_) => VIRTIO_BLK_S_UNSUPP,
+            },
+        };
+
+        virtio_blk_status as u8
+    }
+
+    pub fn num_used_bytes(&self) -> u32 {
+        let num_used_bytes = match self {
+            Status::Ok(num_used_bytes) => *num_used_bytes,
+            Status::Err(status) => match status {
+                ErrStatus::IoErr(io_err) => match io_err {
+                    IoErrStatus::Read(num_used_bytes, _) => *num_used_bytes,
+                    _ => 0,
+                },
+                ErrStatus::Unsupported(_) => 0,
+            },
+        };
+        // account for the status byte
+        num_used_bytes + 1
     }
 }
 
@@ -178,52 +213,85 @@ impl Request {
         Ok(req)
     }
 
+    fn execute_seek(&self, disk: &mut DiskProperties) -> result::Result<(), ErrStatus> {
+        // TODO: perform this logic at request parsing level in the future.
+        // Check that the data length is a multiple of 512 as specified in the virtio standard.
+        if u64::from(self.data_len) % SECTOR_SIZE != 0 {
+            return Err(ErrStatus::IoErr(IoErrStatus::BadRequest(
+                Error::InvalidDataLength,
+            )));
+        }
+        let top_sector = self
+            .sector
+            .checked_add(u64::from(self.data_len) >> SECTOR_SHIFT)
+            .ok_or(ErrStatus::IoErr(IoErrStatus::BadRequest(
+                Error::InvalidOffset,
+            )))?;
+        if top_sector > disk.nsectors() {
+            return Err(ErrStatus::IoErr(IoErrStatus::BadRequest(
+                Error::InvalidOffset,
+            )));
+        }
+
+        disk.file_mut()
+            .seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
+            .map_err(|e| ErrStatus::IoErr(IoErrStatus::Seek(e)))?;
+
+        Ok(())
+    }
+
     pub(crate) fn execute(
         &self,
         disk: &mut DiskProperties,
         mem: &GuestMemoryMmap,
-    ) -> result::Result<u32, ExecuteError> {
-        let mut top: u64 = u64::from(self.data_len) / SECTOR_SIZE;
-        if u64::from(self.data_len) % SECTOR_SIZE != 0 {
-            top += 1;
-        }
-        top = top
-            .checked_add(self.sector)
-            .ok_or(ExecuteError::BadRequest(Error::InvalidOffset))?;
-        if top > disk.nsectors() {
-            return Err(ExecuteError::BadRequest(Error::InvalidOffset));
-        }
-
+    ) -> result::Result<u32, ErrStatus> {
         let cache_type = disk.cache_type();
-        let diskfile = disk.file_mut();
-        diskfile
-            .seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
-            .map_err(ExecuteError::Seek)?;
 
         match self.request_type {
-            RequestType::In => mem
-                .read_exact_from(self.data_addr, diskfile, self.data_len as usize)
-                .map(|_| {
-                    METRICS.block.read_bytes.add(self.data_len as usize);
-                    METRICS.block.read_count.inc();
-                    self.data_len
-                })
-                .map_err(ExecuteError::Read),
-            RequestType::Out => mem
-                .write_all_to(self.data_addr, diskfile, self.data_len as usize)
-                .map(|_| {
-                    METRICS.block.write_bytes.add(self.data_len as usize);
-                    METRICS.block.write_count.inc();
-                    0
-                })
-                .map_err(ExecuteError::Write),
+            RequestType::In => {
+                self.execute_seek(disk)?;
+                mem.read_exact_from(self.data_addr, disk.file_mut(), self.data_len as usize)
+                    .map(|_| {
+                        METRICS.block.read_bytes.add(self.data_len as usize);
+                        METRICS.block.read_count.inc();
+                        self.data_len
+                    })
+                    .map_err(|e| {
+                        let mut num_used_bytes = self.data_len;
+                        if let GuestMemoryError::PartialBuffer { completed, .. } = e {
+                            METRICS.block.read_bytes.add(completed);
+                            // It's safe to cast to u32 since completed < data_len.
+                            num_used_bytes = completed as u32;
+                        }
+                        ErrStatus::IoErr(IoErrStatus::Read(num_used_bytes, e))
+                    })
+            }
+            RequestType::Out => {
+                self.execute_seek(disk)?;
+                mem.write_all_to(self.data_addr, disk.file_mut(), self.data_len as usize)
+                    .map(|_| {
+                        METRICS.block.write_bytes.add(self.data_len as usize);
+                        METRICS.block.write_count.inc();
+                        0
+                    })
+                    .map_err(|e| {
+                        if let GuestMemoryError::PartialBuffer { completed, .. } = e {
+                            METRICS.block.write_bytes.add(completed);
+                        }
+                        ErrStatus::IoErr(IoErrStatus::Write(e))
+                    })
+            }
             RequestType::Flush => {
                 match cache_type {
                     CacheType::Writeback => {
                         // flush() first to force any cached data out.
-                        diskfile.flush().map_err(ExecuteError::Flush)?;
+                        disk.file_mut()
+                            .flush()
+                            .map_err(|e| ErrStatus::IoErr(IoErrStatus::Flush(e)))?;
                         // Sync data out to physical media on host.
-                        diskfile.sync_all().map_err(ExecuteError::SyncAll)?;
+                        disk.file_mut()
+                            .sync_all()
+                            .map_err(|e| ErrStatus::IoErr(IoErrStatus::SyncAll(e)))?;
                         METRICS.block.flush_count.inc();
                     }
                     CacheType::Unsafe => {
@@ -235,13 +303,15 @@ impl Request {
             RequestType::GetDeviceID => {
                 let disk_id = disk.image_id();
                 if (self.data_len as usize) < disk_id.len() {
-                    return Err(ExecuteError::BadRequest(Error::InvalidOffset));
+                    return Err(ErrStatus::IoErr(IoErrStatus::BadRequest(
+                        Error::InvalidOffset,
+                    )));
                 }
                 mem.write_slice(disk_id, self.data_addr)
                     .map(|_| VIRTIO_BLK_ID_BYTES)
-                    .map_err(ExecuteError::Write)
+                    .map_err(|e| ErrStatus::IoErr(IoErrStatus::Write(e)))
             }
-            RequestType::Unsupported(t) => Err(ExecuteError::Unsupported(t)),
+            RequestType::Unsupported(op) => Err(ErrStatus::Unsupported(op)),
         }
     }
 }
@@ -296,28 +366,71 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_error_status() {
-        assert_eq!(
-            ExecuteError::BadRequest(Error::InvalidOffset).status(),
-            VIRTIO_BLK_S_IOERR
-        );
-        assert_eq!(
-            ExecuteError::Flush(io::Error::from_raw_os_error(42)).status(),
-            VIRTIO_BLK_S_IOERR
-        );
-        assert_eq!(
-            ExecuteError::Read(GuestMemoryError::InvalidBackendAddress).status(),
-            VIRTIO_BLK_S_IOERR
-        );
-        assert_eq!(
-            ExecuteError::Seek(io::Error::from_raw_os_error(42)).status(),
-            VIRTIO_BLK_S_IOERR
-        );
-        assert_eq!(
-            ExecuteError::Write(GuestMemoryError::InvalidBackendAddress).status(),
-            VIRTIO_BLK_S_IOERR
-        );
-        assert_eq!(ExecuteError::Unsupported(42).status(), VIRTIO_BLK_S_UNSUPP);
+    fn test_status() {
+        {
+            let status = Status::from_result(Ok(10));
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_OK as u8);
+            assert_eq!(status.num_used_bytes(), 11);
+        }
+
+        {
+            let status = Status::from_result(Err(ErrStatus::IoErr(IoErrStatus::BadRequest(
+                Error::InvalidOffset,
+            ))));
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
+            assert_eq!(status.num_used_bytes(), 1);
+        }
+
+        {
+            let status = Status::from_result(Err(ErrStatus::IoErr(IoErrStatus::Flush(
+                io::Error::from_raw_os_error(42),
+            ))));
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
+            assert_eq!(status.num_used_bytes(), 1);
+        }
+
+        {
+            let status = Status::from_result(Err(ErrStatus::IoErr(IoErrStatus::Read(
+                0,
+                GuestMemoryError::InvalidBackendAddress,
+            ))));
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
+            assert_eq!(status.num_used_bytes(), 1);
+        }
+
+        {
+            let status = Status::from_result(Err(ErrStatus::IoErr(IoErrStatus::Read(
+                10,
+                GuestMemoryError::PartialBuffer {
+                    expected: 10,
+                    completed: 20,
+                },
+            ))));
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
+            assert_eq!(status.num_used_bytes(), 11);
+        }
+
+        {
+            let status = Status::from_result(Err(ErrStatus::IoErr(IoErrStatus::Seek(
+                io::Error::from_raw_os_error(42),
+            ))));
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
+            assert_eq!(status.num_used_bytes(), 1);
+        }
+
+        {
+            let status = Status::from_result(Err(ErrStatus::IoErr(IoErrStatus::Write(
+                GuestMemoryError::InvalidBackendAddress,
+            ))));
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_IOERR as u8);
+            assert_eq!(status.num_used_bytes(), 1);
+        }
+
+        {
+            let status = Status::from_result(Err(ErrStatus::Unsupported(0)));
+            assert_eq!(status.virtio_blk_status(), VIRTIO_BLK_S_UNSUPP as u8);
+            assert_eq!(status.num_used_bytes(), 1);
+        }
     }
 
     #[test]

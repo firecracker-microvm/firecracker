@@ -310,7 +310,7 @@ def bin_seccomp_paths(test_fc_session_root_path):
 
     They currently consist of:
 
-    * a jailer that receives a seccompiler generated filter;
+    * a jailer that receives filter generated using seccompiler-bin;
     * a jailed binary that follows the seccomp rules;
     * a jailed binary that breaks the seccomp rules.
     """

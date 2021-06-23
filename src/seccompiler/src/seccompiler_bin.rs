@@ -1,7 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Seccompiler is a program that compiles multi-threaded seccomp-bpf filters expressed as JSON
+//! seccompiler-bin is a program that compiles multi-threaded seccomp-bpf filters expressed as JSON
 //! into raw BPF programs, serializing them and outputting them to a file.
 //!
 //! Used in conjunction with the provided library crate, one can deserialize the binary filters
@@ -47,7 +47,7 @@ use std::{fmt, io, process};
 use backend::{TargetArch, TargetArchError};
 use bincode::Error as BincodeError;
 use common::BpfProgram;
-use compiler::{Compiler, Error as FilterFormatError, Filter};
+use compiler::{Compiler, Error as FilterFormatError, JsonFile};
 use serde_json::error::Error as JSONError;
 use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag};
 
@@ -120,7 +120,7 @@ fn build_arg_parser() -> ArgParser<'static> {
         .arg(
             Argument::new("basic")
                 .takes_value(false)
-                .help("Transforms the filters into basic filters. Drops all argument checks \
+                .help("Deprecated! Transforms the filters into basic filters. Drops all argument checks \
                 and rule-level actions. Not recommended."),
         )
 }
@@ -141,16 +141,24 @@ fn get_argument_values(arguments: &ArgumentsBag) -> Result<Arguments> {
         return Err(Error::MissingInputFile);
     }
 
+    let is_basic = arguments.flag_present("basic");
+    if is_basic {
+        println!(
+            "Warning! You are using a deprecated parameter: --basic, that will be removed in a \
+            future version.\n"
+        );
+    }
+
     Ok(Arguments {
         target_arch,
         input_file: input_file.unwrap().to_owned(),
         // Safe to unwrap because it has a default value
         output_file: arguments.single_value("output-file").unwrap().to_owned(),
-        is_basic: arguments.flag_present("basic"),
+        is_basic,
     })
 }
 
-fn parse_json(reader: &mut dyn Read) -> Result<HashMap<String, Filter>> {
+fn parse_json(reader: &mut dyn Read) -> Result<JsonFile> {
     serde_json::from_reader(reader).map_err(Error::Json)
 }
 
@@ -163,7 +171,7 @@ fn compile(args: &Arguments) -> Result<()> {
 
     // transform the IR into a Map of BPFPrograms
     let bpf_data: HashMap<String, BpfProgram> = compiler
-        .compile_blob(filters, args.is_basic)
+        .compile_blob(filters.0, args.is_basic)
         .map_err(Error::FileFormat)?;
 
     // serialize the BPF programs & output them to a file
@@ -178,7 +186,7 @@ fn main() {
     let mut arg_parser = build_arg_parser();
 
     if let Err(err) = arg_parser.parse_from_cmdline() {
-        println!(
+        eprintln!(
             "Arguments parsing error: {} \n\n\
              For more information try --help.",
             err
@@ -187,12 +195,12 @@ fn main() {
     }
 
     if arg_parser.arguments().flag_present("help") {
-        println!("Seccompiler v{}\n", SECCOMPILER_VERSION);
+        println!("Seccompiler-bin v{}\n", SECCOMPILER_VERSION);
         println!("{}", arg_parser.formatted_help());
         return;
     }
     if arg_parser.arguments().flag_present("version") {
-        println!("Seccompiler v{}\n", SECCOMPILER_VERSION);
+        println!("Seccompiler-bin v{}\n", SECCOMPILER_VERSION);
         return;
     }
 
@@ -405,7 +413,7 @@ mod tests {
         arguments
             .parse(
                 vec![
-                    "seccompiler",
+                    "seccompiler-bin",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",
@@ -431,7 +439,7 @@ mod tests {
         arguments
             .parse(
                 vec![
-                    "seccompiler",
+                    "seccompiler-bin",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",
@@ -460,7 +468,7 @@ mod tests {
         let arguments = &mut arg_parser.arguments().clone();
         assert!(arguments
             .parse(
-                vec!["seccompiler"]
+                vec!["seccompiler-bin"]
                     .into_iter()
                     .map(String::from)
                     .collect::<Vec<String>>()
@@ -472,7 +480,7 @@ mod tests {
         let arguments = &mut arg_parser.arguments().clone();
         assert!(arguments
             .parse(
-                vec!["seccompiler", "--input-file", "foo.txt"]
+                vec!["seccompiler-bin", "--input-file", "foo.txt"]
                     .into_iter()
                     .map(String::from)
                     .collect::<Vec<String>>()
@@ -484,7 +492,7 @@ mod tests {
         let arguments = &mut arg_parser.arguments().clone();
         assert!(arguments
             .parse(
-                vec!["seccompiler", "--target-arch", "x86_64"]
+                vec!["seccompiler-bin", "--target-arch", "x86_64"]
                     .into_iter()
                     .map(String::from)
                     .collect::<Vec<String>>()
@@ -497,7 +505,7 @@ mod tests {
         arguments
             .parse(
                 vec![
-                    "seccompiler",
+                    "seccompiler-bin",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",
@@ -518,7 +526,7 @@ mod tests {
         assert!(arguments
             .parse(
                 vec![
-                    "seccompiler",
+                    "seccompiler-bin",
                     "--input-file",
                     "foo.txt",
                     "--target-arch",
@@ -673,6 +681,25 @@ mod tests {
             .to_string();
             let json_input = unsafe { json_input.as_bytes_mut() };
             assert!(parse_json(&mut json_input.as_ref()).is_err());
+
+            // duplicate filter keys
+            let mut json_input = r#"
+            {
+                "thread_1": {
+                    "default_action": "trap",
+                    "filter_action": "allow",
+                    "filter": []
+                },
+                "thread_1": {
+                    "default_action": "trap",
+                    "filter_action": "allow",
+                    "filter": []
+                }
+            }
+            "#
+            .to_string();
+            let json_input = unsafe { json_input.as_bytes_mut() };
+            assert!(parse_json(&mut json_input.as_ref()).is_err());
         }
 
         // test with correctly formed JSON
@@ -681,7 +708,7 @@ mod tests {
             let mut json_input = "{}".to_string();
             let json_input = unsafe { json_input.as_bytes_mut() };
 
-            assert_eq!(parse_json(&mut json_input.as_ref()).unwrap().len(), 0);
+            assert_eq!(parse_json(&mut json_input.as_ref()).unwrap().0.len(), 0);
 
             // empty Filter
             let mut json_input =
@@ -749,6 +776,7 @@ mod tests {
 
             let mut v2: Vec<_> = parse_json(&mut json_input.as_ref())
                 .unwrap()
+                .0
                 .into_iter()
                 .collect();
             v2.sort_by(|x, y| x.0.cmp(&y.0));

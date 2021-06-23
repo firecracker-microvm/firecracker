@@ -20,8 +20,8 @@ Firecracker uses JSON files for expressing the filter rules and relies on the
 ## Default filters (recommended)
 
 At build time, the default target-specific JSON file is compiled into the
-serialized binary file, using seccompiler, and gets embedded in the Firecracker
-binary.
+serialized binary file, using seccompiler-bin, and gets embedded in the
+Firecracker binary.
 
 This process is performed automatically, when building the executable.
 
@@ -51,7 +51,7 @@ with fully customisable alternatives, leveraging the same JSON/seccompiler
 tooling, at startup time.
 
 Via Firecracker's optional `--seccomp-filter` parameter, one can supply
-the path to a custom filter file compiled with seccompiler.
+the path to a custom filter file compiled with seccompiler-bin.
 
 Potential use cases:
 

@@ -119,9 +119,9 @@ pub mod tests {
         {
             mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
                 .unwrap();
-            // Make data read only, 8 bytes in len, and set the actual value to be written.
+            // Make data read only, 512 bytes in len, and set the actual value to be written.
             vq.dtable[1].flags.set(VIRTQ_DESC_F_NEXT);
-            vq.dtable[1].len.set(8);
+            vq.dtable[1].len.set(512);
             mem.write_obj::<u64>(123_456_789, data_addr).unwrap();
 
             // Trigger the queue event.
