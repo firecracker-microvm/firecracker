@@ -163,8 +163,9 @@ class Percentile(Function, ABC):
         length = len(result)
         result.sort()
         idx = length * self.k / 100
-        if idx is not int(idx):
-            return (result[int(idx)] + result[(int(idx) + 1)]) / 2
+        if not idx.is_integer():
+            return (result[int(idx)] + result[min((int(idx) + 1),
+                    length - 1)]) / 2
 
         return result[int(idx)]
 
