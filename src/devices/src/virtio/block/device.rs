@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use logger::{error, warn, IncMetric, METRICS};
-use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
+use rate_limiter::{BucketUpdate, RateLimiter};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
 use vm_memory::{Bytes, GuestMemoryMmap};
@@ -283,40 +283,24 @@ impl Block {
             // This should never happen, it's been already validated in the event handler.
             DeviceState::Inactive => unreachable!(),
         };
+
         let has_notification_suppression = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
-        let queue = &mut self.queues[queue_index];
-        let mut used_any = false;
         let mut needs_notification = false;
+        let queue = &mut self.queues[queue_index];
+        if queue.is_empty(mem) {
+            METRICS.block.no_avail_buffer.inc();
+            return needs_notification;
+        }
+
         while let Some(head) = queue.pop(mem) {
             let len = match Request::parse(&head, mem) {
                 Ok(request) => {
-                    // If limiter.consume() fails it means there is no more TokenType::Ops
-                    // budget and rate limiting is in effect.
-                    if !self.rate_limiter.consume(1, TokenType::Ops) {
+                    if request.rate_limit(&mut self.rate_limiter) {
                         // Stop processing the queue and return this descriptor chain to the
                         // avail ring, for later processing.
                         queue.undo_pop();
                         METRICS.block.rate_limiter_throttled_events.inc();
                         break;
-                    }
-                    // Exercise the rate limiter only if this request is of data transfer type.
-                    if request.request_type == RequestType::In
-                        || request.request_type == RequestType::Out
-                    {
-                        // If limiter.consume() fails it means there is no more TokenType::Bytes
-                        // budget and rate limiting is in effect.
-                        if !self
-                            .rate_limiter
-                            .consume(u64::from(request.data_len), TokenType::Bytes)
-                        {
-                            // Revert the OPS consume().
-                            self.rate_limiter.manual_replenish(1, TokenType::Ops);
-                            // Stop processing the queue and return this descriptor chain to the
-                            // avail ring, for later processing.
-                            queue.undo_pop();
-                            METRICS.block.rate_limiter_throttled_events.inc();
-                            break;
-                        }
                     }
 
                     let status = Status::from_result(request.execute(&mut self.disk, mem));
@@ -352,12 +336,6 @@ impl Block {
 
             queue.set_avail_event(mem);
             needs_notification |= queue.needs_notification(mem, has_notification_suppression);
-
-            used_any = true;
-        }
-
-        if !used_any {
-            METRICS.block.no_avail_buffer.inc();
         }
 
         // We try to batch requests and then send only 1 notification to the guest.
@@ -522,6 +500,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::virtio::queue::tests::*;
+    use rate_limiter::TokenType;
     use utils::tempfile::TempFile;
     use vm_memory::GuestAddress;
 
