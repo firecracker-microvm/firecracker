@@ -43,6 +43,10 @@ pub struct QueueState {
 
     next_avail: Wrapping<u16>,
     next_used: Wrapping<u16>,
+
+    /// The number of added used buffers since last guest kick
+    #[version(start = 2)]
+    num_added: Wrapping<u16>,
 }
 
 impl Persist<'_> for Queue {
@@ -60,6 +64,7 @@ impl Persist<'_> for Queue {
             used_ring: self.used_ring.0,
             next_avail: self.next_avail,
             next_used: self.next_used,
+            num_added: self.num_added,
         }
     }
 
@@ -76,6 +81,7 @@ impl Persist<'_> for Queue {
             used_ring: GuestAddress::new(state.used_ring),
             next_avail: state.next_avail,
             next_used: state.next_used,
+            num_added: state.num_added,
         })
     }
 }
@@ -218,6 +224,7 @@ mod tests {
                 used_ring: 0,
                 next_avail: Wrapping(0),
                 next_used: Wrapping(0),
+                num_added: Wrapping(0),
             }
         }
     }

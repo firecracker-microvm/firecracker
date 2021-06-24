@@ -186,6 +186,9 @@ pub struct Queue {
 
     pub(crate) next_avail: Wrapping<u16>,
     pub(crate) next_used: Wrapping<u16>,
+
+    /// The number of added used buffers since last guest kick
+    pub(crate) num_added: Wrapping<u16>,
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -201,6 +204,7 @@ impl Queue {
             used_ring: GuestAddress(0),
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
+            num_added: Wrapping(0),
         }
     }
 
@@ -371,6 +375,7 @@ impl Queue {
         mem.write_obj(len as u32, len_addr)
             .map_err(QueueError::UsedRing)?;
 
+        self.num_added += Wrapping(1);
         self.next_used += Wrapping(1);
 
         // This fence ensures all descriptor writes are visible before the index update is.
@@ -419,6 +424,29 @@ impl Queue {
         .unwrap();
 
         fence(Ordering::SeqCst);
+    }
+
+    /// Check if we need to kick the guest.
+    /// This is similar to the `vring_need_event()` method implemented by the Linux kernel.
+    pub fn needs_notification(
+        &self,
+        mem: &GuestMemoryMmap,
+        has_notification_suppression: bool,
+    ) -> bool {
+        // If the device doesn't use notification suppression, always return true
+        if !has_notification_suppression {
+            return true;
+        }
+
+        let new = self.next_used;
+        let old = self.next_used - self.num_added;
+        let used_event = self.used_event(mem);
+
+        new - used_event - Wrapping(1) < new - old
+    }
+
+    pub fn after_notification(&mut self) {
+        self.num_added = Wrapping(0);
     }
 }
 
@@ -692,6 +720,52 @@ pub(crate) mod tests {
         vq.avail.idx.set(u16::MAX);
         q.set_avail_event(&m);
         assert_eq!(vq.used.event.get(), u16::MAX);
+    }
+
+    #[test]
+    fn test_needs_notification() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let mut q = vq.create_queue();
+
+        {
+            // If the device doesn't have notification suppression support,
+            // `needs_notification()` should always return true.
+            for used_idx in 0..10 {
+                for used_event in 0..10 {
+                    for num_added in 0..10 {
+                        q.next_used = Wrapping(used_idx);
+                        vq.avail.event.set(used_event);
+                        q.num_added = Wrapping(num_added);
+                        assert!(q.needs_notification(&m, false));
+                    }
+                }
+            }
+        }
+
+        {
+            // old used idx < used_event < next_used
+            q.next_used = Wrapping(10);
+            vq.avail.event.set(6);
+            q.num_added = Wrapping(5);
+            assert!(q.needs_notification(&m, true));
+        }
+
+        {
+            // old used idx = used_event < next_used
+            q.next_used = Wrapping(10);
+            vq.avail.event.set(6);
+            q.num_added = Wrapping(4);
+            assert!(q.needs_notification(&m, true));
+        }
+
+        {
+            // used_event < old used idx < next_used
+            q.next_used = Wrapping(10);
+            vq.avail.event.set(6);
+            q.num_added = Wrapping(3);
+            assert!(!q.needs_notification(&m, true));
+        }
     }
 
     #[test]
