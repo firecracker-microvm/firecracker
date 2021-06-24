@@ -10,6 +10,7 @@ use std::io::{self, Seek, SeekFrom, Write};
 use std::result;
 
 use logger::{IncMetric, METRICS};
+use rate_limiter::{RateLimiter, TokenType};
 use virtio_gen::virtio_blk::*;
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
@@ -236,6 +237,26 @@ impl Request {
         req.status_addr = status_desc.addr;
 
         Ok(req)
+    }
+
+    pub(crate) fn rate_limit(&self, rate_limiter: &mut RateLimiter) -> bool {
+        // If limiter.consume() fails it means there is no more TokenType::Ops
+        // budget and rate limiting is in effect.
+        if !rate_limiter.consume(1, TokenType::Ops) {
+            return true;
+        }
+        // Exercise the rate limiter only if this request is of data transfer type.
+        if self.request_type == RequestType::In || self.request_type == RequestType::Out {
+            // If limiter.consume() fails it means there is no more TokenType::Bytes
+            // budget and rate limiting is in effect.
+            if !rate_limiter.consume(u64::from(self.data_len), TokenType::Bytes) {
+                // Revert the OPS consume().
+                rate_limiter.manual_replenish(1, TokenType::Ops);
+                return true;
+            }
+        }
+
+        false
     }
 
     fn execute_seek(&self, disk: &mut DiskProperties) -> result::Result<(), ErrStatus> {

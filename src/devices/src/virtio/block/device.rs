@@ -16,7 +16,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use logger::{error, warn, IncMetric, METRICS};
-use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
+use rate_limiter::{BucketUpdate, RateLimiter};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
 use vm_memory::{Bytes, GuestMemoryMmap};
@@ -282,33 +282,12 @@ impl Block {
         while let Some(head) = queue.pop(mem) {
             let len = match Request::parse(&head, mem, self.disk.nsectors()) {
                 Ok(request) => {
-                    // If limiter.consume() fails it means there is no more TokenType::Ops
-                    // budget and rate limiting is in effect.
-                    if !self.rate_limiter.consume(1, TokenType::Ops) {
+                    if request.rate_limit(&mut self.rate_limiter) {
                         // Stop processing the queue and return this descriptor chain to the
                         // avail ring, for later processing.
                         queue.undo_pop();
                         METRICS.block.rate_limiter_throttled_events.inc();
                         break;
-                    }
-                    // Exercise the rate limiter only if this request is of data transfer type.
-                    if request.request_type == RequestType::In
-                        || request.request_type == RequestType::Out
-                    {
-                        // If limiter.consume() fails it means there is no more TokenType::Bytes
-                        // budget and rate limiting is in effect.
-                        if !self
-                            .rate_limiter
-                            .consume(u64::from(request.data_len), TokenType::Bytes)
-                        {
-                            // Revert the OPS consume().
-                            self.rate_limiter.manual_replenish(1, TokenType::Ops);
-                            // Stop processing the queue and return this descriptor chain to the
-                            // avail ring, for later processing.
-                            queue.undo_pop();
-                            METRICS.block.rate_limiter_throttled_events.inc();
-                            break;
-                        }
                     }
 
                     let status = Status::from_result(request.execute(&mut self.disk, mem));
@@ -499,6 +478,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::virtio::queue::tests::*;
+    use rate_limiter::TokenType;
     use utils::tempfile::TempFile;
     use vm_memory::GuestAddress;
 
