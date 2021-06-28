@@ -978,6 +978,24 @@ mod tests {
     }
 
     #[test]
+    fn test_muxer_epoll_listener_regression() {
+        let mut ctx = MuxerTestContext::new("muxer_epoll_listener");
+        ctx.local_connect(1025);
+
+        let (_, conn) = ctx.muxer.conn_map.iter().next().unwrap();
+
+        assert_eq!(conn.get_polled_evset(), EventSet::IN);
+
+        assert_eq!(METRICS.vsock.conn_event_fails.count(), 0);
+
+        let conn_eventfd = conn.as_raw_fd();
+
+        (&mut ctx.muxer).handle_event(conn_eventfd, EventSet::OUT);
+
+        assert_eq!(METRICS.vsock.conn_event_fails.count(), 1);
+    }
+
+    #[test]
     fn test_bad_peer_pkt() {
         const LOCAL_PORT: u32 = 1026;
         const PEER_PORT: u32 = 1025;
