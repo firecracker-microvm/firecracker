@@ -265,8 +265,10 @@ pub(crate) mod tests {
 
     use micro_http::HttpConnection;
     use vmm::builder::StartMicrovmError;
+    use vmm::resources::VmmConfig;
     use vmm::rpc_interface::VmmActionError;
-    use vmm::vmm_config::balloon::BalloonStats;
+    use vmm::vmm_config::balloon::{BalloonDeviceConfig, BalloonStats};
+    use vmm::vmm_config::instance_info::InstanceInfo;
     use vmm::vmm_config::machine_config::VmConfig;
 
     impl PartialEq for ParsedRequest {
@@ -489,35 +491,42 @@ pub(crate) mod tests {
 
     #[test]
     fn test_convert_to_response() {
-        // Empty Vmm data.
-        let mut buf = Cursor::new(vec![0]);
-        let response = ParsedRequest::convert_to_response(&Ok(VmmData::Empty));
-        assert!(response.write_all(&mut buf).is_ok());
-        let expected_response = http_response("", 204);
-        assert_eq!(buf.into_inner(), expected_response.as_bytes());
+        let verify_ok_response_with = |vmm_data: VmmData| {
+            let data = Ok(vmm_data);
+            let mut buf = Cursor::new(vec![0]);
+            let expected_response = match data.as_ref().unwrap() {
+                VmmData::BalloonConfig(cfg) => {
+                    http_response(&serde_json::to_string(cfg).unwrap(), 200)
+                }
+                VmmData::BalloonStats(stats) => {
+                    http_response(&serde_json::to_string(stats).unwrap(), 200)
+                }
+                VmmData::Empty => http_response("", 204),
+                VmmData::FullVmConfig(cfg) => {
+                    http_response(&serde_json::to_string(cfg).unwrap(), 200)
+                }
+                VmmData::MachineConfiguration(cfg) => {
+                    http_response(&serde_json::to_string(cfg).unwrap(), 200)
+                }
+                VmmData::InstanceInformation(info) => {
+                    http_response(&serde_json::to_string(info).unwrap(), 200)
+                }
+            };
+            let response = ParsedRequest::convert_to_response(&data);
+            assert!(response.write_all(&mut buf).is_ok());
+            assert_eq!(buf.into_inner(), expected_response.as_bytes());
+        };
 
-        // With Machine Config Vmm data.
-        let mut buf = Cursor::new(vec![0]);
-        let response = ParsedRequest::convert_to_response(&Ok(VmmData::MachineConfiguration(
-            VmConfig::default(),
-        )));
-        assert!(response.write_all(&mut buf).is_ok());
-        let expected_response =
-            http_response(&serde_json::to_string(&VmConfig::default()).unwrap(), 200);
-        assert_eq!(buf.into_inner(), expected_response.as_bytes());
-
-        // With Balloon Stats Vmm data.
-        let stats = BalloonStats {
+        verify_ok_response_with(VmmData::BalloonConfig(BalloonDeviceConfig::default()));
+        verify_ok_response_with(VmmData::BalloonStats(BalloonStats {
             swap_in: Some(1),
             swap_out: Some(1),
             ..Default::default()
-        };
-        let mut buf = Cursor::new(vec![0]);
-        let response =
-            ParsedRequest::convert_to_response(&Ok(VmmData::BalloonStats(stats.clone())));
-        assert!(response.write_all(&mut buf).is_ok());
-        let expected_response = http_response(&serde_json::to_string(&stats).unwrap(), 200);
-        assert_eq!(buf.into_inner(), expected_response.as_bytes());
+        }));
+        verify_ok_response_with(VmmData::Empty);
+        verify_ok_response_with(VmmData::FullVmConfig(VmmConfig::default()));
+        verify_ok_response_with(VmmData::MachineConfiguration(VmConfig::default()));
+        verify_ok_response_with(VmmData::InstanceInformation(InstanceInfo::default()));
 
         // Error.
         let error = VmmActionError::StartMicrovm(StartMicrovmError::MissingKernelConfig);
