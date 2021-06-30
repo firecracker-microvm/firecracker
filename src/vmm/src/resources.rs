@@ -18,6 +18,7 @@ use mmds::ns::MmdsNetworkStack;
 use utils::net::ipv4addr::is_link_local_valid;
 
 use serde::{Deserialize, Serialize};
+use std::convert::From;
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -47,7 +48,7 @@ pub enum Error {
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct VmmConfig {
     #[serde(rename = "balloon")]
     balloon_device: Option<BalloonDeviceConfig>,
@@ -150,27 +151,6 @@ impl VmResources {
         }
 
         Ok(resources)
-    }
-
-    /// Generates JSON describing Vmm resources configuration.
-    pub fn to_json(&self) -> String {
-        let boot_source = self
-            .boot_config
-            .as_ref()
-            .map(BootSourceConfig::from)
-            .unwrap_or_default();
-        let vmm_config = VmmConfig {
-            balloon_device: self.balloon.get_config().ok(),
-            block_devices: self.block.configs(),
-            boot_source,
-            logger: None,
-            machine_config: Some(self.vm_config.clone()),
-            metrics: None,
-            mmds_config: self.mmds_config.clone(),
-            net_devices: self.net_builder.configs(),
-            vsock_device: self.vsock.config(),
-        };
-        serde_json::to_string(&vmm_config).unwrap()
     }
 
     /// Returns a VcpuConfig based on the vm config.
@@ -342,6 +322,27 @@ impl VmResources {
 
         self.mmds_config = Some(config);
         Ok(())
+    }
+}
+
+impl From<&VmResources> for VmmConfig {
+    fn from(resources: &VmResources) -> Self {
+        let boot_source = resources
+            .boot_config
+            .as_ref()
+            .map(BootSourceConfig::from)
+            .unwrap_or_default();
+        VmmConfig {
+            balloon_device: resources.balloon.get_config().ok(),
+            block_devices: resources.block.configs(),
+            boot_source,
+            logger: None,
+            machine_config: Some(resources.vm_config.clone()),
+            metrics: None,
+            mmds_config: resources.mmds_config.clone(),
+            net_devices: resources.net_builder.configs(),
+            vsock_device: resources.vsock.config(),
+        }
     }
 }
 
