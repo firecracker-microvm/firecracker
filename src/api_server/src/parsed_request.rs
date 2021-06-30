@@ -59,6 +59,9 @@ impl ParsedRequest {
         match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "balloon", None) => parse_get_balloon(path_tokens.get(1)),
+            (Method::Get, "vm", None) if path_tokens.get(1) == Some(&"config") => {
+                Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
+            }
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
             (Method::Get, "mmds", None) => parse_get_mmds(),
             (Method::Get, _, Some(_)) => method_to_error(Method::Get),
