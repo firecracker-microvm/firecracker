@@ -22,6 +22,10 @@
 - Added `--metadata` paramater to enable MMDS content to be supplied from a file
   allowing the MMDS to be used when using `--no-api` to disable the API server.
 - Checksum file for the release assets.
+- Added support for custom headers to MMDS requests. Accepted headers are:
+  `X-metadata-token`, which accepts a string value that provides a session
+  token for MMDS requests; and `X-metadata-token-ttl-seconds`, which
+  specifies the lifetime of the session token in seconds.
 
 ### Changed
 
