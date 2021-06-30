@@ -159,9 +159,6 @@ impl VmResources {
             .as_ref()
             .map(BootSourceConfig::from)
             .unwrap_or_default();
-
-        // TODO: go through net devices and check for mmds addr
-        let mmds_config: Option<MmdsConfig> = None;
         let vmm_config = VmmConfig {
             balloon_device: self.balloon.get_config().ok(),
             block_devices: self.block.configs(),
@@ -169,7 +166,7 @@ impl VmResources {
             logger: None,
             machine_config: Some(self.vm_config.clone()),
             metrics: None,
-            mmds_config,
+            mmds_config: self.mmds_config.clone(),
             net_devices: self.net_builder.configs(),
             vsock_device: self.vsock.config(),
         };
