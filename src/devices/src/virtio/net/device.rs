@@ -24,6 +24,7 @@ use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 #[cfg(not(test))]
 use std::io;
 use std::io::{Read, Write};
+use std::net::Ipv4Addr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -217,9 +218,31 @@ impl Net {
         self.guest_mac.as_ref()
     }
 
-    /// Provides a mutable reference to the `MmdsNetworkStack`.
-    pub fn mmds_ns_mut(&mut self) -> Option<&mut MmdsNetworkStack> {
-        self.mmds_ns.as_mut()
+    /// Provides the host IFACE name of this net device.
+    pub fn iface_name(&self) -> String {
+        self.tap.if_name_as_str().to_string()
+    }
+
+    /// Says if this device supports MMDS.
+    pub fn mmds_enabled(&self) -> bool {
+        self.mmds_ns.is_some()
+    }
+
+    /// Sets MMDS endpoint IPv4 address, if the device supports MMDS.
+    pub fn set_mmds_ipv4_addr(&mut self, ipv4_addr: Ipv4Addr) {
+        if let Some(mmds_ns) = self.mmds_ns.as_mut() {
+            mmds_ns.set_ipv4_addr(ipv4_addr);
+        }
+    }
+
+    /// Provides a reference to the configured RX rate limiter.
+    pub fn rx_rate_limiter(&self) -> &RateLimiter {
+        &self.rx_rate_limiter
+    }
+
+    /// Provides a reference to the configured TX rate limiter.
+    pub fn tx_rate_limiter(&self) -> &RateLimiter {
+        &self.tx_rate_limiter
     }
 
     fn signal_used_queue(&mut self) -> result::Result<(), DeviceError> {

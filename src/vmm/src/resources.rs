@@ -162,7 +162,6 @@ impl VmResources {
 
         // TODO: go through net devices and check for mmds addr
         let mmds_config: Option<MmdsConfig> = None;
-        let net_devices: Vec<NetworkInterfaceConfig> = vec![];
         let vsock_device: Option<VsockDeviceConfig> = None;
         let vmm_config = VmmConfig {
             balloon_device: self.balloon.get_config().ok(),
@@ -172,7 +171,7 @@ impl VmResources {
             machine_config: Some(self.vm_config.clone()),
             metrics: None,
             mmds_config,
-            net_devices,
+            net_devices: self.net_builder.configs(),
             vsock_device,
         };
         serde_json::to_string(&vmm_config).unwrap()
@@ -313,9 +312,10 @@ impl VmResources {
             // Update `Net` device `MmdsNetworkStack` IPv4 address.
             match &self.mmds_config {
                 Some(cfg) => cfg.ipv4_addr().map_or((), |ipv4_addr| {
-                    if let Some(mmds_ns) = net_device.lock().expect("Poisoned lock").mmds_ns_mut() {
-                        mmds_ns.set_ipv4_addr(ipv4_addr);
-                    };
+                    net_device
+                        .lock()
+                        .expect("Poisoned lock")
+                        .set_mmds_ipv4_addr(ipv4_addr);
                 }),
                 None => (),
             };
@@ -338,9 +338,10 @@ impl VmResources {
 
         // Update existing built network device `MmdsNetworkStack` IPv4 address.
         for net_device in self.net_builder.iter_mut() {
-            if let Some(mmds_ns) = net_device.lock().expect("Poisoned lock").mmds_ns_mut() {
-                mmds_ns.set_ipv4_addr(ipv4_addr)
-            }
+            net_device
+                .lock()
+                .expect("Poisoned lock")
+                .set_mmds_ipv4_addr(ipv4_addr);
         }
 
         self.mmds_config = Some(config);
