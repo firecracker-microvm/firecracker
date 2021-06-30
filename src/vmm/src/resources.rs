@@ -162,7 +162,6 @@ impl VmResources {
 
         // TODO: go through net devices and check for mmds addr
         let mmds_config: Option<MmdsConfig> = None;
-        let vsock_device: Option<VsockDeviceConfig> = None;
         let vmm_config = VmmConfig {
             balloon_device: self.balloon.get_config().ok(),
             block_devices: self.block.configs(),
@@ -172,7 +171,7 @@ impl VmResources {
             metrics: None,
             mmds_config,
             net_devices: self.net_builder.configs(),
-            vsock_device,
+            vsock_device: self.vsock.config(),
         };
         serde_json::to_string(&vmm_config).unwrap()
     }
