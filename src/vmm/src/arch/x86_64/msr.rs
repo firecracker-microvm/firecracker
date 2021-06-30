@@ -394,6 +394,11 @@ pub fn get_msrs_to_dump(kvm_fd: &Kvm) -> Result<MsrList, MsrError> {
     Ok(msr_index_list)
 }
 
+/// IA32_MTRR_DEF_TYPE MSR: E (MTRRs enabled) flag, bit 11
+pub const MTRR_ENABLE: u64 = 0x800; 
+/// Default - writeback memory
+pub const MTRR_MEM_TYPE_WB: u64 = 0x6; 
+
 /// Creates and populates required MSR entries for booting Linux on X86_64.
 pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
     let msr_entry_default = |msr| kvm_msr_entry {
@@ -417,6 +422,11 @@ pub fn create_boot_msr_entries() -> Vec<kvm_msr_entry> {
         kvm_msr_entry {
             index: MSR_IA32_MISC_ENABLE,
             data: u64::from(MSR_IA32_MISC_ENABLE_FAST_STRING),
+            ..Default::default()
+        },
+        kvm_msr_entry {
+            index: MSR_MTRRdefType,
+            data: u64::from(MTRR_ENABLE | MTRR_MEM_TYPE_WB),
             ..Default::default()
         },
     ]
