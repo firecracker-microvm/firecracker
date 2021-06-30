@@ -209,7 +209,7 @@ impl Endpoint {
                         response.write_all(&mut self.response_buf).unwrap();
 
                         // Sanity check because the current logic operates under this assumption.
-                        assert!(self.response_buf.len() < u32::max_value() as usize);
+                        assert!(self.response_buf.len() < u32::MAX as usize);
 
                         // We have to remove the bytes up to end from receive_buf, by shifting the
                         // others to the beginning of the buffer, and updating receive_buf_left.
