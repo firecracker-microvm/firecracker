@@ -519,20 +519,18 @@ handle being snapshotted [here](https://lkml.org/lkml/2020/10/16/629).
 
 ## Known Issues
 
-### Vsock device limitations
+### Vsock device limitation
 
-1. Vsock must be inactive during snapshot:
+Vsock must be inactive during snapshot. Vsock device can break if snapshotted
+while having active connections. Firecracker snapshots do not capture any
+inflight network or vsock (through the linux unix domain socket backend)
+traffic that has left or not yet entered Firecracker.
 
-   Vsock device can break if snapshotted while having active connections.
-Firecracker snapshots do not capture any inflight network or vsock (through the
-linux unix domain socket backend) traffic that has left or not yet entered
-Firecracker.
-
-   The above, coupled with the fact that Vsock control protocol is not resilient
+The above, coupled with the fact that Vsock control protocol is not resilient
 to vsock packet loss, leads to Vsock device breakage when doing a snapshot while
 there are active Vsock connections.
 
-   As a solution to the above issue, active Vsock connections prior to
+As a solution to the above issue, active Vsock connections prior to
 snapshotting the VM are forcibly closed by sending a specific event called
 `VIRTIO_VSOCK_EVENT_TRANSPORT_RESET`. The event is sent on `SnapshotCreate`.
 On `SnapshotResume`, when the VM becomes active again,
@@ -543,10 +541,6 @@ about this event can be found in the official Virtio document
 [here](https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.pdf),
 section 5.10.6.6 Device Events.
 
-   Firecracker handles sending the `reset` event to the vsock driver,
+Firecracker handles sending the `reset` event to the vsock driver,
 thus the customers are no longer responsible for closing
 active connections.
-
-1. _Incremental/diff_ snapshots are not yet supported for Vsock devices.
-   Creating a `diff` snapshot on a microVM with a `vsock` device configured
-   is not allowed.
