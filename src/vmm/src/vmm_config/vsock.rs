@@ -1,6 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::convert::TryFrom;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
@@ -51,6 +52,17 @@ struct VsockAndUnixPath {
     uds_path: String,
 }
 
+impl From<&VsockAndUnixPath> for VsockDeviceConfig {
+    fn from(vsock: &VsockAndUnixPath) -> Self {
+        let vsock_lock = vsock.vsock.lock().unwrap();
+        VsockDeviceConfig {
+            vsock_id: vsock_lock.id().to_string(),
+            guest_cid: u32::try_from(vsock_lock.cid()).unwrap(),
+            uds_path: vsock.uds_path.clone(),
+        }
+    }
+}
+
 /// A builder of Vsock with Unix backend from 'VsockDeviceConfig'.
 #[derive(Default)]
 pub struct VsockBuilder {
@@ -91,6 +103,11 @@ impl VsockBuilder {
 
         Vsock::new(u64::from(cfg.guest_cid), backend).map_err(VsockConfigError::CreateVsockDevice)
     }
+
+    /// Returns the structure used to configure the vsock device.
+    pub fn config(&self) -> Option<VsockDeviceConfig> {
+        self.inner.as_ref().map(VsockDeviceConfig::from)
+    }
 }
 
 #[cfg(test)]
@@ -130,6 +147,19 @@ pub(crate) mod tests {
         store.insert(vsock_config).unwrap();
         let vsock = store.get().unwrap();
         assert_eq!(vsock.lock().unwrap().cid(), new_cid as u64);
+    }
+
+    #[test]
+    fn test_vsock_config() {
+        let mut vsock_builder = VsockBuilder::new();
+        let mut tmp_sock_file = TempFile::new().unwrap();
+        tmp_sock_file.remove().unwrap();
+        let vsock_config = default_config(&tmp_sock_file);
+        vsock_builder.insert(vsock_config.clone()).unwrap();
+
+        let config = vsock_builder.config();
+        assert!(config.is_some());
+        assert_eq!(config.unwrap(), vsock_config);
     }
 
     #[test]
