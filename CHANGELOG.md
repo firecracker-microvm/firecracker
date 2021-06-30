@@ -24,6 +24,10 @@
   connections on the guest.
 - Added `GET` request on `/vm/config` that provides full microVM configuration
   as a JSON HTTP response.
+- Added support for custom headers to MMDS requests. Accepted headers are:
+  `X-aws-ec2-metadata-token`, which accepts a string value that provides a
+  session token for MMDS requests; and `X-aws-ec2-metadata-token-ttl-seconds`,
+  which specifies the lifetime of the session token in seconds.
 
 ### Changed
 

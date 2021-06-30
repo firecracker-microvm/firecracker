@@ -1,12 +1,15 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod custom_headers;
 pub mod data_store;
 pub mod ns;
 pub mod persist;
 
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
+
+use custom_headers::CustomHeaders;
 
 use crate::data_store::{Error as MmdsError, Mmds, OutputFormat};
 use lazy_static::lazy_static;
@@ -95,6 +98,17 @@ fn convert_to_response(request: Request) -> Response {
         response.allow_method(Method::Get);
         return response;
     }
+
+    let _custom_headers = match CustomHeaders::try_from(request.headers.custom_entries()) {
+        Ok(custom_headers) => custom_headers,
+        Err(err) => {
+            return build_response(
+                request.http_version(),
+                StatusCode::BadRequest,
+                Body::new(err.to_string()),
+            )
+        }
+    };
 
     // The data store expects a strict json path, so we need to
     // sanitize the URI.
@@ -211,6 +225,30 @@ mod tests {
         let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
         expected_response.set_body(Body::new("Invalid URI.".to_string()));
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test invalid value for custom header.
+        let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\
+                                    Accept: application/json\r\n
+                                    X-aws-ec2-metadata-token-ttl-seconds: application/json\r\n\r\n";
+        let request = Request::try_from(request_bytes, None).unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+        expected_response.set_body(Body::new(
+            "Invalid header. Reason: Invalid value. \
+            Key:X-aws-ec2-metadata-token-ttl-seconds; Value:application/json"
+                .to_string(),
+        ));
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+
+        // Test valid values for custom headers.
+        let request_bytes = b"GET http://169.254.169.254/name/first HTTP/1.0\r\n\
+                                    X-aws-ec2-metadata-token: application/json\r\n
+                                    X-aws-ec2-metadata-token-ttl-seconds: 100\r\n\r\n";
+        let request = Request::try_from(request_bytes, None).unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
+        expected_response.set_body(Body::new("John"));
         let actual_response = convert_to_response(request);
         assert_eq!(actual_response, expected_response);
 
