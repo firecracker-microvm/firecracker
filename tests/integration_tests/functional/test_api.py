@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that ensure the correctness of the Firecracker API."""
 
+# Disable pylint C0302: Too many lines in module
+# pylint: disable=C0302
 import os
 import platform
 import resource
@@ -978,6 +980,104 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     # requesting u32::MAX / 128.
     response = test_microvm.balloon.patch(amount_mib=33554432)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
+
+
+def test_get_full_config(test_microvm_with_ssh_and_balloon):
+    """Configure microVM with all resources and get configuration."""
+    test_microvm = test_microvm_with_ssh_and_balloon
+
+    expected_cfg = {}
+
+    test_microvm.spawn()
+    # Basic config also implies a root block device.
+    test_microvm.basic_config()
+    expected_cfg['machine-config'] = {
+        'vcpu_count': 2,
+        'mem_size_mib': 256,
+        'ht_enabled': False,
+        'track_dirty_pages': False
+    }
+    expected_cfg['boot-source'] = {
+        'kernel_image_path': '/vmlinux.bin',
+        'initrd_path': None
+    }
+    expected_cfg['drives'] = [{
+        'drive_id': 'rootfs',
+        'path_on_host': '/debian.rootfs.ext4',
+        'is_root_device': True,
+        'partuuid': None,
+        'is_read_only': False,
+        'cache_type': 'Unsafe',
+        'rate_limiter': None
+    }]
+
+    # Add a memory balloon device.
+    response = test_microvm.balloon.put(amount_mib=1, deflate_on_oom=True)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    expected_cfg['balloon'] = {
+        'amount_mib': 1,
+        'deflate_on_oom': True,
+        'stats_polling_interval_s': 0
+    }
+
+    # Add a vsock device.
+    response = test_microvm.vsock.put(
+        vsock_id='vsock',
+        guest_cid=15,
+        uds_path='vsock.sock'
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    expected_cfg['vsock'] = {
+        'vsock_id': 'vsock',
+        'guest_cid': 15,
+        'uds_path': 'vsock.sock'
+    }
+
+    # Add a net device.
+    iface_id = '1'
+    tapname = test_microvm.id[:8] + 'tap' + iface_id
+    tap1 = net_tools.Tap(tapname, test_microvm.jailer.netns)
+    guest_mac = '06:00:00:00:00:01'
+    tx_rl = {
+        'bandwidth': {
+            'size': 1000000,
+            'refill_time': 100,
+            'one_time_burst': None
+        },
+        'ops': None
+    }
+    response = test_microvm.network.put(
+        iface_id=iface_id,
+        guest_mac=guest_mac,
+        host_dev_name=tap1.name,
+        tx_rate_limiter=tx_rl
+    )
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    expected_cfg['network-interfaces'] = [{
+        'iface_id': iface_id,
+        'host_dev_name': tap1.name,
+        'guest_mac': '06:00:00:00:00:01',
+        'rx_rate_limiter': None,
+        'tx_rate_limiter': tx_rl,
+        'allow_mmds_requests': False
+    }]
+
+    expected_cfg['logger'] = None
+    expected_cfg['metrics'] = None
+    expected_cfg['mmds-config'] = None
+
+    # Getting full vm configuration should be available pre-boot.
+    response = test_microvm.full_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == expected_cfg
+
+    # Start the microvm.
+    test_microvm.start()
+
+    # Validate full vm configuration post-boot as well.
+    response = test_microvm.full_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == expected_cfg
 
 
 def test_negative_api_lifecycle(bin_cloner_path):
