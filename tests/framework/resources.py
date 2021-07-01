@@ -260,6 +260,28 @@ class Drive():
         return datax
 
 
+# Too few public methods (1/2) (too-few-public-methods)
+# pylint: disable=R0903
+class FullConfig():
+    """Facility for getting the full microVM configuration."""
+
+    EXPORT_CFG_RESOURCE = 'vm/config'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+
+        self._export_cfg_url = api_url + self.EXPORT_CFG_RESOURCE
+        self._api_session = api_session
+
+    def get(self):
+        """Get full configuration of the current microvm."""
+        return self._api_session.get(
+            self._export_cfg_url
+        )
+
+
 class Logger():
     """Facility for setting up the logging system and sending API requests."""
 
