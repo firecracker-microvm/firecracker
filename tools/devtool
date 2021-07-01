@@ -1030,8 +1030,8 @@ cmd_fmt() {
 
 
 # Prepare a Firecracker release by updating the version, changelog
-# and credits.
-# Example: `devtool release 0.42.0`
+# and credits. This is to be run before `devtool release`.
+# Example: `devtool prepare_release 0.42.0`
 #
 cmd_prepare_release() {
 
