@@ -30,6 +30,7 @@ use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 pub(crate) enum RequestAction {
     GetMMDS,
+    GetMMDSVersion,
     PatchMMDS(Value),
     PutMMDS(Value),
     SetMMDSVersion(MmdsVersion),
@@ -106,7 +107,7 @@ impl ParsedRequest {
                 Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
             }
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
-            (Method::Get, "mmds", None) => parse_get_mmds(),
+            (Method::Get, "mmds", None) => parse_get_mmds(path_tokens.get(1)),
             (Method::Get, _, Some(_)) => method_to_error(Method::Get),
             (Method::Put, "actions", Some(body)) => parse_put_actions(body),
             (Method::Put, "balloon", Some(body)) => parse_put_balloon(body),
@@ -140,7 +141,7 @@ impl ParsedRequest {
         }
     }
 
-    fn success_response_with_data<T>(body_data: &T) -> Response
+    pub(crate) fn success_response_with_data<T>(body_data: &T) -> Response
     where
         T: ?Sized + Serialize,
     {
@@ -333,6 +334,7 @@ pub(crate) mod tests {
                     sync_req == other_sync_req
                 }
                 (RequestAction::GetMMDS, RequestAction::GetMMDS) => true,
+                (RequestAction::GetMMDSVersion, RequestAction::GetMMDSVersion) => true,
                 (RequestAction::PutMMDS(ref val), RequestAction::PutMMDS(ref other_val)) => {
                     val == other_val
                 }
@@ -671,6 +673,13 @@ pub(crate) mod tests {
         let mut connection = HttpConnection::new(receiver);
         sender
             .write_all(http_request("GET", "/mmds", None).as_bytes())
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+
+        sender
+            .write_all(http_request("GET", "/mmds/version", None).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
