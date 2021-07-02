@@ -24,12 +24,14 @@ use crate::ApiServer;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 
 use logger::{error, info};
+use mmds::data_store::MmdsVersionType;
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 pub(crate) enum ParsedRequest {
     GetMmdsVersion,
     GetMMDS,
     PatchMMDS(Value),
+    PutMmdsVersion(MmdsVersionType),
     PutMMDS(Value),
     Sync(Box<VmmAction>),
     ShutdownInternal, // !!! not an API, used by shutdown to thread::join the API thread
@@ -283,6 +285,10 @@ pub(crate) mod tests {
                 }
                 (&ParsedRequest::GetMmdsVersion, &ParsedRequest::GetMmdsVersion) => true,
                 (&ParsedRequest::GetMMDS, &ParsedRequest::GetMMDS) => true,
+                (
+                    &ParsedRequest::PutMmdsVersion(ref config),
+                    &ParsedRequest::PutMmdsVersion(ref other_config),
+                ) => config.mmds_version == other_config.mmds_version,
                 (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
                     val == other_val
                 }
@@ -751,9 +757,18 @@ pub(crate) mod tests {
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
+
         let body = "{\"ipv4_address\":\"169.254.170.2\"}";
         sender
-            .write_all(http_request("PUT", "/mmds", Some(&body)).as_bytes())
+            .write_all(http_request("PUT", "/mmds/config", Some(&body)).as_bytes())
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+
+        let body = "{\"mmds_version\":\"MMDSv2\"}";
+        sender
+            .write_all(http_request("PUT", "/mmds/version", Some(&body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();

@@ -5,6 +5,7 @@ use crate::parsed_request::{Error, ParsedRequest};
 use crate::request::Body;
 use logger::{IncMetric, METRICS};
 use micro_http::StatusCode;
+use mmds::data_store::MmdsVersionType;
 use vmm::rpc_interface::VmmAction::SetMmdsConfiguration;
 
 pub(crate) fn parse_get_mmds(path_seconds_token: Option<&&str>) -> Result<ParsedRequest, Error> {
@@ -39,6 +40,12 @@ pub(crate) fn parse_put_mmds(
                 Error::SerdeJson(e)
             })?,
         ))),
+        Some(&"version") => Ok(ParsedRequest::PutMmdsVersion(
+            serde_json::from_slice::<MmdsVersionType>(body.raw()).map_err(|e| {
+                METRICS.put_api_requests.mmds_fails.inc();
+                Error::SerdeJson(e)
+            })?,
+        )),
         Some(&unrecognized) => {
             METRICS.put_api_requests.mmds_fails.inc();
             Err(Error::Generic(
@@ -83,27 +90,51 @@ mod tests {
         assert!(parse_put_mmds(&Body::new(invalid_body), None).is_err());
         assert!(METRICS.put_api_requests.mmds_fails.count() > 0);
 
+        // Test `config` path.
         let body = r#"{
                 "ipv4_address": "169.254.170.2"
               }"#;
-        let path = "config";
-        assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_ok());
+        let config_path = "config";
+        assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_ok());
 
         let body = r#"{
                 "ipv4_address": ""
               }"#;
-        assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_err());
+        assert!(parse_put_mmds(&Body::new(body), Some(&config_path)).is_err());
 
         // Equivalent to reset the mmds configuration.
         let empty_body = r#"{}"#;
-        assert!(parse_put_mmds(&Body::new(empty_body), Some(&path)).is_ok());
+        assert!(parse_put_mmds(&Body::new(empty_body), Some(&config_path)).is_ok());
+
+        // Test `version` path.
+        let version_path = "version";
+        let body = r#"{
+                "mmds_version": "MMDSv1"
+              }"#;
+        assert!(parse_put_mmds(&Body::new(body), Some(&version_path)).is_ok());
+
+        let body = r#"{
+                "mmds_version": "MMDSv2"
+              }"#;
+        assert!(parse_put_mmds(&Body::new(body), Some(&version_path)).is_ok());
+        let body = r#"{
+                "mmds_version": "foo"
+              }"#;
+        assert!(parse_put_mmds(&Body::new(body), Some(&version_path)).is_err());
+
+        let body = r#"{
+                "mmds_version": ""
+              }"#;
+        assert!(parse_put_mmds(&Body::new(body), Some(&version_path)).is_err());
 
         let invalid_config_body = r#"{
                 "invalid_config": "invalid_value"
               }"#;
-        assert!(parse_put_mmds(&Body::new(invalid_config_body), Some(&path)).is_err());
+        assert!(parse_put_mmds(&Body::new(invalid_config_body), Some(&config_path)).is_err());
+        assert!(parse_put_mmds(&Body::new(invalid_config_body), Some(&version_path)).is_err());
         assert!(parse_put_mmds(&Body::new(body), Some(&"invalid_path")).is_err());
-        assert!(parse_put_mmds(&Body::new(invalid_body), Some(&path)).is_err());
+        assert!(parse_put_mmds(&Body::new(invalid_body), Some(&config_path)).is_err());
+        assert!(parse_put_mmds(&Body::new(invalid_body), Some(&version_path)).is_err());
     }
 
     #[test]

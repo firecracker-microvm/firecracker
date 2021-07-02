@@ -34,6 +34,8 @@
   to be used for future `GET` requests.
 - Added `GET` request on `/mmds/version` that provides the MMDS version.
   Default value is `MMDSv1`.
+- Added `PUT` request on `/mmds/version` that configures the MMDS version.
+  Accepted values are either `MMDSv1` or `MMDSv2`.
 
 ### Changed
 
