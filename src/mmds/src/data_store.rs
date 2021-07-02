@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::MAX_DATA_STORE_SIZE;
+use serde::Deserialize;
 use serde_json::{to_vec, Value};
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -16,10 +17,16 @@ pub struct Mmds {
 }
 
 /// MMDS version.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Deserialize)]
 pub enum MmdsVersion {
     V1,
     V2,
+}
+
+impl Default for MmdsVersion {
+    fn default() -> Self {
+        MmdsVersion::V1
+    }
 }
 
 impl Display for MmdsVersion {
@@ -35,6 +42,28 @@ impl Display for MmdsVersion {
 pub enum OutputFormat {
     Json,
     Imds,
+}
+
+/// Keeps the MMDS version configuration.
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MmdsVersionType {
+    /// MMDS configured version
+    #[serde(default)]
+    pub version: MmdsVersion,
+}
+
+impl MmdsVersionType {
+    /// Returns the IMDS version.
+    pub fn version(&self) -> MmdsVersion {
+        self.version
+    }
+}
+
+impl From<MmdsVersion> for MmdsVersionType {
+    fn from(version: MmdsVersion) -> Self {
+        MmdsVersionType { version }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -65,7 +94,7 @@ impl Default for Mmds {
             data_store: Value::default(),
             is_initialized: false,
             data_store_limit: MAX_DATA_STORE_SIZE,
-            version: MmdsVersion::V1,
+            version: MmdsVersion::default(),
         }
     }
 }
