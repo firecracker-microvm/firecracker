@@ -514,6 +514,7 @@ dependencies = [
  "lazy_static",
  "logger",
  "micro_http",
+ "serde",
  "serde_json",
  "snapshot",
  "utils",

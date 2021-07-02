@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::token::{TokenStore, TokenStoreError};
+use serde::Deserialize;
 use serde_json::Value;
 use std::fmt;
 
@@ -15,7 +16,7 @@ pub struct Mmds {
 }
 
 /// MMDS version.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 pub enum MmdsVersion {
     MMDSv1,
     MMDSv2,
@@ -25,6 +26,29 @@ pub enum MmdsVersion {
 pub enum OutputFormat {
     Json,
     Imds,
+}
+
+/// Keeps the MMDS version configuration.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MmdsVersionType {
+    /// MMDS configured version
+    pub mmds_version: MmdsVersion,
+}
+
+impl MmdsVersionType {
+    /// Returns the IMDS version.
+    pub fn mmds_version(&self) -> MmdsVersion {
+        self.mmds_version
+    }
+}
+
+impl From<MmdsVersion> for MmdsVersionType {
+    fn from(version: MmdsVersion) -> Self {
+        MmdsVersionType {
+            mmds_version: version,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
