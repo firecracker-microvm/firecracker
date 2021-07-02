@@ -23,7 +23,7 @@ pub use micro_http::{
     ServerResponse, StatusCode, Version,
 };
 use mmds::data_store;
-use mmds::data_store::{Mmds, MmdsVersion};
+use mmds::data_store::{Mmds, MmdsVersion, MmdsVersionType};
 use seccompiler::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
@@ -253,6 +253,7 @@ impl ApiServer {
                         self.serve_vmm_action_request(vmm_action, request_processing_start_us)
                     }
                     RequestAction::GetMMDS => self.get_mmds(),
+                    RequestAction::GetMMDSVersion => self.mmds_version(),
                     RequestAction::PatchMMDS(value) => self.patch_mmds(value),
                     RequestAction::PutMMDS(value) => self.put_mmds(value),
                     RequestAction::SetMMDSVersion(value) => self.set_mmds_version(value),
@@ -313,6 +314,16 @@ impl ApiServer {
             }
         }
         response
+    }
+
+    fn mmds_version(&self) -> Response {
+        let version = self
+            .mmds_info
+            .lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .version();
+
+        ParsedRequest::success_response_with_data(&MmdsVersionType::from(version))
     }
 
     fn get_mmds(&self) -> Response {
@@ -493,6 +504,24 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NoContent);
         assert_ne!(METRICS.latencies_us.diff_create_snapshot.fetch(), 0);
         assert_eq!(METRICS.latencies_us.full_create_snapshot.fetch(), 0);
+    }
+
+    #[test]
+    fn test_mmds_version() {
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        );
+
+        let response = api_server.mmds_version();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[test]
