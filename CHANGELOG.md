@@ -28,6 +28,7 @@
   specifies the lifetime of the session token in seconds.
 - Added `PUT` request on `/mmds/version` that configures the MMDS version.
   Accepted values are either `V1` or `V2`.
+- Added `GET` request on `/mmds/version` that provides the MMDS version.
 
 ### Changed
 
