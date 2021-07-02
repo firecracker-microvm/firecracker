@@ -8,9 +8,18 @@ use micro_http::StatusCode;
 use mmds::data_store::MmdsVersionType;
 use vmm::rpc_interface::VmmAction::SetMmdsConfiguration;
 
-pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, Error> {
-    METRICS.get_api_requests.mmds_count.inc();
-    Ok(ParsedRequest::new(RequestAction::GetMMDS))
+pub(crate) fn parse_get_mmds(path_seconds_token: Option<&&str>) -> Result<ParsedRequest, Error> {
+    match path_seconds_token {
+        None => {
+            METRICS.get_api_requests.mmds_count.inc();
+            Ok(ParsedRequest::new(RequestAction::GetMMDS))
+        }
+        Some(&"version") => Ok(ParsedRequest::new(RequestAction::GetMMDSVersion)),
+        Some(&unrecognized) => Err(Error::Generic(
+            StatusCode::BadRequest,
+            format!("Unrecognized GET request path `{}`.", unrecognized),
+        )),
+    }
 }
 
 pub(crate) fn parse_put_mmds(
@@ -67,8 +76,16 @@ mod tests {
 
     #[test]
     fn test_parse_get_mmds_request() {
-        assert!(parse_get_mmds().is_ok());
+        // Requests to `/mmds`.
+        assert!(parse_get_mmds(None).is_ok());
         assert!(METRICS.get_api_requests.mmds_count.count() > 0);
+
+        // Requests to `/mmds/version`.
+        let path = "version";
+        assert!(parse_get_mmds(Some(&path)).is_ok());
+
+        // Requests to invalid path.
+        assert!(parse_get_mmds(Some(&"invalid_path")).is_err());
     }
 
     #[test]
