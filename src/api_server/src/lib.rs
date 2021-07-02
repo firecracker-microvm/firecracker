@@ -23,7 +23,7 @@ pub use micro_http::{
     ServerResponse, StatusCode, Version,
 };
 use mmds::data_store;
-use mmds::data_store::Mmds;
+use mmds::data_store::{Mmds, MmdsVersion};
 use seccompiler::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
@@ -255,6 +255,7 @@ impl ApiServer {
                     RequestAction::GetMMDS => self.get_mmds(),
                     RequestAction::PatchMMDS(value) => self.patch_mmds(value),
                     RequestAction::PutMMDS(value) => self.put_mmds(value),
+                    RequestAction::SetMMDSVersion(value) => self.set_mmds_version(value),
                     RequestAction::ShutdownInternal => {
                         self.shutdown_flag = true;
                         Response::new(Version::Http11, StatusCode::NoContent)
@@ -363,6 +364,15 @@ impl ApiServer {
         }
     }
 
+    fn set_mmds_version(&self, version: MmdsVersion) -> Response {
+        self.mmds_info
+            .lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .set_version(version);
+
+        Response::new(Version::Http11, StatusCode::NoContent)
+    }
+
     /// An HTTP response which also includes a body.
     pub(crate) fn json_response<T: Into<String>>(status: StatusCode, body: T) -> Response {
         let mut response = Response::new(Version::Http11, status);
@@ -386,6 +396,7 @@ mod tests {
     use super::*;
     use logger::StoreMetric;
     use micro_http::HttpConnection;
+    use mmds::data_store::MmdsVersion;
     use mmds::MMDS;
     use utils::tempfile::TempFile;
     use utils::time::ClockType;
@@ -516,6 +527,26 @@ mod tests {
             to_vmm_fd,
         );
         let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
+        assert_eq!(response.status(), StatusCode::NoContent);
+    }
+
+    #[test]
+    fn test_set_mmds_version() {
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        );
+        let response = api_server.set_mmds_version(MmdsVersion::V2);
+        assert_eq!(response.status(), StatusCode::NoContent);
+
+        let response = api_server.set_mmds_version(MmdsVersion::V1);
         assert_eq!(response.status(), StatusCode::NoContent);
     }
 
