@@ -19,13 +19,15 @@
 - Added metrics for accesses to deprecated HTTP and command line API endpoints.
 - Added permanent HTTP endpoint for `GET` on `/version` for getting the
   Firecracker version.
-- Added `--metadata` paramater to enable MMDS content to be supplied from a file
+- Added `--metadata` parameter to enable MMDS content to be supplied from a file
   allowing the MMDS to be used when using `--no-api` to disable the API server.
 - Checksum file for the release assets.
 - Added support for custom headers to MMDS requests. Accepted headers are:
   `X-metadata-token`, which accepts a string value that provides a session
   token for MMDS requests; and `X-metadata-token-ttl-seconds`, which
   specifies the lifetime of the session token in seconds.
+- Added `PUT` request on `/mmds/version` that configures the MMDS version.
+  Accepted values are either `V1` or `V2`.
 
 ### Changed
 
