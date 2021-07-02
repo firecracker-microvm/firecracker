@@ -7,9 +7,18 @@ use logger::{IncMetric, METRICS};
 use micro_http::StatusCode;
 use vmm::rpc_interface::VmmAction::SetMmdsConfiguration;
 
-pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, Error> {
-    METRICS.get_api_requests.mmds_count.inc();
-    Ok(ParsedRequest::GetMMDS)
+pub(crate) fn parse_get_mmds(path_seconds_token: Option<&&str>) -> Result<ParsedRequest, Error> {
+    match path_seconds_token {
+        None => {
+            METRICS.get_api_requests.mmds_count.inc();
+            Ok(ParsedRequest::GetMMDS)
+        }
+        Some(&"version") => Ok(ParsedRequest::GetMmdsVersion),
+        Some(&unrecognized) => Err(Error::Generic(
+            StatusCode::BadRequest,
+            format!("Unrecognized GET request path `{}`.", unrecognized),
+        )),
+    }
 }
 
 pub(crate) fn parse_put_mmds(
@@ -56,8 +65,11 @@ mod tests {
 
     #[test]
     fn test_parse_get_mmds_request() {
-        assert!(parse_get_mmds().is_ok());
+        assert!(parse_get_mmds(None).is_ok());
         assert!(METRICS.get_api_requests.mmds_count.count() > 0);
+
+        let path = "version";
+        assert!(parse_get_mmds(Some(&path)).is_ok());
     }
 
     #[test]

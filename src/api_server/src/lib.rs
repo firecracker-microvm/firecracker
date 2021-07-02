@@ -21,7 +21,7 @@ pub use micro_http::{
     ServerResponse, StatusCode, Version,
 };
 use mmds::data_store;
-use mmds::data_store::Mmds;
+use mmds::data_store::{Mmds, MmdsVersion};
 use seccompiler::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
@@ -241,6 +241,7 @@ impl ApiServer {
             Ok(ParsedRequest::Sync(vmm_action)) => {
                 self.serve_vmm_action_request(vmm_action, request_processing_start_us)
             }
+            Ok(ParsedRequest::GetMmdsVersion) => self.get_mmds_version(),
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
             Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
@@ -294,6 +295,19 @@ impl ApiServer {
             }
         }
         response
+    }
+
+    fn get_mmds_version(&self) -> Response {
+        let mmds_version = match self
+            .mmds_info
+            .lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .version()
+        {
+            MmdsVersion::MMDSv1 => "MMDSv1".to_string(),
+            MmdsVersion::MMDSv2 => "MMDSv2".to_string(),
+        };
+        ApiServer::json_response(StatusCode::OK, mmds_version)
     }
 
     fn get_mmds(&self) -> Response {
@@ -460,6 +474,24 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NoContent);
         assert_ne!(METRICS.latencies_us.diff_create_snapshot.fetch(), 0);
         assert_eq!(METRICS.latencies_us.full_create_snapshot.fetch(), 0);
+    }
+
+    #[test]
+    fn test_get_mmds_version() {
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        );
+
+        let response = api_server.get_mmds_version();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[test]

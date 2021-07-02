@@ -32,6 +32,8 @@
   `X-aws-ec2-metadata-token` header when MMDSv2 is configured.
 - Allow `PUT` requests to MMDSv2 in order to generate a session token
   to be used for future `GET` requests.
+- Added `GET` request on `/mmds/version` that provides the MMDS version.
+  Default value is `MMDSv1`.
 
 ### Changed
 
