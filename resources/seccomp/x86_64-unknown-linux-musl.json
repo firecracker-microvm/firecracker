@@ -161,7 +161,7 @@
             },
             {
                 "syscall": "madvise",
-                "comment": "Used by the VirtIO balloon device",
+                "comment": "Used by the VirtIO balloon device and by musl for some customer workloads",
                 "args": [
                     {
                         "index": 2,
@@ -477,6 +477,19 @@
                 ]
             },
             {
+                "syscall": "madvise",
+                "comment": "Triggered by musl for some customer workloads",
+                "args": [
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4,
+                        "comment": "libc::MADV_DONTNEED"
+                    }
+                ]
+            },
+            {
                 "syscall": "mmap",
                 "comment": "Used for reading the timezone in LocalTime::now()",
                 "args": [
@@ -630,6 +643,19 @@
                         "op": "eq",
                         "val": 129,
                         "comment": "FUTEX_WAKE_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "madvise",
+                "comment": "Triggered by musl for some customer workloads",
+                "args": [
+                    {
+                        "index": 2,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 4,
+                        "comment": "libc::MADV_DONTNEED"
                     }
                 ]
             },
