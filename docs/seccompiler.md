@@ -138,8 +138,8 @@ Note that, when passing the deprecated `--basic` flag to seccompiler-bin, all
 
 A **condition object** is made up of the following mandatory properties:
 
-- `arg_index` (0-based index of the syscall argument we want to check)
-- `arg_type` (`dword` or `qword`, which specifies the argument size - 4 or 8
+- `index` (0-based index of the syscall argument we want to check)
+- `type` (`dword` or `qword`, which specifies the argument size - 4 or 8
     bytes respectively)
 - `op`, which is one of `eq, ge, gt, ge, lt, masked_eq, ne` (the operator used
     for comparing the parameter to `val`)
@@ -155,8 +155,8 @@ value, much like when using named parameters, like so:
     "syscall": "accept4",
     "args": [
         {
-            "arg_index": 3,
-            "arg_type": "dword",
+            "index": 3,
+            "type": "dword",
             "op": "eq",
             "val": 1,
             "comment": "libc::AF_UNIX"

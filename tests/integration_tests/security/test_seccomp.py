@@ -151,15 +151,15 @@ def test_advanced_seccomp(bin_seccomp_paths):
                     "syscall": "write",
                     "args": [
                         {{
-                            "arg_index": 0,
-                            "arg_type": "dword",
+                            "index": 0,
+                            "type": "dword",
                             "op": "eq",
                             "val": 1,
                             "comment": "stdout fd"
                         }},
                         {{
-                            "arg_index": 2,
-                            "arg_type": "qword",
+                            "index": 2,
+                            "type": "qword",
                             "op": "eq",
                             "val": 14,
                             "comment": "nr of bytes"
