@@ -39,7 +39,8 @@ const BPF_K: u16 = 0x00;
 // See /usr/include/linux/seccomp.h .
 const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
 const SECCOMP_RET_ERRNO: u32 = 0x0005_0000;
-const SECCOMP_RET_KILL: u32 = 0x0000_0000;
+const SECCOMP_RET_KILL_THREAD: u32 = 0x0000_0000;
+const SECCOMP_RET_KILL_PROCESS: u32 = 0x8000_0000;
 const SECCOMP_RET_LOG: u32 = 0x7ffc_0000;
 const SECCOMP_RET_TRACE: u32 = 0x7ff0_0000;
 const SECCOMP_RET_TRAP: u32 = 0x0003_0000;
@@ -242,14 +243,16 @@ pub(crate) struct SeccompCondition {
 
 /// Actions that `seccomp` can apply to process calling a syscall.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum SeccompAction {
     /// Allows syscall.
     Allow,
     /// Returns from syscall with specified error number.
     Errno(u32),
+    /// Kills calling thread.
+    KillThread,
     /// Kills calling process.
-    Kill,
+    KillProcess,
     /// Same as allow but logs call.
     Log,
     /// Notifies tracing process of the caller with respective number.
@@ -538,7 +541,8 @@ impl From<SeccompAction> for u32 {
         match action {
             SeccompAction::Allow => SECCOMP_RET_ALLOW,
             SeccompAction::Errno(x) => SECCOMP_RET_ERRNO | (x & SECCOMP_RET_MASK),
-            SeccompAction::Kill => SECCOMP_RET_KILL,
+            SeccompAction::KillThread => SECCOMP_RET_KILL_THREAD,
+            SeccompAction::KillProcess => SECCOMP_RET_KILL_PROCESS,
             SeccompAction::Log => SECCOMP_RET_LOG,
             SeccompAction::Trace(x) => SECCOMP_RET_TRACE | (x & SECCOMP_RET_MASK),
             SeccompAction::Trap => SECCOMP_RET_TRAP,
@@ -854,7 +858,7 @@ fn VALIDATE_ARCHITECTURE(target_arch: TargetArch) -> Vec<sock_filter> {
     vec![
         BPF_STMT(BPF_LD + BPF_W + BPF_ABS, 4),
         BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, audit_arch_value, 1, 0),
-        BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_KILL),
+        BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_KILL_PROCESS),
     ]
 }
 
@@ -1695,7 +1699,7 @@ mod tests {
                     code: 6,
                     jt: 0,
                     jf: 0,
-                    k: 0,
+                    k: SECCOMP_RET_KILL_PROCESS,
                 },
             ];
             assert_eq!(ret, instructions);
@@ -1770,7 +1774,8 @@ mod tests {
     fn test_from_seccomp_action() {
         assert_eq!(0x7fff_0000, u32::from(SeccompAction::Allow));
         assert_eq!(0x0005_002a, u32::from(SeccompAction::Errno(42)));
-        assert_eq!(0x0000_0000, u32::from(SeccompAction::Kill));
+        assert_eq!(0x0000_0000, u32::from(SeccompAction::KillThread));
+        assert_eq!(0x8000_0000, u32::from(SeccompAction::KillProcess));
         assert_eq!(0x7ffc_0000, u32::from(SeccompAction::Log));
         assert_eq!(0x7ff0_002a, u32::from(SeccompAction::Trace(42)));
         assert_eq!(0x0003_0000, u32::from(SeccompAction::Trap));

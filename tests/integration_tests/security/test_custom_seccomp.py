@@ -87,7 +87,7 @@ def test_working_filter(test_microvm_with_api):
     _custom_filter_setup(test_microvm, """{
         "Vmm": {
             "default_action": "allow",
-            "filter_action": "kill",
+            "filter_action": "kill_process",
             "filter": [
                 {
                     "syscall": "clone"
@@ -99,7 +99,7 @@ def test_working_filter(test_microvm_with_api):
         },
         "Api": {
             "default_action": "allow",
-            "filter_action": "kill",
+            "filter_action": "kill_process",
             "filter": [
                 {
                     "syscall": "clone"
@@ -111,7 +111,7 @@ def test_working_filter(test_microvm_with_api):
         },
         "Vcpu": {
             "default_action": "allow",
-            "filter_action": "kill",
+            "filter_action": "kill_process",
             "filter": [
                 {
                     "syscall": "clone"
