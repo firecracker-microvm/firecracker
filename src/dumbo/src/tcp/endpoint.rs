@@ -304,8 +304,8 @@ impl Endpoint {
     }
 }
 
-fn build_response(http_version: Version, status_code: StatusCode, body: Body) -> Response {
-    let mut response = Response::new(http_version, status_code);
+fn build_response(status_code: StatusCode, body: Body) -> Response {
+    let mut response = Response::new(Version::default(), status_code);
     response.set_body(body);
     response
 }
@@ -316,56 +316,29 @@ fn parse_request_bytes(byte_stream: &[u8], callback: fn(Request) -> Response) ->
     match request {
         Ok(request) => callback(request),
         Err(e) => match e {
-            RequestError::BodyWithoutPendingRequest => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(e.to_string()),
-            ),
-            RequestError::HeadersWithoutPendingRequest => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(e.to_string()),
-            ),
-            RequestError::InvalidHttpVersion(err_msg) => build_response(
-                Version::default(),
-                StatusCode::NotImplemented,
-                Body::new(err_msg.to_string()),
-            ),
-            RequestError::InvalidUri(err_msg) => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(err_msg.to_string()),
-            ),
-            RequestError::InvalidHttpMethod(err_msg) => build_response(
-                Version::default(),
-                StatusCode::NotImplemented,
-                Body::new(err_msg.to_string()),
-            ),
+            RequestError::BodyWithoutPendingRequest
+            | RequestError::HeadersWithoutPendingRequest
+            | RequestError::Overflow
+            | RequestError::Underflow => {
+                build_response(StatusCode::BadRequest, Body::new(e.to_string()))
+            }
+            RequestError::InvalidUri(err_msg) => {
+                build_response(StatusCode::BadRequest, Body::new(err_msg.to_string()))
+            }
+            RequestError::InvalidHttpVersion(err_msg)
+            | RequestError::InvalidHttpMethod(err_msg) => {
+                build_response(StatusCode::NotImplemented, Body::new(err_msg.to_string()))
+            }
+            RequestError::HeaderError(err_msg) => {
+                build_response(StatusCode::BadRequest, Body::new(err_msg.to_string()))
+            }
             RequestError::InvalidRequest => build_response(
-                Version::default(),
                 StatusCode::BadRequest,
                 Body::new("Invalid request.".to_string()),
             ),
-            RequestError::HeaderError(err) => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(err.to_string()),
-            ),
-            RequestError::Overflow => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(e.to_string()),
-            ),
-            RequestError::Underflow => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(e.to_string()),
-            ),
-            RequestError::SizeLimitExceeded(_, _) => build_response(
-                Version::default(),
-                StatusCode::PayloadTooLarge,
-                Body::new(e.to_string()),
-            ),
+            RequestError::SizeLimitExceeded(_, _) => {
+                build_response(StatusCode::PayloadTooLarge, Body::new(e.to_string()))
+            }
         },
     }
 }
