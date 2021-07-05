@@ -79,8 +79,8 @@
                 "comment": "Called to accept vsock connections",
                 "args": [
                     {
-                        "arg_index": 3,
-                        "arg_type": "dword",
+                        "index": 3,
+                        "type": "dword",
                         "op": "eq",
                         "val": 524288,
                         "comment": "libc::SOCK_CLOEXEC"
@@ -92,15 +92,15 @@
                 "comment": "Used by snapshotting, drive patching and rescanning",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 2,
                         "comment": "FCNTL_F_SETFD"
                     },
                     {
-                        "arg_index": 2,
-                        "arg_type": "dword",
+                        "index": 2,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1,
                         "comment": "FCNTL_FD_CLOEXEC"
@@ -112,8 +112,8 @@
                 "comment": "Used for synchronization (during thread teardown when joining multiple vcpu threads at once)",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 0,
                         "comment": "FUTEX_WAIT"
@@ -125,8 +125,8 @@
                 "comment": "Used for synchronization (during thread teardown)",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1,
                         "comment": "FUTEX_WAKE"
@@ -138,8 +138,8 @@
                 "comment": "Used for synchronization",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 128,
                         "comment": "FUTEX_WAIT_PRIVATE"
@@ -151,8 +151,8 @@
                 "comment": "Used for synchronization",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 129,
                         "comment": "FUTEX_WAKE_PRIVATE"
@@ -164,8 +164,8 @@
                 "comment": "Used by the VirtIO balloon device",
                 "args": [
                     {
-                        "arg_index": 2,
-                        "arg_type": "dword",
+                        "index": 2,
+                        "type": "dword",
                         "op": "eq",
                         "val": 4,
                         "comment": "libc::MADV_DONTNEED"
@@ -177,8 +177,8 @@
                 "comment": "Used by the VirtIO balloon device",
                 "args": [
                     {
-                        "arg_index": 3,
-                        "arg_type": "dword",
+                        "index": 3,
+                        "type": "dword",
                         "op": "eq",
                         "val": 50,
                         "comment": "libc::MAP_FIXED | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE"
@@ -190,8 +190,8 @@
                 "comment": "Used for reading the timezone in LocalTime::now()",
                 "args": [
                     {
-                        "arg_index": 3,
-                        "arg_type": "dword",
+                        "index": 3,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1,
                         "comment": "libc::MAP_SHARED"
@@ -203,22 +203,22 @@
                 "comment": "Called to open the vsock UDS",
                 "args": [
                     {
-                        "arg_index": 0,
-                        "arg_type": "dword",
+                        "index": 0,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1,
                         "comment": "libc::AF_UNIX"
                     },
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 524289,
                         "comment": "libc::SOCK_STREAM | libc::SOCK_CLOEXEC"
                     },
                     {
-                        "arg_index": 2,
-                        "arg_type": "dword",
+                        "index": 2,
+                        "type": "dword",
                         "op": "eq",
                         "val": 0
                     }
@@ -229,8 +229,8 @@
                 "comment": "Used to kick vcpus",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 35,
                         "comment": "sigrtmin() + vcpu::VCPU_RTSIG_OFFSET"
@@ -242,8 +242,8 @@
                 "comment": "Needed for rate limiting and metrics",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 0
                     }
@@ -254,8 +254,8 @@
                 "comment": "Used to make vsock UDS nonblocking",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 21537,
                         "comment": "FIONBIO"
@@ -267,8 +267,8 @@
                 "comment": "Triggered on shutdown, to restore the initial terminal settings.",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 21523,
                         "comment": "TIOCGWINSZ"
@@ -280,8 +280,8 @@
                 "comment": "Triggered on shutdown, to restore the initial terminal settings, only when Firecracker was launched from a shell.",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 21505,
                         "comment": "TCGETS"
@@ -293,8 +293,8 @@
                 "comment": "Triggered on shutdown, to restore the initial terminal settings, only when Firecracker was launched from a shell.",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 21506,
                         "comment": "TCSETS"
@@ -305,8 +305,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1074835010,
                         "comment": "KVM_GET_DIRTY_LOG"
@@ -317,8 +317,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1075359457,
                         "comment": "KVM_SET_DEVICE_ATTR"
@@ -329,8 +329,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1075359458,
                         "comment": "KVM_GET_DEVICE_ATTR"
@@ -404,8 +404,8 @@
                 "comment": "Called to accept socket connections",
                 "args": [
                     {
-                        "arg_index": 3,
-                        "arg_type": "dword",
+                        "index": 3,
+                        "type": "dword",
                         "op": "eq",
                         "val": 524288,
                         "comment": "libc::SOCK_CLOEXEC"
@@ -417,8 +417,8 @@
                 "comment": "Used for synchronization (during thread teardown)",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 0,
                         "comment": "FUTEX_WAIT"
@@ -430,8 +430,8 @@
                 "comment": "Used for synchronization (during thread teardown)",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1,
                         "comment": "FUTEX_WAKE"
@@ -443,8 +443,8 @@
                 "comment": "Used for synchronization",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 128,
                         "comment": "FUTEX_WAIT_PRIVATE"
@@ -456,8 +456,8 @@
                 "comment": "Used for synchronization",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 129,
                         "comment": "FUTEX_WAKE_PRIVATE"
@@ -469,8 +469,8 @@
                 "comment": "Used for reading the timezone in LocalTime::now()",
                 "args": [
                     {
-                        "arg_index": 3,
-                        "arg_type": "dword",
+                        "index": 3,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1,
                         "comment": "libc::MAP_SHARED"
@@ -482,22 +482,22 @@
                 "comment": "Called to open the unix domain socket",
                 "args": [
                     {
-                        "arg_index": 0,
-                        "arg_type": "dword",
+                        "index": 0,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1,
                         "comment": "libc::AF_UNIX"
                     },
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 524289,
                         "comment": "libc::SOCK_STREAM | libc::SOCK_CLOEXEC"
                     },
                     {
-                        "arg_index": 2,
-                        "arg_type": "dword",
+                        "index": 2,
+                        "type": "dword",
                         "op": "eq",
                         "val": 0
                     }
@@ -508,8 +508,8 @@
                 "comment": "Used to make api socket nonblocking",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 21537,
                         "comment": "FIONBIO"
@@ -574,8 +574,8 @@
                 "comment": "Used for synchronization (during thread teardown when joining multiple vcpu threads at once)",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 0,
                         "comment": "FUTEX_WAIT"
@@ -587,8 +587,8 @@
                 "comment": "Used for synchronization (during thread teardown)",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1,
                         "comment": "FUTEX_WAKE"
@@ -600,8 +600,8 @@
                 "comment": "Used for synchronization",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 128,
                         "comment": "FUTEX_WAIT_PRIVATE"
@@ -613,8 +613,8 @@
                 "comment": "Used for synchronization",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 129,
                         "comment": "FUTEX_WAKE_PRIVATE"
@@ -626,8 +626,8 @@
                 "comment": "Used for reading the timezone in LocalTime::now()",
                 "args": [
                     {
-                        "arg_index": 3,
-                        "arg_type": "dword",
+                        "index": 3,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1,
                         "comment": "libc::MAP_SHARED"
@@ -639,8 +639,8 @@
                 "comment": "Needed for updating the balloon statistics interval",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 0
                     }
@@ -650,8 +650,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 44672,
                         "comment": "KVM_RUN"
@@ -662,8 +662,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 2147790488,
                         "comment": "KVM_GET_MP_STATE"
@@ -674,8 +674,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1074048665,
                         "comment": "KVM_SET_MP_STATE"
@@ -686,8 +686,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 2151722655,
                         "comment": "KVM_GET_VCPU_EVENTS"
@@ -698,8 +698,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1077980832,
                         "comment": "KVM_SET_VCPU_EVENTS"
@@ -710,8 +710,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1074835115,
                         "comment": "KVM_GET_ONE_REG"
@@ -722,8 +722,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 1074835116,
                         "comment": "KVM_SET_ONE_REG"
@@ -734,8 +734,8 @@
                 "syscall": "ioctl",
                 "args": [
                     {
-                        "arg_index": 1,
-                        "arg_type": "dword",
+                        "index": 1,
+                        "type": "dword",
                         "op": "eq",
                         "val": 3221794480,
                         "comment": "KVM_GET_REG_LIST"

@@ -225,10 +225,10 @@ pub(crate) enum SeccompCmpArgLen {
 #[serde(deny_unknown_fields)]
 pub(crate) struct SeccompCondition {
     /// Index of the argument that is to be compared.
-    #[serde(rename = "arg_index")]
+    #[serde(rename = "index")]
     arg_number: u8,
     /// Length of the argument value that is to be compared.
-    #[serde(rename = "arg_type")]
+    #[serde(rename = "type")]
     arg_len: SeccompCmpArgLen,
     /// Comparison to perform.
     #[serde(rename = "op")]

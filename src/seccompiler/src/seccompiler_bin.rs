@@ -263,14 +263,14 @@ mod tests {
                         "syscall": "futex",
                         "args": [
                             {
-                                "arg_index": 2,
-                                "arg_type": "dword",
+                                "index": 2,
+                                "type": "dword",
                                 "op": "le",
                                 "val": 65
                             },
                             {
-                                "arg_index": 1,
-                                "arg_type": "qword",
+                                "index": 1,
+                                "type": "qword",
                                 "op": "ne",
                                 "val": 80
                             }
@@ -280,14 +280,14 @@ mod tests {
                         "syscall": "futex",
                         "args": [
                             {
-                                "arg_index": 3,
-                                "arg_type": "qword",
+                                "index": 3,
+                                "type": "qword",
                                 "op": "gt",
                                 "val": 65
                             },
                             {
-                                "arg_index": 1,
-                                "arg_type": "qword",
+                                "index": 1,
+                                "type": "qword",
                                 "op": "lt",
                                 "val": 80
                             }
@@ -297,8 +297,8 @@ mod tests {
                         "syscall": "futex",
                         "args": [
                             {
-                                "arg_index": 3,
-                                "arg_type": "qword",
+                                "index": 3,
+                                "type": "qword",
                                 "op": "ge",
                                 "val": 65
                             }
@@ -308,8 +308,8 @@ mod tests {
                         "syscall": "ioctl",
                         "args": [
                             {
-                                "arg_index": 3,
-                                "arg_type": "dword",
+                                "index": 3,
+                                "type": "dword",
                                 "op": {
                                     "masked_eq": 100
                                 },
@@ -327,8 +327,8 @@ mod tests {
                         "syscall": "ioctl",
                         "args": [
                             {
-                                "arg_index": 3,
-                                "arg_type": "dword",
+                                "index": 3,
+                                "type": "dword",
                                 "op": "eq",
                                 "val": 65
                             }
@@ -615,8 +615,8 @@ mod tests {
                             "syscall": "ioctl",
                             "args": [
                                 {
-                                    "arg_index": 3,
-                                    "arg_type": "qword",
+                                    "index": 3,
+                                    "type": "qword",
                                     "op": "eq",
                                     "val": 18446744073709551616
                                 }
@@ -641,8 +641,8 @@ mod tests {
                             "syscall": "ioctl",
                             "args": [
                                 {
-                                    "arg_index": 3,
-                                    "arg_type": "qword",
+                                    "index": 3,
+                                    "type": "qword",
                                     "op": "eq",
                                     "val": -1846
                                 }
@@ -667,8 +667,8 @@ mod tests {
                             "syscall": "ioctl",
                             "args": [
                                 {
-                                    "arg_index": 3,
-                                    "arg_type": "qword",
+                                    "index": 3,
+                                    "type": "qword",
                                     "op": "eq",
                                     "val": 1846.4
                                 }
