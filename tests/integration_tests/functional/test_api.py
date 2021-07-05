@@ -321,6 +321,12 @@ def test_api_put_machine_config(test_microvm_with_api):
         assert test_microvm.api_session.is_status_no_content(
             response.status_code)
 
+    # Validate full vm configuration after patching machine config.
+    response = test_microvm.full_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json()['machine-config']['vcpu_count'] == 2
+    assert response.json()['machine-config']['mem_size_mib'] == 256
+
 
 def test_api_put_update_post_boot(test_microvm_with_api):
     """Test that PUT updates are rejected after the microvm boots."""
@@ -845,6 +851,38 @@ def _drive_patch(test_microvm):
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "No such file or directory" in response.text
+
+    # Validate full vm configuration after patching drives.
+    response = test_microvm.full_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json()['drives'] == [{
+        'drive_id': 'rootfs',
+        'path_on_host': '/xenial.rootfs.ext4',
+        'is_root_device': True,
+        'partuuid': None,
+        'is_read_only': False,
+        'cache_type': 'Unsafe',
+        'rate_limiter': None
+    }, {
+        'drive_id': 'scratch',
+        'path_on_host': '/scratch_new.ext4',
+        'is_root_device': False,
+        'partuuid': None,
+        'is_read_only': False,
+        'cache_type': 'Unsafe',
+        'rate_limiter': {
+            'bandwidth': {
+                'size': 5000,
+                'one_time_burst': None,
+                'refill_time': 100
+            },
+            'ops': {
+                'size': 500,
+                'one_time_burst': None,
+                'refill_time': 100
+            }
+        }
+    }]
 
 
 def test_api_vsock(test_microvm_with_api):
