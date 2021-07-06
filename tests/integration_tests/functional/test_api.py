@@ -1321,3 +1321,91 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
 
     response = test_microvm.mmds.put(json=data_store)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+
+def test_api_mmds_version(test_microvm_with_api, network_config):
+    """
+    Test MMDS version related API commands.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    v1_json = {
+        'version': 'V1'
+    }
+    # Test default MMDS version is V1.
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == v1_json
+
+    # Configure MMDS to version 2.
+    v2_json = {
+        'version': 'V2'
+    }
+    response = test_microvm.mmds.put_mmds_version(json=v2_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Test MMDS version has been updated.
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == v2_json
+
+    test_microvm.basic_config(vcpu_count=1)
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
+
+    # Empty json should reset MMDS version to default.
+    response = test_microvm.mmds.put_mmds_version(json={})
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Ensure MMDS version has been reset.
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == v1_json
+
+    # Configure MMDS back to version 2.
+    response = test_microvm.mmds.put_mmds_version(json=v2_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Ensure MMDS version has been updated.
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == v2_json
+
+    test_microvm.start()
+
+    # Ensure MMDS version post-boot is consistent.
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == v2_json
+
+    # Configure MMDS version to V1 after vm has started.
+    response = test_microvm.mmds.put_mmds_version(json=v1_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Test MMDS version has been updated.
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == v1_json
+
+
+def test_negative_api_mmds_version(test_microvm_with_api):
+    """
+    Test negative scenarios of MMDS version API.
+
+    @type: negative
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    # Test invalid value for MMDS version.
+    response = test_microvm.mmds.put_mmds_version(json={'version': 'foo'})
+    err_msg = "An error occurred when deserializing the json body of a " \
+              "request: unknown variant `foo`, expected `V1` or `V2`"
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert err_msg in response.text
