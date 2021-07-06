@@ -1118,6 +1118,58 @@ def test_get_full_config(test_microvm_with_ssh_and_balloon):
     assert response.json() == expected_cfg
 
 
+def test_api_mmds_version(test_microvm_with_api):
+    """Test MMDS version related API commands."""
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    # Set up the microVM with 2 vCPUs, 256 MiB of RAM and
+    # a root file system with the rw permission.
+    test_microvm.basic_config()
+
+    # Test default MMDS version is MMDSv1.
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.text == "MMDSv1"
+
+    # Test invalid value for MMDS version.
+    # Configure MMDS to version 2.
+    mmds_config = {
+        'mmds_version': 'v2'
+    }
+    err_msg = "An error occurred when deserializing the json body of a " \
+              "request: unknown variant `v2`, expected `MMDSv1` or `MMDSv2`"
+    response = test_microvm.mmds.put_mmds_version(json=mmds_config)
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert err_msg in response.text
+
+    # Configure MMDS to version 2.
+    mmds_config = {
+        'mmds_version': 'MMDSv2'
+    }
+    response = test_microvm.mmds.put_mmds_version(json=mmds_config)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Test MMDS version has been updated.
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.text == 'MMDSv2'
+
+    test_microvm.start()
+
+    # Configure MMDS to version 1 after vm has started.
+    mmds_config = {
+        'mmds_version': 'MMDSv1'
+    }
+    response = test_microvm.mmds.put_mmds_version(json=mmds_config)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Test MMDS version has been updated.
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.text == "MMDSv1"
+
+
 def test_negative_api_lifecycle(bin_cloner_path):
     """Test some vm lifecycle error scenarios."""
     builder = MicrovmBuilder(bin_cloner_path)
