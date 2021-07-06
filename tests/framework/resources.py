@@ -611,6 +611,13 @@ class MMDS():
             json=args['json']
         )
 
+    def put_mmds_version(self, **args):
+        """Send a new MMDS version request."""
+        return self._api_session.put(
+            "{}".format(self._mmds_cfg_url + "/version"),
+            json=args['json']
+        )
+
     def patch(self, **args):
         """Update the details of some MMDS request."""
         return self._api_session.patch(
@@ -619,9 +626,15 @@ class MMDS():
         )
 
     def get(self):
-        """Get the status of the mmds request."""
+        """Get the status of the MMDS request."""
         return self._api_session.get(
             self._mmds_cfg_url
+        )
+
+    def get_mmds_version(self):
+        """Get the MMDS version."""
+        return self._api_session.get(
+            "{}".format(self._mmds_cfg_url + "/version")
         )
 
 
