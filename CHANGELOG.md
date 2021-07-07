@@ -52,6 +52,9 @@
 - Fixed the SSBD mitigation not being enabled on `aarch64` with the provided
   `prod-host-setup.md`.
 - Fixed the balloon statistics not working after a snapshot restore event.
+- The `utc_timestamp_ms` now reports the timestamp in ms from the UTC UNIX
+  Epoch, as the name suggests. It was previously using a monotonic clock with
+  an undefined starting point.
 
 ## [0.24.0]
 

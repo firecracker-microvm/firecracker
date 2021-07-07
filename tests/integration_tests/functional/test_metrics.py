@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the metrics system."""
 
+import datetime
 import os
 import json
+import math
 import platform
 import host_tools.logging as log_tools
 
@@ -53,5 +55,14 @@ def test_flush_metrics(test_microvm_with_api):
         exp_keys.append("rtc")
 
     assert set(metrics.keys()) == set(exp_keys)
+
+    utc_time = datetime.datetime.now(datetime.timezone.utc)
+    utc_timestamp_ms = math.floor(utc_time.timestamp() * 1000)
+
+    # Assert that the absolute difference is less than 1 second, to check that
+    # the reported utc_timestamp_ms is actually a UTC timestamp from the Unix
+    # Epoch.Regression test for:
+    # https://github.com/firecracker-microvm/firecracker/issues/2639
+    assert abs(utc_timestamp_ms - metrics['utc_timestamp_ms']) < 1000
 
     microvm.flush_metrics(metrics_fifo)
