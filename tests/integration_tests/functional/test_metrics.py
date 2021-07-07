@@ -4,7 +4,6 @@
 
 import datetime
 import os
-import json
 import math
 import platform
 import host_tools.logging as log_tools
@@ -27,8 +26,7 @@ def test_flush_metrics(test_microvm_with_api):
 
     microvm.start()
 
-    res = metrics_fifo.sequential_reader(1)
-    metrics = json.loads(res[0])
+    metrics = microvm.flush_metrics(metrics_fifo)
 
     exp_keys = [
         'utc_timestamp_ms',
@@ -64,5 +62,3 @@ def test_flush_metrics(test_microvm_with_api):
     # Epoch.Regression test for:
     # https://github.com/firecracker-microvm/firecracker/issues/2639
     assert abs(utc_timestamp_ms - metrics['utc_timestamp_ms']) < 1000
-
-    microvm.flush_metrics(metrics_fifo)
