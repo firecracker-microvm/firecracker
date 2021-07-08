@@ -17,6 +17,7 @@ import re
 import select
 import shutil
 import time
+import weakref
 
 from retry import retry
 from retry.api import retry_call
@@ -808,20 +809,32 @@ class Microvm:
             try:
                 fd = open(path, "r")
                 while True:
-                    if microvm.logging_thread.stopped():
+                    try:
+                        if microvm().logging_thread.stopped():
+                            return
+                        data = fd.readline()
+                        if data:
+                            microvm().append_to_log_data(data)
+                    except AttributeError as _:
+                        # This means that the microvm object was destroyed and
+                        # we are using a None reference.
                         return
-                    data = fd.readline()
-                    if data:
-                        microvm.append_to_log_data(data)
             except IOError as error:
-                LOG.error("[%s] IOError while monitoring fd:"
-                          " %s", microvm.id, error)
-                microvm.append_to_log_data(str(error))
-                return
+                # pylint: disable=W0150
+                try:
+                    LOG.error("[%s] IOError while monitoring fd:"
+                              " %s", microvm().id, error)
+                    microvm().append_to_log_data(str(error))
+                except AttributeError as _:
+                    # This means that the microvm object was destroyed and
+                    # we are using a None reference.
+                    pass
+                finally:
+                    return
 
         self.logging_thread = utils.StoppableThread(
             target=monitor_fd,
-            args=(self, log_fifo.path),
+            args=(weakref.ref(self), log_fifo.path),
             daemon=True)
         self.logging_thread.start()
 
