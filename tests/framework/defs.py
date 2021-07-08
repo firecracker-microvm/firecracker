@@ -48,3 +48,7 @@ DEFAULT_TEST_SESSION_ROOT_PATH = "/srv"
 
 # Absolute path to the test results folder
 TEST_RESULTS_DIR = FC_WORKSPACE_DIR / "test_results"
+
+# Name of the file that stores firecracker's PID when launched by jailer with
+#  `--new-pid-ns`.
+FC_PID_FILE_NAME = "firecracker.pid"
