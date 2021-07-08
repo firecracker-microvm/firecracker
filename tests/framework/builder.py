@@ -27,7 +27,7 @@ class VmInstance:
         self._kernel = kernel
         self._disks = disks
         self._ssh_key = ssh_key
-        self._vm = vm
+        self.vm = vm
 
     @property
     def config(self):
@@ -49,10 +49,9 @@ class VmInstance:
         """Return ssh key artifact linked to the root block device."""
         return self._ssh_key
 
-    @property
-    def vm(self):
-        """Return the Microvm object instance."""
-        return self._vm
+    def __del__(self):
+        """Teardown the VM."""
+        self.vm.kill()
 
 
 class MicrovmBuilder:
