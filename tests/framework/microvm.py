@@ -28,7 +28,8 @@ import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 
 import framework.utils as utils
-from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH
+from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH, \
+    FC_PID_FILE_NAME
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import Actions, Balloon, BootSource, Drive, \
@@ -174,6 +175,15 @@ class Microvm:
             utils.run_cmd(
                 'kill -9 {} || true'.format(self.screen_pid))
 
+        # Check if Firecracker was launched by the jailer in a new pid ns.
+        fc_pid_in_new_ns = self.pid_in_new_ns
+
+        if fc_pid_in_new_ns:
+            # We need to explicitly kill the Firecracker pid, since it's
+            # different from the jailer pid that was previously killed.
+            utils.run_cmd(f'kill -9 {fc_pid_in_new_ns}',
+                          ignore_return_code=True)
+
         if self._memory_monitor and self._memory_monitor.is_alive():
             self._memory_monitor.signal_stop()
             self._memory_monitor.join(timeout=1)
@@ -288,6 +298,22 @@ class Microvm:
     def memory_monitor(self, monitor):
         """Set the memory monitor."""
         self._memory_monitor = monitor
+
+    @property
+    def pid_in_new_ns(self):
+        """Get the pid of the Firecracker process in the new namespace.
+
+        Returns None if Firecracker was not launched in a new pid ns.
+        """
+        fc_pid = None
+
+        pid_file_path = f"{self.jailer.chroot_path()}/{FC_PID_FILE_NAME}"
+        if os.path.exists(pid_file_path):
+            # Read the PID stored inside the file.
+            with open(pid_file_path) as file:
+                fc_pid = int(file.readline())
+
+        return fc_pid
 
     def flush_metrics(self, metrics_fifo):
         """Flush the microvm metrics.

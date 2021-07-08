@@ -10,15 +10,13 @@ from framework.defs import FC_BINARY_NAME
 
 # These are the permissions that all files/dirs inside the jailer have.
 REG_PERMS = stat.S_IRUSR | stat.S_IWUSR | \
-            stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | \
-            stat.S_IROTH | stat.S_IXOTH
+    stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | \
+    stat.S_IROTH | stat.S_IXOTH
 DIR_STATS = stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
 FILE_STATS = stat.S_IFREG | REG_PERMS
 SOCK_STATS = stat.S_IFSOCK | REG_PERMS
 # These are the stats of the devices created by tha jailer.
 CHAR_STATS = stat.S_IFCHR | stat.S_IRUSR | stat.S_IWUSR
-# Name of the file that stores firecracker's PID.
-PID_FILE_NAME = "firecracker.pid"
 
 
 def check_stats(filepath, stats, uid, gid):
@@ -204,14 +202,8 @@ def test_new_pid_namespace(test_microvm_with_ssh):
     test_microvm.spawn()
 
     # Check that the PID file exists.
-    pid_file_path = "{}/{}".format(test_microvm.jailer.chroot_path(),
-                                   PID_FILE_NAME)
-    assert os.path.exists(pid_file_path)
-
-    # Read the PID stored inside the file.
-    with open(pid_file_path) as file:
-        fc_pid = int(file.readline())
-    file.close()
+    fc_pid = test_microvm.pid_in_new_ns
+    assert fc_pid is not None
 
     # Validate the PID.
     stdout = subprocess.check_output("pidof firecracker", shell=True)
@@ -221,9 +213,9 @@ def test_new_pid_namespace(test_microvm_with_ssh):
     # Firecracker process is a member of.
     nstgid_cmd = "cat /proc/{}/status | grep NStgid".format(fc_pid)
     nstgid_list = subprocess.check_output(
-                    nstgid_cmd,
-                    shell=True
-                ).decode('utf-8').strip().split("\t")[1:]
+        nstgid_cmd,
+        shell=True
+    ).decode('utf-8').strip().split("\t")[1:]
 
     # Check that Firecracker's PID namespace is nested. `NStgid` should
     # report two values and the last one should be 1, because Firecracker
