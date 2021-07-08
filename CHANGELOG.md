@@ -22,6 +22,8 @@
 - Added code logic to send `VIRTIO_VSOCK_EVENT_TRANSPORT_RESET` on snapshot
   creation, when the Vsock device is active. The event will close active
   connections on the guest.
+- Added `GET` request on `/vm/config` that provides full microVM configuration
+  as a JSON HTTP response.
 
 ### Changed
 

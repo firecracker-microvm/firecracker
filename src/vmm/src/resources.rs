@@ -3,12 +3,8 @@
 
 #![deny(warnings)]
 
-use std::fs::File;
-
 use crate::vmm_config::balloon::*;
-use crate::vmm_config::boot_source::{
-    BootConfig, BootSourceConfig, BootSourceConfigError, DEFAULT_KERNEL_CMDLINE,
-};
+use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::*;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::logger::{init_logger, LoggerConfig, LoggerConfigError};
@@ -21,7 +17,8 @@ use crate::vstate::vcpu::VcpuConfig;
 use mmds::ns::MmdsNetworkStack;
 use utils::net::ipv4addr::is_link_local_valid;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::convert::From;
 
 type Result<E> = std::result::Result<(), E>;
 
@@ -51,7 +48,7 @@ pub enum Error {
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
-#[derive(Deserialize)]
+#[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct VmmConfig {
     #[serde(rename = "balloon")]
     balloon_device: Option<BalloonDeviceConfig>,
@@ -192,7 +189,7 @@ impl VmResources {
             return Err(VmConfigError::InvalidMemorySize);
         }
 
-        // The VM cannot have a memory size greater than the target size
+        // The VM cannot have a memory size smaller than the target size
         // of the balloon device, if present.
         if self.balloon.get().is_some()
             && machine_config
@@ -268,31 +265,7 @@ impl VmResources {
         &mut self,
         boot_source_cfg: BootSourceConfig,
     ) -> Result<BootSourceConfigError> {
-        use self::BootSourceConfigError::{
-            InvalidInitrdPath, InvalidKernelCommandLine, InvalidKernelPath,
-        };
-
-        // Validate boot source config.
-        let kernel_file =
-            File::open(&boot_source_cfg.kernel_image_path).map_err(InvalidKernelPath)?;
-        let initrd_file: Option<File> = match &boot_source_cfg.initrd_path {
-            Some(path) => Some(File::open(path).map_err(InvalidInitrdPath)?),
-            None => None,
-        };
-        let mut cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
-        let boot_args = match boot_source_cfg.boot_args.as_ref() {
-            None => DEFAULT_KERNEL_CMDLINE,
-            Some(str) => str.as_str(),
-        };
-        cmdline
-            .insert_str(boot_args)
-            .map_err(|e| InvalidKernelCommandLine(e.to_string()))?;
-
-        self.boot_config = Some(BootConfig {
-            cmdline,
-            kernel_file,
-            initrd_file,
-        });
+        self.boot_config = Some(BootConfig::new(boot_source_cfg)?);
         Ok(())
     }
 
@@ -315,9 +288,10 @@ impl VmResources {
             // Update `Net` device `MmdsNetworkStack` IPv4 address.
             match &self.mmds_config {
                 Some(cfg) => cfg.ipv4_addr().map_or((), |ipv4_addr| {
-                    if let Some(mmds_ns) = net_device.lock().expect("Poisoned lock").mmds_ns_mut() {
-                        mmds_ns.set_ipv4_addr(ipv4_addr);
-                    };
+                    net_device
+                        .lock()
+                        .expect("Poisoned lock")
+                        .set_mmds_ipv4_addr(ipv4_addr);
                 }),
                 None => (),
             };
@@ -340,13 +314,35 @@ impl VmResources {
 
         // Update existing built network device `MmdsNetworkStack` IPv4 address.
         for net_device in self.net_builder.iter_mut() {
-            if let Some(mmds_ns) = net_device.lock().expect("Poisoned lock").mmds_ns_mut() {
-                mmds_ns.set_ipv4_addr(ipv4_addr)
-            }
+            net_device
+                .lock()
+                .expect("Poisoned lock")
+                .set_mmds_ipv4_addr(ipv4_addr);
         }
 
         self.mmds_config = Some(config);
         Ok(())
+    }
+}
+
+impl From<&VmResources> for VmmConfig {
+    fn from(resources: &VmResources) -> Self {
+        let boot_source = resources
+            .boot_config
+            .as_ref()
+            .map(BootSourceConfig::from)
+            .unwrap_or_default();
+        VmmConfig {
+            balloon_device: resources.balloon.get_config().ok(),
+            block_devices: resources.block.configs(),
+            boot_source,
+            logger: None,
+            machine_config: Some(resources.vm_config.clone()),
+            metrics: None,
+            mmds_config: resources.mmds_config.clone(),
+            net_devices: resources.net_builder.configs(),
+            vsock_device: resources.vsock.config(),
+        }
     }
 }
 
@@ -423,6 +419,7 @@ mod tests {
             cmdline: kernel_cmdline,
             kernel_file: File::open(tmp_file.as_path()).unwrap(),
             initrd_file: Some(File::open(tmp_file.as_path()).unwrap()),
+            description: Default::default(),
         }
     }
 

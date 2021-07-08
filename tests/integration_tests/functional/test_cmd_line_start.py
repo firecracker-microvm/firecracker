@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests microvm start with configuration file as command line parameter."""
 
+import json
 import os
 import re
 
@@ -53,6 +54,12 @@ def test_config_start_with_api(test_microvm_with_ssh, vm_config_file):
     response = test_microvm.machine_cfg.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert test_microvm.state == "Running"
+
+    # Validate full vm configuration.
+    response = test_microvm.full_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    with open(vm_config_file) as json_file:
+        assert response.json() == json.load(json_file)
 
 
 @pytest.mark.parametrize(

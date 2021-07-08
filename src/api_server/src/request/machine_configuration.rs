@@ -9,7 +9,7 @@ use vmm::vmm_config::machine_config::VmConfig;
 
 pub(crate) fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.machine_cfg_count.inc();
-    Ok(ParsedRequest::new_sync(VmmAction::GetVmConfiguration))
+    Ok(ParsedRequest::new_sync(VmmAction::GetVmMachineConfig))
 }
 
 pub(crate) fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
