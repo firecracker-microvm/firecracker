@@ -32,7 +32,7 @@ pub enum Error {
     /// Boot source configuration error.
     BootSource(BootSourceConfigError),
     /// JSON is invalid.
-    InvalidJson,
+    InvalidJson(serde_json::Error),
     /// Logger configuration error.
     Logger(LoggerConfigError),
     /// Metrics system configuration error.
@@ -99,7 +99,7 @@ impl VmResources {
         instance_info: &InstanceInfo,
     ) -> std::result::Result<Self, Error> {
         let vmm_config: VmmConfig = serde_json::from_slice::<VmmConfig>(config_json.as_bytes())
-            .map_err(|_| Error::InvalidJson)?;
+            .map_err(Error::InvalidJson)?;
 
         if let Some(logger) = vmm_config.logger {
             init_logger(logger, instance_info).map_err(Error::Logger)?;
@@ -468,6 +468,19 @@ mod tests {
         // check the expected errors. We include configuration for the kernel and rootfs
         // in every json because they are mandatory fields. If we don't configure
         // these resources, it is considered an invalid json and the test will crash.
+
+        // Invalid JSON string must yield a `serde_json` error.
+        match VmResources::from_json(r#"}"#, &default_instance_info) {
+            Err(Error::InvalidJson(_)) => (),
+            _ => unreachable!(),
+        }
+
+        // Valid JSON string without the configuration for kernel or rootfs
+        // result in an invalid JSON error.
+        match VmResources::from_json(r#"{}"#, &default_instance_info) {
+            Err(Error::InvalidJson(_)) => (),
+            _ => unreachable!(),
+        }
 
         // Invalid kernel path.
         let mut json = format!(
