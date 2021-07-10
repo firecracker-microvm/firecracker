@@ -480,6 +480,11 @@ class Snapshot:
         merge_memory_bitmaps(base.mem, self.mem)
         self._mem = base.mem
 
+    def cleanup(self):
+        """Delete the backing files from disk."""
+        os.remove(self._mem)
+        os.remove(self._vmstate)
+
     @property
     def mem(self):
         """Return the mem file path."""

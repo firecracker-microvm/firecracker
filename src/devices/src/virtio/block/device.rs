@@ -392,6 +392,11 @@ impl Block {
         &self.id
     }
 
+    /// Provides backing file path of this block device.
+    pub fn file_path(&self) -> &String {
+        self.disk.file_path()
+    }
+
     /// Provides the PARTUUID of this block device.
     pub fn partuuid(&self) -> Option<&String> {
         self.partuuid.as_ref()
@@ -407,8 +412,14 @@ impl Block {
         self.root_device
     }
 
+    /// Specifies block device cache type.
     pub fn cache_type(&self) -> CacheType {
         self.disk.cache_type()
+    }
+
+    /// Provides non-mutable reference to this device's rate limiter.
+    pub fn rate_limiter(&self) -> &RateLimiter {
+        &self.rate_limiter
     }
 }
 

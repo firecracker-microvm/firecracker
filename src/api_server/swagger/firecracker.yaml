@@ -586,6 +586,22 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /vm/config:
+    get:
+      summary: Gets the full VM configuration.
+      description:
+        Gets configuration for all VM resources.
+      operationId: getExportVmConfig
+      responses:
+        200:
+          description: OK
+          schema:
+            $ref: "#/definitions/FullVmConfiguration"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /vsock:
     put:
       summary: Creates/updates a vsock device. Pre-boot only.
@@ -781,6 +797,34 @@ definitions:
         type: string
         description: A description of the error condition
         readOnly: true
+
+  FullVmConfiguration:
+    type: object
+    properties:
+      balloon_device:
+        $ref: "#/definitions/Balloon"
+      block_devices:
+        type: array
+        description: Configurations for all block devices.
+        items:
+          $ref: "#/definitions/Drive"
+      boot_source:
+        $ref: "#/definitions/BootSource"
+      logger:
+        $ref: "#/definitions/Logger"
+      machine_config:
+        $ref: "#/definitions/MachineConfiguration"
+      metrics:
+        $ref: "#/definitions/Metrics"
+      mmds_config:
+        $ref: "#/definitions/MmdsConfig"
+      net_devices:
+        type: array
+        description: Configurations for all net devices.
+        items:
+          $ref: "#/definitions/NetworkInterface"
+      vsock_device:
+        $ref: "#/definitions/Vsock"
 
   InstanceActionInfo:
     type: object

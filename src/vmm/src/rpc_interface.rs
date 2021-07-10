@@ -12,6 +12,7 @@ use super::{
     resources::VmResources, Vmm,
 };
 use crate::persist::{CreateSnapshotError, LoadSnapshotError};
+use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config::balloon::{
     BalloonConfigError, BalloonDeviceConfig, BalloonStats, BalloonUpdateConfig,
@@ -60,8 +61,10 @@ pub enum VmmAction {
     GetBalloonConfig,
     /// Get the ballon device latest statistics.
     GetBalloonStats,
-    /// Get the configuration of the microVM.
-    GetVmConfiguration,
+    /// Get complete microVM configuration in JSON format.
+    GetFullVmConfig,
+    /// Get the machine configuration of the microVM.
+    GetVmMachineConfig,
     /// Get microVM instance information.
     GetVmInstanceInfo,
     /// Flush the metrics. This action can only be called after the logger has been configured.
@@ -201,6 +204,8 @@ pub enum VmmData {
     BalloonStats(BalloonStats),
     /// No data is sent on the channel.
     Empty,
+    /// The complete microVM configuration in JSON format.
+    FullVmConfig(VmmConfig),
     /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(VmConfig),
     /// The microVM instance information.
@@ -309,7 +314,8 @@ impl<'a> PrebootApiController<'a> {
                 .map(|()| VmmData::Empty)
                 .map_err(VmmActionError::Metrics),
             GetBalloonConfig => self.balloon_config(),
-            GetVmConfiguration => Ok(VmmData::MachineConfiguration(
+            GetFullVmConfig => Ok(VmmData::FullVmConfig((&*self.vm_resources).into())),
+            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(self.instance_info.clone())),
@@ -492,7 +498,8 @@ impl RuntimeApiController {
                 .latest_balloon_stats()
                 .map(VmmData::BalloonStats)
                 .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
-            GetVmConfiguration => Ok(VmmData::MachineConfiguration(
+            GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
+            GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(
@@ -829,6 +836,12 @@ mod tests {
         }
     }
 
+    impl From<&MockVmRes> for VmmConfig {
+        fn from(_: &MockVmRes) -> Self {
+            VmmConfig::default()
+        }
+    }
+
     // Mock `Vmm` used for testing.
     #[derive(Debug, Default, PartialEq)]
     pub struct MockVmm {
@@ -1033,7 +1046,7 @@ mod tests {
 
     #[test]
     fn test_preboot_get_vm_config() {
-        let req = VmmAction::GetVmConfiguration;
+        let req = VmmAction::GetVmMachineConfig;
         let expected_cfg = VmConfig::default();
         check_preboot_request(req, |result, _| {
             assert_eq!(result, Ok(VmmData::MachineConfiguration(expected_cfg)))
@@ -1347,7 +1360,7 @@ mod tests {
 
     #[test]
     fn test_runtime_get_vm_config() {
-        let req = VmmAction::GetVmConfiguration;
+        let req = VmmAction::GetVmMachineConfig;
         check_runtime_request(req, |result, _| {
             assert_eq!(
                 result,
