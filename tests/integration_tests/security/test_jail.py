@@ -6,6 +6,8 @@ import stat
 import subprocess
 
 from framework.defs import FC_BINARY_NAME
+from framework.jailer import JailerContext
+import host_tools.cargo_build as build_tools
 
 
 # These are the permissions that all files/dirs inside the jailer have.
@@ -45,9 +47,13 @@ def test_default_chroot(test_microvm_with_ssh):
 def test_empty_jailer_id(test_microvm_with_ssh):
     """Test that the jailer ID cannot be empty."""
     test_microvm = test_microvm_with_ssh
+    fc_binary, _ = build_tools.get_firecracker_binaries()
 
     # Set the jailer ID to None.
-    test_microvm.jailer.jailer_id = ""
+    test_microvm.jailer = JailerContext(
+        jailer_id="",
+        exec_file=fc_binary,
+    )
 
     # pylint: disable=W0703
     try:
