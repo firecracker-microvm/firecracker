@@ -1021,7 +1021,13 @@ pub(crate) mod tests {
         // Assert that we can't update an inactive device.
         assert!(balloon.update_size(1).is_err());
         // Switch the state to active.
-        balloon.device_state = DeviceState::Activated(GuestMemoryMmap::new());
+        balloon.device_state = DeviceState::Activated(
+            vm_memory::test_utils::create_guest_memory_unguarded(
+                &[(GuestAddress(0x0), 0x1)],
+                false,
+            )
+            .unwrap(),
+        );
 
         assert_eq!(balloon.num_pages(), 0);
         assert_eq!(balloon.actual_pages(), 0);

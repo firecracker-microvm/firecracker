@@ -354,7 +354,9 @@ pub(crate) mod tests {
     // Auxiliary function being used throughout the tests.
     pub(crate) fn setup_vm(mem_size: usize) -> (Vm, GuestMemoryMmap) {
         let kvm = KvmContext::new().unwrap();
-        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), mem_size)]).unwrap();
+        let gm =
+            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), mem_size)], false)
+                .unwrap();
 
         let mut vm = Vm::new(kvm.fd()).expect("Cannot create new vm");
         assert!(vm.memory_init(&gm, kvm.max_memslots(), false).is_ok());
@@ -394,7 +396,9 @@ pub(crate) mod tests {
         let mut vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
         // Create valid memory region and test that the initialization is successful.
-        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let gm =
+            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
+                .unwrap();
         assert!(vm
             .memory_init(&gm, kvm_context.max_memslots(), true)
             .is_ok());
@@ -432,13 +436,17 @@ pub(crate) mod tests {
         let kvm_context = KvmContext::new().unwrap();
         let vm = Vm::new(kvm_context.fd()).expect("Cannot create new vm");
 
-        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let gm =
+            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
+                .unwrap();
         let res = vm.set_kvm_memory_regions(&gm, false);
         assert!(res.is_ok());
 
         // Trying to set a memory region with a size that is not a multiple of PAGE_SIZE
         // will result in error.
-        let gm = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10)]).unwrap();
+        let gm =
+            vm_memory::test_utils::create_guest_memory_unguarded(&[(GuestAddress(0), 0x10)], false)
+                .unwrap();
         let res = vm.set_kvm_memory_regions(&gm, false);
         assert_eq!(
             res.unwrap_err().to_string(),

@@ -719,11 +719,14 @@ mod tests {
     fn test_buf_region_addr_edge_cases() {
         let mut test_ctx = TestContext::new();
 
-        test_ctx.mem = GuestMemoryMmap::from_ranges(&[
-            (GuestAddress(0), 500),
-            (GuestAddress(500), 100),
-            (GuestAddress(600), 100),
-        ])
+        test_ctx.mem = vm_memory::test_utils::create_guest_memory_unguarded(
+            &[
+                (GuestAddress(0), 500),
+                (GuestAddress(500), 100),
+                (GuestAddress(600), 100),
+            ],
+            false,
+        )
         .unwrap();
 
         let edge_cases = vec![
