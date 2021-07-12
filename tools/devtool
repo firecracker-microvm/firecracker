@@ -72,7 +72,7 @@
 DEVCTR_IMAGE_NO_TAG="public.ecr.aws/firecracker/fcuvm"
 
 # Development container tag
-DEVCTR_IMAGE_TAG="v30"
+DEVCTR_IMAGE_TAG="v31"
 
 # Development container image (name:tag)
 # This should be updated whenever we upgrade the development container.
@@ -282,13 +282,7 @@ ensure_kvm() {
 ensure_build_dir() {
     for dir in "$FC_BUILD_DIR" "$CARGO_TARGET_DIR" \
                "$CARGO_REGISTRY_DIR" "$CARGO_GIT_REGISTRY_DIR"; do
-        mkdir -p "$dir" || die "Error: cannot create dir $dir"
-        [ -x "$dir" ] && [ -w "$dir" ] || \
-            {
-                say "Wrong permissions for $dir. Attempting to fix them ..."
-                chmod +x+w "$dir"
-            } || \
-            die "Error: wrong permissions for $dir. Should be +x+w"
+        create_dir "$dir"
     done
 }
 
@@ -432,7 +426,7 @@ validate_kernel_version() {
     version="$1"
 
     if [ -z "$version" ]; then
-        die "Version cannot be empty."
+        die "Kernel version cannot be empty."
     elif [[ ! "$version" =~ $version_regex ]]; then
         die "Invalid version number: $version (expected: \$Major.\$Minor.\$Patch(optional))."
     fi
@@ -631,6 +625,18 @@ update_python_package_version() {
     docker rm -f "$dummy_container_name"
 }
 
+create_dir() {
+    # Create a dir for the provided path.
+    dir="$1"
+    mkdir -p "$dir" || die "Error: cannot create dir $dir"
+        [ -x "$dir" ] && [ -w "$dir" ] || \
+            {
+                say "Wrong permissions for $dir. Attempting to fix them ..."
+                chmod +x+w "$dir"
+            } || \
+            die "Error: wrong permissions for $dir. Should be +x+w"
+}
+
 # `$0 help`
 # Show the detailed devtool usage information.
 #
@@ -660,6 +666,11 @@ cmd_help() {
     echo "    build_devctr [--no-python-package-update]"
     echo "        Builds the development container from its Dockerfile."
     echo "        -n, --no-python-package-update  Do not update python packages."
+    echo ""
+    echo "    build_kernel -c|--config [-n|--nproc]"
+    echo "        Builds a kernel image custom-tailored for our CI."
+    echo "        -c, --config  Path to the config file."
+    echo "        -n, --nproc  Number of cores to use for building kernel."
     echo ""
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
@@ -1543,13 +1554,7 @@ cmd_generate_syscall_tables() {
 
     # Create the kernel clone directory
     rm -rf "$KERNEL_DIR"
-    mkdir -p "$KERNEL_DIR" || die "Error: cannot create dir $dir"
-        [ -x "$KERNEL_DIR" ] && [ -w "$dir" ] || \
-            {
-                chmod +x+w "$KERNEL_DIR"
-            } || \
-            die "Error: wrong permissions for $KERNEL_DIR. Should be +x+w"
-
+    create_dir "$KERNEL_DIR"
     cd "$KERNEL_DIR"
 
     say "Fetching linux kernel..."
@@ -1635,6 +1640,74 @@ cmd_install() {
 
     say "Installing seccomp in $install_path"
     install -m 755 "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin" "$install_path"
+}
+
+# Build a Firecracker CI compatible kernel image.
+# Example: `./tools/devtool build_rootfs -c resources/microvm-kernel-arm64.config`
+#
+cmd_build_kernel() {
+    nprocs=$(getconf _NPROCESSORS_ONLN)
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")      { cmd_help; exit 1; } ;;
+            "-c"|"--config")
+                shift
+                local KERNEL_CFG="$1"
+                ;;
+            "-n"|"--nproc")
+                shift
+                nprocs="$1"
+                ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
+    # It is mandatory to provide a valid config file for building the kernel.
+    [ -z "$KERNEL_CFG" ] && die "You need to provide the path to a valid kernel config!"
+
+    arch=$(uname -m)
+    if [ "$arch" = "x86_64" ]; then
+        target="vmlinux"
+        cfg_pattern="x86"
+        format="elf"
+    elif [ "$arch" = "aarch64" ]; then
+        target="Image"
+        cfg_pattern="arm64"
+        format="pe"
+    else
+        die "Unsupported architecture!"
+    fi
+
+    kernel_dir_host="$FC_BUILD_DIR"/kernel
+    kernel_dir_ctr="$CTR_FC_BUILD_DIR"/kernel
+    create_dir "$kernel_dir_host"
+
+    # Extract the kernel version from the config file provided as parameter.
+    KERNEL_VERSION=$(cat "$KERNEL_CFG" | grep -Po "^# Linux\/$cfg_pattern (([0-9]+.){2}[0-9]+)" | cut -d ' ' -f 3)
+    validate_kernel_version "$KERNEL_VERSION"
+
+    recipe_commit="b551cccc405a73a6d316c0c09dfe0b3e7a73ba3f"
+    recipe_url="https://raw.githubusercontent.com/rust-vmm/vmm-reference/$recipe_commit/resources/kernel/make_kernel.sh"
+    run_devctr \
+        --user "$(id -u):$(id -g)" \
+        --workdir "$kernel_dir_ctr" \
+        -- /bin/bash -c "curl -LO "$recipe_url" && source make_kernel.sh && extract_kernel_srcs "$KERNEL_VERSION""
+
+    cp "$KERNEL_CFG" "$kernel_dir_host/linux-$KERNEL_VERSION/.config"
+
+    KERNEL_BINARY_NAME="vmlinux-$KERNEL_VERSION-$arch.bin"
+    run_devctr \
+        --user "$(id -u):$(id -g)" \
+        --workdir "$kernel_dir_ctr" \
+        -- /bin/bash -c "source make_kernel.sh && make_kernel "$kernel_dir_ctr/linux-$KERNEL_VERSION" $format $target "$nprocs" "$KERNEL_BINARY_NAME""
+
+    say "Successfully built kernel!"
+    say "Kernel binary placed in: $kernel_dir_host/linux-$KERNEL_VERSION/$KERNEL_BINARY_NAME"
 }
 
 main() {

@@ -54,6 +54,10 @@ RUN apt-get update \
         screen \
         tzdata \
         npm \
+        xz-utils \
+        bc \
+        flex \
+        bison \
     && python3 -m pip install \
         setuptools \
         wheel \
