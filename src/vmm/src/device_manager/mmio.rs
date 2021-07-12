@@ -590,8 +590,11 @@ mod tests {
     fn test_register_virtio_device() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem =
-            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let guest_mem = vm_memory::test_utils::create_anon_guest_memory(
+            &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
+            false,
+        )
+        .unwrap();
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
         let mut device_manager =
             MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
@@ -612,8 +615,11 @@ mod tests {
     fn test_register_too_many_devices() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem =
-            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let guest_mem = vm_memory::test_utils::create_anon_guest_memory(
+            &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
+            false,
+        )
+        .unwrap();
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
         let mut device_manager =
             MMIODeviceManager::new(0xd000_0000, (arch::IRQ_BASE, arch::IRQ_MAX));
@@ -696,8 +702,11 @@ mod tests {
     fn test_device_info() {
         let start_addr1 = GuestAddress(0x0);
         let start_addr2 = GuestAddress(0x1000);
-        let guest_mem =
-            GuestMemoryMmap::from_ranges(&[(start_addr1, 0x1000), (start_addr2, 0x1000)]).unwrap();
+        let guest_mem = vm_memory::test_utils::create_anon_guest_memory(
+            &[(start_addr1, 0x1000), (start_addr2, 0x1000)],
+            false,
+        )
+        .unwrap();
         let mut vm = builder::setup_kvm_vm(&guest_mem, false).unwrap();
 
         #[cfg(target_arch = "x86_64")]

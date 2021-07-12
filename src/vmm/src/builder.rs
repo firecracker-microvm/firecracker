@@ -1100,7 +1100,7 @@ pub mod tests {
     }
 
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        GuestMemoryMmap::from_ranges(&[(at, size)]).unwrap()
+        vm_memory::test_utils::create_guest_memory_unguarded(&[(at, size)], false).unwrap()
     }
 
     pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {

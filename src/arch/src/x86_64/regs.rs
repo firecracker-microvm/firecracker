@@ -196,8 +196,18 @@ mod tests {
     use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 
     fn create_guest_mem(mem_size: Option<u64>) -> GuestMemoryMmap {
-        GuestMemoryMmap::from_ranges(&[(GuestAddress(0), mem_size.unwrap_or(0x10000) as usize)])
+        let page_size = 0x10000usize;
+        let mem_size = mem_size.unwrap_or(page_size as u64) as usize;
+        if mem_size % page_size == 0 {
+            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), mem_size)], false)
+                .unwrap()
+        } else {
+            vm_memory::test_utils::create_guest_memory_unguarded(
+                &[(GuestAddress(0), mem_size)],
+                false,
+            )
             .unwrap()
+        }
     }
 
     fn read_u64(gm: &GuestMemoryMmap, offset: u64) -> u64 {

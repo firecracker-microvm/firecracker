@@ -179,7 +179,11 @@ mod tests {
     #[test]
     fn test_remove_range() {
         let page_size: usize = 0x1000;
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 2 * page_size)]).unwrap();
+        let mem = vm_memory::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), 2 * page_size)],
+            false,
+        )
+        .unwrap();
 
         // Fill the memory with ones.
         let ones = vec![1u8; 2 * page_size];
@@ -223,7 +227,11 @@ mod tests {
     #[test]
     fn test_remove_range_on_restored() {
         let page_size: usize = 0x1000;
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 2 * page_size)]).unwrap();
+        let mem = vm_memory::test_utils::create_anon_guest_memory(
+            &[(GuestAddress(0), 2 * page_size)],
+            false,
+        )
+        .unwrap();
 
         // Fill the memory with ones.
         let ones = vec![1u8; 2 * page_size];

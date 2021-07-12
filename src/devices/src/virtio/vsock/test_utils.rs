@@ -120,7 +120,9 @@ impl TestContext {
     pub fn new() -> Self {
         const CID: u64 = 52;
         const MEM_SIZE: usize = 1024 * 1024 * 128;
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), MEM_SIZE)]).unwrap();
+        let mem =
+            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), MEM_SIZE)], false)
+                .unwrap();
         Self {
             cid: CID,
             mem,

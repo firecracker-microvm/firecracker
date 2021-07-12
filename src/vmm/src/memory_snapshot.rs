@@ -223,10 +223,10 @@ mod tests {
 
         // Two regions of one page each, with a one page gap between them.
         let mem_regions = [
-            (GuestAddress(0), page_size),
-            (GuestAddress(page_size as u64 * 2), page_size),
+            (None, GuestAddress(0), page_size),
+            (None, GuestAddress(page_size as u64 * 2), page_size),
         ];
-        let guest_memory = GuestMemoryMmap::from_ranges(&mem_regions[..]).unwrap();
+        let guest_memory = vm_memory::create_guest_memory(&mem_regions[..], true).unwrap();
 
         let expected_memory_state = GuestMemoryState {
             regions: vec![
@@ -248,10 +248,10 @@ mod tests {
 
         // Two regions of three pages each, with a one page gap between them.
         let mem_regions = [
-            (GuestAddress(0), page_size * 3),
-            (GuestAddress(page_size as u64 * 4), page_size * 3),
+            (None, GuestAddress(0), page_size * 3),
+            (None, GuestAddress(page_size as u64 * 4), page_size * 3),
         ];
-        let guest_memory = GuestMemoryMmap::from_ranges(&mem_regions[..]).unwrap();
+        let guest_memory = vm_memory::create_guest_memory(&mem_regions[..], true).unwrap();
 
         let expected_memory_state = GuestMemoryState {
             regions: vec![

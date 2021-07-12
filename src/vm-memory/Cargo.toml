@@ -7,4 +7,6 @@ edition = "2018"
 [dependencies]
 vm-memory-upstream = { package = "vm-memory",  version = "0.6.0", features = ["backend-mmap", "backend-bitmap"] }
 libc = ">=0.2.80"
-vmm-sys-util = ">= 0.4.0"
+
+[dev-dependencies]
+utils = { path = "../utils" }

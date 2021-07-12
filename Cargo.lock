@@ -969,8 +969,8 @@ name = "vm-memory"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "utils",
  "vm-memory 0.6.0",
- "vmm-sys-util",
 ]
 
 [[package]]
