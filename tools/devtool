@@ -816,21 +816,6 @@ cmd_strip() {
     return $ret
 }
 
-mount_ramdisk() {
-    say "Using ramdisk ..."
-    local ramdisk_size="$1"
-    umount_ramdisk
-    mkdir -p ${DEFAULT_RAMDISK_PATH} && \
-    mount -t tmpfs -o size=${ramdisk_size} tmpfs ${DEFAULT_RAMDISK_PATH}
-    mkdir -p ${DEFAULT_RAMDISK_PATH}/srv
-    mkdir -p  ${DEFAULT_RAMDISK_PATH}/tmp
-}
-
-umount_ramdisk() {
-    umount ${DEFAULT_RAMDISK_PATH} &>/dev/null
-    rmdir ${DEFAULT_RAMDISK_PATH} &>/dev/null
-}
-
 # `$0 test` - run integration tests
 # Please see `$0 help` for more information.
 #
@@ -871,8 +856,7 @@ cmd_test() {
     say "Starting test run ..."
 
     if [[ $ramdisk = true ]]; then
-        mount_ramdisk ${ramdisk_size}
-        ramdisk_args="--volume ${DEFAULT_RAMDISK_PATH}:${DEFAULT_TEST_SESSION_ROOT_PATH}"
+        ramdisk_args="--mount type=tmpfs,destination=${DEFAULT_RAMDISK_PATH},tmpfs-size=${ramdisk_size}"
     fi
 
     # Testing (running Firecracker via the jailer) needs root access,
@@ -893,10 +877,6 @@ cmd_test() {
 
     ret=$?
 
-
-    if [[ $ramdisk = true ]]; then
-        umount_ramdisk
-    fi
 
     # Running as root would have created some root-owned files under the build
     # dir. Let's fix that.
@@ -936,8 +916,7 @@ cmd_shell() {
     ensure_build_dir
 
     if [[ $ramdisk = true ]]; then
-        mount_ramdisk ${ramdisk_size}
-        ramdisk_args="--volume ${DEFAULT_RAMDISK_PATH}:${DEFAULT_TEST_SESSION_ROOT_PATH}"
+        ramdisk_args="--mount type=tmpfs,destination=${DEFAULT_RAMDISK_PATH},tmpfs-size=${ramdisk_size}"
     fi
 
     if [[ $privileged = true ]]; then
@@ -981,10 +960,6 @@ cmd_shell() {
             -- \
             bash --norc
         ret=$?
-    fi
-
-    if [[ $ramdisk = true ]]; then
-        umount_ramdisk
     fi
 
     return $ret
