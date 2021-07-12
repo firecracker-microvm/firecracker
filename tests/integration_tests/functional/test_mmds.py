@@ -5,7 +5,13 @@
 import json
 import random
 import string
+import time
 import host_tools.network as net_tools
+
+# Minimum lifetime of token.
+MIN_TOKEN_TTL_SECONDS = 1
+# Maximum lifetime of token.
+MAX_TOKEN_TTL_SECONDS = 21600
 
 
 def _assert_out(stdout, stderr, expected):
@@ -13,14 +19,23 @@ def _assert_out(stdout, stderr, expected):
     assert stdout.read() == expected
 
 
+def _populate_data_store(test_microvm, data_store):
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
+    response = test_microvm.mmds.put(json=data_store)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == data_store
+
+
 def test_custom_ipv4(test_microvm_with_ssh, network_config):
     """Test the API for MMDS custom ipv4 support."""
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
-
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == {}
 
     data_store = {
         'latest': {
@@ -43,12 +58,7 @@ def test_custom_ipv4(test_microvm_with_ssh, network_config):
             }
         }
     }
-    response = test_microvm.mmds.put(json=data_store)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == data_store
+    _populate_data_store(test_microvm, data_store)
 
     config_data = {
         'ipv4_address': ''
@@ -118,10 +128,6 @@ def test_json_response(test_microvm_with_ssh, network_config):
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == {}
-
     data_store = {
         'latest': {
             'meta-data': {
@@ -140,12 +146,7 @@ def test_json_response(test_microvm_with_ssh, network_config):
             }
         }
     }
-    response = test_microvm.mmds.put(json=data_store)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == data_store
+    _populate_data_store(test_microvm, data_store)
 
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(
@@ -189,10 +190,6 @@ def test_imds_response(test_microvm_with_ssh, network_config):
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == {}
-
     data_store = {
         'latest': {
             'meta-data': {
@@ -217,12 +214,7 @@ def test_imds_response(test_microvm_with_ssh, network_config):
             }
         }
     }
-    response = test_microvm.mmds.put(json=data_store)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == data_store
+    _populate_data_store(test_microvm, data_store)
 
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(
@@ -400,10 +392,6 @@ def test_guest_mmds_hang(test_microvm_with_ssh, network_config):
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == {}
-
     data_store = {
         'latest': {
             'meta-data': {
@@ -411,12 +399,7 @@ def test_guest_mmds_hang(test_microvm_with_ssh, network_config):
             }
         }
     }
-    response = test_microvm.mmds.put(json=data_store)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    response = test_microvm.mmds.get()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == data_store
+    _populate_data_store(test_microvm, data_store)
 
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(
@@ -454,3 +437,158 @@ def test_guest_mmds_hang(test_microvm_with_ssh, network_config):
 
     _, stdout, _ = ssh_connection.execute_command(cmd)
     assert 'Invalid request' in stdout.read()
+
+
+def test_mmds_v2(test_microvm_with_ssh, network_config):
+    """Test the MMDSv2 requests."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    data_store = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'ami-12345678',
+                'reservation-id': 'r-fea54097',
+                'local-hostname': 'ip-10-251-50-12.ec2.internal',
+                'public-hostname': 'ec2-203-0-113-25.compute-1.amazonaws.com'
+            }
+        }
+    }
+    _populate_data_store(test_microvm, data_store)
+
+    test_microvm.basic_config(vcpu_count=1)
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
+
+    # Configure MMDS to version 2.
+    mmds_config = {
+        'mmds_version': 'MMDSv2'
+    }
+    response = test_microvm.mmds.put_mmds_version(json=mmds_config)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    test_microvm.start()
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    cmd = 'ip route add 169.254.169.254 dev eth0'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, '')
+
+    # Generate token.
+    cmd = 'curl -m 2 -s'
+    cmd += ' -X PUT'
+    cmd += ' -H  "X-aws-ec2-metadata-token-ttl-seconds: 60"'
+    cmd += ' -H "Accept: application/json"'
+    cmd += ' http://169.254.169.254/api/token'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    token = stdout.read()
+    assert len(token) == 56, token
+
+    # Check `GET` request.
+    cmd = 'curl -m 2 -s'
+    cmd += ' -X GET'
+    cmd += ' -H  "X-aws-ec2-metadata-token: {}"'.format(token)
+    cmd += ' -H "Accept: application/json"'
+    cmd += ' http://169.254.169.254/latest/meta-data/ami-id'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, '\"ami-12345678\"')
+
+
+def test_mmds_v2_negative(test_microvm_with_ssh, network_config):
+    """Test invalid MMDSv2 requests."""
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+
+    data_store = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'ami-12345678',
+                'reservation-id': 'r-fea54097',
+                'local-hostname': 'ip-10-251-50-12.ec2.internal',
+                'public-hostname': 'ec2-203-0-113-25.compute-1.amazonaws.com'
+            }
+        }
+    }
+    _populate_data_store(test_microvm, data_store)
+
+    test_microvm.basic_config(vcpu_count=1)
+    _tap = test_microvm.ssh_network_config(
+        network_config,
+        '1',
+        allow_mmds_requests=True
+    )
+
+    # Configure MMDS to version 2.
+    mmds_config = {
+        'mmds_version': 'MMDSv2'
+    }
+    response = test_microvm.mmds.put_mmds_version(json=mmds_config)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    test_microvm.start()
+    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    cmd = 'ip route add 169.254.169.254 dev eth0'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, '')
+
+    # Check `GET` request fails when token is not provided.
+    cmd = 'curl -s http://169.254.169.254/latest/meta-data/'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    expected = "MMDSv2 token not provided."
+    _assert_out(stdout, stderr, expected)
+
+    # Generic `GET` request.
+    get_cmd = 'curl -m 2 -s'
+    get_cmd += ' -X GET'
+    get_cmd += ' -H  "X-aws-ec2-metadata-token: {}"'
+    get_cmd += ' http://169.254.169.254/latest/meta-data'
+
+    # Check `GET` request fails when token is not valid.
+    cmd = get_cmd.format("foo")
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, "MMDSv2 token not valid.")
+
+    # Generic `PUT` request.
+    put_cmd = 'curl -m 2 -s'
+    put_cmd += ' -X PUT'
+    put_cmd += ' -H  "X-aws-ec2-metadata-token-ttl-seconds: {}"'
+    put_cmd += ' http://169.254.169.254/api/token'
+
+    # Check `PUT` request fails when path is invalid.
+    cmd = put_cmd[:-1].format(60)
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, "Resource not found: /api/toke.")
+
+    # Check `PUT` request fails when token TTL is not provided.
+    cmd = 'curl -m 2 -s -X PUT http://169.254.169.254/api/token'
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    expected = "Token time to live value not found."
+    _assert_out(stdout, stderr, expected)
+
+    # Check `PUT` request fails when token TTL is not valid.
+    ttl_values = [MIN_TOKEN_TTL_SECONDS - 1, MAX_TOKEN_TTL_SECONDS + 1]
+    for ttl in ttl_values:
+        cmd = put_cmd.format(ttl)
+        _, stdout, stderr = ssh_connection.execute_command(cmd)
+        expected = "Failed to generate session token: " \
+                   "Invalid time to live value provided for token: {}. " \
+                   "Please provide a value between {} and {}."\
+            .format(ttl, MIN_TOKEN_TTL_SECONDS, MAX_TOKEN_TTL_SECONDS)
+        _assert_out(stdout, stderr, expected)
+
+    # Valid `PUT` request to generate token.
+    cmd = put_cmd.format(1)
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    token = stdout.read()
+    assert len(token) == 56, token
+
+    # Wait for token to expire.
+    time.sleep(1)
+    # Check `GET` request fails when expired token is provided.
+    cmd = get_cmd.format(token)
+    _, stdout, stderr = ssh_connection.execute_command(cmd)
+    _assert_out(stdout, stderr, "MMDSv2 token not valid.")
