@@ -2,6 +2,8 @@
 
 ## Creating a kernel Image
 
+### Manual compilation
+
 Currently, Firecracker supports uncompressed ELF kernel images on x86_64 while on
 aarch64 it supports PE formatted images.
 
@@ -48,6 +50,23 @@ can boot:
 
 1. Upon a successful build, you can find the kernel image under `./vmlinux`
    (for x86) or `./arch/arm64/boot/Image` (for aarch64).
+
+### Use the provided recipe
+
+The kernel images used in our CI to test Firecracker's features are obtained by
+using the recipe inside devtool:
+
+```bash
+./tools/devtool build_kernel -c ./resources/microvm-kernel-x86.config -n 8
+```
+
+or
+
+```bash
+./tools/devtool build_kernel -c ./resources/microvm-kernel-arm64.config -n 8
+```
+
+on an aarch64 machine.
 
 ## Creating a rootfs Image
 
