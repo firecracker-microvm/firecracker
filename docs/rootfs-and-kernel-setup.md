@@ -2,12 +2,8 @@
 
 ## Creating a kernel Image
 
-Currently, Firecracker supports only uncompressed, ELF kernel images. You can
-build an uncompressed Linux kernel image with:
-
-```bash
-make vmlinux
-```
+Currently, Firecracker supports uncompressed ELF kernel images on x86_64 while on
+aarch64 it supports PE formatted images.
 
 Here's a quick step-by-step guide to building your own kernel that Firecracker
 can boot:
@@ -27,7 +23,8 @@ can boot:
    ```
 
 1. You will need to configure your Linux build. You can start from
-   [our recommended config](../resources/microvm-kernel-x86_64.config) by
+   our recommended  [x86 config](../resources/microvm-kernel-x86_64.config) (or
+   [aarch64 config](../resources/microvm-kernel-arm64.config)) by
    copying it to `.config` (under the Linux sources dir). You can make
    interactive config adjustments using:
 
@@ -38,14 +35,19 @@ can boot:
    *Note*: there are many ways of building a kernel config file, other than
    `menuconfig`. You are free to use whichever one you choose.
 
-1. Build the uncompressed kernel image:
+1. Build the kernel image:
 
    ```bash
-   make vmlinux
+   arch=$(uname -m)
+   if [ "$arch" = "x86_64" ]; then
+        make vmlinux
+   elif [ "$arch" = "aarch64" ]; then
+        make Image
+   fi
    ```
 
-1. Upon a successful build, you can find the uncompressed kernel image under
-   `./vmlinux`.
+1. Upon a successful build, you can find the kernel image under `./vmlinux`
+   (for x86) or `./arch/arm64/boot/Image` (for aarch64).
 
 ## Creating a rootfs Image
 
