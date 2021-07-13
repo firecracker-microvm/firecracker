@@ -254,7 +254,7 @@ def test_deflate_on_oom_true(test_microvm_with_ssh_and_balloon,
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # Inflate the balloon
-    response = test_microvm.balloon.patch(amount_mib=172)
+    response = test_microvm.balloon.patch(amount_mib=180)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -295,7 +295,7 @@ def test_deflate_on_oom_false(test_microvm_with_ssh_and_balloon,
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
     # Inflate the balloon.
-    response = test_microvm.balloon.patch(amount_mib=172)
+    response = test_microvm.balloon.patch(amount_mib=180)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
