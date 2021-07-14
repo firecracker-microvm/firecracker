@@ -133,6 +133,54 @@ pub fn create_guest_memory(
     GuestMemoryMmap::from_regions(mmap_regions)
 }
 
+pub mod test_utils {
+    use super::*;
+
+    /// Test helper used to initialize the guest memory without adding guard pages.
+    /// This is needed because the default `create_guest_memory`
+    /// uses MmapRegionBuilder::build_raw() for setting up the memory with guard pages, which would
+    /// error if the size is not a multiple of the page size.
+    /// There are unit tests which need a custom memory size, not a multiple of the page size.
+    pub fn create_guest_memory_unguarded(
+        regions: &[(GuestAddress, usize)],
+        track_dirty_pages: bool,
+    ) -> std::result::Result<GuestMemoryMmap, Error> {
+        let prot = libc::PROT_READ | libc::PROT_WRITE;
+        let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
+        let mut mmap_regions = Vec::with_capacity(regions.len());
+
+        for region in regions {
+            mmap_regions.push(GuestRegionMmap::new(
+                MmapRegionBuilder::new_with_bitmap(
+                    region.1,
+                    match track_dirty_pages {
+                        true => Some(AtomicBitmap::with_len(region.1)),
+                        false => None,
+                    },
+                )
+                .with_mmap_prot(prot)
+                .with_mmap_flags(flags)
+                .build()
+                .map_err(Error::MmapRegion)?,
+                region.0,
+            )?);
+        }
+        GuestMemoryMmap::from_regions(mmap_regions)
+    }
+
+    /// Test helper used to initialize the guest memory, without the option of file-backed mmap.
+    /// It is just a little syntactic sugar that helps deduplicate test code.
+    pub fn create_anon_guest_memory(
+        regions: &[(GuestAddress, usize)],
+        track_dirty_pages: bool,
+    ) -> std::result::Result<GuestMemoryMmap, Error> {
+        create_guest_memory(
+            &regions.iter().map(|r| (None, r.0, r.1)).collect::<Vec<_>>(),
+            track_dirty_pages,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
