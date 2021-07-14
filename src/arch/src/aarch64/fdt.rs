@@ -660,7 +660,14 @@ mod tests {
     #[test]
     fn test_create_fdt_with_devices() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
+        let mem = vm_memory::create_guest_memory(
+            &regions
+                .into_iter()
+                .map(|r| (None, r.0, r.1))
+                .collect::<Vec<_>>(),
+            false,
+        )
+        .expect("Cannot initialize memory");
 
         let dev_info: HashMap<(DeviceType, std::string::String), MMIODeviceInfo> = [
             (
@@ -699,7 +706,14 @@ mod tests {
     #[test]
     fn test_create_fdt() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
+        let mem = vm_memory::create_guest_memory(
+            &regions
+                .into_iter()
+                .map(|r| (None, r.0, r.1))
+                .collect::<Vec<_>>(),
+            false,
+        )
+        .expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();
@@ -758,7 +772,14 @@ mod tests {
     #[test]
     fn test_create_fdt_with_initrd() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
+        let mem = vm_memory::create_guest_memory(
+            &regions
+                .into_iter()
+                .map(|r| (None, r.0, r.1))
+                .collect::<Vec<_>>(),
+            false,
+        )
+        .expect("Cannot initialize memory");
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1, None).unwrap();

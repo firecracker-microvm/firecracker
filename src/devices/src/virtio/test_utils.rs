@@ -19,7 +19,7 @@ macro_rules! check_metric_after_block {
 }
 
 pub fn default_mem() -> GuestMemoryMmap {
-    GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap()
+    vm_memory::create_guest_memory(&[(None, GuestAddress(0), 0x10000)], false).unwrap()
 }
 
 pub fn initialize_virtqueue(vq: &VirtQueue) {

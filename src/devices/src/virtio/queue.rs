@@ -406,10 +406,13 @@ pub(crate) mod tests {
 
     #[test]
     fn test_checked_new_descriptor_chain() {
-        let m = &GuestMemoryMmap::from_ranges(&[
-            (GuestAddress(0), 0x10000),
-            (GuestAddress(0x20000), 0x2000),
-        ])
+        let m = &vm_memory::create_guest_memory(
+            &[
+                (None, GuestAddress(0), 0x10000),
+                (None, GuestAddress(0x20000), 0x2000),
+            ],
+            false,
+        )
         .unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
@@ -456,7 +459,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_queue_validation() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m =
+            &vm_memory::create_guest_memory(&[(None, GuestAddress(0), 0x10000)], false).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();
@@ -525,7 +529,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_queue_processing() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m =
+            &vm_memory::create_guest_memory(&[(None, GuestAddress(0), 0x10000)], false).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
         let mut q = vq.create_queue();
 
@@ -593,7 +598,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_add_used() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m =
+            &vm_memory::create_guest_memory(&[(None, GuestAddress(0), 0x10000)], false).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), m, 16);
 
         let mut q = vq.create_queue();

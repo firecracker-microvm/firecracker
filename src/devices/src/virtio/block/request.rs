@@ -327,7 +327,8 @@ mod tests {
 
     #[test]
     fn test_read_request_header() {
-        let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let mem =
+            vm_memory::create_guest_memory(&[(None, GuestAddress(0), 0x1000)], false).unwrap();
         let addr = GuestAddress(0);
         let sector = 123_454_321;
 
@@ -437,7 +438,8 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_parse() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let m =
+            &vm_memory::create_guest_memory(&[(None, GuestAddress(0), 0x10000)], false).unwrap();
         let vq = VirtQueue::new(GuestAddress(0), &m, 16);
 
         assert!(vq.end().0 < 0x1000);
@@ -700,10 +702,13 @@ mod tests {
                     let status_addr = data_addr.checked_add(next_desc_dist).unwrap();
 
                     let mem_end = status_addr.checked_add(max_desc_len).unwrap();
-                    let mem: GuestMemoryMmap = GuestMemoryMmap::from_ranges(&[(
-                        GuestAddress(base_addr),
-                        (mem_end.0 - base_addr).try_into().unwrap(),
-                    )])
+                    let mem = vm_memory::test_utils::create_guest_memory_unguarded(
+                        &[(
+                            GuestAddress(base_addr),
+                            (mem_end.0 - base_addr).try_into().unwrap(),
+                        )],
+                        false,
+                    )
                     .unwrap();
 
                     let vq = VirtQueue::new(GuestAddress(base_addr), &mem, 16);

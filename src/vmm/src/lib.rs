@@ -65,7 +65,7 @@ use seccompiler::BpfProgram;
 use snapshot::Persist;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
-use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestRegionMmap};
+use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
 
 /// Shorthand type for the EventManager flavour used by Firecracker.
 pub type EventManager = BaseEventManager<Arc<Mutex<dyn MutEventSubscriber>>>;
@@ -230,7 +230,7 @@ pub type DirtyBitmap = HashMap<usize, Vec<u64>>;
 
 /// Returns the size of guest memory, in MiB.
 pub(crate) fn mem_size_mib(guest_memory: &GuestMemoryMmap) -> u64 {
-    guest_memory.map_and_fold(0, |(_, region)| region.len(), |a, b| a + b) >> 20
+    guest_memory.iter().map(|region| region.len()).sum::<u64>() >> 20
 }
 
 /// Contains the state and associated methods required for the Firecracker VMM.
@@ -481,17 +481,18 @@ impl Vmm {
     /// Retrieves the KVM dirty bitmap for each of the guest's memory regions.
     pub fn get_dirty_bitmap(&self) -> Result<DirtyBitmap> {
         let mut bitmap: DirtyBitmap = HashMap::new();
-        self.guest_memory.with_regions_mut(
-            |slot: usize, region: &GuestRegionMmap| -> Result<()> {
+        self.guest_memory
+            .iter()
+            .enumerate()
+            .try_for_each(|(slot, region)| {
                 let bitmap_region = self
                     .vm
                     .fd()
-                    .get_dirty_log(slot as u32, region.len() as usize)
-                    .map_err(Error::DirtyBitmap)?;
+                    .get_dirty_log(slot as u32, region.len() as usize)?;
                 bitmap.insert(slot, bitmap_region);
                 Ok(())
-            },
-        )?;
+            })
+            .map_err(Error::DirtyBitmap)?;
         Ok(bitmap)
     }
 

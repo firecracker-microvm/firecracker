@@ -991,15 +991,14 @@ name = "vm-memory"
 version = "0.1.0"
 dependencies = [
  "libc",
- "vm-memory 0.4.0",
- "vmm-sys-util",
+ "utils",
+ "vm-memory 0.5.0",
 ]
 
 [[package]]
 name = "vm-memory"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45b5b0a6f371f8147143b1adb95edddafc9cb9e40adaf94edb6f93a1d04b0330"
+version = "0.5.0"
+source = "git+https://github.com/rust-vmm/vm-memory?branch=master#9070fb5956244eaa9f1104e7191ffd871fee4171"
 dependencies = [
  "libc",
  "winapi",

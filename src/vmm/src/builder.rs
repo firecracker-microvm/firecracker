@@ -42,7 +42,7 @@ use snapshot::Persist;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 #[cfg(target_arch = "aarch64")]
 use vm_superio::RTC;
 
@@ -530,8 +530,14 @@ pub fn create_guest_memory(
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
-    GuestMemoryMmap::from_ranges_guarded(&arch_mem_regions, track_dirty_pages)
-        .map_err(StartMicrovmError::GuestMemoryMmap)
+    vm_memory::create_guest_memory(
+        &arch_mem_regions
+            .iter()
+            .map(|(addr, size)| (None, *addr, *size))
+            .collect::<Vec<_>>()[..],
+        track_dirty_pages,
+    )
+    .map_err(StartMicrovmError::GuestMemoryMmap)
 }
 
 fn load_kernel(
@@ -919,6 +925,7 @@ pub mod tests {
     use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use kernel::cmdline::Cmdline;
     use utils::tempfile::TempFile;
+    use vm_memory::GuestMemory;
 
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
@@ -1092,11 +1099,15 @@ pub mod tests {
     }
 
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        GuestMemoryMmap::from_ranges(&[(at, size)]).unwrap()
+        vm_memory::test_utils::create_guest_memory_unguarded(&[(at, size)], false).unwrap()
     }
 
     pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
         create_guest_mem_at(GuestAddress(0x0), size)
+    }
+
+    fn is_dirty_tracking_enabled(mem: &GuestMemoryMmap) -> bool {
+        mem.iter().all(|r| r.bitmap().is_some())
     }
 
     #[test]
@@ -1158,13 +1169,13 @@ pub mod tests {
         // Case 1: create guest memory without dirty page tracking
         {
             let guest_memory = create_guest_memory(mem_size, false).unwrap();
-            assert!(!guest_memory.is_dirty_tracking_enabled());
+            assert!(!is_dirty_tracking_enabled(&guest_memory));
         }
 
         // Case 2: create guest memory with dirty page tracking
         {
             let guest_memory = create_guest_memory(mem_size, true).unwrap();
-            assert!(guest_memory.is_dirty_tracking_enabled());
+            assert!(is_dirty_tracking_enabled(&guest_memory));
         }
     }
 

@@ -129,15 +129,36 @@ mod tests {
     #[test]
     fn test_get_fdt_addr() {
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE - 0x1000);
-        let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
+        let mem = vm_memory::create_guest_memory(
+            &regions
+                .into_iter()
+                .map(|r| (None, r.0, r.1))
+                .collect::<Vec<_>>(),
+            false,
+        )
+        .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE);
-        let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
+        let mem = vm_memory::create_guest_memory(
+            &regions
+                .into_iter()
+                .map(|r| (None, r.0, r.1))
+                .collect::<Vec<_>>(),
+            false,
+        )
+        .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), layout::DRAM_MEM_START);
 
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
+        let mem = vm_memory::create_guest_memory(
+            &regions
+                .into_iter()
+                .map(|r| (None, r.0, r.1))
+                .collect::<Vec<_>>(),
+            false,
+        )
+        .expect("Cannot initialize memory");
         assert_eq!(get_fdt_addr(&mem), 0x1000 + layout::DRAM_MEM_START);
     }
 }
