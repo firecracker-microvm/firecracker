@@ -94,7 +94,7 @@ impl SnapshotMemory for GuestMemoryMmap {
     fn describe(&self) -> GuestMemoryState {
         let mut guest_memory_state = GuestMemoryState::default();
         let mut offset = 0;
-        let _: std::result::Result<(), ()> = self.with_regions_mut(|_, region| {
+        self.iter().for_each(|region| {
             guest_memory_state.regions.push(GuestMemoryRegionState {
                 base_address: region.start_addr().0,
                 size: region.len() as usize,
@@ -102,17 +102,17 @@ impl SnapshotMemory for GuestMemoryMmap {
             });
 
             offset += region.len();
-            Ok(())
         });
         guest_memory_state
     }
 
     /// Dumps all contents of GuestMemoryMmap to a writer.
     fn dump<T: std::io::Write>(&self, writer: &mut T) -> std::result::Result<(), Error> {
-        self.with_regions_mut(|_, region| {
-            region.write_all_to(MemoryRegionAddress(0), writer, region.len() as usize)
-        })
-        .map_err(Error::WriteMemory)
+        self.iter()
+            .try_for_each(|region| {
+                region.write_all_to(MemoryRegionAddress(0), writer, region.len() as usize)
+            })
+            .map_err(Error::WriteMemory)
     }
 
     /// Dumps all pages of GuestMemoryMmap present in `dirty_bitmap` to a writer.
@@ -124,51 +124,56 @@ impl SnapshotMemory for GuestMemoryMmap {
         let mut writer_offset = 0;
         let page_size = get_page_size()?;
 
-        self.with_regions_mut(|slot, region| {
-            let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
-            let firecracker_bitmap = region.bitmap();
-            let mut write_size = 0;
-            let mut dirty_batch_start: u64 = 0;
+        self.iter()
+            .enumerate()
+            .try_for_each(|(slot, region)| {
+                let kvm_bitmap = dirty_bitmap.get(&slot).unwrap();
+                let firecracker_bitmap = region.bitmap();
+                let mut write_size = 0;
+                let mut dirty_batch_start: u64 = 0;
 
-            for (i, v) in kvm_bitmap.iter().enumerate() {
-                for j in 0..64 {
-                    let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
-                    let page_offset = ((i * 64) + j) * page_size;
-                    let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
-                    if is_kvm_page_dirty || is_firecracker_page_dirty {
-                        // We are at the start of a new batch of dirty pages.
-                        if write_size == 0 {
-                            // Seek forward over the unmodified pages.
-                            writer
-                                .seek(SeekFrom::Start(writer_offset + page_offset as u64))
-                                .unwrap();
-                            dirty_batch_start = page_offset as u64;
+                for (i, v) in kvm_bitmap.iter().enumerate() {
+                    for j in 0..64 {
+                        let is_kvm_page_dirty = ((v >> j) & 1u64) != 0u64;
+                        let page_offset = ((i * 64) + j) * page_size;
+                        let is_firecracker_page_dirty = firecracker_bitmap.dirty_at(page_offset);
+                        if is_kvm_page_dirty || is_firecracker_page_dirty {
+                            // We are at the start of a new batch of dirty pages.
+                            if write_size == 0 {
+                                // Seek forward over the unmodified pages.
+                                writer
+                                    .seek(SeekFrom::Start(writer_offset + page_offset as u64))
+                                    .unwrap();
+                                dirty_batch_start = page_offset as u64;
+                            }
+                            write_size += page_size;
+                        } else if write_size > 0 {
+                            // We are at the end of a batch of dirty pages.
+                            region.write_all_to(
+                                MemoryRegionAddress(dirty_batch_start),
+                                writer,
+                                write_size,
+                            )?;
+                            write_size = 0;
                         }
-                        write_size += page_size;
-                    } else if write_size > 0 {
-                        // We are at the end of a batch of dirty pages.
-                        region.write_all_to(
-                            MemoryRegionAddress(dirty_batch_start),
-                            writer,
-                            write_size,
-                        )?;
-                        write_size = 0;
                     }
                 }
-            }
 
-            if write_size > 0 {
-                region.write_all_to(MemoryRegionAddress(dirty_batch_start), writer, write_size)?;
-            }
+                if write_size > 0 {
+                    region.write_all_to(
+                        MemoryRegionAddress(dirty_batch_start),
+                        writer,
+                        write_size,
+                    )?;
+                }
+                writer_offset += region.len();
+                if let Some(bitmap) = firecracker_bitmap {
+                    bitmap.reset();
+                }
 
-            writer_offset += region.len();
-            if let Some(bitmap) = firecracker_bitmap {
-                bitmap.reset();
-            }
-
-            Ok(())
-        })
-        .map_err(Error::WriteMemory)
+                Ok(())
+            })
+            .map_err(Error::WriteMemory)
     }
 
     /// Creates a GuestMemoryMmap given a `file` containing the data
