@@ -828,6 +828,15 @@ mount_ramdisk() {
 }
 
 umount_ramdisk() {
+    if [ ! -e "${DEFAULT_RAMDISK_PATH}" ]; then
+        return 0
+    fi
+    if [ ! -d "${DEFAULT_RAMDISK_PATH}" ]; then
+        die "${DEFAULT_RAMDISK_PATH} is not a directory."
+    fi
+    if [ ! -w "${DEFAULT_RAMDISK_PATH}" ]; then
+        die "Failed to unmount ${DEFAULT_RAMDISK_PATH}. Check the permission."
+    fi
     umount ${DEFAULT_RAMDISK_PATH} &>/dev/null
     rmdir ${DEFAULT_RAMDISK_PATH} &>/dev/null
 }
