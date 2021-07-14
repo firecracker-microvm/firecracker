@@ -302,7 +302,9 @@ impl Vm {
             flags |= KVM_MEM_LOG_DIRTY_PAGES;
         }
         guest_mem
-            .with_regions(|index, region| {
+            .iter()
+            .enumerate()
+            .try_for_each(|(index, region)| {
                 let memory_region = kvm_userspace_memory_region {
                     slot: index as u32,
                     guest_phys_addr: region.start_addr().raw_value() as u64,
