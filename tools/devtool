@@ -822,6 +822,7 @@ mount_ramdisk() {
     umount_ramdisk
     mkdir -p ${DEFAULT_RAMDISK_PATH} && \
     mount -t tmpfs -o size=${ramdisk_size} tmpfs ${DEFAULT_RAMDISK_PATH}
+    ok_or_die "Failed to mount ramdisk to ${DEFAULT_RAMDISK_PATH}. Check the permission."
     mkdir -p ${DEFAULT_RAMDISK_PATH}/srv
     mkdir -p  ${DEFAULT_RAMDISK_PATH}/tmp
 }
