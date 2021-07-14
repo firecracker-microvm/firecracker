@@ -36,7 +36,7 @@ impl<B> Vsock<B>
 where
     B: VsockBackend + 'static,
 {
-    pub(crate) fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
+    pub fn handle_rxq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: RX queue event");
 
         if evset != EventSet::IN {
@@ -56,7 +56,7 @@ where
         raise_irq
     }
 
-    pub(crate) fn handle_txq_event(&mut self, evset: EventSet) -> bool {
+    pub fn handle_txq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: TX queue event");
 
         if evset != EventSet::IN {
@@ -82,7 +82,7 @@ where
         raise_irq
     }
 
-    fn handle_evq_event(&mut self, evset: EventSet) -> bool {
+    pub fn handle_evq_event(&mut self, evset: EventSet) -> bool {
         debug!("vsock: event queue event");
 
         if evset != EventSet::IN {
@@ -98,7 +98,7 @@ where
         false
     }
 
-    fn notify_backend(&mut self, evset: EventSet) -> bool {
+    pub fn notify_backend(&mut self, evset: EventSet) -> bool {
         debug!("vsock: backend event");
 
         self.backend.notify(evset);

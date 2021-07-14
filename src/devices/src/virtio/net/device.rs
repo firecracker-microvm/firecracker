@@ -95,7 +95,7 @@ unsafe impl ByteValued for ConfigSpace {}
 pub struct Net {
     pub(crate) id: String,
 
-    pub(crate) tap: Tap,
+    pub tap: Tap,
 
     pub(crate) avail_features: u64,
     pub(crate) acked_features: u64,
