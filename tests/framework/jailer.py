@@ -243,10 +243,11 @@ class JailerContext:
                 'umount {}'.format(self._ramfs_path), ignore_return_code=True
             )
 
-        if self.jailer_id:
+        if self.jailer_id is not None:
             shutil.rmtree(self.chroot_base_with_id(), ignore_errors=True)
 
-        if os.path.exists("/var/run/netns/{}".format(self.netns)):
+        if self.netns \
+                and os.path.exists("/var/run/netns/{}".format(self.netns)):
             utils.run_cmd('ip netns del {}'.format(self.netns))
 
         # Remove the cgroup folders associated with this microvm.
