@@ -42,6 +42,8 @@
   See `docs/api_requests/block-io-engine.md`.
 - Added `block.io_engine_throttled_events` metric for measuring the number of
   virtio events throttled because of the IO engine.
+- By default, `GET` requests to MMDS require a session token to be provided
+  through `X-metadata-token` header.
 
 ### Fixed
 
