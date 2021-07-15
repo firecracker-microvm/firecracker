@@ -148,6 +148,14 @@ impl Mmds {
         }
     }
 
+    /// Checks if the provided token has not expired.
+    pub fn is_valid_token(&self, token: &str) -> Result<bool, TokenError> {
+        self.token_authority
+            .as_ref()
+            .ok_or(TokenError::InvalidState)
+            .map(|ta| ta.is_valid(token))
+    }
+
     pub fn set_data_store_limit(&mut self, data_store_limit: usize) {
         self.data_store_limit = data_store_limit;
     }
@@ -553,5 +561,17 @@ mod tests {
         assert!(mmds.patch_data(data_store).is_ok());
         assert!(mmds.get_data_str().contains("smth2"));
         assert_eq!(mmds.get_data_str().len(), 72);
+    }
+
+    #[test]
+    fn test_is_valid() {
+        let mut mmds = Mmds::new().unwrap();
+        assert!(!mmds.is_valid_token("aaa").unwrap());
+
+        mmds.token_authority = None;
+        assert_eq!(
+            mmds.is_valid_token("aaa").unwrap_err().to_string(),
+            TokenError::InvalidState.to_string()
+        )
     }
 }
