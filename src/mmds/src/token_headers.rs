@@ -66,6 +66,16 @@ impl TokenHeaders {
     pub fn x_metadata_token_ttl_seconds(&self) -> Option<u32> {
         self.x_metadata_token_ttl_seconds
     }
+
+    /// Sets the `XMetadataToken` token.
+    pub fn set_x_metadata_token(&mut self, token: String) {
+        self.x_metadata_token = Some(token)
+    }
+
+    /// Sets the `XMetadataTokenTtlSeconds` token.
+    pub fn set_x_metadata_token_ttl_seconds(&mut self, ttl: u32) {
+        self.x_metadata_token_ttl_seconds = Some(ttl);
+    }
 }
 
 #[cfg(test)]

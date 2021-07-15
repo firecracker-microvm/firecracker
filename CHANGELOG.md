@@ -33,6 +33,8 @@
 ### Changed
 
 - Deprecated `vsock_id` body field in `PUT`s on `/vsock`.
+- By default, `GET` requests to MMDS require a session token to be provided
+  through `X-metadata-token` header.
 
 ### Fixed
 

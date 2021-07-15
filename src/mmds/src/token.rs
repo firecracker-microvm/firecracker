@@ -52,6 +52,8 @@ pub enum Error {
     EntropyPool(io::Error),
     /// Failed to extract expiry from token sequence.
     ExpiryExtraction,
+    /// Token authority has invalid state.
+    InvalidState,
     /// Time to live value for token is invalid.
     InvalidTtlValue(u32),
     /// Token serialization failed.
@@ -71,6 +73,7 @@ impl fmt::Display for Error {
                 )
             }
             Error::ExpiryExtraction => write!(f, "Failed to extract expiry value from token."),
+            Error::InvalidState => write!(f, "Invalid token authority state."),
             Error::InvalidTtlValue(value) => write!(
                 f,
                 "Invalid time to live value provided for token: {}. \
@@ -493,6 +496,11 @@ mod tests {
         assert_eq!(
             Error::ExpiryExtraction.to_string(),
             "Failed to extract expiry value from token."
+        );
+
+        assert_eq!(
+            Error::InvalidState.to_string(),
+            "Invalid token authority state."
         );
 
         assert_eq!(
