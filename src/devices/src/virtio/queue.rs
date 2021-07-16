@@ -186,6 +186,11 @@ pub struct Queue {
 
     pub(crate) next_avail: Wrapping<u16>,
     pub(crate) next_used: Wrapping<u16>,
+
+    /// VIRTIO_F_RING_EVENT_IDX negotiated (notification suppression enabled)
+    pub(crate) event_idx: bool,
+    /// The number of added used buffers since last guest kick
+    pub(crate) num_added: Wrapping<u16>,
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -201,6 +206,8 @@ impl Queue {
             used_ring: GuestAddress(0),
             next_avail: Wrapping(0),
             next_used: Wrapping(0),
+            event_idx: false,
+            num_added: Wrapping(0),
         }
     }
 
@@ -371,6 +378,7 @@ impl Queue {
         mem.write_obj(len as u32, len_addr)
             .map_err(QueueError::UsedRing)?;
 
+        self.num_added += Wrapping(1);
         self.next_used += Wrapping(1);
 
         // This fence ensures all descriptor writes are visible before the index update is.
@@ -392,6 +400,64 @@ impl Queue {
         //       the last `self.is_valid()` check.
         let addr = self.avail_ring.unchecked_add(2);
         Wrapping(mem.read_obj::<u16>(addr).unwrap())
+    }
+
+    /// Fetch the used event (`virtq_avail->used_event`) from guest memory.
+    /// This field is used when notification suppression is enabled. It is written by the driver,
+    /// in order to specify how far the device can progress before a notification is required.
+    #[inline(always)]
+    pub fn used_event(&self, mem: &GuestMemoryMmap) -> Wrapping<u16> {
+        // We need to find the `used_event` field from the avail ring.
+        let used_event_addr = 4 + 2 * self.actual_size();
+
+        // Complete all the writes in add_used() before reading the event.
+        fence(Ordering::SeqCst);
+
+        let event: u16 = mem
+            .read_obj::<u16>(self.avail_ring.unchecked_add(u64::from(used_event_addr)))
+            .unwrap();
+
+        Wrapping(event)
+    }
+
+    /// Update the avail event in guest memory (`virtq_used->avail_event`).
+    /// This field is used when notification suppression is enabled. It indicates to the guest
+    /// driver when to notify the host if there are available buffers.
+    pub fn set_avail_event(&mut self, mem: &GuestMemoryMmap) {
+        let avail_event_addr = 4 + 8 * self.actual_size();
+
+        mem.write_obj(
+            self.avail_idx(mem).0,
+            self.used_ring.unchecked_add(u64::from(avail_event_addr)),
+        )
+        .unwrap();
+
+        fence(Ordering::SeqCst);
+    }
+
+    /// Enable/disable notification suppression.
+    pub fn set_event_idx(&mut self, enabled: bool) {
+        self.event_idx = enabled;
+    }
+
+    /// Check if we need to kick the guest.
+    /// This is similar to the `vring_need_event()` method implemented by the Linux kernel.
+    pub fn needs_notification(&self, mem: &GuestMemoryMmap) -> bool {
+        // If the device doesn't use notification suppression, always return true
+        if !self.event_idx {
+            return true;
+        }
+
+        let new = self.next_used;
+        let old = self.next_used - self.num_added;
+        let used_event = self.used_event(mem);
+
+        new - used_event - Wrapping(1) < new - old
+    }
+
+    /// Update queue parameters after sending a notification to the guest.
+    pub fn after_notification(&mut self) {
+        self.num_added = Wrapping(0);
     }
 }
 
@@ -632,6 +698,86 @@ pub(crate) mod tests {
                 Err(UsedRing(GuestMemoryError::InvalidGuestAddress(GuestAddress(0x1_0000)))) => {}
                 _ => unreachable!(),
             };
+        }
+    }
+
+    #[test]
+    fn test_used_event() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+        let q = vq.create_queue();
+        assert_eq!(q.used_event(&m), Wrapping(0));
+
+        vq.avail.event.set(10);
+        assert_eq!(q.used_event(&m), Wrapping(10));
+
+        vq.avail.event.set(u16::MAX);
+        assert_eq!(q.used_event(&m), Wrapping(u16::MAX));
+    }
+
+    #[test]
+    fn test_set_avail_event() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+
+        let mut q = vq.create_queue();
+        assert_eq!(vq.used.event.get(), 0);
+
+        vq.avail.idx.set(10);
+        q.set_avail_event(&m);
+        assert_eq!(vq.used.event.get(), 10);
+
+        vq.avail.idx.set(u16::MAX);
+        q.set_avail_event(&m);
+        assert_eq!(vq.used.event.get(), u16::MAX);
+    }
+
+    #[test]
+    fn test_needs_notification() {
+        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let vq = VirtQueue::new(GuestAddress(0), m, 16);
+        let mut q = vq.create_queue();
+
+        {
+            // If the device doesn't have notification suppression support,
+            // `needs_notification()` should always return true.
+            q.set_event_idx(false);
+            for used_idx in 0..10 {
+                for used_event in 0..10 {
+                    for num_added in 0..10 {
+                        q.next_used = Wrapping(used_idx);
+                        vq.avail.event.set(used_event);
+                        q.num_added = Wrapping(num_added);
+                        assert!(q.needs_notification(&m));
+                    }
+                }
+            }
+        }
+
+        q.set_event_idx(true);
+        {
+            // old used idx < used_event < next_used
+            q.next_used = Wrapping(10);
+            vq.avail.event.set(6);
+            q.num_added = Wrapping(5);
+            assert!(q.needs_notification(&m));
+        }
+
+        {
+            // old used idx = used_event < next_used
+            q.next_used = Wrapping(10);
+            vq.avail.event.set(6);
+            q.num_added = Wrapping(4);
+            assert!(q.needs_notification(&m));
+        }
+
+        {
+            // used_event < old used idx < next_used
+            q.next_used = Wrapping(10);
+            vq.avail.event.set(6);
+            q.num_added = Wrapping(3);
+            assert!(!q.needs_notification(&m));
         }
     }
 

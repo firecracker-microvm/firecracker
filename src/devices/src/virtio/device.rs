@@ -37,6 +37,10 @@ pub trait VirtioDevice: AsAny + Send {
     /// - self.avail_features() & self.acked_features() = self.get_acked_features()
     fn set_acked_features(&mut self, acked_features: u64);
 
+    fn has_feature(&self, feature: u64) -> bool {
+        (self.acked_features() & 1 << feature) != 0
+    }
+
     /// The virtio device type.
     fn device_type(&self) -> u32;
 
@@ -114,5 +118,84 @@ pub trait VirtioDevice: AsAny + Send {
 impl std::fmt::Debug for dyn VirtioDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "VirtioDevice type {}", self.device_type())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    pub use super::*;
+
+    struct MockVirtioDevice {
+        acked_features: u64,
+    }
+
+    impl VirtioDevice for MockVirtioDevice {
+        fn avail_features(&self) -> u64 {
+            todo!()
+        }
+
+        fn acked_features(&self) -> u64 {
+            self.acked_features
+        }
+
+        fn set_acked_features(&mut self, _acked_features: u64) {
+            todo!()
+        }
+
+        fn device_type(&self) -> u32 {
+            todo!()
+        }
+
+        fn queues(&self) -> &[Queue] {
+            todo!()
+        }
+
+        fn queues_mut(&mut self) -> &mut [Queue] {
+            todo!()
+        }
+
+        fn queue_events(&self) -> &[EventFd] {
+            todo!()
+        }
+
+        fn interrupt_evt(&self) -> &EventFd {
+            todo!()
+        }
+
+        fn interrupt_status(&self) -> Arc<AtomicUsize> {
+            todo!()
+        }
+
+        fn read_config(&self, _offset: u64, _data: &mut [u8]) {
+            todo!()
+        }
+
+        fn write_config(&mut self, _offset: u64, _data: &[u8]) {
+            todo!()
+        }
+
+        fn activate(&mut self, _mem: GuestMemoryMmap) -> ActivateResult {
+            todo!()
+        }
+
+        fn is_activated(&self) -> bool {
+            todo!()
+        }
+    }
+
+    #[test]
+    fn test_has_feature() {
+        let mut device = MockVirtioDevice { acked_features: 0 };
+
+        let mock_feature_1 = 1u64;
+        assert!(!device.has_feature(mock_feature_1));
+        device.acked_features = 1 << mock_feature_1;
+        assert!(device.has_feature(mock_feature_1));
+
+        let mock_feature_2 = 2u64;
+        assert!(!device.has_feature(mock_feature_2));
+        device.acked_features = (1 << mock_feature_1) | (1 << mock_feature_2);
+        assert!(device.has_feature(mock_feature_1));
+        assert!(device.has_feature(mock_feature_2));
     }
 }

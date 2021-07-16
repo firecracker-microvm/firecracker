@@ -9,10 +9,21 @@ use crate::device_manager::persist::DeviceStates;
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::vcpu::VcpuState;
 use devices::virtio::block::persist::BlockState;
+use devices::virtio::QueueState;
+use utils::fc_version::FcVersion;
 
 use lazy_static::lazy_static;
 use versionize::VersionMap;
 use versionize::Versionize;
+
+/// Firecracker version 0.23.0
+pub static FC_VERSION_0_23_0: FcVersion = FcVersion::new(0, 23, 0);
+/// Firecracker version 0.24.0
+pub static FC_VERSION_0_24_0: FcVersion = FcVersion::new(0, 24, 0);
+/// Firecracker version 0.25.0
+pub static FC_VERSION_0_25_0: FcVersion = FcVersion::new(0, 25, 0);
+/// Firecracker version 0.26.0
+pub static FC_VERSION_0_26_0: FcVersion = FcVersion::new(0, 26, 0);
 
 lazy_static! {
     // Note: until we have a better design, this needs to be updated when the version changes.
@@ -29,18 +40,23 @@ lazy_static! {
         #[cfg(target_arch = "x86_64")]
         version_map.set_type_version(VcpuState::type_id(), 2);
 
+        // v0.26 state change mappings
+        version_map.new_version().set_type_version(QueueState::type_id(), 2);
+
         version_map
     };
 
     /// Static instance used for creating a 1:1 mapping between Firecracker release version
     /// and snapshot data format version.
-    pub static ref FC_VERSION_TO_SNAP_VERSION: HashMap<String, u16> = {
+    pub static ref FC_VERSION_TO_SNAP_VERSION: HashMap<FcVersion, u16> = {
         let mut mapping = HashMap::new();
+        // aarch64 snapshotting support was introduced in v0.24.0
         #[cfg(not(target_arch = "aarch64"))]
-        mapping.insert(String::from("0.23.0"), 1);
+        mapping.insert(FC_VERSION_0_23_0, 1);
 
-        mapping.insert(String::from("0.24.0"), 2);
-        mapping.insert(String::from("0.25.0"), 3);
+        mapping.insert(FC_VERSION_0_24_0, 2);
+        mapping.insert(FC_VERSION_0_25_0, 3);
+        mapping.insert(FC_VERSION_0_26_0, 4);
 
         mapping
     };

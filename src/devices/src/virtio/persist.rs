@@ -43,6 +43,13 @@ pub struct QueueState {
 
     next_avail: Wrapping<u16>,
     next_used: Wrapping<u16>,
+
+    /// VIRTIO_F_RING_EVENT_IDX negotiated (notification suppression enabled)
+    #[version(start = 2)]
+    event_idx: bool,
+    /// The number of added used buffers since last guest kick
+    #[version(start = 2)]
+    num_added: Wrapping<u16>,
 }
 
 impl Persist<'_> for Queue {
@@ -60,6 +67,8 @@ impl Persist<'_> for Queue {
             used_ring: self.used_ring.0,
             next_avail: self.next_avail,
             next_used: self.next_used,
+            event_idx: self.event_idx,
+            num_added: self.num_added,
         }
     }
 
@@ -76,6 +85,8 @@ impl Persist<'_> for Queue {
             used_ring: GuestAddress::new(state.used_ring),
             next_avail: state.next_avail,
             next_used: state.next_used,
+            event_idx: state.event_idx,
+            num_added: state.num_added,
         })
     }
 }
@@ -218,6 +229,8 @@ mod tests {
                 used_ring: 0,
                 next_avail: Wrapping(0),
                 next_used: Wrapping(0),
+                event_idx: false,
+                num_added: Wrapping(0),
             }
         }
     }
