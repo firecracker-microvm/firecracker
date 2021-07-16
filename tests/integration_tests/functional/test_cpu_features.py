@@ -170,6 +170,63 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
                                     "XSAVEC": "false", "XGETBV": "false",
                                     "XSAVES": "false"}
 
+    feature_info_1_edx = {"x87 FPU on chip": "true", "CMPXCHG8B inst": "true",
+                          "virtual-8086 mode enhancement": "true",
+                          "SSE extensions": "true", "SSE2 extensions": "true",
+                          "debugging extensions": "true",
+                          "page size extensions": "true",
+                          "time stamp counter": "true",
+                          "RDMSR and WRMSR support": "true",
+                          "physical address extensions": "true",
+                          "machine check exception": "true",
+                          "APIC on chip": "true", "MMX Technology": "true",
+                          "SYSENTER and SYSEXIT": "true",
+                          "memory type range registers": "true",
+                          "PTE global bit": "true", "FXSAVE/FXRSTOR": "true",
+                          "machine check architecture": "true",
+                          "conditional move/compare instruction": "true",
+                          "page attribute table": "true",
+                          "page size extension": "true",
+                          "CLFLUSH instruction": "true"}
+    feature_info_1_ecx = {"PNI/SSE3: Prescott New Instructions": "true",
+                          "PCLMULDQ instruction": "true",
+                          "SSSE3 extensions": "true",
+                          "AES instruction": "true",
+                          "CMPXCHG16B instruction": "true",
+                          "process context identifiers": "true",
+                          "SSE4.1 extensions": "true",
+                          "SSE4.2 extensions": "true",
+                          "extended xAPIC support": "true",
+                          "POPCNT instruction": "true",
+                          "time stamp counter deadline": "true",
+                          "XSAVE/XSTOR states": "true",
+                          "OS-enabled XSAVE/XSTOR": "true",
+                          "AVX: advanced vector extensions": "true",
+                          "F16C half-precision convert instruction": "true",
+                          "RDRAND instruction": "true",
+                          "hypervisor guest status": "true",
+                          }
+    thermal_and_power_mgmt = {"ARAT always running APIC timer": "true"}
+
+    extended_features = {"FSGSBASE instructions": "true",
+                         "IA32_TSC_ADJUST MSR supported": "true",
+                         "SMEP supervisor mode exec protection": "true",
+                         "enhanced REP MOVSB/STOSB": "true",
+                         "SMAP: supervisor mode access prevention": "true"}
+
+    xsave_0xd_0 = {"XCR0 supported: x87 state": "true",
+                   "XCR0 supported: SSE state": "true",
+                   "XCR0 supported: AVX state": "true"}
+
+    xsave_0xd_1 = {"XSAVEOPT instruction": "true"}
+
+    extended_080000001_edx = {"SYSCALL and SYSRET instructions": "true",
+                              "64-bit extensions technology available": "true",
+                              "execution disable": "true", "RDTSCP": "true"}
+
+    intel_080000001_ecx = {"LAHF/SAHF supported in 64-bit mode": "true"}
+    adv_pwr_mgmt = {"TscInvariant": "true"}
+
     # These are all discoverable by cpuid -1.
     c3_masked_features = {"FMA": "false", "MOVBE": "false", "BMI": "false",
                           "AVX2": "false", "BMI2": "false", "INVPCID": "false"}
@@ -206,7 +263,6 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
     assert stderr.read() == ''
 
     cpu_flags_output = stdout.readline().rstrip().split(' ')
-
     for feature in common_masked_features_lscpu:
         assert feature not in cpu_flags_output, feature
 
@@ -226,3 +282,26 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
 
     utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
                                    expected_cpu_features)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   feature_info_1_edx)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   feature_info_1_ecx)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   thermal_and_power_mgmt)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   extended_features)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   xsave_0xd_0)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   xsave_0xd_1)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   extended_080000001_edx)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   intel_080000001_ecx)
+    utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                   adv_pwr_mgmt)
+    if cpu_template != "C3":
+        c3_masked_features.update((k, "true")
+                                  for k, _ in c3_masked_features.items())
+        utils.check_guest_cpuid_output(test_microvm, "cpuid -1", None, '=',
+                                       c3_masked_features)
