@@ -46,6 +46,12 @@ can boot:
 
 1. Upon a successful build, you can find the uncompressed kernel image under
    `./vmlinux`.
+   
+   For aarch64, however, you're going to need `vmlinux.bin`. To get that, run
+   
+   ```
+   objcopy -O binary vmlinux vmlinux.bin
+   ```
 
 ## Creating a rootfs Image
 
