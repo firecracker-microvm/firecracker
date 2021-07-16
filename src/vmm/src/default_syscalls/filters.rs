@@ -62,6 +62,7 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall_if(
                 libc::SYS_futex,
                 or![
+                    and![Cond::new(1, ArgLen::DWORD, Eq, super::FUTEX_WAIT)?],
                     and![Cond::new(1, ArgLen::DWORD, Eq, super::FUTEX_WAIT_PRIVATE)?],
                     and![Cond::new(1, ArgLen::DWORD, Eq, super::FUTEX_WAKE_PRIVATE)?],
                     #[cfg(target_env = "gnu")]
@@ -118,6 +119,13 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             // SYS_rt_sigreturn is needed in case a fault does occur, so that the signal handler
             // can return. Otherwise we get stuck in a fault loop.
             allow_syscall(libc::SYS_rt_sigreturn),
+            // Used to block and unblock signals during libc::abort.
+            allow_syscall(libc::SYS_rt_sigprocmask),
+            // Used to install the default SIGABRT handler during libc::abort.
+            allow_syscall_if(
+                libc::SYS_rt_sigaction,
+                or![and![Cond::new(0, ArgLen::DWORD, Eq, libc::SIGABRT as u64)?]],
+            ),
             // Used by the API thread and vsock
             allow_syscall_if(
                 libc::SYS_socket,
@@ -132,15 +140,18 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
                     Cond::new(2, ArgLen::DWORD, Eq, 0u64)?
                 ],],
             ),
-            // Used to kick vcpus
+            // Used to kick vcpus and in libc::abort during panic.
             allow_syscall_if(
                 libc::SYS_tkill,
-                or![and![Cond::new(
-                    1,
-                    ArgLen::DWORD,
-                    Eq,
-                    (sigrtmin() + super::super::vstate::vcpu::VCPU_RTSIG_OFFSET) as u64
-                )?]],
+                or![
+                    and![Cond::new(
+                        1,
+                        ArgLen::DWORD,
+                        Eq,
+                        (sigrtmin() + super::super::vstate::vcpu::VCPU_RTSIG_OFFSET) as u64
+                    )?],
+                    and![Cond::new(1, ArgLen::DWORD, Eq, libc::SIGABRT as u64)?]
+                ],
             ),
             // Used to kick vcpus, on gnu
             #[cfg(target_env = "gnu")]
