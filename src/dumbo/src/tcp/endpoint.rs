@@ -172,7 +172,7 @@ impl Endpoint {
             // If we got here, then we still have some response bytes to send (which are
             // stored in self.response_buf).
 
-            // It seems we just recevied the last ACK we were waiting for, so the entire
+            // It seems we just received the last ACK we were waiting for, so the entire
             // response has been successfully received. Set the new response_seq and clear
             // the response_buf.
             self.response_seq = self.connection.highest_ack_received();
@@ -209,7 +209,7 @@ impl Endpoint {
                         response.write_all(&mut self.response_buf).unwrap();
 
                         // Sanity check because the current logic operates under this assumption.
-                        assert!(self.response_buf.len() < u32::max_value() as usize);
+                        assert!(self.response_buf.len() < u32::MAX as usize);
 
                         // We have to remove the bytes up to end from receive_buf, by shifting the
                         // others to the beginning of the buffer, and updating receive_buf_left.
@@ -304,62 +304,39 @@ impl Endpoint {
     }
 }
 
-fn build_response(http_version: Version, status_code: StatusCode, body: Body) -> Response {
-    let mut response = Response::new(http_version, status_code);
+fn build_response(status_code: StatusCode, body: Body) -> Response {
+    let mut response = Response::new(Version::default(), status_code);
     response.set_body(body);
     response
 }
 
 /// Parses the request bytes and builds a `micro_http::Response` by the given callback function.
 fn parse_request_bytes(byte_stream: &[u8], callback: fn(Request) -> Response) -> Response {
-    let request = Request::try_from(byte_stream);
+    // There is no need to bound the request length, because the byte stream comes from
+    // a source with maximum size of `RCV_BUF_MAX_SIZE`.
+    let request = Request::try_from(byte_stream, None);
     match request {
         Ok(request) => callback(request),
         Err(e) => match e {
-            RequestError::BodyWithoutPendingRequest => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(e.to_string()),
-            ),
-            RequestError::HeadersWithoutPendingRequest => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(e.to_string()),
-            ),
-            RequestError::InvalidHttpVersion(err_msg) => build_response(
-                Version::default(),
-                StatusCode::NotImplemented,
-                Body::new(err_msg.to_string()),
-            ),
-            RequestError::InvalidUri(err_msg) => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(err_msg.to_string()),
-            ),
-            RequestError::InvalidHttpMethod(err_msg) => build_response(
-                Version::default(),
-                StatusCode::NotImplemented,
-                Body::new(err_msg.to_string()),
-            ),
+            RequestError::BodyWithoutPendingRequest
+            | RequestError::HeadersWithoutPendingRequest
+            | RequestError::Overflow
+            | RequestError::Underflow => {
+                build_response(StatusCode::BadRequest, Body::new(e.to_string()))
+            }
+            RequestError::InvalidUri(err_msg) => {
+                build_response(StatusCode::BadRequest, Body::new(err_msg.to_string()))
+            }
+            RequestError::InvalidHttpVersion(err_msg)
+            | RequestError::InvalidHttpMethod(err_msg) => {
+                build_response(StatusCode::NotImplemented, Body::new(err_msg.to_string()))
+            }
+            RequestError::HeaderError(err_msg) => {
+                build_response(StatusCode::BadRequest, Body::new(err_msg.to_string()))
+            }
             RequestError::InvalidRequest => build_response(
-                Version::default(),
                 StatusCode::BadRequest,
                 Body::new("Invalid request.".to_string()),
-            ),
-            RequestError::HeaderError(err) => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(err.to_string()),
-            ),
-            RequestError::Overflow => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(e.to_string()),
-            ),
-            RequestError::Underflow => build_response(
-                Version::default(),
-                StatusCode::BadRequest,
-                Body::new(e.to_string()),
             ),
         },
     }

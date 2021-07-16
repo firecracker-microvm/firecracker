@@ -196,14 +196,14 @@ impl TcpIPv4Handler {
         self.max_connections
     }
 
-    /// Returns the max pending resetes of this TCP handler.
+    /// Returns the max pending resets of this TCP handler.
     pub fn max_pending_resets(&self) -> usize {
         self.max_pending_resets
     }
 
     /// Contains logic for handling incoming segments.
     ///
-    /// Any changes to the state if the handler are communicated through an `Ok(RecvEvent)`.
+    /// Any changes to the state of the handler are communicated through an `Ok(RecvEvent)`.
     pub fn receive_packet<T: NetworkBytes>(
         &mut self,
         packet: &IPv4Packet<T>,

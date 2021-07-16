@@ -21,7 +21,7 @@ pub use micro_http::{
     ServerResponse, StatusCode, Version,
 };
 use mmds::data_store;
-use mmds::data_store::Mmds;
+use mmds::data_store::{Mmds, MmdsVersion, MmdsVersionType};
 use seccompiler::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
@@ -241,8 +241,10 @@ impl ApiServer {
             Ok(ParsedRequest::Sync(vmm_action)) => {
                 self.serve_vmm_action_request(vmm_action, request_processing_start_us)
             }
+            Ok(ParsedRequest::GetMmdsVersion) => self.get_mmds_version(),
             Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
             Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
+            Ok(ParsedRequest::PutMmdsVersion(config)) => self.put_mmds_version(config),
             Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
             Ok(ParsedRequest::ShutdownInternal) => {
                 self.shutdown_flag = true;
@@ -296,6 +298,19 @@ impl ApiServer {
         response
     }
 
+    fn get_mmds_version(&self) -> Response {
+        let mmds_version = match self
+            .mmds_info
+            .lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .version()
+        {
+            MmdsVersion::MMDSv1 => "MMDSv1".to_string(),
+            MmdsVersion::MMDSv2 => "MMDSv2".to_string(),
+        };
+        ApiServer::json_response(StatusCode::OK, mmds_version)
+    }
+
     fn get_mmds(&self) -> Response {
         ApiServer::json_response(
             StatusCode::OK,
@@ -339,6 +354,15 @@ impl ApiServer {
                 ApiServer::json_fault_message(e.to_string()),
             ),
         }
+    }
+
+    fn put_mmds_version(&self, config: MmdsVersionType) -> Response {
+        self.mmds_info
+            .lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .set_version(config.mmds_version());
+
+        Response::new(Version::Http11, StatusCode::NoContent)
     }
 
     /// An HTTP response which also includes a body.
@@ -463,6 +487,24 @@ mod tests {
     }
 
     #[test]
+    fn test_get_mmds_version() {
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        );
+
+        let response = api_server.get_mmds_version();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
     fn test_get_mmds() {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
@@ -494,6 +536,23 @@ mod tests {
             to_vmm_fd,
         );
         let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
+        assert_eq!(response.status(), StatusCode::NoContent);
+    }
+
+    #[test]
+    fn test_put_mmds_version() {
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+
+        let api_server = ApiServer::new(
+            mmds_info,
+            api_request_sender,
+            vmm_response_receiver,
+            to_vmm_fd,
+        );
+        let response = api_server.put_mmds_version(MmdsVersionType::from(MmdsVersion::MMDSv2));
         assert_eq!(response.status(), StatusCode::NoContent);
     }
 

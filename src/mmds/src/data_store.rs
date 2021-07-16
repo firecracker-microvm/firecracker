@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::token::{TokenStore, TokenStoreError};
+use serde::Deserialize;
 use serde_json::Value;
 use std::fmt;
 
@@ -8,13 +10,45 @@ use std::fmt;
 #[derive(Clone)]
 pub struct Mmds {
     data_store: Value,
+    token_store: TokenStore,
     is_initialized: bool,
+    version: MmdsVersion,
+}
+
+/// MMDS version.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+pub enum MmdsVersion {
+    MMDSv1,
+    MMDSv2,
 }
 
 /// MMDS possible outputs.
 pub enum OutputFormat {
     Json,
     Imds,
+}
+
+/// Keeps the MMDS version configuration.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MmdsVersionType {
+    /// MMDS configured version
+    pub mmds_version: MmdsVersion,
+}
+
+impl MmdsVersionType {
+    /// Returns the IMDS version.
+    pub fn mmds_version(&self) -> MmdsVersion {
+        self.mmds_version
+    }
+}
+
+impl From<MmdsVersion> for MmdsVersionType {
+    fn from(version: MmdsVersion) -> Self {
+        MmdsVersionType {
+            mmds_version: version,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -41,7 +75,9 @@ impl Default for Mmds {
     fn default() -> Self {
         Mmds {
             data_store: Value::default(),
+            token_store: TokenStore::default(),
             is_initialized: false,
+            version: MmdsVersion::MMDSv1,
         }
     }
 }
@@ -56,6 +92,26 @@ impl Mmds {
         } else {
             Err(Error::NotInitialized)
         }
+    }
+
+    /// Check if the provided token is valid.
+    pub fn is_valid_token(&mut self, token_value: &str) -> bool {
+        self.token_store.is_valid(token_value)
+    }
+
+    /// Generate a new MMDSv2 token and add it to the store.
+    pub fn generate_token(&mut self, ttl_seconds: u32) -> Result<String, TokenStoreError> {
+        self.token_store.generate_token(ttl_seconds)
+    }
+
+    /// Set the MMDS version.
+    pub fn set_version(&mut self, version: MmdsVersion) {
+        self.version = version;
+    }
+
+    /// Return the MMDS version.
+    pub fn version(&self) -> MmdsVersion {
+        self.version
     }
 
     pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
