@@ -380,7 +380,7 @@ fn print_supported_snapshot_versions() {
     let mut snapshot_versions_str = "Supported snapshot data format versions:".to_string();
     let mut snapshot_versions: Vec<String> = FC_VERSION_TO_SNAP_VERSION
         .iter()
-        .map(|(key, _)| key.clone())
+        .map(|(key, _)| key.to_string())
         .collect();
     snapshot_versions.sort();
 
@@ -416,7 +416,7 @@ fn print_snapshot_data_format(snapshot_path: &str) {
                 data_format_version
             )));
         });
-    println!("v{}", key);
+    println!("v{}", key.to_string());
 }
 
 // Configure and start a microVM as described by the command-line JSON.
