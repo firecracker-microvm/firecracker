@@ -50,6 +50,9 @@ const FOLDER_PERMISSIONS: u32 = 0o700;
 // from jailer's and it is stored inside a dedicated file, prefixed with the below extension.
 const PID_FILE_EXTENSION: &str = ".pid";
 
+//  When running with `--new-pid-ns` we create child process with its own stack.
+const PROCESS_STACK_SIZE: usize = 8192;
+
 // Helper function, since we'll use libc::dup2 a bunch of times for daemonization.
 fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
     // This is safe because we are using a library function with valid parameters.
@@ -197,37 +200,63 @@ impl Env {
     }
 
     fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<()> {
-        // Unshare into a new PID namespace.
-        // The current process will not be moved into the newly created namespace, but its first
-        // child will assume the role of init(1) in the new namespace.
-        // The call is safe because we're invoking a C library function with valid parameters.
-        SyscallReturnCode(unsafe { libc::unshare(libc::CLONE_NEWPID) })
-            .into_empty_result()
-            .map_err(Error::UnshareNewPID)?;
-
         // Compute jailer's total CPU time up to the current time.
         self.jailer_cpu_time_us =
             utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - self.start_time_cpu_us;
 
-        // Duplicate the current process. The child process will belong to the previously created
-        // PID namespace.
-        // TODO: replace the `unshare()` + `fork()` combo with `clone()` if we ever need to
-        //  squeeze every bit of start-up latency we can get
-        let pid = unsafe { libc::fork() };
-        match pid {
-            0 => {
-                // Reset process start time.
-                self.start_time_cpu_us = 0;
+        // This is a wrapper for our child callback to the clone libc function.
+        // We will use clone's arg parameter as the actual callback and call it from here.
+        extern "C" fn child_fn(arg: *mut libc::c_void) -> libc::c_int {
+            let callback_ref: *mut *mut dyn FnOnce() = arg as *mut *mut dyn std::ops::FnOnce();
+            let callback = unsafe { Box::from_raw(*callback_ref) };
 
-                Err(Error::Exec(self.exec_command(chroot_exec_file)))
-            }
-            child_pid => {
-                // Save the PID of the process running the exec file provided
-                // inside <chroot_exec_file>.pid file.
-                self.save_exec_file_pid(child_pid, chroot_exec_file)?;
-                unsafe { libc::exit(0) }
-            }
+            callback();
+            0
         }
+
+        let child_callback = || {
+            // Reset process start time.
+            self.start_time_cpu_us = 0;
+
+            self.exec_command(chroot_exec_file.clone());
+        };
+
+        let child_callback_box: Box<dyn FnOnce()> = Box::new(child_callback);
+        let child_callback_ref = &mut Box::into_raw(child_callback_box);
+
+        // Mapping the child process it's own stack.
+        // The call is safe because we're invoking a C library function with valid parameters.
+        let stack = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                PROCESS_STACK_SIZE,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_GROWSDOWN | libc::MAP_ANONYMOUS | libc::MAP_PRIVATE,
+                -1,
+                0,
+            )
+        };
+        if stack == libc::MAP_FAILED {
+            return Err(Error::MmapStack(io::Error::last_os_error()));
+        }
+
+        // We will use clone in order to spawn a new child process into a new PID namespace.
+        // The current process will not be moved into the newly created namespace, but the child
+        // spawned via clone will assume the role of init(1) in the new namespace.
+        // The call is safe because we're invoking a C library function with valid parameters.
+        let child_pid = unsafe {
+            libc::clone(
+                child_fn,
+                stack,
+                libc::SIGCHLD | libc::CLONE_NEWPID,
+                std::mem::transmute(child_callback_ref),
+            )
+        };
+
+        // Save the PID of the process running the exec file provided
+        // inside <chroot_exec_file>.pid file.
+        self.save_exec_file_pid(child_pid, chroot_exec_file)?;
+        unsafe { libc::exit(0) }
     }
 
     fn save_exec_file_pid(&mut self, pid: i32, chroot_exec_file: PathBuf) -> Result<()> {

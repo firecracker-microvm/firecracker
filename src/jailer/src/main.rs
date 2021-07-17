@@ -45,6 +45,7 @@ pub enum Error {
     MissingParent(PathBuf),
     MkdirOldRoot(io::Error),
     MknodDev(io::Error, &'static str),
+    MmapStack(io::Error),
     MountBind(io::Error),
     MountPropagationSlave(io::Error),
     NotAFile(PathBuf),
@@ -588,6 +589,10 @@ mod tests {
             ),
             "Failed to create /dev/net/tun via mknod inside the jail: No message of desired type \
              (os error 42)",
+        );
+        assert_eq!(
+            format!("{}", Error::MmapStack(io::Error::from_raw_os_error(42))),
+            "Failed mapping stack for child process: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::MountBind(io::Error::from_raw_os_error(42))),

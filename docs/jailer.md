@@ -46,8 +46,10 @@ jailer --id <id> \
   jailer will use this to join the associated network namespace.
 - When present, the `--daemonize` flag causes the jailer to cal `setsid()` and
   redirect all three standard I/O file descriptors to `/dev/null`.
-- When present, the `--new-pid-ns` flag causes the jailer to `fork()` and then
-  exec the provided binary into a new PID namespace. As a result, the jailer and
+- When present, the `--new-pid-ns` flag causes the jailer to spawn the provided
+  binary into a new PID namespace.
+  It makes use of the libc `clone()` function with the CLONE_NEWPID flag.
+  As a result, the jailer and
   the process running the exec file have different PIDs. The PID of the child
   process is stored in the jail root directory inside `<exec_file_name>.pid`.
 - The jailer adheres to the "end of command options" convention, meaning
