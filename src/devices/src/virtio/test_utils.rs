@@ -173,6 +173,17 @@ impl<'a> VirtqDesc<'a> {
             .is_ok());
     }
 
+    pub fn check_data_from_offset(&self, expected_data: &[u8], offset: usize) {
+        let desc_len: usize = self.len.get() as usize;
+        assert!(desc_len > offset);
+        let mem = self.addr.mem;
+        let mut buf = vec![0; expected_data.len() as usize];
+        assert!(mem
+            .read_slice(&mut buf, GuestAddress::new(self.addr.get() + offset as u64))
+            .is_ok());
+        assert_eq!(buf.as_slice(), expected_data);
+    }
+
     pub fn check_data(&self, expected_data: &[u8]) {
         assert!(self.len.get() as usize >= expected_data.len());
         let mem = self.addr.mem;

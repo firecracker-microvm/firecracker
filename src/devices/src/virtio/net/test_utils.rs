@@ -14,6 +14,11 @@ use crate::virtio::net::device::vnet_hdr_len;
 use crate::virtio::net::tap::{Error, IfReqBuilder, Tap};
 use crate::virtio::test_utils::VirtQueue;
 use crate::virtio::{Net, Queue, QueueError};
+use virtio_gen::virtio_net::{
+    VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
+    VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
+    VIRTIO_NET_F_MRG_RXBUF
+};
 
 use rate_limiter::RateLimiter;
 use vm_memory::{GuestAddress, GuestMemoryMmap};
@@ -32,7 +37,7 @@ pub fn default_net() -> Net {
 
     let guest_mac = default_guest_mac();
 
-    let net = Net::new_with_tap(
+    let mut net = Net::new_with_tap(
         format!("net-device{}", next_tap),
         tap_dev_name,
         Some(&guest_mac),
@@ -41,6 +46,14 @@ pub fn default_net() -> Net {
         true,
     )
     .unwrap();
+    net.acked_features = 1 << VIRTIO_NET_F_GUEST_CSUM
+        | 1 << VIRTIO_NET_F_CSUM
+        | 1 << VIRTIO_NET_F_GUEST_TSO4
+        | 1 << VIRTIO_NET_F_GUEST_UFO
+        | 1 << VIRTIO_NET_F_HOST_TSO4
+        | 1 << VIRTIO_NET_F_HOST_UFO
+        | 1 << VIRTIO_F_VERSION_1
+        | 1 << VIRTIO_NET_F_MRG_RXBUF;
     enable(&net.tap);
 
     net
@@ -293,15 +306,16 @@ pub fn assign_queues(net: &mut Net, rxq: Queue, txq: Queue) {
 #[cfg(test)]
 pub mod test {
     use crate::check_metric_after_block;
-    use crate::virtio::net::device::vnet_hdr_len;
+    use crate::virtio::net::device::{
+        vnet_hdr_len, set_vnet_hdr_num_buffers, VNET_HDR_NUM_BUFFERS_OFFSET
+    };
     use crate::virtio::net::test_utils::{
-        assign_queues, check_used_queue_signal, default_net, inject_tap_tx_frame, NetEvent,
+        assign_queues, default_net, inject_tap_tx_frame, NetEvent,
         NetQueue, ReadTapMock,
     };
     use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
     use crate::virtio::{
         Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
-        VIRTQ_DESC_F_WRITE,
     };
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
     use logger::{IncMetric, METRICS};
@@ -383,6 +397,7 @@ pub mod test {
             queue: NetQueue,
             addr_offset: u64,
             desc_list: &[(u16, u32, u16)],
+            add_gaps: bool,
         ) {
             // Get queue and event_fd.
             let net = self.net.lock().unwrap();
@@ -405,7 +420,9 @@ pub mod test {
                 addr += len as u64;
                 // Add small random gaps between descriptor addresses in order to make sure we
                 // don't blindly read contiguous memory.
-                addr += utils::rand::xor_psuedo_rng_u32() as u64 % 10;
+                if add_gaps {
+                    addr += utils::rand::xor_psuedo_rng_u32() as u64 % 10;
+                }
             }
 
             // Mark the chain as available.
@@ -420,7 +437,6 @@ pub mod test {
         /// Generate a tap frame of `frame_len` and check that it is deferred
         pub fn check_rx_deferred_frame(&mut self, frame_len: usize) -> Vec<u8> {
             self.net().mocks.set_read_tap(ReadTapMock::TapFrame);
-            let used_idx = self.rxq.used.idx.get();
 
             // Inject frame to tap and run epoll.
             let frame = inject_tap_tx_frame(&self.net(), frame_len);
@@ -431,34 +447,8 @@ pub mod test {
             );
             // Check that the frame has been deferred.
             assert!(self.net().rx_deferred_frame);
-            // Check that the descriptor chain has been discarded.
-            assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
-            check_used_queue_signal(&self.net(), 1);
 
             frame
-        }
-
-        /// Check that after adding a valid Rx queue descriptor chain a previously deferred frame
-        /// is eventually received by the guest
-        pub fn check_rx_queue_resume(&mut self, expected_frame: &[u8]) {
-            let used_idx = self.rxq.used.idx.get();
-            // Add a valid Rx avail descriptor chain and run epoll.
-            self.add_desc_chain(
-                NetQueue::Rx,
-                0,
-                &[(0, expected_frame.len() as u32, VIRTQ_DESC_F_WRITE)],
-            );
-            check_metric_after_block!(
-                METRICS.net.rx_packets_count,
-                1,
-                self.event_manager.run_with_timeout(100).unwrap()
-            );
-            // Check that the expected frame was sent to the Rx queue eventually.
-            assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
-            check_used_queue_signal(&self.net(), 1);
-            self.rxq
-                .check_used_elem(used_idx, 0, expected_frame.len() as u32);
-            self.rxq.dtable[0].check_data(&expected_frame);
         }
 
         // Generates a frame of `frame_len` and writes it to the provided descriptor chain.
@@ -483,6 +473,18 @@ pub mod test {
             }
 
             frame
+        }
+
+        pub fn check_hdr_num_buffers_in_rx_desc(&self, rx_desc_idx: usize, exp_num_buffers: u16) {
+            let mut vnet_hdr_bytes = vec![0u8; vnet_hdr_len()];
+            // We added a descriptor that can fit the whole frame so num_buffers should be 1
+            let result = set_vnet_hdr_num_buffers(&mut vnet_hdr_bytes, exp_num_buffers);
+            assert!(result.is_ok());
+            // Check if the header in the descriptor matches our expected header
+            self.rxq.dtable[rx_desc_idx].check_data_from_offset(
+                &vnet_hdr_bytes[VNET_HDR_NUM_BUFFERS_OFFSET..],
+                VNET_HDR_NUM_BUFFERS_OFFSET
+            );
         }
     }
 }

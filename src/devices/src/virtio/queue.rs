@@ -33,6 +33,10 @@ pub enum QueueError {
     UsedRing(GuestMemoryError),
 }
 
+pub enum DescriptorChainErr {
+    InvalidChain,
+}
+
 impl fmt::Display for QueueError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::QueueError::*;
@@ -160,6 +164,44 @@ impl<'a> DescriptorChain<'a> {
         } else {
             None
         }
+    }
+
+    // Gets a list of writtable buffers contained in this descriptor chain.
+    // Returns an error if descriptor chain is malformed.
+    pub fn get_wo_buffs(
+        &self,
+        wo_buffs: &mut Vec<(GuestAddress, u32)>,
+    ) -> std::result::Result<usize, DescriptorChainErr>{
+        let mut desc_chain_wlen: usize = 0;
+
+        let mut maybe_next_descriptor = DescriptorChain::checked_new(
+            self.mem,
+            self.desc_table,
+            self.queue_size,
+            self.index
+        );
+        while let Some(descriptor) = &maybe_next_descriptor {
+            let desc_len: usize = descriptor.len as usize;
+            if !descriptor.is_write_only() {
+                if desc_chain_wlen == 0 {
+                    // In chains that contain both RO and WO descriptors,
+                    // RO descriptors come first so we skip them.
+                    break;
+                } else {
+                    // This chain already had some usable WO buffers before this one.
+                    // This shouldn't actually happen and means that this chain is invalid.
+                    // Stop searching through this chain and return an error.
+                    wo_buffs.clear();
+                    return Err(DescriptorChainErr::InvalidChain);
+                }
+            } else {
+                wo_buffs.push((descriptor.addr, descriptor.len));
+                desc_chain_wlen += desc_len;
+            }
+
+            maybe_next_descriptor = descriptor.next_descriptor();
+        }
+        Ok(desc_chain_wlen)
     }
 }
 
@@ -345,6 +387,12 @@ impl Queue {
         self.next_avail -= Wrapping(1);
     }
 
+    /// Undo the effects of the last `num` `self.pop()` calls.
+    /// The caller can use this, if it was unable to consume the last `num` popped descriptor chains.
+    pub fn undo_multiple_pop(&mut self, num: u16) {
+        self.next_avail -= Wrapping(num);
+    }
+
     /// Puts an available descriptor head into the used ring for use by the guest.
     pub fn add_used(
         &mut self,
@@ -372,6 +420,44 @@ impl Queue {
             .map_err(QueueError::UsedRing)?;
 
         self.next_used += Wrapping(1);
+
+        // This fence ensures all descriptor writes are visible before the index update is.
+        fence(Ordering::Release);
+
+        let next_used_addr = used_ring.unchecked_add(2);
+        mem.write_obj(self.next_used.0 as u16, next_used_addr)
+            .map_err(QueueError::UsedRing)
+    }
+
+    /// Puts multiple available descriptor heads into the used ring for use by the guest.
+    pub fn add_used_bulk(
+        &mut self,
+        mem: &GuestMemoryMmap,
+        descs: &[(u16, u32)],
+    ) -> Result<(), QueueError> {
+        let used_ring = self.used_ring;
+        let mut used_idx = self.next_used;
+
+        for (desc_index, len) in (&descs).iter() {
+            if *desc_index >= self.actual_size() {
+                error!(
+                    "attempted to add out of bounds descriptor to used ring: {}",
+                    desc_index
+                );
+                return Err(QueueError::DescIndexOutOfBounds(*desc_index));
+            }
+
+            let next_used = u64::from(used_idx.0 % self.actual_size());
+            let used_elem = used_ring.unchecked_add(4 + next_used * 8);
+            mem.write_obj(u32::from(*desc_index), used_elem)
+                .map_err(QueueError::UsedRing)?;
+            let len_addr = used_elem.unchecked_add(4);
+            mem.write_obj(*len as u32, len_addr)
+                .map_err(QueueError::UsedRing)?;
+            used_idx += Wrapping(1);
+        }
+
+        self.next_used = used_idx;
 
         // This fence ensures all descriptor writes are visible before the index update is.
         fence(Ordering::Release);

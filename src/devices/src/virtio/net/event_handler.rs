@@ -119,7 +119,7 @@ pub mod tests {
         let mut th = TestHelper::default();
 
         // Push a queue event, use the TX_QUEUE_EVENT in this test.
-        th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
+        th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)], true);
 
         // EventManager should report no events since net has only registered
         // its activation event so far (even though there is also a queue event pending).

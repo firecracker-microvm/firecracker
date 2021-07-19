@@ -12,13 +12,13 @@ use crate::virtio::net::Error;
 use crate::virtio::net::Result;
 use crate::virtio::net::{MAX_BUFFER_SIZE, QUEUE_SIZE, QUEUE_SIZES, RX_INDEX, TX_INDEX};
 use crate::virtio::{
-    ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING,
+    ActivateResult, DeviceState, Queue, DescriptorChainErr, VirtioDevice, TYPE_NET, VIRTIO_MMIO_INT_VRING,
 };
 use crate::{report_net_event_fail, Error as DeviceError};
 
 use dumbo::pdu::ethernet::EthernetFrame;
 use libc::EAGAIN;
-use logger::{error, warn, IncMetric, METRICS};
+use logger::{error, IncMetric, METRICS};
 use mmds::ns::MmdsNetworkStack;
 use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
 #[cfg(not(test))]
@@ -34,20 +34,36 @@ use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 use virtio_gen::virtio_net::{
     virtio_net_hdr_v1, VIRTIO_F_VERSION_1, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_GUEST_CSUM,
     VIRTIO_NET_F_GUEST_TSO4, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_UFO,
-    VIRTIO_NET_F_MAC,
+    VIRTIO_NET_F_MAC, VIRTIO_NET_F_MRG_RXBUF
 };
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 enum FrontendError {
     AddUsed,
-    DescriptorChainTooSmall,
+    InsufficientBuffers,
     EmptyQueue,
-    GuestMemory(GuestMemoryError),
-    ReadOnlyDescriptor,
+    BrokenQueue,
+    BufferError,
 }
 
 pub(crate) fn vnet_hdr_len() -> usize {
     mem::size_of::<virtio_net_hdr_v1>()
+}
+
+pub const VNET_HDR_NUM_BUFFERS_OFFSET: usize = 10;
+
+// Set the num_buffers field of a vnet_header contained in the slice.
+// This function assumes the vnet header is always at the start of the slice.
+pub(crate) fn set_vnet_hdr_num_buffers(buf: &mut [u8], num_buffers: u16) -> Result<()> {
+    if buf.len() < vnet_hdr_len() {
+        Err(Error::VnetHeaderMissing)
+    } else {
+        // In virtio 1.0 vnet header is LE
+        let bytes = num_buffers.to_le_bytes();
+        buf[VNET_HDR_NUM_BUFFERS_OFFSET] = bytes[0];
+        buf[VNET_HDR_NUM_BUFFERS_OFFSET+1] = bytes[1];
+        Ok(())
+    }
 }
 
 // Frames being sent/received through the network device model have a VNET header. This
@@ -158,7 +174,8 @@ impl Net {
             | 1 << VIRTIO_NET_F_GUEST_UFO
             | 1 << VIRTIO_NET_F_HOST_TSO4
             | 1 << VIRTIO_NET_F_HOST_UFO
-            | 1 << VIRTIO_F_VERSION_1;
+            | 1 << VIRTIO_F_VERSION_1
+            | 1 << VIRTIO_NET_F_MRG_RXBUF;
 
         let mut config_space = ConfigSpace::default();
         if let Some(mac) = guest_mac {
@@ -226,6 +243,11 @@ impl Net {
     /// Says if this device supports MMDS.
     pub fn mmds_enabled(&self) -> bool {
         self.mmds_ns.is_some()
+    }
+
+    // Check if driver uses mergeable RX buffers.
+    pub fn use_mrg_rx_buffs(&self) -> bool {
+        (self.acked_features() & (1 << VIRTIO_NET_F_MRG_RXBUF)) != 0
     }
 
     /// Sets MMDS endpoint IPv4 address, if the device supports MMDS.
@@ -302,94 +324,174 @@ impl Net {
         success
     }
 
-    // Copies a single frame from `self.rx_frame_buf` into the guest.
-    fn do_write_frame_to_guest(&mut self) -> std::result::Result<(), FrontendError> {
-        let mut result: std::result::Result<(), FrontendError> = Ok(());
+    // Reserves available writable buffers from the RX queue.
+    // The method will try to reserve as many buffers as needed to sucesfully
+    // store the packet that is in the device receive buffer.
+    fn reserve_guest_wbuffers(
+        &mut self,
+        buffs: &mut Vec<(u16, Vec<(GuestAddress, u32)>)>
+    ) -> std::result::Result<(), FrontendError> {
         let mem = match self.device_state {
             DeviceState::Activated(ref mem) => mem,
             // This should never happen, it's been already validated in the event handler.
             DeviceState::Inactive => unreachable!(),
         };
 
+        let use_mrg = self.use_mrg_rx_buffs();
         let queue = &mut self.queues[RX_INDEX];
-        let head_descriptor = queue.pop(mem).ok_or_else(|| {
-            METRICS.net.no_rx_avail_buffer.inc();
-            FrontendError::EmptyQueue
-        })?;
-        let head_index = head_descriptor.index;
+        let mut total_reserved_sz: usize = 0;
 
-        let mut frame_slice = &self.rx_frame_buf[..self.rx_bytes_read];
-        let frame_len = frame_slice.len();
-        let mut maybe_next_descriptor = Some(head_descriptor);
-        while let Some(descriptor) = &maybe_next_descriptor {
-            if frame_slice.is_empty() {
-                break;
-            }
-
-            if !descriptor.is_write_only() {
-                result = Err(FrontendError::ReadOnlyDescriptor);
-                break;
-            }
-
-            let len = std::cmp::min(frame_slice.len(), descriptor.len as usize);
-            match mem.write_slice(&frame_slice[..len], descriptor.addr) {
-                Ok(()) => {
-                    METRICS.net.rx_count.inc();
-                    frame_slice = &frame_slice[len..];
+        // When not using mergeable RX buffers, the device must add the packet into
+        // a single descriptor chain.
+        let limit = if use_mrg { queue.actual_size() } else { 1 };
+        let mut tries = 0;
+        while total_reserved_sz < self.rx_bytes_read && tries < limit {
+            let head_descriptor = queue.pop(mem).ok_or_else(|| {
+                METRICS.net.no_rx_avail_buffer.inc();
+                if !buffs.is_empty() {
+                    // Found some descriptors but total size is insufficient.
+                    // Don't use these descriptors and wait for the driver to
+                    // add more.
+                    queue.undo_multiple_pop(buffs.len() as u16);
+                    buffs.clear();
+                    FrontendError::InsufficientBuffers
+                } else {
+                    FrontendError::EmptyQueue
                 }
-                Err(e) => {
-                    error!("Failed to write slice: {:?}", e);
-                    match e {
-                        GuestMemoryError::PartialBuffer { .. } => &METRICS.net.rx_partial_writes,
-                        _ => &METRICS.net.rx_fails,
-                    }
-                    .inc();
-                    result = Err(FrontendError::GuestMemory(e));
-                    break;
+            })?;
+
+            // When using mergeable RX buffers, the driver usually adds one descriptor per chain.
+            // When using big buffers the driver must add MAX_BUFFER_SIZE / PAGE_SIZE buffers per chain.
+            let mut desc_chain_wbuffs = if use_mrg { Vec::with_capacity(1) } else { Vec::with_capacity(17) };
+            let desc_chain_wlen = match head_descriptor.get_wo_buffs(&mut desc_chain_wbuffs) {
+                Ok(len) => len,
+                Err(DescriptorChainErr::InvalidChain) => {
+                    // Found an invalid chain in the queue which means that the queue is broken.
+                    queue.undo_multiple_pop(1+buffs.len() as u16);
+                    buffs.clear();
+                    return Err(FrontendError::BrokenQueue);
                 }
             };
 
-            maybe_next_descriptor = descriptor.next_descriptor();
-        }
-        if result.is_ok() && !frame_slice.is_empty() {
-            warn!("Receiving buffer is too small to hold frame of current size");
-            METRICS.net.rx_fails.inc();
-            result = Err(FrontendError::DescriptorChainTooSmall);
+            // Descriptor chain must be able to hold the vnet header at the very least.
+            if desc_chain_wlen >= vnet_hdr_len() {
+                total_reserved_sz += desc_chain_wlen;
+                buffs.push((head_descriptor.index, desc_chain_wbuffs));
+            } else {
+                // Found an unusable chain in the RX queue which means that the queue is broken.
+                queue.undo_multiple_pop(1+buffs.len() as u16);
+                buffs.clear();
+                return Err(FrontendError::BrokenQueue);
+            }
+            tries += 1;
         }
 
-        // Mark the descriptor chain as used. If an error occurred, skip the descriptor chain.
-        let used_len = if result.is_err() { 0 } else { frame_len as u32 };
-        queue.add_used(mem, head_index, used_len).map_err(|e| {
-            error!("Failed to add available descriptor {}: {}", head_index, e);
-            FrontendError::AddUsed
-        })?;
-        self.rx_deferred_irqs = true;
-
-        if result.is_ok() {
-            METRICS.net.rx_bytes_count.add(frame_len);
-            METRICS.net.rx_packets_count.inc();
+        if total_reserved_sz < self.rx_bytes_read {
+            queue.undo_multiple_pop(buffs.len() as u16);
+            buffs.clear();
+            Err(FrontendError::InsufficientBuffers)
+        } else {
+            Ok(())
         }
-        result
     }
 
-    // Copies a single frame from `self.rx_frame_buf` into the guest. In case of an error retries
-    // the operation if possible. Returns true if the operation was successfull.
-    fn write_frame_to_guest(&mut self) -> bool {
-        let max_iterations = self.queues[RX_INDEX].actual_size();
-        for _ in 0..max_iterations {
-            match self.do_write_frame_to_guest() {
-                Ok(()) => return true,
-                Err(FrontendError::EmptyQueue) | Err(FrontendError::AddUsed) => {
-                    return false;
-                }
-                Err(_) => {
-                    // retry
-                    continue;
-                }
+    // Writes a single frame to multiple reserved guest RX buffers
+    fn do_write_frame_to_guest_buffers(
+        &mut self,
+        reserved_buffers: &[(u16, Vec<(GuestAddress, u32)>)]
+    ) -> std::result::Result<(), FrontendError> {
+        let queue = &mut self.queues[RX_INDEX];
+        let mut frame_slice = &self.rx_frame_buf[..self.rx_bytes_read];
+        let frame_len = frame_slice.len();
+
+        let mem = match self.device_state {
+            DeviceState::Activated(ref mem) => mem,
+            // This should never happen, it's been already validated in the event handler.
+            DeviceState::Inactive => unreachable!(),
+        };
+
+        // We plan on using all the buffers that were provided.
+        let mut used_buffs: Vec<(u16, u32)> = Vec::with_capacity(reserved_buffers.len());
+
+        // Go through all the reserved buffers and write the frame.
+        for (idx, buf_list) in (&reserved_buffers).iter() {
+            let mut used_len: usize = 0;
+
+            for (buf_addr, buf_len) in buf_list.iter() {
+                let len = std::cmp::min(frame_slice.len(), *buf_len as usize);
+                let count = match mem.write_slice(&frame_slice[..len], *buf_addr) {
+                    Ok(()) => len,
+                    Err(e) => {
+                        match e {
+                            GuestMemoryError::PartialBuffer { expected: _, completed } => {
+                                completed
+                            },
+                            // The address provided in the descriptor is invalid.
+                            _ => { break; }
+                        }
+                    }
+                };
+                METRICS.net.rx_count.inc();
+                frame_slice = &frame_slice[count..];
+                used_len += count;
+            }
+
+            if used_len > 0 {
+                used_buffs.push((*idx, used_len as u32));
+            } else {
+                // All buffers must contain at least some data
+                return Err(FrontendError::BufferError);
             }
         }
 
-        false
+        // First buffer MUST contain the header
+        if used_buffs[0].1 < vnet_hdr_len() as u32 {
+            return Err(FrontendError::BufferError);
+        }
+
+        // This means that a chain wasn't completely writable.
+        if !frame_slice.is_empty() {
+            METRICS.net.rx_partial_writes.inc();
+        }
+
+        queue.add_used_bulk(mem, &used_buffs).map_err(|e| {
+            error!("Failed to add available descriptors: {}", e);
+            FrontendError::AddUsed
+        })?;
+
+        self.rx_deferred_irqs = true;
+        METRICS.net.rx_bytes_count.add(frame_len);
+        METRICS.net.rx_packets_count.inc();
+
+        Ok(())
+    }
+
+    // Copies a single frame from `self.rx_frame_buf` into the guest.
+    // Returns true if the operation was successfull.
+    fn write_frame_to_guest(&mut self) -> bool {
+        if self.rx_bytes_read == 0 {
+            return true;
+        }
+
+        let mut reserved_buffers: Vec<(u16, Vec<(GuestAddress, u32)>)> = Vec::with_capacity(17);
+        match self.reserve_guest_wbuffers(&mut reserved_buffers) {
+            Ok(()) => (),
+            Err(_) => {
+                METRICS.net.rx_fails.inc();
+                return false;
+            }
+        }
+
+        // Set the total number of buffers.
+        // Ok to unwrap since we allocate a large enough buffer at init.
+        set_vnet_hdr_num_buffers(&mut self.rx_frame_buf, reserved_buffers.len() as u16).unwrap();
+        match self.do_write_frame_to_guest_buffers(&reserved_buffers) {
+            Ok(()) => true,
+            Err(_) => {
+                self.queues[RX_INDEX].undo_multiple_pop(reserved_buffers.len() as u16);
+                false
+            }
+        }
     }
 
     // Tries to detour the frame to MMDS and if MMDS doesn't accept it, sends it on the host TAP.
@@ -950,7 +1052,8 @@ pub mod tests {
             | 1 << VIRTIO_NET_F_GUEST_UFO
             | 1 << VIRTIO_NET_F_HOST_TSO4
             | 1 << VIRTIO_NET_F_HOST_UFO
-            | 1 << VIRTIO_F_VERSION_1;
+            | 1 << VIRTIO_F_VERSION_1
+            | 1 << VIRTIO_NET_F_MRG_RXBUF;
 
         assert_eq!(net.avail_features_by_page(0), features as u32);
         assert_eq!(net.avail_features_by_page(1), (features >> 32) as u32);
@@ -1019,7 +1122,7 @@ pub mod tests {
         let mut th = TestHelper::default();
         th.activate_net();
 
-        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)], true);
         th.net().queue_evts[RX_INDEX].read().unwrap();
         check_metric_after_block!(
             METRICS.net.event_fails,
@@ -1040,27 +1143,76 @@ pub mod tests {
             NetQueue::Rx,
             0,
             &[
+                (0, 100, 0),
+                (1, 100, 0),
+                (2, 1000, 0),
+            ],
+            true,
+        );
+        let used_idx = th.rxq.used.idx.get();
+        th.check_rx_deferred_frame(1000);
+        assert_eq!(th.rxq.used.idx.get(), used_idx);
+        check_used_queue_signal(&th.net(), 0);
+    }
+
+    #[test]
+    fn test_rx_invalid_descriptor() {
+        let mut th = TestHelper::default();
+        th.activate_net();
+
+        th.add_desc_chain(
+            NetQueue::Rx,
+            0,
+            &[
                 (0, 100, VIRTQ_DESC_F_WRITE),
                 (1, 100, 0),
                 (2, 1000, VIRTQ_DESC_F_WRITE),
             ],
+            true,
         );
-        let frame = th.check_rx_deferred_frame(1000);
-        th.rxq.check_used_elem(0, 0, 0);
-
-        th.check_rx_queue_resume(&frame);
+        let used_idx = th.rxq.used.idx.get();
+        th.check_rx_deferred_frame(1000);
+        assert_eq!(th.rxq.used.idx.get(), used_idx);
+        check_used_queue_signal(&th.net(), 0);
     }
 
     #[test]
     fn test_rx_short_writable_descriptor() {
         let mut th = TestHelper::default();
         th.activate_net();
+        let used_idx = th.rxq.used.idx.get();
 
-        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 100, VIRTQ_DESC_F_WRITE)]);
+        // Add a descriptor chain that is too small for the packet we are generating
+        th.add_desc_chain(NetQueue::Rx, 0, &[(0, 100, VIRTQ_DESC_F_WRITE)], true);
+
+        // The frame should get deffered.
+        // We shouldn't skip buffers as all buffers can be used if driver adds more
         let frame = th.check_rx_deferred_frame(1000);
-        th.rxq.check_used_elem(0, 0, 0);
+        assert_eq!(th.rxq.used.idx.get(), used_idx);
+        check_used_queue_signal(&th.net(), 0);
 
-        th.check_rx_queue_resume(&frame);
+        // Add another Rx avail descriptor chain and run epoll.
+        th.add_desc_chain(
+            NetQueue::Rx,
+            100,
+            &[(1, frame.len() as u32, VIRTQ_DESC_F_WRITE)],
+            true,
+        );
+        check_metric_after_block!(
+            METRICS.net.rx_packets_count,
+            1,
+            th.event_manager.run_with_timeout(100).unwrap()
+        );
+        // Check that the expected frame was sent to the Rx queue eventually.
+        assert_eq!(th.rxq.used.idx.get(), 2);
+        check_used_queue_signal(&th.net(), 1);
+        th.rxq.check_used_elem(0, 0, 100);
+        th.rxq.check_used_elem(1, 1, 900);
+        // Ignore the vnet header check for now; just compare frame data
+        th.rxq.dtable[0].check_data_from_offset(&frame[vnet_hdr_len()..100], vnet_hdr_len());
+        th.rxq.dtable[1].check_data(&frame[100..]);
+
+        th.check_hdr_num_buffers_in_rx_desc(0, 2);
     }
 
     #[test]
@@ -1070,7 +1222,7 @@ pub mod tests {
 
         // The descriptor chain is created so that the last descriptor doesn't fit in the
         // guest memory.
-        let offset = th.mem.last_addr().raw_value() - th.data_addr() - 300;
+        let offset = th.mem.last_addr().raw_value() - th.data_addr() - 300 + 1;
         th.add_desc_chain(
             NetQueue::Rx,
             offset,
@@ -1079,61 +1231,16 @@ pub mod tests {
                 (1, 50, VIRTQ_DESC_F_WRITE),
                 (2, 4096, VIRTQ_DESC_F_WRITE),
             ],
+            false,
         );
-        let frame = th.check_rx_deferred_frame(1000);
-        th.rxq.check_used_elem(0, 0, 0);
-
-        th.check_rx_queue_resume(&frame);
-    }
-
-    #[test]
-    fn test_rx_retry() {
-        let mut th = TestHelper::default();
-        th.activate_net();
-        th.net().mocks.set_read_tap(ReadTapMock::TapFrame);
-
-        // Add invalid descriptor chain - read only descriptor.
-        th.add_desc_chain(
-            NetQueue::Rx,
-            0,
-            &[
-                (0, 100, VIRTQ_DESC_F_WRITE),
-                (1, 100, 0),
-                (2, 1000, VIRTQ_DESC_F_WRITE),
-            ],
-        );
-        // Add invalid descriptor chain - too short.
-        th.add_desc_chain(NetQueue::Rx, 1200, &[(3, 100, VIRTQ_DESC_F_WRITE)]);
-        // Add invalid descriptor chain - invalid memory offset.
-        th.add_desc_chain(
-            NetQueue::Rx,
-            th.mem.last_addr().raw_value(),
-            &[(4, 1000, VIRTQ_DESC_F_WRITE)],
-        );
-
-        // Add valid descriptor chain.
-        th.add_desc_chain(NetQueue::Rx, 1300, &[(5, 1000, VIRTQ_DESC_F_WRITE)]);
-
-        // Inject frame to tap and run epoll.
-        let frame = inject_tap_tx_frame(&th.net(), 1000);
+        inject_tap_tx_frame(&th.net(), 1000);
         check_metric_after_block!(
             METRICS.net.rx_packets_count,
             1,
             th.event_manager.run_with_timeout(100).unwrap()
         );
-
-        // Check that the used queue has advanced.
-        assert_eq!(th.rxq.used.idx.get(), 4);
-        check_used_queue_signal(&th.net(), 1);
-        // Check that the invalid descriptor chains have been discarded
-        th.rxq.check_used_elem(0, 0, 0);
-        th.rxq.check_used_elem(1, 3, 0);
-        th.rxq.check_used_elem(2, 4, 0);
-        // Check that the frame wasn't deferred.
-        assert!(!th.net().rx_deferred_frame);
-        // Check that the frame has been written successfully to the valid Rx descriptor chain.
-        th.rxq.check_used_elem(3, 5, frame.len() as u32);
-        th.rxq.dtable[5].check_data(&frame);
+        assert_eq!(METRICS.net.rx_partial_writes.count(), 1);
+        th.rxq.check_used_elem(0, 0, 300);
     }
 
     #[test]
@@ -1153,6 +1260,7 @@ pub mod tests {
                 (5, 50, VIRTQ_DESC_F_WRITE),
                 (11, 4096, VIRTQ_DESC_F_WRITE),
             ],
+            true,
         );
         // Inject frame to tap and run epoll.
         let frame = inject_tap_tx_frame(&th.net(), 1000);
@@ -1169,9 +1277,10 @@ pub mod tests {
         check_used_queue_signal(&th.net(), 1);
         // Check that the frame has been written successfully to the Rx descriptor chain.
         th.rxq.check_used_elem(0, 3, frame.len() as u32);
-        th.rxq.dtable[3].check_data(&frame[..100]);
+        th.rxq.dtable[3].check_data_from_offset(&frame[vnet_hdr_len()..100], vnet_hdr_len());
         th.rxq.dtable[5].check_data(&frame[100..150]);
         th.rxq.dtable[11].check_data(&frame[150..]);
+        th.check_hdr_num_buffers_in_rx_desc(3, 1);
     }
 
     #[test]
@@ -1186,11 +1295,13 @@ pub mod tests {
             NetQueue::Rx,
             0,
             &[(0, 500, VIRTQ_DESC_F_WRITE), (1, 500, VIRTQ_DESC_F_WRITE)],
+            true,
         );
         th.add_desc_chain(
             NetQueue::Rx,
             1000,
             &[(2, 500, VIRTQ_DESC_F_WRITE), (3, 500, VIRTQ_DESC_F_WRITE)],
+            true,
         );
         // Inject 2 frames to tap and run epoll.
         let frame_1 = inject_tap_tx_frame(&th.net(), 200);
@@ -1208,11 +1319,14 @@ pub mod tests {
         check_used_queue_signal(&th.net(), 1);
         // Check that the 1st frame was written successfully to the 1st Rx descriptor chain.
         th.rxq.check_used_elem(0, 0, frame_1.len() as u32);
-        th.rxq.dtable[0].check_data(&frame_1);
+        th.rxq.dtable[0].check_data_from_offset(&frame_1[vnet_hdr_len()..], vnet_hdr_len());
+        th.check_hdr_num_buffers_in_rx_desc(0, 1);
         th.rxq.dtable[1].check_data(&[0; 500]);
+
         // Check that the 2nd frame was written successfully to the 2nd Rx descriptor chain.
         th.rxq.check_used_elem(1, 2, frame_2.len() as u32);
-        th.rxq.dtable[2].check_data(&frame_2);
+        th.rxq.dtable[2].check_data_from_offset(&frame_2[vnet_hdr_len()..], vnet_hdr_len());
+        th.check_hdr_num_buffers_in_rx_desc(2, 1);
         th.rxq.dtable[3].check_data(&[0; 500]);
     }
 
@@ -1222,7 +1336,7 @@ pub mod tests {
         th.activate_net();
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
-        th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
+        th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)], true);
         th.net().queue_evts[TX_INDEX].read().unwrap();
         check_metric_after_block!(
             METRICS.net.event_fails,
@@ -1243,7 +1357,7 @@ pub mod tests {
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
         let desc_list = [(0, 100, 0), (1, 100, VIRTQ_DESC_F_WRITE), (2, 500, 0)];
-        th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
+        th.add_desc_chain(NetQueue::Tx, 0, &desc_list, true);
         th.write_tx_frame(&desc_list, 700);
         th.event_manager.run_with_timeout(100).unwrap();
 
@@ -1262,7 +1376,7 @@ pub mod tests {
         let tap_traffic_simulator = TapTrafficSimulator::new(if_index(&th.net().tap));
 
         // Send an invalid frame (too small, VNET header missing).
-        th.add_desc_chain(NetQueue::Tx, 0, &[(0, 1, 0)]);
+        th.add_desc_chain(NetQueue::Tx, 0, &[(0, 1, 0)], true);
         check_metric_after_block!(
             &METRICS.net.tx_malformed_frames,
             1,
@@ -1287,7 +1401,7 @@ pub mod tests {
         // guest memory.
         let offset = th.mem.last_addr().raw_value() + 1 - th.data_addr() - 300;
         let desc_list = [(0, 100, 0), (1, 50, 0), (2, 4096, 0)];
-        th.add_desc_chain(NetQueue::Tx, offset, &desc_list);
+        th.add_desc_chain(NetQueue::Tx, offset, &desc_list, true);
         let expected_len =
             (150 + th.mem.last_addr().raw_value() + 1 - th.txq.dtable[2].addr.get()) as usize;
         th.write_tx_frame(&desc_list, expected_len);
@@ -1316,15 +1430,16 @@ pub mod tests {
             NetQueue::Tx,
             0,
             &[(0, 100, 0), (1, 100, VIRTQ_DESC_F_WRITE), (2, 500, 0)],
+            true,
         );
         // Add invalid descriptor chain - invalid memory.
-        th.add_desc_chain(NetQueue::Tx, th.mem.last_addr().raw_value(), &[(3, 100, 0)]);
+        th.add_desc_chain(NetQueue::Tx, th.mem.last_addr().raw_value(), &[(3, 100, 0)], true);
         // Add invalid descriptor chain - too short.
-        th.add_desc_chain(NetQueue::Tx, 700, &[(0, 1, 0)]);
+        th.add_desc_chain(NetQueue::Tx, 700, &[(0, 1, 0)], true);
 
         // Add valid descriptor chain
         let desc_list = [(4, 1000, 0)];
-        th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
+        th.add_desc_chain(NetQueue::Tx, 0, &desc_list, true);
         let frame = th.write_tx_frame(&desc_list, 1000);
 
         check_metric_after_block!(
@@ -1354,7 +1469,7 @@ pub mod tests {
         // Add gaps between the descriptor ids in order to ensure that we follow
         // the `next` field.
         let desc_list = [(3, 100, 0), (5, 50, 0), (11, 850, 0)];
-        th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
+        th.add_desc_chain(NetQueue::Tx, 0, &desc_list, true);
         let frame = th.write_tx_frame(&desc_list, 1000);
 
         check_metric_after_block!(
@@ -1381,11 +1496,11 @@ pub mod tests {
 
         // Write the first frame to the Tx queue
         let desc_list = [(0, 50, 0), (1, 100, 0), (2, 150, 0)];
-        th.add_desc_chain(NetQueue::Tx, 0, &desc_list);
+        th.add_desc_chain(NetQueue::Tx, 0, &desc_list, true);
         let frame_1 = th.write_tx_frame(&desc_list, 300);
         // Write the second frame to the Tx queue
         let desc_list = [(3, 100, 0), (4, 200, 0), (5, 300, 0)];
-        th.add_desc_chain(NetQueue::Tx, 500, &desc_list);
+        th.add_desc_chain(NetQueue::Tx, 500, &desc_list, true);
         let frame_2 = th.write_tx_frame(&desc_list, 600);
 
         check_metric_after_block!(
@@ -1610,7 +1725,7 @@ pub mod tests {
             // following TX procedure should fail because of bandwidth rate limiting
             {
                 // trigger the TX handler
-                th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
+                th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)], true);
                 th.simulate_event(NetEvent::TxQueue);
 
                 // assert that limiter is blocked
@@ -1651,7 +1766,7 @@ pub mod tests {
 
             // set up RX
             assert!(!th.net().rx_deferred_frame);
-            th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+            th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)], true);
 
             // following RX procedure should fail because of bandwidth rate limiting
             {
@@ -1688,7 +1803,8 @@ pub mod tests {
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq.check_used_elem(0, 0, frame.len() as u32);
-                th.rxq.dtable[0].check_data(&frame);
+                th.rxq.dtable[0].check_data_from_offset(&frame[vnet_hdr_len()..], vnet_hdr_len());
+                th.check_hdr_num_buffers_in_rx_desc(0, 1);
             }
         }
     }
@@ -1712,7 +1828,7 @@ pub mod tests {
             // following TX procedure should fail because of ops rate limiting
             {
                 // trigger the TX handler
-                th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)]);
+                th.add_desc_chain(NetQueue::Tx, 0, &[(0, 4096, 0)], true);
                 check_metric_after_block!(
                     METRICS.net.tx_rate_limiter_throttled,
                     1,
@@ -1756,7 +1872,7 @@ pub mod tests {
 
             // set up RX
             assert!(!th.net().rx_deferred_frame);
-            th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)]);
+            th.add_desc_chain(NetQueue::Rx, 0, &[(0, 4096, VIRTQ_DESC_F_WRITE)], true);
 
             // following RX procedure should fail because of ops rate limiting
             {
@@ -1797,7 +1913,8 @@ pub mod tests {
                 // make sure the data queue advanced
                 assert_eq!(th.rxq.used.idx.get(), 1);
                 th.rxq.check_used_elem(0, 0, frame.len() as u32);
-                th.rxq.dtable[0].check_data(&frame);
+                th.rxq.dtable[0].check_data_from_offset(&frame[vnet_hdr_len()..], vnet_hdr_len());
+                th.check_hdr_num_buffers_in_rx_desc(0, 1);
             }
         }
     }
