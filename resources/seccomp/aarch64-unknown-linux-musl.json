@@ -67,6 +67,10 @@
                 "comment": "Used by vsock to retrieve data from the socket"
             },
             {
+                "syscall": "rt_sigprocmask",
+                "comment": "rt_sigprocmask is used by libc::abort during a panic to block and unblock signals"
+            },
+            {
                 "syscall": "rt_sigreturn",
                 "comment": "rt_sigreturn is needed in case a fault does occur, so that the signal handler can return. Otherwise we get stuck in a fault loop."
             },
@@ -199,6 +203,19 @@
                 ]
             },
             {
+                "syscall": "rt_sigaction",
+                "comment": "rt_sigaction is used by libc::abort during a panic to install the default handler for SIGABRT",
+                "args": [
+                    {
+                        "index": 0,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "SIGABRT"
+                    }
+                ]
+            },
+            {
                 "syscall": "socket",
                 "comment": "Called to open the vsock UDS",
                 "args": [
@@ -221,6 +238,19 @@
                         "type": "dword",
                         "op": "eq",
                         "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "tkill",
+                "comment": "tkill is used by libc::abort during a panic to raise SIGABRT",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "SIGABRT"
                     }
                 ]
             },
@@ -491,6 +521,19 @@
                 ]
             },
             {
+                "syscall": "rt_sigaction",
+                "comment": "rt_sigaction is used by libc::abort during a panic to install the default handler for SIGABRT",
+                "args": [
+                    {
+                        "index": 0,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "SIGABRT"
+                    }
+                ]
+            },
+            {
                 "syscall": "socket",
                 "comment": "Called to open the unix domain socket",
                 "args": [
@@ -513,6 +556,19 @@
                         "type": "dword",
                         "op": "eq",
                         "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "tkill",
+                "comment": "tkill is used by libc::abort during a panic to raise SIGABRT",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "SIGABRT"
                     }
                 ]
             },
@@ -661,6 +717,19 @@
                 ]
             },
             {
+                "syscall": "rt_sigaction",
+                "comment": "rt_sigaction is used by libc::abort during a panic to install the default handler for SIGABRT",
+                "args": [
+                    {
+                        "index": 0,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "SIGABRT"
+                    }
+                ]
+            },
+            {
                 "syscall": "timerfd_settime",
                 "comment": "Needed for updating the balloon statistics interval",
                 "args": [
@@ -669,6 +738,19 @@
                         "type": "dword",
                         "op": "eq",
                         "val": 0
+                    }
+                ]
+            },
+            {
+                "syscall": "tkill",
+                "comment": "tkill is used by libc::abort during a panic to raise SIGABRT",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 6,
+                        "comment": "SIGABRT"
                     }
                 ]
             },
