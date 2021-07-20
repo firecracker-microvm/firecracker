@@ -10,13 +10,13 @@ import host_tools.network as net_tools
 IPERF_BINARY = 'iperf3'
 
 
-def test_high_ingress_traffic(test_microvm_with_ssh, network_config):
+def test_high_ingress_traffic(test_microvm_with_api, network_config):
     """
     Run iperf rx with high UDP traffic.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     test_microvm.basic_config()

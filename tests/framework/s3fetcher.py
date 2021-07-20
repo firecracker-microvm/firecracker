@@ -57,8 +57,8 @@ class MicrovmImageS3Fetcher:
     MICROVM_IMAGE_BLOCKDEV_RELPATH = 'fsfiles/'
     MICROVM_IMAGE_KERNEL_FILE_SUFFIX = r'vmlinux.bin'
     MICROVM_IMAGE_INITRD_FILE_SUFFIX = r'initrd.img'
-    MICROVM_IMAGE_ROOTFS_FILE_SUFFIX = r'rootfs.ext4'
-    MICROVM_IMAGE_SSH_KEY_SUFFIX = r'.id_rsa'
+    MICROVM_IMAGE_ROOTFS_FILE_SUFFIX = r'bionic.rootfs.ext4'
+    MICROVM_IMAGE_SSH_KEY_SUFFIX = r'bionic.rootfs.id_rsa'
 
     ENV_LOCAL_IMAGES_PATH_VAR = 'OPT_LOCAL_IMAGES_PATH'
 

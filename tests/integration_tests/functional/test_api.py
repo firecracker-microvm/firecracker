@@ -879,7 +879,7 @@ def _drive_patch(test_microvm):
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json()['drives'] == [{
         'drive_id': 'rootfs',
-        'path_on_host': '/xenial.rootfs.ext4',
+        'path_on_host': '/bionic.rootfs.ext4',
         'is_root_device': True,
         'partuuid': None,
         'is_read_only': False,
@@ -955,13 +955,13 @@ def test_api_vsock(test_microvm_with_api):
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
 
-def test_api_balloon(test_microvm_with_ssh_and_balloon):
+def test_api_balloon(test_microvm_with_api):
     """
     Test balloon related API commands.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh_and_balloon
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
 
@@ -1050,13 +1050,13 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
 
 
-def test_get_full_config(test_microvm_with_ssh_and_balloon):
+def test_get_full_config(test_microvm_with_api):
     """
     Test the reported configuration of a microVM configured with all resources.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh_and_balloon
+    test_microvm = test_microvm_with_api
 
     expected_cfg = {}
 
@@ -1075,7 +1075,7 @@ def test_get_full_config(test_microvm_with_ssh_and_balloon):
     }
     expected_cfg['drives'] = [{
         'drive_id': 'rootfs',
-        'path_on_host': '/debian.rootfs.ext4',
+        'path_on_host': '/bionic.rootfs.ext4',
         'is_root_device': True,
         'partuuid': None,
         'is_read_only': False,

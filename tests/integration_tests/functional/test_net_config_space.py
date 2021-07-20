@@ -17,7 +17,7 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 PAYLOAD_DATA_SIZE = 20
 
 
-def test_net_change_mac_address(test_microvm_with_ssh, network_config,
+def test_net_change_mac_address(test_microvm_with_api, network_config,
                                 change_net_config_space_bin):
     """
     Test changing the MAC address of the network device.
@@ -26,7 +26,7 @@ def test_net_change_mac_address(test_microvm_with_ssh, network_config,
     """
     global PAYLOAD_DATA_SIZE
 
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config(boot_args="ipv6.disable=1")
 

@@ -16,13 +16,13 @@ PARTUUID = {"x86_64": "0eaa91a0-01", "aarch64": "7bf14469-01"}
 MB = 1024 * 1024
 
 
-def test_rescan_file(test_microvm_with_ssh, network_config):
+def test_rescan_file(test_microvm_with_api, network_config):
     """
     Verify that rescan works with a file-backed virtio device.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
@@ -30,7 +30,7 @@ def test_rescan_file(test_microvm_with_ssh, network_config):
     # added after we get a unique MAC and IP.
     test_microvm.basic_config()
 
-    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm_with_api.ssh_network_config(network_config, '1')
 
     block_size = 2
     # Add a scratch block device.
@@ -72,7 +72,7 @@ def test_rescan_file(test_microvm_with_ssh, network_config):
     )
 
 
-def test_device_ordering(test_microvm_with_ssh, network_config):
+def test_device_ordering(test_microvm_with_api, network_config):
     """
     Verify device ordering.
 
@@ -81,7 +81,7 @@ def test_device_ordering(test_microvm_with_ssh, network_config):
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     # Add first scratch block device.
@@ -109,7 +109,7 @@ def test_device_ordering(test_microvm_with_ssh, network_config):
         fs2.path
     )
 
-    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm_with_api.ssh_network_config(network_config, '1')
 
     test_microvm.start()
 
@@ -136,13 +136,13 @@ def test_device_ordering(test_microvm_with_ssh, network_config):
     _check_block_size(ssh_connection, '/dev/vdc', fs2.size())
 
 
-def test_rescan_dev(test_microvm_with_ssh, network_config):
+def test_rescan_dev(test_microvm_with_api, network_config):
     """
     Verify that rescan works with a device-backed virtio device.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
     session = test_microvm.api_session
 
@@ -151,7 +151,7 @@ def test_rescan_dev(test_microvm_with_ssh, network_config):
     # added after we get a unique MAC and IP.
     test_microvm.basic_config()
 
-    _tap, _, _ = test_microvm_with_ssh.ssh_network_config(network_config, '1')
+    _tap, _, _ = test_microvm_with_api.ssh_network_config(network_config, '1')
 
     # Add a scratch block device.
     fs1 = drive_tools.FilesystemFile(os.path.join(test_microvm.fsfiles, 'fs1'))
@@ -194,13 +194,13 @@ def test_rescan_dev(test_microvm_with_ssh, network_config):
             utils.run_cmd(['losetup', '--detach', loopback_device])
 
 
-def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
+def test_non_partuuid_boot(test_microvm_with_api, network_config):
     """
     Test the output reported by blockdev when booting from /dev/vda.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     # Sets up the microVM with 1 vCPUs, 256 MiB of RAM, no network ifaces and
@@ -274,13 +274,13 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-def test_partuuid_update(test_microvm_with_ssh, network_config):
+def test_partuuid_update(test_microvm_with_api, network_config):
     """
     Test successful switching from PARTUUID boot to /dev/vda boot.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 0 network ifaces and
@@ -318,13 +318,13 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
     _check_drives(test_microvm, assert_dict, keys_array)
 
 
-def test_patch_drive(test_microvm_with_ssh, network_config):
+def test_patch_drive(test_microvm_with_api, network_config):
     """
     Test replacing the backing filesystem after guest boot works.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     # Set up the microVM with 1 vCPUs, 256 MiB of RAM, 1 network iface, a root
@@ -365,13 +365,13 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
     assert stdout.readline().strip() == size_bytes_str
 
 
-def test_no_flush(test_microvm_with_ssh, network_config):
+def test_no_flush(test_microvm_with_api, network_config):
     """
     Verify default block ignores flush.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     test_microvm.basic_config(
@@ -414,13 +414,13 @@ def test_no_flush(test_microvm_with_ssh, network_config):
     assert fc_metrics['block']['flush_count'] == 0
 
 
-def test_flush(test_microvm_with_ssh, network_config):
+def test_flush(test_microvm_with_api, network_config):
     """
     Verify block with flush actually flushes.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     test_microvm.basic_config(
@@ -460,13 +460,13 @@ def test_flush(test_microvm_with_ssh, network_config):
     assert fc_metrics['block']['flush_count'] > 0
 
 
-def test_block_default_cache_old_version(test_microvm_with_ssh):
+def test_block_default_cache_old_version(test_microvm_with_api):
     """
     Verify that saving a snapshot for old versions works correctly.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
     test_microvm.basic_config(
@@ -532,13 +532,13 @@ def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
     assert float(tokens[7]) < max_time
 
 
-def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
+def test_patch_drive_limiter(test_microvm_with_api, network_config):
     """
     Test replacing the drive rate-limiter after guest boot works.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.daemonize = False
     test_microvm.spawn()
     # Set up the microVM with 2 vCPUs, 512 MiB of RAM, 1 network iface, a root

@@ -9,7 +9,7 @@ import host_tools.network as net_tools
 NO_OF_MICROVMS = 20
 
 
-@decorators.test_context('ssh', NO_OF_MICROVMS)
+@decorators.test_context('api', NO_OF_MICROVMS)
 def test_run_concurrency(test_multiple_microvms, network_config):
     """
     Check we can spawn multiple microvms.

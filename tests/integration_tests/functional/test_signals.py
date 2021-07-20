@@ -135,13 +135,13 @@ def test_sigxfsz_handler(test_microvm_with_api):
     assert metric_line["signals"]["sigxfsz"] == 1
 
 
-def test_handled_signals(test_microvm_with_ssh, network_config):
+def test_handled_signals(test_microvm_with_api, network_config):
     """
     Test that handled signals don't kill the microVM.
 
     @type: functional
     """
-    microvm = test_microvm_with_ssh
+    microvm = test_microvm_with_api
     microvm.spawn()
 
     # We don't need to monitor the memory for this test.

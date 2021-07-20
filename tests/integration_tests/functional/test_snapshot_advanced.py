@@ -6,7 +6,7 @@ import logging
 import platform
 import tempfile
 import pytest
-from test_balloon import _test_rss_memory_lower, copy_util_to_rootfs
+from test_balloon import _test_rss_memory_lower
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
@@ -291,9 +291,6 @@ def create_snapshot_helper(builder, logger, target_version=None,
         snapshot_type = SnapshotType.DIFF
 
     if balloon:
-        # Copy balloon test util.
-        copy_util_to_rootfs(vm_instance.disks[0].local_path(), 'fillmem')
-
         # Add a memory balloon with stats enabled.
         response = vm.balloon.put(
             amount_mib=0,

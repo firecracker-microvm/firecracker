@@ -7,7 +7,7 @@
   "drives": [
     {
       "drive_id": "rootfs",
-      "path_on_host": "xenial.rootfs.ext4",
+      "path_on_host": "bionic.rootfs.ext4",
       "is_root_device": true,
       "partuuid": null,
       "is_read_only": false,
