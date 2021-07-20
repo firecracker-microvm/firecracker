@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests that the seccomp filters don't let denied syscalls through."""
 
+import json as json_lib
 import os
 import tempfile
 import platform
@@ -283,3 +284,47 @@ def test_seccomp_level(test_microvm_with_api, level):
             assert "You are using a deprecated parameter: --seccomp-level " \
                 f"{level}, that will be removed in a future version." \
                 in log_data
+
+
+def test_seccomp_rust_panic(bin_seccomp_paths):
+    """
+    Test seccompiler-bin with `demo_panic`.
+
+    Test that the Firecracker filters allow a Rust panic to run its
+    course without triggering a seccomp violation.
+    """
+    # pylint: disable=redefined-outer-name
+    # pylint: disable=subprocess-run-check
+    # The fixture pattern causes a pylint false positive for that rule.
+
+    demo_panic = bin_seccomp_paths['demo_panic']
+    assert os.path.exists(demo_panic)
+
+    fc_filters_path = "../resources/seccomp/{}-unknown-linux-musl.json".format(
+        platform.machine()
+    )
+    with open(fc_filters_path, "r") as fc_filters:
+        filter_threads = list(json_lib.loads(fc_filters.read()))
+
+    bpf_temp = tempfile.NamedTemporaryFile(delete=False)
+    run_seccompiler_bin(bpf_path=bpf_temp.name,
+                        json_path=fc_filters_path)
+    bpf_path = bpf_temp.name
+
+    # Run the panic binary with all filters.
+    for thread in filter_threads:
+        code, _, _ = utils.run_cmd(
+            [demo_panic, bpf_path, thread],
+            no_shell=True,
+            ignore_return_code=True
+        )
+        # The demo panic binary should have terminated with SIGABRT
+        # and not with a seccomp violation.
+        # On a seccomp violation, the program exits with code -31 for
+        # SIGSYS. Here, we make sure the program exits with -6, which
+        # is for SIGABRT.
+        assert code == -6, \
+            "Panic binary failed with exit code {} on {} "\
+            "filters.".format(code, thread)
+
+    os.unlink(bpf_path)
