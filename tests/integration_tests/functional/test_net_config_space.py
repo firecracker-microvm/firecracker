@@ -199,7 +199,7 @@ def _send_data_g2h(ssh_connection, host_ip, host_port, iterations, data,
         "           exit(1)\n"                                      \
         "send_iterations={}\n"                                      \
         "while send_iterations > 0:\n"                              \
-        "   s.sendall('{}')\n"                                      \
+        "   s.sendall(b'{}')\n"                                      \
         "   send_iterations -= 1\n"                                 \
         "s.close()"
 
