@@ -351,11 +351,18 @@ def bin_seccomp_paths(test_fc_session_root_path):
             'demo_malicious'
         )
     )
+    demo_panic = os.path.normpath(
+        os.path.join(
+            release_binaries_path,
+            'demo_panic'
+        )
+    )
 
     yield {
         'demo_jailer': demo_jailer,
         'demo_harmless': demo_harmless,
-        'demo_malicious': demo_malicious
+        'demo_malicious': demo_malicious,
+        'demo_panic': demo_panic
     }
 
 
