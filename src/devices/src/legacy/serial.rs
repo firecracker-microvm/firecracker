@@ -461,8 +461,11 @@ impl MutEventSubscriber for Serial {
     fn init(&mut self, ops: &mut EventOps) {
         if self.input.is_some() {
             if let Some(buf_ready_evt) = self.buffer_ready_evt.as_ref() {
-                if let Err(e) = ops.add(Events::new(&self.serial_input_fd(), EventSet::IN)) {
-                    error!("Failed to register serial input fd: {}", e);
+                let serial_fd = self.serial_input_fd();
+                if serial_fd != -1 {
+                    if let Err(e) = ops.add(Events::new(&serial_fd, EventSet::IN)) {
+                        error!("Failed to register serial input fd: {}", e);
+                    }
                 }
                 if let Err(e) = ops.add(Events::new(buf_ready_evt, EventSet::IN)) {
                     error!("Failed to register serial buffer ready event: {}", e);
