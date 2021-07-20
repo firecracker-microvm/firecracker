@@ -671,6 +671,10 @@ cmd_help() {
     echo "        Builds a kernel image custom-tailored for our CI."
     echo "        -c, --config  Path to the config file."
     echo "        -n, --nproc  Number of cores to use for building kernel."
+    echo "    build_rootfs -s|--size [--partuuid]"
+    echo "        Builds a rootfs image custom-tailored for use in our CI."
+    echo "        -s, --size      Size of the rootfs image. Defaults to 300M."
+    echo "        -p, --partuuid  Whether to build a partuuid image."
     echo ""
     echo "    checkenv"
     echo "        Performs prerequisites checks needed to execute firecracker."
@@ -1643,7 +1647,7 @@ cmd_install() {
 }
 
 # Build a Firecracker CI compatible kernel image.
-# Example: `./tools/devtool build_rootfs -c resources/microvm-kernel-arm64.config`
+# Example: `./tools/devtool build_kernel -c resources/microvm-kernel-arm64.config`
 #
 cmd_build_kernel() {
     nprocs=$(getconf _NPROCESSORS_ONLN)
@@ -1708,6 +1712,95 @@ cmd_build_kernel() {
 
     say "Successfully built kernel!"
     say "Kernel binary placed in: $kernel_dir_host/linux-$KERNEL_VERSION/$KERNEL_BINARY_NAME"
+}
+
+# `./devtool build_rootfs -s 500`
+# Build a rootfs of custom size.
+#
+cmd_build_rootfs() {
+    # Default size for the resulting rootfs image is 250M.
+    SIZE="300"
+    FROM_CTR=ubuntu:18.04
+    flavour="bionic"
+
+    # Parse the command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")      { cmd_help; exit 1; } ;;
+            "-s"|"--size")
+                shift
+                SIZE="$1"
+                ;;
+            "-p"|"--partuuid")
+                shift
+                PARTUUID=1
+                ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
+    rootfs_dir_host="$FC_BUILD_DIR/rootfs"
+    rootfs_dir_ctr="$CTR_FC_BUILD_DIR/rootfs"
+    resources_dir_ctr="$CTR_FC_ROOT_DIR/resources/tests"
+    ROOTFS_NAME="$flavour.rootfs.ext4"
+    ROOTFS_PARTUUID_NAME="$flavour.rootfs_with_partuuid.ext4"
+
+    create_dir "$rootfs_dir_host"
+
+    run_devctr \
+        --workdir "$CTR_FC_ROOT_DIR" \
+        -- /bin/bash -c "gcc -o  $rootfs_dir_ctr/init $resources_dir_ctr/init.c && \
+        gcc -o  $rootfs_dir_ctr/fillmem $resources_dir_ctr/fillmem.c && \
+        gcc -o  $rootfs_dir_ctr/readmem $resources_dir_ctr/readmem.c"
+
+    img_file="$rootfs_dir_host/$ROOTFS_NAME"
+    dd if=/dev/zero "of=$img_file" bs=1M count=$SIZE
+    mkfs.ext4 -F "$img_file"
+    docker run --env ROOTFS_NAME=$ROOTFS_NAME --env PARTUUID=$PARTUUID --privileged --rm -i -v "$FC_ROOT_DIR:/firecracker"  "$FROM_CTR" bash -s <<'EOF'
+rootfs_dir=/firecracker/build/rootfs
+img_file="$rootfs_dir/$ROOTFS_NAME"
+resource_dir="/firecracker/resources/tests"
+mnt_dir="$rootfs_dir/mnt"
+dirs="bin etc home lib lib64 opt root sbin usr"
+
+source $resource_dir/setup_rootfs.sh
+
+mkdir -p $mnt_dir
+echo "Mounting $img_file on $mnt_dir ..."
+mount $img_file $mnt_dir
+
+prepare_fc_rootfs "$rootfs_dir" "$resource_dir"
+
+# If we want to create a PARTUUID no need to install all packages (i.e cpuid, iperf3).
+if [ -z "$PARTUUID" ]; then
+    setup_specialized_rootfs "$rootfs_dir" "$resource_dir"
+    dirs="$dirs dev"
+fi
+
+# Copy everything we need to the bind-mounted rootfs image file
+for d in $dirs; do tar c "/$d" | tar x -C $mnt_dir; done
+umount $mnt_dir
+
+EOF
+
+    if [ -n "$PARTUUID" ]; then
+        say "Now creating partuuid enabled rootfs..."
+
+        run_devctr \
+        --privileged \
+        --workdir "$FC_DEVCTR_DIR" \
+        -- /bin/bash -c "source "$CTR_FC_ROOT_DIR/resources/tests/setup_rootfs.sh" && create_partuuid_rootfs "$rootfs_dir_ctr/$ROOTFS_NAME" "$rootfs_dir_ctr/$ROOTFS_PARTUUID_NAME"" || die "Error while building partuuid enabled root!"
+        label=$(blkid "$rootfs_dir_host/$ROOTFS_PARTUUID_NAME" | cut -d ' ' -f 2 | cut -d '=' -f 2)
+        say "Created partuuid enabled disk with partition label: $label!"
+        rm "$img_file"
+        img_file="$rootfs_dir_host/$ROOTFS_PARTUUID_NAME"
+    fi
+
+    say "Successfully built rootfs!"
+    say "Rootfs image binary and private key placed in $img_file and $rootfs_dir_host/ssh/id_rsa, respectively!"
 }
 
 main() {
