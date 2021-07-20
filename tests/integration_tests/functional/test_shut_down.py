@@ -12,13 +12,13 @@ import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 
-def test_reboot(test_microvm_with_ssh, network_config):
+def test_reboot(test_microvm_with_api, network_config):
     """
     Test reboot from guest.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.daemonize = False
     test_microvm.spawn()
 
