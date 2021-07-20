@@ -124,6 +124,7 @@ pub struct Net {
 
     pub(crate) rx_deferred_frame: bool,
     rx_deferred_irqs: bool,
+    num_deffered_irqs: u16,
 
     rx_bytes_read: usize,
     rx_frame_buf: [u8; MAX_BUFFER_SIZE],
@@ -208,6 +209,7 @@ impl Net {
             tx_rate_limiter,
             rx_deferred_frame: false,
             rx_deferred_irqs: false,
+            num_deffered_irqs: 0,
             rx_bytes_read: 0,
             rx_frame_buf: [0u8; MAX_BUFFER_SIZE],
             tx_frame_buf: [0u8; MAX_BUFFER_SIZE],
@@ -276,12 +278,22 @@ impl Net {
             DeviceError::FailedSignalingUsedQueue(e)
         })?;
 
+        self.num_deffered_irqs = 0;
         self.rx_deferred_irqs = false;
         Ok(())
     }
 
     fn signal_rx_used_queue(&mut self) -> result::Result<(), DeviceError> {
         if self.rx_deferred_irqs {
+            return self.signal_used_queue();
+        }
+
+        Ok(())
+    }
+
+    fn signal_rx_used_queue_throttled(&mut self) -> result::Result<(), DeviceError> {
+        // Signal the other side when we used half of the RX queue
+        if self.num_deffered_irqs > self.queues[RX_INDEX].actual_size()/2 {
             return self.signal_used_queue();
         }
 
@@ -459,9 +471,12 @@ impl Net {
             FrontendError::AddUsed
         })?;
 
-        self.rx_deferred_irqs = true;
         METRICS.net.rx_bytes_count.add(frame_len);
         METRICS.net.rx_packets_count.inc();
+
+        self.num_deffered_irqs += used_buffs.len() as u16;
+        self.rx_deferred_irqs = true;
+        let _ = self.signal_rx_used_queue_throttled();
 
         Ok(())
     }
