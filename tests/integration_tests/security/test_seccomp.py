@@ -78,6 +78,30 @@ def test_advanced_seccomp_malicious(bin_seccomp_paths):
     assert outcome.returncode == -31
 
 
+def test_advanced_seccomp_panic(bin_seccomp_paths):
+    """
+    Test `demo_panic`.
+
+    Test that the advanced demo jailer allows the panic demo binary.
+    """
+    # pylint: disable=redefined-outer-name
+    # pylint: disable=subprocess-run-check
+    # The fixture pattern causes a pylint false positive for that rule.
+
+    demo_advanced_jailer = bin_seccomp_paths['demo_advanced_jailer']
+    demo_panic = bin_seccomp_paths['demo_panic']
+
+    assert os.path.exists(demo_advanced_jailer)
+    assert os.path.exists(demo_panic)
+
+    outcome = utils.run_cmd([demo_advanced_jailer, demo_panic],
+                            no_shell=True,
+                            ignore_return_code=True)
+
+    # The demo harmless binary should have terminated gracefully.
+    assert outcome.returncode == -6
+
+
 def test_seccomp_applies_to_all_threads(test_microvm_with_api):
     """Test all Firecracker threads get default seccomp level 2."""
     test_microvm = test_microvm_with_api
