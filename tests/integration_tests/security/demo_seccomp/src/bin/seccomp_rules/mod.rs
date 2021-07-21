@@ -1,21 +1,23 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-use seccomp::{allow_syscall, SyscallRuleSet};
+use seccomp::{allow_syscall, allow_syscall_if, SyscallRuleSet};
 
 /// Returns a list of rules that allow syscalls required for running a rust program.
 pub fn rust_required_rules() -> Vec<SyscallRuleSet> {
     vec![
-        allow_syscall(libc::SYS_sigaltstack),
-        allow_syscall(libc::SYS_munmap),
         allow_syscall(libc::SYS_exit_group),
+        allow_syscall(libc::SYS_futex),
+        allow_syscall(libc::SYS_munmap),
+        allow_syscall(libc::SYS_rt_sigaction),
+        allow_syscall(libc::SYS_rt_sigprocmask),
+        allow_syscall(libc::SYS_sigaltstack),
+        allow_syscall(libc::SYS_tkill),
     ]
 }
 
 /// Returns a list of rules that allow syscalls required for executing another program.
 pub fn jailer_required_rules() -> Vec<SyscallRuleSet> {
     vec![
-        allow_syscall(libc::SYS_rt_sigprocmask),
-        allow_syscall(libc::SYS_rt_sigaction),
         allow_syscall(libc::SYS_execve),
         allow_syscall(libc::SYS_mmap),
         #[cfg(target_arch = "x86_64")]
