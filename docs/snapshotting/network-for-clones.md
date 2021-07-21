@@ -142,6 +142,18 @@ sudo ip route add 192.168.0.3 via 10.0.0.2
 
 **Full connectivity to/from the clone should be present at this point.**
 
+To make sure the guest also adjusts to the new environment, you can explicitly
+clear the ARP/neighbour table in the guest:
+
+```bash
+ip -family inet neigh flush any
+ip -family inet6 neigh flush any
+```
+
+ Otherwise, packets originating from the guest might be using old Link Layer
+ Address for up to arp cache timeout seconds. After said timeout period,
+ connectivity will work both ways even without an explicit flush.
+
 ## Scalability evaluation
 
 We ran synthetic tests to determine the impact of the addtional iptables
