@@ -85,6 +85,11 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall(libc::SYS_read),
             allow_syscall(libc::SYS_readv),
             allow_syscall(libc::SYS_recvfrom),
+            allow_syscall_if(
+                libc::SYS_rt_sigaction,
+                or![and![Cond::new(0, ArgLen::DWORD, Eq, libc::SIGABRT as u64)?]],
+            ),
+            allow_syscall(libc::SYS_rt_sigprocmask),
             // SYS_rt_sigreturn is needed in case a fault does occur, so that the signal handler
             // can return. Otherwise we get stuck in a fault loop.
             allow_syscall(libc::SYS_rt_sigreturn),
@@ -97,12 +102,15 @@ pub fn default_filter() -> Result<SeccompFilter, Error> {
             allow_syscall(libc::SYS_stat),
             allow_syscall_if(
                 libc::SYS_tkill,
-                or![and![Cond::new(
-                    1,
-                    ArgLen::DWORD,
-                    Eq,
-                    (sigrtmin() + super::super::vstate::vcpu::VCPU_RTSIG_OFFSET) as u64
-                )?]],
+                or![
+                    and![Cond::new(
+                        1,
+                        ArgLen::DWORD,
+                        Eq,
+                        (sigrtmin() + super::super::vstate::vcpu::VCPU_RTSIG_OFFSET) as u64
+                    )?],
+                    and![Cond::new(1, ArgLen::DWORD, Eq, libc::SIGABRT as u64)?],
+                ],
             ),
             #[cfg(target_env = "gnu")]
             allow_syscall(libc::SYS_tgkill),

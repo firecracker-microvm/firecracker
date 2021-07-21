@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed seccomp blocking syscalls necessary for Rust panics.
+
 ## [0.23.4]
 
 ### Changed
