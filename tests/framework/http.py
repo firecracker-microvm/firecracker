@@ -16,7 +16,7 @@ class Session(requests_unixsocket.Session):
 
     def __init__(self):
         """Create a Session object and set the is_good_response callback."""
-        super(Session, self).__init__()
+        super().__init__()
 
         def is_good_response(response: int):
             """Return `True` for all HTTP 2xx response codes."""
@@ -49,24 +49,24 @@ class Session(requests_unixsocket.Session):
         """Wrap the GET call with duration limit."""
         # pylint: disable=method-hidden
         # The `untime` method overrides this, and pylint disapproves.
-        return super(Session, self).get(url, **kwargs)
+        return super().get(url, **kwargs)
 
     @decorators.timed_request
     def patch(self, url, data=None, **kwargs):
         """Wrap the PATCH call with duration limit."""
         # pylint: disable=method-hidden
         # The `untime` method overrides this, and pylint disapproves.
-        return super(Session, self).patch(url, data=data, **kwargs)
+        return super().patch(url, data=data, **kwargs)
 
     @decorators.timed_request
     def put(self, url, data=None, **kwargs):
         """Wrap the PUT call with duration limit."""
         # pylint: disable=method-hidden
         # The `untime` method overrides this, and pylint disapproves.
-        return super(Session, self).put(url, data=data, **kwargs)
+        return super().put(url, data=data, **kwargs)
 
     def untime(self):
         """Restore the HTTP methods to their un-timed selves."""
-        self.get = super(Session, self).get
-        self.patch = super(Session, self).patch
-        self.put = super(Session, self).put
+        self.get = super().get
+        self.patch = super().patch
+        self.put = super().put
