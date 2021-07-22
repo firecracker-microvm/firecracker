@@ -1,6 +1,6 @@
 [package]
 name = "jailer"
-version = "0.23.4"
+version = "0.23.5"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 build = "../../build.rs"
