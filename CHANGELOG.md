@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.24.5]
 
 ### Fixed
 
