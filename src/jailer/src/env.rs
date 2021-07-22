@@ -59,6 +59,27 @@ fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> Result<()> {
         .map_err(Error::Dup2)
 }
 
+// This is a wrapper for the clone system call. When we want to create a new process in a new
+// pid namespace, we will call clone with a NULL stack pointer. We can do this because we will
+// not use the CLONE_VM flag, this will result with the original stack replicated, in a similar
+// manner to the fork syscall. The libc wrapper prevents use of a NULL stack pointer, so we will
+// call the syscall directly.
+fn clone(child_stack: *mut libc::c_void, flags: libc::c_int) -> Result<libc::c_int> {
+    // Clone parameters order is different between x86_64 and aarch64.
+    #[cfg(target_arch = "x86_64")]
+    return SyscallReturnCode(unsafe {
+        libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0) as libc::c_int
+    })
+    .into_result()
+    .map_err(Error::Clone);
+    #[cfg(target_arch = "aarch64")]
+    return SyscallReturnCode(unsafe {
+        libc::syscall(libc::SYS_clone, flags, child_stack, 0, 0, 0) as libc::c_int
+    })
+    .into_result()
+    .map_err(Error::Clone);
+}
+
 pub struct Env {
     id: String,
     chroot_dir: PathBuf,
@@ -223,23 +244,14 @@ impl Env {
     }
 
     fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<()> {
-        // Unshare into a new PID namespace.
-        // The current process will not be moved into the newly created namespace, but its first
-        // child will assume the role of init(1) in the new namespace.
-        // The call is safe because we're invoking a C library function with valid parameters.
-        SyscallReturnCode(unsafe { libc::unshare(libc::CLONE_NEWPID) })
-            .into_empty_result()
-            .map_err(Error::UnshareNewPID)?;
-
         // Compute jailer's total CPU time up to the current time.
         self.jailer_cpu_time_us =
             utils::time::get_time_us(utils::time::ClockType::ProcessCpu) - self.start_time_cpu_us;
 
         // Duplicate the current process. The child process will belong to the previously created
-        // PID namespace.
-        // TODO: replace the `unshare()` + `fork()` combo with `clone()` if we ever need to
-        //  squeeze every bit of start-up latency we can get
-        let pid = unsafe { libc::fork() };
+        // PID namespace. The current process will not be moved into the newly created namespace,
+        // but its first child will assume the role of init(1) in the new namespace.
+        let pid = clone(std::ptr::null_mut(), libc::CLONE_NEWPID)?;
         match pid {
             0 => {
                 // Reset process start time.
