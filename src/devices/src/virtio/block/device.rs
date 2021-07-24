@@ -275,11 +275,9 @@ impl Block {
     }
 
     pub fn process_queue(&mut self, queue_index: usize) -> bool {
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
-            // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
-        };
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
+
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
         while let Some(head) = queue.pop(mem) {
@@ -488,10 +486,7 @@ impl VirtioDevice for Block {
     }
 
     fn is_activated(&self) -> bool {
-        match self.device_state {
-            DeviceState::Inactive => false,
-            DeviceState::Activated(_) => true,
-        }
+        self.device_state.is_activated()
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {

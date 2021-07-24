@@ -20,6 +20,24 @@ pub enum DeviceState {
     Activated(GuestMemoryMmap),
 }
 
+impl DeviceState {
+    /// Checks if the device is activated.
+    pub fn is_activated(&self) -> bool {
+        match self {
+            DeviceState::Inactive => false,
+            DeviceState::Activated(_) => true,
+        }
+    }
+
+    /// Gets the memory attached to the device if it is activated.
+    pub fn mem(&self) -> Option<&GuestMemoryMmap> {
+        match self {
+            DeviceState::Activated(ref mem) => Some(mem),
+            DeviceState::Inactive => None,
+        }
+    }
+}
+
 /// Trait for virtio devices to be driven by a virtio transport.
 ///
 /// The lifecycle of a virtio device is to be moved to a virtio transport, which will then query the
