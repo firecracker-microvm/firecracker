@@ -12,7 +12,7 @@ use std::io::{self, Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
 use std::result;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use logger::{error, warn, IncMetric, METRICS};
@@ -22,13 +22,12 @@ use virtio_gen::virtio_blk::*;
 use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::{
-    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK, VIRTIO_MMIO_INT_VRING},
+    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK},
     request::*,
     Error, CONFIG_SPACE_SIZE, QUEUE_SIZES, SECTOR_SHIFT, SECTOR_SIZE,
 };
 
-use crate::virtio::VIRTIO_MMIO_INT_CONFIG;
-use crate::Error as DeviceError;
+use crate::virtio::{IrqTrigger, IrqType};
 
 use serde::{Deserialize, Serialize};
 
@@ -191,10 +190,9 @@ pub struct Block {
 
     // Transport related fields.
     pub(crate) queues: Vec<Queue>,
-    pub(crate) interrupt_status: Arc<AtomicUsize>,
-    pub(crate) interrupt_evt: EventFd,
     pub(crate) queue_evts: [EventFd; 1],
     pub(crate) device_state: DeviceState,
+    pub(crate) irq_trigger: IrqTrigger,
 
     // Implementation specific fields.
     pub(crate) id: String,
@@ -237,11 +235,10 @@ impl Block {
             disk: disk_properties,
             avail_features,
             acked_features: 0u64,
-            interrupt_status: Arc::new(AtomicUsize::new(0)),
-            interrupt_evt: EventFd::new(libc::EFD_NONBLOCK)?,
             queue_evts,
             queues,
             device_state: DeviceState::Inactive,
+            irq_trigger: IrqTrigger::new()?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK)?,
         })
     }
@@ -261,7 +258,11 @@ impl Block {
     /// Process device virtio queue(s).
     pub fn process_virtio_queues(&mut self) {
         if self.process_queue(0) {
-            let _ = self.signal_used_queue();
+            self.irq_trigger
+                .trigger_irq(IrqType::Vring)
+                .unwrap_or_else(|_| {
+                    METRICS.block.event_fails.inc();
+                });
         }
     }
 
@@ -270,7 +271,7 @@ impl Block {
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
         if self.rate_limiter.event_handler().is_ok() && self.process_queue(0) {
-            let _ = self.signal_used_queue();
+            let _ = self.irq_trigger.trigger_irq(IrqType::Vring);
         }
     }
 
@@ -352,18 +353,6 @@ impl Block {
         used_any
     }
 
-    pub(crate) fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
-        self.interrupt_status
-            .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
-
-        self.interrupt_evt.write(1).map_err(|e| {
-            error!("Failed to signal used queue: {:?}", e);
-            METRICS.block.event_fails.inc();
-            DeviceError::FailedSignalingIrq(e)
-        })?;
-        Ok(())
-    }
-
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> io::Result<()> {
         let disk_properties =
@@ -372,9 +361,7 @@ impl Block {
         self.config_space = self.disk.virtio_block_config_space();
 
         // Kick the driver to pick up the changes.
-        self.interrupt_status
-            .fetch_or(VIRTIO_MMIO_INT_CONFIG as usize, Ordering::SeqCst);
-        self.interrupt_evt.write(1).unwrap();
+        self.irq_trigger.trigger_irq(IrqType::Config).unwrap();
 
         METRICS.block.update_count.inc();
         Ok(())
@@ -439,12 +426,12 @@ impl VirtioDevice for Block {
     }
 
     fn interrupt_evt(&self) -> &EventFd {
-        &self.interrupt_evt
+        &self.irq_trigger.irq_evt
     }
 
     /// Returns the current device interrupt status.
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
-        self.interrupt_status.clone()
+        self.irq_trigger.irq_status.clone()
     }
 
     fn avail_features(&self) -> u64 {
@@ -1185,7 +1172,7 @@ pub(crate) mod tests {
             // Assert that limiter is blocked.
             assert!(block.rate_limiter.is_blocked());
             // Assert that no operation actually completed (limiter blocked it).
-            assert!(block.interrupt_evt.read().is_err());
+            assert!(!block.irq_trigger.has_pending_irq(IrqType::Vring));
             // Make sure the data is still queued for processing.
             assert_eq!(vq.used.idx.get(), 0);
         }
@@ -1205,7 +1192,7 @@ pub(crate) mod tests {
             assert!(!block.rate_limiter.is_blocked());
 
             // Make sure the virtio queue operation completed this time.
-            assert_eq!(block.interrupt_evt.read().unwrap(), 1);
+            assert!(block.irq_trigger.has_pending_irq(IrqType::Vring));
 
             // Make sure the data queue advanced.
             assert_eq!(vq.used.idx.get(), 1);
@@ -1255,7 +1242,7 @@ pub(crate) mod tests {
             // Assert that limiter is blocked.
             assert!(block.rate_limiter.is_blocked());
             // Assert that no operation actually completed (limiter blocked it).
-            assert!(block.interrupt_evt.read().is_err());
+            assert!(!block.irq_trigger.has_pending_irq(IrqType::Vring));
             // Make sure the data is still queued for processing.
             assert_eq!(vq.used.idx.get(), 0);
         }
@@ -1273,7 +1260,7 @@ pub(crate) mod tests {
             // Assert that limiter is blocked.
             assert!(block.rate_limiter.is_blocked());
             // Assert that no operation actually completed (limiter blocked it).
-            assert!(block.interrupt_evt.read().is_err());
+            assert!(!block.irq_trigger.has_pending_irq(IrqType::Vring));
             // Make sure the data is still queued for processing.
             assert_eq!(vq.used.idx.get(), 0);
         }
@@ -1292,7 +1279,7 @@ pub(crate) mod tests {
             // Validate the rate_limiter is no longer blocked.
             assert!(!block.rate_limiter.is_blocked());
             // Make sure the virtio queue operation completed this time.
-            assert_eq!(block.interrupt_evt.read().unwrap(), 1);
+            assert!(block.irq_trigger.has_pending_irq(IrqType::Vring));
 
             // Make sure the data queue advanced.
             assert_eq!(vq.used.idx.get(), 1);

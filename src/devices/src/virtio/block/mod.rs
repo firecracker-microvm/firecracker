@@ -5,6 +5,7 @@ pub mod device;
 pub mod event_handler;
 pub mod persist;
 pub mod request;
+#[cfg(test)]
 pub mod test_utils;
 
 pub use self::device::{Block, CacheType};
