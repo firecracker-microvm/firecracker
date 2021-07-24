@@ -305,11 +305,8 @@ impl Net {
     // Copies a single frame from `self.rx_frame_buf` into the guest.
     fn do_write_frame_to_guest(&mut self) -> std::result::Result<(), FrontendError> {
         let mut result: std::result::Result<(), FrontendError> = Ok(());
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
-            // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
-        };
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
 
         let queue = &mut self.queues[RX_INDEX];
         let head_descriptor = queue.pop(mem).ok_or_else(|| {
@@ -522,11 +519,8 @@ impl Net {
     }
 
     fn process_tx(&mut self) -> result::Result<(), DeviceError> {
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
-            // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
-        };
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
 
         // The MMDS network stack works like a state machine, based on synchronous calls, and
         // without being added to any event loop. If any frame is accepted by the MMDS, we also
@@ -674,11 +668,8 @@ impl Net {
     }
 
     pub fn process_tap_rx_event(&mut self) {
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
-            // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
-        };
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
         METRICS.net.rx_tap_event_count.inc();
 
         // While there are no available RX queue buffers and there's a deferred_frame
@@ -833,10 +824,7 @@ impl VirtioDevice for Net {
     }
 
     fn is_activated(&self) -> bool {
-        match self.device_state {
-            DeviceState::Inactive => false,
-            DeviceState::Activated(_) => true,
-        }
+        self.device_state.is_activated()
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {

@@ -135,11 +135,8 @@ where
     /// otherwise.
     pub fn process_rx(&mut self) -> bool {
         debug!("vsock: process_rx()");
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
-            // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
-        };
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
 
         let mut have_used = false;
 
@@ -186,11 +183,8 @@ where
     /// ring, and `false` otherwise.
     pub fn process_tx(&mut self) -> bool {
         debug!("vsock::process_tx()");
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
-            // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
-        };
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
 
         let mut have_used = false;
 
@@ -229,11 +223,8 @@ where
     // connections and the guest_cid configuration field is fetched again. Existing listen sockets remain
     // but their CID is updated to reflect the current guest_cid.
     pub fn send_transport_reset_event(&mut self) -> result::Result<(), DeviceError> {
-        let mem = match self.device_state {
-            DeviceState::Activated(ref mem) => mem,
-            // This should never happen, it's been already validated in the caller function.
-            DeviceState::Inactive => unreachable!(),
-        };
+        // This is safe since we checked in the caller function that the device is activated.
+        let mem = self.device_state.mem().unwrap();
 
         let head = self.queues[EVQ_INDEX].pop(mem).ok_or_else(|| {
             METRICS.vsock.ev_queue_event_fails.inc();
@@ -347,10 +338,7 @@ where
     }
 
     fn is_activated(&self) -> bool {
-        match self.device_state {
-            DeviceState::Inactive => false,
-            DeviceState::Activated(_) => true,
-        }
+        self.device_state.is_activated()
     }
 }
 
