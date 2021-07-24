@@ -1,7 +1,7 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::virtio::{Block, CacheType, Queue};
+use crate::virtio::{Block, CacheType, IrqType, Queue};
 use rate_limiter::RateLimiter;
 use utils::tempfile::TempFile;
 
@@ -39,7 +39,7 @@ pub fn invoke_handler_for_queue_event(b: &mut Block) {
     // Handle event.
     b.process_queue_event();
     // Validate the queue operation finished successfully.
-    assert_eq!(b.interrupt_evt.read().unwrap(), 1);
+    assert!(b.irq_trigger.has_pending_irq(IrqType::Vring));
 }
 
 pub fn set_queue(blk: &mut Block, idx: usize, q: Queue) {
