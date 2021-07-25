@@ -8,8 +8,9 @@
 use std::sync::{atomic::AtomicUsize, Arc};
 
 use super::{ActivateResult, Queue};
-use crate::virtio::AsAny;
-use logger::warn;
+use crate::virtio::{AsAny, VIRTIO_MMIO_INT_CONFIG, VIRTIO_MMIO_INT_VRING};
+use logger::{error, warn};
+use std::sync::atomic::Ordering;
 use utils::eventfd::EventFd;
 use vm_memory::GuestMemoryMmap;
 
@@ -35,6 +36,41 @@ impl DeviceState {
             DeviceState::Activated(ref mem) => Some(mem),
             DeviceState::Inactive => None,
         }
+    }
+}
+
+pub enum IrqType {
+    Config,
+    Vring,
+}
+
+/// Helper struct that is responsible for triggering guest IRQs
+pub struct IrqTrigger {
+    pub(crate) irq_status: Arc<AtomicUsize>,
+    pub(crate) irq_evt: EventFd,
+}
+
+impl IrqTrigger {
+    pub fn new() -> std::io::Result<Self> {
+        Ok(Self {
+            irq_status: Arc::new(AtomicUsize::new(0)),
+            irq_evt: EventFd::new(libc::EFD_NONBLOCK)?,
+        })
+    }
+
+    pub fn trigger_irq(&self, irq_type: IrqType) -> std::result::Result<(), std::io::Error> {
+        let irq = match irq_type {
+            IrqType::Config => VIRTIO_MMIO_INT_CONFIG,
+            IrqType::Vring => VIRTIO_MMIO_INT_VRING,
+        };
+        self.irq_status.fetch_or(irq as usize, Ordering::SeqCst);
+
+        self.irq_evt.write(1).map_err(|e| {
+            error!("Failed to send irq to the guest: {:?}", e);
+            e
+        })?;
+
+        Ok(())
     }
 }
 
@@ -132,5 +168,47 @@ pub trait VirtioDevice: AsAny + Send {
 impl std::fmt::Debug for dyn VirtioDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "VirtioDevice type {}", self.device_type())
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    impl IrqTrigger {
+        pub fn has_pending_irq(&self, irq_type: IrqType) -> bool {
+            if let Ok(1) = self.irq_evt.read() {
+                let irq_status = self.irq_status.load(Ordering::SeqCst) as u32;
+                return matches!(
+                    (irq_status, irq_type),
+                    (VIRTIO_MMIO_INT_CONFIG, IrqType::Config)
+                        | (VIRTIO_MMIO_INT_VRING, IrqType::Vring)
+                );
+            }
+
+            false
+        }
+    }
+
+    #[test]
+    fn irq_trigger() {
+        let irq_trigger = IrqTrigger::new().unwrap();
+        assert_eq!(irq_trigger.irq_status.load(Ordering::SeqCst), 0);
+
+        // Check that there are no pending irqs.
+        assert!(!irq_trigger.has_pending_irq(IrqType::Config));
+        assert!(!irq_trigger.has_pending_irq(IrqType::Vring));
+
+        // Check that trigger_irq() correctly generates irqs.
+        irq_trigger.trigger_irq(IrqType::Config).unwrap();
+        assert!(irq_trigger.has_pending_irq(IrqType::Config));
+        irq_trigger.irq_status.store(0, Ordering::SeqCst);
+        irq_trigger.trigger_irq(IrqType::Vring).unwrap();
+        assert!(irq_trigger.has_pending_irq(IrqType::Vring));
+
+        // Check trigger_irq() failure case (irq_evt is full).
+        irq_trigger.irq_evt.write(u64::MAX - 1).unwrap();
+        assert!(irq_trigger.trigger_irq(IrqType::Config).is_err());
+        assert!(irq_trigger.trigger_irq(IrqType::Vring).is_err());
     }
 }
