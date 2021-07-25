@@ -9,7 +9,6 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{mem, result};
 
-#[cfg(test)]
 use crate::virtio::net::device::vnet_hdr_len;
 use crate::virtio::net::tap::{Error, IfReqBuilder, Tap};
 use crate::virtio::test_utils::VirtQueue;
@@ -231,13 +230,6 @@ pub fn enable(tap: &Tap) {
         .unwrap();
 }
 
-// Check that the used queue event has been generated `count` times.
-pub fn check_used_queue_signal(net: &Net, count: u64) {
-    // Leave at least one event here so that reading it later won't block.
-    net.interrupt_evt.write(1).unwrap();
-    assert_eq!(net.interrupt_evt.read().unwrap(), count + 1);
-}
-
 #[cfg(test)]
 pub(crate) fn inject_tap_tx_frame(net: &Net, len: usize) -> Vec<u8> {
     assert!(len >= vnet_hdr_len());
@@ -295,12 +287,11 @@ pub mod test {
     use crate::check_metric_after_block;
     use crate::virtio::net::device::vnet_hdr_len;
     use crate::virtio::net::test_utils::{
-        assign_queues, check_used_queue_signal, default_net, inject_tap_tx_frame, NetEvent,
-        NetQueue, ReadTapMock,
+        assign_queues, default_net, inject_tap_tx_frame, NetEvent, NetQueue, ReadTapMock,
     };
     use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
     use crate::virtio::{
-        Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
+        IrqType, Net, VirtioDevice, MAX_BUFFER_SIZE, RX_INDEX, TX_INDEX, VIRTQ_DESC_F_NEXT,
         VIRTQ_DESC_F_WRITE,
     };
     use event_manager::{EventManager, SubscriberId, SubscriberOps};
@@ -433,7 +424,7 @@ pub mod test {
             assert!(self.net().rx_deferred_frame);
             // Check that the descriptor chain has been discarded.
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
-            check_used_queue_signal(&self.net(), 1);
+            assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
 
             frame
         }
@@ -455,7 +446,7 @@ pub mod test {
             );
             // Check that the expected frame was sent to the Rx queue eventually.
             assert_eq!(self.rxq.used.idx.get(), used_idx + 1);
-            check_used_queue_signal(&self.net(), 1);
+            assert!(&self.net().irq_trigger.has_pending_irq(IrqType::Vring));
             self.rxq
                 .check_used_elem(used_idx, 0, expected_frame.len() as u32);
             self.rxq.dtable[0].check_data(&expected_frame);

@@ -16,6 +16,7 @@ pub mod device;
 pub mod event_handler;
 pub mod persist;
 mod tap;
+#[cfg(test)]
 pub mod test_utils;
 
 pub use self::device::Net;

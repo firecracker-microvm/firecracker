@@ -98,7 +98,8 @@ impl Persist<'_> for Net {
             .virtio_state
             .build_queues_checked(&constructor_args.mem, TYPE_NET, NUM_QUEUES, QUEUE_SIZE)
             .map_err(Error::VirtioState)?;
-        net.interrupt_status = Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
+        net.irq_trigger.irq_status =
+            Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         net.avail_features = state.virtio_state.avail_features;
         net.acked_features = state.virtio_state.acked_features;
         net.config_space = ConfigSpace {
