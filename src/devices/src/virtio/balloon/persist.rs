@@ -128,7 +128,8 @@ impl Persist<'_> for Balloon {
             .virtio_state
             .build_queues_checked(&constructor_args.mem, TYPE_BALLOON, num_queues, QUEUE_SIZE)
             .map_err(|_| Self::Error::QueueRestoreError)?;
-        balloon.interrupt_status = Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
+        balloon.irq_trigger.irq_status =
+            Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         balloon.avail_features = state.virtio_state.avail_features;
         balloon.acked_features = state.virtio_state.acked_features;
         balloon.latest_stats = state.latest_stats.create_stats();

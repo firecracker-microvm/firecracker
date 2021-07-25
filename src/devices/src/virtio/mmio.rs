@@ -319,16 +319,6 @@ impl BusDevice for MmioTransport {
             }
         }
     }
-
-    fn interrupt(&self, irq_mask: u32) -> std::io::Result<()> {
-        self.interrupt_status
-            .fetch_or(irq_mask as usize, Ordering::SeqCst);
-        // interrupt_evt() is safe to unwrap because the inner interrupt_evt is initialized in the
-        // constructor.
-        // write() is safe to unwrap because the inner syscall is tailored to be safe as well.
-        self.locked_device().interrupt_evt().write(1).unwrap();
-        Ok(())
-    }
 }
 
 #[cfg(test)]

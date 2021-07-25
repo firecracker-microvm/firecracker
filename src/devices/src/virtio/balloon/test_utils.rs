@@ -4,7 +4,9 @@
 use std::u32;
 
 use crate::virtio::test_utils::VirtQueue;
-use crate::virtio::{balloon::NUM_QUEUES, Balloon, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX};
+use crate::virtio::{
+    balloon::NUM_QUEUES, Balloon, IrqType, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX,
+};
 
 pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
     assert!(queue_index < NUM_QUEUES);
@@ -18,7 +20,7 @@ pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
         _ => unreachable!(),
     };
     // Validate the queue operation finished successfully.
-    assert_eq!(b.interrupt_evt.read().unwrap(), 1);
+    assert!(b.irq_trigger.has_pending_irq(IrqType::Vring));
 }
 
 pub fn set_request(queue: &VirtQueue, idx: usize, addr: u64, len: u32, flags: u16) {
