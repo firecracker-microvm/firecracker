@@ -251,7 +251,7 @@ impl Net {
         self.interrupt_evt.write(1).map_err(|e| {
             error!("Failed to signal used queue: {:?}", e);
             METRICS.net.event_fails.inc();
-            DeviceError::FailedSignalingUsedQueue(e)
+            DeviceError::FailedSignalingIrq(e)
         })?;
 
         self.rx_deferred_irqs = false;

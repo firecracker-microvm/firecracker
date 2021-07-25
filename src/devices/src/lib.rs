@@ -33,8 +33,8 @@ pub(crate) fn report_balloon_event_fail(err: virtio::balloon::Error) {
 pub enum Error {
     /// Failed to read from the TAP device.
     FailedReadTap,
-    /// Failed to signal the virtio used queue.
-    FailedSignalingUsedQueue(io::Error),
+    /// Failed to signal irq.
+    FailedSignalingIrq(io::Error),
     /// IO error.
     IoError(io::Error),
     /// Device received malformed payload.

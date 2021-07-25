@@ -359,7 +359,7 @@ impl Block {
         self.interrupt_evt.write(1).map_err(|e| {
             error!("Failed to signal used queue: {:?}", e);
             METRICS.block.event_fails.inc();
-            DeviceError::FailedSignalingUsedQueue(e)
+            DeviceError::FailedSignalingIrq(e)
         })?;
         Ok(())
     }

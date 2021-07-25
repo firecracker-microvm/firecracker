@@ -236,7 +236,7 @@ mod tests {
 
             ctx.device.interrupt_evt.write(std::u64::MAX - 1).unwrap();
             match ctx.device.signal_used_queue() {
-                Err(DeviceError::FailedSignalingUsedQueue(_)) => (),
+                Err(DeviceError::FailedSignalingIrq(_)) => (),
                 other => panic!("{:?}", other),
             }
         }
