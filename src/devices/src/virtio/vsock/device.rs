@@ -20,7 +20,7 @@ use std::result;
 /// - a TX queue FD;
 /// - an event queue FD; and
 /// - a backend FD.
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use logger::{debug, error, warn, IncMetric, METRICS};
@@ -29,13 +29,14 @@ use utils::eventfd::EventFd;
 use vm_memory::{Bytes, GuestMemoryMmap};
 
 use super::super::super::Error as DeviceError;
-use super::super::{
-    ActivateError, ActivateResult, DeviceState, Queue as VirtQueue, VirtioDevice, VsockError,
-    VIRTIO_MMIO_INT_VRING,
-};
 use super::packet::{VsockPacket, VSOCK_PKT_HDR_SIZE};
 use super::VsockBackend;
 use super::{defs, defs::uapi};
+
+use crate::virtio::{
+    ActivateError, ActivateResult, DeviceState, IrqTrigger, IrqType, Queue as VirtQueue,
+    VirtioDevice, VsockError,
+};
 
 pub(crate) const RXQ_INDEX: usize = 0;
 pub(crate) const TXQ_INDEX: usize = 1;
@@ -57,8 +58,7 @@ pub struct Vsock<B> {
     pub(crate) backend: B,
     pub(crate) avail_features: u64,
     pub(crate) acked_features: u64,
-    pub(crate) interrupt_status: Arc<AtomicUsize>,
-    pub(crate) interrupt_evt: EventFd,
+    pub(crate) irq_trigger: IrqTrigger,
     // This EventFd is the only one initially registered for a vsock device, and is used to convert
     // a VirtioDevice::activate call into an EventHandler read event which allows the other events
     // (queue and backend related) to be registered post virtio device activation. That's
@@ -90,8 +90,7 @@ where
             backend,
             avail_features: AVAIL_FEATURES,
             acked_features: 0,
-            interrupt_status: Arc::new(AtomicUsize::new(0)),
-            interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
+            irq_trigger: IrqTrigger::new().map_err(VsockError::EventFd)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(VsockError::EventFd)?,
             device_state: DeviceState::Inactive,
         })
@@ -122,12 +121,9 @@ where
     /// available.
     pub fn signal_used_queue(&self) -> result::Result<(), DeviceError> {
         debug!("vsock: raising IRQ");
-        self.interrupt_status
-            .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
-        self.interrupt_evt.write(1).map_err(|e| {
-            error!("Failed to signal used queue: {:?}", e);
-            DeviceError::FailedSignalingIrq(e)
-        })
+        self.irq_trigger
+            .trigger_irq(IrqType::Vring)
+            .map_err(DeviceError::FailedSignalingIrq)
     }
 
     /// Walk the driver-provided RX queue buffers and attempt to fill them up with any data that we
@@ -279,11 +275,11 @@ where
     }
 
     fn interrupt_evt(&self) -> &EventFd {
-        &self.interrupt_evt
+        &self.irq_trigger.irq_evt
     }
 
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
-        self.interrupt_status.clone()
+        self.irq_trigger.irq_status.clone()
     }
 
     fn read_config(&self, offset: u64, data: &mut [u8]) {
