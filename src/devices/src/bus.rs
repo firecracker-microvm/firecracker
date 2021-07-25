@@ -10,7 +10,6 @@
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
 use std::fmt;
-use std::io;
 use std::result;
 use std::sync::{Arc, Mutex};
 
@@ -26,10 +25,6 @@ pub trait BusDevice: AsAny + Send {
     fn read(&mut self, offset: u64, data: &mut [u8]) {}
     /// Writes at `offset` into this device
     fn write(&mut self, offset: u64, data: &[u8]) {}
-    /// Triggers the `irq_mask` interrupt on this device
-    fn interrupt(&self, irq_mask: u32) -> io::Result<()> {
-        Ok(())
-    }
 }
 
 #[derive(Debug)]

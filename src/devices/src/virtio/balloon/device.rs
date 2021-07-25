@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::cmp;
 use std::io::Write;
 use std::result::Result;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,15 +18,13 @@ use ::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 use super::*;
 use super::{
-    super::{
-        ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON, VIRTIO_MMIO_INT_VRING,
-    },
+    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON},
     utils::{compact_page_frame_numbers, remove_range},
     BALLOON_DEV_ID,
 };
 
-use crate::report_balloon_event_fail;
 use crate::virtio::balloon::Error as BalloonError;
+use crate::virtio::{IrqTrigger, IrqType};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
@@ -134,10 +132,9 @@ pub struct Balloon {
 
     // Transport related fields.
     pub(crate) queues: Vec<Queue>,
-    pub(crate) interrupt_status: Arc<AtomicUsize>,
-    pub(crate) interrupt_evt: EventFd,
     pub(crate) queue_evts: [EventFd; NUM_QUEUES],
     pub(crate) device_state: DeviceState,
+    pub(crate) irq_trigger: IrqTrigger,
 
     // Implementation specific fields.
     pub(crate) restored: bool,
@@ -192,10 +189,9 @@ impl Balloon {
                 num_pages: mib_to_pages(amount_mib)?,
                 actual_pages: 0,
             },
-            interrupt_status: Arc::new(AtomicUsize::new(0)),
-            interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
             queue_evts,
             queues,
+            irq_trigger: IrqTrigger::new().map_err(BalloonError::EventFd)?,
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
             restored,
@@ -317,8 +313,7 @@ impl Balloon {
         }
 
         if needs_interrupt {
-            self.signal_used_queue()
-                .unwrap_or_else(report_balloon_event_fail);
+            self.signal_used_queue()?;
         }
 
         Ok(())
@@ -385,14 +380,10 @@ impl Balloon {
     }
 
     pub(crate) fn signal_used_queue(&self) -> Result<(), BalloonError> {
-        self.interrupt_status
-            .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
-
-        self.interrupt_evt.write(1).map_err(|e| {
-            error!("Failed to signal used queue: {:?}", e);
-            BalloonError::FailedSignalingUsedQueue(e)
-        })?;
-        Ok(())
+        self.irq_trigger.trigger_irq(IrqType::Vring).map_err(|e| {
+            METRICS.balloon.event_fails.inc();
+            BalloonError::InterruptError(e)
+        })
     }
 
     /// Process device virtio queue(s).
@@ -425,7 +416,9 @@ impl Balloon {
     pub fn update_size(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         if self.is_activated() {
             self.config_space.num_pages = mib_to_pages(amount_mib)?;
-            Ok(())
+            self.irq_trigger
+                .trigger_irq(IrqType::Config)
+                .map_err(BalloonError::InterruptError)
         } else {
             Err(BalloonError::DeviceNotActive)
         }
@@ -519,11 +512,11 @@ impl VirtioDevice for Balloon {
     }
 
     fn interrupt_evt(&self) -> &EventFd {
-        &self.interrupt_evt
+        &self.irq_trigger.irq_evt
     }
 
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
-        self.interrupt_status.clone()
+        self.irq_trigger.irq_status.clone()
     }
 
     fn avail_features(&self) -> u64 {
@@ -593,12 +586,12 @@ pub(crate) mod tests {
 
     use super::super::CONFIG_SPACE_SIZE;
     use super::*;
-    use crate::check_metric_after_block;
     use crate::virtio::balloon::test_utils::{
         check_request_completion, invoke_handler_for_queue_event, set_request,
     };
     use crate::virtio::test_utils::{default_mem, VirtQueue};
     use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::{check_metric_after_block, report_balloon_event_fail};
     use vm_memory::GuestAddress;
 
     impl Balloon {
@@ -987,7 +980,7 @@ pub(crate) mod tests {
                 assert!(balloon.stats_desc_index.is_some());
                 assert!(balloon.process_stats_timer_event().is_ok());
                 assert!(balloon.stats_desc_index.is_none());
-                assert_eq!(balloon.interrupt_evt().read().unwrap(), 1);
+                assert!(balloon.irq_trigger.has_pending_irq(IrqType::Vring));
             });
         }
     }
