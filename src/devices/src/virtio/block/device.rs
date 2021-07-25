@@ -257,25 +257,19 @@ impl Block {
 
     /// Process device virtio queue(s).
     pub fn process_virtio_queues(&mut self) {
-        if self.process_queue(0) {
-            self.irq_trigger
-                .trigger_irq(IrqType::Vring)
-                .unwrap_or_else(|_| {
-                    METRICS.block.event_fails.inc();
-                });
-        }
+        self.process_queue(0);
     }
 
     pub(crate) fn process_rate_limiter_event(&mut self) {
         METRICS.block.rate_limiter_event_count.inc();
         // Upon rate limiter event, call the rate limiter handler
         // and restart processing the queue.
-        if self.rate_limiter.event_handler().is_ok() && self.process_queue(0) {
-            let _ = self.irq_trigger.trigger_irq(IrqType::Vring);
+        if self.rate_limiter.event_handler().is_ok() {
+            self.process_queue(0);
         }
     }
 
-    pub fn process_queue(&mut self, queue_index: usize) -> bool {
+    pub fn process_queue(&mut self, queue_index: usize) {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
 
@@ -346,11 +340,15 @@ impl Block {
             used_any = true;
         }
 
-        if !used_any {
+        if used_any {
+            self.irq_trigger
+                .trigger_irq(IrqType::Vring)
+                .unwrap_or_else(|_| {
+                    METRICS.block.event_fails.inc();
+                });
+        } else {
             METRICS.block.no_avail_buffer.inc();
         }
-
-        used_any
     }
 
     /// Update the backing file and the config space of the block device.
