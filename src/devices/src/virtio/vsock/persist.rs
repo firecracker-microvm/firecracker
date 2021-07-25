@@ -114,7 +114,8 @@ where
 
         vsock.acked_features = state.virtio_state.acked_features;
         vsock.avail_features = state.virtio_state.avail_features;
-        vsock.interrupt_status = Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
+        vsock.irq_trigger.irq_status =
+            Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         vsock.device_state = if state.virtio_state.activated {
             DeviceState::Activated(constructor_args.mem)
         } else {

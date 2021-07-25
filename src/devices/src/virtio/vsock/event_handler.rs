@@ -200,7 +200,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
     use std::sync::{Arc, Mutex};
 
     use super::super::*;
@@ -208,39 +207,8 @@ mod tests {
 
     use crate::virtio::vsock::packet::VSOCK_PKT_HDR_SIZE;
     use crate::virtio::vsock::test_utils::{EventHandlerContext, TestContext};
-    use crate::virtio::VIRTIO_MMIO_INT_VRING;
-    use crate::Error as DeviceError;
     use event_manager::{EventManager, SubscriberOps};
     use vm_memory::Bytes;
-
-    #[test]
-    fn test_irq() {
-        // Test case: successful IRQ signaling.
-        {
-            let test_ctx = TestContext::new();
-            let ctx = test_ctx.create_event_handler_context();
-
-            ctx.device.signal_used_queue().unwrap();
-            assert_eq!(
-                ctx.device.interrupt_status.load(Ordering::SeqCst),
-                VIRTIO_MMIO_INT_VRING as usize
-            );
-            assert_eq!(ctx.device.interrupt_evt.read().unwrap(), 1);
-        }
-
-        // Test case: error (a real stretch) - the event counter is full.
-        //
-        {
-            let test_ctx = TestContext::new();
-            let ctx = test_ctx.create_event_handler_context();
-
-            ctx.device.interrupt_evt.write(std::u64::MAX - 1).unwrap();
-            match ctx.device.signal_used_queue() {
-                Err(DeviceError::FailedSignalingIrq(_)) => (),
-                other => panic!("{:?}", other),
-            }
-        }
-    }
 
     #[test]
     fn test_txq_event() {
