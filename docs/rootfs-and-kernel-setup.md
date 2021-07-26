@@ -76,7 +76,10 @@ OpenRC as an init system. Note that, whichever file system you choose to use,
 support for it will have to be compiled into the kernel, so it can be mounted
 at boot time.
 
-To build an EXT4 image:
+In order to obtain an EXT4 image that you can use with Firecracker, you have
+the following options:
+
+### Manual build
 
 1. Prepare a properly-sized file. We'll use 50MiB here, but this depends
    on how much data you'll want to fit inside:
@@ -157,6 +160,24 @@ Alpine Linux:
    ```bash
    sudo umount /tmp/my-rootfs
    ```
+
+### Use the provided recipe
+
+The disk images used in our CI to test Firecracker's features are obtained by
+using the recipe inside devtool:
+
+```bash
+./tools/devtool build_rootfs -s 300
+```
+
+or
+
+```bash
+./tools/devtool build_rootfs -p
+```
+
+in order to obtain a partuuid enabled rootfs.
+The images resulting using this method are minimized Ubuntu 18.04.
 
 You should now have a kernel image (`vmlinux`) and a rootfs image
 (`rootfs.ext4`), that you can boot with Firecracker.
