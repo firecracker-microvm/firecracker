@@ -51,11 +51,6 @@ pub const TYPE_NET: u32 = 1;
 pub const TYPE_BLOCK: u32 = 2;
 pub const TYPE_BALLOON: u32 = 5;
 
-/// Interrupt flags (re: interrupt status & acknowledge registers).
-/// See linux/virtio_mmio.h.
-pub const VIRTIO_MMIO_INT_VRING: u32 = 0x01;
-pub const VIRTIO_MMIO_INT_CONFIG: u32 = 0x02;
-
 /// Offset from the base MMIO address of a virtio device used by the guest to notify the device of
 /// queue events.
 pub const NOTIFY_REG_OFFSET: u32 = 0x50;
