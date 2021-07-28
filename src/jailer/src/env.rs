@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::cgroup;
-use crate::cgroup::Cgroup;
+use crate::cgroup::{Cgroup, CgroupV1};
 use crate::chroot::chroot;
 use crate::resource_limits::{ResourceLimits, FSIZE_ARG, NO_FILE_ARG};
 use crate::{Error, Result};
@@ -93,7 +93,7 @@ pub struct Env {
     start_time_cpu_us: u64,
     jailer_cpu_time_us: u64,
     extra_args: Vec<String>,
-    cgroups: Vec<Cgroup>,
+    cgroups: Vec<Box<dyn Cgroup>>,
     resource_limits: ResourceLimits,
 }
 
@@ -159,7 +159,7 @@ impl Env {
         let new_pid_ns = arguments.flag_present("new-pid-ns");
 
         // Optional arguments.
-        let mut cgroups = Vec::new();
+        let mut cgroups: Vec<Box<dyn Cgroup>> = Vec::new();
 
         // If `--node` is used, the corresponding cgroups will be created.
         if let Some(numa_node_str) = arguments.single_value("node") {
@@ -179,14 +179,14 @@ impl Env {
                     return Err(Error::CgroupFormat(cg.to_string()));
                 }
 
-                let cgroup = Cgroup::new(
+                let cgroup = CgroupV1::new(
                     aux[0].to_string(), // cgroup file
                     aux[1].to_string(), // cgroup value
                     id,
                     &exec_file_name,
                 )?;
 
-                cgroups.push(cgroup);
+                cgroups.push(Box::new(cgroup));
             }
         }
 
