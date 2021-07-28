@@ -14,10 +14,20 @@ use crate::{readln_special, writeln_special, Error, Result};
 const PROC_MOUNTS: &str = "/proc/mounts";
 const NODE_TO_CPULIST: &str = "/sys/devices/system/node/node"; // This constant should be removed once the `--node` argument is removed.
 
-pub struct Cgroup {
+struct CgroupBase {
     file: String,      // file representing the cgroup (e.g cpuset.mems).
     value: String,     // value that will be written into the file.
     location: PathBuf, // microVM cgroup location for the specific controller.
+}
+
+pub struct CgroupV1(CgroupBase);
+
+pub trait Cgroup {
+    // Write the cgroup value into the cgroup property file.
+    fn write_value(&self) -> Result<()>;
+
+    // This function will assign the process associated with the pid to the respective cgroup.
+    fn attach_pid(&self) -> Result<()>;
 }
 
 // If we call inherit_from_parent_aux(.../A/B/C, file, condition), the following will happen:
@@ -102,7 +112,7 @@ pub fn cgroups_from_numa_node(
     numa_node: u32,
     microvm_id: &str,
     exec_file_name: &OsStr,
-) -> Result<Vec<Cgroup>> {
+) -> Result<Vec<Box<dyn Cgroup>>> {
     // Retrieve the CPUs which belongs to the specific node.
     // Similar to how numactl library does, we are copying the contents of
     // /sys/devices/system/node/nodeX/cpulist to the cpuset.cpus file for ensuring
@@ -113,101 +123,103 @@ pub fn cgroups_from_numa_node(
     )))?;
 
     // Isolate the process in the specified numa_node CPUs.
-    let cpuset_cpus = Cgroup::new("cpuset.cpus".to_string(), cpus, microvm_id, exec_file_name)?;
+    let cpuset_cpus = CgroupV1::new("cpuset.cpus".to_string(), cpus, microvm_id, exec_file_name)?;
 
     // Isolate the process in the specified numa_node memory.
-    let cpuset_mems = Cgroup::new(
+    let cpuset_mems = CgroupV1::new(
         "cpuset.mems".to_string(),
         numa_node.to_string(),
         microvm_id,
         exec_file_name,
     )?;
 
-    Ok(vec![cpuset_cpus, cpuset_mems])
+    Ok(vec![Box::new(cpuset_cpus), Box::new(cpuset_mems)])
 }
 
-impl Cgroup {
-    pub fn new(file: String, value: String, id: &str, exec_file_name: &OsStr) -> Result<Self> {
-        let cgroup_location = Self::get_location(&file, exec_file_name, id)?;
+// Extract the controller name from the cgroup file. The cgroup file must follow
+// this format: <cgroup_controller>.<cgroup_property>.
+fn get_controller_from_filename(file: &str) -> Result<&str> {
+    let v: Vec<&str> = file.split('.').collect();
 
-        Ok(Cgroup {
+    // Check format <cgroup_controller>.<cgroup_property>
+    if v.len() != 2 {
+        return Err(Error::CgroupInvalidFile(file.to_string()));
+    }
+
+    Ok(v[0])
+}
+
+// Return the path of the cgroup subfolder for a specific controller.
+// (<mountpoint>/<controller>/<exec_file_name>/<id>).
+fn get_location(file: &str, exec_file_name: &OsStr, id: &str) -> Result<PathBuf> {
+    let controller = get_controller_from_filename(file)?;
+    let f =
+        File::open(PROC_MOUNTS).map_err(|e| Error::FileOpen(PathBuf::from(PROC_MOUNTS), e))?;
+
+    // Regex courtesy of Filippo.
+    let re = Regex::new(
+        r"^([a-z]*)[[:space:]](?P<dir>.*)[[:space:]]cgroup[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
+    ).map_err(Error::RegEx)?;
+    for l in BufReader::new(f).lines() {
+        let l = l.map_err(|e| Error::ReadLine(PathBuf::from(PROC_MOUNTS), e))?;
+        if let Some(capture) = re.captures(&l) {
+            let v: Vec<&str> = capture["options"].split(',').collect();
+
+            if v.contains(&controller) {
+                let mut path = PathBuf::from(&capture["dir"]);
+                path.push(exec_file_name);
+                path.push(id);
+
+                return Ok(path);
+            }
+        }
+    }
+
+    Err(Error::CgroupLineNotFound(
+        PROC_MOUNTS.to_string(),
+        controller.to_string(),
+    ))
+}
+
+impl CgroupV1 {
+    pub fn new(file: String, value: String, id: &str, exec_file_name: &OsStr) -> Result<Self> {
+        let cgroup_location = get_location(&file, exec_file_name, id)?;
+
+        Ok(CgroupV1 (CgroupBase {
             file,
             value,
             location: cgroup_location,
-        })
+        }))
     }
+}
 
+impl Cgroup for CgroupV1 {
     // Write the cgroup value into the cgroup property file.
-    pub fn write_value(&self) -> Result<()> {
-        let location = &mut self.location.clone();
+    fn write_value(&self) -> Result<()> {
+        let location = &mut self.0.location.clone();
 
         // Create the cgroup directory for the controller.
-        fs::create_dir_all(&self.location)
-            .map_err(|e| Error::CreateDir(self.location.clone(), e))?;
+        fs::create_dir_all(&self.0.location)
+            .map_err(|e| Error::CreateDir(self.0.location.clone(), e))?;
 
         // Write the corresponding cgroup value. inherit_from_parent is used to
         // correctly propagate the value if not defined.
-        inherit_from_parent(location, &self.file)?;
-        location.push(&self.file);
-        writeln_special(location, &self.value)?;
+        inherit_from_parent(location, &self.0.file)?;
+        location.push(&self.0.file);
+        writeln_special(location, &self.0.value)?;
 
         Ok(())
     }
 
     // This writes the pid of the current process to the tasks file. Tasks files are special files,
     // that when written to, will assign the process associated with the pid to the respective cgroup.
-    pub fn attach_pid(&self) -> Result<()> {
+    fn attach_pid(&self) -> Result<()> {
         let pid = process::id();
-        let location = &self.location.join("tasks");
+        let location = &self.0.location.join("tasks");
 
         writeln_special(location, pid)?;
 
         Ok(())
-    }
-
-    // Extract the controller name from the cgroup file. The cgroup file must follow
-    // this format: <cgroup_controller>.<cgroup_property>.
-    fn get_controller(file: &str) -> Result<&str> {
-        let v: Vec<&str> = file.split('.').collect();
-
-        // Check format <cgroup_controller>.<cgroup_property>
-        if v.len() != 2 {
-            return Err(Error::CgroupInvalidFile(file.to_string()));
-        }
-
-        Ok(v[0])
-    }
-
-    // Return the path of the cgroup subfolder for a specific controller.
-    // (<mountpoint>/<controller>/<exec_file_name>/<id>).
-    fn get_location(file: &str, exec_file_name: &OsStr, id: &str) -> Result<PathBuf> {
-        let controller = Self::get_controller(file)?;
-        let f =
-            File::open(PROC_MOUNTS).map_err(|e| Error::FileOpen(PathBuf::from(PROC_MOUNTS), e))?;
-
-        // Regex courtesy of Filippo.
-        let re = Regex::new(
-            r"^([a-z]*)[[:space:]](?P<dir>.*)[[:space:]]cgroup[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
-        ).map_err(Error::RegEx)?;
-        for l in BufReader::new(f).lines() {
-            let l = l.map_err(|e| Error::ReadLine(PathBuf::from(PROC_MOUNTS), e))?;
-            if let Some(capture) = re.captures(&l) {
-                let v: Vec<&str> = capture["options"].split(',').collect();
-
-                if v.contains(&controller) {
-                    let mut path = PathBuf::from(&capture["dir"]);
-                    path.push(exec_file_name);
-                    path.push(id);
-
-                    return Ok(path);
-                }
-            }
-        }
-
-        Err(Error::CgroupLineNotFound(
-            PROC_MOUNTS.to_string(),
-            controller.to_string(),
-        ))
     }
 }
 
@@ -258,25 +270,25 @@ mod tests {
         let mut file = "cpuset.cpu";
 
         // Check valid file.
-        let mut result = Cgroup::get_controller(file);
+        let mut result = get_controller_from_filename(file);
         assert!(result.is_ok());
         assert!(matches!(result, Ok(ctrl) if ctrl == "cpuset"));
 
         // Check invalid file
         file = "cpusetcpu";
-        result = Cgroup::get_controller(file);
+        result = get_controller_from_filename(file);
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("CgroupInvalidFile"));
 
         // Check invalid file
         file = "cpu.set.cpu";
-        result = Cgroup::get_controller(file);
+        result = get_controller_from_filename(file);
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("CgroupInvalidFile"));
 
         // Check empty file
         file = "";
-        result = Cgroup::get_controller(file);
+        result = get_controller_from_filename(file);
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("CgroupInvalidFile"));
     }
@@ -290,25 +302,25 @@ mod tests {
         let mut file = "cpuset.cpu";
 
         // Check valid file
-        let controller = "cpuset"; // defined to avoid calling get_controller.
+        let controller = "cpuset"; // defined to avoid calling get_controller_from_filename.
         assert!(&std::path::Path::new(&format!("{}/{}", cgroup_path, controller)).exists());
         let expected_path = PathBuf::from(format!(
             "{}/{}/{}/{}",
             &cgroup_path, &controller, &exec_file_name, &id
         ));
-        let mut result = Cgroup::get_location(file, OsStr::new(exec_file_name), id);
+        let mut result = get_location(file, OsStr::new(exec_file_name), id);
         assert!(result.is_ok());
         assert!(matches!(result, Ok(path) if path == expected_path));
 
         // Check file with invalid controller
         file = "invalid.cpu";
-        result = Cgroup::get_location(file, OsStr::new(exec_file_name), id);
+        result = get_location(file, OsStr::new(exec_file_name), id);
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("CgroupLineNotFound"));
 
         // Check empty file
         file = "";
-        result = Cgroup::get_location(file, OsStr::new(exec_file_name), id);
+        result = get_location(file, OsStr::new(exec_file_name), id);
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("CgroupInvalidFile"));
     }
