@@ -28,6 +28,9 @@ sudo iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 sudo iptables -A FORWARD -i tap0 -o eth0 -j ACCEPT
 ```
 
+*Note:* The IP of the TAP device should be chosen such that it's not in the same
+subnet as the IP address of the host.
+
 *Advanced:* If you are running multiple Firecracker MicroVMs in parallel, or
 have something else on your system using `tap0` then you need to create a `tap`
 for each one, with a unique name.
