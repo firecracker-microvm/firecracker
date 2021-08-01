@@ -25,6 +25,7 @@ extern crate vm_memory;
 mod target;
 #[allow(dead_code, unused_imports)]
 mod util;
+mod walker;
 
 #[allow(unused_imports)]
 use target::*;
