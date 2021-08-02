@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::cmp;
 use std::io::Write;
 use std::result::Result;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,28 +18,16 @@ use ::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 use super::*;
 use super::{
-    super::{
-        ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON, VIRTIO_MMIO_INT_VRING,
-    },
+    super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BALLOON},
     utils::{compact_page_frame_numbers, remove_range},
     BALLOON_DEV_ID,
 };
 
-use crate::report_balloon_event_fail;
 use crate::virtio::balloon::Error as BalloonError;
+use crate::virtio::{IrqTrigger, IrqType};
 
 const SIZE_OF_U32: usize = std::mem::size_of::<u32>();
 const SIZE_OF_STAT: usize = std::mem::size_of::<BalloonStat>();
-
-macro_rules! mem_of_active_device {
-    ($state:expr) => {
-        match $state {
-            DeviceState::Activated(ref mem) => mem,
-            // This should never happen, it's been already validated in the event handler.
-            DeviceState::Inactive => unreachable!(),
-        }
-    };
-}
 
 fn mib_to_pages(amount_mib: u32) -> Result<u32, BalloonError> {
     amount_mib
@@ -144,10 +132,9 @@ pub struct Balloon {
 
     // Transport related fields.
     pub(crate) queues: Vec<Queue>,
-    pub(crate) interrupt_status: Arc<AtomicUsize>,
-    pub(crate) interrupt_evt: EventFd,
     pub(crate) queue_evts: [EventFd; NUM_QUEUES],
     pub(crate) device_state: DeviceState,
+    pub(crate) irq_trigger: IrqTrigger,
 
     // Implementation specific fields.
     pub(crate) restored: bool,
@@ -202,10 +189,9 @@ impl Balloon {
                 num_pages: mib_to_pages(amount_mib)?,
                 actual_pages: 0,
             },
-            interrupt_status: Arc::new(AtomicUsize::new(0)),
-            interrupt_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
             queue_evts,
             queues,
+            irq_trigger: IrqTrigger::new().map_err(BalloonError::EventFd)?,
             device_state: DeviceState::Inactive,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(BalloonError::EventFd)?,
             restored,
@@ -244,7 +230,8 @@ impl Balloon {
     }
 
     pub(crate) fn process_inflate(&mut self) -> Result<(), BalloonError> {
-        let mem = mem_of_active_device!(self.device_state);
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
         METRICS.balloon.inflate_count.inc();
 
         let queue = &mut self.queues[INFLATE_INDEX];
@@ -259,7 +246,7 @@ impl Balloon {
             // Internal loop processes descriptors and acummulates the pfns in `pfn_buffer`.
             // Breaks out when there is not enough space in `pfn_buffer` to completely process
             // the next descriptor.
-            while let Some(head) = queue.pop(&mem) {
+            while let Some(head) = queue.pop(mem) {
                 let len = head.len as usize;
                 let max_len = MAX_PAGES_IN_DESC * SIZE_OF_U32;
                 valid_descs_found = true;
@@ -301,7 +288,7 @@ impl Balloon {
                 // Acknowledge the receipt of the descriptor.
                 // 0 is number of bytes the device has written to memory.
                 queue
-                    .add_used(&mem, head.index, 0)
+                    .add_used(mem, head.index, 0)
                     .map_err(BalloonError::Queue)?;
                 needs_interrupt = true;
             }
@@ -316,7 +303,7 @@ impl Balloon {
                     GuestAddress((page_frame_number as u64) << VIRTIO_BALLOON_PFN_SHIFT);
 
                 if let Err(e) = remove_range(
-                    &mem,
+                    mem,
                     (guest_addr, u64::from(range_len) << VIRTIO_BALLOON_PFN_SHIFT),
                     self.restored,
                 ) {
@@ -326,23 +313,23 @@ impl Balloon {
         }
 
         if needs_interrupt {
-            self.signal_used_queue()
-                .unwrap_or_else(report_balloon_event_fail);
+            self.signal_used_queue()?;
         }
 
         Ok(())
     }
 
     pub(crate) fn process_deflate_queue(&mut self) -> Result<(), BalloonError> {
-        let mem = mem_of_active_device!(self.device_state);
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
         METRICS.balloon.deflate_count.inc();
 
         let queue = &mut self.queues[DEFLATE_INDEX];
         let mut needs_interrupt = false;
 
-        while let Some(head) = queue.pop(&mem) {
+        while let Some(head) = queue.pop(mem) {
             queue
-                .add_used(&mem, head.index, 0)
+                .add_used(mem, head.index, 0)
                 .map_err(BalloonError::Queue)?;
             needs_interrupt = true;
         }
@@ -355,16 +342,17 @@ impl Balloon {
     }
 
     pub(crate) fn process_stats_queue(&mut self) -> std::result::Result<(), BalloonError> {
-        let mem = mem_of_active_device!(self.device_state);
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
         METRICS.balloon.stats_updates_count.inc();
 
-        while let Some(head) = self.queues[STATS_INDEX].pop(&mem) {
+        while let Some(head) = self.queues[STATS_INDEX].pop(mem) {
             if let Some(prev_stats_desc) = self.stats_desc_index {
                 // We shouldn't ever have an extra buffer if the driver follows
                 // the protocol, but return it if we find one.
                 error!("balloon: driver is not compliant, more than one stats buffer received");
                 self.queues[STATS_INDEX]
-                    .add_used(&mem, prev_stats_desc, 0)
+                    .add_used(mem, prev_stats_desc, 0)
                     .map_err(BalloonError::Queue)?;
             }
             for index in (0..head.len).step_by(SIZE_OF_STAT) {
@@ -392,14 +380,10 @@ impl Balloon {
     }
 
     pub(crate) fn signal_used_queue(&self) -> Result<(), BalloonError> {
-        self.interrupt_status
-            .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
-
-        self.interrupt_evt.write(1).map_err(|e| {
-            error!("Failed to signal used queue: {:?}", e);
-            BalloonError::FailedSignalingUsedQueue(e)
-        })?;
-        Ok(())
+        self.irq_trigger.trigger_irq(IrqType::Vring).map_err(|e| {
+            METRICS.balloon.event_fails.inc();
+            BalloonError::InterruptError(e)
+        })
     }
 
     /// Process device virtio queue(s).
@@ -413,13 +397,14 @@ impl Balloon {
     }
 
     fn trigger_stats_update(&mut self) -> Result<(), BalloonError> {
-        let mem = mem_of_active_device!(self.device_state);
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
 
         // The communication is driven by the device by using the buffer
         // and sending a used buffer notification
         if let Some(index) = self.stats_desc_index.take() {
             self.queues[STATS_INDEX]
-                .add_used(&mem, index, 0)
+                .add_used(mem, index, 0)
                 .map_err(BalloonError::Queue)?;
             self.signal_used_queue()
         } else {
@@ -431,7 +416,9 @@ impl Balloon {
     pub fn update_size(&mut self, amount_mib: u32) -> Result<(), BalloonError> {
         if self.is_activated() {
             self.config_space.num_pages = mib_to_pages(amount_mib)?;
-            Ok(())
+            self.irq_trigger
+                .trigger_irq(IrqType::Config)
+                .map_err(BalloonError::InterruptError)
         } else {
             Err(BalloonError::DeviceNotActive)
         }
@@ -525,11 +512,11 @@ impl VirtioDevice for Balloon {
     }
 
     fn interrupt_evt(&self) -> &EventFd {
-        &self.interrupt_evt
+        &self.irq_trigger.irq_evt
     }
 
     fn interrupt_status(&self) -> Arc<AtomicUsize> {
-        self.interrupt_status.clone()
+        self.irq_trigger.irq_status.clone()
     }
 
     fn avail_features(&self) -> u64 {
@@ -573,10 +560,7 @@ impl VirtioDevice for Balloon {
     }
 
     fn is_activated(&self) -> bool {
-        match self.device_state {
-            DeviceState::Inactive => false,
-            DeviceState::Activated(_) => true,
-        }
+        self.device_state.is_activated()
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
@@ -602,12 +586,12 @@ pub(crate) mod tests {
 
     use super::super::CONFIG_SPACE_SIZE;
     use super::*;
-    use crate::check_metric_after_block;
     use crate::virtio::balloon::test_utils::{
         check_request_completion, invoke_handler_for_queue_event, set_request,
     };
     use crate::virtio::test_utils::{default_mem, VirtQueue};
     use crate::virtio::{VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
+    use crate::{check_metric_after_block, report_balloon_event_fail};
     use vm_memory::GuestAddress;
 
     impl Balloon {
@@ -996,7 +980,7 @@ pub(crate) mod tests {
                 assert!(balloon.stats_desc_index.is_some());
                 assert!(balloon.process_stats_timer_event().is_ok());
                 assert!(balloon.stats_desc_index.is_none());
-                assert_eq!(balloon.interrupt_evt().read().unwrap(), 1);
+                assert!(balloon.irq_trigger.has_pending_irq(IrqType::Vring));
             });
         }
     }

@@ -19,6 +19,11 @@ use crate::bus::BusDevice;
 //TODO crosvm uses 0 here, but IIRC virtio specified some other vendor id that should be used
 const VENDOR_ID: u32 = 0;
 
+/// Interrupt flags (re: interrupt status & acknowledge registers).
+/// See linux/virtio_mmio.h.
+pub const VIRTIO_MMIO_INT_VRING: u32 = 0x01;
+pub const VIRTIO_MMIO_INT_CONFIG: u32 = 0x02;
+
 //required by the virtio mmio device register layout at offset 0 from base
 const MMIO_MAGIC_VALUE: u32 = 0x7472_6976;
 
@@ -318,16 +323,6 @@ impl BusDevice for MmioTransport {
                 );
             }
         }
-    }
-
-    fn interrupt(&self, irq_mask: u32) -> std::io::Result<()> {
-        self.interrupt_status
-            .fetch_or(irq_mask as usize, Ordering::SeqCst);
-        // interrupt_evt() is safe to unwrap because the inner interrupt_evt is initialized in the
-        // constructor.
-        // write() is safe to unwrap because the inner syscall is tailored to be safe as well.
-        self.locked_device().interrupt_evt().write(1).unwrap();
-        Ok(())
     }
 }
 

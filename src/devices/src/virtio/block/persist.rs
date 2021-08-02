@@ -129,7 +129,8 @@ impl Persist<'_> for Block {
             .virtio_state
             .build_queues_checked(&constructor_args.mem, TYPE_BLOCK, NUM_QUEUES, QUEUE_SIZE)
             .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
-        block.interrupt_status = Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
+        block.irq_trigger.irq_status =
+            Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         block.avail_features = state.virtio_state.avail_features;
         block.acked_features = state.virtio_state.acked_features;
 
