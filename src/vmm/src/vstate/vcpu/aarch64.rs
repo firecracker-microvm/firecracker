@@ -68,7 +68,7 @@ impl KvmVcpu {
     ///
     /// # Arguments
     ///
-    /// * `id` - Represents the CPU number between [0, max vcpus).
+    /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
     /// * `vm` - The vm to which this vcpu will get attached.
     pub fn new(index: u8, vm: &Vm) -> Result<Self> {
         let kvm_vcpu = vm.fd().create_vcpu(index.into()).map_err(Error::CreateFd)?;
@@ -90,7 +90,6 @@ impl KvmVcpu {
     ///
     /// # Arguments
     ///
-    /// * `vm_fd` - The kvm `VmFd` for this microvm.
     /// * `guest_mem` - The guest memory used by this microvm.
     /// * `kernel_load_addr` - Offset from `guest_mem` at which the kernel is loaded.
     pub fn configure(

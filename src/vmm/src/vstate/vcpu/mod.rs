@@ -206,9 +206,8 @@ impl Vcpu {
     ///
     /// # Arguments
     ///
-    /// * `id` - Represents the CPU number between [0, max vcpus).
-    /// * `vm_fd` - The kvm `VmFd` for the virtual machine this vcpu will get attached to.
-    /// * `msr_list` - The `MsrList` listing the supported MSRs for this vcpu.
+    /// * `index` - Represents the 0-based CPU index between [0, max vcpus).
+    /// * `vm` - The vm to which this vcpu will get attached.
     /// * `exit_evt` - An `EventFd` that will be written into when this vcpu exits.
     pub fn new(index: u8, vm: &Vm, exit_evt: EventFd) -> Result<Self> {
         let (event_sender, event_receiver) = channel();
