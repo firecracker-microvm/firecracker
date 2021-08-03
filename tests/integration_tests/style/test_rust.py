@@ -6,7 +6,11 @@ import framework.utils as utils
 
 
 def test_rust_style():
-    """Fail if there's misbehaving Rust style in this repo."""
+    """
+    Test that rust code passes style checks.
+
+    @type: style
+    """
     # Check that the output is empty.
     _, stdout, _ = utils.run_cmd(
         'cargo fmt --all -- --check')
@@ -16,7 +20,11 @@ def test_rust_style():
 
 
 def test_ensure_mod_tests():
-    """Check that files containing unit tests have a 'tests' module defined."""
+    """
+    Check that files containing unit tests have a 'tests' module defined.
+
+    @type: style
+    """
     # List all source files containing rust #[test] attribute,
     # (excluding generated files and integration test directories).
     # Take the list and check each file contains 'mod tests {', output file

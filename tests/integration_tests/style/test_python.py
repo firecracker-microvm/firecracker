@@ -6,7 +6,11 @@ import framework.utils as utils
 
 
 def test_python_style():
-    """Fail if there's misbehaving Python style in the test system."""
+    """
+    Test that python code passes style checks.
+
+    @type: style
+    """
     # List of linter commands that should be executed for each file
     linter_cmds = [
         # Pylint
