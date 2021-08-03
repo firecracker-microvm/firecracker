@@ -11,7 +11,11 @@ NO_OF_MICROVMS = 20
 
 @decorators.test_context('ssh', NO_OF_MICROVMS)
 def test_run_concurrency(test_multiple_microvms, network_config):
-    """Check we can spawn multiple microvms."""
+    """
+    Check we can spawn multiple microvms.
+
+    @type: functional
+    """
     microvms = test_multiple_microvms
 
     for i in range(NO_OF_MICROVMS):

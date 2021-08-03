@@ -40,7 +40,11 @@ def _create_and_start_microvm_with_net_devices(test_microvm,
 
 
 def test_create_v0_23_snapshot(test_microvm_with_ssh):
-    """Exercise creating a snapshot targeting v0.23 on all platforms."""
+    """
+    Exercise creating a snapshot targeting v0.23 on all platforms.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
 
     _create_and_start_microvm_with_net_devices(test_microvm)
@@ -74,7 +78,11 @@ def test_create_v0_23_snapshot(test_microvm_with_ssh):
     reason="Exercises specific x86_64 functionality."
 )
 def test_create_with_prev_device_count(test_microvm_with_ssh, network_config):
-    """Create snapshot with expected device count for previous versions."""
+    """
+    Create snapshot with expected device count for previous versions.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
 
     # Create and start a microVM with (`FC_V0_23_MAX_DEVICES_ATTACHED` - 1)
@@ -104,7 +112,11 @@ def test_create_with_prev_device_count(test_microvm_with_ssh, network_config):
     reason="Exercises specific x86_64 functionality."
 )
 def test_create_with_too_many_devices(test_microvm_with_ssh, network_config):
-    """Create snapshot with unexpected device count for previous versions."""
+    """
+    Create snapshot with unexpected device count for previous versions.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
 
     # Create and start a microVM with `FC_V0_23_MAX_DEVICES_ATTACHED`
@@ -137,7 +149,11 @@ def test_create_with_too_many_devices(test_microvm_with_ssh, network_config):
 
 
 def test_create_invalid_version(bin_cloner_path):
-    """Test scenario: create snapshot targeting invalid version."""
+    """
+    Test scenario: create snapshot targeting invalid version.
+
+    @type: functional
+    """
     # Use a predefined vm instance.
     builder = MicrovmBuilder(bin_cloner_path)
     test_microvm = builder.build_vm_nano().vm

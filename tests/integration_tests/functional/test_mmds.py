@@ -14,7 +14,11 @@ def _assert_out(stdout, stderr, expected):
 
 
 def test_custom_ipv4(test_microvm_with_ssh, network_config):
-    """Test the API for MMDS custom ipv4 support."""
+    """
+    Test the API for MMDS custom ipv4 support.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -70,9 +74,9 @@ def test_custom_ipv4(test_microvm_with_ssh, network_config):
 
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(
-         network_config,
-         '1',
-         allow_mmds_requests=True
+        network_config,
+        '1',
+        allow_mmds_requests=True
     )
 
     test_microvm.start()
@@ -114,7 +118,11 @@ def test_custom_ipv4(test_microvm_with_ssh, network_config):
 
 
 def test_json_response(test_microvm_with_ssh, network_config):
-    """Test the MMDS json response."""
+    """
+    Test the MMDS json response.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -149,9 +157,9 @@ def test_json_response(test_microvm_with_ssh, network_config):
 
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(
-         network_config,
-         '1',
-         allow_mmds_requests=True
+        network_config,
+        '1',
+        allow_mmds_requests=True
     )
 
     test_microvm.start()
@@ -184,8 +192,12 @@ def test_json_response(test_microvm_with_ssh, network_config):
     assert json.load(stdout) == 512
 
 
-def test_imds_response(test_microvm_with_ssh, network_config):
-    """Test the MMDS IMDS response."""
+def test_mmds_response(test_microvm_with_ssh, network_config):
+    """
+    Test MMDS responses to various datastore requests.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -271,7 +283,11 @@ def test_imds_response(test_microvm_with_ssh, network_config):
 
 
 def test_larger_than_mss_payloads(test_microvm_with_ssh, network_config):
-    """Test MMDS content for payloads larger than MSS."""
+    """
+    Test MMDS content for payloads larger than MSS.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -343,7 +359,11 @@ def test_larger_than_mss_payloads(test_microvm_with_ssh, network_config):
 
 
 def test_mmds_dummy(test_microvm_with_ssh):
-    """Test the API and guest facing features of the Micro MetaData Service."""
+    """
+    Test the API and guest facing features of the microVM MetaData Service.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -396,7 +416,11 @@ def test_mmds_dummy(test_microvm_with_ssh):
 
 
 def test_guest_mmds_hang(test_microvm_with_ssh, network_config):
-    """Test the MMDS json response."""
+    """
+    Test the MMDS json endpoint when Content-Length larger than actual length.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -420,9 +444,9 @@ def test_guest_mmds_hang(test_microvm_with_ssh, network_config):
 
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(
-         network_config,
-         '1',
-         allow_mmds_requests=True
+        network_config,
+        '1',
+        allow_mmds_requests=True
     )
 
     test_microvm.start()

@@ -157,11 +157,15 @@ def _test_rss_memory_lower(test_microvm):
 
 # pylint: disable=C0103
 def test_rss_memory_lower(test_microvm_with_ssh_and_balloon, network_config):
-    """Check inflating the balloon makes guest use less rss memory."""
+    """
+    Test that inflating the balloon makes guest use less rss memory.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh_and_balloon
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _, _, _ = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.ssh_config['ssh_key_path'] = os.path.join(
         test_microvm.fsfiles,
         'debian.rootfs.id_rsa'
@@ -184,11 +188,15 @@ def test_rss_memory_lower(test_microvm_with_ssh_and_balloon, network_config):
 # pylint: disable=C0103
 def test_inflate_reduces_free(test_microvm_with_ssh_and_balloon,
                               network_config):
-    """Check that the output of free in guest changes with inflate."""
+    """
+    Check that the output of free in guest changes with inflate.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh_and_balloon
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _, _, _ = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.ssh_config['ssh_key_path'] = os.path.join(
         test_microvm.fsfiles,
         'debian.rootfs.id_rsa'
@@ -228,11 +236,15 @@ def test_inflate_reduces_free(test_microvm_with_ssh_and_balloon,
 # pylint: disable=C0103
 def test_deflate_on_oom_true(test_microvm_with_ssh_and_balloon,
                              network_config):
-    """Verify that setting the `deflate_on_oom` to True works correctly."""
+    """
+    Verify that setting the `deflate_on_oom` to True works correctly.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh_and_balloon
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _, _, _ = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.ssh_config['ssh_key_path'] = os.path.join(
         test_microvm.fsfiles,
         'debian.rootfs.id_rsa'
@@ -269,11 +281,15 @@ def test_deflate_on_oom_true(test_microvm_with_ssh_and_balloon,
 # pylint: disable=C0103
 def test_deflate_on_oom_false(test_microvm_with_ssh_and_balloon,
                               network_config):
-    """Verify that setting the `deflate_on_oom` to False works correctly."""
+    """
+    Verify that setting the `deflate_on_oom` to False works correctly.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh_and_balloon
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _, _, _ = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.ssh_config['ssh_key_path'] = os.path.join(
         test_microvm.fsfiles,
         'debian.rootfs.id_rsa'
@@ -306,11 +322,15 @@ def test_deflate_on_oom_false(test_microvm_with_ssh_and_balloon,
 
 # pylint: disable=C0103
 def test_reinflate_balloon(test_microvm_with_ssh_and_balloon, network_config):
-    """Verify that repeatedly inflating and deflating the balloon works."""
+    """
+    Verify that repeatedly inflating and deflating the balloon works.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh_and_balloon
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _, _, _ = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.ssh_config['ssh_key_path'] = os.path.join(
         test_microvm.fsfiles,
         'debian.rootfs.id_rsa'
@@ -378,11 +398,15 @@ def test_reinflate_balloon(test_microvm_with_ssh_and_balloon, network_config):
 
 # pylint: disable=C0103
 def test_size_reduction(test_microvm_with_ssh_and_balloon, network_config):
-    """Verify that ballooning reduces RSS usage on a newly booted guest."""
+    """
+    Verify that ballooning reduces RSS usage on a newly booted guest.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh_and_balloon
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _, _, _ = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.ssh_config['ssh_key_path'] = os.path.join(
         test_microvm.fsfiles,
         'debian.rootfs.id_rsa'
@@ -423,11 +447,15 @@ def test_size_reduction(test_microvm_with_ssh_and_balloon, network_config):
 
 # pylint: disable=C0103
 def test_stats(test_microvm_with_ssh_and_balloon, network_config):
-    """Verify that balloon stats work as expected."""
+    """
+    Verify that balloon stats work as expected.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh_and_balloon
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _, _, _ = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.ssh_config['ssh_key_path'] = os.path.join(
         test_microvm.fsfiles,
         'debian.rootfs.id_rsa'
@@ -503,11 +531,15 @@ def test_stats(test_microvm_with_ssh_and_balloon, network_config):
 
 
 def test_stats_update(test_microvm_with_ssh_and_balloon, network_config):
-    """Verify that balloon stats update correctly."""
+    """
+    Verify that balloon stats update correctly.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh_and_balloon
     test_microvm.spawn()
     test_microvm.basic_config()
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    _, _, _ = test_microvm.ssh_network_config(network_config, '1')
     test_microvm.ssh_config['ssh_key_path'] = os.path.join(
         test_microvm.fsfiles,
         'debian.rootfs.id_rsa'
@@ -563,7 +595,11 @@ def test_balloon_snapshot(
     network_config,
     bin_cloner_path
 ):
-    """Test that the balloon works after pause/resume."""
+    """
+    Test that the balloon works after pause/resume.
+
+    @type: functional
+    """
     logger = logging.getLogger("snapshot_sequence")
 
     # Create the test matrix.
@@ -693,7 +729,11 @@ def test_snapshot_compatibility(
     network_config,
     bin_cloner_path
 ):
-    """Test that the balloon serializes correctly."""
+    """
+    Test that the balloon serializes correctly.
+
+    @type: functional
+    """
     logger = logging.getLogger("snapshot_sequence")
 
     # Create the test matrix.
@@ -757,9 +797,9 @@ def _test_snapshot_compatibility(context):
         # This should fail as the balloon was introduced in 0.24.0.
         assert microvm.api_session.is_status_bad_request(response.status_code)
         assert (
-                   'Target version does not implement the '
-                   'virtio-balloon device'
-               ) in response.json()['fault_message']
+            'Target version does not implement the '
+            'virtio-balloon device'
+        ) in response.json()['fault_message']
 
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(microvm)
@@ -778,7 +818,11 @@ def test_memory_scrub(
     network_config,
     bin_cloner_path
 ):
-    """Test that the memory is zeroed after deflate."""
+    """
+    Test that the memory is zeroed after deflate.
+
+    @type: functional
+    """
     logger = logging.getLogger()
 
     # Create the test matrix.

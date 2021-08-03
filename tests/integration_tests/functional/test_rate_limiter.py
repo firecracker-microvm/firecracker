@@ -31,7 +31,11 @@ MAX_TIME_DIFF = 25
 
 
 def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
-    """Run iperf tx with and without rate limiting; check limiting effect."""
+    """
+    Run iperf tx with and without rate limiting; check limiting effect.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -91,7 +95,11 @@ def test_tx_rate_limiting(test_microvm_with_ssh, network_config):
 
 
 def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
-    """Run iperf rx with and without rate limiting; check limiting effect."""
+    """
+    Run iperf rx with and without rate limiting; check limiting effect.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -152,7 +160,11 @@ def test_rx_rate_limiting(test_microvm_with_ssh, network_config):
 
 
 def test_rx_rate_limiting_cpu_load(test_microvm_with_ssh, network_config):
-    """Run iperf rx with rate limiting; verify cpu load is below threshold."""
+    """
+    Run iperf rx with rate limiting; verify cpu load is below threshold.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 

@@ -19,7 +19,11 @@ PAYLOAD_DATA_SIZE = 20
 
 def test_net_change_mac_address(test_microvm_with_ssh, network_config,
                                 change_net_config_space_bin):
-    """Test changing the MAC address of the network device."""
+    """
+    Test changing the MAC address of the network device.
+
+    @type: functional
+    """
     global PAYLOAD_DATA_SIZE
 
     test_microvm = test_microvm_with_ssh

@@ -11,7 +11,11 @@ IPERF_BINARY = 'iperf3'
 
 
 def test_high_ingress_traffic(test_microvm_with_ssh, network_config):
-    """Run iperf rx with high UDP traffic."""
+    """
+    Run iperf rx with high UDP traffic.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 

@@ -113,7 +113,11 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
     [True, False],
 )
 def test_cpu_topology(test_microvm_with_ssh, network_config, num_vcpus, htt):
-    """Check the CPU topology for a microvm with the specified config."""
+    """
+    Check the CPU topology for a microvm with the specified config.
+
+    @type: functional
+    """
     vm = test_microvm_with_ssh
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, ht_enabled=htt)
@@ -133,7 +137,11 @@ def test_cpu_topology(test_microvm_with_ssh, network_config, num_vcpus, htt):
     [True, False],
 )
 def test_cache_topology(test_microvm_with_ssh, network_config, num_vcpus, htt):
-    """Check the cache topology for a microvm with the specified config."""
+    """
+    Check the cache topology for a microvm with the specified config.
+
+    @type: functional
+    """
     vm = test_microvm_with_ssh
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, ht_enabled=htt)

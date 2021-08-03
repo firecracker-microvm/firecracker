@@ -17,7 +17,11 @@ MB = 1024 * 1024
 
 
 def test_rescan_file(test_microvm_with_ssh, network_config):
-    """Verify that rescan works with a file-backed virtio device."""
+    """
+    Verify that rescan works with a file-backed virtio device.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -69,10 +73,13 @@ def test_rescan_file(test_microvm_with_ssh, network_config):
 
 
 def test_device_ordering(test_microvm_with_ssh, network_config):
-    """Verify device ordering.
+    """
+    Verify device ordering.
 
     The root device should correspond to /dev/vda in the guest and
     the order of the other devices should match their configuration order.
+
+    @type: functional
     """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
@@ -130,7 +137,11 @@ def test_device_ordering(test_microvm_with_ssh, network_config):
 
 
 def test_rescan_dev(test_microvm_with_ssh, network_config):
-    """Verify that rescan works with a device-backed virtio device."""
+    """
+    Verify that rescan works with a device-backed virtio device.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
     session = test_microvm.api_session
@@ -184,7 +195,11 @@ def test_rescan_dev(test_microvm_with_ssh, network_config):
 
 
 def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
-    """Test the output reported by blockdev when booting from /dev/vda."""
+    """
+    Test the output reported by blockdev when booting from /dev/vda.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -222,7 +237,11 @@ def test_non_partuuid_boot(test_microvm_with_ssh, network_config):
 
 
 def test_partuuid_boot(test_microvm_with_partuuid, network_config):
-    """Test the output reported by blockdev when booting with PARTUUID."""
+    """
+    Test the output reported by blockdev when booting with PARTUUID.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_partuuid
     test_microvm.spawn()
 
@@ -256,7 +275,11 @@ def test_partuuid_boot(test_microvm_with_partuuid, network_config):
 
 
 def test_partuuid_update(test_microvm_with_ssh, network_config):
-    """Test successful switching from PARTUUID boot to /dev/vda boot."""
+    """
+    Test successful switching from PARTUUID boot to /dev/vda boot.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -296,7 +319,11 @@ def test_partuuid_update(test_microvm_with_ssh, network_config):
 
 
 def test_patch_drive(test_microvm_with_ssh, network_config):
-    """Test replacing the backing filesystem after guest boot works."""
+    """
+    Test replacing the backing filesystem after guest boot works.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -339,7 +366,11 @@ def test_patch_drive(test_microvm_with_ssh, network_config):
 
 
 def test_no_flush(test_microvm_with_ssh, network_config):
-    """Verify default block ignores flush."""
+    """
+    Verify default block ignores flush.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -384,7 +415,11 @@ def test_no_flush(test_microvm_with_ssh, network_config):
 
 
 def test_flush(test_microvm_with_ssh, network_config):
-    """Verify block with flush actually flushes."""
+    """
+    Verify block with flush actually flushes.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -426,7 +461,11 @@ def test_flush(test_microvm_with_ssh, network_config):
 
 
 def test_block_default_cache_old_version(test_microvm_with_ssh):
-    """Verify that saving a snapshot for old versions works correctly."""
+    """
+    Verify that saving a snapshot for old versions works correctly.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -451,11 +490,11 @@ def test_block_default_cache_old_version(test_microvm_with_ssh):
 
     # Create the snapshot for a version without block cache type.
     response = test_microvm.snapshot.create(
-            mem_file_path='memfile',
-            snapshot_path='snapsfile',
-            diff=False,
-            version='0.24.0'
-        )
+        mem_file_path='memfile',
+        snapshot_path='snapsfile',
+        diff=False,
+        version='0.24.0'
+    )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # We should find a warning in the logs for this case as this
@@ -494,7 +533,11 @@ def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):
 
 
 def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
-    """Test replacing the drive rate-limiter after guest boot works."""
+    """
+    Test replacing the drive rate-limiter after guest boot works.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.jailer.daemonize = False
     test_microvm.spawn()

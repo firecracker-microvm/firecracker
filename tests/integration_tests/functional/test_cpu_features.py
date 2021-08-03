@@ -48,7 +48,11 @@ def _check_cpu_features_arm(test_microvm):
     [True, False],
 )
 def test_cpuid(test_microvm_with_ssh, network_config, num_vcpus, htt):
-    """Check the CPUID for a microvm with the specified config."""
+    """
+    Check the CPUID for a microvm with the specified config.
+
+    @type: functional
+    """
     vm = test_microvm_with_ssh
     vm.spawn()
     vm.basic_config(vcpu_count=num_vcpus, ht_enabled=htt)
@@ -62,7 +66,11 @@ def test_cpuid(test_microvm_with_ssh, network_config, num_vcpus, htt):
     reason="The CPU features on x86 are tested as part of the CPU templates."
 )
 def test_cpu_features(test_microvm_with_ssh, network_config):
-    """Check the CPU features for a microvm with the specified config."""
+    """
+    Check the CPU features for a microvm with the specified config.
+
+    @type: functional
+    """
     vm = test_microvm_with_ssh
     vm.spawn()
     vm.basic_config()
@@ -76,7 +84,8 @@ def test_cpu_features(test_microvm_with_ssh, network_config):
     reason="The CPU brand string is masked only on x86_64."
 )
 def test_brand_string(test_microvm_with_ssh, network_config):
-    """Ensure good formatting for the guest band string.
+    """
+    Ensure good formatting for the guest brand string.
 
     * For Intel CPUs, the guest brand string should be:
         Intel(R) Xeon(R) Processor @ {host frequency}
@@ -86,6 +95,8 @@ def test_brand_string(test_microvm_with_ssh, network_config):
         AMD EPYC
     * For other CPUs, the guest brand string should be:
         ""
+
+    @type: functional
     """
     cif = open('/proc/cpuinfo', 'r')
     host_brand_string = None
@@ -137,14 +148,14 @@ def test_brand_string(test_microvm_with_ssh, network_config):
 )
 @pytest.mark.parametrize("cpu_template", ["T2", "C3"])
 def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
-    """Check that AVX2 & AVX512 instructions are disabled.
+    """
+    Test masked and enabled cpu features against the expected template.
 
-    This is a rather dummy test for checking that some features are not
-    exposed by mistake. It is a first step into checking the t2 & c3
-    templates. In a next iteration we should check **all** cpuid entries, not
-    just these features. We can achieve this with a template
-    containing all features on a t2/c3 instance and check that the cpuid in
-    the guest is an exact match of the template.
+    This test checks that all expected masked features are not present in the
+    guest and that expected enabled features are present for each of the
+    supported CPU templates.
+
+    @type: functional
     """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
@@ -168,13 +179,13 @@ def test_cpu_template(test_microvm_with_ssh, network_config, cpu_template):
         return
 
     assert test_microvm.api_session.is_status_no_content(
-            response.status_code)
+        response.status_code)
     check_masked_features(test_microvm, cpu_template)
     check_enabled_features(test_microvm, cpu_template)
 
 
 def check_masked_features(test_microvm, cpu_template):
-    """Check that AVX2 & AVX512 instructions are disabled."""
+    """Verify the masked features of the given template."""
     common_masked_features_lscpu = ["dtes64", "monitor", "ds_cpl", "tm2",
                                     "cnxt-id", "sdbg", "xtpr", "pdcm",
                                     "osxsave",

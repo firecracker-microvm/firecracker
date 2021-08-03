@@ -16,7 +16,11 @@ MAX_DEVICES_ATTACHED = 19
     reason="Firecracker supports 24 IRQs on x86_64."
 )
 def test_attach_maximum_devices(test_microvm_with_ssh, network_config):
-    """Test attaching maximum number of devices to the microVM."""
+    """
+    Test attaching maximum number of devices to the microVM.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
@@ -50,7 +54,11 @@ def test_attach_maximum_devices(test_microvm_with_ssh, network_config):
     reason="Firecracker supports 24 IRQs on x86_64."
 )
 def test_attach_too_many_devices(test_microvm_with_ssh, network_config):
-    """Test attaching to a microVM more devices than available IRQs."""
+    """
+    Test attaching to a microVM more devices than available IRQs.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
 
