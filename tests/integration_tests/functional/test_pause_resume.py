@@ -10,7 +10,7 @@ import host_tools.network as net_tools  # pylint: disable=import-error
 
 
 def verify_net_emulation_paused(metrics):
-    """Verify net emulation is paused base on provided metrics."""
+    """Verify net emulation is paused based on provided metrics."""
     net_metrics = metrics['net']
     assert net_metrics['rx_queue_event_count'] == 0
     assert net_metrics['rx_partial_writes'] == 0
@@ -141,3 +141,24 @@ def test_describe_instance(bin_cloner_path):
     assert "Running" in response.text
 
     microvm.kill()
+
+
+def test_pause_resume_preboot(bin_cloner_path):
+    """
+    Test pause/resume operations are not allowed pre-boot.
+
+    @type: functional
+    """
+    builder = MicrovmBuilder(bin_cloner_path)
+    vm_instance = builder.build_vm_nano()
+    basevm = vm_instance.vm
+
+    # Try to pause microvm when not running, it must fail.
+    response = basevm.vm.patch(state='Paused')
+    assert "not supported before starting the microVM" \
+        in response.text
+
+    # Try to resume microvm when not running, it must fail.
+    response = basevm.vm.patch(state='Resumed')
+    assert "not supported before starting the microVM" \
+        in response.text
