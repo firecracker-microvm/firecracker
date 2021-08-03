@@ -13,14 +13,17 @@ import pytest
 
 import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
-import host_tools.logging as log_tools
 import host_tools.network as net_tools
 
 MEM_LIMIT = 1000000000
 
 
 def test_api_happy_start(test_microvm_with_api):
-    """Test a regular microvm API start sequence."""
+    """
+    Test that a regular microvm API config and boot sequence works.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -32,7 +35,13 @@ def test_api_happy_start(test_microvm_with_api):
 
 
 def test_api_put_update_pre_boot(test_microvm_with_api):
-    """Test that PUT updates are allowed before the microvm boots."""
+    """
+    Test that PUT updates are allowed before the microvm boots.
+
+    Tests updates on drives, boot source and machine config.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -151,7 +160,11 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
 
 
 def test_net_api_put_update_pre_boot(test_microvm_with_api):
-    """Test PUT updates on network configurations before the microvm boots."""
+    """
+    Test PUT updates on network configurations before the microvm boots.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -217,8 +230,12 @@ def test_net_api_put_update_pre_boot(test_microvm_with_api):
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
 
-def test_api_put_machine_config(test_microvm_with_api):
-    """Test /machine_config PUT scenarios that unit tests can't cover."""
+def test_api_machine_config(test_microvm_with_api):
+    """
+    Test /machine_config PUT/PATCH scenarios that unit tests can't cover.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -328,7 +345,11 @@ def test_api_put_machine_config(test_microvm_with_api):
 
 
 def test_api_put_update_post_boot(test_microvm_with_api):
-    """Test that PUT updates are rejected after the microvm boots."""
+    """
+    Test that PUT updates are rejected after the microvm boots.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -396,7 +417,11 @@ def test_api_put_update_post_boot(test_microvm_with_api):
 
 
 def test_rate_limiters_api_config(test_microvm_with_api):
-    """Test the Firecracker IO rate limiter API."""
+    """
+    Test the IO rate limiter API config.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -539,7 +564,11 @@ def test_rate_limiters_api_config(test_microvm_with_api):
 
 
 def test_api_patch_pre_boot(test_microvm_with_api):
-    """Tests PATCH updates before the microvm boots."""
+    """
+    Test that PATCH updates are not allowed before the microvm boots.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -556,15 +585,6 @@ def test_api_patch_pre_boot(test_microvm_with_api):
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Configure metrics.
-    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-
-    response = test_microvm.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -615,7 +635,11 @@ def test_api_patch_pre_boot(test_microvm_with_api):
 
 
 def test_api_patch_post_boot(test_microvm_with_api):
-    """Test PATCH updates after the microvm boots."""
+    """
+    Test PATCH updates after the microvm boots.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -631,15 +655,6 @@ def test_api_patch_post_boot(test_microvm_with_api):
         path_on_host=test_microvm.create_jailed_resource(fs1.path),
         is_root_device=False,
         is_read_only=False
-    )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Configure metrics.
-    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
-    metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-
-    response = test_microvm.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -676,7 +691,11 @@ def test_api_patch_post_boot(test_microvm_with_api):
 
 
 def test_drive_patch(test_microvm_with_api):
-    """Test drive PATCH before and after boot."""
+    """
+    Extensively test drive PATCH scenarios before and after boot.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -715,11 +734,13 @@ def test_drive_patch(test_microvm_with_api):
     reason="not yet implemented on aarch64"
 )
 def test_send_ctrl_alt_del(test_microvm_with_api):
-    """Test shutting down the microVM gracefully, by sending CTRL+ALT+DEL.
-
-    This relies on i8042 and AT Keyboard support being present in the guest
-    kernel.
     """
+    Test shutting down the microVM gracefully on x86, by sending CTRL+ALT+DEL.
+
+    @type: functional
+    """
+    # This relies on the i8042 device and AT Keyboard support being present in
+    # the guest kernel.
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
@@ -885,7 +906,11 @@ def _drive_patch(test_microvm):
 
 
 def test_api_vsock(test_microvm_with_api):
-    """Test vsock related API commands."""
+    """
+    Test vsock related API commands.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config()
@@ -929,7 +954,11 @@ def test_api_vsock(test_microvm_with_api):
 
 
 def test_api_balloon(test_microvm_with_ssh_and_balloon):
-    """Test balloon related API commands."""
+    """
+    Test balloon related API commands.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh_and_balloon
     test_microvm.spawn()
     test_microvm.basic_config()
@@ -1020,7 +1049,11 @@ def test_api_balloon(test_microvm_with_ssh_and_balloon):
 
 
 def test_get_full_config(test_microvm_with_ssh_and_balloon):
-    """Configure microVM with all resources and get configuration."""
+    """
+    Test the reported configuration of a microVM configured with all resources.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh_and_balloon
 
     expected_cfg = {}

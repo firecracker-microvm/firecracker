@@ -203,7 +203,11 @@ def _test_compare_mem_files(context):
 
 
 def test_patch_drive_snapshot(bin_cloner_path):
-    """Test scenario: 5 full sequential snapshots."""
+    """
+    Test that a patched drive is correctly used by guests loaded from snapshot.
+
+    @type: functional
+    """
     logger = logging.getLogger("snapshot_sequence")
 
     vm_builder = MicrovmBuilder(bin_cloner_path)
@@ -265,7 +269,11 @@ def test_5_full_snapshots(network_config,
                           bin_cloner_path,
                           bin_vsock_path,
                           test_fc_session_root_path):
-    """Test scenario: 5 full sequential snapshots."""
+    """
+    Create and load 5 full sequential snapshots.
+
+    @type: functional
+    """
     logger = logging.getLogger("snapshot_sequence")
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
@@ -305,7 +313,11 @@ def test_5_inc_snapshots(network_config,
                          bin_cloner_path,
                          bin_vsock_path,
                          test_fc_session_root_path):
-    """Test scenario: 5 incremental snapshots with disk intensive workload."""
+    """
+    Create and load 5 incremental snapshots.
+
+    @type: functional
+    """
     logger = logging.getLogger("snapshot_sequence")
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
@@ -343,12 +355,9 @@ def test_5_inc_snapshots(network_config,
 
 def test_load_snapshot_failure_handling(test_microvm_with_api):
     """
-    Test scenario.
+    Test error case of loading empty snapshot files.
 
-    1. Create two empty files representing snapshot memory and
-    microvm state
-    2. Try to load a VM snapshot out of the empty files.
-    3. Verify that an error was shown and the FC process is terminated.
+    @type: functional
     """
     logger = logging.getLogger("snapshot_load_failure")
     vm = test_microvm_with_api
@@ -384,7 +393,11 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
 
 def test_cmp_full_and_first_diff_mem(network_config,
                                      bin_cloner_path):
-    """Test scenario: cmp memory of 2 consecutive full and diff snapshots."""
+    """
+    Compare memory of 2 consecutive full and diff snapshots.
+
+    @type: functional
+    """
     logger = logging.getLogger("snapshot_sequence")
 
     artifacts = ArtifactCollection(_test_images_s3_bucket())
@@ -416,7 +429,11 @@ def test_cmp_full_and_first_diff_mem(network_config,
 
 
 def test_negative_postload_api(bin_cloner_path):
-    """Test APIs fail after loading from snapshot."""
+    """
+    Test APIs fail after loading from snapshot.
+
+    @type: functional
+    """
     logger = logging.getLogger("snapshot_api_fail")
 
     vm_builder = MicrovmBuilder(bin_cloner_path)
@@ -465,7 +482,11 @@ def test_negative_postload_api(bin_cloner_path):
 
 
 def test_negative_snapshot_permissions(bin_cloner_path):
-    """Test missing permission error scenarios."""
+    """
+    Test missing permission error scenarios.
+
+    @type: functional
+    """
     logger = logging.getLogger("snapshot_negative")
     vm_builder = MicrovmBuilder(bin_cloner_path)
 
@@ -548,7 +569,11 @@ def test_negative_snapshot_permissions(bin_cloner_path):
 
 
 def test_negative_snapshot_create(bin_cloner_path):
-    """Test create snapshot before pause."""
+    """
+    Test create snapshot before pause.
+
+    @type: functional
+    """
     vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano()
     vm = vm_instance.vm

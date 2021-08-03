@@ -38,7 +38,13 @@ def test_vsock(
         bin_vsock_path,
         test_fc_session_root_path
 ):
-    """Vsock tests. See the module docstring for a high-level description."""
+    """
+    Test guest and host vsock initiated connections.
+
+    Check the module docstring for details on the setup.
+
+    @type: functional
+    """
     vm = test_microvm_with_ssh
     vm.spawn()
 
@@ -126,7 +132,11 @@ def test_vsock_epipe(
         bin_vsock_path,
         test_fc_session_root_path
 ):
-    """Vsock negative test to validate SIGPIPE/EPIPE handling."""
+    """
+    Vsock negative test to validate SIGPIPE/EPIPE handling.
+
+    @type: functional
+    """
     vm = test_microvm_with_ssh
     vm.spawn()
 
@@ -204,6 +214,8 @@ def test_vsock_transport_reset(
        Else, the connection was not closed and the test fails.
     6. Close VM -> Load VM from Snapshot -> check that vsock
        device is still working.
+
+    @type: functional
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano()
