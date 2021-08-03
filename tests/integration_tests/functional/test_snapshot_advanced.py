@@ -107,6 +107,8 @@ def test_restore_old_version_all_devices(bin_cloner_path):
     # Create a snapshot with current build and restore with each FC binary
     # artifact.
     firecracker_artifacts = artifacts.firecrackers(
+        # v0.26.0 breaks snapshot compatibility with older versions.
+        min_version="0.26.0",
         max_version=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()
@@ -117,8 +119,6 @@ def test_restore_old_version_all_devices(bin_cloner_path):
 
         # Old version from artifact.
         target_version = firecracker.base_name()[1:]
-        # v0.23 does not have a balloon device.
-        balloon = "0.23" not in target_version
 
         # Create a snapshot with current FC version targeting the old version.
         snapshot = create_snapshot_helper(builder,
@@ -126,7 +126,7 @@ def test_restore_old_version_all_devices(bin_cloner_path):
                                           target_version=target_version,
                                           drives=scratch_drives,
                                           ifaces=net_ifaces,
-                                          balloon=balloon,
+                                          balloon=True,
                                           diff_snapshots=True)
 
         logger.info("Restoring snapshot with Firecracker: %s",
@@ -139,8 +139,7 @@ def test_restore_old_version_all_devices(bin_cloner_path):
                                             diff_snapshots=False,
                                             fc_binary=firecracker.local_path(),
                                             jailer_binary=jailer.local_path())
-        validate_all_devices(logger, vm, net_ifaces, scratch_drives,
-                             balloon)
+        validate_all_devices(logger, vm, net_ifaces, scratch_drives, True)
         logger.debug("========== Firecracker restore snapshot log ==========")
         logger.debug(vm.log_data)
 

@@ -26,6 +26,7 @@ rate_limiter = { path = "../rate_limiter" }
 seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
+virtio_gen = { path = "../virtio_gen" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }

@@ -21,7 +21,7 @@ use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::FC_V0_23_SNAP_VERSION;
-use crate::version_map::FC_VERSION_TO_SNAP_VERSION;
+use crate::version_map::{FC_V0_26_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
 use crate::{Error as VmmError, EventManager, Vmm};
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
@@ -34,6 +34,7 @@ use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
+use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::GuestMemoryMmap;
 
 #[cfg(target_arch = "x86_64")]
@@ -111,6 +112,8 @@ impl Display for MicrovmStateError {
 pub enum CreateSnapshotError {
     /// Failed to get dirty bitmap.
     DirtyBitmap(VmmError),
+    /// The virtio devices uses a features that is incompatible with older versions of Firecracker.
+    IncompatibleVirtioFeature(&'static str),
     /// Invalid microVM version format
     InvalidVersionFormat,
     /// MicroVM version does not support snapshot.
@@ -135,6 +138,12 @@ impl Display for CreateSnapshotError {
         use self::CreateSnapshotError::*;
         match self {
             DirtyBitmap(err) => write!(f, "Cannot get dirty bitmap: {}", err),
+            IncompatibleVirtioFeature(feature) => write!(
+                f,
+                "The virtio devices use a features that is incompatible \
+                with older versions of Firecracker: {}",
+                feature
+            ),
             InvalidVersionFormat => write!(f, "Invalid microVM version format"),
             UnsupportedVersion => write!(
                 f,
@@ -299,7 +308,7 @@ fn snapshot_memory_to_file(
 pub fn get_snapshot_data_version(
     maybe_fc_version: &Option<String>,
     version_map: &VersionMap,
-    _vmm: &Vmm,
+    vmm: &Vmm,
 ) -> std::result::Result<u16, CreateSnapshotError> {
     let fc_version = match maybe_fc_version {
         None => return Ok(version_map.latest_version()),
@@ -312,7 +321,23 @@ pub fn get_snapshot_data_version(
 
     #[cfg(target_arch = "x86_64")]
     if data_version <= FC_V0_23_SNAP_VERSION {
-        validate_devices_number(_vmm.mmio_device_manager.used_irqs_count())?;
+        validate_devices_number(vmm.mmio_device_manager.used_irqs_count())?;
+    }
+
+    if data_version < FC_V0_26_SNAP_VERSION {
+        vmm.mmio_device_manager
+            .for_each_virtio_device(|_virtio_type, _id, _info, dev| {
+                if dev
+                    .lock()
+                    .expect("Poisoned lock")
+                    .has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX))
+                {
+                    return Err(CreateSnapshotError::IncompatibleVirtioFeature(
+                        "notification suppression",
+                    ));
+                }
+                Ok(())
+            })?;
     }
 
     Ok(data_version)

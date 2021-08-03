@@ -207,6 +207,8 @@ def _test_snapshot_create_latency(context):
                 .format(DEFAULT_TEST_IMAGES_S3_BUCKET))
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     firecracker_versions = artifacts.firecracker_versions(
+        # v0.26.0 breaks snapshot compatibility with older versions.
+        min_version="0.26.0",
         max_version=get_firecracker_version_from_toml())
     assert len(firecracker_versions) > 0
 
