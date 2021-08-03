@@ -28,7 +28,11 @@ def validate_swagger(swagger_spec):
 
 
 def test_firecracker_swagger():
-    """Fail if Firecracker swagger specification is malformed."""
+    """
+    Test that Firecracker swagger specification is valid.
+
+    @type: style
+    """
     swagger_spec = os.path.normpath(
         os.path.join(os.getcwd(), '../src/api_server/swagger/firecracker.yaml')
     )

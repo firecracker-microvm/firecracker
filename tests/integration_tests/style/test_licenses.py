@@ -51,7 +51,8 @@ def _look_for_license(file, license_msg):
 
 
 def _validate_license(filename):
-    """Validate licenses in all .rs, .py. and .sh file.
+    """
+    Validate license all .rs/.py. or .sh file.
 
     Python and Rust files should have the licenses on the first 2 lines
     Shell files license is located on lines 3-4 to account for shebang
@@ -93,7 +94,11 @@ def _validate_license(filename):
 
 
 def test_for_valid_licenses():
-    """Fail if a file lacks a valid license."""
+    """
+    Test that all *.py, *.rs and *.sh files contain a valid license.
+
+    @type: style
+    """
     python_files = utils.get_files_from(
         find_path="..",
         pattern="*.py",
