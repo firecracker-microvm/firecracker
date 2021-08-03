@@ -46,10 +46,12 @@ SECCOMPILER_BUILD_DIR = '../build/seccompiler'
 
 @pytest.mark.timeout(400)
 def test_coverage(test_fc_session_root_path, test_session_tmp_path):
-    """Test line coverage with kcov.
+    """Test line coverage for rust tests is within bounds.
 
     The result is extracted from the $KCOV_COVERAGE_FILE file created by kcov
     after a coverage run.
+
+    @type: build
     """
     proc_model = [item for item in COVERAGE_DICT if item in PROC_MODEL]
     assert len(proc_model) == 1, "Could not get processor model!"
@@ -126,3 +128,6 @@ def test_coverage(test_fc_session_root_path, test_session_tmp_path):
 
     assert coverage - coverage_target_pct <= COVERAGE_MAX_DELTA,\
         coverage_high_msg
+
+    return f"{coverage}%", \
+        f"{coverage_target_pct}% +/- {COVERAGE_MAX_DELTA * 100}%"

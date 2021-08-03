@@ -18,7 +18,11 @@ TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
     TARGETS
 )
 def test_rust_clippy(target):
-    """Fails if clippy generates any error, warnings are ignored."""
+    """
+    Test that clippy does not generate any errors/warnings.
+
+    @type: build
+    """
     utils.run_cmd(
         'cargo clippy --target {} --all --profile test'
         ' -- -D warnings'.format(target))
