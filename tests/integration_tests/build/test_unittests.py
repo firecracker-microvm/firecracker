@@ -18,7 +18,11 @@ TARGETS = ["{}-unknown-linux-gnu".format(MACHINE),
     TARGETS
 )
 def test_unittests(test_fc_session_root_path, target):
-    """Run unit and doc tests for all supported targets."""
+    """
+    Run unit and doc tests for all supported targets.
+
+    @type: build
+    """
     extra_args = "--release --target {} ".format(target)
 
     if "musl" in target and MACHINE == "x86_64":
