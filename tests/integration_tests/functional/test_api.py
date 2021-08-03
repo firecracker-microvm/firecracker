@@ -11,7 +11,6 @@ import time
 
 import pytest
 
-from framework.builder import MicrovmBuilder
 import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.logging as log_tools
@@ -1116,20 +1115,3 @@ def test_get_full_config(test_microvm_with_ssh_and_balloon):
     response = test_microvm.full_cfg.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == expected_cfg
-
-
-def test_negative_api_lifecycle(bin_cloner_path):
-    """Test some vm lifecycle error scenarios."""
-    builder = MicrovmBuilder(bin_cloner_path)
-    vm_instance = builder.build_vm_nano()
-    basevm = vm_instance.vm
-
-    # Try to pause microvm when not running, it must fail.
-    response = basevm.vm.patch(state='Paused')
-    assert "not supported before starting the microVM" \
-        in response.text
-
-    # Try to resume microvm when not running, it must fail.
-    response = basevm.vm.patch(state='Resumed')
-    assert "not supported before starting the microVM" \
-        in response.text
