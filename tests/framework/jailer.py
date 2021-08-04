@@ -37,6 +37,7 @@ class JailerContext:
     api_socket_name = None
     cgroups = None
     resource_limits = None
+    cgroup_ver = None
 
     def __init__(
             self,
@@ -51,6 +52,7 @@ class JailerContext:
             new_pid_ns=False,
             cgroups=None,
             resource_limits=None,
+            cgroup_ver=None,
             **extra_args
     ):
         """Set up jailer fields.
@@ -72,6 +74,7 @@ class JailerContext:
         self.api_socket_name = DEFAULT_USOCKET_NAME
         self.cgroups = cgroups
         self.resource_limits = resource_limits
+        self.cgroup_ver = cgroup_ver
         self.ramfs_subdir_name = 'ramfs'
         self._ramfs_path = None
 
@@ -113,6 +116,10 @@ class JailerContext:
             jailer_param_list.append('--daemonize')
         if self.new_pid_ns:
             jailer_param_list.append('--new-pid-ns')
+        if self.cgroup_ver:
+            jailer_param_list.extend(
+                ['--cgroup-version', str(self.cgroup_ver)]
+            )
         if self.cgroups is not None:
             for cgroup in self.cgroups:
                 jailer_param_list.extend(['--cgroup', str(cgroup)])
