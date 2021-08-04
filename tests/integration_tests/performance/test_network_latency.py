@@ -131,7 +131,11 @@ def consume_ping_output(cons, raw_data, requests):
                            "support need to be added for aarch64 and amd64.")
 @pytest.mark.timeout(3600)
 def test_network_latency(bin_cloner_path, results_file_dumper):
-    """Test network latency driver for multiple artifacts."""
+    """
+    Test network latency for multiple vm configurations.
+
+    @type: performance
+    """
     logger = logging.getLogger("network_latency")
     microvm_artifacts = ArtifactSet(
         ARTIFACTS_COLLECTION.microvms(keyword="1vcpu_1024mb")

@@ -247,7 +247,11 @@ def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
 @pytest.mark.nonci
 @pytest.mark.timeout(CONFIG["time"] * 1000)  # 1.40 hours
 def test_block_performance(bin_cloner_path, results_file_dumper):
-    """Test network throughput driver for multiple artifacts."""
+    """
+    Test block performance for multiple vm configurations.
+
+    @type: performance
+    """
     logger = logging.getLogger(TEST_ID)
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_1024mb"))

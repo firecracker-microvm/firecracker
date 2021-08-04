@@ -109,13 +109,19 @@ def _check_statistics(directory, mean):
     assert low <= mean <= high, "Benchmark result {} has changed!" \
         .format(directory)
 
+    return directory, f"{mean} ms", f"{low} <= result <= {high}"
+
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
     reason="Not supported yet."
 )
 def test_serialization_benchmark():
-    """Benchmark test for MicrovmState serialization/deserialization."""
+    """
+    Benchmark test for MicrovmState serialization/deserialization.
+
+    @type: performance
+    """
     logger = logging.getLogger("serialization_benchmark")
 
     # Move into the benchmark directory
@@ -125,6 +131,8 @@ def test_serialization_benchmark():
     cmd = 'cargo bench'
     result = utils.run_cmd_sync(cmd)
     assert result.returncode == 0
+
+    results_and_criteria = ["", ""]
 
     # Parse each Criterion benchmark from the result folder and
     # check the results against a baseline
@@ -147,7 +155,13 @@ def test_serialization_benchmark():
         mean = estimates['mean']['point_estimate'] / NSEC_IN_MSEC
         logger.info("Mean: %f", mean)
 
-        _check_statistics(directory, mean)
+        res = _check_statistics(directory, mean)
+
+        results_and_criteria[0] += f"{res[0]}: {res[1]}, "
+        results_and_criteria[1] += f"{res[0]}: {res[2]}, "
 
     # Cleanup the Target directory
     shutil.rmtree(results_dir)
+
+    # Return pretty formatted data for the test report.
+    return results_and_criteria[0], results_and_criteria[1]
