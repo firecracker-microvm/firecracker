@@ -7,6 +7,9 @@ import resource
 import stat
 import subprocess
 import time
+import functools
+
+import pytest
 
 import psutil
 import requests
@@ -137,8 +140,66 @@ def test_arbitrary_usocket_location(test_microvm_with_initrd):
                 test_microvm.jailer.uid, test_microvm.jailer.gid)
 
 
-def check_cgroups(cgroups, cgroup_location, jailer_id):
-    """Assert that every cgroup in cgroups is correctly set."""
+@functools.lru_cache(maxsize=None)
+def cgroup_v1_available():
+    """Check if cgroup-v1 is disabled on the system."""
+    with open("/proc/cmdline") as cmdline_file:
+        cmdline = cmdline_file.readline()
+        return bool("cgroup_no_v1=all" not in cmdline)
+
+
+@pytest.fixture
+def sys_setup_cgroups():
+    """Configure cgroupfs in order to run the tests.
+
+    This fixture sets up the cgroups on the system to enable processes
+    spawned by the tests be able to create cgroups successfully.
+    This set-up is important to do when running from inside a Docker
+    container while the system is using cgroup-v2.
+    """
+    cgroup_version = 1 if cgroup_v1_available() else 2
+    if cgroup_version == 2:
+        # Cgroup-v2 adds a no internal process constraint which means that
+        # non-root cgroups can distribute domain resources to their children
+        # only when they don’t have any processes of their own.
+        # When a Docker container is created, the processes running inside
+        # the container are added to the a cgroup which the container sees
+        # as the root cgroup. This prevents creation of using domain cgroups.
+        cgroup_root = None
+
+        # find the group-v2 mount point
+        with open("/proc/mounts") as proc_mounts:
+            mounts = proc_mounts.readlines()
+            for line in mounts:
+                if "cgroup2" in line:
+                    cgroup_root = line.split(' ')[1]
+        assert cgroup_root
+
+        # the root cgroup on the host would not contain the "cgroup.type" file
+        # if the root cgroup contains this file this means that a new
+        # namespace was created and this container was switched to that
+        if os.path.exists(f'{cgroup_root}/cgroup.type'):
+            root_procs = []
+            # get all the processes that were added in the root cgroup
+            with open(f'{cgroup_root}/cgroup.procs') as procs:
+                root_procs = [x.strip() for x in procs.readlines()]
+
+            # now create a new domain cgroup and migrate the procesesses
+            # to that cgroup
+            os.makedirs(f'{cgroup_root}/system', exist_ok=True)
+            for pid in root_procs:
+                with open(
+                    f'{cgroup_root}/system/cgroup.procs', 'a'
+                ) as sys_procs:
+                    sys_procs.write(str(pid))
+            # at this point there should be no processes added to internal
+            # cgroup nodes so new domain cgroups can be created starting
+            # from the root cgroup
+    yield cgroup_version
+
+
+def check_cgroups_v1(cgroups, cgroup_location, jailer_id):
+    """Assert that every cgroupv1 in cgroups is correctly set."""
     for cgroup in cgroups:
         controller = cgroup.split('.')[0]
         file_name, value = cgroup.split('=')
@@ -152,6 +213,38 @@ def check_cgroups(cgroups, cgroup_location, jailer_id):
 
         assert open(file, 'r').readline().strip() == value
         assert open(tasks_file, 'r').readline().strip().isdigit()
+
+
+def check_cgroups_v2(cgroups, cgroup_location, jailer_id):
+    """Assert that every cgroupv2 in cgroups is correctly set."""
+    cg_locations = {
+        'root': f'{cgroup_location}',
+        'fc': f'{cgroup_location}/{FC_BINARY_NAME}',
+        'jail': f'{cgroup_location}/{FC_BINARY_NAME}/{jailer_id}',
+    }
+    for cgroup in cgroups:
+        controller = cgroup.split('.')[0]
+        file_name, value = cgroup.split('=')
+        procs_file = f'{cg_locations["jail"]}/cgroup.procs'
+        file = f'{cg_locations["jail"]}/{file_name}'
+
+        assert controller in open(
+            f'{cg_locations["root"]}/cgroup.controllers', 'r'
+        ).readline().strip()
+        assert controller in open(
+            f'{cg_locations["root"]}/cgroup.subtree_control', 'r'
+        ).readline().strip()
+        assert controller in open(
+            f'{cg_locations["fc"]}/cgroup.controllers', 'r'
+        ).readline().strip()
+        assert controller in open(
+            f'{cg_locations["fc"]}/cgroup.subtree_control', 'r'
+        ).readline().strip()
+        assert controller in open(
+            f'{cg_locations["jail"]}/cgroup.controllers', 'r'
+        ).readline().strip()
+        assert open(file, 'r').readline().strip() == value
+        assert open(procs_file, 'r').readline().strip().isdigit()
 
 
 def get_cpus(node):
@@ -176,15 +269,23 @@ def check_limits(pid, no_file, fsize):
     assert hard == fsize
 
 
-def test_cgroups(test_microvm_with_initrd):
+def test_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
     """
     Test the cgroups are correctly set by the jailer.
 
     @type: security
     """
+    # pylint: disable=redefined-outer-name
     test_microvm = test_microvm_with_initrd
-    test_microvm.jailer.cgroups = ['cpu.shares=2', 'cpu.cfs_period_us=200000']
     test_microvm.jailer.numa_node = 0
+    test_microvm.jailer.cgroup_ver = sys_setup_cgroups
+    if test_microvm.jailer.cgroup_ver == 2:
+        test_microvm.jailer.cgroups = ['cpu.weight=2']
+    else:
+        test_microvm.jailer.cgroups = [
+            'cpu.shares=2',
+            'cpu.cfs_period_us=200000'
+        ]
 
     test_microvm.spawn()
 
@@ -202,18 +303,23 @@ def test_cgroups(test_microvm_with_initrd):
     sys_cgroup = '/sys/fs/cgroup'
     assert os.path.isdir(sys_cgroup)
 
-    check_cgroups(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+    if test_microvm.jailer.cgroup_ver == 1:
+        check_cgroups_v1(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+    else:
+        check_cgroups_v2(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
 
 
-def test_node_cgroups(test_microvm_with_initrd):
+def test_node_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
     """
     Test the --node cgroups are correctly set by the jailer.
 
     @type: security
     """
+    # pylint: disable=redefined-outer-name
     test_microvm = test_microvm_with_initrd
     test_microvm.jailer.cgroups = None
     test_microvm.jailer.numa_node = 0
+    test_microvm.jailer.cgroup_ver = sys_setup_cgroups
 
     test_microvm.spawn()
 
@@ -231,17 +337,28 @@ def test_node_cgroups(test_microvm_with_initrd):
     sys_cgroup = '/sys/fs/cgroup'
     assert os.path.isdir(sys_cgroup)
 
-    check_cgroups(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+    if test_microvm.jailer.cgroup_ver == 1:
+        check_cgroups_v1(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+    else:
+        check_cgroups_v2(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
 
 
-def test_cgroups_without_numa(test_microvm_with_initrd):
+def test_cgroups_without_numa(test_microvm_with_initrd, sys_setup_cgroups):
     """
     Test the cgroups are correctly set by the jailer, without numa assignment.
 
     @type: security
     """
+    # pylint: disable=redefined-outer-name
     test_microvm = test_microvm_with_initrd
-    test_microvm.jailer.cgroups = ['cpu.shares=2', 'cpu.cfs_period_us=200000']
+    test_microvm.jailer.cgroup_ver = sys_setup_cgroups
+    if test_microvm.jailer.cgroup_ver == 2:
+        test_microvm.jailer.cgroups = ['cpu.weight=2']
+    else:
+        test_microvm.jailer.cgroups = [
+            'cpu.shares=2',
+            'cpu.cfs_period_us=200000'
+        ]
 
     test_microvm.spawn()
 
@@ -249,11 +366,42 @@ def test_cgroups_without_numa(test_microvm_with_initrd):
     sys_cgroup = '/sys/fs/cgroup'
     assert os.path.isdir(sys_cgroup)
 
-    check_cgroups(
-        test_microvm.jailer.cgroups,
-        sys_cgroup,
-        test_microvm.jailer.jailer_id
-    )
+    if test_microvm.jailer.cgroup_ver == 1:
+        check_cgroups_v1(
+            test_microvm.jailer.cgroups,
+            sys_cgroup,
+            test_microvm.jailer.jailer_id
+        )
+    else:
+        check_cgroups_v2(
+            test_microvm.jailer.cgroups,
+            sys_cgroup,
+            test_microvm.jailer.jailer_id
+        )
+
+
+@pytest.mark.skipif(cgroup_v1_available() is False,
+                    reason="Requires system with cgroup-v1 enabled.")
+@pytest.mark.usefixtures("sys_setup_cgroups")
+def test_v1_default_cgroups(test_microvm_with_initrd):
+    """
+    Test if the jailer is using cgroup-v1 by default.
+
+    @type: security
+    """
+    # pylint: disable=redefined-outer-name
+    test_microvm = test_microvm_with_initrd
+    test_microvm.jailer.cgroups = ['cpu.shares=2']
+
+    test_microvm.spawn()
+
+    # We assume sysfs cgroups are mounted here.
+    sys_cgroup = '/sys/fs/cgroup'
+    assert os.path.isdir(sys_cgroup)
+
+    check_cgroups_v1(test_microvm.jailer.cgroups,
+                     sys_cgroup,
+                     test_microvm.jailer.jailer_id)
 
 
 def test_args_default_resource_limits(test_microvm_with_initrd):
