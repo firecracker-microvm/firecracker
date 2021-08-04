@@ -15,6 +15,7 @@ jailer --id <id> \
        --exec-file <exec_file> \
        --uid <uid> \
        --gid <gid>
+       [--cgroup-version <cgroup-version>]
        [--cgroup <cgroup>]
        [--chroot-base-dir <chroot_base>]
        [--netns <netns>]
@@ -33,6 +34,10 @@ jailer --id <id> \
   the jailer is mostly Firecracker specific.
 - `uid` and `gid` are the uid and gid the jailer switches to as it execs the
   target binary.
+- `cgroup-version` is used to select which type of cgroup hierarchy to use for
+  the creation of cgroups. The default value is "1" which means that cgroups
+  specified with the `cgroup` argument will be created within a v1 hierarchy.
+  Supported options are "1" for cgroup-v1 and "2" for cgroup-v2.
 - `cgroup` cgroups can be passed to the jailer to let it set the values
   when the microVM process is spawned. The `--cgroup` argument must follow this format:
   `<cgroup_file>=<value>` (e.g cpuset.cpus=0). This argument can be used multiple
