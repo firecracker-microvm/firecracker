@@ -255,7 +255,11 @@ def pipes(basevm, current_avail_cpu, env_id):
 @pytest.mark.nonci
 @pytest.mark.timeout(600)
 def test_vsock_throughput(bin_cloner_path, results_file_dumper):
-    """Test vsock throughput driver for multiple artifacts."""
+    """
+    Test vsock throughput for multiple vm configurations.
+
+    @type: performance
+    """
     logger = logging.getLogger("vsock_throughput")
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))

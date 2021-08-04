@@ -214,7 +214,11 @@ def consume_output(cons, result):
 @pytest.mark.nonci
 @pytest.mark.timeout(300 * 1000)  # 1.40 hours
 def test_snap_restore_performance(bin_cloner_path, results_file_dumper):
-    """Test the performance of snapshot restore."""
+    """
+    Test the performance of snapshot restore.
+
+    @type: performance
+    """
     logger = logging.getLogger(TEST_ID)
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_1024mb"))
@@ -243,7 +247,7 @@ def snapshot_scaling_vcpus(context, st_core, vcpu_count=10):
     """Restore snapshots with variable vcpu count."""
     for i in range(vcpu_count):
         env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
-             f"{BASE_VCPU_COUNT + i}vcpu_{BASE_MEM_SIZE_MIB}mb"
+            f"{BASE_VCPU_COUNT + i}vcpu_{BASE_MEM_SIZE_MIB}mb"
 
         st_prod = st.producer.LambdaProducer(
             func=get_snap_restore_latency,
@@ -261,7 +265,7 @@ def snapshot_scaling_mem(context, st_core, mem_exponent=9):
     """Restore snapshots with variable memory size."""
     for i in range(1, mem_exponent):
         env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
-             f"{BASE_VCPU_COUNT}vcpu_{BASE_MEM_SIZE_MIB * (2 ** i)}mb"
+            f"{BASE_VCPU_COUNT}vcpu_{BASE_MEM_SIZE_MIB * (2 ** i)}mb"
 
         st_prod = st.producer.LambdaProducer(
             func=get_snap_restore_latency,
@@ -279,7 +283,7 @@ def snapshot_scaling_net(context, st_core, net_count=4):
     """Restore snapshots with variable net device count."""
     for i in range(1, net_count):
         env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
-             f"{BASE_NET_COUNT + i}net_dev"
+            f"{BASE_NET_COUNT + i}net_dev"
 
         st_prod = st.producer.LambdaProducer(
             func=get_snap_restore_latency,
@@ -302,7 +306,7 @@ def snapshot_scaling_block(context, st_core, block_count=4):
 
     for i in range(1, block_count):
         env_id = f"{context.kernel.name()}/{context.disk.name()}/" \
-             f"{BASE_BLOCK_COUNT + i}block_dev"
+            f"{BASE_BLOCK_COUNT + i}block_dev"
 
         st_prod = st.producer.LambdaProducer(
             func=get_snap_restore_latency,

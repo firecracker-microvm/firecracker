@@ -303,7 +303,11 @@ def pipes(basevm, host_ip, current_avail_cpu, env_id):
 @pytest.mark.nonci
 @pytest.mark.timeout(3600)
 def test_network_tcp_throughput(bin_cloner_path, results_file_dumper):
-    """Test network throughput driver for multiple artifacts."""
+    """
+    Test network throughput for multiple vm confgurations.
+
+    @type: performance
+    """
     logger = logging.getLogger("network_tcp_throughput")
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_1024mb"))
