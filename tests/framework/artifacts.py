@@ -381,7 +381,7 @@ class ArtifactCollection:
             keyword=keyword
         )
 
-    def firecrackers(self, keyword=None, older_than=None):
+    def firecrackers(self, keyword=None, min_version=None, max_version=None):
         """Return fc/jailer artifacts for the current arch."""
         firecrackers = self._fetch_artifacts(
             ArtifactCollection.ARTIFACTS_BINARIES,
@@ -391,19 +391,27 @@ class ArtifactCollection:
             keyword=keyword
         )
 
-        # Filter out binaries with versions newer than the `older_than` arg.
-        if older_than is not None:
+        # Filter out binaries with versions older than the `min_version` arg.
+        if min_version is not None:
             return list(filter(
-                lambda fc: compare_versions(fc.version, older_than) <= 0,
+                lambda fc: compare_versions(fc.version, min_version) >= 0,
+                firecrackers
+            ))
+
+        # Filter out binaries with versions newer than the `max_version` arg.
+        if max_version is not None:
+            return list(filter(
+                lambda fc: compare_versions(fc.version, max_version) <= 0,
                 firecrackers
             ))
 
         return firecrackers
 
-    def firecracker_versions(self, older_than=None):
+    def firecracker_versions(self, min_version=None, max_version=None):
         """Return fc/jailer artifacts' versions for the current arch."""
         return [fc.base_name()[1:]
-                for fc in self.firecrackers(older_than=older_than)]
+                for fc in self.firecrackers(min_version=min_version,
+                                            max_version=max_version)]
 
     def kernels(self, keyword=None):
         """Return kernel artifacts for the current arch."""
