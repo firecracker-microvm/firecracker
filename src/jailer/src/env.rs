@@ -9,8 +9,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::cgroup;
-use crate::cgroup::{Cgroup, CgroupV1};
+use crate::cgroup::{Cgroup, CgroupBuilder};
 use crate::chroot::chroot;
 use crate::resource_limits::{ResourceLimits, FSIZE_ARG, NO_FILE_ARG};
 use crate::{Error, Result};
@@ -160,6 +159,14 @@ impl Env {
 
         // Optional arguments.
         let mut cgroups: Vec<Box<dyn Cgroup>> = Vec::new();
+        let cgroup_ver = arguments
+            .single_value("cgroup-version")
+            .ok_or_else(|| Error::ArgumentParsing(MissingValue("cgroup-version".to_string())))?;
+        let cgroup_ver = cgroup_ver
+            .parse::<u8>()
+            .map_err(|_| Error::CgroupInvalidVersion(cgroup_ver.to_string()))?;
+
+        let mut cgroup_builder = None;
 
         // If `--node` is used, the corresponding cgroups will be created.
         if let Some(numa_node_str) = arguments.single_value("node") {
@@ -167,26 +174,29 @@ impl Env {
                 .parse::<u32>()
                 .map_err(|_| Error::NumaNode(numa_node_str.to_owned()))?;
 
-            let mut numa_cgroups = cgroup::cgroups_from_numa_node(numa_node, id, &exec_file_name)?;
+            let builder = cgroup_builder.get_or_insert(CgroupBuilder::new(cgroup_ver)?);
+
+            let mut numa_cgroups =
+                builder.cgroups_from_numa_node(numa_node, id, &exec_file_name)?;
             cgroups.append(&mut numa_cgroups);
         }
 
         // cgroup format: <cgroup_controller>.<cgroup_property>=<value>,...
         if let Some(cgroups_args) = arguments.multiple_values("cgroup") {
+            let builder = cgroup_builder.get_or_insert(CgroupBuilder::new(cgroup_ver)?);
             for cg in cgroups_args {
                 let aux: Vec<&str> = cg.split('=').collect();
                 if aux.len() != 2 || aux[1].is_empty() {
                     return Err(Error::CgroupFormat(cg.to_string()));
                 }
 
-                let cgroup = CgroupV1::new(
+                let cgroup = builder.new_cgroup(
                     aux[0].to_string(), // cgroup file
                     aux[1].to_string(), // cgroup value
                     id,
                     &exec_file_name,
                 )?;
-
-                cgroups.push(Box::new(cgroup));
+                cgroups.push(cgroup);
             }
         }
 
