@@ -86,7 +86,11 @@ def _run_seccompiler_bin(json_data, basic=False):
 
 
 def test_seccomp_ls(bin_seccomp_paths):
-    """Assert that the seccomp filter denies an unallowed syscall."""
+    """
+    Assert that the seccomp filter denies an unallowed syscall.
+
+    @type: security
+    """
     # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check
     # The fixture pattern causes a pylint false positive for that rule.
@@ -129,6 +133,8 @@ def test_advanced_seccomp(bin_seccomp_paths):
     Test that the demo jailer (with advanced seccomp) allows the harmless demo
     binary, denies the malicious demo binary and that an empty allowlist
     denies everything.
+
+    @type: security
     """
     # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check
@@ -230,7 +236,11 @@ def test_advanced_seccomp(bin_seccomp_paths):
 
 
 def test_no_seccomp(test_microvm_with_api):
-    """Test Firecracker --no-seccomp."""
+    """
+    Test that Firecracker --no-seccomp installs no filter.
+
+    @type: security
+    """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.extra_args.update({"no-seccomp": None})
     test_microvm.spawn()
@@ -258,7 +268,11 @@ KERNEL_LEVEL = {"default": "2", "0": "0", "1": "2", "2": "2"}
     SECCOMP_LEVELS
 )
 def test_seccomp_level(test_microvm_with_api, level):
-    """Test Firecracker --seccomp-level value."""
+    """
+    Compare Firecracker's --seccomp-level with the kernel-reported value.
+
+    @type: security
+    """
     test_microvm = test_microvm_with_api
     test_microvm.jailer.daemonize = False
 
@@ -292,6 +306,8 @@ def test_seccomp_rust_panic(bin_seccomp_paths):
 
     Test that the Firecracker filters allow a Rust panic to run its
     course without triggering a seccomp violation.
+
+    @type: security
     """
     # pylint: disable=redefined-outer-name
     # pylint: disable=subprocess-run-check
