@@ -16,7 +16,11 @@ import framework.utils as utils
            "is identical on all platforms"
 )
 def test_cargo_audit():
-    """Fail if there are crates with security vulnerabilities."""
+    """
+    Run cargo audit to check for crates with security vulnerabilities.
+
+    @type: security
+    """
     cargo_lock_path = os.path.normpath(
         os.path.join(
             os.path.dirname(os.path.realpath(__file__)),

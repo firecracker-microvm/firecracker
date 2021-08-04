@@ -31,7 +31,11 @@ def check_stats(filepath, stats, uid, gid):
 
 
 def test_default_chroot(test_microvm_with_ssh):
-    """Test that the code base assigns a chroot if none is specified."""
+    """
+    Test that the jailer assigns a default chroot if none is specified.
+
+    @type: security
+    """
     test_microvm = test_microvm_with_ssh
 
     # Start customizing arguments.
@@ -45,7 +49,11 @@ def test_default_chroot(test_microvm_with_ssh):
 
 
 def test_empty_jailer_id(test_microvm_with_ssh):
-    """Test that the jailer ID cannot be empty."""
+    """
+    Test that the jailer ID cannot be empty.
+
+    @type: security
+    """
     test_microvm = test_microvm_with_ssh
     fc_binary, _ = build_tools.get_firecracker_binaries()
 
@@ -69,7 +77,11 @@ def test_empty_jailer_id(test_microvm_with_ssh):
 
 
 def test_default_chroot_hierarchy(test_microvm_with_initrd):
-    """Test the folder hierarchy created by default by the jailer."""
+    """
+    Test the folder hierarchy created by default by the jailer.
+
+    @type: security
+    """
     test_microvm = test_microvm_with_initrd
 
     test_microvm.spawn()
@@ -93,7 +105,11 @@ def test_default_chroot_hierarchy(test_microvm_with_initrd):
 
 
 def test_arbitrary_usocket_location(test_microvm_with_initrd):
-    """Test arbitrary location scenario for the api socket."""
+    """
+    Test arbitrary location scenario for the api socket.
+
+    @type: security
+    """
     test_microvm = test_microvm_with_initrd
     test_microvm.jailer.extra_args = {'api-sock': 'api.socket'}
 
@@ -131,7 +147,11 @@ def get_cpus(node):
 
 
 def test_cgroups(test_microvm_with_initrd):
-    """Test the cgroups are correctly set by the jailer."""
+    """
+    Test the cgroups are correctly set by the jailer.
+
+    @type: security
+    """
     test_microvm = test_microvm_with_initrd
     test_microvm.jailer.cgroups = ['cpu.shares=2', 'cpu.cfs_period_us=200000']
     test_microvm.jailer.numa_node = 0
@@ -156,7 +176,11 @@ def test_cgroups(test_microvm_with_initrd):
 
 
 def test_node_cgroups(test_microvm_with_initrd):
-    """Test the cgroups are correctly set by the jailer."""
+    """
+    Test the --node cgroups are correctly set by the jailer.
+
+    @type: security
+    """
     test_microvm = test_microvm_with_initrd
     test_microvm.jailer.cgroups = None
     test_microvm.jailer.numa_node = 0
@@ -180,8 +204,12 @@ def test_node_cgroups(test_microvm_with_initrd):
     check_cgroups(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
 
 
-def test_args_cgroups(test_microvm_with_initrd):
-    """Test the cgroups are correctly set by the jailer."""
+def test_cgroups_without_numa(test_microvm_with_initrd):
+    """
+    Test the cgroups are correctly set by the jailer, without numa assignment.
+
+    @type: security
+    """
     test_microvm = test_microvm_with_initrd
     test_microvm.jailer.cgroups = ['cpu.shares=2', 'cpu.cfs_period_us=200000']
 
@@ -199,7 +227,11 @@ def test_args_cgroups(test_microvm_with_initrd):
 
 
 def test_new_pid_namespace(test_microvm_with_ssh):
-    """Test that Firecracker is spawned in a new PID namespace if requested."""
+    """
+    Test that Firecracker is spawned in a new PID namespace if requested.
+
+    @type: security
+    """
     test_microvm = test_microvm_with_ssh
 
     test_microvm.jailer.daemonize = False

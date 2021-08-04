@@ -6,7 +6,11 @@ from framework.utils import run_cmd
 
 
 def test_ssbd_mitigation(test_microvm_with_initrd):
-    """Test that SSBD mitigation is enabled."""
+    """
+    Test that SSBD mitigation is enabled.
+
+    @type: security
+    """
     vm = test_microvm_with_initrd
     vm.jailer.daemonize = False
     vm.spawn()
