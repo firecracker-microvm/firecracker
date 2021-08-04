@@ -27,6 +27,9 @@ pub enum Error {
     CgroupInvalidFile(String),
     CgroupWrite(String, String, String),
     CgroupFormat(String),
+    CgroupHierarchyMissing(String),
+    CgroupControllerUnavailable(String),
+    CgroupInvalidVersion(String),
     ChangeFileOwner(PathBuf, io::Error),
     ChdirNewRoot(io::Error),
     Chmod(PathBuf, io::Error),
@@ -109,6 +112,11 @@ impl fmt::Display for Error {
                 evalue, file, rvalue
             ),
             CgroupFormat(ref arg) => write!(f, "Invalid format for cgroups: {}", arg,),
+            CgroupHierarchyMissing(ref arg) => write!(f, "Hierarchy not found: {}", arg,),
+            CgroupControllerUnavailable(ref arg) => write!(f, "Controller {} is unavailable", arg,),
+            CgroupInvalidVersion(ref arg) => {
+                write!(f, "{} is an invalid cgroup version specifier", arg,)
+            }
             ChangeFileOwner(ref path, ref err) => {
                 write!(f, "Failed to change owner for {:?}: {}", path, err)
             }
@@ -297,6 +305,12 @@ pub fn build_arg_parser() -> ArgParser<'static> {
              \t\tno-file: Specifies a value one greater than the maximum file descriptor number \
              that can be opened by this process.",
         ))
+        .arg(
+            Argument::new("cgroup-version")
+                .takes_value(true)
+                .default_value("1")
+                .help("Select the cgroup version used by the jailer."),
+        )
         .arg(
             Argument::new("version")
                 .takes_value(false)

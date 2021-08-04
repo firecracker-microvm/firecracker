@@ -1,10 +1,12 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use regex::Regex;
@@ -14,6 +16,180 @@ use crate::{readln_special, writeln_special, Error, Result};
 const PROC_MOUNTS: &str = "/proc/mounts";
 const NODE_TO_CPULIST: &str = "/sys/devices/system/node/node"; // This constant should be removed once the `--node` argument is removed.
 
+// Holds information on a cgroup mount point discovered on the system
+struct CgroupMountPoint {
+    dir: String,
+    options: String,
+}
+
+// Allows creation of cgroups on the system for both versions
+pub struct CgroupBuilder {
+    version: u8,
+    hierarchies: HashMap<String, PathBuf>,
+    mount_points: Vec<CgroupMountPoint>,
+}
+
+impl CgroupBuilder {
+    // Creates the builder object
+    // It will discover cgroup mount points and hierarchies configured
+    // on the system and cache the info required to create cgroups later
+    // within this hierarchies
+    pub fn new(ver: u8) -> Result<Self> {
+        if ver != 1 && ver != 2 {
+            return Err(Error::CgroupInvalidVersion(ver.to_string()));
+        }
+
+        let mut b = CgroupBuilder {
+            version: ver,
+            hierarchies: HashMap::new(),
+            mount_points: Vec::new(),
+        };
+
+        // search PROC_MOUNTS for cgroup mount points
+        let f =
+            File::open(PROC_MOUNTS).map_err(|e| Error::FileOpen(PathBuf::from(PROC_MOUNTS), e))?;
+
+        // Regex courtesy of Filippo.
+        // This will match on each line from /proc/mounts for both v1 and v2 mount points.
+        //
+        // /proc/mounts cointains lines that look like this:
+        // cgroup2 /sys/fs/cgroup/unified cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate 0 0
+        // cgroup /sys/fs/cgroup/cpu,cpuacct cgroup rw,nosuid,nodev,noexec,relatime,cpu,cpuacct 0 0
+        //
+        // This Regex will extract:
+        //      * "/sys/fs/cgroup/unified" in the "dir" capture group.
+        //      * "2" in the "ver" capture group as the cgroup version taken from "cgroup2";
+        //          for v1, the "ver" capture group will be empty (len = 0).
+        //      * "[...],relatime,cpu,cpuacct" in the "options" capture group; this is used for
+        //          cgroupv1 to determine what controllers are mounted at the location.
+        let re = Regex::new(
+            r"^([a-z2]*)[[:space:]](?P<dir>.*)[[:space:]]cgroup(?P<ver>2?)[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
+        ).map_err(Error::RegEx)?;
+
+        for l in BufReader::new(f).lines() {
+            let l = l.map_err(|e| Error::ReadLine(PathBuf::from(PROC_MOUNTS), e))?;
+            if let Some(capture) = re.captures(&l) {
+                if ver == 2 && capture["ver"].len() == 1 {
+                    // Found the cgroupv2 unified mountpoint; with cgroupsv2 there is only one
+                    // hierarchy so we insert it in the hashmap to use it later when creating
+                    // cgroups
+                    b.hierarchies
+                        .insert("unified".to_string(), PathBuf::from(&capture["dir"]));
+                    break;
+                } else if ver == 1 && capture["ver"].is_empty() {
+                    // Found a cgroupv1 mountpoint; with cgroupsv1 we can have multiple hierarchies.
+                    // Since we don't know which one will be used, we cache the mountpoints now,
+                    // and will create the hierachies on demand when a cgroup is built.
+                    b.mount_points.push(CgroupMountPoint {
+                        dir: String::from(&capture["dir"]),
+                        options: String::from(&capture["options"]),
+                    });
+                }
+            }
+        }
+
+        if b.hierarchies.is_empty() && b.mount_points.is_empty() {
+            Err(Error::CgroupHierarchyMissing(
+                "No hierarchy found for this cgroup version.".to_string(),
+            ))
+        } else {
+            Ok(b)
+        }
+    }
+
+    // Creates a new cggroup and returns it
+    pub fn new_cgroup(
+        &mut self,
+        file: String,
+        value: String,
+        id: &str,
+        exec_file_name: &OsStr,
+    ) -> Result<Box<dyn Cgroup>> {
+        match self.version {
+            1 => {
+                let controller = get_controller_from_filename(&file)?;
+                let path = self.get_v1_hierarchy_path(&controller)?;
+
+                let cgroup = CgroupV1::new(file, value, id, &exec_file_name, &path)?;
+                Ok(Box::new(cgroup))
+            }
+            2 => {
+                // since all cgroups are unified for v2 and the path was discovered when
+                // the builder was constructed, we try and get it right away
+                let path = self
+                    .hierarchies
+                    .get("unified")
+                    .ok_or_else(|| Error::CgroupHierarchyMissing("unified".to_string()))?;
+
+                let cgroup = CgroupV2::new(file, value, id, &exec_file_name, &path)?;
+                Ok(Box::new(cgroup))
+            }
+            _ => Err(Error::CgroupInvalidVersion(self.version.to_string())),
+        }
+    }
+
+    // Returns the path to the root of the hierarchy for the controller specified
+    // Cgroups for a controller are arranged in a hierarchy; multiple controllers
+    // may share the same hierarchy
+    fn get_v1_hierarchy_path(&mut self, controller: &str) -> Result<&PathBuf> {
+        // First try and see if the path is alrady discovered
+        match self.hierarchies.entry(controller.to_string()) {
+            Occupied(e) => Ok(e.into_mut()),
+            Vacant(e) => {
+                // Since the path for this controller type was not already discovered
+                // we need to search through the mount points to find it
+                let mut path = None;
+                for m in self.mount_points.iter() {
+                    let v: Vec<&str> = m.options.split(',').collect();
+                    if v.contains(&controller) {
+                        path = Some(PathBuf::from(&m.dir));
+                        break;
+                    }
+                }
+                // It's possible that the controller is not mounted or a bad controller
+                // name was specified. Return an error in this case
+                match path {
+                    Some(p) => Ok(e.insert(p)),
+                    None => Err(Error::CgroupControllerUnavailable(controller.to_string())),
+                }
+            }
+        }
+    }
+
+    // This function should be removed once the `--node` argument is removed.
+    // This function generates the corresponding cgroups for isolating the process in the specified
+    // NUMA node.
+    pub fn cgroups_from_numa_node(
+        &mut self,
+        numa_node: u32,
+        microvm_id: &str,
+        exec_file_name: &OsStr,
+    ) -> Result<Vec<Box<dyn Cgroup>>> {
+        // Retrieve the CPUs which belongs to the specific node.
+        // Similar to how numactl library does, we are copying the contents of
+        // /sys/devices/system/node/nodeX/cpulist to the cpuset.cpus file for ensuring
+        // correct numa cpu assignment.
+        let cpus = readln_special(&PathBuf::from(format!(
+            "{}{}/cpulist",
+            NODE_TO_CPULIST, numa_node
+        )))?;
+
+        // Isolate the process in the specified numa_node CPUs.
+        let cpuset_cpus =
+            self.new_cgroup("cpuset.cpus".to_string(), cpus, microvm_id, exec_file_name)?;
+
+        // Isolate the process in the specified numa_node memory.
+        let cpuset_mems = self.new_cgroup(
+            "cpuset.mems".to_string(),
+            numa_node.to_string(),
+            microvm_id,
+            exec_file_name,
+        )?;
+
+        Ok(vec![cpuset_cpus, cpuset_mems])
+    }
+}
+
 struct CgroupBase {
     file: String,      // file representing the cgroup (e.g cpuset.mems).
     value: String,     // value that will be written into the file.
@@ -21,6 +197,7 @@ struct CgroupBase {
 }
 
 pub struct CgroupV1(CgroupBase);
+pub struct CgroupV2(CgroupBase);
 
 pub trait Cgroup {
     // Write the cgroup value into the cgroup property file.
@@ -105,37 +282,6 @@ fn inherit_from_parent(path: &mut PathBuf, file_name: &str) -> Result<()> {
     inherit_from_parent_aux(path, file_name, true)
 }
 
-// This function should be removed once the `--node` argument is removed.
-// This function generates the corresponding cgroups for isolating the process in the specified
-// NUMA node.
-pub fn cgroups_from_numa_node(
-    numa_node: u32,
-    microvm_id: &str,
-    exec_file_name: &OsStr,
-) -> Result<Vec<Box<dyn Cgroup>>> {
-    // Retrieve the CPUs which belongs to the specific node.
-    // Similar to how numactl library does, we are copying the contents of
-    // /sys/devices/system/node/nodeX/cpulist to the cpuset.cpus file for ensuring
-    // correct numa cpu assignment.
-    let cpus = readln_special(&PathBuf::from(format!(
-        "{}{}/cpulist",
-        NODE_TO_CPULIST, numa_node
-    )))?;
-
-    // Isolate the process in the specified numa_node CPUs.
-    let cpuset_cpus = CgroupV1::new("cpuset.cpus".to_string(), cpus, microvm_id, exec_file_name)?;
-
-    // Isolate the process in the specified numa_node memory.
-    let cpuset_mems = CgroupV1::new(
-        "cpuset.mems".to_string(),
-        numa_node.to_string(),
-        microvm_id,
-        exec_file_name,
-    )?;
-
-    Ok(vec![Box::new(cpuset_cpus), Box::new(cpuset_mems)])
-}
-
 // Extract the controller name from the cgroup file. The cgroup file must follow
 // this format: <cgroup_controller>.<cgroup_property>.
 fn get_controller_from_filename(file: &str) -> Result<&str> {
@@ -149,52 +295,28 @@ fn get_controller_from_filename(file: &str) -> Result<&str> {
     Ok(v[0])
 }
 
-// Return the path of the cgroup subfolder for a specific controller.
-// (<mountpoint>/<controller>/<exec_file_name>/<id>).
-fn get_location(file: &str, exec_file_name: &OsStr, id: &str) -> Result<PathBuf> {
-    let controller = get_controller_from_filename(file)?;
-    let f =
-        File::open(PROC_MOUNTS).map_err(|e| Error::FileOpen(PathBuf::from(PROC_MOUNTS), e))?;
-
-    // Regex courtesy of Filippo.
-    let re = Regex::new(
-        r"^([a-z]*)[[:space:]](?P<dir>.*)[[:space:]]cgroup[[:space:]](?P<options>.*)[[:space:]]0[[:space:]]0$",
-    ).map_err(Error::RegEx)?;
-    for l in BufReader::new(f).lines() {
-        let l = l.map_err(|e| Error::ReadLine(PathBuf::from(PROC_MOUNTS), e))?;
-        if let Some(capture) = re.captures(&l) {
-            let v: Vec<&str> = capture["options"].split(',').collect();
-
-            if v.contains(&controller) {
-                let mut path = PathBuf::from(&capture["dir"]);
-                path.push(exec_file_name);
-                path.push(id);
-
-                return Ok(path);
-            }
-        }
-    }
-
-    Err(Error::CgroupLineNotFound(
-        PROC_MOUNTS.to_string(),
-        controller.to_string(),
-    ))
-}
-
 impl CgroupV1 {
-    pub fn new(file: String, value: String, id: &str, exec_file_name: &OsStr) -> Result<Self> {
-        let cgroup_location = get_location(&file, exec_file_name, id)?;
+    // Create a new cgroupsv1 controller
+    pub fn new(
+        file: String,
+        value: String,
+        id: &str,
+        exec_file_name: &OsStr,
+        controller_path: &Path,
+    ) -> Result<Self> {
+        let mut path = controller_path.to_path_buf();
+        path.push(exec_file_name);
+        path.push(id);
 
-        Ok(CgroupV1 (CgroupBase {
+        Ok(CgroupV1(CgroupBase {
             file,
             value,
-            location: cgroup_location,
+            location: path,
         }))
     }
 }
 
 impl Cgroup for CgroupV1 {
-    // Write the cgroup value into the cgroup property file.
     fn write_value(&self) -> Result<()> {
         let location = &mut self.0.location.clone();
 
@@ -211,11 +333,109 @@ impl Cgroup for CgroupV1 {
         Ok(())
     }
 
-    // This writes the pid of the current process to the tasks file. Tasks files are special files,
-    // that when written to, will assign the process associated with the pid to the respective cgroup.
     fn attach_pid(&self) -> Result<()> {
         let pid = process::id();
         let location = &self.0.location.join("tasks");
+
+        writeln_special(location, pid)?;
+
+        Ok(())
+    }
+}
+
+impl CgroupV2 {
+    // Enables the specified controller along the cgroup nested path.
+    // To be able to use a leaf controller within a nested cgroup hierarchy,
+    // the controller needs to be enabled by writing to the cgroup.subtree_control
+    // of it's parent. This rule applies recursivelly.
+    fn write_all_subtree_control<P>(path: P, controller: &str) -> Result<()>
+    where
+        P: AsRef<Path>,
+    {
+        let cg_subtree_ctrl = path.as_ref().join("cgroup.subtree_control");
+        if !cg_subtree_ctrl.exists() {
+            return Ok(());
+        }
+        let parent = match path.as_ref().parent() {
+            Some(p) => p,
+            None => {
+                writeln_special(&cg_subtree_ctrl, format!("+{}", &controller))?;
+                return Ok(());
+            }
+        };
+
+        Self::write_all_subtree_control(&parent, &controller)?;
+        writeln_special(&cg_subtree_ctrl, format!("+{}", &controller))
+    }
+
+    // Returns true if the controller is available to be enabled from a
+    // cgroup path specified by the mount_point parameter
+    fn controller_available<P>(controller: &str, mount_point: P) -> bool
+    where
+        P: AsRef<Path>,
+    {
+        let controller_list_file = mount_point.as_ref().join("cgroup.controllers");
+        let f = match File::open(controller_list_file) {
+            Ok(f) => f,
+            Err(_) => return false,
+        };
+
+        for l in BufReader::new(f).lines().flatten() {
+            let controllers: Vec<&str> = l.split(' ').collect();
+            if controllers.contains(&controller) {
+                return true;
+            }
+        }
+        false
+    }
+
+    // Create a new cgroupsv2 controller
+    pub fn new(
+        file: String,
+        value: String,
+        id: &str,
+        exec_file_name: &OsStr,
+        unified_path: &Path,
+    ) -> Result<Self> {
+        let controller = get_controller_from_filename(&file)?;
+        let mut path = unified_path.to_path_buf();
+        if CgroupV2::controller_available(controller, unified_path) {
+            path.push(exec_file_name);
+            path.push(id);
+            Ok(CgroupV2(CgroupBase {
+                file,
+                value,
+                location: path,
+            }))
+        } else {
+            Err(Error::CgroupControllerUnavailable(controller.to_string()))
+        }
+    }
+}
+
+impl Cgroup for CgroupV2 {
+    fn write_value(&self) -> Result<()> {
+        let location = &mut self.0.location.clone();
+        let controller = get_controller_from_filename(&self.0.file)?;
+
+        // Create the cgroup directory for the controller.
+        fs::create_dir_all(&self.0.location)
+            .map_err(|e| Error::CreateDir(self.0.location.clone(), e))?;
+
+        // Ok to unwrap since the path was just created.
+        let parent = location.parent().unwrap();
+        // Enable the controller in all parent directories
+        CgroupV2::write_all_subtree_control(&parent, &controller)?;
+
+        location.push(&self.0.file);
+        writeln_special(location, &self.0.value)?;
+
+        Ok(())
+    }
+
+    fn attach_pid(&self) -> Result<()> {
+        let pid = process::id();
+        let location = &self.0.location.join("cgroup.procs");
 
         writeln_special(location, pid)?;
 
@@ -289,38 +509,6 @@ mod tests {
         // Check empty file
         file = "";
         result = get_controller_from_filename(file);
-        assert!(result.is_err());
-        assert!(format!("{:?}", result).contains("CgroupInvalidFile"));
-    }
-
-    #[test]
-    fn test_get_location() {
-        // Asumming cgroups are mounted on /sys/fs/cgroup
-        let cgroup_path = "/sys/fs/cgroup";
-        let id = "microvm-id";
-        let exec_file_name = "firecracker";
-        let mut file = "cpuset.cpu";
-
-        // Check valid file
-        let controller = "cpuset"; // defined to avoid calling get_controller_from_filename.
-        assert!(&std::path::Path::new(&format!("{}/{}", cgroup_path, controller)).exists());
-        let expected_path = PathBuf::from(format!(
-            "{}/{}/{}/{}",
-            &cgroup_path, &controller, &exec_file_name, &id
-        ));
-        let mut result = get_location(file, OsStr::new(exec_file_name), id);
-        assert!(result.is_ok());
-        assert!(matches!(result, Ok(path) if path == expected_path));
-
-        // Check file with invalid controller
-        file = "invalid.cpu";
-        result = get_location(file, OsStr::new(exec_file_name), id);
-        assert!(result.is_err());
-        assert!(format!("{:?}", result).contains("CgroupLineNotFound"));
-
-        // Check empty file
-        file = "";
-        result = get_location(file, OsStr::new(exec_file_name), id);
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("CgroupInvalidFile"));
     }
