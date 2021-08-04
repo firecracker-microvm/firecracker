@@ -10,3 +10,9 @@ libc = ">=0.2.39"
 seccompiler = { path = "../../../../src/seccompiler" }
 
 [workspace]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

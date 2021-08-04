@@ -637,12 +637,9 @@ impl Vmm {
                     .downcast_mut::<Balloon>()
                     .unwrap()
                     .update_size(amount_mib)?;
-            }
 
-            let locked_dev = busdev.lock().expect("Poisoned lock");
-            locked_dev
-                .interrupt(devices::virtio::VIRTIO_MMIO_INT_CONFIG)
-                .map_err(BalloonError::InterruptError)
+                Ok(())
+            }
         } else {
             Err(BalloonError::DeviceNotFound)
         }

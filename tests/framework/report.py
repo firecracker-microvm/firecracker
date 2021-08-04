@@ -227,24 +227,17 @@ class Report(mpsing.MultiprocessSingleton):
         for item in items:
             self._collected_items[item.nodeid] = Report.TestItem(item)
 
-    def catch_return(self, item):
+    @mpsing.ipcmethod
+    def set_return(self, nodeid, rval):
         """
-        Wrap around a pytest test function.
+        Set return value for a given test.
 
-        We do this because we want to somehow catch the return value of
-        functions to set expected test criteria and actual criteria.
+        This function is called over IPC and needs picklable
+        objects as params.
         """
-        # Save the original function
-        original_function = item.obj
+        self._collected_items[nodeid].set_return(rval)
 
-        def func_wrapper(*args, **kwargs):
-            # Set the return value of this test item as the return value
-            # of the function
-            self._collected_items[item.nodeid].set_return(
-                original_function(*args, **kwargs))
-
-        item.obj = func_wrapper
-
+    @mpsing.ipcmethod
     def finish_test_item(self, report):
         """Mark a test as finished and update the report."""
         self._collected_items[report.nodeid].finish(report)

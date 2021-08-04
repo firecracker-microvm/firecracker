@@ -48,11 +48,11 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         `PytestScheduler.instance()` to get the scheduler object.
         """
         super().__init__()
-        self._mp_singletons = [self]
-        self.session = None
 
         # Initialize a report for this session
         self._report = treport.Report(defs.TEST_RESULTS_DIR / "report")
+        self._mp_singletons = [self, self._report]
+        self.session = None
 
     def register_mp_singleton(self, mp_singleton):
         """Register a multi-process singleton object.
@@ -124,7 +124,16 @@ class PytestScheduler(mpsing.MultiprocessSingleton):
         # Overwrite the function with a custom one to catch return values.
         # These are used to catch expected vs. actual values and used in
         # reporting
-        self._report.catch_return(pyfuncitem)
+        original_function = pyfuncitem.obj
+
+        def call_wrapper(*args, **kwargs):
+            # set_return is an IPC method and we can't use any params here
+            # so we just pass things that are picklable
+            self._report.set_return(
+                pyfuncitem.nodeid,
+                original_function(*args, **kwargs))
+
+        pyfuncitem.obj = call_wrapper
 
     def pytest_runtestloop(self, session):
         """Pytest hook. The main test scheduling and running loop.

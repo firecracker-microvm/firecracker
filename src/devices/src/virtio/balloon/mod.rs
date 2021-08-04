@@ -4,6 +4,7 @@
 pub mod device;
 pub mod event_handler;
 pub mod persist;
+#[cfg(test)]
 pub mod test_utils;
 mod utils;
 
@@ -63,8 +64,6 @@ pub enum Error {
     DeviceNotActive,
     /// EventFd error.
     EventFd(std::io::Error),
-    /// Failed to signal the virtio used queue.
-    FailedSignalingUsedQueue(std::io::Error),
     /// Guest gave us bad memory addresses.
     GuestMemory(GuestMemoryError),
     /// Received error while sending an interrupt.

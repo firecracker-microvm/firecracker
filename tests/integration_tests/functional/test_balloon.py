@@ -411,7 +411,7 @@ def test_size_reduction(test_microvm_with_ssh_and_balloon, network_config):
     time.sleep(5)
 
     # Now inflate the balloon.
-    response = test_microvm.balloon.patch(amount_mib=40)
+    response = test_microvm.balloon.patch(amount_mib=160)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Check memory usage again.
