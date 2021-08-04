@@ -597,13 +597,9 @@ def compare_versions(first, second):
     first = list(map(int, first.split('.')))
     second = list(map(int, second.split('.')))
 
-    if first[0] == second[0]:
-        if first[1] == second[1]:
-            if first[2] == second[2]:
-                return 0
+    for i in range(3):
+        diff = first[i] - second[i]
+        if diff != 0:
+            return diff
 
-            return first[2] - second[2]
-
-        return first[1] - second[1]
-
-    return first[0] - second[0]
+    return 0

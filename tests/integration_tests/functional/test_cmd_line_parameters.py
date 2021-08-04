@@ -25,7 +25,7 @@ def test_describe_snapshot_all_versions(bin_cloner_path):
     # For each binary create a snapshot and verify the data version
     # of the snapshot state file.
     firecracker_artifacts = artifacts.firecrackers(
-        older_than=get_firecracker_version_from_toml())
+        max_version=get_firecracker_version_from_toml())
 
     for firecracker in firecracker_artifacts:
         firecracker.download()

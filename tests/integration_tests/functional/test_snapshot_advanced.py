@@ -52,7 +52,7 @@ def test_restore_old_snapshot_all_devices(bin_cloner_path):
     # With each binary create a snapshot and try to restore in current
     # version.
     firecracker_artifacts = artifacts.firecrackers(
-        older_than=get_firecracker_version_from_toml())
+        max_version=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()
@@ -107,7 +107,7 @@ def test_restore_old_version_all_devices(bin_cloner_path):
     # Create a snapshot with current build and restore with each FC binary
     # artifact.
     firecracker_artifacts = artifacts.firecrackers(
-        older_than=get_firecracker_version_from_toml())
+        max_version=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()

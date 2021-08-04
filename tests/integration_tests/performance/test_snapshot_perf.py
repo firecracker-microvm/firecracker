@@ -207,7 +207,7 @@ def _test_snapshot_create_latency(context):
                 .format(DEFAULT_TEST_IMAGES_S3_BUCKET))
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     firecracker_versions = artifacts.firecracker_versions(
-        older_than=get_firecracker_version_from_toml())
+        max_version=get_firecracker_version_from_toml())
     assert len(firecracker_versions) > 0
 
     # Test snapshot creation for every supported target version.
@@ -591,7 +591,7 @@ def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper):
     # With each binary create a snapshot and try to restore in current
     # version.
     firecracker_artifacts = ArtifactSet(artifacts.firecrackers(
-        older_than=get_firecracker_version_from_toml()))
+        max_version=get_firecracker_version_from_toml()))
     assert len(firecracker_artifacts) > 0
 
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
