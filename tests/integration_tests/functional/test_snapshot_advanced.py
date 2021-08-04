@@ -316,14 +316,14 @@ def create_snapshot_helper(builder, logger, target_version=None,
     vm.start()
 
     # Iterate and validate connectivity on all ifaces after boot.
-    for iface in net_ifaces:
+    for iface in ifaces:
         vm.ssh_config['hostname'] = iface.guest_ip
         ssh_connection = net_tools.SSHConnection(vm.ssh_config)
         exit_code, _, _ = ssh_connection.execute_command("sync")
         assert exit_code == 0
 
     # Mount scratch drives in guest.
-    for blk in scratch_drives:
+    for blk in test_drives:
         # Create mount point and mount each device.
         cmd = "mkdir -p /mnt/{blk} && mount /dev/{blk} /mnt/{blk}".format(
             blk=blk
@@ -349,7 +349,7 @@ def create_snapshot_helper(builder, logger, target_version=None,
                                        vm_instance.ssh_key,
                                        target_version=target_version,
                                        snapshot_type=snapshot_type,
-                                       net_ifaces=net_ifaces)
+                                       net_ifaces=ifaces)
     logger.debug("========== Firecracker create snapshot log ==========")
     logger.debug(vm.log_data)
     vm.kill()
