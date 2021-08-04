@@ -13,7 +13,12 @@ use regex::Regex;
 
 use crate::{readln_special, writeln_special, Error, Result};
 
-const PROC_MOUNTS: &str = "/proc/mounts";
+const PROC_MOUNTS: &str = if cfg!(test) {
+    "/tmp/firecracker/test/jailer/proc/mounts"
+} else {
+    "/proc/mounts"
+};
+
 const NODE_TO_CPULIST: &str = "/sys/devices/system/node/node"; // This constant should be removed once the `--node` argument is removed.
 
 // Holds information on a cgroup mount point discovered on the system
@@ -444,13 +449,260 @@ impl Cgroup for CgroupV2 {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod test_util {
+    use std::fs::{self, File, OpenOptions};
     use std::io::Write;
+    use std::path::{Path, PathBuf};
+
+    use super::PROC_MOUNTS;
+
+    pub struct MockCgroupFs {
+        mounts_file: File,
+    }
+
+    // Helper object that simulates the layout of the cgroup file system
+    // This can be used for testing regardless of the availablity of a particular
+    // version of cgroups on the system
+    impl MockCgroupFs {
+        const MOCK_PROCDIR: &'static str = "/tmp/firecracker/test/jailer/proc";
+        pub const MOCK_SYS_CGROUPS_DIR: &'static str = "/tmp/firecracker/test/jailer/sys_cgroup";
+
+        pub fn create_file_with_contents<P>(
+            filename: P,
+            contents: &str,
+        ) -> std::result::Result<(), std::io::Error>
+        where
+            P: AsRef<Path>,
+        {
+            let mut file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&filename)?;
+
+            writeln!(file, "{}", contents)?;
+            Ok(())
+        }
+
+        pub fn new() -> std::result::Result<MockCgroupFs, std::io::Error> {
+            // create a mock /proc/mounts file in a temporary directory
+            fs::create_dir_all(Self::MOCK_PROCDIR)?;
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(PROC_MOUNTS)?;
+
+            Ok(MockCgroupFs { mounts_file: file })
+        }
+
+        // Populate the mocked proc/mounts file with cgroupv2 entries
+        // Also create a directory structure that simulates cgroupsv2 layout
+        pub fn add_v2_mounts(&mut self) -> std::result::Result<(), std::io::Error> {
+            writeln!(
+                self.mounts_file,
+                "cgroupv2 {}/unified cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate 0 0",
+                Self::MOCK_SYS_CGROUPS_DIR
+            )?;
+            let cg_unified_path = PathBuf::from(format!("{}/unified", Self::MOCK_SYS_CGROUPS_DIR));
+            let _ = fs::create_dir_all(&cg_unified_path)?;
+            Self::create_file_with_contents(
+                cg_unified_path.join("cgroup.controllers"),
+                "cpuset cpu io memory pids",
+            )?;
+            Self::create_file_with_contents(cg_unified_path.join("cgroup.subtree_control"), "")?;
+            Ok(())
+        }
+
+        // Populate the mocked proc/mounts file with cgroupv1 entries
+        pub fn add_v1_mounts(&mut self) -> std::result::Result<(), std::io::Error> {
+            let controllers = vec![
+                "memory",
+                "net_cls,net_prio",
+                "pids",
+                "cpuset",
+                "cpu,cpuacct",
+            ];
+
+            for c in &controllers {
+                writeln!(
+                    self.mounts_file,
+                    "cgroup {}/{} cgroup rw,nosuid,nodev,noexec,relatime,{} 0 0",
+                    Self::MOCK_SYS_CGROUPS_DIR,
+                    c,
+                    c,
+                )?;
+            }
+            Ok(())
+        }
+    }
+
+    // Cleanup created files when object goes out of scope
+    impl Drop for MockCgroupFs {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(PROC_MOUNTS);
+            let _ = fs::remove_dir_all("/tmp/firecracker/test");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{BufReader, Write};
     use std::path::PathBuf;
 
     use super::*;
+    use crate::cgroup::test_util::MockCgroupFs;
     use utils::tempdir::TempDir;
     use utils::tempfile::TempFile;
+
+    // Utility function to read the first line in a file
+    fn read_first_line<P>(filename: P) -> std::result::Result<String, std::io::Error>
+    where
+        P: AsRef<Path>,
+    {
+        let file = File::open(filename)?;
+        let mut reader = BufReader::new(file);
+        let mut buf = String::new();
+        reader.read_line(&mut buf)?;
+
+        Ok(buf)
+    }
+
+    #[test]
+    fn test_cgroup_builder_no_mounts() {
+        let builder = CgroupBuilder::new(1);
+        assert!(builder.is_err());
+    }
+
+    #[test]
+    fn test_cgroup_builder_v1() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        let builder = CgroupBuilder::new(1);
+        assert!(!builder.is_err());
+    }
+
+    #[test]
+    fn test_cgroup_builder_v2() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v2_mounts().is_err());
+        let builder = CgroupBuilder::new(2);
+        assert!(!builder.is_err());
+    }
+
+    #[test]
+    fn test_cgroup_builder_v2_with_v1_mounts() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        let builder = CgroupBuilder::new(2);
+        assert!(builder.is_err());
+    }
+
+    #[test]
+    fn test_cgroup_builder_v1_with_v2_mounts() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v2_mounts().is_err());
+        let builder = CgroupBuilder::new(1);
+        assert!(builder.is_err());
+    }
+
+    #[test]
+    fn test_cgroup_build() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        assert!(!mock_cgroups.add_v2_mounts().is_err());
+
+        for v in &[1, 2] {
+            let mut builder = CgroupBuilder::new(*v).unwrap();
+
+            let cg = builder.new_cgroup(
+                "cpuset.mems".to_string(),
+                "1".to_string(),
+                "101",
+                OsStr::new("fc_test_cg"),
+            );
+            assert!(!cg.is_err());
+        }
+    }
+
+    #[test]
+    fn test_cgroup_build_invalid() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
+        assert!(!mock_cgroups.add_v2_mounts().is_err());
+
+        for v in &[1, 2] {
+            let mut builder = CgroupBuilder::new(*v).unwrap();
+            let cg = builder.new_cgroup(
+                "invalid.cg".to_string(),
+                "1".to_string(),
+                "101",
+                OsStr::new("fc_test_cg"),
+            );
+            assert!(cg.is_err());
+        }
+    }
+
+    #[test]
+    fn test_cgroup_v2_write_value() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v2_mounts().is_err());
+        let builder = CgroupBuilder::new(2);
+        assert!(!builder.is_err());
+
+        let mut builder = CgroupBuilder::new(2).unwrap();
+        let cg = builder.new_cgroup(
+            "cpuset.mems".to_string(),
+            "1".to_string(),
+            "101",
+            OsStr::new("fc_test_cgv2"),
+        );
+        assert!(!cg.is_err());
+        let cg = cg.unwrap();
+
+        let cg_root = PathBuf::from(format!("{}/unified", MockCgroupFs::MOCK_SYS_CGROUPS_DIR));
+
+        // with real cgroups these files are created automatically
+        // since the mock will not do it automatically, we create it here
+        fs::create_dir_all(cg_root.join("fc_test_cgv2/101")).unwrap();
+        MockCgroupFs::create_file_with_contents(
+            cg_root.join("fc_test_cgv2/cgroup.subtree_control"),
+            "",
+        )
+        .unwrap();
+        MockCgroupFs::create_file_with_contents(
+            cg_root.join("fc_test_cgv2/101/cgroup.subtree_control"),
+            "",
+        )
+        .unwrap();
+
+        assert!(!cg.write_value().is_err());
+
+        // check that the value was written correctly
+        assert!(cg_root.join("fc_test_cgv2/101/cpuset.mems").exists());
+        assert_eq!(
+            read_first_line(cg_root.join("fc_test_cgv2/101/cpuset.mems")).unwrap(),
+            "1\n"
+        );
+
+        // check that the controller was enabled in all parent dirs
+        assert!(read_first_line(cg_root.join("cgroup.subtree_control"))
+            .unwrap()
+            .contains("cpuset"));
+        assert!(
+            read_first_line(cg_root.join("fc_test_cgv2/cgroup.subtree_control"))
+                .unwrap()
+                .contains("cpuset")
+        );
+        assert!(
+            !read_first_line(cg_root.join("fc_test_cgv2/101/cgroup.subtree_control"))
+                .unwrap()
+                .contains("cpuset")
+        );
+    }
 
     #[test]
     fn test_inherit_from_parent() {

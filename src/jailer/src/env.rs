@@ -587,6 +587,7 @@ impl Env {
 mod tests {
     use super::*;
     use crate::build_arg_parser;
+    use crate::cgroup::test_util::MockCgroupFs;
 
     use std::os::linux::fs::MetadataExt;
     use std::os::unix::ffi::OsStrExt;
@@ -692,6 +693,9 @@ mod tests {
 
     #[test]
     fn test_new_env() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
+
         let good_arg_vals = ArgVals::new();
         let arg_parser = build_arg_parser();
         let mut args = arg_parser.arguments().clone();
@@ -827,6 +831,8 @@ mod tests {
 
     #[test]
     fn test_setup_jailed_folder() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
         let env = create_env();
 
         // Error case: non UTF-8 paths.
@@ -875,6 +881,8 @@ mod tests {
     fn test_mknod_and_own_dev() {
         use std::os::unix::fs::FileTypeExt;
 
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
         let env = create_env();
 
         // Ensure path buffers without NULL-termination are handled well.
@@ -926,6 +934,8 @@ mod tests {
         // Create a standard environment.
         let arg_parser = build_arg_parser();
         let mut args = arg_parser.arguments().clone();
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
 
         // Create tmp resources for `exec_file` and `chroot_base`.
         let some_file = TempFile::new_with_prefix("/tmp/").unwrap();
@@ -999,6 +1009,8 @@ mod tests {
     fn test_cgroups_parsing() {
         let arg_parser = build_arg_parser();
         let good_arg_vals = ArgVals::new();
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
 
         // Cases that should fail
 
@@ -1136,6 +1148,9 @@ mod tests {
     #[test]
     #[cfg(target_arch = "aarch64")]
     fn test_copy_cache_info() {
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
+
         let env = create_env();
 
         // Create the required chroot dir hierarchy.
@@ -1159,6 +1174,9 @@ mod tests {
         let exec_file_name = "file";
         let pid_file_name = "file.pid";
         let pid = 1;
+
+        let mut mock_cgroups = MockCgroupFs::new().unwrap();
+        assert!(!mock_cgroups.add_v1_mounts().is_err());
 
         let mut env = create_env();
         env.save_exec_file_pid(pid, PathBuf::from(exec_file_name))
