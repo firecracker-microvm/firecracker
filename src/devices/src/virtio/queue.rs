@@ -303,6 +303,35 @@ impl Queue {
             return None;
         }
 
+        self.do_pop_unchecked(mem)
+    }
+
+    /// Try to pop the first available descriptor chain from the avail ring.
+    /// If no descriptor is available, enable notifications.
+    pub fn pop_or_enable_notification<'a, 'b>(
+        &'a mut self,
+        mem: &'b GuestMemoryMmap,
+    ) -> Option<DescriptorChain<'b>> {
+        if !self.uses_notif_suppression {
+            return self.pop(mem);
+        }
+
+        if self.try_enable_notification(mem) {
+            return None;
+        }
+
+        self.do_pop_unchecked(mem)
+    }
+
+    /// Pop the first available descriptor chain from the avail ring.
+    ///
+    /// # Important
+    /// This is an internal method that ASSUMES THAT THERE ARE AVAILABLE DESCRIPTORS. Otherwise it
+    /// will retrieve a descriptor that contains garbage data (obsolete/empty).
+    fn do_pop_unchecked<'a, 'b>(
+        &'a mut self,
+        mem: &'b GuestMemoryMmap,
+    ) -> Option<DescriptorChain<'b>> {
         // This fence ensures all subsequent reads see the updated driver writes.
         fence(Ordering::Acquire);
 
@@ -683,6 +712,33 @@ pub(crate) mod tests {
             .unwrap();
         assert!(!d.has_next());
         assert!(d.next_descriptor().is_none());
+
+        // Undoing the last pop should let us walk the last chain again.
+        q.undo_pop();
+        assert_eq!(q.len(m), 1);
+
+        // Walk the last chain again (three descriptors) using pop_or_enable_notification().
+        let d = q
+            .pop_or_enable_notification(m)
+            .unwrap()
+            .next_descriptor()
+            .unwrap()
+            .next_descriptor()
+            .unwrap();
+        assert!(!d.has_next());
+        assert!(d.next_descriptor().is_none());
+
+        // There are no more descriptors, but notification suppression is disabled.
+        // Calling pop_or_enable_notification() should simply return None.
+        assert_eq!(q.avail_event(m), 0);
+        assert!(q.pop_or_enable_notification(m).is_none());
+        assert_eq!(q.avail_event(m), 0);
+
+        // There are no more descriptors and notification suppression is enabled. Calling
+        // pop_or_enable_notification() should enable notifications.
+        q.enable_notif_suppression();
+        assert!(q.pop_or_enable_notification(m).is_none());
+        assert_eq!(q.avail_event(m), 2);
     }
 
     #[test]
