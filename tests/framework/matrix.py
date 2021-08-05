@@ -27,6 +27,16 @@ class TestContext:
         self._context[key] = value
 
     @property
+    def firecracker(self):
+        """Return the firecracker binary artifact."""
+        return self._context.get('firecracker', None)
+
+    @firecracker.setter
+    def firecracker(self, firecracker):
+        """Setter for firecracker binary artifact."""
+        self._context['firecracker'] = firecracker
+
+    @property
     def kernel(self):
         """Return the kernel artifact."""
         return self._context.get('kernel', None)
