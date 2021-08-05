@@ -80,37 +80,37 @@ class Report(mpsing.MultiprocessSingleton):
     # If not filled from the docstring, the test framework will add the content
     # through the test results.
     ReportItem = namedtuple("ReportItem",
-                            ["value", "from_docstring", "one_of"])
+                            ["value", "from_docstring", "one_of", "required"])
 
-    # Contains a test item name, the value and optionally defines what values
-    # it accepts.
+    # Contains a test item name, the value, optionally defines what values
+    # it accepts and whether the value is required.
     # This is where we define what items we look-up in the docstring.
     doc_items = {
         # Internal test name representation
-        "name": ReportItem("", False, None),
+        "name": ReportItem("", False, None, False),
 
         # What the test does
-        "description": ReportItem("", True, None),
+        "description": ReportItem("", True, None, True),
 
         # If the test passed, failed or was skipped
-        "outcome": ReportItem("", False, None),
+        "outcome": ReportItem("", False, None, False),
 
         # How long the test took
-        "duration": ReportItem(0, False, None),
+        "duration": ReportItem(0, False, None, False),
 
         # What kind of test we're running. We only accept a predefined list
         # of tests.
         "type": ReportItem("", True, ["build", "functional", "performance",
-                                      "security", "style"]),
+                                      "security", "style"], True),
 
         # What we take into account to pass a test
-        "criteria": ReportItem("", False, None),
+        "criteria": ReportItem("", False, None, False),
 
         # Actual result compared to the criteria
-        "result": ReportItem("", False, None),
+        "result": ReportItem("", False, None, False),
 
         # Link to GitHub issue related to this test
-        "issue": ReportItem("", True, None),
+        "issue": ReportItem("", True, None, False),
     }
 
     # A precomputed list of items that we pick up from the docstring.
@@ -173,7 +173,9 @@ class Report(mpsing.MultiprocessSingleton):
 
             # Handle None docstrings
             if not data:
-                return found_data
+                raise ValueError(
+                    f"{found_data['name']}: Test requires docstring."
+                )
 
             # Split docstring by items enclosed by '@' and ':'.
             # The point here is to split strings like:
@@ -198,14 +200,29 @@ class Report(mpsing.MultiprocessSingleton):
                 if crt_doc_item.one_of and \
                         item_value not in crt_doc_item.one_of:
                     raise ValueError(
-                        f"{crt_item} must be one of \
-{crt_doc_item.one_of}, not {item_value}")
+                        f"{crt_item} must be one of "
+                        f"{crt_doc_item.one_of}, not {item_value}")
 
                 # Check if the item was found twice
                 if crt_item in docstring_items.keys():
                     raise ValueError(f"Item {crt_item} specified twice.")
 
                 docstring_items[crt_item] = item_value
+
+            # Look for required docstring items.
+            for name, item in Report.doc_items.items():
+                if not item.from_docstring or not item.required:
+                    continue
+
+                if name not in docstring_items:
+                    raise ValueError(
+                        f"{found_data['name']}: Test {name} is required."
+                    )
+
+                if docstring_items[name] == "":
+                    raise ValueError(
+                        f"{found_data['name']}: Test {name} is empty."
+                    )
 
             return {**found_data, **docstring_items}
 
