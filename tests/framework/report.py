@@ -258,9 +258,9 @@ class Report(mpsing.MultiprocessSingleton):
     def finish_test_item(self, report):
         """Mark a test as finished and update the report."""
         self._collected_items[report.nodeid].finish(report)
-        self.write_report(self._collected_items)
+        self.write_report()
 
-    def write_report(self, report_items):
+    def write_report(self):
         """Write test report to disk."""
         # Sort tests alphabetically and serialize to json
         self._data_loc.mkdir(exist_ok=True, parents=True)
@@ -269,7 +269,8 @@ class Report(mpsing.MultiprocessSingleton):
         with open(self._data_loc / Report.FNAME_JSON, "w") as json_file:
             total_duration = 0
             test_items = []
-            for item in report_items.values():
+            for test_name in sorted(self._collected_items):
+                item = self._collected_items[test_name]
                 # Don't log items marked as not done. An item may be not done
                 # because of a series of reasons, such an item being removed
                 # from the test suite at runtime (e.g. lint tests only executed
