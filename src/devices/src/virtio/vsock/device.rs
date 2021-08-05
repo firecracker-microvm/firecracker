@@ -141,10 +141,14 @@ where
                 Ok(mut pkt) => {
                     if self.backend.recv_pkt(&mut pkt, mem).is_ok() {
                         match pkt.commit_hdr(mem) {
+                            // This addition cannot overflow, because packet length
+                            // is previously validated against `MAX_PKT_BUF_SIZE`
+                            // bound as part of `commit_hdr()`.
                             Ok(()) => VSOCK_PKT_HDR_SIZE as u32 + pkt.len(),
                             Err(e) => {
                                 warn!(
-                                    "vsock: Error writing packet header to guest memory: {:?}",
+                                    "vsock: Error writing packet header to guest memory: {:?}.\
+                                     Discarding the package.",
                                     e
                                 );
                                 0
@@ -158,7 +162,7 @@ where
                     }
                 }
                 Err(e) => {
-                    warn!("vsock: RX queue error: {:?}", e);
+                    warn!("vsock: RX queue error: {:?}. Discarding the package.", e);
                     0
                 }
             };
