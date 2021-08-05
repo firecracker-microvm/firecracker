@@ -11,6 +11,10 @@
 
 ### Added
 
+- Added jailer option `--cgroup-version <1|2>` to support running the jailer
+  on systems that have cgroup-v2. Default value is `1` which means that if
+  `--cgroup-version` is not specified, the jailer will try to create cgroups
+  on cgroup-v1 hierarchies only.
 - Added devtool build `--ssh-keys` flag to support fetching from private
   git repositories.
 - Added option to configure block device flush.
