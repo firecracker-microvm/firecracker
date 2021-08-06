@@ -135,7 +135,7 @@ def test_vsock_epipe(
     """
     Vsock negative test to validate SIGPIPE/EPIPE handling.
 
-    @type: functional
+    @type: negative
     """
     vm = test_microvm_with_ssh
     vm.spawn()

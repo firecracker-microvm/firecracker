@@ -155,7 +155,7 @@ def test_pause_resume_preboot(bin_cloner_path):
     """
     Test pause/resume operations are not allowed pre-boot.
 
-    @type: functional
+    @type: negative
     """
     builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = builder.build_vm_nano()

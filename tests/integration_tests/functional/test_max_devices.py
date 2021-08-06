@@ -57,7 +57,7 @@ def test_attach_too_many_devices(test_microvm_with_ssh, network_config):
     """
     Test attaching to a microVM more devices than available IRQs.
 
-    @type: functional
+    @type: negative
     """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()

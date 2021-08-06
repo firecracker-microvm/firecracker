@@ -348,7 +348,7 @@ def test_api_put_update_post_boot(test_microvm_with_api):
     """
     Test that PUT updates are rejected after the microvm boots.
 
-    @type: functional
+    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -567,7 +567,7 @@ def test_api_patch_pre_boot(test_microvm_with_api):
     """
     Test that PATCH updates are not allowed before the microvm boots.
 
-    @type: functional
+    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
@@ -634,11 +634,11 @@ def test_api_patch_pre_boot(test_microvm_with_api):
            "microVM." in response.text
 
 
-def test_api_patch_post_boot(test_microvm_with_api):
+def test_negative_api_patch_post_boot(test_microvm_with_api):
     """
-    Test PATCH updates after the microvm boots.
+    Test PATCH updates that are not allowed after the microvm boots.
 
-    @type: functional
+    @type: negative
     """
     test_microvm = test_microvm_with_api
     test_microvm.spawn()

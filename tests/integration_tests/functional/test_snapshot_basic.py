@@ -432,7 +432,7 @@ def test_negative_postload_api(bin_cloner_path):
     """
     Test APIs fail after loading from snapshot.
 
-    @type: functional
+    @type: negative
     """
     logger = logging.getLogger("snapshot_api_fail")
 
@@ -485,7 +485,7 @@ def test_negative_snapshot_permissions(bin_cloner_path):
     """
     Test missing permission error scenarios.
 
-    @type: functional
+    @type: negative
     """
     logger = logging.getLogger("snapshot_negative")
     vm_builder = MicrovmBuilder(bin_cloner_path)
@@ -572,7 +572,7 @@ def test_negative_snapshot_create(bin_cloner_path):
     """
     Test create snapshot before pause.
 
-    @type: functional
+    @type: negative
     """
     vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano()
