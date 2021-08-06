@@ -115,7 +115,7 @@ def test_create_with_too_many_devices(test_microvm_with_ssh, network_config):
     """
     Create snapshot with unexpected device count for previous versions.
 
-    @type: functional
+    @type: negative
     """
     test_microvm = test_microvm_with_ssh
 
