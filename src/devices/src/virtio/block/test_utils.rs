@@ -1,7 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::virtio::{Block, CacheType, IrqType, Queue};
+#[cfg(test)]
+use crate::virtio::IrqType;
+use crate::virtio::{Block, CacheType, Queue};
 use rate_limiter::RateLimiter;
 use utils::tempfile::TempFile;
 
@@ -33,6 +35,7 @@ pub fn default_block_with_path(path: String) -> Block {
     .unwrap()
 }
 
+#[cfg(test)]
 pub fn invoke_handler_for_queue_event(b: &mut Block) {
     // Trigger the queue event.
     b.queue_evts[0].write(1).unwrap();

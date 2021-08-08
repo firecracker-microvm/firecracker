@@ -4,10 +4,12 @@
 use std::u32;
 
 use crate::virtio::test_utils::VirtQueue;
+#[cfg(test)]
 use crate::virtio::{
     balloon::NUM_QUEUES, Balloon, IrqType, DEFLATE_INDEX, INFLATE_INDEX, STATS_INDEX,
 };
 
+#[cfg(test)]
 pub fn invoke_handler_for_queue_event(b: &mut Balloon, queue_index: usize) {
     assert!(queue_index < NUM_QUEUES);
     // Trigger the queue event.
