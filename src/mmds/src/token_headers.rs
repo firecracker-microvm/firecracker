@@ -7,6 +7,9 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::result::Result;
 
+/// Header rejected by MMDSv2.
+pub const REJECTED_HEADER: &str = "X-Forwarded-For";
+
 /// Wrapper over supported HTTP Custom Header types.
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub enum TokenHeader {
