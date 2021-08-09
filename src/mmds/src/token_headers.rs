@@ -5,6 +5,9 @@ use micro_http::{HttpHeaderError, RequestError};
 use std::collections::HashMap;
 use std::result::Result;
 
+/// Header rejected by MMDS.
+pub const REJECTED_HEADER: &str = "X-Forwarded-For";
+
 /// Wrapper over the list of token headers associated with a Request.
 #[derive(Debug, PartialEq)]
 pub struct TokenHeaders {
