@@ -13,7 +13,11 @@ from framework.utils import get_firecracker_version_from_toml, run_cmd
 
 
 def test_describe_snapshot_all_versions(bin_cloner_path):
-    """Test `--describe-snapshot` correctness for all snapshot versions."""
+    """
+    Test `--describe-snapshot` correctness for all snapshot versions.
+
+    @type: functional
+    """
     logger = logging.getLogger("describe_snapshot")
     builder = MicrovmBuilder(bin_cloner_path)
     artifacts = ArtifactCollection(_test_images_s3_bucket())

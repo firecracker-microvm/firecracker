@@ -18,7 +18,11 @@ TIMESTAMP_LOG_REGEX = r'Guest-boot-time\s+\=\s+(\d+)\s+us'
 
 
 def test_no_boottime(test_microvm_with_api):
-    """Check that boot timer device not present by default."""
+    """
+    Check that boot timer device is not present by default.
+
+    @type: functional
+    """
     _ = _configure_and_run_vm(test_microvm_with_api)
     time.sleep(0.4)
     timestamps = re.findall(TIMESTAMP_LOG_REGEX,
@@ -27,7 +31,11 @@ def test_no_boottime(test_microvm_with_api):
 
 
 def test_boottime_no_network(test_microvm_with_boottime):
-    """Check boot time of microVM without network."""
+    """
+    Check boot time of microVM without a network device.
+
+    @type: performance
+    """
     vm = test_microvm_with_boottime
     vm.jailer.extra_args.update(
         {'boot-timer': None}
@@ -38,12 +46,18 @@ def test_boottime_no_network(test_microvm_with_boottime):
         vm.log_data)
     print("Boot time with no network is: " + str(boottime_us) + " us")
 
+    return f"{boottime_us} us", f"< {MAX_BOOT_TIME_US} us"
+
 
 def test_boottime_with_network(
         test_microvm_with_boottime,
         network_config
 ):
-    """Check boot time of microVM with network."""
+    """
+    Check boot time of microVM with a network device.
+
+    @type: performance
+    """
     vm = test_microvm_with_boottime
     vm.jailer.extra_args.update(
         {'boot-timer': None}
@@ -53,13 +67,19 @@ def test_boottime_with_network(
     })
     time.sleep(0.4)
     boottime_us = _test_microvm_boottime(
-            vm.log_data)
+        vm.log_data)
     print("Boot time with network configured is: " + str(boottime_us) + " us")
+
+    return f"{boottime_us} us", f"< {MAX_BOOT_TIME_US} us"
 
 
 def test_initrd_boottime(
         test_microvm_with_initrd):
-    """Check boot time of microVM when using an initrd."""
+    """
+    Check boot time of microVM when using an initrd.
+
+    @type: performance
+    """
     vm = test_microvm_with_initrd
     vm.jailer.extra_args.update(
         {'boot-timer': None}
@@ -71,6 +91,8 @@ def test_initrd_boottime(
         max_time_us=INITRD_BOOT_TIME_US)
     print("Boot time with initrd is: " + str(boottime_us) + " us")
 
+    return f"{boottime_us} us", f"< {INITRD_BOOT_TIME_US} us"
+
 
 def _test_microvm_boottime(log_fifo_data, max_time_us=MAX_BOOT_TIME_US):
     """Auxiliary function for asserting the expected boot time."""
@@ -80,7 +102,8 @@ def _test_microvm_boottime(log_fifo_data, max_time_us=MAX_BOOT_TIME_US):
         boot_time_us = int(timestamps[0])
 
     assert boot_time_us > 0
-    assert boot_time_us < max_time_us
+    assert boot_time_us < max_time_us, \
+        f"boot time {boot_time_us} cannot be greater than: {max_time_us} us"
     return boot_time_us
 
 

@@ -60,7 +60,11 @@ class TestFinished(TestState):  # pylint: disable=too-few-public-methods
 
 
 def test_serial_console_login(test_microvm_with_ssh):
-    """Test serial console login."""
+    """
+    Test serial console login.
+
+    @type: functional
+    """
     microvm = test_microvm_with_ssh
     microvm.jailer.daemonize = False
     microvm.spawn()
@@ -106,7 +110,11 @@ def send_bytes(tty, bytes_count, timeout=60):
 
 
 def test_serial_dos(test_microvm_with_ssh):
-    """Test serial console behavior under DoS."""
+    """
+    Test serial console behavior under DoS.
+
+    @type: functional
+    """
     microvm = test_microvm_with_ssh
     microvm.jailer.daemonize = False
     microvm.spawn()
@@ -134,7 +142,11 @@ def test_serial_dos(test_microvm_with_ssh):
 
 
 def test_serial_block(test_microvm_with_ssh, network_config):
-    """Test that writing to stdout never blocks the vCPU thread."""
+    """
+    Test that writing to stdout never blocks the vCPU thread.
+
+    @type: functional
+    """
     test_microvm = test_microvm_with_ssh
     test_microvm.jailer.daemonize = False
     test_microvm.spawn()

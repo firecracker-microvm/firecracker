@@ -38,7 +38,11 @@ scratch_drives = ["vdb", "vdc", "vdd", "vde", "vdf"]
     reason="Not supported yet."
 )
 def test_restore_old_snapshot_all_devices(bin_cloner_path):
-    """Test scenario: restore previous version snapshots in current version."""
+    """
+    Test scenario: restore previous version snapshots in current version.
+
+    @type: functional
+    """
     # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
     logger = logging.getLogger("old_snapshot_many_devices")
     builder = MicrovmBuilder(bin_cloner_path)
@@ -89,7 +93,11 @@ def test_restore_old_snapshot_all_devices(bin_cloner_path):
     reason="Not supported yet."
 )
 def test_restore_old_version_all_devices(bin_cloner_path):
-    """Test scenario: restore snapshot in previous versions of Firecracker."""
+    """
+    Test scenario: restore snapshot in previous versions of Firecracker.
+
+    @type: functional
+    """
     # Microvm: 2vCPU 256MB RAM, balloon, 4 disks and 4 net devices.
     logger = logging.getLogger("old_snapshot_version_many_devices")
     builder = MicrovmBuilder(bin_cloner_path)
@@ -142,7 +150,11 @@ def test_restore_old_version_all_devices(bin_cloner_path):
     reason="TSC is x86_64 specific."
 )
 def test_restore_no_tsc(bin_cloner_path):
-    """Test scenario: restore a snapshot without TSC in current version."""
+    """
+    Test scenario: restore a snapshot without TSC in current version.
+
+    @type: functional
+    """
     logger = logging.getLogger("no_tsc_snapshot")
     builder = MicrovmBuilder(bin_cloner_path)
 
@@ -194,7 +206,11 @@ def test_restore_no_tsc(bin_cloner_path):
     reason="TSC is x86_64 specific."
 )
 def test_save_tsc_old_version(bin_cloner_path):
-    """Test TSC warning message when saving old snapshot."""
+    """
+    Test TSC warning message when saving old snapshot.
+
+    @type: functional
+    """
     vm_builder = MicrovmBuilder(bin_cloner_path)
     vm_instance = vm_builder.build_vm_nano()
     vm = vm_instance.vm

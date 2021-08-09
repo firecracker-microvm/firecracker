@@ -72,7 +72,11 @@ def check_log_message_format(log_str, instance_id, level, show_level,
 
 
 def test_no_origin_logs(test_microvm_with_ssh):
-    """Check that logs do not contain the origin (i.e file and line number)."""
+    """
+    Check that logs do not contain the origin (i.e file and line number).
+
+    @type: functional
+    """
     _test_log_config(
         microvm=test_microvm_with_ssh,
         show_level=True,
@@ -81,7 +85,11 @@ def test_no_origin_logs(test_microvm_with_ssh):
 
 
 def test_no_level_logs(test_microvm_with_ssh):
-    """Check that logs do not contain the level."""
+    """
+    Check that logs do not contain the level.
+
+    @type: functional
+    """
     _test_log_config(
         microvm=test_microvm_with_ssh,
         show_level=False,
@@ -90,7 +98,11 @@ def test_no_level_logs(test_microvm_with_ssh):
 
 
 def test_no_nada_logs(test_microvm_with_ssh):
-    """Check that logs do not contain either level or origin."""
+    """
+    Check that logs do not contain either level or origin.
+
+    @type: functional
+    """
     _test_log_config(
         microvm=test_microvm_with_ssh,
         show_level=False,
@@ -99,12 +111,20 @@ def test_no_nada_logs(test_microvm_with_ssh):
 
 
 def test_info_logs(test_microvm_with_ssh):
-    """Check output of logs when minimum level to be displayed is info."""
+    """
+    Check output of logs when minimum level to be displayed is info.
+
+    @type: functional
+    """
     _test_log_config(microvm=test_microvm_with_ssh)
 
 
 def test_warn_logs(test_microvm_with_ssh):
-    """Check output of logs when minimum level to be displayed is warning."""
+    """
+    Check output of logs when minimum level to be displayed is warning.
+
+    @type: functional
+    """
     _test_log_config(
         microvm=test_microvm_with_ssh,
         log_level='Warning'
@@ -112,7 +132,11 @@ def test_warn_logs(test_microvm_with_ssh):
 
 
 def test_error_logs(test_microvm_with_ssh):
-    """Check output of logs when minimum level of logs displayed is error."""
+    """
+    Check output of logs when minimum level of logs displayed is error.
+
+    @type: functional
+    """
     _test_log_config(
         microvm=test_microvm_with_ssh,
         log_level='Error'
@@ -120,7 +144,11 @@ def test_error_logs(test_microvm_with_ssh):
 
 
 def test_log_config_failure(test_microvm_with_api):
-    """Check passing invalid FIFOs is detected and reported as an error."""
+    """
+    Check passing invalid FIFOs is detected and reported as an error.
+
+    @type: functional
+    """
     microvm = test_microvm_with_api
     microvm.spawn(create_logger=False)
     microvm.basic_config()
@@ -136,7 +164,11 @@ def test_log_config_failure(test_microvm_with_api):
 
 
 def test_api_requests_logs(test_microvm_with_api):
-    """Test that API requests are logged."""
+    """
+    Test that API requests are logged.
+
+    @type: functional
+    """
     microvm = test_microvm_with_api
     microvm.spawn(create_logger=False)
     microvm.basic_config()
@@ -243,7 +275,7 @@ def _test_log_config(
         level=log_level,
         show_level=show_level,
         show_log_origin=show_origin
-       )
+    )
     assert microvm.api_session.is_status_no_content(response.status_code)
 
     microvm.start_console_logger(log_fifo)

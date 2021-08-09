@@ -7,7 +7,11 @@ MAX_VCPUS = 32
 
 
 def test_max_vcpus(test_microvm_with_ssh, network_config):
-    """Test if all configured guest vcpus are online."""
+    """
+    Test if all configured guest vcpus are online.
+
+    @type: functional
+    """
     microvm = test_microvm_with_ssh
     microvm.spawn()
 

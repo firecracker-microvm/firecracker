@@ -16,7 +16,11 @@ DMESG_LOG_REGEX = r'rtc-pl031\s+(\d+).rtc: setting system clock to'
     reason="RTC exists only on aarch64."
 )
 def test_rtc(test_microvm_with_ssh, network_config):
-    """Test RTC functionality on aarch64."""
+    """
+    Test RTC functionality on aarch64.
+
+    @type: functional
+    """
     vm = test_microvm_with_ssh
     vm.spawn()
     vm.memory_monitor = None

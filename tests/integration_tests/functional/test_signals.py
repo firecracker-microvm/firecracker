@@ -31,7 +31,11 @@ signum_str = {
     [SIGBUS, SIGSEGV, SIGXFSZ, SIGXCPU, SIGPIPE, SIGHUP, SIGILL, SIGSYS]
 )
 def test_generic_signal_handler(test_microvm_with_api, signum):
-    """Test signal handling for all handled signals."""
+    """
+    Test signal handling for all handled signals.
+
+    @type: functional
+    """
     microvm = test_microvm_with_api
     microvm.spawn()
 
@@ -80,7 +84,11 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
 
 
 def test_sigxfsz_handler(test_microvm_with_api):
-    """Test intercepting and handling SIGXFSZ."""
+    """
+    Test intercepting and handling SIGXFSZ.
+
+    @type: functional
+    """
     microvm = test_microvm_with_api
     microvm.spawn()
 
@@ -128,7 +136,11 @@ def test_sigxfsz_handler(test_microvm_with_api):
 
 
 def test_handled_signals(test_microvm_with_ssh, network_config):
-    """Test that handled signals don't kill the microVM."""
+    """
+    Test that handled signals don't kill the microVM.
+
+    @type: functional
+    """
     microvm = test_microvm_with_ssh
     microvm.spawn()
 

@@ -16,29 +16,38 @@ MAX_STARTUP_TIME_CPU_US = {'x86_64': 5500, 'aarch64': 2900}
 
 
 def test_startup_time_new_pid_ns(test_microvm_with_api):
-    """Check startup time when jailer is spawned in a new PID namespace."""
+    """
+    Check startup time when jailer is spawned in a new PID namespace.
+
+    @type: performance
+    """
     microvm = test_microvm_with_api
     microvm.bin_cloner_path = None
     microvm.jailer.new_pid_ns = True
-    _test_startup_time(microvm)
+    return _test_startup_time(microvm)
 
 
 def test_startup_time_daemonize(test_microvm_with_api):
-    """Check startup time when jailer spawns Firecracker in a new PID ns."""
+    """
+    Check startup time when jailer spawns Firecracker in a new PID ns.
+
+    @type: performance
+    """
     microvm = test_microvm_with_api
-    _test_startup_time(microvm)
+    return _test_startup_time(microvm)
 
 
 def test_startup_time_custom_seccomp(test_microvm_with_api):
-    """Check the startup time for jailer and Firecracker up to socket bind, ...
+    """
+    Check the startup time when using custom seccomp filters.
 
-    when using custom seccomp filters via the `--seccomp-filter` param.
+    @type: performance
     """
     microvm = test_microvm_with_api
 
     _custom_filter_setup(microvm)
 
-    _test_startup_time(microvm)
+    return _test_startup_time(microvm)
 
 
 def _test_startup_time(microvm):
@@ -68,8 +77,11 @@ def _test_startup_time(microvm):
     print('Process startup time is: {} us ({} CPU us)'
           .format(startup_time_us, cpu_startup_time_us))
 
+    max_startup_time = MAX_STARTUP_TIME_CPU_US[platform.machine()]
     assert cpu_startup_time_us > 0
-    assert cpu_startup_time_us <= MAX_STARTUP_TIME_CPU_US[platform.machine()]
+    assert cpu_startup_time_us <= max_startup_time
+
+    return f"{cpu_startup_time_us} us", f"<= {max_startup_time} us"
 
 
 def _custom_filter_setup(test_microvm):
