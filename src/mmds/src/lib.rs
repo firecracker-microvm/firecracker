@@ -14,9 +14,12 @@ use std::sync::{Arc, Mutex};
 use crate::data_store::{Error as MmdsError, Mmds, MmdsVersion, OutputFormat};
 use crate::token::PATH_TO_TOKEN;
 
+use crate::token_headers::REJECTED_HEADER;
 use lazy_static::lazy_static;
 use logger::warn;
-use micro_http::{Body, MediaType, Method, Request, Response, StatusCode, Version};
+use micro_http::{
+    Body, HttpHeaderError, MediaType, Method, Request, RequestError, Response, StatusCode, Version,
+};
 use token_headers::TokenHeaders;
 
 pub const MAX_DATA_STORE_SIZE: usize = 51200;
@@ -289,6 +292,23 @@ fn respond_to_get_request_unchecked(request: Request) -> Response {
 }
 
 fn respond_to_put_request(request: Request, token_headers: TokenHeaders) -> Response {
+    // Reject `PUT` requests that contain `X-Forwarded-For` header.
+    if request
+        .headers
+        .custom_entries()
+        .contains_key(REJECTED_HEADER)
+    {
+        let error_msg = RequestError::HeaderError(HttpHeaderError::UnsupportedName(
+            REJECTED_HEADER.to_string(),
+        ))
+        .to_string();
+        return build_response(
+            request.http_version(),
+            StatusCode::BadRequest,
+            Body::new(error_msg),
+        );
+    }
+
     let uri = request.uri().get_abs_path();
     // Sanitize the URI into a strict json path.
     let json_path = sanitize_uri(uri.to_string());
@@ -536,6 +556,17 @@ mod tests {
         assert_eq!(actual_response, expected_response);
 
         // Test PUT requests.
+        // Unsupported `X-Forwarded-For` header present.
+        let request_bytes = b"PUT http://169.254.169.254/latest/api/token HTTP/1.0\r\n\
+                                    X-Forwarded-For: 203.0.113.195\r\n\r\n";
+        let request = Request::try_from(request_bytes, None).unwrap();
+        let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
+        expected_response.set_body(Body::new(
+            "Invalid header. Reason: Unsupported header name. Key: X-Forwarded-For".to_string(),
+        ));
+        let actual_response = convert_to_response(request);
+        assert_eq!(actual_response, expected_response);
+
         // Test invalid path.
         let request_bytes = b"PUT http://169.254.169.254/token HTTP/1.0\r\n\
                                     X-metadata-token-ttl-seconds: 60\r\n\r\n";
