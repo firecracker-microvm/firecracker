@@ -4,6 +4,8 @@
 
 # Disable pylint C0302: Too many lines in module
 # pylint: disable=C0302
+import array
+import itertools
 import os
 import platform
 import resource
@@ -1148,3 +1150,36 @@ def test_get_full_config(test_microvm_with_ssh_and_balloon):
     response = test_microvm.full_cfg.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == expected_cfg
+
+
+def test_map_private_seccomp_regression(test_microvm_with_ssh):
+    """
+    Seccomp mmap MAP_PRIVATE regression test.
+
+    When sending large buffer to an api endpoint there will be an attempt to
+    call mmap with MAP_PRIVATE|MAP_ANONYMOUS. This would result in vmm being
+    killed by the seccomp filter before this PR.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_ssh
+    test_microvm.spawn()
+    test_microvm.api_session.untime()
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == {}
+
+    data_store = {
+        'latest': {
+            'meta-data': {
+            }
+        }
+    }
+
+    slice_1mb = array.array('u', itertools.repeat('b', 1024 * 1024))
+    chars = array.array('u')
+    chars = [chars.extend(slice_1mb) for _ in range(190)]
+    data_store["latest"]["meta-data"]["ami-id"] = chars
+    response = test_microvm.mmds.put(json=data_store)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
