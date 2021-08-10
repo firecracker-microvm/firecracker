@@ -97,6 +97,7 @@ pub enum DebuggerError {
     IoctlError(Error),
     InvalidLinearAddress,
     UnsupportedPagingStrategy,
+    PageNotFound,
 }
 
 impl Display for DebuggerError {
@@ -180,7 +181,6 @@ impl Debugger {
     ) -> Result<u64, DebuggerError> {
         let mut linear_addr = addr;
         let pt_level = Debugger::get_paging_strategy(&guest_state.special_regs);
-
         let mut paddr: u64;
         let mut mask: u64;
         let mut movem;

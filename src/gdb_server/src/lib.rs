@@ -30,6 +30,7 @@ mod walker;
 #[allow(unused_imports)]
 use target::*;
 pub use util::*;
+pub  use walker::Walker;
 
 pub type DynResult<T> = Result<T, Box<dyn std::error::Error>>;
 

@@ -5,6 +5,7 @@ use crate::vm_memory::Bytes;
 
 use super::{GuestAddress, GuestMemoryMmap};
 use super::kvm_bindings::*;
+use super::{FullVcpuState, DebuggerError};
 
 // If 1, enable paging and use the § CR3 register, else disable paging.
 const CR0_PG_MASK: u64 = 1 << 31;
@@ -43,110 +44,108 @@ const PAGE_SIZE_4K: u64 = 4 * 1024;
 const PAGE_SIZE_2M: u64 = 2 * 1024 * 1024;
 const PAGE_SIZE_1G: u64 = 1024 * 1024 * 1024;
 
-#[derive(Debug)]
-pub enum Error {
-    UnsupportedPagingStrategy,
-    VirtAddrTranslationError,
-}
-
-#[derive(Default, Clone)]
-pub struct FullVcpuState {
-    pub regular_regs: kvm_regs,
-    pub special_regs: kvm_sregs,
-}
-
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, DebuggerError>;
 
 //https://github.com/crash-utility/crash/blob/master/qemu.c#L72
-fn virt_to_phys(
-    vaddr: u64,
-    guest_memory: &GuestMemoryMmap,
-    guest_state: &FullVcpuState,
-) -> Result<(u64, u64)> {
-    // Moves from one page table entry to next page table entry.
-    fn walk(
-        guest_memory: &GuestMemoryMmap,
-        table_entry: u64,
+
+pub struct Walker;
+
+#[cfg(target_arch = "x86_64")]
+impl Walker {
+    pub fn virt_to_phys(
         vaddr: u64,
-        page_level: usize,
-    ) -> Result<u64> {
-        let page_number = table_entry & PTE_ADDR_MASK;
-        let paddr = page_number + page_table_offset(vaddr, page_level);
-        let next_entry: u64 = guest_memory.read_obj(GuestAddress(paddr))
-            .map_err(|_| Error::VirtAddrTranslationError)?;
+        guest_memory: &GuestMemoryMmap,
+        guest_state: &FullVcpuState,
+    ) -> Result<(u64, u64)> {
+        // Moves from one page table entry to next page table entry.
+        fn walk(
+            guest_memory: &GuestMemoryMmap,
+            table_entry: u64,
+            vaddr: u64,
+            page_level: usize,
+        ) -> Result<u64> {
+            let page_number = table_entry & PTE_ADDR_MASK;
+            let paddr = page_number + page_table_offset(vaddr, page_level);
+            let next_entry: u64 = guest_memory.read_obj(GuestAddress(paddr))
+                .map_err(|_| DebuggerError::InvalidLinearAddress)?;
 
-        Ok(next_entry)
-    }
+            println!(
+                "level {} vaddr {:x} table-addr {:x} mask {:x} next-entry {:x} offset {:x}",
+                page_level,
+                vaddr,
+                table_entry,
+                PTE_ADDR_MASK,
+                next_entry,
+                page_table_offset(vaddr, page_level)
+            );
 
-    fn page_offset(vaddr: u64, page_size: u64) -> u64 {
-        // Offset = (address reference % page size)
-        // vaddr % page_size
-        vaddr & (page_size - 1)
-    }
+            // TODO add some doc when this can happen.
+            // This can possibly happen when we paging is not enabled during early boot process.
+            if  next_entry & PAGE_PRESENT == 0 {
+                eprintln!("Page not present");
+                return Err(DebuggerError::PageNotFound);
+            }
 
-    fn page_table_offset(addr: u64, level: usize) -> u64 {
-        // 12 bits offset with 9 bits of for each level.
-        let offset = (level - 1) * 9 + 12;
-        // Shifting right to 12 bits in binary is equivalent to shifting
-        // a hexadecimal number 3 places to the right
-        // eg - (((addr >> 39) & 0x1ff) << 3))
-        ((addr >> offset) & 0x1ff) << 3
-    }
-
-    if guest_state.special_regs.cr0 & CR0_PG_MASK == 0 {
-        return Ok((vaddr, PAGE_SIZE_4K));
-    }
-
-    if guest_state.special_regs.cr4 & CR4_PAE_MASK == 0 {
-        return Err(Error::VirtAddrTranslationError);
-    }
-
-    if guest_state.special_regs.efer & MSR_EFER_LMA != 0 {
-        let mut pg_lvl_5_ent: Option<u64> = None;
-        let pg_lvl_4_ent;
-
-        if guest_state.special_regs.cr4 & CR4_LA57_MASK != 0 {
-            // 5 level paging enabled
-            // The first paging structure used for any translation is located at the physical address in CR3
-            pg_lvl_5_ent = Some(walk(guest_memory, guest_state.special_regs.cr3, vaddr, 5)?);
+            Ok(next_entry)
         }
 
-        if let Some(ent) = pg_lvl_5_ent {
-            pg_lvl_4_ent = walk(guest_memory, ent, vaddr, 4)?;
-        } else {
-            pg_lvl_4_ent = walk(guest_memory, guest_state.special_regs.cr3, vaddr, 4)?;
+        fn page_offset(vaddr: u64, page_size: u64) -> u64 {
+            // Offset = (address reference % page size)
+            // vaddr % page_size
+            vaddr & (page_size - 1)
         }
 
-        //Level 3
-        let pg_lvl_3_ent = walk(guest_memory, pg_lvl_4_ent, vaddr, 3)?;
-        // Till now, we have traversed 18 bits or 27 bits (for 5 level paging) and if we see
-        // PAGE_PSE_MASK set, we clearly have space for a 1G page .
-        if pg_lvl_3_ent & PAGE_PSE_MASK != 0 {
-            // Find the page address through the page table entry
-            let page_addr = pg_lvl_3_ent & PTE_ADDR_MASK;
-            //Find the offset within the page through the linear address
-            let offset = page_offset(vaddr, PAGE_SIZE_1G);
-            //Physical address = page address + page offset
+        fn page_table_offset(addr: u64, level: usize) -> u64 {
+            // 12 bits offset with 9 bits of for each level.
+            let offset = (level - 1) * 9 + 12;
+            // Shifting right to 12 bits in binary is equivalent to shifting
+            // a hexadecimal number 3 places to the right
+            // eg - ((addr >> 39) & 0x1ff) << 3))
+            ((addr >> offset) & 0x1ff) << 3
+        }
+
+        if guest_state.special_regs.cr0 & CR0_PG_MASK == 0 {
+            return Ok((vaddr, PAGE_SIZE_4K));
+        }
+
+        // if guest_state.special_regs.cr4 & CR4_PAE_MASK == 0 {
+        //     // return Err(Error::InvalidLinearAddress);
+        //     return Err(DebuggerError::InvalidState);
+        // }
+
+        if guest_state.special_regs.efer & MSR_EFER_LMA != 0 {
+            let pg_lvl_4_ent = walk(guest_memory, guest_state.special_regs.cr3, vaddr, 4)?;
+            //Level 3
+            let pg_lvl_3_ent = walk(guest_memory, pg_lvl_4_ent, vaddr, 3)?;
+            // Till now, we have traversed 18 bits or 27 bits (for 5 level paging) and if we see
+            // PAGE_PSE_MASK set, we clearly have space for a 1G page .
+            if pg_lvl_3_ent & PAGE_PSE_MASK != 0 {
+                // Find the page address through the page table entry
+                let page_addr = pg_lvl_3_ent & PTE_ADDR_MASK;
+                //Find the offset within the page through the linear address
+                let offset = page_offset(vaddr, PAGE_SIZE_1G);
+                //Physical address = page address + page offset
+                let paddr = page_addr | offset;
+                return Ok((paddr, PAGE_SIZE_1G));
+            }
+
+            //Level 2
+            let pg_lvl_2_ent = walk(guest_memory, pg_lvl_3_ent, vaddr, 2)?;
+            if pg_lvl_2_ent & PAGE_PSE_MASK != 0 {
+                let page_addr = pg_lvl_2_ent & PTE_ADDR_MASK;
+                let offset = page_offset(vaddr, PAGE_SIZE_2M);
+                let paddr = page_addr | offset;
+                return Ok((paddr, PAGE_SIZE_2M));
+            }
+
+            //Level 1
+            let pg_lvl_1_ent = walk(guest_memory, pg_lvl_2_ent, vaddr, 1)?;
+            let page_addr = pg_lvl_1_ent & PTE_ADDR_MASK;
+            let offset = page_offset(vaddr, PAGE_SIZE_4K);
             let paddr = page_addr | offset;
-            return Ok((paddr, PAGE_SIZE_1G));
+            return Ok((paddr, PAGE_SIZE_4K));
         }
 
-        //Level 2
-        let pg_lvl_2_ent = walk(guest_memory, pg_lvl_3_ent, vaddr, 2)?;
-        if pg_lvl_2_ent & PAGE_PSE_MASK != 0 {
-            let page_addr = pg_lvl_2_ent & PTE_ADDR_MASK;
-            let offset = page_offset(vaddr, PAGE_SIZE_2M);
-            let paddr = page_addr | offset;
-            return Ok((paddr, PAGE_SIZE_2M));
-        }
-
-        //Level 1
-        let pg_lvl_1_ent = walk(guest_memory, pg_lvl_2_ent, vaddr, 1)?;
-        let page_addr = pg_lvl_1_ent & PTE_ADDR_MASK;
-        let offset = page_offset(vaddr, PAGE_SIZE_2M);
-        let paddr = page_addr | offset;
-        return Ok((paddr, PAGE_SIZE_4K));
+        Err(DebuggerError::InvalidState)
     }
-
-    Err(Error::VirtAddrTranslationError)
 }

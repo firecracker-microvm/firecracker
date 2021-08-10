@@ -11,6 +11,8 @@ use crate::DynResult;
 #[cfg(target_arch = "x86_64")]
 pub use kernel::loader::elf::Elf64_Phdr;
 
+use super::{Walker};
+
 pub struct FirecrackerGDBServer {
     pub guest_memory: GuestMemoryMmap,
 
@@ -121,6 +123,9 @@ impl FirecrackerGDBServer {
             ) {
                 Ok(addr) => {
                     phys_addr = addr;
+                    let (paddr, psize) = Walker::virt_to_phys(linear_addr, &self.guest_memory, &self.guest_state)?;
+                    eprintln!("Linear Address is: {}. Translated addresses using phdrs headers: {} \
+                    Translated Address using page walks: {} Page size {}", linear_addr, phys_addr, paddr, psize);
                 }
                 // We dont want to interrupt the whole debugging process because of an invalid address
                 // This breakpoint simply wont be hit
@@ -384,6 +389,11 @@ impl Target for FirecrackerGDBServer {
     /// Function that is called when the user or the GDB client requests a number of val.len
     /// bytes from the guest memory at address 'addrs'
     fn read_addrs(&mut self, addrs: u64, val: &mut [u8]) -> Result<bool, Self::Error> {
+        if let Ok(phy_addr) = Debugger::virt_to_phys(addrs, &self.guest_memory, &self.guest_state, &self.e_phdrs) {
+            let (paddr, psize) = Walker::virt_to_phys(addrs, &self.guest_memory, &self.guest_state)?;
+            eprintln!("{} {} {} ", phy_addr, paddr, psize);
+        }
+
         if let Ok(phys_addr) =
             Debugger::virt_to_phys(addrs, &self.guest_memory, &self.guest_state, &self.e_phdrs)
         {
