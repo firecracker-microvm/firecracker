@@ -96,6 +96,83 @@ your environment. For testing, you can add a public DNS server to
 nameserver 8.8.8.8
 ```
 
+## [Advanced] Setting Up a Bridge Interface
+
+### On The Host
+
+1. Create a bridge interface
+
+   ```bash
+   sudo ip link add name br0 type bridge
+   ```
+
+1. Add tap interface [created above](#on-the-host) to the bridge
+
+   ```bash
+   sudo ip link set dev tap0 master br0
+   ```
+
+1. Define an IP address in your network for the bridge.
+
+   For example, if your gateway were on `192.168.1.1` and you wanted to use this
+   for getting dynamic IPs, you would want to give the bridge an unused IP address
+   in the `192.168.1.0/24` subnet.
+
+   ```bash
+   sudo ip address add 192.168.1.7/24 dev br0
+   ```
+
+1. Add firewall rules to allow traffic to be routed to the guest
+
+   ```bash
+   sudo iptables -t nat -A POSTROUTING -o br0 -j MASQUERADE
+   ```
+
+### On The Guest
+
+1. Define an unused IP address in the bridge's subnet e.g., `192.168.1.169/24`.
+
+   _Note: Alternatively, you could rely on DHCP for getting a dynamic IP address
+   from your gateway._
+
+   ```bash
+   ip addr add 192.168.1.169/24 dev eth0
+   ```
+
+1. Set the interface up.
+
+   ```bash
+   ip link set eth0 up
+   ```
+
+1. Create a route to the bridge device
+
+   ```bash
+   ip r add 192.168.1.1 via 192.168.1.7 dev eth0
+   ```
+
+1. Create a route to the internet via the bridge
+
+   ```bash
+   ip r add default via 192.168.1.7 dev eth0
+   ```
+
+   When done, your route table should look similar to the following:
+
+   ```bash
+   ip r
+   default via 192.168.1.7 dev eth0
+   192.168.1.0/24 dev eth0 scope link
+   192.168.1.1 via 192.168.1.7 dev eth0
+   ```
+
+1. Add your nameserver to `resolve.conf`
+
+   ```bash
+   # cat /etc/resolv.conf
+   nameserver 192.168.1.1
+   ```
+
 ## Cleaning up
 
 The first step to cleaning up is deleting the tap device:
@@ -122,4 +199,10 @@ restore them like this:
 if [ -f iptables.rules.old ]; then
     sudo iptables-restore < iptables.rules.old
 fi
+```
+
+*Advanced:* If you created a bridge interface, delete it using the following:
+
+```bash
+sudo ip link del br0
 ```
