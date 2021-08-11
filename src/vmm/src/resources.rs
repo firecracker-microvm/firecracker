@@ -240,6 +240,11 @@ impl VmResources {
         self.boot_config.as_ref()
     }
 
+    /// Gets the MMDS configuration.
+    pub fn mmds_config(&self) -> MmdsConfig {
+        self.mmds_config.unwrap_or_default()
+    }
+
     /// Sets a balloon device to be attached when the VM starts.
     pub fn set_balloon_device(
         &mut self,

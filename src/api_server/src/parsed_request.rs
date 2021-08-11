@@ -160,6 +160,9 @@ impl ParsedRequest {
                 VmmData::MachineConfiguration(vm_config) => {
                     Self::success_response_with_data(vm_config)
                 }
+                VmmData::MmdsConfiguration(mmds_config) => {
+                    Self::success_response_with_data(mmds_config)
+                }
                 VmmData::BalloonConfig(balloon_config) => {
                     Self::success_response_with_data(balloon_config)
                 }
@@ -572,6 +575,9 @@ pub(crate) mod tests {
                     http_response(&serde_json::to_string(cfg).unwrap(), 200)
                 }
                 VmmData::MachineConfiguration(cfg) => {
+                    http_response(&serde_json::to_string(cfg).unwrap(), 200)
+                }
+                VmmData::MmdsConfiguration(cfg) => {
                     http_response(&serde_json::to_string(cfg).unwrap(), 200)
                 }
                 VmmData::InstanceInformation(info) => {

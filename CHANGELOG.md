@@ -29,8 +29,8 @@
   `X-metadata-token` header when MMDSv2 is configured.
 - Allow `PUT` requests to MMDSv2 in order to generate a session token
   to be used for future `GET` requests.
-- Added `GET` request for `/mmds/config` that provides the MMDS configuration.
-
+- Added `GET` request on `/mmds/config` that provides the MMDS configuration:
+  ip address and MMDS version. Default value for MMDS version is `V1`.
 ### Changed
 
 - Deprecated `vsock_id` body field in `PUT`s on `/vsock`.

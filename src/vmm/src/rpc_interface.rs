@@ -63,6 +63,8 @@ pub enum VmmAction {
     GetBalloonStats,
     /// Get complete microVM configuration in JSON format.
     GetFullVmConfig,
+    /// Get the MMDS configuration.
+    GetMmdsConfiguration,
     /// Get the machine configuration of the microVM.
     GetVmMachineConfig,
     /// Get microVM instance information.
@@ -210,6 +212,8 @@ pub enum VmmData {
     FullVmConfig(VmmConfig),
     /// The microVM configuration represented by `VmConfig`.
     MachineConfiguration(VmConfig),
+    /// The MMDS configuration.
+    MmdsConfiguration(MmdsConfig),
     /// The microVM instance information.
     InstanceInformation(InstanceInfo),
     /// The microVM version.
@@ -319,6 +323,7 @@ impl<'a> PrebootApiController<'a> {
                 .map_err(VmmActionError::Metrics),
             GetBalloonConfig => self.balloon_config(),
             GetFullVmConfig => Ok(VmmData::FullVmConfig((&*self.vm_resources).into())),
+            GetMmdsConfiguration => Ok(VmmData::MmdsConfiguration(self.vm_resources.mmds_config())),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
@@ -504,6 +509,7 @@ impl RuntimeApiController {
                 .map(VmmData::BalloonStats)
                 .map_err(|e| VmmActionError::BalloonConfig(BalloonConfigError::from(e))),
             GetFullVmConfig => Ok(VmmData::FullVmConfig((&self.vm_resources).into())),
+            GetMmdsConfiguration => Ok(VmmData::MmdsConfiguration(self.vm_resources.mmds_config())),
             GetVmMachineConfig => Ok(VmmData::MachineConfiguration(
                 self.vm_resources.vm_config().clone(),
             )),
@@ -765,6 +771,10 @@ mod tests {
             }
             self.balloon_config_called = true;
             Ok(BalloonConfig::default())
+        }
+
+        pub fn mmds_config(&self) -> MmdsConfig {
+            MmdsConfig::default()
         }
 
         pub fn track_dirty_pages(&self) -> bool {
@@ -1202,6 +1212,15 @@ mod tests {
     }
 
     #[test]
+    fn test_preboot_get_mmds_config() {
+        let req = VmmAction::GetMmdsConfiguration;
+        let expected_cfg = MmdsConfig::default();
+        check_preboot_request(req, |result, _| {
+            assert_eq!(result, Ok(VmmData::MmdsConfiguration(expected_cfg)))
+        });
+    }
+
+    #[test]
     fn test_preboot_set_mmds_config() {
         let req = VmmAction::SetMmdsConfiguration(MmdsConfig {
             ipv4_address: None,
@@ -1518,6 +1537,17 @@ mod tests {
                 crate::device_manager::mmio::Error::IncorrectDeviceType,
             ))),
         );
+    }
+
+    #[test]
+    fn test_runtime_get_mmds_config() {
+        let req = VmmAction::GetMmdsConfiguration;
+        check_runtime_request(req, |result, _| {
+            assert_eq!(
+                result,
+                Ok(VmmData::MmdsConfiguration(MmdsConfig::default()))
+            );
+        });
     }
 
     #[test]

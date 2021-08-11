@@ -7,7 +7,7 @@ use std::fmt::{Display, Formatter, Result};
 use std::net::Ipv4Addr;
 
 /// Keeps the MMDS configuration.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MmdsConfig {
     /// MMDS IPv4 configured address.
