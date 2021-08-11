@@ -707,6 +707,7 @@ mod tests {
     use devices::virtio::VsockError;
     use seccompiler::BpfThreadMap;
 
+    use mmds::data_store::MmdsVersion;
     use std::path::PathBuf;
 
     impl PartialEq for VmmActionError {
@@ -1202,13 +1203,19 @@ mod tests {
 
     #[test]
     fn test_preboot_set_mmds_config() {
-        let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });
+        let req = VmmAction::SetMmdsConfiguration(MmdsConfig {
+            ipv4_address: None,
+            version: MmdsVersion::default(),
+        });
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vm_res.mmds_set)
         });
 
-        let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });
+        let req = VmmAction::SetMmdsConfiguration(MmdsConfig {
+            ipv4_address: None,
+            version: MmdsVersion::default(),
+        });
         check_preboot_request_err(
             req,
             VmmActionError::MmdsConfig(MmdsConfigError::InvalidIpv4Addr),
@@ -1603,7 +1610,10 @@ mod tests {
             VmmActionError::OperationNotSupportedPostBoot,
         );
         check_runtime_request_err(
-            VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None }),
+            VmmAction::SetMmdsConfiguration(MmdsConfig {
+                ipv4_address: None,
+                version: MmdsVersion::default(),
+            }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
         check_runtime_request_err(
@@ -1685,7 +1695,10 @@ mod tests {
         let req = VmmAction::SetVmConfiguration(VmConfig::default());
         verify_load_snap_disallowed_after_boot_resources(req, "SetVmConfiguration");
 
-        let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });
+        let req = VmmAction::SetMmdsConfiguration(MmdsConfig {
+            ipv4_address: None,
+            version: MmdsVersion::default(),
+        });
         verify_load_snap_disallowed_after_boot_resources(req, "SetMmdsConfiguration");
     }
 }

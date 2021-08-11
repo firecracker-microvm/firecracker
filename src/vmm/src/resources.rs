@@ -717,7 +717,8 @@ mod tests {
                         "ht_enabled": false
                     }},
                     "mmds-config": {{
-                        "ipv4_address": "169.254.170.2"
+                        "ipv4_address": "169.254.170.2",
+                        "version": "V1"
                     }}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),

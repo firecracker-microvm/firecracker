@@ -3,6 +3,7 @@
 
 use crate::token::{Error as TokenError, TokenAuthority};
 use crate::MAX_DATA_STORE_SIZE;
+use serde::{Deserialize, Serialize};
 use serde_json::{to_vec, Value};
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -18,10 +19,16 @@ pub struct Mmds {
 }
 
 /// MMDS version.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum MmdsVersion {
     V1,
     V2,
+}
+
+impl Default for MmdsVersion {
+    fn default() -> MmdsVersion {
+        MmdsVersion::V1
+    }
 }
 
 impl Display for MmdsVersion {

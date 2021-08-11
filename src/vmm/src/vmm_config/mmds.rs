@@ -1,6 +1,7 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use mmds::data_store::MmdsVersion;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter, Result};
 use std::net::Ipv4Addr;
@@ -11,6 +12,9 @@ use std::net::Ipv4Addr;
 pub struct MmdsConfig {
     /// MMDS IPv4 configured address.
     pub ipv4_address: Option<Ipv4Addr>,
+    /// MMDS version configured.
+    #[serde(default = "MmdsVersion::default")]
+    pub version: MmdsVersion,
 }
 
 impl MmdsConfig {
@@ -18,6 +22,12 @@ impl MmdsConfig {
     /// Otherwise returns None.
     pub fn ipv4_addr(&self) -> Option<Ipv4Addr> {
         self.ipv4_address
+    }
+
+    /// Returns the MMDS version. If no version was configured,
+    /// it returns default: V1.
+    pub fn version(&self) -> MmdsVersion {
+        self.version
     }
 }
 
