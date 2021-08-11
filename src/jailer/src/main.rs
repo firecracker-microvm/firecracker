@@ -3,6 +3,7 @@
 mod cgroup;
 mod chroot;
 mod env;
+mod resource_limits;
 
 use std::ffi::{CString, NulError, OsString};
 use std::fmt;
@@ -56,9 +57,13 @@ pub enum Error {
     ReadLine(PathBuf, io::Error),
     ReadToString(PathBuf, io::Error),
     RegEx(regex::Error),
+    ResLimitArgument(String),
+    ResLimitFormat(String),
+    ResLimitValue(String, String),
     RmOldRootDir(io::Error),
     SetCurrentDir(io::Error),
     SetNetNs(io::Error),
+    Setrlimit(String),
     SetSid(io::Error),
     Uid(String),
     UmountOldRoot(io::Error),
@@ -189,9 +194,15 @@ impl fmt::Display for Error {
                 format!("Failed to read file {:?} into a string: {}", path, err).replace("\"", "")
             ),
             RegEx(ref err) => write!(f, "Regex failed: {:?}", err),
+            ResLimitArgument(ref arg) => write!(f, "Invalid resource argument: {}", arg,),
+            ResLimitFormat(ref arg) => write!(f, "Invalid format for resources limits: {}", arg,),
+            ResLimitValue(ref arg, ref err) => {
+                write!(f, "Invalid limit value for resource: {}: {}", arg, err)
+            }
             RmOldRootDir(ref err) => write!(f, "Failed to remove old jail root directory: {}", err),
             SetCurrentDir(ref err) => write!(f, "Failed to change current directory: {}", err),
             SetNetNs(ref err) => write!(f, "Failed to join network namespace: netns: {}", err),
+            Setrlimit(ref err) => write!(f, "Failed to set limit for resource: {}", err),
             SetSid(ref err) => write!(f, "Failed to daemonize: setsid: {}", err),
             Uid(ref uid) => write!(f, "Invalid uid: {}", uid),
             UmountOldRoot(ref err) => write!(f, "Failed to unmount the old jail root: {}", err),
@@ -278,6 +289,15 @@ pub fn build_arg_parser() -> ArgParser<'static> {
             "Cgroup and value to be set by the jailer. It must follow this format: \
              <cgroup_file>=<value> (e.g cpu.shares=10). This argument can be used \
              multiple times to add multiple cgroups.",
+        ))
+        .arg(Argument::new("resource-limit").allow_multiple(true).help(
+            "Resource limit values to be set by the jailer. It must follow this format: \
+             <resource>=<value> (e.g no-file=1024). This argument can be used \
+             multiple times to add multiple resource limits. \
+             Current available resource values are:\n\
+             \t\tfsize: The maximum size in bytes for files created by the process.\n\
+             \t\tno-file: Specifies a value one greater than the maximum file descriptor number \
+             that can be opened by this process.",
         ))
         .arg(
             Argument::new("version")
@@ -643,6 +663,21 @@ mod tests {
             format!("Regex failed: {:?}", err_regex),
         );
         assert_eq!(
+            format!("{}", Error::ResLimitArgument("foo".to_string())),
+            "Invalid resource argument: foo",
+        );
+        assert_eq!(
+            format!("{}", Error::ResLimitFormat("foo".to_string())),
+            "Invalid format for resources limits: foo",
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::ResLimitValue("foo".to_string(), "bar".to_string())
+            ),
+            "Invalid limit value for resource: foo: bar",
+        );
+        assert_eq!(
             format!("{}", Error::RmOldRootDir(io::Error::from_raw_os_error(42))),
             "Failed to remove old jail root directory: No message of desired type (os error 42)",
         );
@@ -653,6 +688,10 @@ mod tests {
         assert_eq!(
             format!("{}", Error::SetNetNs(io::Error::from_raw_os_error(42))),
             "Failed to join network namespace: netns: No message of desired type (os error 42)",
+        );
+        assert_eq!(
+            format!("{}", Error::Setrlimit("foobar".to_string())),
+            "Failed to set limit for resource: foobar",
         );
         assert_eq!(
             format!("{}", Error::SetSid(io::Error::from_raw_os_error(42))),
