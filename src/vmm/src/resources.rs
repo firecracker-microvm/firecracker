@@ -339,7 +339,7 @@ impl From<&VmResources> for VmmConfig {
             logger: None,
             machine_config: Some(resources.vm_config.clone()),
             metrics: None,
-            mmds_config: resources.mmds_config.clone(),
+            mmds_config: resources.mmds_config,
             net_devices: resources.net_builder.configs(),
             vsock_device: resources.vsock.config(),
         }
@@ -717,8 +717,7 @@ mod tests {
                         "ht_enabled": false
                     }},
                     "mmds-config": {{
-                        "ipv4_address": "169.254.170.2",
-                        "version": "V1"
+                        "ipv4_address": "169.254.170.2"
                     }}
             }}"#,
             kernel_file.as_path().to_str().unwrap(),

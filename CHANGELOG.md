@@ -34,8 +34,8 @@
 ### Changed
 
 - Deprecated `vsock_id` body field in `PUT`s on `/vsock`.
-- Enhanced `/mmds/config` endpoint to contain optional `mmds_version` parameter
-  that specifies the MMDS version used. Default is `V1`.
+- Added `version` field inside the body of `PUT` requests towards
+  `/mmds/config` to configure MMDS version. Accepted values are: `V1` and `V2`.
 
 ### Fixed
 

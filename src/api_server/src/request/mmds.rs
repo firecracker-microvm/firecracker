@@ -62,36 +62,69 @@ mod tests {
 
     #[test]
     fn test_parse_put_mmds_request() {
-        let body = r#"{
+        // Requests to `/mmds`.
+        {
+            let body = r#"{
                 "foo": "bar"
               }"#;
-        assert!(parse_put_mmds(&Body::new(body), None).is_ok());
+            assert!(parse_put_mmds(&Body::new(body), None).is_ok());
 
-        let invalid_body = "invalid_body";
-        assert!(parse_put_mmds(&Body::new(invalid_body), None).is_err());
-        assert!(METRICS.put_api_requests.mmds_fails.count() > 0);
+            let invalid_body = "invalid_body";
+            assert!(parse_put_mmds(&Body::new(invalid_body), None).is_err());
+            assert!(METRICS.put_api_requests.mmds_fails.count() > 0);
+        }
 
-        let body = r#"{
+        // Requests to `/mmds/config` path.
+        {
+            let path = "config";
+            let body = r#"{
+                "ipv4_address": "169.254.170.2",
+                "version": "V2"
+              }"#;
+            assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_ok());
+
+            let body = r#"{
                 "ipv4_address": "169.254.170.2"
               }"#;
-        let path = "config";
-        assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_ok());
+            assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_ok());
 
-        let body = r#"{
-                "ipv4_address": ""
+            let body = r#"{
+                "version": "V2"
               }"#;
-        assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_err());
+            assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_ok());
 
-        // Equivalent to reset the mmds configuration.
-        let empty_body = r#"{}"#;
-        assert!(parse_put_mmds(&Body::new(empty_body), Some(&path)).is_ok());
+            // Equivalent to reset the mmds configuration.
+            let empty_body = r#"{}"#;
+            assert!(parse_put_mmds(&Body::new(empty_body), Some(&path)).is_ok());
 
-        let invalid_config_body = r#"{
+            let body = r#"{
+                "ipv4_address": "",
+                "version": "V2"
+              }"#;
+            assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_err());
+
+            let body = r#"{
+                "ipv4_address": "169.254.170.2",
+                "version": ""
+              }"#;
+            assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_err());
+
+            let body = r#"{
+                "ipv4_address": "169.254.170.2",
+                "version": "foo"
+              }"#;
+            assert!(parse_put_mmds(&Body::new(body), Some(&path)).is_err());
+
+            let invalid_config_body = r#"{
                 "invalid_config": "invalid_value"
               }"#;
-        assert!(parse_put_mmds(&Body::new(invalid_config_body), Some(&path)).is_err());
-        assert!(parse_put_mmds(&Body::new(body), Some(&"invalid_path")).is_err());
-        assert!(parse_put_mmds(&Body::new(invalid_body), Some(&path)).is_err());
+            assert!(parse_put_mmds(&Body::new(invalid_config_body), Some(&path)).is_err());
+            assert!(parse_put_mmds(&Body::new("invalid_body"), Some(&path)).is_err());
+        }
+
+        // Request to invalid path.
+        let empty_body = r#"{}"#;
+        assert!(parse_put_mmds(&Body::new(empty_body), Some(&"invalid_path")).is_err());
     }
 
     #[test]

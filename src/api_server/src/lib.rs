@@ -27,6 +27,7 @@ use mmds::data_store::Mmds;
 use seccompiler::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
+use vmm::vmm_config::mmds::MmdsConfig;
 use vmm::vmm_config::snapshot::SnapshotType;
 
 /// Shorthand type for a request containing a boxed VmmAction.
@@ -297,6 +298,13 @@ impl ApiServer {
             _ => None,
         };
 
+        if let VmmAction::SetMmdsConfiguration(ref config) = *vmm_action {
+            let mmds_response = self.set_mmds_config(*config);
+            if mmds_response.status() != StatusCode::NoContent {
+                return mmds_response;
+            }
+        }
+
         self.api_request_sender
             .send(vmm_action)
             .expect("Failed to send VMM message");
@@ -356,6 +364,21 @@ impl ApiServer {
             .lock()
             .expect("Failed to acquire lock on MMDS info")
             .put_data(value);
+        match mmds_response {
+            Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
+            Err(e) => ApiServer::json_response(
+                StatusCode::BadRequest,
+                ApiServer::json_fault_message(e.to_string()),
+            ),
+        }
+    }
+
+    fn set_mmds_config(&self, config: MmdsConfig) -> Response {
+        let mmds_response = self
+            .mmds_info
+            .lock()
+            .expect("Failed to acquire lock on MMDS info")
+            .set_version(config.version());
         match mmds_response {
             Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
             Err(e) => ApiServer::json_response(
