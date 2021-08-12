@@ -12,7 +12,7 @@ import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
 
-PARTUUID = {"x86_64": "0eaa91a0-01", "aarch64": "7bf14469-01"}
+PARTUUID = {"x86_64": "f647d602-01", "aarch64": "69d7c052-01"}
 MB = 1024 * 1024
 
 
