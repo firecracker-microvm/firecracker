@@ -53,7 +53,8 @@ impl Bitmap {
     /// Set a range of bits starting at `start_addr` and continuing for the next `len` bytes.
     pub fn set_addr_range(&self, start_addr: usize, len: usize) {
         let first_bit = start_addr / self.page_size;
-        let page_count = (len + self.page_size - 1) / self.page_size;
+        let page_count =
+            ((start_addr % self.page_size) + len + self.page_size - 1) / self.page_size;
         for n in first_bit..(first_bit + page_count) {
             if n > self.size {
                 // Attempts to set bits beyond the end of the bitmap are simply ignored.
@@ -125,6 +126,17 @@ mod tests {
         assert!(!b.is_addr_set(128));
         assert!(!b.is_addr_set(256));
         assert!(!b.is_addr_set(384));
+    }
+
+    #[test]
+    fn bitmap_addr_roll_over() {
+        use super::Bitmap;
+        let b = Bitmap::new(1024, 128);
+        assert!(!b.is_addr_set(127));
+        assert!(!b.is_addr_set(128));
+        b.set_addr_range(127, 2);
+        assert!(b.is_addr_set(127));
+        assert!(b.is_addr_set(128));
     }
 
     #[test]
