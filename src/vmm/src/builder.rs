@@ -305,6 +305,10 @@ pub fn build_microvm_for_boot(
     seccomp_filters: &BpfThreadMap,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, StartMicrovmError> {
     use self::StartMicrovmError::*;
+
+    // Timestamp for measuring microVM boot duration.
+    let request_ts = TimestampUs::default();
+
     let boot_config = vm_resources.boot_source().ok_or(MissingKernelConfig)?;
 
     let track_dirty_pages = vm_resources.track_dirty_pages();
@@ -321,9 +325,6 @@ pub fn build_microvm_for_boot(
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
     let mut boot_cmdline = boot_config.cmdline.clone();
-
-    // Timestamp for measuring microVM boot duration.
-    let request_ts = TimestampUs::default();
 
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
