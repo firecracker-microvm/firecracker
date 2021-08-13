@@ -4,6 +4,7 @@ mod cgroup;
 mod chroot;
 mod env;
 mod resource_limits;
+use std::env as p_env;
 
 use std::ffi::{CString, NulError, OsString};
 use std::fmt;
@@ -358,6 +359,18 @@ fn sanitize_process() {
             }
         }
     }
+
+    // Cleanup environment variables
+    clean_env_vars();
+}
+
+fn clean_env_vars() {
+    // Remove environment variables received from
+    // the parent process so there are no leaks
+    // inside the jailer environment
+    for (key, _) in p_env::vars() {
+        p_env::remove_var(key);
+    }
 }
 
 /// Turns an AsRef<Path> into a CString (c style string).
@@ -421,6 +434,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
     use std::fs::File;
     use std::os::unix::io::IntoRawFd;
 
@@ -448,6 +462,25 @@ mod tests {
         }
 
         assert!(fs::remove_dir_all(tmp_dir_path).is_ok());
+    }
+
+    #[test]
+    fn test_clean_env_vars() {
+        let env_vars: [&str; 5] = ["VAR1", "VAR2", "VAR3", "VAR4", "VAR5"];
+
+        // Set environment variables
+        for env_var in env_vars.iter() {
+            env::set_var(env_var, "0");
+        }
+
+        // Cleanup the environment
+        clean_env_vars();
+
+        // Assert that the variables set beforehand
+        // do not exist anymore
+        for env_var in env_vars.iter() {
+            assert_eq!(env::var_os(env_var), None);
+        }
     }
 
     #[allow(clippy::cognitive_complexity)]
