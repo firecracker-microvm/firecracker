@@ -47,7 +47,7 @@ fn build_guarded_region(
     flags: i32,
     track_dirty_pages: bool,
 ) -> Result<MmapRegion, MmapRegionError> {
-    let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+    let page_size = utils::get_page_size().expect("Cannot retrieve page size.");
     // Create the guarded range size (received size + X pages),
     // where X is defined as a constant GUARD_PAGE_COUNT.
     let guarded_size = size + GUARD_PAGE_COUNT * 2 * page_size;
@@ -184,7 +184,7 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use utils::tempfile::TempFile;
+    use utils::{get_page_size, tempfile::TempFile};
 
     enum AddrOp {
         Read,
@@ -233,7 +233,7 @@ mod tests {
     }
 
     fn validate_guard_region(region: &MmapRegion) {
-        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+        let page_size = get_page_size().unwrap();
 
         // Check that the created range allows us to write inside it
         let addr = region.as_ptr();
@@ -255,7 +255,7 @@ mod tests {
     }
 
     fn loop_guard_region_to_sigsegv(region: &MmapRegion) {
-        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+        let page_size = get_page_size().unwrap();
         let right_page_guard = region.as_ptr() as usize + region.size();
 
         fork_and_run(
@@ -285,7 +285,7 @@ mod tests {
     fn test_build_guarded_region() {
         // Create anonymous guarded region.
         {
-            let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+            let page_size = get_page_size().unwrap();
             let size = page_size * 10;
             let prot = libc::PROT_READ | libc::PROT_WRITE;
             let flags = libc::MAP_ANONYMOUS | libc::MAP_NORESERVE | libc::MAP_PRIVATE;
@@ -304,7 +304,7 @@ mod tests {
         // Create guarded region from file.
         {
             let file = TempFile::new().unwrap().into_file();
-            let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+            let page_size = get_page_size().unwrap();
 
             let prot = libc::PROT_READ | libc::PROT_WRITE;
             let flags = libc::MAP_NORESERVE | libc::MAP_PRIVATE;
