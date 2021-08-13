@@ -89,6 +89,7 @@ After starting, the Jailer goes through the following operations:
 - Validate **all provided paths** and the VM `id`.
 - Close all open file descriptors based on `/proc/<jailer-pid>/fd` except
   input, output and error.
+- Cleanup all environment variables received from the parent process.
 - Create the `<chroot_base>/<exec_file_name>/<id>/root` folder, which will be
   henceforth referred to as `chroot_dir`. `exec_file_name` is the
   last path component of `exec_file` (for example, that would be `firecracker`
