@@ -15,7 +15,7 @@ use vm_memory::{
 };
 
 use crate::DirtyBitmap;
-use utils::errno;
+use utils::{errno, get_page_size};
 
 /// State of a guest memory region saved to file/buffer.
 #[derive(Debug, PartialEq, Versionize)]
@@ -122,7 +122,7 @@ impl SnapshotMemory for GuestMemoryMmap {
         dirty_bitmap: &DirtyBitmap,
     ) -> std::result::Result<(), Error> {
         let mut writer_offset = 0;
-        let page_size = get_page_size()?;
+        let page_size = get_page_size().map_err(Error::PageSize)?;
 
         self.iter()
             .enumerate()
@@ -201,19 +201,13 @@ impl SnapshotMemory for GuestMemoryMmap {
     }
 }
 
-fn get_page_size() -> Result<usize, Error> {
-    match unsafe { libc::sysconf(libc::_SC_PAGESIZE) } {
-        -1 => Err(Error::PageSize(errno::Error::last())),
-        ps => Ok(ps as usize),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use super::*;
     use std::io::{Read, Seek};
+    use utils::get_page_size;
     use utils::tempfile::TempFile;
     use vm_memory::GuestAddress;
 
