@@ -576,9 +576,9 @@ def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
     # Validate IOPS stays within above configured limits.
     # For example, the below call will validate that reading 1000 blocks
     # of 512b will complete in at 0.8-1.2 seconds ('dd' is not very accurate,
-    # so we target to stay within 20% error).
-    check_iops_limit(ssh_connection, 512, 1000, 0.8, 1.2)
-    check_iops_limit(ssh_connection, 4096, 1000, 0.8, 1.2)
+    # so we target to stay within 25% error).
+    check_iops_limit(ssh_connection, 512, 1000, 0.75, 1.25)
+    check_iops_limit(ssh_connection, 4096, 1000, 0.75, 1.25)
 
     # Patch ratelimiter
     response = test_microvm.drive.patch(
@@ -596,8 +596,8 @@ def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    check_iops_limit(ssh_connection, 512, 2000, 0.8, 1.2)
-    check_iops_limit(ssh_connection, 4096, 2000, 0.8, 1.2)
+    check_iops_limit(ssh_connection, 512, 2000, 0.75, 1.25)
+    check_iops_limit(ssh_connection, 4096, 2000, 0.75, 1.25)
 
     # Patch ratelimiter
     response = test_microvm.drive.patch(
@@ -611,8 +611,8 @@ def test_patch_drive_limiter(test_microvm_with_ssh, network_config):
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    check_iops_limit(ssh_connection, 512, 10000, 0.8, 1.2)
-    check_iops_limit(ssh_connection, 4096, 10000, 0.8, 1.2)
+    check_iops_limit(ssh_connection, 512, 10000, 0.75, 1.25)
+    check_iops_limit(ssh_connection, 4096, 10000, 0.75, 1.25)
 
 
 def _check_block_size(ssh_connection, dev_path, size):
