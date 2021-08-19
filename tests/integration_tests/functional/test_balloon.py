@@ -234,8 +234,15 @@ def test_deflate_on_oom_true(test_microvm_with_api,
     firecracker_pid = test_microvm.jailer_clone_pid
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
+    # We get an initial reading of the RSS, then calculate the amount
+    # we need to inflate the balloon with by subtracting it from the
+    # VM size and adding an offset of 10 MiB in order to make sure we
+    # get a lower reading than the initial one.
+    initial_rss = get_stable_rss_mem_by_pid(firecracker_pid)
+    inflate_size = 256 - int(initial_rss / 1024) + 10
+
     # Inflate the balloon
-    response = test_microvm.balloon.patch(amount_mib=180)
+    response = test_microvm.balloon.patch(amount_mib=inflate_size)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -275,8 +282,15 @@ def test_deflate_on_oom_false(test_microvm_with_api,
     firecracker_pid = test_microvm.jailer_clone_pid
     ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
 
+    # We get an initial reading of the RSS, then calculate the amount
+    # we need to inflate the balloon with by subtracting it from the
+    # VM size and adding an offset of 10 MiB in order to make sure we
+    # get a lower reading than the initial one.
+    initial_rss = get_stable_rss_mem_by_pid(firecracker_pid)
+    inflate_size = 256 - int(initial_rss / 1024) + 10
+
     # Inflate the balloon.
-    response = test_microvm.balloon.patch(amount_mib=180)
+    response = test_microvm.balloon.patch(amount_mib=inflate_size)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     # This call will internally wait for rss to become stable.
     _ = get_stable_rss_mem_by_pid(firecracker_pid)
@@ -391,8 +405,14 @@ def test_size_reduction(test_microvm_with_api, network_config):
     ssh_connection.execute_command('sync; echo 3 > /proc/sys/vm/drop_caches')
     time.sleep(5)
 
+    # We take the initial reading of the RSS, then calculate the amount
+    # we need to inflate the balloon with by subtracting it from the
+    # VM size and adding an offset of 10 MiB in order to make sure we
+    # get a lower reading than the initial one.
+    inflate_size = 256 - int(first_reading / 1024) + 10
+
     # Now inflate the balloon.
-    response = test_microvm.balloon.patch(amount_mib=160)
+    response = test_microvm.balloon.patch(amount_mib=inflate_size)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Check memory usage again.
