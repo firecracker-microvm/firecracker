@@ -17,13 +17,13 @@ use super::ethernet::{self, ETHERTYPE_IPV4};
 use utils::net::mac::{MacAddr, MAC_ADDR_LEN};
 
 /// ARP Request operation
-pub const OPER_REQUEST: u16 = 0x0001;
+const OPER_REQUEST: u16 = 0x0001;
 
 /// ARP Reply operation
-pub const OPER_REPLY: u16 = 0x0002;
+const OPER_REPLY: u16 = 0x0002;
 
 /// ARP is for Ethernet hardware
-pub const HTYPE_ETHERNET: u16 = 0x0001;
+const HTYPE_ETHERNET: u16 = 0x0001;
 
 /// The length of an ARP frame for IPv4 over Ethernet.
 pub const ETH_IPV4_FRAME_LEN: usize = 28;

@@ -64,7 +64,7 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
 
     /// Returns the destination MAC address.
     #[inline]
-    pub fn dst_mac(&self) -> MacAddr {
+    fn dst_mac(&self) -> MacAddr {
         MacAddr::from_bytes_unchecked(&self.bytes[DST_MAC_OFFSET..SRC_MAC_OFFSET])
     }
 
@@ -137,21 +137,21 @@ impl<'a, T: NetworkBytesMut> EthernetFrame<'a, T> {
 
     /// Sets the destination MAC address.
     #[inline]
-    pub fn set_dst_mac(&mut self, addr: MacAddr) -> &mut Self {
+    fn set_dst_mac(&mut self, addr: MacAddr) -> &mut Self {
         self.bytes[DST_MAC_OFFSET..SRC_MAC_OFFSET].copy_from_slice(addr.get_bytes());
         self
     }
 
     /// Sets the source MAC address.
     #[inline]
-    pub fn set_src_mac(&mut self, addr: MacAddr) -> &mut Self {
+    fn set_src_mac(&mut self, addr: MacAddr) -> &mut Self {
         self.bytes[SRC_MAC_OFFSET..ETHERTYPE_OFFSET].copy_from_slice(addr.get_bytes());
         self
     }
 
     /// Sets the ethertype of the frame.
     #[inline]
-    pub fn set_ethertype(&mut self, value: u16) -> &mut Self {
+    fn set_ethertype(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(ETHERTYPE_OFFSET, value);
         self
     }

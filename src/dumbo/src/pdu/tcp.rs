@@ -111,7 +111,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
 
     /// Returns the sequence number.
     #[inline]
-    pub fn sequence_number(&self) -> u32 {
+    pub(crate) fn sequence_number(&self) -> u32 {
         self.bytes.ntohl_unchecked(SEQ_NUMBER_OFFSET)
     }
 
@@ -124,7 +124,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     /// Returns the header length, the value of the reserved bits, and whether the `NS` flag
     /// is set or not.
     #[inline]
-    pub fn header_len_rsvd_ns(&self) -> (usize, u8, bool) {
+    pub(in crate::pdu) fn header_len_rsvd_ns(&self) -> (usize, u8, bool) {
         let value = self.bytes[DATAOFF_RSVD_NS_OFFSET];
         let data_offset = value >> 4;
         let header_len = data_offset as usize * 4;
@@ -135,7 +135,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
 
     /// Returns the length of the header.
     #[inline]
-    pub fn header_len(&self) -> usize {
+    pub(crate) fn header_len(&self) -> usize {
         self.header_len_rsvd_ns().0
     }
 
@@ -147,20 +147,20 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
 
     /// Returns the value of the `window size` header field.
     #[inline]
-    pub fn window_size(&self) -> u16 {
+    pub(crate) fn window_size(&self) -> u16 {
         self.bytes.ntohs_unchecked(WINDOW_SIZE_OFFSET)
     }
 
     /// Returns the value of the `checksum` header field.
     #[inline]
-    pub fn checksum(&self) -> u16 {
+    fn checksum(&self) -> u16 {
         self.bytes.ntohs_unchecked(CHECKSUM_OFFSET)
     }
 
     /// Returns the value of the `urgent pointer` header field (only valid if the
     /// `URG` flag is set).
     #[inline]
-    pub fn urgent_pointer(&self) -> u16 {
+    fn urgent_pointer(&self) -> u16 {
         self.bytes.ntohs_unchecked(URG_POINTER_OFFSET)
     }
 
@@ -170,7 +170,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     ///
     /// This method may panic if the value of `header_len` is invalid.
     #[inline]
-    pub fn options_unchecked(&self, header_len: usize) -> &[u8] {
+    fn options_unchecked(&self, header_len: usize) -> &[u8] {
         &self.bytes[OPTIONS_OFFSET..header_len]
     }
 
@@ -181,7 +181,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     ///
     /// This method may panic if the value of `header_len` is invalid.
     #[inline]
-    pub fn payload_unchecked(&self, header_len: usize) -> &[u8] {
+    fn payload_unchecked(&self, header_len: usize) -> &[u8] {
         self.bytes.split_at(header_len).1
     }
 
@@ -193,13 +193,13 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
 
     /// Returns a slice which contains the payload of the segment.
     #[inline]
-    pub fn payload(&self) -> &[u8] {
+    pub(crate) fn payload(&self) -> &[u8] {
         self.payload_unchecked(self.header_len())
     }
 
     /// Returns the length of the payload.
     #[inline]
-    pub fn payload_len(&self) -> usize {
+    pub(crate) fn payload_len(&self) -> usize {
         self.len() - self.header_len()
     }
 
@@ -207,7 +207,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     /// be found [here].
     ///
     /// [here]: https://en.wikipedia.org/wiki/Transmission_Control_Protocol#Checksum_computation
-    pub fn compute_checksum(&self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) -> u16 {
+    fn compute_checksum(&self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) -> u16 {
         crate::pdu::compute_checksum(&self.bytes, src_addr, dst_addr, ChecksumProto::Tcp)
     }
 
@@ -219,7 +219,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     /// # Panics
     ///
     /// This method may panic if the value of `header_len` is invalid.
-    pub fn parse_mss_option_unchecked(
+    pub(crate) fn parse_mss_option_unchecked(
         &self,
         header_len: usize,
     ) -> Result<Option<NonZeroU16>, Error> {
@@ -267,7 +267,7 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
     /// This method does not panic, but further method calls on the resulting object may panic if
     /// `bytes` contains invalid input.
     #[inline]
-    pub fn from_bytes_unchecked(bytes: T) -> Self {
+    fn from_bytes_unchecked(bytes: T) -> Self {
         TcpSegment {
             bytes: InnerBytes::new(bytes),
         }
@@ -309,28 +309,28 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
 impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     /// Sets the source port.
     #[inline]
-    pub fn set_source_port(&mut self, value: u16) -> &mut Self {
+    pub(crate) fn set_source_port(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(SOURCE_PORT_OFFSET, value);
         self
     }
 
     /// Sets the destination port.
     #[inline]
-    pub fn set_destination_port(&mut self, value: u16) -> &mut Self {
+    pub(crate) fn set_destination_port(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(DESTINATION_PORT_OFFSET, value);
         self
     }
 
     /// Sets the value of the sequence number field.
     #[inline]
-    pub fn set_sequence_number(&mut self, value: u32) -> &mut Self {
+    pub(crate) fn set_sequence_number(&mut self, value: u32) -> &mut Self {
         self.bytes.htonl_unchecked(SEQ_NUMBER_OFFSET, value);
         self
     }
 
     /// Sets the value of the acknowledgement number field.
     #[inline]
-    pub fn set_ack_number(&mut self, value: u32) -> &mut Self {
+    pub(crate) fn set_ack_number(&mut self, value: u32) -> &mut Self {
         self.bytes.htonl_unchecked(ACK_NUMBER_OFFSET, value);
         self
     }
@@ -339,7 +339,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     /// of 4), clears the reserved bits, and sets the `NS` flag according to the last parameter.
     // TODO: Check that header_len | 0b11 == 0 and the resulting data_offset is valid?
     #[inline]
-    pub fn set_header_len_rsvd_ns(&mut self, header_len: usize, ns: bool) -> &mut Self {
+    fn set_header_len_rsvd_ns(&mut self, header_len: usize, ns: bool) -> &mut Self {
         let mut value = (header_len as u8) << 2;
         if ns {
             value |= 1;
@@ -350,28 +350,28 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
 
     /// Sets the value of the header byte containing every TCP flag except `NS`.
     #[inline]
-    pub fn set_flags_after_ns(&mut self, flags: Flags) -> &mut Self {
+    pub(crate) fn set_flags_after_ns(&mut self, flags: Flags) -> &mut Self {
         self.bytes[FLAGS_AFTER_NS_OFFSET] = flags.bits();
         self
     }
 
     /// Sets the value of the `window size` field.
     #[inline]
-    pub fn set_window_size(&mut self, value: u16) -> &mut Self {
+    pub(crate) fn set_window_size(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(WINDOW_SIZE_OFFSET, value);
         self
     }
 
     /// Sets the value of the `checksum` field.
     #[inline]
-    pub fn set_checksum(&mut self, value: u16) -> &mut Self {
+    fn set_checksum(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(CHECKSUM_OFFSET, value);
         self
     }
 
     /// Sets the value of the `urgent pointer` field.
     #[inline]
-    pub fn set_urgent_pointer(&mut self, value: u16) -> &mut Self {
+    fn set_urgent_pointer(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(URG_POINTER_OFFSET, value);
         self
     }
@@ -382,13 +382,13 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     ///
     /// This method may panic if the value of `header_len` is invalid.
     #[inline]
-    pub fn payload_mut_unchecked(&mut self, header_len: usize) -> &mut [u8] {
+    fn payload_mut_unchecked(&mut self, header_len: usize) -> &mut [u8] {
         self.bytes.split_at_mut(header_len).1
     }
 
     /// Returns a mutable slice containing the segment payload.
     #[inline]
-    pub fn payload_mut(&mut self) -> &mut [u8] {
+    fn payload_mut(&mut self) -> &mut [u8] {
         let header_len = self.header_len();
         self.payload_mut_unchecked(header_len)
     }
@@ -415,7 +415,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     ///    are required for TCP checksum computation. Skip the checksum altogether when `None`.
     #[allow(clippy::too_many_arguments)]
     #[inline]
-    pub fn write_segment<R: ByteBuffer + ?Sized>(
+    pub(crate) fn write_segment<R: ByteBuffer + ?Sized>(
         buf: T,
         src_port: u16,
         dst_port: u16,
@@ -466,7 +466,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     // we don't add TCP options, or when mss_remaining is actually a constant, etc.
     #[allow(clippy::too_many_arguments)]
     #[inline]
-    pub fn write_incomplete_segment<R: ByteBuffer + ?Sized>(
+    pub(crate) fn write_incomplete_segment<R: ByteBuffer + ?Sized>(
         buf: T,
         seq_number: u32,
         ack_number: u32,

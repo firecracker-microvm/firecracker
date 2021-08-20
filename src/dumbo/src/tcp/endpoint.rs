@@ -39,7 +39,7 @@ const RCV_BUF_MAX_SIZE: usize = 2500;
 
 // Represents the local endpoint of a HTTP over TCP connection which carries GET requests
 // to the MMDS.
-pub struct Endpoint {
+pub(in crate::tcp) struct Endpoint {
     // A fixed size buffer used to store bytes received via TCP. If the current request does not
     // fit within, we reset the connection, since we see this as a hard memory bound.
     receive_buf: [u8; RCV_BUF_MAX_SIZE],
@@ -111,7 +111,7 @@ impl Endpoint {
         })
     }
 
-    pub fn new_with_defaults<T: NetworkBytes>(
+    pub(in crate::tcp) fn new_with_defaults<T: NetworkBytes>(
         segment: &TcpSegment<T>,
     ) -> Result<Self, PassiveOpenError> {
         // The unwraps are safe because the constants are greater than 0.
@@ -123,7 +123,7 @@ impl Endpoint {
         )
     }
 
-    pub fn receive_segment<T: NetworkBytes>(
+    pub(in crate::tcp) fn receive_segment<T: NetworkBytes>(
         &mut self,
         s: &TcpSegment<T>,
         callback: fn(Request) -> Response,
@@ -241,7 +241,7 @@ impl Endpoint {
         }
     }
 
-    pub fn write_next_segment<'a>(
+    pub(in crate::tcp) fn write_next_segment<'a>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
@@ -274,17 +274,17 @@ impl Endpoint {
     }
 
     #[inline]
-    pub fn is_done(&self) -> bool {
+    pub(in crate::tcp) fn is_done(&self) -> bool {
         self.connection.is_done()
     }
 
     #[inline]
-    pub fn is_evictable(&self) -> bool {
+    pub(in crate::tcp) fn is_evictable(&self) -> bool {
         timestamp_cycles().wrapping_sub(self.last_segment_received_timestamp)
             > self.eviction_threshold
     }
 
-    pub fn next_segment_status(&self) -> NextSegmentStatus {
+    pub(in crate::tcp) fn next_segment_status(&self) -> NextSegmentStatus {
         let can_send_new_data = !self.response_buf.is_empty()
             && seq_after(
                 self.connection.remote_rwnd_edge(),
@@ -299,7 +299,7 @@ impl Endpoint {
     }
 
     #[inline]
-    pub fn connection(&self) -> &Connection {
+    pub(in crate::tcp) fn connection(&self) -> &Connection {
         &self.connection
     }
 }

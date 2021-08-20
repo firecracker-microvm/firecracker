@@ -17,7 +17,7 @@ pub mod bytes;
 pub mod ethernet;
 pub mod ipv4;
 pub mod tcp;
-pub mod udp;
+pub(crate) mod udp;
 
 /// This is the baseline definition of the `Incomplete` struct, which wraps a PDU that does is
 /// still missing some values or content.

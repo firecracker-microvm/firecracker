@@ -30,7 +30,7 @@ const IPV4_MAX_UDP_PACKET_SIZE: usize = 65507;
 
 /// Represents errors which may occur while parsing or writing a datagram.
 #[derive(Debug, PartialEq)]
-pub enum Error {
+enum Error {
     /// Invalid checksum.
     Checksum,
     /// The specified byte sequence is shorter than the Ethernet header length.
@@ -54,7 +54,7 @@ impl<'a, T: NetworkBytes> UdpDatagram<'a, T> {
     ///  This method does not panic, but further method calls on the resulting object may panic if
     /// `bytes` contains invalid input.
     #[inline]
-    pub fn from_bytes_unchecked(bytes: T) -> Self {
+    fn from_bytes_unchecked(bytes: T) -> Self {
         UdpDatagram {
             bytes: InnerBytes::new(bytes),
         }
@@ -63,10 +63,7 @@ impl<'a, T: NetworkBytes> UdpDatagram<'a, T> {
     /// Interprets `bytes` as a UDP datagram if possible or returns
     /// the reason for failing to do so.
     #[inline]
-    pub fn from_bytes(
-        bytes: T,
-        verify_checksum: Option<(Ipv4Addr, Ipv4Addr)>,
-    ) -> Result<Self, Error> {
+    fn from_bytes(bytes: T, verify_checksum: Option<(Ipv4Addr, Ipv4Addr)>) -> Result<Self, Error> {
         if bytes.len() < UDP_HEADER_SIZE {
             return Err(Error::DatagramTooShort);
         }
@@ -86,38 +83,38 @@ impl<'a, T: NetworkBytes> UdpDatagram<'a, T> {
 
     /// Returns the source port of the UDP datagram.
     #[inline]
-    pub fn source_port(&self) -> u16 {
+    fn source_port(&self) -> u16 {
         self.bytes.ntohs_unchecked(SOURCE_PORT_OFFSET)
     }
 
     /// Returns the destination port of the UDP datagram.
     #[inline]
-    pub fn destination_port(&self) -> u16 {
+    fn destination_port(&self) -> u16 {
         self.bytes.ntohs_unchecked(DESTINATION_PORT_OFFSET)
     }
 
     /// Returns the length of the datagram from its header.
     #[inline]
-    pub fn len(&self) -> u16 {
+    fn len(&self) -> u16 {
         self.bytes.ntohs_unchecked(LENGTH_OFFSET)
     }
 
     /// Returns the checksum value of the packet.
     #[inline]
-    pub fn checksum(&self) -> u16 {
+    fn checksum(&self) -> u16 {
         self.bytes.ntohs_unchecked(CHECKSUM_OFFSET)
     }
 
     /// Returns the payload of the UDP datagram as an `[&u8]` slice.
     #[inline]
-    pub fn payload(&self) -> &[u8] {
+    fn payload(&self) -> &[u8] {
         // Payload offset is header len.
         self.bytes.split_at(PAYLOAD_OFFSET).1
     }
 
     /// Computes the checksum of a UDP datagram.
     #[inline]
-    pub fn compute_checksum(&self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) -> u16 {
+    fn compute_checksum(&self, src_addr: Ipv4Addr, dst_addr: Ipv4Addr) -> u16 {
         crate::pdu::compute_checksum(&self.bytes, src_addr, dst_addr, ChecksumProto::Udp)
     }
 }
@@ -130,7 +127,7 @@ impl<'a, T: NetworkBytesMut> UdpDatagram<'a, T> {
     /// * `buf` - A buffer containing `NetworkBytesMut` representing a datagram.
     /// * `payload` - Datagram payload.
     #[inline]
-    pub fn write_incomplete_datagram(buf: T, payload: &[u8]) -> Result<Incomplete<Self>, Error> {
+    fn write_incomplete_datagram(buf: T, payload: &[u8]) -> Result<Incomplete<Self>, Error> {
         let mut packet = UdpDatagram::from_bytes(buf, None)?;
         let len = payload.len() + UDP_HEADER_SIZE;
 
@@ -148,14 +145,14 @@ impl<'a, T: NetworkBytesMut> UdpDatagram<'a, T> {
 
     /// Sets the source port of the UDP datagram.
     #[inline]
-    pub fn set_source_port(&mut self, src_port: u16) -> &mut Self {
+    fn set_source_port(&mut self, src_port: u16) -> &mut Self {
         self.bytes.htons_unchecked(SOURCE_PORT_OFFSET, src_port);
         self
     }
 
     /// Sets the destination port of the UDP datagram.
     #[inline]
-    pub fn set_destination_port(&mut self, dst_port: u16) -> &mut Self {
+    fn set_destination_port(&mut self, dst_port: u16) -> &mut Self {
         self.bytes
             .htons_unchecked(DESTINATION_PORT_OFFSET, dst_port);
         self
@@ -163,20 +160,20 @@ impl<'a, T: NetworkBytesMut> UdpDatagram<'a, T> {
 
     /// Sets the payload of the UDP datagram.
     #[inline]
-    pub fn payload_mut(&mut self) -> &mut [u8] {
+    fn payload_mut(&mut self) -> &mut [u8] {
         &mut self.bytes[PAYLOAD_OFFSET..]
     }
 
     /// Sets the length field in the UDP datagram header.
     #[inline]
-    pub fn set_len(&mut self, len: u16) -> &mut Self {
+    fn set_len(&mut self, len: u16) -> &mut Self {
         self.bytes.htons_unchecked(LENGTH_OFFSET, len);
         self
     }
 
     /// Sets the checksum of a UDP datagram.
     #[inline]
-    pub fn set_checksum(&mut self, checksum: u16) -> &mut Self {
+    fn set_checksum(&mut self, checksum: u16) -> &mut Self {
         self.bytes.htons_unchecked(CHECKSUM_OFFSET, checksum);
         self
     }
@@ -186,7 +183,7 @@ impl<'a, T: NetworkBytesMut> Incomplete<UdpDatagram<'a, T>> {
     /// Transforms `self` into a `UdpDatagram<T>` by specifying values for the `source port`,
     /// `destination port`, and (optionally) the information required to compute the checksum.
     #[inline]
-    pub fn finalize(
+    fn finalize(
         mut self,
         src_port: u16,
         dst_port: u16,

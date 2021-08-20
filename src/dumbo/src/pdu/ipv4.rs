@@ -122,7 +122,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     /// This method returns the actual length (in bytes) of the header, and not the value of the
     /// `ihl` header field).
     #[inline]
-    pub fn version_and_header_len(&self) -> (u8, usize) {
+    fn version_and_header_len(&self) -> (u8, usize) {
         let x = self.bytes[VERSION_AND_IHL_OFFSET];
         let ihl = x & 0x0f;
         let header_len = (ihl << 2) as usize;
@@ -131,21 +131,21 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the packet header length (in bytes).
     #[inline]
-    pub fn header_len(&self) -> usize {
+    pub(in crate::pdu) fn header_len(&self) -> usize {
         let (_, header_len) = self.version_and_header_len();
         header_len
     }
 
     /// Returns the values of the `dscp` and `ecn` header fields.
     #[inline]
-    pub fn dscp_and_ecn(&self) -> (u8, u8) {
+    fn dscp_and_ecn(&self) -> (u8, u8) {
         let x = self.bytes[DSCP_AND_ECN_OFFSET];
         (x >> 2, x & 0b11)
     }
 
     /// Returns the value of the 'total length' header field.
     #[inline]
-    pub fn total_len(&self) -> u16 {
+    fn total_len(&self) -> u16 {
         self.bytes.ntohs_unchecked(TOTAL_LEN_OFFSET)
     }
 
@@ -157,14 +157,14 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the values of the `flags` and `fragment offset` header fields.
     #[inline]
-    pub fn flags_and_fragment_offset(&self) -> (u8, u16) {
+    fn flags_and_fragment_offset(&self) -> (u8, u16) {
         let x = self.bytes.ntohs_unchecked(FLAGS_AND_FRAGMENTOFF_OFFSET);
         ((x >> 13) as u8, x & 0x1fff)
     }
 
     /// Returns the value of the `ttl` header field.
     #[inline]
-    pub fn ttl(&self) -> u8 {
+    fn ttl(&self) -> u8 {
         self.bytes[TTL_OFFSET]
     }
 
@@ -176,7 +176,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the value of the `header checksum` header field.
     #[inline]
-    pub fn header_checksum(&self) -> u16 {
+    fn header_checksum(&self) -> u16 {
         self.bytes.ntohs_unchecked(HEADER_CHECKSUM_OFFSET)
     }
 
@@ -188,7 +188,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the destination IPv4 address of the packet.
     #[inline]
-    pub fn destination_address(&self) -> Ipv4Addr {
+    fn destination_address(&self) -> Ipv4Addr {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(DESTINATION_ADDRESS_OFFSET))
     }
 
@@ -199,7 +199,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     ///
     /// This method may panic if the value of `header_len` is invalid.
     #[inline]
-    pub fn payload_unchecked(&self, header_len: usize) -> &[u8] {
+    fn payload_unchecked(&self, header_len: usize) -> &[u8] {
         self.bytes.split_at(header_len).1
     }
 
@@ -228,7 +228,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
     /// This method may panic if the value of `header_len` is invalid.
     ///
     /// [here]: https://en.wikipedia.org/wiki/IPv4_header_checksum
-    pub fn compute_checksum_unchecked(&self, header_len: usize) -> u16 {
+    fn compute_checksum_unchecked(&self, header_len: usize) -> u16 {
         let mut sum = 0u32;
         for i in 0..header_len / 2 {
             sum += u32::from(self.bytes.ntohs_unchecked(i * 2));
@@ -282,7 +282,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
     /// Sets the values of the `version` and `ihl` header fields (the latter is computed from the
     /// value of `header_len`).
     #[inline]
-    pub fn set_version_and_header_len(&mut self, version: u8, header_len: usize) -> &mut Self {
+    fn set_version_and_header_len(&mut self, version: u8, header_len: usize) -> &mut Self {
         let version = version << 4;
         let ihl = ((header_len as u8) >> 2) & 0xf;
         self.bytes[VERSION_AND_IHL_OFFSET] = version | ihl;
@@ -291,28 +291,28 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the values of the `dscp` and `ecn` header fields.
     #[inline]
-    pub fn set_dscp_and_ecn(&mut self, dscp: u8, ecn: u8) -> &mut Self {
+    fn set_dscp_and_ecn(&mut self, dscp: u8, ecn: u8) -> &mut Self {
         self.bytes[DSCP_AND_ECN_OFFSET] = (dscp << 2) | ecn;
         self
     }
 
     /// Sets the value of the `total length` header field.
     #[inline]
-    pub fn set_total_len(&mut self, value: u16) -> &mut Self {
+    fn set_total_len(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(TOTAL_LEN_OFFSET, value);
         self
     }
 
     /// Sets the value of the `identification` header field.
     #[inline]
-    pub fn set_identification(&mut self, value: u16) -> &mut Self {
+    fn set_identification(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(IDENTIFICATION_OFFSET, value);
         self
     }
 
     /// Sets the values of the `flags` and `fragment offset` header fields.
     #[inline]
-    pub fn set_flags_and_fragment_offset(&mut self, flags: u8, fragment_offset: u16) -> &mut Self {
+    fn set_flags_and_fragment_offset(&mut self, flags: u8, fragment_offset: u16) -> &mut Self {
         let value = (u16::from(flags) << 13) | fragment_offset;
         self.bytes
             .htons_unchecked(FLAGS_AND_FRAGMENTOFF_OFFSET, value);
@@ -321,21 +321,21 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
 
     /// Sets the value of the `ttl` header field.
     #[inline]
-    pub fn set_ttl(&mut self, value: u8) -> &mut Self {
+    fn set_ttl(&mut self, value: u8) -> &mut Self {
         self.bytes[TTL_OFFSET] = value;
         self
     }
 
     /// Sets the value of the `protocol` header field.
     #[inline]
-    pub fn set_protocol(&mut self, value: u8) -> &mut Self {
+    fn set_protocol(&mut self, value: u8) -> &mut Self {
         self.bytes[PROTOCOL_OFFSET] = value;
         self
     }
 
     /// Sets the value of the `header checksum` header field.
     #[inline]
-    pub fn set_header_checksum(&mut self, value: u16) -> &mut Self {
+    fn set_header_checksum(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(HEADER_CHECKSUM_OFFSET, value);
         self
     }
@@ -363,7 +363,7 @@ impl<'a, T: NetworkBytesMut> IPv4Packet<'a, T> {
     ///
     /// This method may panic if the value of `header_len` is invalid.
     #[inline]
-    pub fn payload_mut_unchecked(&mut self, header_len: usize) -> &mut [u8] {
+    fn payload_mut_unchecked(&mut self, header_len: usize) -> &mut [u8] {
         self.bytes.split_at_mut(header_len).1
     }
 
@@ -391,7 +391,7 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
     /// This method may panic if the combination of `header_len` and `payload_len` is invalid,
     /// or any of the individual values are invalid.
     #[inline]
-    pub fn with_header_and_payload_len_unchecked(
+    fn with_header_and_payload_len_unchecked(
         mut self,
         header_len: usize,
         payload_len: usize,
@@ -424,7 +424,7 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
     /// This method may panic if the combination of `options_len` and `payload_len` is invalid,
     /// or any of the individual values are invalid.
     #[inline]
-    pub fn with_options_and_payload_len_unchecked(
+    fn with_options_and_payload_len_unchecked(
         self,
         options_len: usize,
         payload_len: usize,

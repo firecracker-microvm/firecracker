@@ -816,7 +816,7 @@ impl Connection {
     /// * `now` - An opaque timestamp representing the current moment in time.
     ///
     /// [`MAX_WINDOW_SIZE`]: ../constant.MAX_WINDOW_SIZE.html
-    pub fn write_next_segment<'a, R: ByteBuffer + ?Sized>(
+    pub(in crate::tcp) fn write_next_segment<'a, R: ByteBuffer + ?Sized>(
         &mut self,
         buf: &'a mut [u8],
         mss_reserved: u16,
