@@ -14,7 +14,7 @@ use virtio_gen::virtio_blk::*;
 use vm_memory::{ByteValued, Bytes, GuestAddress, GuestMemoryError, GuestMemoryMmap};
 
 use super::super::DescriptorChain;
-use super::device::{CacheType, DiskProperties};
+use super::device::DiskProperties;
 use super::{Error, SECTOR_SHIFT, SECTOR_SIZE};
 
 #[derive(Debug)]
@@ -246,8 +246,6 @@ impl Request {
         disk: &mut DiskProperties,
         mem: &GuestMemoryMmap,
     ) -> result::Result<u32, ErrStatus> {
-        let cache_type = disk.cache_type();
-
         match self.request_type {
             RequestType::In => {
                 self.execute_seek(disk)?;
@@ -283,22 +281,15 @@ impl Request {
                     })
             }
             RequestType::Flush => {
-                match cache_type {
-                    CacheType::Writeback => {
-                        // flush() first to force any cached data out.
-                        disk.file_mut()
-                            .flush()
-                            .map_err(|e| ErrStatus::IoErr(IoErrStatus::Flush(e)))?;
-                        // Sync data out to physical media on host.
-                        disk.file_mut()
-                            .sync_all()
-                            .map_err(|e| ErrStatus::IoErr(IoErrStatus::SyncAll(e)))?;
-                        METRICS.block.flush_count.inc();
-                    }
-                    CacheType::Unsafe => {
-                        // This is a noop.
-                    }
-                };
+                // flush() first to force any cached data out.
+                disk.file_mut()
+                    .flush()
+                    .map_err(|e| ErrStatus::IoErr(IoErrStatus::Flush(e)))?;
+                // Sync data out to physical media on host.
+                disk.file_mut()
+                    .sync_all()
+                    .map_err(|e| ErrStatus::IoErr(IoErrStatus::SyncAll(e)))?;
+                METRICS.block.flush_count.inc();
                 Ok(0)
             }
             RequestType::GetDeviceID => {
