@@ -972,9 +972,17 @@ pub mod tests {
     #[cfg(target_arch = "x86_64")]
     fn default_portio_device_manager() -> PortIODeviceManager {
         PortIODeviceManager::new(
-            Arc::new(Mutex::new(Serial::new_sink(
-                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            ))),
+            Arc::new(Mutex::new(SerialWrapper {
+                serial: Serial::with_events(
+                    EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
+                    SerialEventsWrapper {
+                        metrics: METRICS.uart.clone(),
+                        buffer_ready_event_fd: None,
+                    },
+                    Box::new(std::io::sink()),
+                ),
+                input: None,
+            })),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         )
         .unwrap()

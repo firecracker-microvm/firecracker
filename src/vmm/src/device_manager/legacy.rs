@@ -144,9 +144,8 @@ mod tests {
                 .unwrap();
         let mut vm = crate::builder::setup_kvm_vm(&guest_mem, false).unwrap();
         crate::builder::setup_interrupt_controller(&mut vm).unwrap();
-        let serial = devices::legacy::Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
         let mut ldm = PortIODeviceManager::new(
-            Arc::new(Mutex::new(serial)),
+            create_serial(EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap())).unwrap(),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         )
         .unwrap();
