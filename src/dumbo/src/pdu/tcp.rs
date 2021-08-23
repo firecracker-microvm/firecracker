@@ -151,19 +151,6 @@ impl<'a, T: NetworkBytes> TcpSegment<'a, T> {
         self.bytes.ntohs_unchecked(WINDOW_SIZE_OFFSET)
     }
 
-    /// Returns the value of the `checksum` header field.
-    #[inline]
-    fn checksum(&self) -> u16 {
-        self.bytes.ntohs_unchecked(CHECKSUM_OFFSET)
-    }
-
-    /// Returns the value of the `urgent pointer` header field (only valid if the
-    /// `URG` flag is set).
-    #[inline]
-    fn urgent_pointer(&self) -> u16 {
-        self.bytes.ntohs_unchecked(URG_POINTER_OFFSET)
-    }
-
     /// Returns the TCP header options as an `[&u8]` slice.
     ///
     /// # Panics
@@ -374,71 +361,6 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     fn set_urgent_pointer(&mut self, value: u16) -> &mut Self {
         self.bytes.htons_unchecked(URG_POINTER_OFFSET, value);
         self
-    }
-
-    /// Returns a mutable slice containing the segment payload.
-    ///
-    /// # Panics
-    ///
-    /// This method may panic if the value of `header_len` is invalid.
-    #[inline]
-    fn payload_mut_unchecked(&mut self, header_len: usize) -> &mut [u8] {
-        self.bytes.split_at_mut(header_len).1
-    }
-
-    /// Returns a mutable slice containing the segment payload.
-    #[inline]
-    fn payload_mut(&mut self) -> &mut [u8] {
-        let header_len = self.header_len();
-        self.payload_mut_unchecked(header_len)
-    }
-
-    /// Writes a complete TCP segment.
-    ///
-    /// # Arguments
-    ///
-    /// * `buf` - Write the segment to this buffer.
-    /// * `src_port` - Source port.
-    /// * `dst_port` - Destination port.
-    /// * `seq_number` - Sequence number.
-    /// * `ack_number` - Acknowledgement number.
-    /// * `flags_after_ns` - TCP flags to set (except `NS`, which is always set to 0).
-    /// * `window_size` - Value to write in the `window size` field.
-    /// * `mss_option` - When a value is specified, use it to add a TCP MSS option to the header.
-    /// * `mss_remaining` - Represents an upper bound on the payload length (the number of bytes
-    ///    used up by things like IP options have to be subtracted from the MSS). There is some
-    ///    redundancy looking at this argument and the next one, so we might end up removing
-    ///    or changing something.
-    /// * `payload` - May contain a buffer which holds payload data and the maximum amount of bytes
-    ///    we should read from that buffer. When `None`, the TCP segment will carry no payload.
-    /// * `compute_checksum` - May contain the pair addresses from the enclosing IPv4 packet, which
-    ///    are required for TCP checksum computation. Skip the checksum altogether when `None`.
-    #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub(crate) fn write_segment<R: ByteBuffer + ?Sized>(
-        buf: T,
-        src_port: u16,
-        dst_port: u16,
-        seq_number: u32,
-        ack_number: u32,
-        flags_after_ns: Flags,
-        window_size: u16,
-        mss_option: Option<u16>,
-        mss_remaining: u16,
-        payload: Option<(&R, usize)>,
-        compute_checksum: Option<(Ipv4Addr, Ipv4Addr)>,
-    ) -> Result<Self, Error> {
-        Ok(Self::write_incomplete_segment(
-            buf,
-            seq_number,
-            ack_number,
-            flags_after_ns,
-            window_size,
-            mss_option,
-            mss_remaining,
-            payload,
-        )?
-        .finalize(src_port, dst_port, compute_checksum))
     }
 
     /// Writes an incomplete TCP segment, which is missing the `source port`, `destination port`,

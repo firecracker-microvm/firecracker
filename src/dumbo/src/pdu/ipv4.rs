@@ -136,13 +136,6 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
         header_len
     }
 
-    /// Returns the values of the `dscp` and `ecn` header fields.
-    #[inline]
-    fn dscp_and_ecn(&self) -> (u8, u8) {
-        let x = self.bytes[DSCP_AND_ECN_OFFSET];
-        (x >> 2, x & 0b11)
-    }
-
     /// Returns the value of the 'total length' header field.
     #[inline]
     fn total_len(&self) -> u16 {
@@ -155,29 +148,10 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
         self.bytes.ntohs_unchecked(IDENTIFICATION_OFFSET)
     }
 
-    /// Returns the values of the `flags` and `fragment offset` header fields.
-    #[inline]
-    fn flags_and_fragment_offset(&self) -> (u8, u16) {
-        let x = self.bytes.ntohs_unchecked(FLAGS_AND_FRAGMENTOFF_OFFSET);
-        ((x >> 13) as u8, x & 0x1fff)
-    }
-
-    /// Returns the value of the `ttl` header field.
-    #[inline]
-    fn ttl(&self) -> u8 {
-        self.bytes[TTL_OFFSET]
-    }
-
     /// Returns the value of the `protocol` header field.
     #[inline]
     pub fn protocol(&self) -> u8 {
         self.bytes[PROTOCOL_OFFSET]
-    }
-
-    /// Returns the value of the `header checksum` header field.
-    #[inline]
-    fn header_checksum(&self) -> u16 {
-        self.bytes.ntohs_unchecked(HEADER_CHECKSUM_OFFSET)
     }
 
     /// Returns the source IPv4 address of the packet.
@@ -415,23 +389,6 @@ impl<'a, T: NetworkBytesMut> Incomplete<IPv4Packet<'a, T>> {
             }
         }
         self.inner
-    }
-
-    /// Transforms `self` into an `IPv4Packet` based on the supplied options and payload length.
-    ///
-    /// # Panics
-    ///
-    /// This method may panic if the combination of `options_len` and `payload_len` is invalid,
-    /// or any of the individual values are invalid.
-    #[inline]
-    fn with_options_and_payload_len_unchecked(
-        self,
-        options_len: usize,
-        payload_len: usize,
-        compute_checksum: bool,
-    ) -> IPv4Packet<'a, T> {
-        let header_len = OPTIONS_OFFSET + options_len;
-        self.with_header_and_payload_len_unchecked(header_len, payload_len, compute_checksum)
     }
 
     /// Transforms `self` into an `IPv4Packet` based on the supplied payload length. May panic for

@@ -62,12 +62,6 @@ impl<'a, T: NetworkBytes> EthernetFrame<'a, T> {
         Ok(EthernetFrame::from_bytes_unchecked(bytes))
     }
 
-    /// Returns the destination MAC address.
-    #[inline]
-    fn dst_mac(&self) -> MacAddr {
-        MacAddr::from_bytes_unchecked(&self.bytes[DST_MAC_OFFSET..SRC_MAC_OFFSET])
-    }
-
     /// Returns the source MAC address.
     #[inline]
     pub fn src_mac(&self) -> MacAddr {
