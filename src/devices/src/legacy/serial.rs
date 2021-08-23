@@ -18,6 +18,7 @@ use vm_superio::serial::SerialEvents;
 use vm_superio::Serial;
 use vm_superio::Trigger;
 
+use event_manager::{EventOps, Events, MutEventSubscriber};
 use logger::{error, warn, IncMetric};
 use std::os::unix::io::RawFd;
 use utils::epoll::EventSet;
@@ -27,6 +28,33 @@ use utils::epoll::EventSet;
 // Run `rustc --explain E0225` for more details.
 /// Trait that composes the `std::io::Read` and `std::os::unix::io::AsRawFd` traits.
 pub trait ReadableFd: io::Read + AsRawFd {}
+
+#[derive(Debug)]
+pub enum RawIOError {
+    Serial(SerialError<io::Error>),
+}
+
+pub trait RawIOHandler {
+    /// Send raw input to this emulated device.
+    fn raw_input(&mut self, _data: &[u8]) -> result::Result<(), RawIOError>;
+}
+
+impl<EV: SerialEvents, W: Write> RawIOHandler for Serial<EventFdTrigger, EV, W> {
+    // This is not used for anything and is basically just a dummy implementation for `raw_input`.
+    fn raw_input(&mut self, data: &[u8]) -> result::Result<(), RawIOError> {
+        // Fail fast if the serial is serviced with more data than it can buffer.
+        if data.len() > self.fifo_capacity() {
+            return Err(RawIOError::Serial(SerialError::FullFifo));
+        }
+
+        // Before enqueuing bytes we first check if there is enough free space
+        // in the FIFO.
+        if self.fifo_capacity() >= data.len() {
+            self.enqueue_raw_bytes(data).map_err(RawIOError::Serial)?;
+        }
+        Ok(())
+    }
+}
 
 pub struct SerialEventsWrapper {
     pub metrics: Arc<SerialDeviceMetrics>,
@@ -135,3 +163,27 @@ impl<W: Write> SerialWrapper<EventFdTrigger, SerialEventsWrapper, W> {
 
 pub type SerialDevice =
     SerialWrapper<EventFdTrigger, SerialEventsWrapper, Box<dyn io::Write + Send>>;
+
+impl<W: Write + Send + 'static> BusDevice
+    for SerialWrapper<EventFdTrigger, SerialEventsWrapper, W>
+{
+    fn read(&mut self, offset: u64, data: &mut [u8]) {
+        if data.len() != 1 {
+            self.serial.events().metrics.missed_read_count.inc();
+            return;
+        }
+        data[0] = self.serial.read(offset as u8);
+    }
+
+    fn write(&mut self, offset: u64, data: &[u8]) {
+        if data.len() != 1 {
+            self.serial.events().metrics.missed_write_count.inc();
+            return;
+        }
+        if let Err(e) = self.serial.write(offset as u8, data[0]) {
+            // Counter incremented for any handle_write() error.
+            error!("Failed the write to serial: {:?}", e);
+            self.serial.events().metrics.error_count.inc();
+        }
+    }
+}
