@@ -72,7 +72,7 @@ use crate::warn;
 use lazy_static::lazy_static;
 use serde::{Serialize, Serializer};
 #[cfg(target_arch = "aarch64")]
-use vm_superio::rtc_pl031::RTCEvents;
+use vm_superio::rtc_pl031::RtcEvents;
 
 use super::extract_guard;
 
@@ -633,7 +633,7 @@ pub struct RTCDeviceMetrics {
 }
 
 #[cfg(target_arch = "aarch64")]
-impl RTCEvents for RTCDeviceMetrics {
+impl RtcEvents for RTCDeviceMetrics {
     fn invalid_read(&self) {
         self.missed_read_count.inc();
         self.error_count.inc();

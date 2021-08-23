@@ -49,7 +49,7 @@ use utils::terminal::Terminal;
 use utils::time::TimestampUs;
 use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 #[cfg(target_arch = "aarch64")]
-use vm_superio::RTC;
+use vm_superio::Rtc;
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -682,7 +682,7 @@ pub fn setup_serial_device(
 #[cfg(target_arch = "aarch64")]
 /// Sets up the RTC device.
 pub fn setup_rtc_device() -> Arc<Mutex<RTCDevice>> {
-    let rtc = RTC::with_events(METRICS.rtc.clone());
+    let rtc = Rtc::with_events(METRICS.rtc.clone());
     Arc::new(Mutex::new(rtc))
 }
 
