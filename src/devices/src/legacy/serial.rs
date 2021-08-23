@@ -273,3 +273,106 @@ impl<W: Write + Send + 'static> BusDevice
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+    use std::sync::{Arc, Mutex};
+    use utils::eventfd::EventFd;
+
+    #[derive(Clone)]
+    struct SharedBuffer {
+        buf: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl SharedBuffer {
+        fn new() -> SharedBuffer {
+            SharedBuffer {
+                buf: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+    }
+
+    impl io::Write for SharedBuffer {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.buf.lock().unwrap().write(buf)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.buf.lock().unwrap().flush()
+        }
+    }
+
+    #[test]
+    fn test_serial_bus_write() {
+        let serial_out = SharedBuffer::new();
+        let intr_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
+
+        let metrics = Arc::new(SerialDeviceMetrics::default());
+        let mut serial = SerialDevice {
+            serial: Serial::with_events(
+                intr_evt,
+                SerialEventsWrapper {
+                    metrics: metrics.clone(),
+                    buffer_ready_event_fd: None,
+                },
+                Box::new(serial_out.clone()),
+            ),
+            input: None,
+        };
+        let invalid_writes_before = serial.serial.events().metrics.missed_write_count.count();
+        <dyn BusDevice>::write(&mut serial, 0u64, &[b'x', b'y']);
+        let writes_before = metrics.write_count.count();
+
+        let invalid_writes_after = metrics.missed_write_count.count();
+        assert_eq!(invalid_writes_before + 1, invalid_writes_after);
+        <dyn BusDevice>::write(&mut serial, 0u64, &[b'a']);
+        <dyn BusDevice>::write(&mut serial, 0u64, &[b'b']);
+        <dyn BusDevice>::write(&mut serial, 0u64, &[b'c']);
+        assert_eq!(
+            serial_out.buf.lock().unwrap().as_slice(),
+            &[b'a', b'b', b'c']
+        );
+
+        let invalid_writes_after_2 = metrics.missed_write_count.count();
+        let writes_after = metrics.write_count.count();
+        // The `invalid_write_count` metric should be the same as before the one-byte writes.
+        assert_eq!(invalid_writes_after_2, invalid_writes_after);
+        assert_eq!(writes_after, writes_before + 3);
+    }
+
+    #[test]
+    fn test_serial_bus_read() {
+        let intr_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
+
+        let metrics = Arc::new(SerialDeviceMetrics::default());
+
+        let mut serial = SerialDevice {
+            serial: Serial::with_events(
+                intr_evt,
+                SerialEventsWrapper {
+                    metrics: metrics.clone(),
+                    buffer_ready_event_fd: None,
+                },
+                Box::new(std::io::sink()),
+            ),
+            input: None,
+        };
+        serial.serial.raw_input(&[b'a', b'b', b'c']).unwrap();
+
+        let invalid_reads_before = metrics.missed_read_count.count();
+        let mut v = [0x00; 2];
+        <dyn BusDevice>::read(&mut serial, 0u64, &mut v);
+
+        let invalid_reads_after = metrics.missed_read_count.count();
+        assert_eq!(invalid_reads_before + 1, invalid_reads_after);
+
+        let mut v = [0x00; 1];
+        <dyn BusDevice>::read(&mut serial, 0u64, &mut v);
+        assert_eq!(v[0], b'a');
+
+        let invalid_reads_after_2 = metrics.missed_read_count.count();
+        // The `invalid_read_count` metric should be the same as before the one-byte reads.
+        assert_eq!(invalid_reads_after_2, invalid_reads_after);
+    }
+}
