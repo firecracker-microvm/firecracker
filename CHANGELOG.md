@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Updated version of yanked third party dependency.
+
 ## [0.24.5]
 
 ### Fixed
