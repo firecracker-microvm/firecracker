@@ -8,6 +8,7 @@ panic = "abort"
 [profile.release]
 panic = "abort"
 lto = true
+codegen-units=1
 
 [patch.crates-io]
 kvm-bindings = { git = "https://github.com/firecracker-microvm/kvm-bindings", tag = "v0.4.0-1", features = ["fam-wrappers"] }
