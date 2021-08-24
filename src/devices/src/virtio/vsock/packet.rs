@@ -176,10 +176,7 @@ impl VsockPacket {
         }
 
         // Reject weirdly-sized packets.
-        //
-        if pkt.len() > defs::MAX_PKT_BUF_SIZE as u32 {
-            return Err(VsockError::InvalidPktLen(pkt.len()));
-        }
+        pkt.check_len()?;
 
         pkt.init_buf(hdr_desc, false)?;
 
@@ -222,8 +219,20 @@ impl VsockPacket {
 
     /// Writes the local copy of the packet header to the guest memory.
     pub fn commit_hdr(&self, mem: &GuestMemoryMmap) -> Result<()> {
+        // Reject weirdly-sized packets.
+        self.check_len()?;
+
         mem.write_obj(self.hdr, self.hdr_addr)
             .map_err(VsockError::GuestMemoryMmap)
+    }
+
+    /// Verifies packet length against `MAX_PKT_BUF_SIZE` limit.
+    pub fn check_len(&self) -> Result<()> {
+        if self.len() > defs::MAX_PKT_BUF_SIZE as u32 {
+            return Err(VsockError::InvalidPktLen(self.len()));
+        }
+
+        Ok(())
     }
 
     pub fn buf_size(&self) -> usize {

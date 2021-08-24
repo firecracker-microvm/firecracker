@@ -12,6 +12,7 @@ use std::process::{Command, Stdio};
 use crate::cgroup;
 use crate::cgroup::Cgroup;
 use crate::chroot::chroot;
+use crate::resource_limits::{ResourceLimits, FSIZE_ARG, NO_FILE_ARG};
 use crate::{Error, Result};
 use std::io;
 use std::io::Write;
@@ -72,6 +73,7 @@ pub struct Env {
     jailer_cpu_time_us: u64,
     extra_args: Vec<String>,
     cgroups: Vec<Cgroup>,
+    resource_limits: ResourceLimits,
 }
 
 impl Env {
@@ -167,6 +169,11 @@ impl Env {
             }
         }
 
+        let mut resource_limits = ResourceLimits::default();
+        if let Some(args) = arguments.multiple_values("resource-limit") {
+            Env::parse_resource_limits(&mut resource_limits, args)?;
+        }
+
         Ok(Env {
             id: id.to_owned(),
             chroot_dir,
@@ -181,6 +188,7 @@ impl Env {
             jailer_cpu_time_us: 0,
             extra_args: arguments.extra_args(),
             cgroups,
+            resource_limits,
         })
     }
 
@@ -194,6 +202,24 @@ impl Env {
 
     pub fn uid(&self) -> u32 {
         self.uid
+    }
+
+    fn parse_resource_limits(resource_limits: &mut ResourceLimits, args: &[String]) -> Result<()> {
+        for arg in args {
+            let (name, value) = arg
+                .split_once('=')
+                .ok_or_else(|| Error::ResLimitFormat(arg.to_string()))?;
+
+            let limit_value = value
+                .parse::<u64>()
+                .map_err(|err| Error::ResLimitValue(value.to_string(), err.to_string()))?;
+            match name {
+                FSIZE_ARG => resource_limits.set_file_size(limit_value),
+                NO_FILE_ARG => resource_limits.set_no_file(limit_value),
+                _ => return Err(Error::ResLimitArgument(name.to_string())),
+            }
+        }
+        Ok(())
     }
 
     fn exec_into_new_pid_ns(&mut self, chroot_exec_file: PathBuf) -> Result<()> {
@@ -451,6 +477,9 @@ impl Env {
             Env::join_netns(path)?;
         }
 
+        // Set limits on resources.
+        self.resource_limits.install()?;
+
         // We have to setup cgroups at this point, because we can't do it anymore after chrooting.
         // cgroups are iterated two times as some cgroups may require others (e.g cpuset requires
         // cpuset.mems and cpuset.cpus) to be set before attaching any pid.
@@ -554,6 +583,7 @@ mod tests {
         pub daemonize: bool,
         pub new_pid_ns: bool,
         pub cgroups: Vec<&'a str>,
+        pub resource_limits: Vec<&'a str>,
     }
 
     impl ArgVals<'_> {
@@ -569,6 +599,7 @@ mod tests {
                 daemonize: true,
                 new_pid_ns: true,
                 cgroups: vec!["cpu.shares=2", "cpuset.mems=0"],
+                resource_limits: vec!["no-file=1024", "fsize=1048575"],
             }
         }
     }
@@ -597,6 +628,12 @@ mod tests {
         for cg in &arg_vals.cgroups {
             arg_vec.push("--cgroup".to_string());
             arg_vec.push((*cg).to_string());
+        }
+
+        // Append limits arguments
+        for limit in &arg_vals.resource_limits {
+            arg_vec.push("--resource-limit".to_string());
+            arg_vec.push((*limit).to_string());
         }
 
         if let Some(s) = arg_vals.netns {
@@ -692,6 +729,16 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        let invalid_res_limit_arg_vals = ArgVals {
+            resource_limits: vec!["zzz"],
+            ..base_invalid_arg_vals.clone()
+        };
+
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
+        args.parse(&make_args(&invalid_res_limit_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
         let invalid_id_arg_vals = ArgVals {
@@ -876,6 +923,7 @@ mod tests {
             daemonize: false,
             new_pid_ns: false,
             cgroups: Vec::new(),
+            resource_limits: Vec::new(),
         };
         fs::write(some_file_path, "some_content").unwrap();
         args.parse(&make_args(&some_arg_vals)).unwrap();
@@ -996,6 +1044,71 @@ mod tests {
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_ok());
+    }
+
+    #[test]
+    fn test_parse_resource_limits() {
+        let mut resource_limits = ResourceLimits::default();
+
+        // Cases that should fail
+
+        // Check invalid formats
+        let invalid_formats = ["", "foo"];
+        for format in invalid_formats.iter() {
+            let arg = vec![format.to_string()];
+            assert_eq!(
+                format!(
+                    "{:?}",
+                    Env::parse_resource_limits(&mut resource_limits, &*arg)
+                        .err()
+                        .unwrap()
+                ),
+                format!("{:?}", Error::ResLimitFormat(format.to_string()))
+            );
+        }
+
+        // Check invalid resource arguments
+        let invalid_resources = ["foo", "", " "];
+        for res in invalid_resources.iter() {
+            let arg = format!("{}=2", res);
+            assert_eq!(
+                format!(
+                    "{:?}",
+                    Env::parse_resource_limits(&mut resource_limits, &*vec![arg])
+                        .err()
+                        .unwrap()
+                ),
+                format!("{:?}", Error::ResLimitArgument(res.to_string()))
+            );
+        }
+
+        // Check invalid limit values
+        let invalid_values = ["foo", "2.3", "2-3", " "];
+        for val in invalid_values.iter() {
+            let arg = format!("fsize={}", val);
+            assert_eq!(
+                format!(
+                    "{:?}",
+                    Env::parse_resource_limits(&mut resource_limits, &*vec![arg])
+                        .err()
+                        .unwrap()
+                ),
+                format!(
+                    "{:?}",
+                    Error::ResLimitValue(
+                        val.to_string(),
+                        "invalid digit found in string".to_string()
+                    )
+                )
+            );
+        }
+
+        // Check valid cases
+        let resources = [FSIZE_ARG, NO_FILE_ARG];
+        for resource in resources.iter() {
+            let arg = vec![resource.to_string() + &"=4098".to_string()];
+            Env::parse_resource_limits(&mut resource_limits, &*arg).unwrap();
+        }
     }
 
     #[test]

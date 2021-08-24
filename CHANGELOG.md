@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.25.0]
 
 ### Added
 
@@ -24,6 +24,9 @@
   connections on the guest.
 - Added `GET` request on `/vm/config` that provides full microVM configuration
   as a JSON HTTP response.
+- Added `--resource-limit` flag to jailer to limit resources such as: number of
+  file descriptors allowed at a time (with a default value of 2048) and maximum
+  size of files created by the process.
 
 ### Changed
 

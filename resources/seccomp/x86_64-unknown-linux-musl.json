@@ -521,6 +521,19 @@
             },
             {
                 "syscall": "mmap",
+                "comment": "Used for large buffers sent to api_server",
+                "args": [
+                    {
+                        "index": 3,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 34,
+                        "comment": " libc::MAP_ANONYMOUS | libc::MAP_PRIVATE"
+                    }
+                ]
+            },
+            {
+                "syscall": "mmap",
                 "comment": "Used for reading the timezone in LocalTime::now()",
                 "args": [
                     {
