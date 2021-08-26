@@ -1,7 +1,9 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::virtio::{Block, CacheType, IrqType, Queue};
+#[cfg(test)]
+use crate::virtio::IrqType;
+use crate::virtio::{Block, CacheType, Queue};
 use rate_limiter::RateLimiter;
 use utils::tempfile::TempFile;
 
@@ -33,15 +35,6 @@ pub fn default_block_with_path(path: String) -> Block {
     .unwrap()
 }
 
-pub fn invoke_handler_for_queue_event(b: &mut Block) {
-    // Trigger the queue event.
-    b.queue_evts[0].write(1).unwrap();
-    // Handle event.
-    b.process_queue_event();
-    // Validate the queue operation finished successfully.
-    assert!(b.irq_trigger.has_pending_irq(IrqType::Vring));
-}
-
 pub fn set_queue(blk: &mut Block, idx: usize, q: Queue) {
     blk.queues[idx] = q;
 }
@@ -52,4 +45,14 @@ pub fn set_rate_limiter(blk: &mut Block, rl: RateLimiter) {
 
 pub fn rate_limiter(blk: &mut Block) -> &RateLimiter {
     &blk.rate_limiter
+}
+
+#[cfg(test)]
+pub fn invoke_handler_for_queue_event(b: &mut Block) {
+    // Trigger the queue event.
+    b.queue_evts[0].write(1).unwrap();
+    // Handle event.
+    b.process_queue_event();
+    // Validate the queue operation finished successfully.
+    assert!(b.irq_trigger.has_pending_irq(IrqType::Vring));
 }
