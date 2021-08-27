@@ -280,7 +280,7 @@ impl Block {
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
         while let Some(head) = queue.pop(mem) {
-            let len = match Request::parse(&head, mem) {
+            let len = match Request::parse(&head, mem, self.disk.nsectors()) {
                 Ok(request) => {
                     // If limiter.consume() fails it means there is no more TokenType::Ops
                     // budget and rate limiting is in effect.
@@ -668,7 +668,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_request_execute_failures() {
+    fn test_request_parse_failures() {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -677,7 +677,6 @@ pub(crate) mod tests {
         initialize_virtqueue(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
-        let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
         {
             // First descriptor no longer writable.
@@ -693,11 +692,7 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(vq.used.ring[0].get().len, 0);
         }
 
         {
@@ -717,11 +712,7 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(vq.used.ring[0].get().len, 0);
         }
     }
 
@@ -817,11 +808,7 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(vq.used.ring[0].get().len, 0);
 
             // Check that the data wasn't written to the file
             let mut buf = [0u8; 512];
@@ -871,13 +858,8 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-
-            // Only status byte length.
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            // The descriptor should have been discarded.
+            assert_eq!(vq.used.ring[0].get().len, 0);
 
             // Check that no data was read.
             let mut buf = [0u8; 512];
@@ -937,13 +919,8 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-
-            // Only status byte length.
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            // The descriptor should have been discarded.
+            assert_eq!(vq.used.ring[0].get().len, 0);
 
             // Check that no data was read.
             let mut buf = [0u8; 512];
@@ -1114,7 +1091,7 @@ pub(crate) mod tests {
             assert_eq!(received_device_id, expected_device_id);
         }
 
-        // Test that a device ID request will fail, if it fails to provide enough buffer space.
+        // Test that a device ID request will be discarded, if it fails to provide enough buffer space.
         {
             vq.used.idx.set(0);
             set_queue(&mut block, 0, vq.create_queue());
@@ -1126,11 +1103,7 @@ pub(crate) mod tests {
             invoke_handler_for_queue_event(&mut block);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(vq.used.ring[0].get().len, 0);
         }
     }
 

@@ -153,6 +153,7 @@ impl Request {
     pub fn parse(
         avail_desc: &DescriptorChain,
         mem: &GuestMemoryMmap,
+        num_disk_sectors: u64,
     ) -> result::Result<Request, Error> {
         // The head contains the request type which MUST be readable.
         if avail_desc.is_write_only() {
@@ -200,6 +201,29 @@ impl Request {
             req.data_len = data_desc.len;
         }
 
+        // check request validity
+        match req.request_type {
+            RequestType::In | RequestType::Out => {
+                // Check that the data length is a multiple of 512 as specified in the virtio standard.
+                if u64::from(req.data_len) % SECTOR_SIZE != 0 {
+                    return Err(Error::InvalidDataLength);
+                }
+                let top_sector = req
+                    .sector
+                    .checked_add(u64::from(req.data_len) >> SECTOR_SHIFT)
+                    .ok_or(Error::InvalidOffset)?;
+                if top_sector > num_disk_sectors {
+                    return Err(Error::InvalidOffset);
+                }
+            }
+            RequestType::GetDeviceID => {
+                if req.data_len < VIRTIO_BLK_ID_BYTES {
+                    return Err(Error::InvalidDataLength);
+                }
+            }
+            _ => {}
+        }
+
         // The status MUST always be writable.
         if !status_desc.is_write_only() {
             return Err(Error::UnexpectedReadOnlyDescriptor);
@@ -215,30 +239,10 @@ impl Request {
     }
 
     fn execute_seek(&self, disk: &mut DiskProperties) -> result::Result<(), ErrStatus> {
-        // TODO: perform this logic at request parsing level in the future.
-        // Check that the data length is a multiple of 512 as specified in the virtio standard.
-        if u64::from(self.data_len) % SECTOR_SIZE != 0 {
-            return Err(ErrStatus::IoErr(IoErrStatus::BadRequest(
-                Error::InvalidDataLength,
-            )));
-        }
-        let top_sector = self
-            .sector
-            .checked_add(u64::from(self.data_len) >> SECTOR_SHIFT)
-            .ok_or(ErrStatus::IoErr(IoErrStatus::BadRequest(
-                Error::InvalidOffset,
-            )))?;
-        if top_sector > disk.nsectors() {
-            return Err(ErrStatus::IoErr(IoErrStatus::BadRequest(
-                Error::InvalidOffset,
-            )));
-        }
-
         disk.file_mut()
             .seek(SeekFrom::Start(self.sector << SECTOR_SHIFT))
-            .map_err(|e| ErrStatus::IoErr(IoErrStatus::Seek(e)))?;
-
-        Ok(())
+            .map(|_| ())
+            .map_err(|e| ErrStatus::IoErr(IoErrStatus::Seek(e)))
     }
 
     pub(crate) fn execute(
@@ -292,16 +296,10 @@ impl Request {
                 METRICS.block.flush_count.inc();
                 Ok(0)
             }
-            RequestType::GetDeviceID => {
-                if self.data_len < VIRTIO_BLK_ID_BYTES {
-                    return Err(ErrStatus::IoErr(IoErrStatus::BadRequest(
-                        Error::InvalidDataLength,
-                    )));
-                }
-                mem.write_slice(disk.image_id(), self.data_addr)
-                    .map(|_| VIRTIO_BLK_ID_BYTES)
-                    .map_err(|e| ErrStatus::IoErr(IoErrStatus::Write(e)))
-            }
+            RequestType::GetDeviceID => mem
+                .write_slice(disk.image_id(), self.data_addr)
+                .map(|_| VIRTIO_BLK_ID_BYTES)
+                .map_err(|e| ErrStatus::IoErr(IoErrStatus::Write(e))),
             RequestType::Unsupported(op) => Err(ErrStatus::Unsupported(op)),
         }
     }
@@ -314,6 +312,8 @@ mod tests {
     use crate::virtio::queue::tests::*;
     use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
     use vm_memory::{Address, GuestAddress, GuestMemory};
+
+    const NUM_DISK_SECTORS: u64 = 1024;
 
     #[test]
     fn test_read_request_header() {
@@ -463,6 +463,14 @@ mod tests {
             unsafe { &*host_addr }
         }
 
+        fn mut_hdr(&mut self) -> &mut RequestHeader {
+            let host_addr = self
+                .mem
+                .get_host_address(GuestAddress(self.mut_hdr_desc().addr.get()))
+                .unwrap() as *mut _;
+            unsafe { &mut *host_addr }
+        }
+
         fn set_data_desc(&mut self, addr: u64, len: u32, flags: u16) {
             self.vq.dtable[Self::DATA_DESC].set(addr, len, flags, Self::STATUS_DESC as u16);
         }
@@ -482,14 +490,15 @@ mod tests {
         fn check_parse_err(&self, _e: Error) {
             let mut q = self.vq.create_queue();
             assert!(matches!(
-                Request::parse(&q.pop(self.mem).unwrap(), self.mem),
+                Request::parse(&q.pop(self.mem).unwrap(), self.mem, NUM_DISK_SECTORS),
                 Err(_e)
             ));
         }
 
         fn check_parse(&self, check_data: bool) {
             let mut q = self.vq.create_queue();
-            let request = Request::parse(&q.pop(self.mem).unwrap(), self.mem).unwrap();
+            let request =
+                Request::parse(&q.pop(self.mem).unwrap(), self.mem, NUM_DISK_SECTORS).unwrap();
             assert_eq!(
                 request.request_type,
                 RequestType::from(self.hdr().request_type)
@@ -564,14 +573,26 @@ mod tests {
 
         let request_header = RequestHeader::new(VIRTIO_BLK_T_IN, 99);
         queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
+
         // Read only data descriptor for IN.
         queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT);
         queue.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
-        // Fix data descriptor.
+
+        // data_len is not multiple of 512 for IN.
         queue
             .mut_data_desc()
             .flags
             .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+        queue.mut_data_desc().len.set(513);
+        queue.check_parse_err(Error::InvalidDataLength);
+
+        // sector is to big.
+        queue.mut_data_desc().len.set(512);
+        queue.mut_hdr().sector = NUM_DISK_SECTORS;
+        queue.check_parse_err(Error::InvalidOffset);
+
+        // Fix data descriptor.
+        queue.mut_hdr().sector = NUM_DISK_SECTORS - 1;
         queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
         queue.check_parse(true);
     }
@@ -583,11 +604,23 @@ mod tests {
 
         let request_header = RequestHeader::new(VIRTIO_BLK_T_OUT, 100);
         queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
+
         // Write only data descriptor for OUT.
         queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
         queue.check_parse_err(Error::UnexpectedWriteOnlyDescriptor);
-        // Fix data descriptor.
+
+        // data_len is not multiple of 512 for IN.
         queue.mut_data_desc().flags.set(VIRTQ_DESC_F_NEXT);
+        queue.mut_data_desc().len.set(1000);
+        queue.check_parse_err(Error::InvalidDataLength);
+
+        // sector is to big.
+        queue.mut_data_desc().len.set(1024);
+        queue.mut_hdr().sector = NUM_DISK_SECTORS - 1;
+        queue.check_parse_err(Error::InvalidOffset);
+
+        // Fix data descriptor.
+        queue.mut_hdr().sector = NUM_DISK_SECTORS - 2;
         queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
         queue.check_parse(true);
     }
@@ -619,14 +652,20 @@ mod tests {
 
         let request_header = RequestHeader::new(VIRTIO_BLK_T_GET_ID, 15);
         queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
+
         // Read only data descriptor for GetDeviceId.
         queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT);
         queue.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
-        // Fix data descriptor.
+
+        // data_len is < VIRTIO_BLK_ID_BYTES for GetDeviceID.
         queue
             .mut_data_desc()
             .flags
             .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+        queue.mut_data_desc().len.set(VIRTIO_BLK_ID_BYTES - 1);
+        queue.check_parse_err(Error::InvalidDataLength);
+
+        queue.mut_data_desc().len.set(VIRTIO_BLK_ID_BYTES);
         queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
         queue.check_parse(true);
     }
@@ -779,15 +818,19 @@ mod tests {
         let mut rq = RequestVirtQueue::new(GuestAddress(base_addr), &mem);
         let q = rq.vq.create_queue();
 
+        // Make sure that data_len is a multiple of 512
+        // and that 512 <= data_len <= (4096 + 512).
+        let valid_data_len = ((data_len & 4096) | (SECTOR_SIZE as u32 - 1)) + 1;
+        let sectors_len = u64::from(valid_data_len) / SECTOR_SIZE;
         // Craft a random request with the randomized parameters.
-        let request_header = RequestHeader::new(virtio_request_id, sector);
         let mut request = Request {
             request_type,
-            data_len: data_len & 0xFFF,
+            data_len: valid_data_len,
             status_addr,
-            sector,
+            sector: sector & (NUM_DISK_SECTORS - sectors_len),
             data_addr,
         };
+        let request_header = RequestHeader::new(virtio_request_id, request.sector);
 
         rq.set_hdr_desc(
             req_type_addr.0,
@@ -840,19 +883,53 @@ mod tests {
         }
 
         // Corrupt data desc accessibility
-        match request.request_type {
-            // Readonly buffer is writable.
-            RequestType::Out => {
-                data_desc_flags.set(data_desc_flags.get() | VIRTQ_DESC_F_WRITE);
-                return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
-            }
-            // Writeable buffer is readonly.
-            RequestType::In | RequestType::GetDeviceID => {
-                data_desc_flags.set(data_desc_flags.get() & !VIRTQ_DESC_F_WRITE);
-                return (Err(Error::UnexpectedReadOnlyDescriptor), mem, q);
-            }
-            _ => {}
-        };
+        if *coins.next().unwrap() {
+            match request.request_type {
+                // Readonly buffer is writable.
+                RequestType::Out => {
+                    data_desc_flags.set(data_desc_flags.get() | VIRTQ_DESC_F_WRITE);
+                    return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
+                }
+                // Writeable buffer is readonly.
+                RequestType::In | RequestType::GetDeviceID => {
+                    data_desc_flags.set(data_desc_flags.get() & !VIRTQ_DESC_F_WRITE);
+                    return (Err(Error::UnexpectedReadOnlyDescriptor), mem, q);
+                }
+                _ => {}
+            };
+        }
+
+        // Flip coin - Corrupt data_len
+        if *coins.next().unwrap() {
+            match request.request_type {
+                RequestType::In | RequestType::Out => {
+                    // data_len is not a multiple of 512
+                    rq.mut_data_desc()
+                        .len
+                        .set(valid_data_len + (data_len % 511) + 1);
+                    return (Err(Error::InvalidDataLength), mem, q);
+                }
+                RequestType::GetDeviceID => {
+                    // data_len is < VIRTIO_BLK_ID_BYTES
+                    rq.mut_data_desc()
+                        .len
+                        .set(data_len & (VIRTIO_BLK_ID_BYTES - 1));
+                    return (Err(Error::InvalidDataLength), mem, q);
+                }
+                _ => {}
+            };
+        }
+
+        // Flip coin - Corrupt sector
+        if *coins.next().unwrap() {
+            match request.request_type {
+                RequestType::In | RequestType::Out => {
+                    rq.mut_hdr().sector = (sector | NUM_DISK_SECTORS) + 1;
+                    return (Err(Error::InvalidOffset), mem, q);
+                }
+                _ => {}
+            };
+        }
 
         // Simulate no status descriptor.
         rq.mut_hdr_desc().flags.set(0);
@@ -875,7 +952,7 @@ mod tests {
     fn parse_random_requests() {
         let cfg = ProptestConfig::with_cases(1000);
         proptest!(cfg, |(mut request in random_request_parse())| {
-            let result = Request::parse(&request.2.pop(&request.1).unwrap(), &request.1);
+            let result = Request::parse(&request.2.pop(&request.1).unwrap(), &request.1, NUM_DISK_SECTORS);
             match result {
                 Ok(r) => prop_assert!(r == request.0.unwrap()),
                 Err(e) => {
@@ -884,6 +961,8 @@ mod tests {
                     match request.0.unwrap_err() {
                         Error::DescriptorChainTooShort => assert_err!(e, Error::DescriptorChainTooShort),
                         Error::DescriptorLengthTooSmall => assert_err!(e, Error::DescriptorLengthTooSmall),
+                        Error::InvalidDataLength => assert_err!(e, Error::InvalidDataLength),
+                        Error::InvalidOffset => assert_err!(e, Error::InvalidOffset),
                         Error::UnexpectedWriteOnlyDescriptor => assert_err!(e, Error::UnexpectedWriteOnlyDescriptor),
                         Error::UnexpectedReadOnlyDescriptor => assert_err!(e, Error::UnexpectedReadOnlyDescriptor),
                         _ => unreachable!()
