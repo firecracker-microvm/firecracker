@@ -55,7 +55,7 @@ pub(crate) struct DiskProperties {
     file_path: String,
     file: File,
     nsectors: u64,
-    image_id: Vec<u8>,
+    image_id: [u8; VIRTIO_BLK_ID_BYTES as usize],
 }
 
 impl DiskProperties {
@@ -117,18 +117,18 @@ impl DiskProperties {
         Ok(device_id)
     }
 
-    fn build_disk_image_id(disk_file: &File) -> Vec<u8> {
-        let mut default_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
+    fn build_disk_image_id(disk_file: &File) -> [u8; VIRTIO_BLK_ID_BYTES as usize] {
+        let mut default_id = [0; VIRTIO_BLK_ID_BYTES as usize];
         match Self::build_device_id(disk_file) {
             Err(_) => {
                 warn!("Could not generate device id. We'll use a default.");
             }
-            Ok(m) => {
+            Ok(disk_id_string) => {
                 // The kernel only knows to read a maximum of VIRTIO_BLK_ID_BYTES.
                 // This will also zero out any leftover bytes.
-                let disk_id = m.as_bytes();
+                let disk_id = disk_id_string.as_bytes();
                 let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
-                default_id[..bytes_to_copy].clone_from_slice(&disk_id[..bytes_to_copy])
+                default_id[..bytes_to_copy].copy_from_slice(&disk_id[..bytes_to_copy]);
             }
         }
         default_id
@@ -1308,6 +1308,6 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(block.disk.file.metadata().unwrap().st_ino(), mdata.st_ino());
-        assert_eq!(block.disk.image_id, id);
+        assert_eq!(block.disk.image_id, id.as_slice());
     }
 }
