@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![doc(hidden)]
+
 #[cfg(test)]
 use crate::virtio::IrqType;
 use crate::virtio::{Block, CacheType, Queue};
