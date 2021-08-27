@@ -656,22 +656,26 @@ mod tests {
         // We will check that Request::parse() arrives at the same result after
         // parsing the descriptor chain. Input properties are validated and commented below.
         (
-            any::<u64>(), // random data buffer sparsity factor
-            any::<u32>(), // data_len
-            any::<u64>(), // sector
-            any::<RequestType>(),
+            any::<u64>(),         // random data buffer sparsity factor
+            any::<u32>(),         // data_len
+            any::<u64>(),         // sector
+            any::<RequestType>(), // request type
+            any::<[bool; 10]>(),  // coin
         )
-            .prop_map(|(sparsity, data_len, sector, request_type)| {
+            .prop_map(|(sparsity, data_len, sector, request_type, coins)| {
                 (
                     sparsity,
                     data_len,
                     sector,
                     request_type,
                     request_type.into(),
+                    coins,
                 )
             })
             .prop_map(
-                |(sparsity, data_len, sector, request_type, virtio_request_id)| {
+                |(sparsity, data_len, sector, request_type, virtio_request_id, coins)| {
+                    let coins = &mut coins.iter();
+
                     // Randomize descriptor addresses. Assumed page size as max buffer len.
                     let base_addr = sparsity & 0x0000_FFFF_FFFF_F000; // 48 bit base, page aligned.
                     let max_desc_len = 0x1000;
@@ -753,62 +757,56 @@ mod tests {
                         0,
                     );
 
-                    // Flip a coin - bit 0 indicates if we are generating a valid request or
-                    // an error.
-                    if data_len & 0x1 == 0 {
-                        // This is the initial correct value.
-                        let mut data_desc_flags = vq.dtable[DATA_DESCRIPTOR].flags.get();
-
-                        // Flip coin bit 1 - corrupt the status desc len.
-                        if data_len & 0x2 > 0 {
-                            vq.dtable[STATUS_DESCRIPTOR].len.set(0);
-                            return (Err(Error::DescriptorLengthTooSmall), mem, q);
-                        }
-
-                        // Flip coin bit 3 - corrupt data desc next flag.
-                        // Exception: flush requests do not have data desc.
-                        if data_len & 0x4 > 0 && request.request_type != RequestType::Flush {
-                            data_desc_flags &= !VIRTQ_DESC_F_NEXT;
-                            vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
-                            return (Err(Error::DescriptorChainTooShort), mem, q);
-                        }
-
-                        // Flip another coin bit 4 - req type desc is write only.
-                        if data_len & 0x8 > 0 {
-                            vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.set(
-                                vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.get() | VIRTQ_DESC_F_WRITE,
-                            );
-                            return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
-                        }
-
-                        return match request.request_type {
-                            // Readonly buffer is writable.
-                            RequestType::Out => {
-                                data_desc_flags |= VIRTQ_DESC_F_WRITE;
-                                vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
-                                (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q)
-                            }
-                            // Writeable buffer is readonly.
-                            RequestType::In => {
-                                data_desc_flags &= !VIRTQ_DESC_F_WRITE;
-                                vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
-                                (Err(Error::UnexpectedReadOnlyDescriptor), mem, q)
-                            }
-                            // Writeable buffer is readonly.
-                            RequestType::GetDeviceID => {
-                                data_desc_flags &= !VIRTQ_DESC_F_WRITE;
-                                vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
-                                (Err(Error::UnexpectedReadOnlyDescriptor), mem, q)
-                            }
-                            // Simulate no status descriptor.
-                            _ => {
-                                vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.set(0);
-                                (Err(Error::DescriptorChainTooShort), mem, q)
-                            }
-                        };
+                    // Flip a coin - should we generate a valid request or an error.
+                    if *coins.next().unwrap() {
+                        return (Ok(request), mem, q);
                     }
 
-                    (Ok(request), mem, q)
+                    // This is the initial correct value.
+                    let mut data_desc_flags = vq.dtable[DATA_DESCRIPTOR].flags.get();
+
+                    // Flip coin - corrupt the status desc len.
+                    if *coins.next().unwrap() {
+                        vq.dtable[STATUS_DESCRIPTOR].len.set(0);
+                        return (Err(Error::DescriptorLengthTooSmall), mem, q);
+                    }
+
+                    // Flip coin - corrupt data desc next flag.
+                    // Exception: flush requests do not have data desc.
+                    if *coins.next().unwrap() && request.request_type != RequestType::Flush {
+                        data_desc_flags &= !VIRTQ_DESC_F_NEXT;
+                        vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
+                        return (Err(Error::DescriptorChainTooShort), mem, q);
+                    }
+
+                    // Flip coin - req type desc is write only.
+                    if *coins.next().unwrap() {
+                        vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.set(
+                            vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.get() | VIRTQ_DESC_F_WRITE,
+                        );
+                        return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
+                    }
+
+                    // Corrupt data desc accessibility
+                    match request.request_type {
+                        // Readonly buffer is writable.
+                        RequestType::Out => {
+                            data_desc_flags |= VIRTQ_DESC_F_WRITE;
+                            vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
+                            return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
+                        }
+                        // Writeable buffer is readonly.
+                        RequestType::In | RequestType::GetDeviceID => {
+                            data_desc_flags &= !VIRTQ_DESC_F_WRITE;
+                            vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
+                            return (Err(Error::UnexpectedReadOnlyDescriptor), mem, q);
+                        }
+                        _ => {}
+                    };
+
+                    // Simulate no status descriptor.
+                    vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.set(0);
+                    (Err(Error::DescriptorChainTooShort), mem, q)
                 },
             )
     }
