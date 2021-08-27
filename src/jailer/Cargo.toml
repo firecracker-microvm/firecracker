@@ -10,6 +10,6 @@ license = "Apache-2.0"
 
 [dependencies]
 libc = ">=0.2.39"
-regex = ">=1.0.0"
+regex = { version = ">=1.0.0", default-features = false, features = ["std"] }
 
 utils = { path = "../utils" }
