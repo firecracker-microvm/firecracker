@@ -293,13 +293,12 @@ impl Request {
                 Ok(0)
             }
             RequestType::GetDeviceID => {
-                let disk_id = disk.image_id();
-                if (self.data_len as usize) < disk_id.len() {
+                if self.data_len < VIRTIO_BLK_ID_BYTES {
                     return Err(ErrStatus::IoErr(IoErrStatus::BadRequest(
-                        Error::InvalidOffset,
+                        Error::InvalidDataLength,
                     )));
                 }
-                mem.write_slice(disk_id, self.data_addr)
+                mem.write_slice(disk.image_id(), self.data_addr)
                     .map(|_| VIRTIO_BLK_ID_BYTES)
                     .map_err(|e| ErrStatus::IoErr(IoErrStatus::Write(e)))
             }
