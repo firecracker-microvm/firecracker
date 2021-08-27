@@ -3,6 +3,7 @@ name = "devices"
 version = "0.1.0"
 authors = ["The Chromium OS Authors"]
 edition = "2018"
+license = "Apache-2.0"
 
 [dependencies]
 event-manager = ">=0.2.1"
@@ -24,4 +25,4 @@ virtio_gen = { path = "../virtio_gen" }
 vm-memory = { path = "../vm-memory" }
 
 [dev-dependencies]
-proptest = ">=1.0.0"
+proptest = { version = ">=1.0.0", default-features = false, features = ["std"] }

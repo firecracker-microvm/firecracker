@@ -303,7 +303,7 @@ mod tests {
         sorted_v
     }
 
-    // The below prop tests will validate the following output propreties:
+    // The below prop tests will validate the following output properties:
     // - vec elements are sorted by first tuple value
     // - no pfn duplicates are present
     // - no pfn is lost

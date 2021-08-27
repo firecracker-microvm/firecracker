@@ -3,12 +3,13 @@ name = "api_server"
 version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
+license = "Apache-2.0"
 
 [dependencies]
-serde = ">=1.0.27"
+libc = ">=0.2.39"
+serde = { version = ">=1.0.27", features = ["derive"] }
 serde_derive = ">=1.0.27"
 serde_json = ">=1.0.9"
-libc = ">=0.2.39"
 
 logger = { path = "../logger" }
 micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "0a58eb1" }
