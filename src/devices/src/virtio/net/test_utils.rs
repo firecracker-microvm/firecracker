@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![doc(hidden)]
+
 use std::fs::File;
 use std::os::raw::c_ulong;
 use std::os::unix::ffi::OsStrExt;
