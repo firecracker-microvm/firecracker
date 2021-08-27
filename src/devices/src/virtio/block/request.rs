@@ -312,7 +312,7 @@ mod tests {
     use super::*;
 
     use crate::virtio::queue::tests::*;
-    use crate::virtio::test_utils::VirtQueue;
+    use crate::virtio::test_utils::{VirtQueue, VirtqDesc};
     use vm_memory::{Address, GuestAddress, GuestMemory};
 
     #[test]
@@ -424,150 +424,211 @@ mod tests {
         }
     }
 
+    struct RequestVirtQueue<'a> {
+        mem: &'a GuestMemoryMmap,
+        vq: VirtQueue<'a>,
+    }
+
+    impl<'a> RequestVirtQueue<'a> {
+        const HDR_DESC: usize = 0;
+        const DATA_DESC: usize = 1;
+        const STATUS_DESC: usize = 2;
+
+        fn new(start: GuestAddress, mem: &'a GuestMemoryMmap) -> RequestVirtQueue<'a> {
+            let vq = VirtQueue::new(start, mem, 16);
+
+            // Begin construction of the virtqueue.
+            // Set the head descriptor index(0) in the avail ring at index 0.
+            vq.avail.ring[0].set(Self::HDR_DESC as u16);
+            vq.avail.idx.set(1);
+
+            RequestVirtQueue { mem, vq }
+        }
+
+        fn set_hdr_desc(&mut self, addr: u64, len: u32, flags: u16, hdr: RequestHeader) {
+            self.vq.dtable[Self::HDR_DESC].set(addr, len, flags, Self::DATA_DESC as u16);
+            self.vq.dtable[Self::HDR_DESC].set_data(hdr.as_slice());
+        }
+
+        fn mut_hdr_desc(&mut self) -> &VirtqDesc<'a> {
+            &mut self.vq.dtable[Self::HDR_DESC]
+        }
+
+        fn hdr(&self) -> &RequestHeader {
+            let hdr_desc = &self.vq.dtable[Self::HDR_DESC];
+            let host_addr = self
+                .mem
+                .get_host_address(GuestAddress(hdr_desc.addr.get()))
+                .unwrap() as *const _;
+            unsafe { &*host_addr }
+        }
+
+        fn set_data_desc(&mut self, addr: u64, len: u32, flags: u16) {
+            self.vq.dtable[Self::DATA_DESC].set(addr, len, flags, Self::STATUS_DESC as u16);
+        }
+
+        fn mut_data_desc(&mut self) -> &VirtqDesc<'a> {
+            &mut self.vq.dtable[Self::DATA_DESC]
+        }
+
+        fn set_status_desc(&mut self, addr: u64, len: u32, flags: u16) {
+            self.vq.dtable[Self::STATUS_DESC].set(addr, len, flags, 0);
+        }
+
+        fn mut_status_desc(&mut self) -> &VirtqDesc<'a> {
+            &mut self.vq.dtable[Self::STATUS_DESC]
+        }
+
+        fn check_parse_err(&self, _e: Error) {
+            let mut q = self.vq.create_queue();
+            assert!(matches!(
+                Request::parse(&q.pop(self.mem).unwrap(), self.mem),
+                Err(_e)
+            ));
+        }
+
+        fn check_parse(&self, check_data: bool) {
+            let mut q = self.vq.create_queue();
+            let request = Request::parse(&q.pop(self.mem).unwrap(), self.mem).unwrap();
+            assert_eq!(
+                request.request_type,
+                RequestType::from(self.hdr().request_type)
+            );
+            assert_eq!(request.sector, self.hdr().sector);
+
+            if check_data {
+                let data_desc = &self.vq.dtable[Self::DATA_DESC];
+                assert_eq!(request.data_addr.raw_value(), data_desc.addr.get());
+                assert_eq!(request.data_len, data_desc.len.get());
+            }
+
+            let status_desc = &self.vq.dtable[Self::STATUS_DESC];
+            assert_eq!(request.status_addr.raw_value(), status_desc.addr.get());
+        }
+    }
+
     #[test]
-    #[allow(clippy::cognitive_complexity)]
-    fn test_parse() {
-        let m = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
-        let vq = VirtQueue::new(GuestAddress(0), &m, 16);
+    fn test_parse_generic() {
+        let mem = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let mut queue = RequestVirtQueue::new(GuestAddress(0), &mem);
 
-        assert!(vq.end().0 < 0x1000);
+        // Write only request type descriptor.
+        let request_header = RequestHeader::new(100, 114);
+        queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_WRITE, request_header);
+        queue.check_parse_err(Error::UnexpectedWriteOnlyDescriptor);
 
-        vq.avail.ring[0].set(0);
-        vq.avail.idx.set(1);
+        // Chain too short: no DATA_DESCRIPTOR.
+        queue.mut_hdr_desc().flags.set(0);
+        queue.check_parse_err(Error::DescriptorChainTooShort);
 
-        {
-            let mut q = vq.create_queue();
-            // Write only request type descriptor.
-            vq.dtable[REQUEST_TYPE_DESCRIPTOR].set(0x1000, 0x1000, VIRTQ_DESC_F_WRITE, 1);
-            let request_header = RequestHeader::new(VIRTIO_BLK_T_OUT, 114);
-            m.write_obj::<RequestHeader>(request_header, GuestAddress(0x1000))
-                .unwrap();
-            assert!(matches!(
-                Request::parse(&q.pop(m).unwrap(), m),
-                Err(Error::UnexpectedWriteOnlyDescriptor)
-            ));
-        }
+        // Chain too short: no status descriptor.
+        queue.mut_hdr_desc().flags.set(VIRTQ_DESC_F_NEXT);
+        queue.set_data_desc(0x2000, 0x1000, 0);
+        queue.check_parse_err(Error::DescriptorChainTooShort);
 
-        {
-            let mut q = vq.create_queue();
-            // Chain too short: no DATA_DESCRIPTOR.
-            vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.set(0);
-            assert!(matches!(
-                Request::parse(&q.pop(m).unwrap(), m),
-                Err(Error::DescriptorChainTooShort)
-            ));
-        }
+        // Status descriptor not writable.
+        queue.set_status_desc(0x3000, 0, 0);
+        queue.mut_data_desc().flags.set(VIRTQ_DESC_F_NEXT);
+        queue.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
 
-        {
-            let mut q = vq.create_queue();
-            // Chain too short: no status descriptor.
-            vq.dtable[REQUEST_TYPE_DESCRIPTOR]
-                .flags
-                .set(VIRTQ_DESC_F_NEXT);
-            vq.dtable[DATA_DESCRIPTOR].set(0x2000, 0x1000, 0, 2);
-            assert!(matches!(
-                Request::parse(&q.pop(m).unwrap(), m),
-                Err(Error::DescriptorChainTooShort)
-            ));
-        }
+        // Status descriptor too small.
+        queue.mut_status_desc().flags.set(VIRTQ_DESC_F_WRITE);
+        queue.check_parse_err(Error::DescriptorLengthTooSmall);
 
-        {
-            let mut q = vq.create_queue();
-            // Write only data for OUT.
-            vq.dtable[DATA_DESCRIPTOR]
-                .flags
-                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-            vq.dtable[STATUS_DESCRIPTOR].set(0x3000, 0, 0, 0);
-            assert!(matches!(
-                Request::parse(&q.pop(m).unwrap(), m),
-                Err(Error::UnexpectedWriteOnlyDescriptor)
-            ));
-        }
+        // Fix status descriptor length.
+        queue.mut_status_desc().len.set(0x1000);
+        // Invalid guest address for the status descriptor. Parsing will still succeed
+        // as the operation that will fail happens when executing the request.
+        queue
+            .mut_status_desc()
+            .addr
+            .set(mem.last_addr().raw_value());
+        queue.check_parse(true);
 
-        {
-            let mut q = vq.create_queue();
-            // Read only data for GetDeviceID.
-            m.write_obj::<u32>(VIRTIO_BLK_T_GET_ID, GuestAddress(0x1000))
-                .unwrap();
-            vq.dtable[DATA_DESCRIPTOR].flags.set(VIRTQ_DESC_F_NEXT);
-            assert!(matches!(
-                Request::parse(&q.pop(m).unwrap(), m),
-                Err(Error::UnexpectedReadOnlyDescriptor)
-            ));
-        }
+        // Fix status descriptor addr.
+        queue.mut_status_desc().addr.set(0x3000);
+        // Invalid guest address for the data descriptor. Parsing will still succeed
+        // as the operation that will fail happens when executing the request.
+        queue.mut_data_desc().addr.set(mem.last_addr().raw_value());
+        queue.check_parse(true);
 
-        {
-            let mut q = vq.create_queue();
-            // Read only data for IN.
-            m.write_obj::<u32>(VIRTIO_BLK_T_IN, GuestAddress(0x1000))
-                .unwrap();
-            vq.dtable[DATA_DESCRIPTOR].flags.set(VIRTQ_DESC_F_NEXT);
-            assert!(matches!(
-                Request::parse(&q.pop(m).unwrap(), m),
-                Err(Error::UnexpectedReadOnlyDescriptor)
-            ));
-        }
+        // Fix data descriptor addr.
+        queue.mut_data_desc().addr.set(0x2000);
+        queue.check_parse(true);
+    }
 
-        {
-            let mut q = vq.create_queue();
-            // Status descriptor not writable.
-            vq.dtable[DATA_DESCRIPTOR]
-                .flags
-                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
-            assert!(matches!(
-                Request::parse(&q.pop(m).unwrap(), m),
-                Err(Error::UnexpectedReadOnlyDescriptor)
-            ));
-        }
+    #[test]
+    fn test_parse_in() {
+        let mem = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let mut queue = RequestVirtQueue::new(GuestAddress(0), &mem);
 
-        {
-            let mut q = vq.create_queue();
-            // Status descriptor too small.
-            vq.dtable[STATUS_DESCRIPTOR].flags.set(VIRTQ_DESC_F_WRITE);
-            assert!(matches!(
-                Request::parse(&q.pop(m).unwrap(), m),
-                Err(Error::DescriptorLengthTooSmall)
-            ));
-        }
+        let request_header = RequestHeader::new(VIRTIO_BLK_T_IN, 99);
+        queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
+        // Read only data descriptor for IN.
+        queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT);
+        queue.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
+        // Fix data descriptor.
+        queue
+            .mut_data_desc()
+            .flags
+            .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+        queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
+        queue.check_parse(true);
+    }
 
-        {
-            let mut q = vq.create_queue();
-            // Fix status descriptor length.
-            vq.dtable[STATUS_DESCRIPTOR].len.set(0x1000);
-            // Invalid guest address for the status descriptor.
-            // Parsing will still succeed as the operation that
-            // will fail happens when executing the request.
-            vq.dtable[STATUS_DESCRIPTOR]
-                .addr
-                .set(m.last_addr().raw_value());
-            assert!(Request::parse(&q.pop(m).unwrap(), m).is_ok());
-        }
+    #[test]
+    fn test_parse_out() {
+        let mem = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let mut queue = RequestVirtQueue::new(GuestAddress(0), &mem);
 
-        {
-            let mut q = vq.create_queue();
-            // Restore status descriptor.
-            vq.dtable[STATUS_DESCRIPTOR].set(0x3000, 0x1000, VIRTQ_DESC_F_WRITE, 0);
-            // Invalid guest address for the data descriptor.
-            // Parsing will still succeed as the operation that
-            // will fail happens when executing the request.
-            vq.dtable[DATA_DESCRIPTOR]
-                .addr
-                .set(m.last_addr().raw_value());
-            assert!(Request::parse(&q.pop(m).unwrap(), m).is_ok());
-        }
+        let request_header = RequestHeader::new(VIRTIO_BLK_T_OUT, 100);
+        queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
+        // Write only data descriptor for OUT.
+        queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+        queue.check_parse_err(Error::UnexpectedWriteOnlyDescriptor);
+        // Fix data descriptor.
+        queue.mut_data_desc().flags.set(VIRTQ_DESC_F_NEXT);
+        queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
+        queue.check_parse(true);
+    }
 
-        {
-            let mut q = vq.create_queue();
-            // Restore data descriptor.
-            vq.dtable[DATA_DESCRIPTOR].addr.set(0x2000);
-            // Should be OK now.
-            let r = Request::parse(&q.pop(m).unwrap(), m).unwrap();
-            assert_eq!(r.request_type, RequestType::In);
-            assert_eq!(r.sector, 114);
-            assert_eq!(r.data_addr, GuestAddress(0x2000));
-            assert_eq!(r.data_len, 0x1000);
-            assert_eq!(r.status_addr, GuestAddress(0x3000));
-        }
+    #[test]
+    fn test_parse_flush() {
+        let mem = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let mut queue = RequestVirtQueue::new(GuestAddress(0), &mem);
+
+        // Flush request with a data descriptor.
+        let request_header = RequestHeader::new(VIRTIO_BLK_T_FLUSH, 50);
+        queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
+        queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT);
+        queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
+        queue.check_parse(true);
+
+        // Flush request without a data descriptor.
+        queue
+            .mut_hdr_desc()
+            .next
+            .set(RequestVirtQueue::STATUS_DESC as u16);
+        queue.check_parse(false);
+    }
+
+    #[test]
+    fn test_parse_get_id() {
+        let mem = &GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
+        let mut queue = RequestVirtQueue::new(GuestAddress(0), &mem);
+
+        let request_header = RequestHeader::new(VIRTIO_BLK_T_GET_ID, 15);
+        queue.set_hdr_desc(0x1000, 0x1000, VIRTQ_DESC_F_NEXT, request_header);
+        // Read only data descriptor for GetDeviceId.
+        queue.set_data_desc(0x2000, 0x1000, VIRTQ_DESC_F_NEXT);
+        queue.check_parse_err(Error::UnexpectedReadOnlyDescriptor);
+        // Fix data descriptor.
+        queue
+            .mut_data_desc()
+            .flags
+            .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+        queue.set_status_desc(0x3000, 0x1000, VIRTQ_DESC_F_WRITE);
+        queue.check_parse(true);
     }
 
     /// -------------------------------------
@@ -619,11 +680,6 @@ mod tests {
             ))
         }
     }
-
-    // Descriptor indexes.
-    const REQUEST_TYPE_DESCRIPTOR: usize = 0;
-    const DATA_DESCRIPTOR: usize = 1;
-    const STATUS_DESCRIPTOR: usize = 2;
 
     impl From<RequestType> for u32 {
         fn from(request_type: RequestType) -> u32 {
@@ -720,15 +776,11 @@ mod tests {
         )])
         .unwrap();
 
-        let vq = VirtQueue::new(GuestAddress(base_addr), &mem, 16);
-
-        // Begin construction of virtqueue based on the arbitrary request.
-        // Set the head descriptor index(0) in the ring at index 0.
-        vq.avail.ring[0].set(REQUEST_TYPE_DESCRIPTOR as u16);
-        vq.avail.idx.set(1);
-        let q = vq.create_queue();
+        let mut rq = RequestVirtQueue::new(GuestAddress(base_addr), &mem);
+        let q = rq.vq.create_queue();
 
         // Craft a random request with the randomized parameters.
+        let request_header = RequestHeader::new(virtio_request_id, sector);
         let mut request = Request {
             request_type,
             data_len: data_len & 0xFFF,
@@ -737,40 +789,27 @@ mod tests {
             data_addr,
         };
 
-        let request_header = RequestHeader::new(virtio_request_id, sector);
-        mem.write_obj::<RequestHeader>(request_header, req_type_addr)
-            .unwrap();
-
-        // Next descriptor pointer will help us build the chain we expect
-        // to be parsed as above request.
-        // Data desc follows request type desc.
-        let mut next_desc = DATA_DESCRIPTOR;
-
-        // Flush requests have no data desc.
-        if request.request_type == RequestType::Flush {
-            next_desc = STATUS_DESCRIPTOR;
-            // For flush requests, there should be no data desc, so these fields are 0.
-            request.data_addr = GuestAddress(0);
-            request.data_len = 0;
-        }
-
-        vq.dtable[REQUEST_TYPE_DESCRIPTOR].set(
+        rq.set_hdr_desc(
             req_type_addr.0,
             max_desc_len as u32,
             VIRTQ_DESC_F_NEXT,
-            next_desc as u16,
+            request_header,
         );
-
-        if next_desc == DATA_DESCRIPTOR {
-            vq.dtable[DATA_DESCRIPTOR].set(
+        // Flush requests have no data desc.
+        if request.request_type == RequestType::Flush {
+            request.data_addr = GuestAddress(0);
+            request.data_len = 0;
+            rq.mut_hdr_desc()
+                .next
+                .set(RequestVirtQueue::STATUS_DESC as u16);
+        } else {
+            rq.set_data_desc(
                 request.data_addr.0,
                 request.data_len,
                 request_type_flags(request.request_type),
-                STATUS_DESCRIPTOR as u16,
-            );
+            )
         }
-
-        vq.dtable[STATUS_DESCRIPTOR].set(request.status_addr.0, 1, VIRTQ_DESC_F_WRITE, 0);
+        rq.set_status_desc(request.status_addr.0, 1, VIRTQ_DESC_F_WRITE);
 
         // Flip a coin - should we generate a valid request or an error.
         if *coins.next().unwrap() {
@@ -778,27 +817,25 @@ mod tests {
         }
 
         // This is the initial correct value.
-        let mut data_desc_flags = vq.dtable[DATA_DESCRIPTOR].flags.get();
+        let data_desc_flags = &rq.mut_data_desc().flags;
 
         // Flip coin - corrupt the status desc len.
         if *coins.next().unwrap() {
-            vq.dtable[STATUS_DESCRIPTOR].len.set(0);
+            rq.mut_status_desc().len.set(0);
             return (Err(Error::DescriptorLengthTooSmall), mem, q);
         }
 
         // Flip coin - corrupt data desc next flag.
         // Exception: flush requests do not have data desc.
         if *coins.next().unwrap() && request.request_type != RequestType::Flush {
-            data_desc_flags &= !VIRTQ_DESC_F_NEXT;
-            vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
+            data_desc_flags.set(data_desc_flags.get() & !VIRTQ_DESC_F_NEXT);
             return (Err(Error::DescriptorChainTooShort), mem, q);
         }
 
         // Flip coin - req type desc is write only.
         if *coins.next().unwrap() {
-            vq.dtable[REQUEST_TYPE_DESCRIPTOR]
-                .flags
-                .set(vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.get() | VIRTQ_DESC_F_WRITE);
+            let hdr_desc_flags = &rq.mut_hdr_desc().flags;
+            hdr_desc_flags.set(hdr_desc_flags.get() | VIRTQ_DESC_F_WRITE);
             return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
         }
 
@@ -806,21 +843,19 @@ mod tests {
         match request.request_type {
             // Readonly buffer is writable.
             RequestType::Out => {
-                data_desc_flags |= VIRTQ_DESC_F_WRITE;
-                vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
+                data_desc_flags.set(data_desc_flags.get() | VIRTQ_DESC_F_WRITE);
                 return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
             }
             // Writeable buffer is readonly.
             RequestType::In | RequestType::GetDeviceID => {
-                data_desc_flags &= !VIRTQ_DESC_F_WRITE;
-                vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
+                data_desc_flags.set(data_desc_flags.get() & !VIRTQ_DESC_F_WRITE);
                 return (Err(Error::UnexpectedReadOnlyDescriptor), mem, q);
             }
             _ => {}
         };
 
         // Simulate no status descriptor.
-        vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.set(0);
+        rq.mut_hdr_desc().flags.set(0);
         (Err(Error::DescriptorChainTooShort), mem, q)
     }
 
