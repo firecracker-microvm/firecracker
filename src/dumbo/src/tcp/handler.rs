@@ -507,6 +507,7 @@ impl TcpIPv4Handler {
 mod tests {
     use super::*;
     use crate::pdu::bytes::NetworkBytesMut;
+    use crate::pdu::tcp::test_utils::write_segment;
     use crate::tcp::tests::mock_callback;
 
     fn inner_tcp_mut<'a, 'b, T: NetworkBytesMut>(
@@ -596,11 +597,11 @@ mod tests {
             IPv4Packet::write_header(buf.as_mut(), PROTOCOL_TCP, remote_addr, wrong_local_addr)
                 .unwrap();
 
-        let seq_number = 123;
+        let seq_number: u32 = 123;
 
         let s_len = {
             // We're going to use this simple segment to test stuff.
-            let s = TcpSegment::write_segment::<[u8]>(
+            let s = write_segment::<[u8], &mut [u8]>(
                 p.inner_mut().payload_mut(),
                 remote_port,
                 // We use the wrong port here initially, to trigger an error.

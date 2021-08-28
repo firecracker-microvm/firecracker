@@ -388,7 +388,7 @@ impl<'a, T: NetworkBytesMut> TcpSegment<'a, T> {
     // we don't add TCP options, or when mss_remaining is actually a constant, etc.
     #[allow(clippy::too_many_arguments)]
     #[inline]
-    pub(crate) fn write_incomplete_segment<R: ByteBuffer + ?Sized>(
+    pub fn write_incomplete_segment<R: ByteBuffer + ?Sized>(
         buf: T,
         seq_number: u32,
         ack_number: u32,
@@ -490,9 +490,65 @@ impl<'a, T: NetworkBytesMut> Incomplete<TcpSegment<'a, T>> {
 }
 
 #[cfg(test)]
+pub mod test_utils {
+    use crate::pdu::bytes::NetworkBytesMut;
+    use crate::pdu::tcp::{Error, Flags, TcpSegment};
+    use crate::ByteBuffer;
+    use std::net::Ipv4Addr;
+
+    /// Writes a complete TCP segment.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - Write the segment to this buffer.
+    /// * `src_port` - Source port.
+    /// * `dst_port` - Destination port.
+    /// * `seq_number` - Sequence number.
+    /// * `ack_number` - Acknowledgement number.
+    /// * `flags_after_ns` - TCP flags to set (except `NS`, which is always set to 0).
+    /// * `window_size` - Value to write in the `window size` field.
+    /// * `mss_option` - When a value is specified, use it to add a TCP MSS option to the header.
+    /// * `mss_remaining` - Represents an upper bound on the payload length (the number of bytes
+    ///    used up by things like IP options have to be subtracted from the MSS). There is some
+    ///    redundancy looking at this argument and the next one, so we might end up removing
+    ///    or changing something.
+    /// * `payload` - May contain a buffer which holds payload data and the maximum amount of bytes
+    ///    we should read from that buffer. When `None`, the TCP segment will carry no payload.
+    /// * `compute_checksum` - May contain the pair addresses from the enclosing IPv4 packet, which
+    ///    are required for TCP checksum computation. Skip the checksum altogether when `None`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn write_segment<R: ByteBuffer + ?Sized, T: NetworkBytesMut>(
+        buf: T,
+        src_port: u16,
+        dst_port: u16,
+        seq_number: u32,
+        ack_number: u32,
+        flags_after_ns: Flags,
+        window_size: u16,
+        mss_option: Option<u16>,
+        mss_remaining: u16,
+        payload: Option<(&R, usize)>,
+        compute_checksum: Option<(Ipv4Addr, Ipv4Addr)>,
+    ) -> Result<TcpSegment<T>, Error> {
+        Ok(TcpSegment::write_incomplete_segment(
+            buf,
+            seq_number,
+            ack_number,
+            flags_after_ns,
+            window_size,
+            mss_option,
+            mss_remaining,
+            payload,
+        )?
+        .finalize(src_port, dst_port, compute_checksum))
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::fmt;
 
+    use self::test_utils::write_segment;
     use super::*;
 
     impl<'a, T: NetworkBytes> fmt::Debug for TcpSegment<'a, T> {
@@ -505,6 +561,17 @@ mod tests {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "(Incomplete TCP segment)")
         }
+    }
+
+    /// Returns the value of the `checksum` header field.
+    fn checksum(segment: &TcpSegment<&mut [u8]>) -> u16 {
+        segment.bytes.ntohs_unchecked(CHECKSUM_OFFSET)
+    }
+
+    /// Returns the value of the `urgent pointer` header field (only valid if the
+    /// `URG` flag is set).
+    fn urgent_pointer(segment: &TcpSegment<&mut [u8]>) -> u16 {
+        segment.bytes.ntohs_unchecked(URG_POINTER_OFFSET)
     }
 
     #[test]
@@ -544,13 +611,13 @@ mod tests {
         p.set_window_size(60000);
         assert_eq!(p.window_size(), 60000);
 
-        assert_eq!(p.checksum(), 0);
+        assert_eq!(checksum(&p), 0);
         p.set_checksum(4321);
-        assert_eq!(p.checksum(), 4321);
+        assert_eq!(checksum(&p), 4321);
 
-        assert_eq!(p.urgent_pointer(), 0);
+        assert_eq!(urgent_pointer(&p), 0);
         p.set_urgent_pointer(5554);
-        assert_eq!(p.urgent_pointer(), 5554);
+        assert_eq!(urgent_pointer(&p), 5554);
     }
 
     #[test]
@@ -574,7 +641,7 @@ mod tests {
         let header_len = OPTIONS_OFFSET + OPTION_LEN_MSS;
 
         let segment_len = {
-            let mut segment = TcpSegment::write_segment(
+            let mut segment = write_segment(
                 a.as_mut(),
                 src_port,
                 dst_port,
@@ -597,7 +664,7 @@ mod tests {
             assert_eq!(segment.flags_after_ns(), flags_after_ns);
             assert_eq!(segment.window_size(), window_size);
 
-            let checksum = segment.checksum();
+            let checksum = checksum(&segment);
             segment.set_checksum(0);
             let computed_checksum = segment.compute_checksum(src_addr, dst_addr);
             assert_eq!(checksum, computed_checksum);
@@ -605,7 +672,7 @@ mod tests {
             segment.set_checksum(checksum);
             assert_eq!(segment.compute_checksum(src_addr, dst_addr), 0);
 
-            assert_eq!(segment.urgent_pointer(), 0);
+            assert_eq!(urgent_pointer(&segment), 0);
 
             {
                 let options = segment.options_unchecked(header_len);
@@ -632,7 +699,7 @@ mod tests {
 
         // Let's quickly see what happens when the payload buf is larger than our mutable slice.
         {
-            let segment_len = TcpSegment::write_segment(
+            let segment_len = write_segment(
                 a.as_mut(),
                 src_port,
                 dst_port,
@@ -684,7 +751,7 @@ mod tests {
         );
 
         // Let's make it invalid.
-        let checksum = p(a.as_mut()).checksum();
+        let checksum = checksum(&p(a.as_mut()));
         p(a.as_mut()).set_checksum(checksum.wrapping_add(1));
         look_for_error(a.as_ref(), Error::Checksum);
 
@@ -693,7 +760,7 @@ mod tests {
         look_for_error(small_buf.as_ref(), Error::SliceTooShort);
 
         assert_eq!(
-            TcpSegment::write_segment(
+            write_segment(
                 small_buf.as_mut(),
                 src_port,
                 dst_port,
@@ -712,7 +779,7 @@ mod tests {
 
         // Make sure we get the proper error for an insufficient value of mss_remaining.
         assert_eq!(
-            TcpSegment::write_segment(
+            write_segment(
                 small_buf.as_mut(),
                 src_port,
                 dst_port,

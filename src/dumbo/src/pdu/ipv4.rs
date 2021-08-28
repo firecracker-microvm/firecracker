@@ -131,7 +131,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the packet header length (in bytes).
     #[inline]
-    pub(in crate::pdu) fn header_len(&self) -> usize {
+    pub(crate) fn header_len(&self) -> usize {
         let (_, header_len) = self.version_and_header_len();
         header_len
     }
@@ -162,7 +162,7 @@ impl<'a, T: NetworkBytes> IPv4Packet<'a, T> {
 
     /// Returns the destination IPv4 address of the packet.
     #[inline]
-    fn destination_address(&self) -> Ipv4Addr {
+    pub fn destination_address(&self) -> Ipv4Addr {
         Ipv4Addr::from(self.bytes.ntohl_unchecked(DESTINATION_ADDRESS_OFFSET))
     }
 
@@ -444,6 +444,48 @@ mod tests {
         }
     }
 
+    /// Returns the values of the `dscp` and `ecn` header fields.
+    fn dscp_and_ecn(packet: &IPv4Packet<&mut [u8]>) -> (u8, u8) {
+        let x = packet.bytes[DSCP_AND_ECN_OFFSET];
+        (x >> 2, x & 0b11)
+    }
+
+    /// Returns the values of the `flags` and `fragment offset` header fields.
+    fn flags_and_fragment_offset(packet: &IPv4Packet<&mut [u8]>) -> (u8, u16) {
+        let x = packet.bytes.ntohs_unchecked(FLAGS_AND_FRAGMENTOFF_OFFSET);
+        ((x >> 13) as u8, x & 0x1fff)
+    }
+
+    /// Returns the value of the `ttl` header field.
+    fn ttl(packet: &IPv4Packet<&mut [u8]>) -> u8 {
+        packet.bytes[TTL_OFFSET]
+    }
+
+    /// Returns the value of the `header checksum` header field.
+    fn header_checksum(packet: &IPv4Packet<&mut [u8]>) -> u16 {
+        packet.bytes.ntohs_unchecked(HEADER_CHECKSUM_OFFSET)
+    }
+
+    /// Transforms an incomplete packet into an `IPv4Packet` based on the supplied options and payload length.
+    ///
+    /// # Panics
+    ///
+    /// This method may panic if the combination of `options_len` and `payload_len` is invalid,
+    /// or any of the individual values are invalid.
+    fn with_options_and_payload_len_unchecked<'a>(
+        incomplete_packet: Incomplete<IPv4Packet<'a, &'a mut [u8]>>,
+        options_len: usize,
+        payload_len: usize,
+        compute_checksum: bool,
+    ) -> IPv4Packet<'a, &'a mut [u8]> {
+        let header_len = OPTIONS_OFFSET + options_len;
+        incomplete_packet.with_header_and_payload_len_unchecked(
+            header_len,
+            payload_len,
+            compute_checksum,
+        )
+    }
+
     #[test]
     fn test_set_get() {
         let mut a = [0u8; 100];
@@ -453,9 +495,9 @@ mod tests {
         p.set_version_and_header_len(IPV4_VERSION, 24);
         assert_eq!(p.version_and_header_len(), (IPV4_VERSION, 24));
 
-        assert_eq!(p.dscp_and_ecn(), (0, 0));
+        assert_eq!(dscp_and_ecn(&p), (0, 0));
         p.set_dscp_and_ecn(3, 2);
-        assert_eq!(p.dscp_and_ecn(), (3, 2));
+        assert_eq!(dscp_and_ecn(&p), (3, 2));
 
         assert_eq!(p.total_len(), 0);
         p.set_total_len(123);
@@ -465,21 +507,21 @@ mod tests {
         p.set_identification(1112);
         assert_eq!(p.identification(), 1112);
 
-        assert_eq!(p.flags_and_fragment_offset(), (0, 0));
+        assert_eq!(flags_and_fragment_offset(&p), (0, 0));
         p.set_flags_and_fragment_offset(7, 1000);
-        assert_eq!(p.flags_and_fragment_offset(), (7, 1000));
+        assert_eq!(flags_and_fragment_offset(&p), (7, 1000));
 
-        assert_eq!(p.ttl(), 0);
+        assert_eq!(ttl(&p), 0);
         p.set_ttl(123);
-        assert_eq!(p.ttl(), 123);
+        assert_eq!(ttl(&p), 123);
 
         assert_eq!(p.protocol(), 0);
         p.set_protocol(114);
         assert_eq!(p.protocol(), 114);
 
-        assert_eq!(p.header_checksum(), 0);
+        assert_eq!(header_checksum(&p), 0);
         p.set_header_checksum(1234);
-        assert_eq!(p.header_checksum(), 1234);
+        assert_eq!(header_checksum(&p), 1234);
 
         let addr = Ipv4Addr::new(10, 11, 12, 13);
 
@@ -511,14 +553,14 @@ mod tests {
                 .with_header_and_payload_len_unchecked(header_len, payload_len, true);
 
             assert_eq!(p.version_and_header_len(), (IPV4_VERSION, header_len));
-            assert_eq!(p.dscp_and_ecn(), (0, 0));
+            assert_eq!(dscp_and_ecn(&p), (0, 0));
             assert_eq!(p.total_len() as usize, buf_len);
             assert_eq!(p.identification(), 0);
-            assert_eq!(p.flags_and_fragment_offset(), (0, 0));
-            assert_eq!(p.ttl(), DEFAULT_TTL);
+            assert_eq!(flags_and_fragment_offset(&p), (0, 0));
+            assert_eq!(ttl(&p), DEFAULT_TTL);
             assert_eq!(p.protocol(), PROTOCOL_TCP);
 
-            let checksum = p.header_checksum();
+            let checksum = header_checksum(&p);
             p.set_header_checksum(0);
             let computed_checksum = p.compute_checksum();
             assert_eq!(computed_checksum, checksum);
@@ -582,7 +624,7 @@ mod tests {
         );
 
         // Let's make it invalid.
-        let checksum = p(buf.as_mut()).header_checksum();
+        let checksum = header_checksum(&p(buf.as_mut()));
         p(buf.as_mut()).set_header_checksum(checksum.wrapping_add(1));
         look_for_error(buf.as_ref(), Error::Checksum);
 
@@ -618,9 +660,14 @@ mod tests {
         }
 
         {
-            let p = IPv4Packet::write_header(buf.as_mut(), PROTOCOL_TCP, src, dst)
-                .unwrap()
-                .with_options_and_payload_len_unchecked(options_len, payload_len, true);
+            let incomplete_p =
+                IPv4Packet::write_header(buf.as_mut(), PROTOCOL_TCP, src, dst).unwrap();
+            let p = with_options_and_payload_len_unchecked(
+                incomplete_p,
+                options_len,
+                payload_len,
+                true,
+            );
 
             assert_eq!(p.compute_checksum(), 0);
             assert_eq!(p.total_len() as usize, p.len());

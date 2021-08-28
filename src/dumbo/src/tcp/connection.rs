@@ -1017,6 +1017,7 @@ pub(crate) mod tests {
     use std::fmt;
 
     use super::*;
+    use crate::pdu::tcp::test_utils::write_segment;
 
     // A segment without options or a payload is 20 bytes long.
     const BASIC_SEGMENT_SIZE: usize = 20;
@@ -1076,10 +1077,10 @@ pub(crate) mod tests {
             &self,
             buf: &'a mut [u8],
             add_mss_option: bool,
-            payload: Option<(&[u8], usize)>,
+            payload: Option<(&'a [u8], usize)>,
         ) -> TcpSegment<'a, &'a mut [u8]> {
             let mss_option = if add_mss_option { Some(self.mss) } else { None };
-            TcpSegment::write_segment(
+            write_segment(
                 buf,
                 self.src_port,
                 self.dst_port,
@@ -1106,7 +1107,7 @@ pub(crate) mod tests {
         pub fn write_data<'a>(
             &self,
             buf: &'a mut [u8],
-            data_buf: &[u8],
+            data_buf: &'a [u8],
         ) -> TcpSegment<'a, &'a mut [u8]> {
             let segment = self.write_segment_helper(buf, false, Some((data_buf, data_buf.len())));
             assert_eq!(segment.payload_len(), data_buf.len());

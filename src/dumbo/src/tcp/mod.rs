@@ -92,6 +92,7 @@ pub fn seq_at_or_after(a: Wrapping<u32>, b: Wrapping<u32>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pdu::tcp::test_utils::write_segment;
     use micro_http::{Request, Response, StatusCode, Version};
 
     // In tcp tests, some of the functions require a callback parameter. Since we do not care,
@@ -107,7 +108,7 @@ mod tests {
         let seq = 1234;
         let ack = 5678;
 
-        let mut s = TcpSegment::write_segment::<[u8]>(
+        let mut s = write_segment::<[u8], &mut [u8]>(
             buf.as_mut(),
             0,
             0,

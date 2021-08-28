@@ -187,6 +187,11 @@ mod tests {
         }
     }
 
+    /// Returns the destination MAC address.
+    fn get_dst_mac(bytes: &[u8]) -> MacAddr {
+        MacAddr::from_bytes_unchecked(&bytes[DST_MAC_OFFSET..SRC_MAC_OFFSET])
+    }
+
     #[test]
     fn test_ethernet_frame() {
         let mut a = [0u8; 10000];
@@ -210,7 +215,7 @@ mod tests {
             let mut f1 =
                 EthernetFrame::new_with_header(a.as_mut(), dst_mac, src_mac, ethertype).unwrap();
 
-            assert_eq!(f1.dst_mac(), dst_mac);
+            assert_eq!(get_dst_mac(&f1.bytes), dst_mac);
             assert_eq!(f1.src_mac(), src_mac);
             assert_eq!(f1.ethertype(), ethertype);
             f1.payload_mut()[1] = 132;
@@ -219,7 +224,7 @@ mod tests {
         {
             let f2 = EthernetFrame::from_bytes(a.as_ref()).unwrap();
 
-            assert_eq!(f2.dst_mac(), dst_mac);
+            assert_eq!(get_dst_mac(&f2.bytes), dst_mac);
             assert_eq!(f2.src_mac(), src_mac);
             assert_eq!(f2.ethertype(), ethertype);
             assert_eq!(f2.payload()[1], 132);
