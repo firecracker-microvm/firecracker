@@ -674,141 +674,154 @@ mod tests {
             })
             .prop_map(
                 |(sparsity, data_len, sector, request_type, virtio_request_id, coins)| {
-                    let coins = &mut coins.iter();
-
-                    // Randomize descriptor addresses. Assumed page size as max buffer len.
-                    let base_addr = sparsity & 0x0000_FFFF_FFFF_F000; // 48 bit base, page aligned.
-                    let max_desc_len = 0x1000;
-
-                    // First addr starts at page base + 1.
-                    let req_type_addr = GuestAddress(base_addr).checked_add(0x1000).unwrap();
-
-                    // Use first 4 bits of randomness to shift the gap size between this descriptor
-                    // and the next one.
-                    let mut next_desc_dist = max_desc_len + (0x1000 << (sparsity & 0xF));
-                    let data_addr = req_type_addr.checked_add(next_desc_dist).unwrap();
-
-                    // Use next 4 bits of randomness to shift gap size between this descriptor
-                    // and the next one.
-                    next_desc_dist = max_desc_len + (0x1000 << ((sparsity & 0xF0) >> 4));
-                    let status_addr = data_addr.checked_add(next_desc_dist).unwrap();
-
-                    let mem_end = status_addr.checked_add(max_desc_len).unwrap();
-                    let mem: GuestMemoryMmap = GuestMemoryMmap::from_ranges(&[(
-                        GuestAddress(base_addr),
-                        (mem_end.0 - base_addr).try_into().unwrap(),
-                    )])
-                    .unwrap();
-
-                    let vq = VirtQueue::new(GuestAddress(base_addr), &mem, 16);
-
-                    // Begin construction of virtqueue based on the arbitrary request.
-                    // Set the head descriptor index(0) in the ring at index 0.
-                    vq.avail.ring[0].set(REQUEST_TYPE_DESCRIPTOR as u16);
-                    vq.avail.idx.set(1);
-                    let q = vq.create_queue();
-
-                    // Craft a random request with the randomized parameters.
-                    let mut request = Request {
-                        request_type,
-                        data_len: data_len & 0xFFF,
-                        status_addr,
+                    do_random_request_parse(
+                        sparsity,
+                        data_len,
                         sector,
-                        data_addr,
-                    };
-
-                    let request_header = RequestHeader::new(virtio_request_id, sector);
-                    mem.write_obj::<RequestHeader>(request_header, req_type_addr)
-                        .unwrap();
-
-                    // Next descriptor pointer will help us build the chain we expect
-                    // to be parsed as above request.
-                    // Data desc follows request type desc.
-                    let mut next_desc = DATA_DESCRIPTOR;
-
-                    // Flush requests have no data desc.
-                    if request.request_type == RequestType::Flush {
-                        next_desc = STATUS_DESCRIPTOR;
-                        // For flush requests, there should be no data desc, so these fields are 0.
-                        request.data_addr = GuestAddress(0);
-                        request.data_len = 0;
-                    }
-
-                    vq.dtable[REQUEST_TYPE_DESCRIPTOR].set(
-                        req_type_addr.0,
-                        max_desc_len as u32,
-                        VIRTQ_DESC_F_NEXT,
-                        next_desc as u16,
-                    );
-
-                    if next_desc == DATA_DESCRIPTOR {
-                        vq.dtable[DATA_DESCRIPTOR].set(
-                            request.data_addr.0,
-                            request.data_len,
-                            request_type_flags(request.request_type),
-                            STATUS_DESCRIPTOR as u16,
-                        );
-                    }
-
-                    vq.dtable[STATUS_DESCRIPTOR].set(
-                        request.status_addr.0,
-                        1,
-                        VIRTQ_DESC_F_WRITE,
-                        0,
-                    );
-
-                    // Flip a coin - should we generate a valid request or an error.
-                    if *coins.next().unwrap() {
-                        return (Ok(request), mem, q);
-                    }
-
-                    // This is the initial correct value.
-                    let mut data_desc_flags = vq.dtable[DATA_DESCRIPTOR].flags.get();
-
-                    // Flip coin - corrupt the status desc len.
-                    if *coins.next().unwrap() {
-                        vq.dtable[STATUS_DESCRIPTOR].len.set(0);
-                        return (Err(Error::DescriptorLengthTooSmall), mem, q);
-                    }
-
-                    // Flip coin - corrupt data desc next flag.
-                    // Exception: flush requests do not have data desc.
-                    if *coins.next().unwrap() && request.request_type != RequestType::Flush {
-                        data_desc_flags &= !VIRTQ_DESC_F_NEXT;
-                        vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
-                        return (Err(Error::DescriptorChainTooShort), mem, q);
-                    }
-
-                    // Flip coin - req type desc is write only.
-                    if *coins.next().unwrap() {
-                        vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.set(
-                            vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.get() | VIRTQ_DESC_F_WRITE,
-                        );
-                        return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
-                    }
-
-                    // Corrupt data desc accessibility
-                    match request.request_type {
-                        // Readonly buffer is writable.
-                        RequestType::Out => {
-                            data_desc_flags |= VIRTQ_DESC_F_WRITE;
-                            vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
-                            return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
-                        }
-                        // Writeable buffer is readonly.
-                        RequestType::In | RequestType::GetDeviceID => {
-                            data_desc_flags &= !VIRTQ_DESC_F_WRITE;
-                            vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
-                            return (Err(Error::UnexpectedReadOnlyDescriptor), mem, q);
-                        }
-                        _ => {}
-                    };
-
-                    // Simulate no status descriptor.
-                    vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.set(0);
-                    (Err(Error::DescriptorChainTooShort), mem, q)
+                        request_type,
+                        virtio_request_id,
+                        &coins,
+                    )
                 },
             )
+    }
+
+    fn do_random_request_parse(
+        sparsity: u64,
+        data_len: u32,
+        sector: u64,
+        request_type: RequestType,
+        virtio_request_id: u32,
+        coins_arr: &[bool],
+    ) -> (Result<Request, Error>, GuestMemoryMmap, Queue) {
+        let coins = &mut coins_arr.iter();
+
+        // Randomize descriptor addresses. Assumed page size as max buffer len.
+        let base_addr = sparsity & 0x0000_FFFF_FFFF_F000; // 48 bit base, page aligned.
+        let max_desc_len = 0x1000;
+
+        // First addr starts at page base + 1.
+        let req_type_addr = GuestAddress(base_addr).checked_add(0x1000).unwrap();
+
+        // Use first 4 bits of randomness to shift the gap size between this descriptor
+        // and the next one.
+        let mut next_desc_dist = max_desc_len + (0x1000 << (sparsity & 0xF));
+        let data_addr = req_type_addr.checked_add(next_desc_dist).unwrap();
+
+        // Use next 4 bits of randomness to shift gap size between this descriptor
+        // and the next one.
+        next_desc_dist = max_desc_len + (0x1000 << ((sparsity & 0xF0) >> 4));
+        let status_addr = data_addr.checked_add(next_desc_dist).unwrap();
+
+        let mem_end = status_addr.checked_add(max_desc_len).unwrap();
+        let mem: GuestMemoryMmap = GuestMemoryMmap::from_ranges(&[(
+            GuestAddress(base_addr),
+            (mem_end.0 - base_addr).try_into().unwrap(),
+        )])
+        .unwrap();
+
+        let vq = VirtQueue::new(GuestAddress(base_addr), &mem, 16);
+
+        // Begin construction of virtqueue based on the arbitrary request.
+        // Set the head descriptor index(0) in the ring at index 0.
+        vq.avail.ring[0].set(REQUEST_TYPE_DESCRIPTOR as u16);
+        vq.avail.idx.set(1);
+        let q = vq.create_queue();
+
+        // Craft a random request with the randomized parameters.
+        let mut request = Request {
+            request_type,
+            data_len: data_len & 0xFFF,
+            status_addr,
+            sector,
+            data_addr,
+        };
+
+        let request_header = RequestHeader::new(virtio_request_id, sector);
+        mem.write_obj::<RequestHeader>(request_header, req_type_addr)
+            .unwrap();
+
+        // Next descriptor pointer will help us build the chain we expect
+        // to be parsed as above request.
+        // Data desc follows request type desc.
+        let mut next_desc = DATA_DESCRIPTOR;
+
+        // Flush requests have no data desc.
+        if request.request_type == RequestType::Flush {
+            next_desc = STATUS_DESCRIPTOR;
+            // For flush requests, there should be no data desc, so these fields are 0.
+            request.data_addr = GuestAddress(0);
+            request.data_len = 0;
+        }
+
+        vq.dtable[REQUEST_TYPE_DESCRIPTOR].set(
+            req_type_addr.0,
+            max_desc_len as u32,
+            VIRTQ_DESC_F_NEXT,
+            next_desc as u16,
+        );
+
+        if next_desc == DATA_DESCRIPTOR {
+            vq.dtable[DATA_DESCRIPTOR].set(
+                request.data_addr.0,
+                request.data_len,
+                request_type_flags(request.request_type),
+                STATUS_DESCRIPTOR as u16,
+            );
+        }
+
+        vq.dtable[STATUS_DESCRIPTOR].set(request.status_addr.0, 1, VIRTQ_DESC_F_WRITE, 0);
+
+        // Flip a coin - should we generate a valid request or an error.
+        if *coins.next().unwrap() {
+            return (Ok(request), mem, q);
+        }
+
+        // This is the initial correct value.
+        let mut data_desc_flags = vq.dtable[DATA_DESCRIPTOR].flags.get();
+
+        // Flip coin - corrupt the status desc len.
+        if *coins.next().unwrap() {
+            vq.dtable[STATUS_DESCRIPTOR].len.set(0);
+            return (Err(Error::DescriptorLengthTooSmall), mem, q);
+        }
+
+        // Flip coin - corrupt data desc next flag.
+        // Exception: flush requests do not have data desc.
+        if *coins.next().unwrap() && request.request_type != RequestType::Flush {
+            data_desc_flags &= !VIRTQ_DESC_F_NEXT;
+            vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
+            return (Err(Error::DescriptorChainTooShort), mem, q);
+        }
+
+        // Flip coin - req type desc is write only.
+        if *coins.next().unwrap() {
+            vq.dtable[REQUEST_TYPE_DESCRIPTOR]
+                .flags
+                .set(vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.get() | VIRTQ_DESC_F_WRITE);
+            return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
+        }
+
+        // Corrupt data desc accessibility
+        match request.request_type {
+            // Readonly buffer is writable.
+            RequestType::Out => {
+                data_desc_flags |= VIRTQ_DESC_F_WRITE;
+                vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
+                return (Err(Error::UnexpectedWriteOnlyDescriptor), mem, q);
+            }
+            // Writeable buffer is readonly.
+            RequestType::In | RequestType::GetDeviceID => {
+                data_desc_flags &= !VIRTQ_DESC_F_WRITE;
+                vq.dtable[DATA_DESCRIPTOR].flags.set(data_desc_flags);
+                return (Err(Error::UnexpectedReadOnlyDescriptor), mem, q);
+            }
+            _ => {}
+        };
+
+        // Simulate no status descriptor.
+        vq.dtable[REQUEST_TYPE_DESCRIPTOR].flags.set(0);
+        (Err(Error::DescriptorChainTooShort), mem, q)
     }
 
     macro_rules! assert_err {
