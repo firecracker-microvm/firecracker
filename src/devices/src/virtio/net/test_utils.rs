@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![doc(hidden)]
+
 use std::fs::File;
 use std::os::raw::c_ulong;
 use std::os::unix::ffi::OsStrExt;
@@ -9,6 +11,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{mem, result};
 
+#[cfg(test)]
 use crate::virtio::net::device::vnet_hdr_len;
 use crate::virtio::net::tap::{Error, IfReqBuilder, Tap};
 use crate::virtio::test_utils::VirtQueue;
