@@ -10,8 +10,8 @@ pub use crate::logger::{LoggerError, LOGGER};
 #[cfg(target_arch = "aarch64")]
 pub use crate::metrics::RTCDeviceMetrics;
 pub use crate::metrics::{
-    IncMetric, MetricsError, ProcessTimeReporter, SharedIncMetric, SharedStoreMetric, StoreMetric,
-    METRICS,
+    IncMetric, MetricsError, ProcessTimeReporter, SerialDeviceMetrics, SharedIncMetric,
+    SharedStoreMetric, StoreMetric, METRICS,
 };
 pub use log::Level::*;
 pub use log::*;
