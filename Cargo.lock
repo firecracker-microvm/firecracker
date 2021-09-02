@@ -34,7 +34,6 @@ dependencies = [
  "kvm-bindings",
  "kvm-ioctls",
  "libc",
- "libfdt-bindings",
  "logger",
  "utils",
  "versionize",
@@ -438,13 +437,6 @@ name = "libc"
 version = "0.2.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1fa8cddc8fbbee11227ef194b5317ed014b8acbf15139bd716a18ad3fe99ec5"
-
-[[package]]
-name = "libfdt-bindings"
-version = "0.1.0"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "log"
