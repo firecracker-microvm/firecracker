@@ -64,7 +64,6 @@ use std::fmt;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-#[cfg(target_arch = "aarch64")]
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -810,7 +809,7 @@ pub struct FirecrackerMetrics {
     /// Metrics related to the virtual machine manager.
     pub vmm: VmmMetrics,
     /// Metrics related to the UART device.
-    pub uart: SerialDeviceMetrics,
+    pub uart: Arc<SerialDeviceMetrics>,
     /// Metrics related to signals.
     pub signals: SignalMetrics,
     /// Metrics related to virtio-vsockets.

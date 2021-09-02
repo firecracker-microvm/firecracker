@@ -5,6 +5,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the THIRD-PARTY file.
 
+#[cfg(target_arch = "aarch64")]
+use devices::legacy::SerialDevice;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
@@ -256,13 +258,13 @@ impl MMIODeviceManager {
     pub fn register_mmio_serial(
         &mut self,
         vm: &VmFd,
-        serial: Arc<Mutex<devices::legacy::Serial>>,
+        serial: Arc<Mutex<SerialDevice>>,
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(1)?);
 
         vm.register_irqfd(
-            &serial.lock().expect("Poisoned lock").interrupt_evt(),
+            &serial.lock().expect("Poisoned lock").serial.interrupt_evt(),
             slot.irqs[0],
         )
         .map_err(Error::RegisterIrqFd)?;
