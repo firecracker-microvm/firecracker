@@ -783,7 +783,7 @@ pub fn configure_system_for_boot(
             .collect();
         arch::aarch64::configure_system(
             &vmm.guest_memory,
-            &boot_cmdline.as_cstring().map_err(LoadCommandline)?,
+            &boot_cmdline.as_str(),
             vcpu_mpidr,
             vmm.mmio_device_manager.get_device_info(),
             vmm.vm.get_irqchip(),
