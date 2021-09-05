@@ -361,6 +361,11 @@ fn parse_request_bytes(byte_stream: &[u8], callback: fn(Request) -> Response) ->
                 StatusCode::BadRequest,
                 Body::new(e.to_string()),
             ),
+            RequestError::SizeLimitExceeded(_, _) => build_response(
+                Version::default(),
+                StatusCode::PayloadTooLarge,
+                Body::new(e.to_string()),
+            ),
         },
     }
 }
