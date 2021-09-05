@@ -123,6 +123,7 @@ pub(crate) fn run_with_api(
     instance_info: InstanceInfo,
     process_time_reporter: ProcessTimeReporter,
     boot_timer_enabled: bool,
+    payload_limit: Option<usize>,
 ) -> ExitCode {
     // FD to notify of API events. This is a blocking eventfd by design.
     // It is used in the config/pre-boot loop which is a simple blocking loop
@@ -149,6 +150,7 @@ pub(crate) fn run_with_api(
                 api_bind_path,
                 process_time_reporter,
                 &api_seccomp_filter,
+                payload_limit,
             ) {
                 Ok(_) => (),
                 Err(api_server::Error::Io(inner)) => match inner.kind() {

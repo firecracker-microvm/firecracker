@@ -200,6 +200,11 @@ fn main_exitable() -> ExitCode {
             Argument::new("describe-snapshot")
                 .takes_value(true)
                 .help("Print the data format version of the provided snapshot state file.")
+        )
+        .arg(
+            Argument::new("http_api_max_payload_size")
+                .takes_value(true)
+                .help("Http API request payload max size.")
         );
 
     let arguments = match arg_parser.parse_from_cmdline() {
@@ -302,6 +307,13 @@ fn main_exitable() -> ExitCode {
             .single_value("api-sock")
             .map(PathBuf::from)
             .expect("Missing argument: api-sock");
+        let payload_limit = arg_parser
+            .arguments()
+            .single_value("http_api_max_payload_size")
+            .map(|lim| {
+                lim.parse::<usize>()
+                    .expect("'http_api_max_payload_size' parameter expected to be of 'usize' type.")
+            });
 
         let start_time_us = arguments.single_value("start-time-us").map(|s| {
             s.parse::<u64>()
@@ -327,6 +339,7 @@ fn main_exitable() -> ExitCode {
             instance_info,
             process_time_reporter,
             boot_timer_enabled,
+            payload_limit,
         )
     } else {
         let seccomp_filters: BpfThreadMap = seccomp_filters
