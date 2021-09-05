@@ -130,6 +130,7 @@ impl ApiServer {
     /// let mmds_info = MMDS.clone();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
     /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
+    /// let payload_limit = Some(51200);
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
@@ -144,6 +145,7 @@ impl ApiServer {
     ///             PathBuf::from(api_thread_path_to_socket),
     ///             time_reporter,
     ///             seccomp_filters.get("api").unwrap(),
+    ///             payload_limit,
     ///         )
     ///         .unwrap();
     ///     })
@@ -166,6 +168,7 @@ impl ApiServer {
         path: PathBuf,
         process_time_reporter: ProcessTimeReporter,
         seccomp_filter: BpfProgramRef,
+        maybe_request_size: Option<usize>,
     ) -> Result<()> {
         let mut server = HttpServer::new(path).unwrap_or_else(|e| {
             error!("Error creating the HTTP server: {}", e);
@@ -641,6 +644,7 @@ mod tests {
                     PathBuf::from(api_thread_path_to_socket),
                     ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
                     seccomp_filters.get("api").unwrap(),
+                    None,
                 )
                 .unwrap();
             })
