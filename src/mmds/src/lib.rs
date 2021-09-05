@@ -178,7 +178,7 @@ mod tests {
 
         // Test resource not found.
         let request_bytes = b"GET http://169.254.169.254/invalid HTTP/1.0\r\n\r\n";
-        let request = Request::try_from(request_bytes).unwrap();
+        let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::NotFound);
         expected_response.set_body(Body::new("Resource not found: /invalid.".to_string()));
         let actual_response = convert_to_response(request);
@@ -186,7 +186,7 @@ mod tests {
 
         // Test NotImplemented.
         let request_bytes = b"GET /age HTTP/1.1\r\n\r\n";
-        let request = Request::try_from(request_bytes).unwrap();
+        let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http11, StatusCode::NotImplemented);
         let body = "Cannot retrieve value. The value has an unsupported type.".to_string();
         expected_response.set_body(Body::new(body));
@@ -197,7 +197,7 @@ mod tests {
         let not_allowed_methods = ["PUT", "PATCH"];
         for method in not_allowed_methods.iter() {
             let request_bytes = format!("{} http://169.254.169.255/ HTTP/1.0\r\n\r\n", method);
-            let request = Request::try_from(request_bytes.as_bytes()).unwrap();
+            let request = Request::try_from(request_bytes.as_bytes(), None).unwrap();
             let mut expected_response =
                 Response::new(Version::Http10, StatusCode::MethodNotAllowed);
             expected_response.set_body(Body::new("Not allowed HTTP method.".to_string()));
@@ -208,7 +208,7 @@ mod tests {
 
         // Test invalid (empty absolute path) URI.
         let request_bytes = b"GET http:// HTTP/1.0\r\n\r\n";
-        let request = Request::try_from(request_bytes).unwrap();
+        let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::BadRequest);
         expected_response.set_body(Body::new("Invalid URI.".to_string()));
         let actual_response = convert_to_response(request);
@@ -217,7 +217,7 @@ mod tests {
         // Test Ok path.
         let request_bytes = b"GET http://169.254.169.254/ HTTP/1.0\r\n\
                                     Accept: application/json\r\n\r\n";
-        let request = Request::try_from(request_bytes).unwrap();
+        let request = Request::try_from(request_bytes, None).unwrap();
         let mut expected_response = Response::new(Version::Http10, StatusCode::OK);
         let mut body = r#"{
                 "age": 43,
