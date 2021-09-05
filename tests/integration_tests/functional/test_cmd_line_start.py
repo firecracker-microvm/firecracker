@@ -104,3 +104,88 @@ def test_config_start_no_api(test_microvm_with_api, vm_config_file):
         exceptions=RuntimeError,
         tries=10,
         delay=1)
+
+
+@pytest.mark.parametrize(
+    "vm_config_file",
+    ["framework/vm_config.json"]
+)
+def test_config_start_with_limit(test_microvm_with_api, vm_config_file):
+    """
+    Negative test for customised request payload limit.
+
+    @type: negative
+    """
+    test_microvm = test_microvm_with_api
+
+    _configure_vm_from_json(test_microvm, vm_config_file)
+    test_microvm.jailer.extra_args.update({'http_api_max_payload_size': "250"})
+    test_microvm.spawn()
+
+    response = test_microvm.machine_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert test_microvm.state == "Running"
+
+    cmd = "curl --unix-socket {} -i".format(test_microvm.api_socket)
+    cmd += " -X PUT \"http://localhost/mmds/config\""
+    cmd += " -H  \"Content-Length: 260\""
+    cmd += " -H \"Accept: application/json\""
+    cmd += " -d \"some body\""
+
+    response = "HTTP/1.1 400 \r\n"
+    response += "Server: Firecracker API\r\n"
+    response += "Connection: keep-alive\r\n"
+    response += "Content-Type: application/json\r\n"
+    response += "Content-Length: 145\r\n\r\n"
+    response += "{ \"error\": \"Request payload with size 260 is larger than "
+    response += "the limit of 250 allowed by server.\n"
+    response += "All previous unanswered requests will be dropped.\" }"
+    _, stdout, _stderr = utils.run_cmd(cmd)
+    assert stdout.encode("utf-8") == response.encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "vm_config_file",
+    ["framework/vm_config.json"]
+)
+def test_config_with_default_limit(test_microvm_with_api, vm_config_file):
+    """
+    Test for request payload limit.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+
+    _configure_vm_from_json(test_microvm, vm_config_file)
+    test_microvm.spawn()
+
+    response = test_microvm.machine_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert test_microvm.state == "Running"
+
+    data_store = {
+        'latest': {
+            'meta-data': {
+            }
+        }
+    }
+    data_store["latest"]["meta-data"]["ami-id"] = "abc"
+    response = test_microvm.mmds.put(json=data_store)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    cmd_err = "curl --unix-socket {} -i".format(test_microvm.api_socket)
+    cmd_err += " -X PUT \"http://localhost/mmds/config\""
+    cmd_err += " -H  \"Content-Length: 51201\""
+    cmd_err += " -H \"Accept: application/json\""
+    cmd_err += " -d \"some body\""
+
+    response_err = "HTTP/1.1 400 \r\n"
+    response_err += "Server: Firecracker API\r\n"
+    response_err += "Connection: keep-alive\r\n"
+    response_err += "Content-Type: application/json\r\n"
+    response_err += "Content-Length: 149\r\n\r\n"
+    response_err += "{ \"error\": \"Request payload with size 51201 is larger "
+    response_err += "than the limit of 51200 allowed by server.\n"
+    response_err += "All previous unanswered requests will be dropped.\" }"
+    _, stdout, _stderr = utils.run_cmd(cmd_err)
+    assert stdout.encode("utf-8") == response_err.encode("utf-8")
