@@ -174,6 +174,9 @@ impl ApiServer {
             error!("Error creating the HTTP server: {}", e);
             std::process::exit(vmm::FC_EXIT_CODE_GENERIC_ERROR);
         });
+        if let Some(request_size) = maybe_request_size {
+            server.set_payload_max_size(request_size);
+        }
 
         // Store process start time metric.
         process_time_reporter.report_start_time();
@@ -663,5 +666,61 @@ mod tests {
         assert!(sock.write_all(b"OPTIONS / HTTP/1.1\r\n\r\n").is_ok());
         let mut buf: [u8; 100] = [0; 100];
         assert!(sock.read(&mut buf[..]).unwrap() > 0);
+    }
+
+    #[test]
+    fn test_bind_and_run_with_limit() {
+        let mut tmp_socket = TempFile::new().unwrap();
+        tmp_socket.remove().unwrap();
+        let path_to_socket = tmp_socket.as_path().to_str().unwrap().to_owned();
+        let api_thread_path_to_socket = path_to_socket.clone();
+
+        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
+        let (api_request_sender, _from_api) = channel();
+        let (_to_api, vmm_response_receiver) = channel();
+        let mmds_info = MMDS.clone();
+        let seccomp_filters = get_filters(SeccompConfig::Advanced).unwrap();
+
+        thread::Builder::new()
+            .name("fc_api_test".to_owned())
+            .spawn(move || {
+                ApiServer::new(
+                    mmds_info,
+                    api_request_sender,
+                    vmm_response_receiver,
+                    to_vmm_fd,
+                )
+                .bind_and_run(
+                    PathBuf::from(api_thread_path_to_socket),
+                    ProcessTimeReporter::new(Some(1), Some(1), Some(1)),
+                    seccomp_filters.get("api").unwrap(),
+                    Some(50),
+                )
+                .unwrap();
+            })
+            .unwrap();
+
+        // Wait for the server to set itself up.
+        thread::sleep(Duration::from_millis(10));
+        let mut sock = UnixStream::connect(PathBuf::from(path_to_socket)).unwrap();
+
+        // Send a GET mmds request.
+        assert!(sock
+            .write_all(
+                b"PUT http://localhost/home HTTP/1.1\r\n\
+                  Content-Length: 50000\r\n\r\naaaaaa"
+            )
+            .is_ok());
+        let mut buf: [u8; 265] = [0; 265];
+        assert!(sock.read(&mut buf[..]).unwrap() > 0);
+        let error_message = b"HTTP/1.1 400 \r\n\
+                              Server: Firecracker API\r\n\
+                              Connection: keep-alive\r\n\
+                              Content-Type: application/json\r\n\
+                              Content-Length: 146\r\n\r\n{ \"error\": \"\
+                              Request payload with size 50000 is larger than \
+                              the limit of 50 allowed by server.\nAll previous \
+                              unanswered requests will be dropped.\" }";
+        assert_eq!(&buf[..], &error_message[..]);
     }
 }
