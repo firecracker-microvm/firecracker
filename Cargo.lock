@@ -39,6 +39,7 @@ dependencies = [
  "utils",
  "versionize",
  "versionize_derive",
+ "vm-fdt",
  "vm-memory 0.1.0",
 ]
 
@@ -964,6 +965,12 @@ dependencies = [
 [[package]]
 name = "virtio_gen"
 version = "0.1.0"
+
+[[package]]
+name = "vm-fdt"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd986f4fdf949ab2181c7b4fedb03fb0e9de6b0aa788fff247b2608701ce3457"
 
 [[package]]
 name = "vm-memory"
