@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added `--http_api_max_payload_size` parameter to configure the maximum payload
+  size for PUT and PATCH requests.
+
 ## [0.25.0]
 
 ### Added
