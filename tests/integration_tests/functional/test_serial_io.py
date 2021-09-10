@@ -15,27 +15,12 @@ import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 
-class WaitLogin(TestState):  # pylint: disable=too-few-public-methods
+class WaitTerminal(TestState):  # pylint: disable=too-few-public-methods
     """Initial state when we wait for the login prompt."""
 
     def handle_input(self, serial, input_char) -> TestState:
         """Handle input and return next state."""
         if self.match(input_char):
-            # Send login username.
-            serial.tx("root")
-            return WaitPasswordPrompt("Password:")
-        return self
-
-
-class WaitPasswordPrompt(TestState):  # pylint: disable=too-few-public-methods
-    """Wait for the password prompt to be shown."""
-
-    def handle_input(self, serial, input_char) -> TestState:
-        """Handle input and return next state."""
-        if self.match(input_char):
-            serial.tx("root")
-            # Wait 1 second for shell
-            time.sleep(1)
             serial.tx("id")
             return WaitIDResult("uid=0(root) gid=0(root) groups=0(root)")
         return self
@@ -59,13 +44,13 @@ class TestFinished(TestState):  # pylint: disable=too-few-public-methods
         return self
 
 
-def test_serial_console_login(test_microvm_with_ssh):
+def test_serial_console_login(test_microvm_with_api):
     """
     Test serial console login.
 
     @type: functional
     """
-    microvm = test_microvm_with_ssh
+    microvm = test_microvm_with_api
     microvm.jailer.daemonize = False
     microvm.spawn()
 
@@ -81,7 +66,7 @@ def test_serial_console_login(test_microvm_with_ssh):
 
     serial = Serial(microvm)
     serial.open()
-    current_state = WaitLogin("login:")
+    current_state = WaitTerminal("ubuntu-fc-uvm:")
 
     while not isinstance(current_state, TestFinished):
         output_char = serial.rx_char()
@@ -109,13 +94,13 @@ def send_bytes(tty, bytes_count, timeout=60):
             break
 
 
-def test_serial_dos(test_microvm_with_ssh):
+def test_serial_dos(test_microvm_with_api):
     """
     Test serial console behavior under DoS.
 
     @type: functional
     """
-    microvm = test_microvm_with_ssh
+    microvm = test_microvm_with_api
     microvm.jailer.daemonize = False
     microvm.spawn()
     microvm.memory_events_queue = None
@@ -141,13 +126,13 @@ def test_serial_dos(test_microvm_with_ssh):
                                               after_size)
 
 
-def test_serial_block(test_microvm_with_ssh, network_config):
+def test_serial_block(test_microvm_with_api, network_config):
     """
     Test that writing to stdout never blocks the vCPU thread.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     test_microvm.jailer.daemonize = False
     test_microvm.spawn()
     # Set up the microVM with 1 vCPU so we make sure the vCPU thread

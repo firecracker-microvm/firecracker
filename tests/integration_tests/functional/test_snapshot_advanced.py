@@ -6,7 +6,7 @@ import logging
 import platform
 import tempfile
 import pytest
-from test_balloon import _test_rss_memory_lower, copy_util_to_rootfs
+from test_balloon import _test_rss_memory_lower
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
@@ -52,7 +52,7 @@ def test_restore_old_snapshot_all_devices(bin_cloner_path):
     # With each binary create a snapshot and try to restore in current
     # version.
     firecracker_artifacts = artifacts.firecrackers(
-        older_than=get_firecracker_version_from_toml())
+        max_version=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()
@@ -107,7 +107,9 @@ def test_restore_old_version_all_devices(bin_cloner_path):
     # Create a snapshot with current build and restore with each FC binary
     # artifact.
     firecracker_artifacts = artifacts.firecrackers(
-        older_than=get_firecracker_version_from_toml())
+        # v0.26.0 breaks snapshot compatibility with older versions.
+        min_version="0.26.0",
+        max_version=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()
         jailer = firecracker.jailer()
@@ -117,8 +119,6 @@ def test_restore_old_version_all_devices(bin_cloner_path):
 
         # Old version from artifact.
         target_version = firecracker.base_name()[1:]
-        # v0.23 does not have a balloon device.
-        balloon = "0.23" not in target_version
 
         # Create a snapshot with current FC version targeting the old version.
         snapshot = create_snapshot_helper(builder,
@@ -126,7 +126,7 @@ def test_restore_old_version_all_devices(bin_cloner_path):
                                           target_version=target_version,
                                           drives=scratch_drives,
                                           ifaces=net_ifaces,
-                                          balloon=balloon,
+                                          balloon=True,
                                           diff_snapshots=True)
 
         logger.info("Restoring snapshot with Firecracker: %s",
@@ -139,8 +139,7 @@ def test_restore_old_version_all_devices(bin_cloner_path):
                                             diff_snapshots=False,
                                             fc_binary=firecracker.local_path(),
                                             jailer_binary=jailer.local_path())
-        validate_all_devices(logger, vm, net_ifaces, scratch_drives,
-                             balloon)
+        validate_all_devices(logger, vm, net_ifaces, scratch_drives, True)
         logger.debug("========== Firecracker restore snapshot log ==========")
         logger.debug(vm.log_data)
 
@@ -291,9 +290,6 @@ def create_snapshot_helper(builder, logger, target_version=None,
         snapshot_type = SnapshotType.DIFF
 
     if balloon:
-        # Copy balloon test util.
-        copy_util_to_rootfs(vm_instance.disks[0].local_path(), 'fillmem')
-
         # Add a memory balloon with stats enabled.
         response = vm.balloon.put(
             amount_mib=0,
@@ -319,14 +315,14 @@ def create_snapshot_helper(builder, logger, target_version=None,
     vm.start()
 
     # Iterate and validate connectivity on all ifaces after boot.
-    for iface in net_ifaces:
+    for iface in ifaces:
         vm.ssh_config['hostname'] = iface.guest_ip
         ssh_connection = net_tools.SSHConnection(vm.ssh_config)
         exit_code, _, _ = ssh_connection.execute_command("sync")
         assert exit_code == 0
 
     # Mount scratch drives in guest.
-    for blk in scratch_drives:
+    for blk in test_drives:
         # Create mount point and mount each device.
         cmd = "mkdir -p /mnt/{blk} && mount /dev/{blk} /mnt/{blk}".format(
             blk=blk
@@ -352,7 +348,7 @@ def create_snapshot_helper(builder, logger, target_version=None,
                                        vm_instance.ssh_key,
                                        target_version=target_version,
                                        snapshot_type=snapshot_type,
-                                       net_ifaces=net_ifaces)
+                                       net_ifaces=ifaces)
     logger.debug("========== Firecracker create snapshot log ==========")
     logger.debug(vm.log_data)
     vm.kill()

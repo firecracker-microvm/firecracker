@@ -30,13 +30,13 @@ def test_no_boottime(test_microvm_with_api):
     assert not timestamps
 
 
-def test_boottime_no_network(test_microvm_with_boottime):
+def test_boottime_no_network(test_microvm_with_api):
     """
     Check boot time of microVM without a network device.
 
     @type: performance
     """
-    vm = test_microvm_with_boottime
+    vm = test_microvm_with_api
     vm.jailer.extra_args.update(
         {'boot-timer': None}
     )
@@ -50,7 +50,7 @@ def test_boottime_no_network(test_microvm_with_boottime):
 
 
 def test_boottime_with_network(
-        test_microvm_with_boottime,
+        test_microvm_with_api,
         network_config
 ):
     """
@@ -58,7 +58,7 @@ def test_boottime_with_network(
 
     @type: performance
     """
-    vm = test_microvm_with_boottime
+    vm = test_microvm_with_api
     vm.jailer.extra_args.update(
         {'boot-timer': None}
     )

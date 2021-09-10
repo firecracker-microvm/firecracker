@@ -34,11 +34,11 @@ dependencies = [
  "kvm-bindings",
  "kvm-ioctls",
  "libc",
- "libfdt-bindings",
  "logger",
  "utils",
  "versionize",
  "versionize_derive",
+ "vm-fdt",
  "vm-memory 0.1.0",
 ]
 
@@ -318,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "firecracker"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "api_server",
  "event-manager",
@@ -381,7 +381,7 @@ checksum = "b71991ff56294aa922b450139ee08b3bfc70982c6b2c7562771375cf73542dd4"
 
 [[package]]
 name = "jailer"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "libc",
  "regex",
@@ -407,8 +407,8 @@ dependencies = [
 
 [[package]]
 name = "kvm-bindings"
-version = "0.4.0"
-source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.4.0-1#9a5fbd29ad9011aa1e004849de7f28b2b3002b01"
+version = "0.5.0"
+source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.5.0-1#4569d3f5b7746b66fc58a14cd05e5dbf9368932b"
 dependencies = [
  "versionize",
  "versionize_derive",
@@ -437,13 +437,6 @@ name = "libc"
 version = "0.2.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1fa8cddc8fbbee11227ef194b5317ed014b8acbf15139bd716a18ad3fe99ec5"
-
-[[package]]
-name = "libfdt-bindings"
-version = "0.1.0"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "log"
@@ -485,7 +478,7 @@ dependencies = [
 [[package]]
 name = "micro_http"
 version = "0.1.0"
-source = "git+https://github.com/firecracker-microvm/micro-http?rev=49240ce#49240ce1d5a81a594aa12895c1ef4091c0fd8e9b"
+source = "git+https://github.com/firecracker-microvm/micro-http?rev=36e59a0#36e59a083e76a2449e0f58e4283d201bc72fdf13"
 dependencies = [
  "libc",
  "vmm-sys-util",
@@ -966,6 +959,12 @@ name = "virtio_gen"
 version = "0.1.0"
 
 [[package]]
+name = "vm-fdt"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd986f4fdf949ab2181c7b4fedb03fb0e9de6b0aa788fff247b2608701ce3457"
+
+[[package]]
 name = "vm-memory"
 version = "0.1.0"
 dependencies = [
@@ -1014,6 +1013,7 @@ dependencies = [
  "utils",
  "versionize",
  "versionize_derive",
+ "virtio_gen",
  "vm-memory 0.1.0",
  "vm-superio",
 ]

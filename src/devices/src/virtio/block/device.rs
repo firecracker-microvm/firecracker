@@ -16,7 +16,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use logger::{error, warn, IncMetric, METRICS};
-use rate_limiter::{BucketUpdate, RateLimiter, TokenType};
+use rate_limiter::{BucketUpdate, RateLimiter};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
 use vm_memory::{Bytes, GuestMemoryMmap};
@@ -30,6 +30,7 @@ use super::{
 use crate::virtio::{IrqTrigger, IrqType};
 
 use serde::{Deserialize, Serialize};
+use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -55,7 +56,7 @@ pub(crate) struct DiskProperties {
     file_path: String,
     file: File,
     nsectors: u64,
-    image_id: Vec<u8>,
+    image_id: [u8; VIRTIO_BLK_ID_BYTES as usize],
 }
 
 impl DiskProperties {
@@ -117,18 +118,18 @@ impl DiskProperties {
         Ok(device_id)
     }
 
-    fn build_disk_image_id(disk_file: &File) -> Vec<u8> {
-        let mut default_id = vec![0; VIRTIO_BLK_ID_BYTES as usize];
+    fn build_disk_image_id(disk_file: &File) -> [u8; VIRTIO_BLK_ID_BYTES as usize] {
+        let mut default_id = [0; VIRTIO_BLK_ID_BYTES as usize];
         match Self::build_device_id(disk_file) {
             Err(_) => {
                 warn!("Could not generate device id. We'll use a default.");
             }
-            Ok(m) => {
+            Ok(disk_id_string) => {
                 // The kernel only knows to read a maximum of VIRTIO_BLK_ID_BYTES.
                 // This will also zero out any leftover bytes.
-                let disk_id = m.as_bytes();
+                let disk_id = disk_id_string.as_bytes();
                 let bytes_to_copy = cmp::min(disk_id.len(), VIRTIO_BLK_ID_BYTES as usize);
-                default_id[..bytes_to_copy].clone_from_slice(&disk_id[..bytes_to_copy])
+                default_id[..bytes_to_copy].copy_from_slice(&disk_id[..bytes_to_copy]);
             }
         }
         default_id
@@ -216,7 +217,7 @@ impl Block {
     ) -> io::Result<Block> {
         let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only, cache_type)?;
 
-        let mut avail_features = 1u64 << VIRTIO_F_VERSION_1;
+        let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
 
         if cache_type == CacheType::Writeback {
             avail_features |= 1u64 << VIRTIO_BLK_F_FLUSH;
@@ -279,36 +280,15 @@ impl Block {
 
         let queue = &mut self.queues[queue_index];
         let mut used_any = false;
-        while let Some(head) = queue.pop(mem) {
-            let len = match Request::parse(&head, mem) {
+        while let Some(head) = queue.pop_or_enable_notification(mem) {
+            let len = match Request::parse(&head, mem, self.disk.nsectors()) {
                 Ok(request) => {
-                    // If limiter.consume() fails it means there is no more TokenType::Ops
-                    // budget and rate limiting is in effect.
-                    if !self.rate_limiter.consume(1, TokenType::Ops) {
+                    if request.rate_limit(&mut self.rate_limiter) {
                         // Stop processing the queue and return this descriptor chain to the
                         // avail ring, for later processing.
                         queue.undo_pop();
                         METRICS.block.rate_limiter_throttled_events.inc();
                         break;
-                    }
-                    // Exercise the rate limiter only if this request is of data transfer type.
-                    if request.request_type == RequestType::In
-                        || request.request_type == RequestType::Out
-                    {
-                        // If limiter.consume() fails it means there is no more TokenType::Bytes
-                        // budget and rate limiting is in effect.
-                        if !self
-                            .rate_limiter
-                            .consume(u64::from(request.data_len), TokenType::Bytes)
-                        {
-                            // Revert the OPS consume().
-                            self.rate_limiter.manual_replenish(1, TokenType::Ops);
-                            // Stop processing the queue and return this descriptor chain to the
-                            // avail ring, for later processing.
-                            queue.undo_pop();
-                            METRICS.block.rate_limiter_throttled_events.inc();
-                            break;
-                        }
                     }
 
                     let status = Status::from_result(request.execute(&mut self.disk, mem));
@@ -341,16 +321,19 @@ impl Block {
                     head.index, e
                 )
             });
+
+            if queue.prepare_kick(mem) {
+                self.irq_trigger
+                    .trigger_irq(IrqType::Vring)
+                    .unwrap_or_else(|_| {
+                        METRICS.block.event_fails.inc();
+                    });
+            }
+
             used_any = true;
         }
 
-        if used_any {
-            self.irq_trigger
-                .trigger_irq(IrqType::Vring)
-                .unwrap_or_else(|_| {
-                    METRICS.block.event_fails.inc();
-                });
-        } else {
+        if !used_any {
             METRICS.block.no_avail_buffer.inc();
         }
     }
@@ -479,6 +462,13 @@ impl VirtioDevice for Block {
     }
 
     fn activate(&mut self, mem: GuestMemoryMmap) -> ActivateResult {
+        let event_idx = self.has_feature(u64::from(VIRTIO_RING_F_EVENT_IDX));
+        if event_idx {
+            for queue in &mut self.queues {
+                queue.enable_notif_suppression();
+            }
+        }
+
         if self.activate_evt.write(1).is_err() {
             error!("Block: Cannot write to activate_evt");
             return Err(super::super::ActivateError::BadActivate);
@@ -499,6 +489,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::virtio::queue::tests::*;
+    use rate_limiter::TokenType;
     use utils::tempfile::TempFile;
     use vm_memory::GuestAddress;
 
@@ -543,7 +534,7 @@ pub(crate) mod tests {
 
         assert_eq!(block.device_type(), TYPE_BLOCK);
 
-        let features: u64 = 1u64 << VIRTIO_F_VERSION_1;
+        let features: u64 = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
 
         assert_eq!(block.avail_features_by_page(0), features as u32);
         assert_eq!(block.avail_features_by_page(1), (features >> 32) as u32);
@@ -668,7 +659,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_request_execute_failures() {
+    fn test_request_parse_failures() {
         let mut block = default_block();
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -677,7 +668,6 @@ pub(crate) mod tests {
         initialize_virtqueue(&vq);
 
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
-        let status_addr = GuestAddress(vq.dtable[2].addr.get());
 
         {
             // First descriptor no longer writable.
@@ -693,11 +683,7 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(vq.used.ring[0].get().len, 0);
         }
 
         {
@@ -717,11 +703,7 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(vq.used.ring[0].get().len, 0);
         }
     }
 
@@ -817,11 +799,7 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(vq.used.ring[0].get().len, 0);
 
             // Check that the data wasn't written to the file
             let mut buf = [0u8; 512];
@@ -871,13 +849,8 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-
-            // Only status byte length.
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            // The descriptor should have been discarded.
+            assert_eq!(vq.used.ring[0].get().len, 0);
 
             // Check that no data was read.
             let mut buf = [0u8; 512];
@@ -937,13 +910,8 @@ pub(crate) mod tests {
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-
-            // Only status byte length.
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            // The descriptor should have been discarded.
+            assert_eq!(vq.used.ring[0].get().len, 0);
 
             // Check that no data was read.
             let mut buf = [0u8; 512];
@@ -1114,7 +1082,7 @@ pub(crate) mod tests {
             assert_eq!(received_device_id, expected_device_id);
         }
 
-        // Test that a device ID request will fail, if it fails to provide enough buffer space.
+        // Test that a device ID request will be discarded, if it fails to provide enough buffer space.
         {
             vq.used.idx.set(0);
             set_queue(&mut block, 0, vq.create_queue());
@@ -1126,11 +1094,7 @@ pub(crate) mod tests {
             invoke_handler_for_queue_event(&mut block);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
-            assert_eq!(vq.used.ring[0].get().len, 1);
-            assert_eq!(
-                mem.read_obj::<u32>(status_addr).unwrap(),
-                VIRTIO_BLK_S_IOERR
-            );
+            assert_eq!(vq.used.ring[0].get().len, 0);
         }
     }
 
@@ -1308,6 +1272,6 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(block.disk.file.metadata().unwrap().st_ino(), mdata.st_ino());
-        assert_eq!(block.disk.image_id, id);
+        assert_eq!(block.disk.image_id, id.as_slice());
     }
 }

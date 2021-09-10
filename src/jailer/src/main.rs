@@ -30,6 +30,7 @@ pub enum Error {
     ChangeFileOwner(PathBuf, io::Error),
     ChdirNewRoot(io::Error),
     Chmod(PathBuf, io::Error),
+    Clone(io::Error),
     CloseNetNsFd(io::Error),
     CloseDevNullFd(io::Error),
     Copy(PathBuf, PathBuf, io::Error),
@@ -69,7 +70,6 @@ pub enum Error {
     UmountOldRoot(io::Error),
     UnexpectedListenerFd(i32),
     UnshareNewNs(io::Error),
-    UnshareNewPID(io::Error),
     UnsetCloexec(io::Error),
     Write(PathBuf, io::Error),
 }
@@ -113,6 +113,7 @@ impl fmt::Display for Error {
                 write!(f, "Failed to change owner for {:?}: {}", path, err)
             }
             ChdirNewRoot(ref err) => write!(f, "Failed to chdir into chroot directory: {}", err),
+            Clone(ref err) => write!(f, "Failed cloning into a new child process: {}", err),
             CloseNetNsFd(ref err) => write!(f, "Failed to close netns fd: {}", err),
             CloseDevNullFd(ref err) => write!(f, "Failed to close /dev/null fd: {}", err),
             Copy(ref file, ref path, ref err) => write!(
@@ -211,9 +212,6 @@ impl fmt::Display for Error {
             }
             UnshareNewNs(ref err) => {
                 write!(f, "Failed to unshare into new mount namespace: {}", err)
-            }
-            UnshareNewPID(ref err) => {
-                write!(f, "Failed to unshare into new PID namespace: {}", err)
             }
             UnsetCloexec(ref err) => write!(
                 f,
@@ -517,6 +515,10 @@ mod tests {
             "Failed to chdir into chroot directory: No message of desired type (os error 42)"
         );
         assert_eq!(
+            format!("{}", Error::Clone(io::Error::from_raw_os_error(42))),
+            "Failed cloning into a new child process: No message of desired type (os error 42)",
+        );
+        assert_eq!(
             format!("{}", Error::CloseNetNsFd(io::Error::from_raw_os_error(42))),
             "Failed to close netns fd: No message of desired type (os error 42)",
         );
@@ -712,10 +714,6 @@ mod tests {
         assert_eq!(
             format!("{}", Error::UnshareNewNs(io::Error::from_raw_os_error(42))),
             "Failed to unshare into new mount namespace: No message of desired type (os error 42)",
-        );
-        assert_eq!(
-            format!("{}", Error::UnshareNewPID(io::Error::from_raw_os_error(42))),
-            "Failed to unshare into new PID namespace: No message of desired type (os error 42)",
         );
         assert_eq!(
             format!("{}", Error::UnsetCloexec(io::Error::from_raw_os_error(42))),

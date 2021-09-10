@@ -4,7 +4,6 @@
 pub mod device;
 pub mod event_handler;
 pub mod persist;
-#[cfg(test)]
 pub mod test_utils;
 mod utils;
 

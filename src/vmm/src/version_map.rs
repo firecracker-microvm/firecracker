@@ -9,10 +9,21 @@ use crate::device_manager::persist::DeviceStates;
 #[cfg(target_arch = "x86_64")]
 use crate::vstate::vcpu::VcpuState;
 use devices::virtio::block::persist::BlockState;
+use devices::virtio::QueueState;
 
 use lazy_static::lazy_static;
 use versionize::VersionMap;
 use versionize::Versionize;
+
+/// Snap version for Firecracker v0.23
+#[cfg(target_arch = "x86_64")]
+pub const FC_V0_23_SNAP_VERSION: u16 = 1;
+/// Snap version for Firecracker v0.24
+pub const FC_V0_24_SNAP_VERSION: u16 = 2;
+/// Snap version for Firecracker v0.25
+pub const FC_V0_25_SNAP_VERSION: u16 = 3;
+/// Snap version for Firecracker v0.26
+pub const FC_V0_26_SNAP_VERSION: u16 = 4;
 
 lazy_static! {
     // Note: until we have a better design, this needs to be updated when the version changes.
@@ -29,6 +40,9 @@ lazy_static! {
         #[cfg(target_arch = "x86_64")]
         version_map.set_type_version(VcpuState::type_id(), 2);
 
+        // v0.26 state change mappings
+        version_map.new_version().set_type_version(QueueState::type_id(), 2);
+
         version_map
     };
 
@@ -37,10 +51,11 @@ lazy_static! {
     pub static ref FC_VERSION_TO_SNAP_VERSION: HashMap<String, u16> = {
         let mut mapping = HashMap::new();
         #[cfg(not(target_arch = "aarch64"))]
-        mapping.insert(String::from("0.23.0"), 1);
+        mapping.insert(String::from("0.23.0"), FC_V0_23_SNAP_VERSION);
 
-        mapping.insert(String::from("0.24.0"), 2);
-        mapping.insert(String::from("0.25.0"), 3);
+        mapping.insert(String::from("0.24.0"), FC_V0_24_SNAP_VERSION);
+        mapping.insert(String::from("0.25.0"), FC_V0_25_SNAP_VERSION);
+        mapping.insert(String::from("0.26.0"), FC_V0_26_SNAP_VERSION);
 
         mapping
     };

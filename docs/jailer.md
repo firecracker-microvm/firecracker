@@ -62,8 +62,10 @@ Here is an example on how to set multiple resource limits using this argument:
 
 - When present, the `--daemonize` flag causes the jailer to cal `setsid()` and
   redirect all three standard I/O file descriptors to `/dev/null`.
-- When present, the `--new-pid-ns` flag causes the jailer to `fork()` and then
-  exec the provided binary into a new PID namespace. As a result, the jailer and
+- When present, the `--new-pid-ns` flag causes the jailer to spawn the provided
+  binary into a new PID namespace.
+  It makes use of the libc `clone()` function with the `CLONE_NEWPID` flag.
+  As a result, the jailer and
   the process running the exec file have different PIDs. The PID of the child
   process is stored in the jail root directory inside `<exec_file_name>.pid`.
 - The jailer adheres to the "end of command options" convention, meaning
@@ -116,13 +118,11 @@ After starting, the Jailer goes through the following operations:
   namespace.
 - If `--daemonize` is specified, call `setsid()` and redirect `STDIN`,
   `STDOUT`, and `STDERR` to `/dev/null`.
-- If `--new-pid-ns` is specified, call `unshare()` into a new PID namespace.
-  This will not have any effect on the current process, but its first
-  child will assume the role of init(1) in the new namespace. Next, the
-  jailer is duplicated by a `fork()` call, so that the child process
-  belongs to the previously created PID namespace. The parent will store
-  child's PID inside `<exec_file_name>.pid`, while the child drops privileges
-  and`exec()`s into the `<exec_file_name>`, as described below.
+- If `--new-pid-ns` is specified, call `clone()` with `CLONE_NEWPID` flag
+  to spawn a new process within a new PID namespace.
+  The new process will assume the role of init(1) in the new namespace.
+  The parent will store child's PID inside `<exec_file_name>.pid`, while the child
+  drops privileges and `exec()`s into the `<exec_file_name>`, as described below.
 - Drop privileges via setting the provided `uid` and `gid`.
 - Exec into `<exec_file_name> --id=<id>
   --start-time-us=<opaque> --start-time-cpu-us=<opaque>` (and also forward

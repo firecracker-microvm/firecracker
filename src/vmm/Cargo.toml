@@ -18,7 +18,7 @@ vm-memory = { path = "../vm-memory" }
 arch = { path = "../arch" }
 devices = { path = "../devices" }
 kernel = { path = "../kernel" }
-kvm-bindings = { version = ">=0.4.0", features = ["fam-wrappers"] }
+kvm-bindings = { version = ">=0.5.0", features = ["fam-wrappers"] }
 kvm-ioctls = ">=0.9.0"
 logger = { path = "../logger" }
 mmds = { path = "../mmds" }
@@ -26,6 +26,7 @@ rate_limiter = { path = "../rate_limiter" }
 seccompiler = { path = "../seccompiler" }
 snapshot = { path = "../snapshot"}
 utils = { path = "../utils" }
+virtio_gen = { path = "../virtio_gen" }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 cpuid = { path = "../cpuid" }

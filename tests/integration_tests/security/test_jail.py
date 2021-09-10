@@ -47,13 +47,13 @@ def check_stats(filepath, stats, uid, gid):
     assert st.st_mode ^ stats == 0
 
 
-def test_default_chroot(test_microvm_with_ssh):
+def test_default_chroot(test_microvm_with_api):
     """
     Test that the jailer assigns a default chroot if none is specified.
 
     @type: security
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
 
     # Start customizing arguments.
     # Test that firecracker's default chroot folder is indeed `/srv/jailer`.
@@ -65,13 +65,13 @@ def test_default_chroot(test_microvm_with_ssh):
     assert os.path.exists(test_microvm.jailer.api_socket_path())
 
 
-def test_empty_jailer_id(test_microvm_with_ssh):
+def test_empty_jailer_id(test_microvm_with_api):
     """
     Test that the jailer ID cannot be empty.
 
     @type: security
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
     fc_binary, _ = build_tools.get_firecracker_binaries()
 
     # Set the jailer ID to None.
@@ -385,13 +385,13 @@ def test_new_pid_ns_resource_limits(test_microvm_with_ssh):
     check_limits(fc_pid, NOFILE, FSIZE)
 
 
-def test_new_pid_namespace(test_microvm_with_ssh):
+def test_new_pid_namespace(test_microvm_with_api):
     """
     Test that Firecracker is spawned in a new PID namespace if requested.
 
     @type: security
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
 
     test_microvm.jailer.daemonize = False
     test_microvm.jailer.new_pid_ns = True

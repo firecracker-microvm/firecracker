@@ -85,10 +85,10 @@ file system image (to use as rootfs).
 
 1. To run an `x86_64` guest you can download such resources from:
     [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin)
-    and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/hello/fsfiles/hello-rootfs.ext4).
+    and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/rootfs/bionic.rootfs.ext4).
 1. To run an `aarch64` guest, download them from:
     [kernel](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/aarch64/kernels/vmlinux.bin)
-    and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/aarch64/ubuntu_with_ssh/fsfiles/xenial.rootfs.ext4).
+    and [rootfs](https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/aarch64/rootfs/bionic.rootfs.ext4).
 
 Now, let's open up two shell prompts: one to run Firecracker, and another one
 to control it (by writing to the API socket). For the purpose of this guide,
@@ -117,14 +117,14 @@ In your **second shell** prompt:
   arch=`uname -m`
   dest_kernel="hello-vmlinux.bin"
   dest_rootfs="hello-rootfs.ext4"
-  image_bucket_url="https://s3.amazonaws.com/spec.ccfc.min/img"
+  image_bucket_url="https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/$arch"
 
   if [ ${arch} = "x86_64" ]; then
-      kernel="${image_bucket_url}/quickstart_guide/x86_64/kernels/vmlinux.bin"
-      rootfs="${image_bucket_url}/hello/fsfiles/hello-rootfs.ext4"
+      kernel="${image_bucket_url}/kernels/vmlinux.bin"
+      rootfs="${image_bucket_url}/rootfs/bionic.rootfs.ext4"
   elif [ ${arch} = "aarch64" ]; then
-      kernel="${image_bucket_url}/quickstart_guide/aarch64/kernels/vmlinux.bin"
-      rootfs="${image_bucket_url}/aarch64/ubuntu_with_ssh/fsfiles/xenial.rootfs.ext4"
+      kernel="${image_bucket_url}/kernels/vmlinux.bin"
+      rootfs="${image_bucket_url}/rootfs/bionic.rootfs.ext4"
   else
       echo "Cannot run firecracker on $arch architecture!"
       exit 1

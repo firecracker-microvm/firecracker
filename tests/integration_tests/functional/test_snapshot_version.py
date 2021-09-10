@@ -4,6 +4,7 @@
 
 import platform
 import pytest
+from framework.artifacts import NetIfaceConfig
 from framework.builder import SnapshotBuilder, MicrovmBuilder
 
 import host_tools.network as net_tools  # pylint: disable=import-error
@@ -39,13 +40,17 @@ def _create_and_start_microvm_with_net_devices(test_microvm,
         assert exit_code == 0
 
 
-def test_create_v0_23_snapshot(test_microvm_with_ssh):
+@pytest.mark.skipif(
+    platform.machine() != "aarch64",
+    reason="Exercises specific x86_64 functionality."
+)
+def test_create_v0_23_snapshot(test_microvm_with_api):
     """
-    Exercise creating a snapshot targeting v0.23 on all platforms.
+    Exercise creating a snapshot targeting v0.23 on aarch64.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
 
     _create_and_start_microvm_with_net_devices(test_microvm)
 
@@ -63,61 +68,23 @@ def test_create_v0_23_snapshot(test_microvm_with_ssh):
         diff=True,
         version="0.23.0"
     )
-    if platform.machine() == "x86_64":
-        assert test_microvm.api_session.is_status_no_content(
-            response.status_code)
-    elif platform.machine() == "aarch64":
-        assert test_microvm.api_session.is_status_bad_request(
-            response.status_code)
-        assert "Cannot translate microVM version to snapshot data version"\
-               in response.text
+
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "Cannot translate microVM version to snapshot data version"\
+           in response.text
 
 
 @pytest.mark.skipif(
     platform.machine() != "x86_64",
     reason="Exercises specific x86_64 functionality."
 )
-def test_create_with_prev_device_count(test_microvm_with_ssh, network_config):
-    """
-    Create snapshot with expected device count for previous versions.
-
-    @type: functional
-    """
-    test_microvm = test_microvm_with_ssh
-
-    # Create and start a microVM with (`FC_V0_23_MAX_DEVICES_ATTACHED` - 1)
-    # network devices.
-    devices_no = FC_V0_23_MAX_DEVICES_ATTACHED - 1
-    _create_and_start_microvm_with_net_devices(test_microvm,
-                                               network_config,
-                                               devices_no)
-
-    snapshot_builder = SnapshotBuilder(test_microvm)
-    # Create directory and files for saving snapshot state and memory.
-    _snapshot_dir = snapshot_builder.create_snapshot_dir()
-
-    # Pause and create a snapshot of the microVM. Firecracker v0.23 allowed a
-    # maximum of `FC_V0_23_MAX_DEVICES_ATTACHED` virtio devices at a time.
-    # This microVM has `FC_V0_23_MAX_DEVICES_ATTACHED` devices, including the
-    # rootfs, so snapshotting should succeed.
-    test_microvm.pause_to_snapshot(
-        mem_file_path="/snapshot/vm.mem",
-        snapshot_path="/snapshot/vm.vmstate",
-        diff=True,
-        version="0.23.0")
-
-
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Exercises specific x86_64 functionality."
-)
-def test_create_with_too_many_devices(test_microvm_with_ssh, network_config):
+def test_create_with_too_many_devices(test_microvm_with_api, network_config):
     """
     Create snapshot with unexpected device count for previous versions.
 
     @type: negative
     """
-    test_microvm = test_microvm_with_ssh
+    test_microvm = test_microvm_with_api
 
     # Create and start a microVM with `FC_V0_23_MAX_DEVICES_ATTACHED`
     # network devices.
@@ -186,3 +153,57 @@ def test_create_invalid_version(bin_cloner_path):
             str(error)
     else:
         assert False, "Negative test failed"
+
+
+def test_create_with_newer_virtio_features(bin_cloner_path):
+    """
+    Attempt to create a snapshot with newer virtio features.
+
+    @type: functional
+    """
+    builder = MicrovmBuilder(bin_cloner_path)
+    test_microvm = builder.build_vm_nano().vm
+    test_microvm.start()
+
+    # Init a ssh connection in order to wait for the VM to boot. This way
+    # we can be sure that the block device was activated.
+    iface = NetIfaceConfig()
+    test_microvm.ssh_config['hostname'] = iface.guest_ip
+    _ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    # Create directory and files for saving snapshot state and memory.
+    snapshot_builder = SnapshotBuilder(test_microvm)
+    _snapshot_dir = snapshot_builder.create_snapshot_dir()
+
+    # Pause microVM for snapshot.
+    response = test_microvm.vm.patch(state='Paused')
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # We try to create a snapshot to a target version < 0.26.0.
+    # This should fail because Fc versions < 0.26.0 don't support
+    # virtio notification suppression.
+    target_fc_versions = ["0.24.0", "0.25.0"]
+    if platform.machine() == "x86_64":
+        target_fc_versions.insert(0, "0.23.0")
+    for target_fc_version in target_fc_versions:
+        response = test_microvm.snapshot.create(
+            mem_file_path="/snapshot/vm.mem",
+            snapshot_path="/snapshot/vm.vmstate",
+            version=target_fc_version
+        )
+        assert test_microvm.api_session.is_status_bad_request(
+            response.status_code
+        )
+        assert "The virtio devices use a features that is incompatible " \
+               "with older versions of Firecracker: notification suppression" \
+               in response.text
+
+        # It should work when we target a version >= 0.26.0
+        response = test_microvm.snapshot.create(
+            mem_file_path="/snapshot/vm.mem",
+            snapshot_path="/snapshot/vm.vmstate",
+            version="0.26.0"
+        )
+        assert test_microvm.api_session.is_status_no_content(
+            response.status_code
+        )

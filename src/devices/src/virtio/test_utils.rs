@@ -1,6 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![doc(hidden)]
+
 use std::marker::PhantomData;
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};
