@@ -1068,12 +1068,15 @@ cmd_shell() {
 
     # By default, we run the container as the current user.
     privileged=false
+    cmd="echo \"Specify a command\""
+    execute_cmd=false
 
     # Parse any command line args.
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")          { cmd_help; exit 1; } ;;
             "-p"|"--privileged")    { privileged=true;  } ;;
+            "-c"|"--command")       { cmd=$2;  execute_cmd=true;shift 2;break;  } ;;
             "-r"|"--ramdisk")
                   shift
                   local ramdisk_size="$1"
@@ -1090,6 +1093,22 @@ cmd_shell() {
     # Make sure we have what we need to continue.
     ensure_devctr
     ensure_build_dir
+    privileged_cmd="run_devctr \
+                --privileged \
+                --ulimit nofile=4096:4096 \
+                --security-opt seccomp=unconfined \
+                --workdir '$CTR_ROOT_DIR' \
+                ${ramdisk_args} \
+                -- \
+                bash"
+    unprivileged_cmd="run_devctr \
+                --user '$(id -u):$(id -g)' \
+                --ulimit nofile=4096:4096 \
+                --device=/dev/kvm:/dev/kvm \
+                --workdir '$CTR_ROOT_DIR' \
+                --env PS1='$(whoami)@\h:\w\$ ' \
+                -- \
+                bash --norc"
 
     if [[ $ramdisk = true ]]; then
         mount_ramdisk ${ramdisk_size}
@@ -1103,15 +1122,14 @@ cmd_shell() {
         say "Note: $FC_ROOT_DIR is bind-mounted under $CTR_FC_ROOT_DIR"
         say_warn "You are running as root; any files that get created under" \
             "$CTR_FC_ROOT_DIR will be owned by root."
-        run_devctr \
-            --privileged \
-            --ulimit nofile=4096:4096 \
-            --security-opt seccomp=unconfined \
-            --workdir "$CTR_FC_ROOT_DIR" \
-            ${ramdisk_args} \
-            -- \
-            bash
-        ret=$?
+        if [[ $execute_cmd = true ]]; then
+            privileged_cmd="${privileged_cmd} -c '$cmd'"
+            eval ${privileged_cmd}
+            ok_or_die "Failed to execute command in privileged container."
+        else
+            eval ${privileged_cmd}
+            ok_or_die "Failed to start privileged container."
+        fi
 
         # Running as root may have created some root-owned files under the build
         # dir. Let's fix that.
@@ -1128,15 +1146,14 @@ cmd_shell() {
             say_warn "WARNING: user $(whoami) doesn't have permission to" \
                 "access /dev/kvm. You won't be able to run Firecracker."
 
-        run_devctr \
-            --user "$(id -u):$(id -g)" \
-            --ulimit nofile=4096:4096 \
-            --device=/dev/kvm:/dev/kvm \
-            --workdir "$CTR_FC_ROOT_DIR" \
-            --env PS1="$(whoami)@\h:\w\$ " \
-            -- \
-            bash --norc
-        ret=$?
+        if [[ $execute_cmd = true ]]; then
+            unprivileged_cmd="${unprivileged_cmd} -c '$cmd'"
+            eval ${unprivileged_cmd}
+            ok_or_die "Failed to execute command in unprivileged container."
+        else
+            eval ${unprivileged_cmd}
+            ok_or_die "Failed to start command unprivileged container."
+        fi
     fi
 
     if [[ $ramdisk = true ]]; then
