@@ -25,7 +25,7 @@ import host_tools.proc as proc
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 
-COVERAGE_DICT = {"Intel": 85.00, "AMD": 84.44, "ARM": 83.13}
+COVERAGE_DICT = {"Intel": 84.94, "AMD": 84.37, "ARM": 83.2}
 
 PROC_MODEL = proc.proc_type()
 
