@@ -744,6 +744,8 @@ cmd_help() {
     echo "    strip"
     echo "        Strip debug symbols from the Firecracker release binaries."
     echo ""
+
+    help_upload_assets
 }
 
 help_release() {
@@ -760,6 +762,21 @@ help_release() {
     echo "        -r, --repo                The name of the repository where the release will be posted."
     echo "        -m, --remote              The name of the remote where the release tag will be pushed."
     echo "        -p, --prerelease          Marks the release as a pre-release."
+}
+
+help_upload_assets() {
+    echo "    upload_assets -v <val> [-t <val> -r <val> -a <asset1> -a <asset2>]"
+    echo "        Uploads assets mentioned through -a|--asset arguments to the draft release for the version specified."
+    echo "        This script creates a list of assets for all asset names provided through -a|--asset arguments."
+    echo "        If the version provided does not have an associated draft release in the repo, the script exits."
+    echo "        If the draft release is found, it proceeds to upload assets one by one."
+    echo "        For authentication reasons, one needs to pass a GitHub API access token."
+    echo "        You can find instructions on how to create one: https://github.blog/2013-05-16-personal-api-tokens/."
+    echo "        -v, --version             The targeted draft release version."
+    echo "        -o, --owner               The GitHub owner of the targeted repo."
+    echo "        -t, --token               A GitHub Access token with "repo" permissions"
+    echo "        -r, --repo                The name of the repository where the draft release exists."
+    echo "        -a, --asset               Path to asset to be uploaded."
 }
 
 # `$0 build` - build Firecracker
@@ -1365,6 +1382,126 @@ push_local_tag() {
     remote="$2"
     say "Pushing local tag v$version to $remote..."
     git push "$remote" v"$version"
+}
+
+# Upload Firecracker release assets to the latest draft release on GitHub.
+# For this one needs to pass a GitHub API access token.
+# You can find instructions on how to create one: https://github.blog/2013-05-16-personal-api-tokens/.
+# If the draft release has not been created or it exists, but the associated tag does not match
+# the intended release, the script exits.
+# Example: `devtool upload_archives -v 0.42.0 -t token -a archive.tgz`
+#
+cmd_upload_assets() {
+    local repo="firecracker"
+    local remote="origin"
+    local owner="firecracker-microvm"
+
+    # List of assets to upload.
+    local assets=()
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")      { help_upload_assets; exit 1; } ;;
+            "-v"|"--version")
+                shift
+                local version="$1"
+                ;;
+            "-t"|"--token")
+                shift
+                local token="$1"
+                ;;
+             "-o"|"--owner")
+                shift
+                owner="$1"
+                ;;
+              "-r"|"--repo")
+                shift
+                repo="$1"
+                ;;
+              "-a"|"--asset")
+                shift
+                assets+=( "$1" )
+                ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+            ;;
+        esac
+        shift
+    done
+
+    validate_version "$version"
+    validate_repo "$owner" "$repo"
+
+    say "Will start uploading assets: ${assets[*]} to draft release v$version..."
+    get_user_confirmation || die "Aborted."
+
+    # Get URL for the draft release.
+    say "Getting upload URL for the draft release..."
+    url=$(get_upload_url "$token" "$owner" "$repo" "$version")
+    if [[ ! $? == 0 ]]; then
+      die "Abort."
+    fi
+
+    say "Uploading assets to draft release..."
+    for asset in "${assets[@]}"; do
+      upload_asset "$token" "$asset" "$url"
+    done
+    say "Assets successfully uploaded to draft release. Go to https://github.com/$owner/$repo/releases to check them out!"
+}
+
+# Call into GitHub's API to upload asset.
+upload_asset() {
+  token="$1"
+  asset="$2"
+  url="$3"
+
+  say "Uploading asset $asset to draft release..."
+  get_user_confirmation || die "Could not upload asset to draft release."
+
+  content_type="Content-Type: multipart/form-data"
+  asset_upload_url="$url/assets?name=$(basename $asset)"
+  API_RESPONSE=$(curl --data-binary @$asset -H "Authorization: token $token" -H "$content_type" -s -i $asset_upload_url)
+  if [[ ! "$API_RESPONSE" == *"HTTP/2 201"* ]]; then
+    die "Could not upload release asset $asset: $API_RESPONSE"
+  fi
+
+  say "Asset $(basename $asset) uploaded to draft release."
+}
+
+# Call into GitHub's API to fetch upload URL.
+get_upload_url() {
+  token="$1"
+  owner="$2"
+  repo="$3"
+  version="$4"
+
+  # Fetch all releases for repo.
+  API_RESPONSE=$(curl -X GET -H "Authorization: token $token" -s -i https://api.github.com/repos/$owner/$repo/releases)
+  if [[ ! "$API_RESPONSE" == *"HTTP/2 200"* ]]; then
+    die "Could not fetch release list: $API_RESPONSE"
+  fi
+
+  # Get URL for the latest draft release created.
+  draft_release_url=$(echo "${API_RESPONSE}" | grep releases | grep -m 1 -o -P '(?<=\"url\": \").*(?=\",)')
+
+  # Fetch release metadata for the previously computed URL.
+  API_RESPONSE=$(curl -X GET -H "Authorization: token $token" -s -i "$draft_release_url")
+  if [[ ! "$API_RESPONSE" == *"HTTP/2 200"* ]]; then
+    die "Could not fetch release from URL: $draft_release_url"
+  fi
+  # Verify that the release is indeed draft, fail otherwise.
+  if [[ ! "$API_RESPONSE" == *"\"draft\": true"* ]]; then
+    die "Could not find draft release."
+  fi
+  # Check associated release tag.
+  if [[ ! "$API_RESPONSE" == *"\"tag_name\": \"v$version\""* ]]; then
+    die "Tag name associated to the release does not match version: v$version."
+  fi
+
+  # All checks have passed, now return upload URL by substituting
+  # `api.github.com` host with `uploads.github.com`.
+  echo "$draft_release_url" | sed -r 's/api/uploads/g'
 }
 
 # Check if able to run firecracker.
