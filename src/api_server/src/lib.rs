@@ -107,6 +107,7 @@ impl ApiServer {
     /// # Example
     ///
     /// ```
+    /// use mmds::MAX_DATA_STORE_SIZE;
     /// use api_server::ApiServer;
     /// use mmds::MMDS;
     /// use std::{
@@ -130,7 +131,7 @@ impl ApiServer {
     /// let mmds_info = MMDS.clone();
     /// let time_reporter = ProcessTimeReporter::new(Some(1), Some(1), Some(1));
     /// let seccomp_filters = get_filters(SeccompConfig::None).unwrap();
-    /// let payload_limit = Some(51200);
+    /// let payload_limit = Some(MAX_DATA_STORE_SIZE);
     ///
     /// thread::Builder::new()
     ///     .name("fc_api_test".to_owned())
@@ -326,6 +327,10 @@ impl ApiServer {
                 data_store::Error::UnsupportedValueType => unreachable!(),
                 data_store::Error::NotInitialized => ApiServer::json_response(
                     StatusCode::BadRequest,
+                    ApiServer::json_fault_message(e.to_string()),
+                ),
+                data_store::Error::DataStoreLimitExceeded => ApiServer::json_response(
+                    StatusCode::PayloadTooLarge,
                     ApiServer::json_fault_message(e.to_string()),
                 ),
             },
