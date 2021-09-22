@@ -393,12 +393,12 @@ validate_version() {
 # Validate that the repo targetted for a release exists.
 #
 validate_repo() {
-    user="$1"
+    owner="$1"
     repo="$2"
-    if [ -z "$user" ]; then
-        die "GitHub user cannot be empty."
+    if [ -z "$owner" ]; then
+        die "GitHub owner cannot be empty."
     fi
-    git_link="https://api.github.com/repos/$user/$repo"
+    git_link="https://api.github.com/repos/$owner/$repo"
     status_code=$(curl --write-out %{http_code} --silent --output /dev/null $git_link)
     if [[ "$status_code" -ne 200 ]] ; then
         die "GitHub repo $git_link is not valid. Please provide a valid user/org and repository."
@@ -757,7 +757,7 @@ help_release() {
     echo "        For authentication reasons, one needs to pass a GitHub API access token."
     echo "        You can find instructions on how to create one: https://github.blog/2013-05-16-personal-api-tokens/."
     echo "        -v, --version             The targeted release version."
-    echo "        -u, --username            The GitHub owner of the targeted repo."
+    echo "        -o, --owner               The GitHub owner of the targeted repo."
     echo "        -t, --token               A GitHub Access token with "repo" permissions"
     echo "        -r, --repo                The name of the repository where the release will be posted."
     echo "        -m, --remote              The name of the remote where the release tag will be pushed."
@@ -1279,9 +1279,9 @@ cmd_release() {
                 shift
                 local token="$1"
                 ;;
-             "-u"|"--username")
+             "-o"|"--owner")
                 shift
-                local user="$1"
+                local owner="$1"
                 ;;
               "-r"|"--repo")
                 shift
@@ -1303,7 +1303,7 @@ cmd_release() {
     done
 
     validate_version "$version"
-    validate_repo "$user" "$repo"
+    validate_repo "$owner" "$repo"
 
     # Obtain the current branch.
     branch=$(get_branch)
@@ -1323,20 +1323,20 @@ cmd_release() {
 
             # Start by creating a local tag and associate to it a description.
             say "Creating local tag..."
-            create_local_tag "$version" "$prev_ver" || die "Could not create local tag v"$version"."
+            create_local_tag "$version" "$prev_ver" || die "Could not create local tag v$version."
 
             # From now on, any function that will fail will also need to revert creation of local tag.
             say "Continue with remote tag push?"
-            get_user_confirmation || die "Local tag not pushed to remote "$remote"."
-            push_local_tag "$version" "$remote" || delete_local_tag "$version" "Failed to push local tag v"$version"."
+            get_user_confirmation || die "Local tag not pushed to remote $remote."
+            push_local_tag "$version" "$remote" || delete_local_tag "$version" "Failed to push local tag v$version."
 
             say "Continue with posting a GitHub Release?"
             get_user_confirmation || delete_remote_tag "$version" "$remote" "Could not post release to GitHub."
 
             release_text=$(compose_release_text "$version" "$prev_ver")
-            post_release "$version" "$branch" "$user" "$repo" "$token" "$prerelease" "$release_text" ||
+            post_release "$version" "$branch" "$owner" "$repo" "$token" "$prerelease" "$release_text" ||
             delete_remote_tag "$version" "$remote" "Could not post release to GitHub."
-            say "Draft release created successful. Go to https://github.com/"$user"/"$repo"/releases to check it out!"
+            say "Draft release created successful. Go to https://github.com/$owner/$repo/releases to check it out!"
     fi
 fi
 }
