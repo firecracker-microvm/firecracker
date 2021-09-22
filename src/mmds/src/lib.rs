@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use crate::data_store::{Error as MmdsError, Mmds, OutputFormat};
 use lazy_static::lazy_static;
 use micro_http::{Body, MediaType, Method, Request, Response, StatusCode, Version};
+pub const MAX_DATA_STORE_SIZE: usize = 51200;
 
 lazy_static! {
     // A static reference to a global Mmds instance. We currently use this for ease of access during
@@ -125,6 +126,11 @@ fn convert_to_response(request: Request) -> Response {
             MmdsError::UnsupportedValueType => build_response(
                 request.http_version(),
                 StatusCode::NotImplemented,
+                Body::new(e.to_string()),
+            ),
+            MmdsError::DataStoreLimitExceeded => build_response(
+                request.http_version(),
+                StatusCode::PayloadTooLarge,
                 Body::new(e.to_string()),
             ),
             MmdsError::NotInitialized => unreachable!(),
