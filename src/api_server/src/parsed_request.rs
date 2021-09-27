@@ -24,6 +24,7 @@ use crate::ApiServer;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 
 use logger::{error, info};
+use std::os::unix::io::IntoRawFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 pub(crate) enum ParsedRequest {
@@ -106,7 +107,7 @@ impl ParsedRequest {
     }
 
     pub(crate) fn convert_to_response(
-        request_outcome: &std::result::Result<VmmData, VmmActionError>,
+        request_outcome: std::result::Result<VmmData, VmmActionError>,
     ) -> Response {
         match request_outcome {
             Ok(vmm_data) => match vmm_data {
@@ -115,14 +116,28 @@ impl ParsedRequest {
                     Response::new(Version::Http11, StatusCode::NoContent)
                 }
                 VmmData::MachineConfiguration(vm_config) => {
-                    Self::success_response_with_data(vm_config)
+                    Self::success_response_with_data(&vm_config)
                 }
                 VmmData::BalloonConfig(balloon_config) => {
-                    Self::success_response_with_data(balloon_config)
+                    Self::success_response_with_data(&balloon_config)
                 }
-                VmmData::BalloonStats(stats) => Self::success_response_with_data(stats),
-                VmmData::InstanceInformation(info) => Self::success_response_with_data(info),
-                VmmData::FullVmConfig(config) => Self::success_response_with_data(config),
+                VmmData::BalloonStats(stats) => Self::success_response_with_data(&stats),
+                VmmData::InstanceInformation(info) => Self::success_response_with_data(&info),
+                VmmData::FullVmConfig(config) => Self::success_response_with_data(&config),
+                VmmData::UffdBackendDescription(desc) => {
+                    // FIXME: "201 Created" http response code is better than "200 OK" here.
+                    let mut resp = Self::success_response_with_data(&desc);
+                    // TODO: we're leaking the FD here in firecracker process; but we leak it to
+                    // keep it open until the other end takes ownership of a copy.
+                    // To not leak it, we'd have to introduce another signal between the two
+                    // processes so we know when it's ok to drop.
+                    // All the extra complexity is not worth the effort in firecracker case, it's
+                    // ok to just keep this one FD open/leaked until end of process.
+                    // TODO: we could try to send `File` to microhttp and drop it after `sendmsg`.
+                    // resp.file = uffd.map(|inner| inner.into_raw_fd());
+                    resp.file = Some(desc.uffd.into_raw_fd());
+                    resp
+                }
             },
             Err(vmm_action_error) => {
                 error!(

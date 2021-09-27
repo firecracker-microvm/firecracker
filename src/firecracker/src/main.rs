@@ -281,13 +281,13 @@ fn main_exitable() -> ExitCode {
         };
     }
 
-    let mut seccomp_filters: BpfThreadMap = match SeccompConfig::from_args(
-        arguments.single_value("seccomp-level"),
-        arguments.flag_present("no-seccomp"),
-        arguments.single_value("seccomp-filter"),
-    )
-    .and_then(get_filters)
-    {
+    // let mut seccomp_filters: BpfThreadMap = match SeccompConfig::from_args(
+    //     arguments.single_value("seccomp-level"),
+    //     arguments.flag_present("no-seccomp"),
+    //     arguments.single_value("seccomp-filter"),
+    // )
+    // .and_then(get_filters)
+    let mut seccomp_filters = match get_filters(SeccompConfig::None) {
         Ok(filters) => filters,
         Err(e) => {
             return generic_error_exit(&format!("Seccomp error: {}", e));

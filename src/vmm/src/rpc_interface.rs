@@ -11,7 +11,7 @@ use super::{
     builder::build_microvm_for_boot, persist::create_snapshot, persist::restore_from_snapshot,
     resources::VmResources, Vmm,
 };
-use crate::persist::{CreateSnapshotError, LoadSnapshotError};
+use crate::persist::{CreateSnapshotError, LoadSnapshotError, UffdBackendDescription};
 use crate::resources::VmmConfig;
 use crate::version_map::VERSION_MAP;
 use crate::vmm_config::balloon::{
@@ -206,10 +206,12 @@ pub enum VmmData {
     Empty,
     /// The complete microVM configuration in JSON format.
     FullVmConfig(VmmConfig),
-    /// The microVM configuration represented by `VmConfig`.
-    MachineConfiguration(VmConfig),
     /// The microVM instance information.
     InstanceInformation(InstanceInfo),
+    /// The microVM configuration represented by `VmConfig`.
+    MachineConfiguration(VmConfig),
+    /// The memory description and UFFD to serve that memory.
+    UffdBackendDescription(UffdBackendDescription),
 }
 
 /// Shorthand result type for external VMM commands.
@@ -444,23 +446,28 @@ impl<'a> PrebootApiController<'a> {
             load_params,
             VERSION_MAP.clone(),
         )
-        .and_then(|vmm| {
+        .and_then(|(vmm, maybe_uffd)| {
+            info!("created vmm, continuing");
             let ret = if load_params.resume_vm {
+                info!("inline resume");
                 vmm.lock().expect("Poisoned lock").resume_vm()
             } else {
                 Ok(())
             };
             ret.map(|()| {
                 self.built_vmm = Some(vmm);
-                VmmData::Empty
+                info!("built vmm, continuing");
+                maybe_uffd.map_or(VmmData::Empty, |desc| VmmData::UffdBackendDescription(desc))
             })
             .map_err(LoadSnapshotError::ResumeMicroVm)
         })
         .map_err(|e| {
+            info!("load snap err");
             // The process is too dirty to recover at this point.
             self.fatal_error = Some(FC_EXIT_CODE_BAD_CONFIGURATION);
             VmmActionError::LoadSnapshot(e)
         });
+        info!("why not get here? result err {:?}", result.is_err());
 
         let elapsed_time_us =
             update_metric_with_elapsed_time(&METRICS.latencies_us.vmm_load_snapshot, load_start_us);

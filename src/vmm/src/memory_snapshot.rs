@@ -4,7 +4,6 @@
 //! Defines functionality for creating guest memory snapshots.
 
 use std::fmt::{Display, Formatter};
-use std::fs::File;
 use std::io::SeekFrom;
 
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -15,13 +14,16 @@ use vm_memory::{
 };
 
 use crate::DirtyBitmap;
+use std::fs::File;
 use utils::{errno, get_page_size};
 
 /// State of a guest memory region saved to file/buffer.
 #[derive(Debug, PartialEq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct GuestMemoryRegionState {
-    /// Base address.
+    // This should have been named `base_guest_addr` since it's _guest_ addr, but for
+    // backward compatibility we have to keep this name. At least this comment should help.
+    /// Base GuestAddress.
     pub base_address: u64,
     /// Region size.
     pub size: usize,
@@ -29,7 +31,7 @@ pub struct GuestMemoryRegionState {
     pub offset: u64,
 }
 
-/// Guest memory state.
+/// Describes guest memory regions and mappings.
 #[derive(Debug, Default, PartialEq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct GuestMemoryState {
@@ -55,7 +57,7 @@ where
     /// Creates a GuestMemoryMmap given a `file` containing the data
     /// and a `state` containing mapping information.
     fn restore(
-        file: &File,
+        file: Option<&File>,
         state: &GuestMemoryState,
         track_dirty_pages: bool,
     ) -> std::result::Result<Self, Error>;
@@ -72,6 +74,8 @@ pub enum Error {
     CreateRegion(vm_memory::MmapRegionError),
     /// Cannot fetch system's page size.
     PageSize(errno::Error),
+    /// Cannot register region for user page fault handling.
+    UserPageFault(userfaultfd::Error),
     /// Cannot dump memory.
     WriteMemory(GuestMemoryError),
 }
@@ -84,6 +88,7 @@ impl Display for Error {
             CreateMemory(err) => write!(f, "Cannot create memory: {:?}", err),
             CreateRegion(err) => write!(f, "Cannot create memory region: {:?}", err),
             PageSize(err) => write!(f, "Cannot fetch system's page size: {:?}", err),
+            UserPageFault(err) => write!(f, "Cannot register memory for uPF: {:?}", err),
             WriteMemory(err) => write!(f, "Cannot dump memory: {:?}", err),
         }
     }
@@ -176,10 +181,10 @@ impl SnapshotMemory for GuestMemoryMmap {
             .map_err(Error::WriteMemory)
     }
 
-    /// Creates a GuestMemoryMmap given a `file` containing the data
-    /// and a `state` containing mapping information.
+    /// Creates a GuestMemoryMmap backed by a `file` if present, otherwise backed
+    /// by anonymous memory. Memory layout and ranges are described in `state` param.
     fn restore(
-        file: &File,
+        file: Option<&File>,
         state: &GuestMemoryState,
         track_dirty_pages: bool,
     ) -> std::result::Result<Self, Error> {
@@ -189,7 +194,7 @@ impl SnapshotMemory for GuestMemoryMmap {
                 .iter()
                 .map(|r| {
                     (
-                        Some(FileOffset::new(file.try_clone().unwrap(), r.offset)),
+                        file.map(|f| FileOffset::new(f.try_clone().unwrap(), r.offset)),
                         GuestAddress(r.base_address),
                         r.size,
                     )

@@ -290,9 +290,10 @@ impl ApiServer {
             .expect("Failed to send VMM message");
         self.to_vmm_fd.write(1).expect("Cannot update send VMM fd");
         let vmm_outcome = *(self.vmm_response_receiver.recv().expect("VMM disconnected"));
-        let response = ParsedRequest::convert_to_response(&vmm_outcome);
+        let is_ok = vmm_outcome.is_ok();
+        let response = ParsedRequest::convert_to_response(vmm_outcome);
 
-        if vmm_outcome.is_ok() {
+        if is_ok {
             if let Some((metric, action)) = metric_with_action {
                 let elapsed_time_us =
                     update_metric_with_elapsed_time(metric, request_processing_start_us);
