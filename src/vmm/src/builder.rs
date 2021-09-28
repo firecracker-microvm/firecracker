@@ -318,12 +318,29 @@ pub fn build_microvm_for_boot(
     let vcpu_config = vm_resources.vcpu_config();
     let entry_addr = load_kernel(boot_config, &guest_memory)?;
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
-    // Clone the command-line so that a failed boot doesn't pollute the original.
-    #[allow(unused_mut)]
-    let mut boot_cmdline = boot_config.cmdline.clone();
-
+    let mut boot_cmdline = kernel::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
     // Timestamp for measuring microVM boot duration.
     let request_ts = TimestampUs::default();
+
+    // We're splitting the boot_args in regular parameters and init arguments.
+    // This is needed because on x86_64 we're altering the boot arguments by
+    // adding the virtio device configuration. We need to make sure that the init
+    // parameters are last, specified after -- as specified in the kernel docs
+    // (https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html).
+    let init_and_regular = boot_config
+        .cmdline
+        .as_str()
+        .split("--")
+        .collect::<Vec<&str>>();
+    if init_and_regular.len() > 2 {
+        return Err(StartMicrovmError::KernelCmdline(
+            "Too many `--` in kernel cmdline.".to_string(),
+        ));
+    }
+    let boot_args = init_and_regular[0];
+    let init_params = init_and_regular.get(1);
+
+    boot_cmdline.insert_str(boot_args)?;
 
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
@@ -358,6 +375,10 @@ pub fn build_microvm_for_boot(
     )?;
     if let Some(unix_vsock) = vm_resources.vsock.get() {
         attach_unixsock_vsock_device(&mut vmm, &mut boot_cmdline, unix_vsock, event_manager)?;
+    }
+
+    if let Some(init) = init_params {
+        boot_cmdline.insert_str(format!("--{}", init))?;
     }
 
     #[cfg(target_arch = "aarch64")]
