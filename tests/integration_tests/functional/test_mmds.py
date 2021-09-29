@@ -478,3 +478,91 @@ def test_guest_mmds_hang(test_microvm_with_api, network_config):
 
     _, stdout, _ = ssh_connection.execute_command(cmd)
     assert 'Invalid request' in stdout.read()
+
+
+def test_patch_dos_scenario(test_microvm_with_api):
+    """
+    Test the MMDS json endpoint when data store size reaches the limit.
+
+    @type: negative
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    dummy_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': 'dummy'
+            }
+        }
+    }
+
+    # Create MMDS data-store.
+    response = test_microvm.mmds.put(json=dummy_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Send a request that will fill the data store.
+    aux = "a" * 51137
+    dummy_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': "smth",
+                'secret_key': aux
+            }
+        }
+    }
+    response = test_microvm.mmds.patch(json=dummy_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Try to send a new patch thaw will increase the data store size. Since the
+    # actual size is equal with the limit this request should fail with
+    # PayloadTooLarge.
+    aux = "b" * 10
+    dummy_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': "smth",
+                'secret_key2': aux
+            }
+        }
+    }
+    response = test_microvm.mmds.patch(json=dummy_json)
+    assert test_microvm.api_session.\
+        is_status_payload_too_large(response.status_code)
+    # Check that the patch actually failed and the contents of the data store
+    # has not changed.
+    response = test_microvm.mmds.get()
+    assert str(response.json()).find(aux) == -1
+
+    # Delete something from the mmds so we will be able to send new data.
+    dummy_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': "smth",
+                'secret_key': "a"
+            }
+        }
+    }
+    response = test_microvm.mmds.patch(json=dummy_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Check that the size has shrunk.
+    response = test_microvm.mmds.get()
+    assert len(str(response.json()).replace(" ", "")) == 59
+
+    # Try to send a new patch, this time the request should succeed.
+    aux = "a" * 100
+    dummy_json = {
+        'latest': {
+            'meta-data': {
+                'ami-id': "smth",
+                'secret_key': aux
+            }
+        }
+    }
+    response = test_microvm.mmds.patch(json=dummy_json)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Check that the size grew as expected.
+    response = test_microvm.mmds.get()
+    assert len(str(response.json()).replace(" ", "")) == 158

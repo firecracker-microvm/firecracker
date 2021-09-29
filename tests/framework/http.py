@@ -44,11 +44,16 @@ class Session(requests.Session):
             """Return `True` when HTTP response code is 404 NotFound."""
             return response == 404
 
+        def is_status_payload_too_large(response: int):
+            """Return `True` when HTTP response code is 413 PayloadTooLarge."""
+            return response == 413
+
         self.is_good_response = is_good_response
         self.is_status_ok = is_status_ok
         self.is_status_no_content = is_status_no_content
         self.is_status_bad_request = is_status_bad_request
         self.is_status_not_found = is_status_not_found
+        self.is_status_payload_too_large = is_status_payload_too_large
 
     @decorators.timed_request
     def get(self, url, **kwargs):
