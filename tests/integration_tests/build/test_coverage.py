@@ -24,7 +24,7 @@ import host_tools.proc as proc
 # this contains the frequency while on AMD it does not.
 # Checkout the cpuid crate. In the future other
 # differences may appear.
-COVERAGE_DICT = {"Intel": 84.73, "AMD": 84.13, "ARM": 82.83}
+COVERAGE_DICT = {"Intel": 84.67, "AMD": 84.13, "ARM": 82.82}
 
 PROC_MODEL = proc.proc_type()
 
