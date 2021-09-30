@@ -377,7 +377,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "377fa591135fbe23396a18e2655a6d5481bf7c5823cdfa3cc81b01a229cbe640"
 dependencies = [
  "libc",
- "vmm-sys-util 0.8.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -480,7 +480,7 @@ source = "git+https://github.com/firecracker-microvm/kvm-bindings?tag=v0.5.0-1#4
 dependencies = [
  "versionize",
  "versionize_derive",
- "vmm-sys-util 0.8.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -491,7 +491,7 @@ checksum = "f2924454e22895c738e43331ae310459c74a11ded9c97dc250129ee10d2f9ca2"
 dependencies = [
  "kvm-bindings",
  "libc",
- "vmm-sys-util 0.8.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -508,9 +508,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.100"
+version = "0.2.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1fa8cddc8fbbee11227ef194b5317ed014b8acbf15139bd716a18ad3fe99ec5"
+checksum = "dd8f7255a17a627354f321ef0055d63b898c6fb27eff628af4d1b66b7331edf6"
 
 [[package]]
 name = "libloading"
@@ -574,7 +574,7 @@ version = "0.1.0"
 source = "git+https://github.com/acatangiu/micro-http?branch=respond-with-ancillary#c2240b319d86e096e9c70f29e434beb2a5426809"
 dependencies = [
  "libc",
- "vmm-sys-util 0.8.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -607,6 +607,19 @@ dependencies = [
  "cfg-if 0.1.10",
  "libc",
  "void",
+]
+
+[[package]]
+name = "nix"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f305c2c2e4c39a82f7bf0bf65fb557f9070ce06781d4f2454295cc34b1c43188"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -1079,7 +1092,7 @@ dependencies = [
  "micro_http",
  "regex",
  "utils",
- "vmm-sys-util 0.9.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1103,7 +1116,7 @@ dependencies = [
  "bitflags",
  "cfg-if 1.0.0",
  "libc",
- "nix",
+ "nix 0.17.0",
  "thiserror",
  "userfaultfd-sys",
 ]
@@ -1127,7 +1140,7 @@ dependencies = [
  "net_gen",
  "serde",
  "serde_json",
- "vmm-sys-util 0.8.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1150,7 +1163,7 @@ dependencies = [
  "serde_derive",
  "syn",
  "versionize_derive",
- "vmm-sys-util 0.8.0",
+ "vmm-sys-util",
 ]
 
 [[package]]
@@ -1215,6 +1228,7 @@ dependencies = [
  "linux-loader",
  "logger",
  "mmds",
+ "nix 0.23.0",
  "rate_limiter",
  "seccompiler",
  "serde",
@@ -1227,16 +1241,6 @@ dependencies = [
  "virtio_gen",
  "vm-memory 0.1.0",
  "vm-superio",
-]
-
-[[package]]
-name = "vmm-sys-util"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01cf11afbc4ebc0d5c7a7748a77d19e2042677fc15faa2f4ccccb27c18a60605"
-dependencies = [
- "bitflags",
- "libc",
 ]
 
 [[package]]

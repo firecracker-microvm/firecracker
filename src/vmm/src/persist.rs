@@ -6,7 +6,7 @@
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::builder::{self, StartMicrovmError};
@@ -72,7 +72,7 @@ pub struct MicrovmState {
 ///
 /// E.g. Guest memory contents for a region of `size` bytes can be found in the backend
 /// at `offset` bytes from the beginning, and should be copied/populated into `base_host_address`.
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RegionBackendMapping {
     /// Base host virtual address where the guest memory contents for this region
     /// should be copied/populated.
@@ -467,6 +467,91 @@ pub fn snapshot_state_sanity_check(
     Ok(())
 }
 
+fn uffd_handler(uffd_desc: UffdBackendDescription, mem_file_path: PathBuf) {
+    use libc::c_void;
+    use nix::poll::{poll, PollFd, PollFlags};
+    use nix::sys::mman::{mmap, MapFlags, ProtFlags};
+    use nix::unistd::{sysconf, SysconfVar};
+    use std::os::unix::io::AsRawFd;
+    use std::ptr;
+
+    let page_size = sysconf(SysconfVar::PAGE_SIZE).unwrap().unwrap() as usize;
+    let uffd = &uffd_desc.uffd;
+
+    let memsize = uffd_desc.regions.iter().map(|r| r.size).sum();
+    let file = File::open(mem_file_path).expect("cannot open memfile");
+    assert_eq!(memsize as u64, file.metadata().unwrap().len());
+
+    // Create a page that will be copied into the faulting region
+    let memfile_buffer = unsafe {
+        mmap(
+            ptr::null_mut(),
+            memsize,
+            ProtFlags::PROT_READ,
+            MapFlags::MAP_PRIVATE,
+            file.as_raw_fd(),
+            0,
+        )
+        .expect("mmap")
+    };
+
+    // Loop, handling incoming events on the userfaultfd file descriptor
+    loop {
+        // See what poll() tells us about the userfaultfd
+        let pollfd = PollFd::new(uffd.as_raw_fd(), PollFlags::POLLIN);
+        let nready = poll(&mut [pollfd], -1).expect("poll");
+
+        info!("\nfault_handler_thread():");
+        let revents = pollfd.revents().unwrap();
+        info!(
+            "    poll() returns: nready = {}; POLLIN = {}; POLLERR = {}",
+            nready,
+            revents.contains(PollFlags::POLLIN),
+            revents.contains(PollFlags::POLLERR),
+        );
+
+        // Read an event from the userfaultfd
+        let event = uffd
+            .read_event()
+            .expect("read uffd_msg")
+            .expect("uffd_msg ready");
+
+        // We expect only one kind of event; verify that assumption
+        if let userfaultfd::Event::Pagefault { addr, .. } = event {
+            // Display info about the page-fault event
+            info!("    UFFD_EVENT_PAGEFAULT event: {:?}", event);
+            let dst = (addr as usize & !(page_size as usize - 1)) as *mut c_void;
+            info!(
+                "    looking for file offset corresponding to hVA dst: {:?}",
+                dst
+            );
+            let mut found_mapping = None;
+            for r in uffd_desc.regions.iter() {
+                let fault_page_addr = dst as u64;
+                if r.base_h_va <= fault_page_addr && fault_page_addr < r.base_h_va + r.size as u64 {
+                    found_mapping = Some(r.clone());
+                }
+            }
+            if let Some(r) = &found_mapping {
+                info!("    found it in: {:?}", r);
+            } else {
+                panic!("could not find addr within region mappings");
+            }
+
+            let r = found_mapping.unwrap();
+            let src = memfile_buffer as u64 + r.offset;
+            // Populate whole region from backing mem-file.
+            let copy = unsafe {
+                uffd.copy(src as *const _, r.base_h_va as *mut _, r.size, true)
+                    .expect("uffd copy")
+            };
+            info!("        (uffdio_copy.copy returned {})", copy);
+        } else {
+            panic!("Unexpected event on userfaultfd");
+        }
+    }
+}
+
 /// Loads a Microvm snapshot producing a 'paused' Microvm.
 pub fn restore_from_snapshot(
     instance_info: &InstanceInfo,
@@ -527,6 +612,11 @@ pub fn restore_from_snapshot(
             uffd,
         });
         info!("created uffd backend description");
+
+        // DEBUG
+        // Serve UFFD PFs on another thread in this process.
+        let mem_file_path = params.mem_file_path.clone();
+        std::thread::spawn(move || uffd_handler(uffd_backend_desc.take().unwrap(), mem_file_path));
     }
 
     info!("creating vmm");
@@ -544,7 +634,7 @@ pub fn restore_from_snapshot(
         BuildMicroVm(e)
     })?;
     info!("ok build from snap");
-    Ok((vmm, uffd_backend_desc))
+    Ok((vmm, None))
 }
 
 fn snapshot_state_from_file(

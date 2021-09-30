@@ -125,6 +125,7 @@ impl ParsedRequest {
                 VmmData::InstanceInformation(info) => Self::success_response_with_data(&info),
                 VmmData::FullVmConfig(config) => Self::success_response_with_data(&config),
                 VmmData::UffdBackendDescription(desc) => {
+                    info!("API responding with uufd backend description");
                     // FIXME: "201 Created" http response code is better than "200 OK" here.
                     let mut resp = Self::success_response_with_data(&desc);
                     // TODO: we're leaking the FD here in firecracker process; but we leak it to
@@ -134,7 +135,7 @@ impl ParsedRequest {
                     // All the extra complexity is not worth the effort in firecracker case, it's
                     // ok to just keep this one FD open/leaked until end of process.
                     // TODO: we could try to send `File` to microhttp and drop it after `sendmsg`.
-                    // resp.file = uffd.map(|inner| inner.into_raw_fd());
+                    // resp.file = desc.uffd.map(|inner| inner.into_raw_fd());
                     resp.file = Some(desc.uffd.into_raw_fd());
                     resp
                 }
