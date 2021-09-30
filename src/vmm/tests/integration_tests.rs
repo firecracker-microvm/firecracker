@@ -217,8 +217,12 @@ fn verify_load_snapshot(snapshot_file: TempFile, memory_file: TempFile) {
         VERSION_MAP.clone(),
     )
     .unwrap();
-    let mem = GuestMemoryMmap::restore(memory_file.as_file(), &microvm_state.memory_state, false)
-        .unwrap();
+    let mem = GuestMemoryMmap::restore(
+        Some(memory_file.as_file()),
+        &microvm_state.memory_state,
+        false,
+    )
+    .unwrap();
 
     let vm_resources = &mut VmResources::default();
 
