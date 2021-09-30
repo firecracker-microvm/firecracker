@@ -18,9 +18,22 @@ pub enum SnapshotType {
 }
 
 impl Default for SnapshotType {
-    fn default() -> SnapshotType {
+    fn default() -> Self {
         SnapshotType::Full
     }
+}
+
+/// Specifies the method through which guest memory will get populated when
+/// resuming from a snapshot:
+/// 1) A file that contains the guest memory to be loaded,
+/// 2) An UDS where a custom page-fault handler process is listening for
+///    the UFFD set up by Firecracker to handle its guest memory page faults.
+#[derive(Debug, Deserialize, PartialEq)]
+pub enum MemBackendType {
+    /// Guest memory contents will be loaded from a file.
+    File,
+    /// Guest memory will be served through UFFD by a separate process.
+    Uffd,
 }
 
 /// Stores the configuration that will be used for creating a snapshot.
@@ -41,21 +54,50 @@ pub struct CreateSnapshotParams {
 }
 
 /// Stores the configuration that will be used for loading a snapshot.
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, PartialEq)]
 pub struct LoadSnapshotParams {
     /// Path to the file that contains the microVM state to be loaded.
     pub snapshot_path: PathBuf,
-    /// Path to the file that contains the guest memory to be loaded.
-    pub mem_file_path: PathBuf,
+    /// Specifies guest memory backend configuration.
+    pub mem_backend: MemBackendConfig,
     /// Setting this flag will enable KVM dirty page tracking and will
     /// allow taking subsequent incremental snapshots.
-    #[serde(default)]
     pub enable_diff_snapshots: bool,
     /// When set to true, the vm is also resumed if the snapshot load
     /// is successful.
+    pub resume_vm: bool,
+}
+
+/// Stores the configuration for loading a snapshot that is provided by the user.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LoadSnapshotConfig {
+    /// Path to the file that contains the microVM state to be loaded.
+    pub snapshot_path: PathBuf,
+    /// Path to the file that contains the guest memory to be loaded. To be used only if
+    /// `mem_backend` is not specified.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_file_path: Option<PathBuf>,
+    /// Guest memory backend configuration. Is not to be used in conjunction with `mem_file_path`.
+    /// None value is allowed only if `mem_file_path` is present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_backend: Option<MemBackendConfig>,
+    /// Whether or not to enable KVM dirty page tracking.
+    #[serde(default)]
+    pub enable_diff_snapshots: bool,
+    /// Whether or not to resume the vm post snapshot load.
     #[serde(default)]
     pub resume_vm: bool,
+}
+
+/// Stores the configuration used for managing snapshot memory.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MemBackendConfig {
+    /// Path to the backend used to handle the guest memory.
+    pub backend_path: PathBuf,
+    /// Specifies the guest memory backend type.
+    pub backend_type: MemBackendType,
 }
 
 /// The microVM state options.
