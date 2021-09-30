@@ -13,7 +13,9 @@ use crate::builder::{self, StartMicrovmError};
 use crate::device_manager::persist::Error as DevicePersistError;
 use crate::mem_size_mib;
 use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
-use crate::vmm_config::snapshot::{CreateSnapshotParams, LoadSnapshotParams, SnapshotType};
+use crate::vmm_config::snapshot::{
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
+};
 use crate::vstate::{self, vcpu::VcpuState, vm::VmState};
 
 use crate::device_manager::persist::DeviceStates;
@@ -443,18 +445,22 @@ pub fn restore_from_snapshot(
     vm_resources: &mut VmResources,
 ) -> std::result::Result<Arc<Mutex<Vmm>>, LoadSnapshotError> {
     use self::LoadSnapshotError::*;
-    let track_dirty_pages = params.enable_diff_snapshots;
     let microvm_state = snapshot_state_from_file(&params.snapshot_path, version_map)?;
 
     // Some sanity checks before building the microvm.
     snapshot_state_sanity_check(&microvm_state)?;
 
-    let guest_memory = guest_memory_from_file(
-        &params.mem_file_path,
-        &microvm_state.memory_state,
-        track_dirty_pages,
-    )?;
-
+    let mem_backend_path = &params.mem_backend.backend_path;
+    let mem_state = &microvm_state.memory_state;
+    let track_dirty_pages = params.enable_diff_snapshots;
+    let guest_memory = match params.mem_backend.backend_type {
+        MemBackendType::File => {
+            guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
+        }
+        MemBackendType::Uffd => {
+            guest_memory_from_uffd(mem_backend_path, mem_state, track_dirty_pages)
+        }
+    }?;
     builder::build_microvm_from_snapshot(
         instance_info,
         event_manager,
@@ -489,6 +495,14 @@ fn guest_memory_from_file(
     let mem_file = File::open(mem_file_path).map_err(MemoryBackingFile)?;
     GuestMemoryMmap::restore(Some(&mem_file), mem_state, track_dirty_pages)
         .map_err(DeserializeMemory)
+}
+
+fn guest_memory_from_uffd(
+    _mem_file_path: &Path,
+    _mem_state: &GuestMemoryState,
+    _track_dirty_pages: bool,
+) -> std::result::Result<GuestMemoryMmap, LoadSnapshotError> {
+    unimplemented!()
 }
 
 #[cfg(target_arch = "x86_64")]
