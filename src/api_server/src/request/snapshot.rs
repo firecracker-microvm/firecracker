@@ -60,7 +60,9 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
 
     match (&snapshot_config.mem_backend, &snapshot_config.mem_file_path) {
         // Ensure `mem_file_path` and `mem_backend` fields are not present at the same time.
-        (Some(_), Some(_)) => return Err(Error::SerdeJson(serde_json::Error::custom(TOO_MANY_FIELDS))),
+        (Some(_), Some(_)) => {
+            return Err(Error::SerdeJson(serde_json::Error::custom(TOO_MANY_FIELDS)))
+        }
         // Ensure that one of `mem_file_path` or `mem_backend` fields is always specified.
         (None, None) => return Err(Error::SerdeJson(serde_json::Error::custom(MISSING_FIELD))),
         _ => {}
