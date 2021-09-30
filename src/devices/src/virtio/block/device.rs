@@ -29,6 +29,7 @@ use super::{
 
 use crate::virtio::{IrqTrigger, IrqType};
 
+use logger::info;
 use serde::{Deserialize, Serialize};
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
@@ -215,6 +216,7 @@ impl Block {
         is_disk_root: bool,
         rate_limiter: RateLimiter,
     ) -> io::Result<Block> {
+        info!("block inner 1");
         let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only, cache_type)?;
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
@@ -223,6 +225,7 @@ impl Block {
             avail_features |= 1u64 << VIRTIO_BLK_F_FLUSH;
         }
 
+        info!("block inner 2");
         if is_disk_read_only {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
         };
@@ -231,6 +234,7 @@ impl Block {
 
         let queues = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
+        info!("block inner 3");
         Ok(Block {
             id,
             root_device: is_disk_root,

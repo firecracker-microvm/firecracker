@@ -268,7 +268,9 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             MMIODeviceManager::new(arch::MMIO_MEM_START, (arch::IRQ_BASE, arch::IRQ_MAX));
         let mem = &constructor_args.mem;
         let vm = constructor_args.vm;
+        use logger::info;
 
+        info!("d 1");
         #[cfg(target_arch = "aarch64")]
         {
             for state in &state.legacy_devices {
@@ -292,7 +294,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 }
             }
         }
-
+        info!("d 2");
         let mut restore_helper = |device: Arc<Mutex<dyn VirtioDevice>>,
                                   as_subscriber: Arc<Mutex<dyn MutEventSubscriber>>,
                                   id: &String,
@@ -304,20 +306,24 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 .slot_sanity_check(slot)
                 .map_err(Error::DeviceManager)?;
 
+            info!("d h 1");
             let restore_args = MmioTransportConstructorArgs {
                 mem: mem.clone(),
                 device,
             };
+            info!("d h 2");
             let mmio_transport =
                 MmioTransport::restore(restore_args, state).map_err(|()| Error::MmioTransport)?;
+            info!("d h 3");
             dev_manager
                 .register_mmio_virtio(vm, id.clone(), mmio_transport, slot)
                 .map_err(Error::DeviceManager)?;
-
+            info!("d h 4");
             event_manager.add_subscriber(as_subscriber);
+            info!("d h 5");
             Ok(())
         };
-
+        info!("d 3");
         if let Some(balloon_state) = &state.balloon_device {
             let device = Arc::new(Mutex::new(
                 Balloon::restore(
@@ -336,7 +342,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 constructor_args.event_manager,
             )?;
         }
-
+        info!("d 4");
         for block_state in &state.block_devices {
             let device = Arc::new(Mutex::new(
                 Block::restore(
@@ -355,6 +361,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 constructor_args.event_manager,
             )?;
         }
+        info!("d 5");
         for net_state in &state.net_devices {
             let device = Arc::new(Mutex::new(
                 Net::restore(
@@ -373,6 +380,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                 constructor_args.event_manager,
             )?;
         }
+        info!("d 6");
         if let Some(vsock_state) = &state.vsock_device {
             let ctor_args = VsockUdsConstructorArgs {
                 cid: vsock_state.device_state.frontend.cid,
@@ -400,6 +408,7 @@ impl<'a> Persist<'a> for MMIODeviceManager {
             )?;
         }
 
+        info!("d 7");
         Ok(dev_manager)
     }
 }

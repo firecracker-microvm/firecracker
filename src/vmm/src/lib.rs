@@ -443,37 +443,54 @@ impl Vmm {
     ) -> std::result::Result<(), MicrovmStateError> {
         use self::MicrovmStateError::*;
 
+        info!("vcpu restore 1");
         if vcpu_states.len() != self.vcpus_handles.len() {
             return Err(InvalidInput);
         }
+        info!("vcpu restore 2");
         for (handle, state) in self.vcpus_handles.iter().zip(vcpu_states.drain(..)) {
+            info!("vcpu send event");
             handle
                 .send_event(VcpuEvent::RestoreState(Box::new(state)))
                 .map_err(MicrovmStateError::SignalVcpu)?;
         }
 
+        info!("vcpu restore 3");
         let vcpu_responses = self
             .vcpus_handles
             .iter()
             // `Iterator::collect` can transform a `Vec<Result>` into a `Result<Vec>`.
             .map(|handle| {
+                info!("vcpu get response");
                 handle
                     .response_receiver()
                     .recv_timeout(Duration::from_millis(1000))
             })
             .collect::<std::result::Result<Vec<VcpuResponse>, RecvTimeoutError>>()
-            .map_err(|_| MicrovmStateError::UnexpectedVcpuResponse)?;
+            .map_err(|_| {
+                info!("response timeout");
+                MicrovmStateError::UnexpectedVcpuResponse
+            })?;
 
+        info!("vcpu restore 4");
         for response in vcpu_responses.into_iter() {
             match response {
                 VcpuResponse::RestoredState => (),
-                VcpuResponse::Error(e) => return Err(MicrovmStateError::RestoreVcpuState(e)),
-                VcpuResponse::NotAllowed(reason) => {
-                    return Err(MicrovmStateError::NotAllowed(reason))
+                VcpuResponse::Error(e) => {
+                    info!("vcpu restore error {:?}", e);
+                    return Err(MicrovmStateError::RestoreVcpuState(e));
                 }
-                _ => return Err(MicrovmStateError::UnexpectedVcpuResponse),
+                VcpuResponse::NotAllowed(reason) => {
+                    info!("vcpu restore not allowed {:?}", reason);
+                    return Err(MicrovmStateError::NotAllowed(reason));
+                }
+                _ => {
+                    info!("vcpu unexpected response");
+                    return Err(MicrovmStateError::UnexpectedVcpuResponse);
+                }
             }
         }
+        info!("vcpu restore 5");
 
         Ok(())
     }

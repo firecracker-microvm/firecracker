@@ -6,6 +6,7 @@
 // found in the THIRD-PARTY file.
 
 use logger::error;
+use logger::info;
 use std::cmp::min;
 use std::fmt;
 use std::num::Wrapping;
@@ -222,6 +223,7 @@ impl Queue {
     }
 
     pub fn is_valid(&self, mem: &GuestMemoryMmap) -> bool {
+        info!("q is valid 1");
         let queue_size = u64::from(self.actual_size());
         let desc_table = self.desc_table;
         let desc_table_size = 16 * queue_size;
@@ -229,6 +231,7 @@ impl Queue {
         let avail_ring_size = 6 + 2 * queue_size;
         let used_ring = self.used_ring;
         let used_ring_size = 6 + 8 * queue_size;
+        info!("q is valid 2");
         if !self.ready {
             error!("attempt to use virtio queue that is not marked ready");
             false
@@ -289,6 +292,7 @@ impl Queue {
 
     /// Returns the number of yet-to-be-popped descriptor chains in the avail ring.
     pub fn len(&self, mem: &GuestMemoryMmap) -> u16 {
+        info!("q len read");
         (self.avail_idx(mem) - self.next_avail).0
     }
 

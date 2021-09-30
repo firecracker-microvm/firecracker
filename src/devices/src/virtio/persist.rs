@@ -11,6 +11,7 @@ use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{address::Address, GuestAddress, GuestMemoryMmap};
 
+use logger::info;
 use std::num::Wrapping;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -132,6 +133,7 @@ impl VirtioDeviceState {
             return Err(Error::InvalidInput);
         }
 
+        info!("build queues checked 1");
         let uses_notif_suppression = (self.acked_features & 1u64 << VIRTIO_RING_F_EVENT_IDX) != 0;
         let queues: Vec<Queue> = self
             .queues
@@ -146,6 +148,7 @@ impl VirtioDeviceState {
             })
             .collect();
 
+        info!("restore q 1");
         for q in &queues {
             // Sanity check queue size and queue max size.
             if q.max_size != expected_queue_max_size || q.size > expected_queue_max_size {
@@ -159,6 +162,7 @@ impl VirtioDeviceState {
                 return Err(Error::InvalidInput);
             }
         }
+        info!("restore q 2");
         Ok(queues)
     }
 }
