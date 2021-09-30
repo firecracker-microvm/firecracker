@@ -919,10 +919,27 @@ pub(crate) mod tests {
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
+
+        let body = "{ \
+            \"snapshot_path\": \"foo\", \
+            \"mem_backend\": { \
+                \"backend_type\": \"File\", \
+                \"backend_path\": \"bar\" \
+            }, \
+            \"enable_diff_snapshots\": true \
+        }";
+        sender
+            .write_all(http_request("PUT", "/snapshot/load", Some(&body)).as_bytes())
+            .unwrap();
+
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+
         let body = "{ \
             \"snapshot_path\": \"foo\", \
             \"mem_file_path\": \"bar\", \
-            \"enable_diff_snapshots\": true \
+            \"resume_vm\": true \
         }";
         sender
             .write_all(http_request("PUT", "/snapshot/load", Some(&body)).as_bytes())
