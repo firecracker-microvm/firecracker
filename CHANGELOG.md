@@ -13,12 +13,25 @@
   preserved bidirectionally, to and from a Firecracker version that does not
   support persisting the Mmds version. In such cases, the default V1 option is
   used.
+- Added optional `mem_backend` body field in `PUT` requests on `/snapshot/load`.
+  This new parameter is an object that defines the configuration of the backend
+  responsible for handling memory loading during snapshot restore. The
+  `mem_backend` parameter contains `backend_type` and `backend_path` required
+  fields. `backend_type` is an enum that can take either `File` or `Uffd` as
+  value. Interpretation of `backend_path` field depends on the value of
+  `backend_type`. If `File`, then the user must provide the path to file that
+  contains the guest memory to be loaded. Otherwise, if `backend_type` is `Uffd`,
+  then `backend_path` is the path to a unix domain socket where a custom page
+  fault handler process is listening and expecting a UFFD to be sent by
+  Firecracker. The UFFD is used to handle the guest memory page faults in the
+  separate process.
 
 ### Changed
 
 - The API `PATCH` method for `/machine-config` can be now used to change
   `track_dirty_pages` on aarch64.
 - MmdsV2 is now Generally Available.
+- Deprecated `mem_file_path` body field in `PUT` on `/snapshot/load` request.
 
 ### Fixed
 

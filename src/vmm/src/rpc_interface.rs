@@ -792,6 +792,7 @@ mod tests {
     use devices::virtio::VsockError;
     use seccompiler::BpfThreadMap;
 
+    use crate::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
     use mmds::data_store::MmdsVersion;
     use std::path::PathBuf;
 
@@ -1517,7 +1518,10 @@ mod tests {
         // Without resume.
         let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
             snapshot_path: PathBuf::new(),
-            mem_file_path: PathBuf::new(),
+            mem_backend: MemBackendConfig {
+                backend_type: MemBackendType::File,
+                backend_path: PathBuf::new(),
+            },
             enable_diff_snapshots: false,
             resume_vm: false,
         });
@@ -1530,7 +1534,10 @@ mod tests {
         // With resume.
         let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
             snapshot_path: PathBuf::new(),
-            mem_file_path: PathBuf::new(),
+            mem_backend: MemBackendConfig {
+                backend_type: MemBackendType::File,
+                backend_path: PathBuf::new(),
+            },
             enable_diff_snapshots: false,
             resume_vm: true,
         });
@@ -1938,7 +1945,10 @@ mod tests {
         check_runtime_request_err(
             VmmAction::LoadSnapshot(LoadSnapshotParams {
                 snapshot_path: PathBuf::new(),
-                mem_file_path: PathBuf::new(),
+                mem_backend: MemBackendConfig {
+                    backend_type: MemBackendType::File,
+                    backend_path: PathBuf::new(),
+                },
                 enable_diff_snapshots: false,
                 resume_vm: false,
             }),
@@ -1957,7 +1967,10 @@ mod tests {
         // Load snapshot should no longer be allowed.
         let req = VmmAction::LoadSnapshot(LoadSnapshotParams {
             snapshot_path: PathBuf::new(),
-            mem_file_path: PathBuf::new(),
+            mem_backend: MemBackendConfig {
+                backend_type: MemBackendType::File,
+                backend_path: PathBuf::new(),
+            },
             enable_diff_snapshots: false,
             resume_vm: false,
         });

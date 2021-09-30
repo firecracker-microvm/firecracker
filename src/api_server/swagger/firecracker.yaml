@@ -960,6 +960,25 @@ definitions:
         maximum: 32
         description: Number of vCPUs (either 1 or an even number)
 
+  MemoryBackend:
+    type: object
+    required:
+      - backend_type
+      - backend_path
+    properties:
+      backend_type:
+        type: string
+        enum:
+          - File
+          - Uffd
+      backend_path:
+        type: string
+        description: Based on 'backend_type' it is either
+          1) Path to the file that contains the guest memory to be loaded
+          2) Path to the UDS where a process is listening for a UFFD initialization
+          control payload and open file descriptor that it can use to serve this
+          process's guest memory page faults
+
   Metrics:
     type: object
     description:
@@ -1097,8 +1116,10 @@ definitions:
 
   SnapshotLoadParams:
     type: object
+    description:
+      Defines the configuration used for handling snapshot resume. Exactly one of
+      the two `mem_*` fields must be present in the body of the request.
     required:
-      - mem_file_path
       - snapshot_path
     properties:
       enable_diff_snapshots:
@@ -1107,7 +1128,16 @@ definitions:
           Enable support for incremental (diff) snapshots by tracking dirty guest pages.
       mem_file_path:
         type: string
-        description: Path to the file that contains the guest memory to be loaded.
+        description:
+          Path to the file that contains the guest memory to be loaded.
+          This parameter has been deprecated and is only allowed if
+          `mem_backend` is not present.
+      mem_backend:
+        $ref: "#/definitions/MemoryBackend"
+        description:
+          Configuration for the backend that handles memory load. If this field
+          is specified, `mem_file_path` is forbidden. Either `mem_backend` or
+          `mem_file_path` must be present at a time.
       snapshot_path:
         type: string
         description: Path to the file that contains the microVM state to be loaded.
