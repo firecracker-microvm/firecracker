@@ -7,6 +7,8 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::SeekFrom;
 
+use crate::DirtyBitmap;
+use utils::{errno, get_page_size};
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use vm_memory::{
@@ -14,14 +16,13 @@ use vm_memory::{
     GuestMemoryRegion, MemoryRegionAddress,
 };
 
-use crate::DirtyBitmap;
-use utils::{errno, get_page_size};
-
 /// State of a guest memory region saved to file/buffer.
 #[derive(Debug, PartialEq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct GuestMemoryRegionState {
-    /// Base address.
+    // This should have been named `base_guest_addr` since it's _guest_ addr, but for
+    // backward compatibility we have to keep this name. At least this comment should help.
+    /// Base GuestAddress.
     pub base_address: u64,
     /// Region size.
     pub size: usize,
@@ -29,7 +30,7 @@ pub struct GuestMemoryRegionState {
     pub offset: u64,
 }
 
-/// Guest memory state.
+/// Describes guest memory regions and their snapshot file mappings.
 #[derive(Debug, Default, PartialEq, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct GuestMemoryState {
@@ -55,7 +56,7 @@ where
     /// Creates a GuestMemoryMmap given a `file` containing the data
     /// and a `state` containing mapping information.
     fn restore(
-        file: &File,
+        file: Option<&File>,
         state: &GuestMemoryState,
         track_dirty_pages: bool,
     ) -> std::result::Result<Self, Error>;
@@ -176,28 +177,27 @@ impl SnapshotMemory for GuestMemoryMmap {
             .map_err(Error::WriteMemory)
     }
 
-    /// Creates a GuestMemoryMmap given a `file` containing the data
-    /// and a `state` containing mapping information.
+    /// Creates a GuestMemoryMmap backed by a `file` if present, otherwise backed
+    /// by anonymous memory. Memory layout and ranges are described in `state` param.
     fn restore(
-        file: &File,
+        file: Option<&File>,
         state: &GuestMemoryState,
         track_dirty_pages: bool,
     ) -> std::result::Result<Self, Error> {
-        vm_memory::create_guest_memory(
-            &state
-                .regions
-                .iter()
-                .map(|r| {
-                    (
-                        Some(FileOffset::new(file.try_clone().unwrap(), r.offset)),
-                        GuestAddress(r.base_address),
-                        r.size,
-                    )
-                })
-                .collect::<Vec<_>>(),
-            track_dirty_pages,
-        )
-        .map_err(Error::CreateMemory)
+        let mut regions = vec![];
+        for region in state.regions.iter() {
+            let f = match file {
+                Some(f) => Some(FileOffset::new(
+                    f.try_clone().map_err(Error::FileHandle)?,
+                    region.offset,
+                )),
+                None => None,
+            };
+
+            regions.push((f, GuestAddress(region.base_address), region.size));
+        }
+
+        vm_memory::create_guest_memory(&regions, track_dirty_pages).map_err(Error::CreateMemory)
     }
 }
 
@@ -302,7 +302,8 @@ mod tests {
             guest_memory.dump(&mut memory_file.as_file()).unwrap();
 
             let restored_guest_memory =
-                GuestMemoryMmap::restore(&memory_file.as_file(), &memory_state, false).unwrap();
+                GuestMemoryMmap::restore(Some(memory_file.as_file()), &memory_state, false)
+                    .unwrap();
 
             // Check that the region contents are the same.
             let mut actual_region = vec![0u8; page_size * 2];
@@ -336,7 +337,7 @@ mod tests {
 
             // We can restore from this because this is the first dirty dump.
             let restored_guest_memory =
-                GuestMemoryMmap::restore(&file.as_file(), &memory_state, false).unwrap();
+                GuestMemoryMmap::restore(Some(file.as_file()), &memory_state, false).unwrap();
 
             // Check that the region contents are the same.
             let mut actual_region = vec![0u8; page_size * 2];
