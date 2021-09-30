@@ -64,6 +64,7 @@ use logger::{error, info, warn, LoggerError, MetricsError, METRICS};
 use rate_limiter::BucketUpdate;
 use seccompiler::BpfProgram;
 use snapshot::Persist;
+use userfaultfd::Uffd;
 use utils::epoll::EventSet;
 use utils::eventfd::EventFd;
 use vm_memory::{GuestMemory, GuestMemoryMmap, GuestMemoryRegion};
@@ -248,6 +249,10 @@ pub struct Vmm {
     // Guest VM core resources.
     vm: Vm,
     guest_memory: GuestMemoryMmap,
+    // Save UFFD in order to keep it open in the Firecracker process, as well.
+    // Since this field is never read again, we need to allow `dead_code`.
+    #[allow(dead_code)]
+    uffd: Option<Uffd>,
     vcpus_handles: Vec<VcpuHandle>,
     // Used by Vcpus and devices to initiate teardown; Vmm should never write here.
     vcpus_exit_evt: EventFd,
