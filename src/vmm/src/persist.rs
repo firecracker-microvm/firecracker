@@ -6,7 +6,9 @@
 use std::fmt::{Display, Formatter};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
+use std::os::unix::{io::AsRawFd, net::UnixStream};
 use std::path::Path;
+use std::process;
 use std::sync::{Arc, Mutex};
 
 use crate::builder::{self, StartMicrovmError};
@@ -34,11 +36,14 @@ use crate::vmm_config::instance_info::InstanceInfo;
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
 use logger::{error, info};
 use seccompiler::BpfThreadMap;
+use serde::Serialize;
 use snapshot::Snapshot;
+use userfaultfd::{Uffd, UffdBuilder};
+use utils::sock_ctrl_msg::ScmSocket;
 use versionize::{VersionMap, Versionize, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
-use vm_memory::GuestMemoryMmap;
+use vm_memory::{GuestMemory, GuestMemoryMmap};
 
 #[cfg(target_arch = "x86_64")]
 const FC_V0_23_MAX_DEVICES: u32 = 11;
@@ -65,6 +70,35 @@ pub struct MicrovmState {
     pub vcpu_states: Vec<VcpuState>,
     /// Device states.
     pub device_states: DeviceStates,
+}
+
+/// This describes the mapping between Firecracker base virtual address and offset in the
+/// buffer or file backend for a guest memory region. It is used to tell an external
+/// process/thread where to populate the guest memory data for this range.
+///
+/// E.g. Guest memory contents for a region of `size` bytes can be found in the backend
+/// at `offset` bytes from the beginning, and should be copied/populated into `base_host_address`.
+#[derive(Clone, Debug, Serialize)]
+pub struct GuestRegionUffdMapping {
+    /// Base host virtual address where the guest memory contents for this region
+    /// should be copied/populated.
+    pub base_host_virt_addr: u64,
+    /// Region size.
+    pub size: usize,
+    /// Offset in the backend file/buffer where the region contents are.
+    pub offset: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+/// This describes the information sent by Firecracker to the
+/// page fault handler process through the UDS socket.
+pub struct UffdInfo {
+    /// List of guest region mappings between Firecracker base virtual address
+    /// and offset in the buffer or file backend for a guest memory region.
+    pub guest_region_uffd_mappings: Vec<GuestRegionUffdMapping>,
+    /// Firecracker's PID which can be used by the page fault handler process to
+    /// bring down Firecracker at the end of the execution or in case an error occurs.
+    pub pid: u32,
 }
 
 /// Errors related to saving and restoring Microvm state.
@@ -183,20 +217,31 @@ impl Display for CreateSnapshotError {
 pub enum LoadSnapshotError {
     /// Failed to build a microVM from snapshot.
     BuildMicroVm(StartMicrovmError),
+    /// Snapshot cpu vendor differs than host cpu vendor.
+    CpuVendorCheck(String),
+    /// Failed to create an UFFD Builder.
+    CreateUffdBuilder(userfaultfd::Error),
     /// Failed to deserialize memory.
     DeserializeMemory(memory_snapshot::Error),
     /// Failed to deserialize microVM state.
     DeserializeMicrovmState(snapshot::Error),
+    /// Snapshot failed sanity checks.
+    InvalidSnapshot(String),
     /// Failed to open memory backing file.
     MemoryBackingFile(io::Error),
     /// Failed to resume Vm after loading snapshot.
     ResumeMicroVm(VmmError),
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(&'static str, io::Error),
-    /// Snapshot cpu vendor differs than host cpu vendor.
-    CpuVendorCheck(String),
-    /// Snapshot failed sanity checks.
-    InvalidSnapshot(String),
+    /// Unable to connect to UDS in order to send information regarding
+    /// handling guest memory page-fault events.
+    UdsConnection(io::Error),
+    /// Failed to register guest memory regions to UFFD.
+    UffdMemoryRegionsRegister(userfaultfd::Error),
+    /// Failed to send guest memory layout and path to user fault FD used to handle
+    /// guest memory page faults. This information is sent to a UDS where a custom
+    /// page-fault handler process is listening.
+    UffdSend(kvm_ioctls::Error),
 }
 
 impl Display for LoadSnapshotError {
@@ -204,10 +249,13 @@ impl Display for LoadSnapshotError {
         use self::LoadSnapshotError::*;
         match self {
             BuildMicroVm(err) => write!(f, "Cannot build a microVM from snapshot: {}", err),
+            CreateUffdBuilder(err) => write!(f, "Cannot create UFFD builder: {:?}", err),
+            CpuVendorCheck(err) => write!(f, "CPU vendor check failed: {}", err),
             DeserializeMemory(err) => write!(f, "Cannot deserialize memory: {}", err),
             DeserializeMicrovmState(err) => {
                 write!(f, "Cannot deserialize the microVM state: {:?}", err)
             }
+            InvalidSnapshot(err) => write!(f, "Snapshot sanity check failed: {}", err),
             MemoryBackingFile(err) => write!(f, "Cannot open the memory file: {}", err),
             ResumeMicroVm(err) => write!(
                 f,
@@ -219,8 +267,16 @@ impl Display for LoadSnapshotError {
                 "Cannot perform {} on the snapshot backing file: {}",
                 action, err
             ),
-            CpuVendorCheck(err) => write!(f, "CPU vendor check failed: {}", err),
-            InvalidSnapshot(err) => write!(f, "Snapshot sanity check failed: {}", err),
+            UdsConnection(err) => write!(
+                f,
+                "Cannot connect to UDS in order to send information on \
+                handling guest memory page-faults due to: {}",
+                err
+            ),
+            UffdMemoryRegionsRegister(err) => {
+                write!(f, "Cannot register memory regions to UFFD: {:?}.", err)
+            }
+            UffdSend(err) => write!(f, "Cannot send FD and memory layout to UFFD: {}", err),
         }
     }
 }
@@ -453,19 +509,21 @@ pub fn restore_from_snapshot(
     let mem_backend_path = &params.mem_backend.backend_path;
     let mem_state = &microvm_state.memory_state;
     let track_dirty_pages = params.enable_diff_snapshots;
-    let guest_memory = match params.mem_backend.backend_type {
-        MemBackendType::File => {
-            guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)
-        }
+    let (guest_memory, uffd) = match params.mem_backend.backend_type {
+        MemBackendType::File => (
+            guest_memory_from_file(mem_backend_path, mem_state, track_dirty_pages)?,
+            None,
+        ),
         MemBackendType::Uffd => {
-            guest_memory_from_uffd(mem_backend_path, mem_state, track_dirty_pages)
+            guest_memory_from_uffd(mem_backend_path, mem_state, track_dirty_pages)?
         }
-    }?;
+    };
     builder::build_microvm_from_snapshot(
         instance_info,
         event_manager,
         microvm_state,
         guest_memory,
+        uffd,
         track_dirty_pages,
         seccomp_filters,
         vm_resources,
@@ -498,11 +556,68 @@ fn guest_memory_from_file(
 }
 
 fn guest_memory_from_uffd(
-    _mem_file_path: &Path,
-    _mem_state: &GuestMemoryState,
-    _track_dirty_pages: bool,
-) -> std::result::Result<GuestMemoryMmap, LoadSnapshotError> {
-    unimplemented!()
+    mem_uds_path: &Path,
+    mem_state: &GuestMemoryState,
+    track_dirty_pages: bool,
+) -> std::result::Result<(GuestMemoryMmap, Option<Uffd>), LoadSnapshotError> {
+    use self::LoadSnapshotError::{
+        CreateUffdBuilder, DeserializeMemory, UdsConnection, UffdMemoryRegionsRegister, UffdSend,
+    };
+
+    let guest_memory =
+        GuestMemoryMmap::restore(None, mem_state, track_dirty_pages).map_err(DeserializeMemory)?;
+
+    let uffd = UffdBuilder::new()
+        .close_on_exec(true)
+        .non_blocking(true)
+        .create()
+        .map_err(CreateUffdBuilder)?;
+
+    let mut backend_mappings = Vec::with_capacity(guest_memory.num_regions());
+    for (mem_region, state_region) in guest_memory.iter().zip(mem_state.regions.iter()) {
+        let host_base_addr = mem_region.as_ptr();
+        let size = mem_region.size();
+
+        uffd.register(host_base_addr as _, size as _)
+            .map_err(UffdMemoryRegionsRegister)?;
+        backend_mappings.push(GuestRegionUffdMapping {
+            base_host_virt_addr: host_base_addr as u64,
+            size,
+            offset: state_region.offset,
+        });
+    }
+
+    // Wrapp backend mappings and PID into a structure to be sent through the UDS socket.
+    let uffd_info = UffdInfo {
+        guest_region_uffd_mappings: backend_mappings,
+        pid: process::id(),
+    };
+
+    // This is safe to unwrap() because we control the contents of the structure
+    // (i.e RegionBackendMapping entries and PID).
+    let uffd_info = serde_json::to_string(&uffd_info).unwrap();
+
+    let socket = UnixStream::connect(mem_uds_path).map_err(UdsConnection)?;
+    socket
+        .send_with_fd(
+            uffd_info.as_bytes(),
+            // In the happy case, we can close the fd since the other process has it open and is
+            // using it to serve us pages.
+            //
+            // The problem is that if other process crashes/exits, firecracker guest memory
+            // will simply revert to anon-mem behavior which would lead to silent errors and
+            // undefined behavior.
+            //
+            // To tackle this scenario, we send Firecracker's PID to the page fault handler,
+            // so that the handler is able to notify Firecracker of any crashes/exits.
+            // Moreover, Firecracker holds a copy of the UFFD fd as well, so that even if the
+            // page fault handler process does not tear down Firecracker when necessary, the
+            // uffd will still be alive but with no one to serve faults, leading to guest freeze.
+            uffd.as_raw_fd(),
+        )
+        .map_err(UffdSend)?;
+
+    Ok((guest_memory, Some(uffd)))
 }
 
 #[cfg(target_arch = "x86_64")]
