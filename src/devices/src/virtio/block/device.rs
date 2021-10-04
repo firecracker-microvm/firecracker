@@ -298,7 +298,7 @@ impl Block {
                         METRICS.block.invalid_reqs_count.inc();
                         error!(
                             "Failed to execute {:?} virtio block request: {:?}",
-                            request.request_type, err_status
+                            request.r#type, err_status
                         );
                     }
 
