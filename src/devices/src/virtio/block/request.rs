@@ -99,15 +99,6 @@ impl From<u32> for RequestType {
     }
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct Request {
-    pub request_type: RequestType,
-    pub data_len: u32,
-    pub status_addr: GuestAddress,
-    sector: u64,
-    data_addr: GuestAddress,
-}
-
 /// The request header represents the mandatory fields of each block device request.
 ///
 /// A request header contains the following fields:
@@ -150,6 +141,15 @@ impl RequestHeader {
     }
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Request {
+    pub r#type: RequestType,
+    pub data_len: u32,
+    pub status_addr: GuestAddress,
+    sector: u64,
+    data_addr: GuestAddress,
+}
+
 impl Request {
     pub fn parse(
         avail_desc: &DescriptorChain,
@@ -163,7 +163,7 @@ impl Request {
 
         let request_header = RequestHeader::read_from(mem, avail_desc.addr)?;
         let mut req = Request {
-            request_type: RequestType::from(request_header.request_type),
+            r#type: RequestType::from(request_header.request_type),
             sector: request_header.sector,
             data_addr: GuestAddress(0),
             data_len: 0,
@@ -179,7 +179,7 @@ impl Request {
         if !desc.has_next() {
             status_desc = desc;
             // Only flush requests are allowed to skip the data descriptor.
-            if req.request_type != RequestType::Flush {
+            if req.r#type != RequestType::Flush {
                 return Err(Error::DescriptorChainTooShort);
             }
         } else {
@@ -188,13 +188,13 @@ impl Request {
                 .next_descriptor()
                 .ok_or(Error::DescriptorChainTooShort)?;
 
-            if data_desc.is_write_only() && req.request_type == RequestType::Out {
+            if data_desc.is_write_only() && req.r#type == RequestType::Out {
                 return Err(Error::UnexpectedWriteOnlyDescriptor);
             }
-            if !data_desc.is_write_only() && req.request_type == RequestType::In {
+            if !data_desc.is_write_only() && req.r#type == RequestType::In {
                 return Err(Error::UnexpectedReadOnlyDescriptor);
             }
-            if !data_desc.is_write_only() && req.request_type == RequestType::GetDeviceID {
+            if !data_desc.is_write_only() && req.r#type == RequestType::GetDeviceID {
                 return Err(Error::UnexpectedReadOnlyDescriptor);
             }
 
@@ -203,7 +203,7 @@ impl Request {
         }
 
         // check request validity
-        match req.request_type {
+        match req.r#type {
             RequestType::In | RequestType::Out => {
                 // Check that the data length is a multiple of 512 as specified in the virtio standard.
                 if u64::from(req.data_len) % SECTOR_SIZE != 0 {
@@ -246,7 +246,7 @@ impl Request {
             return true;
         }
         // Exercise the rate limiter only if this request is of data transfer type.
-        if self.request_type == RequestType::In || self.request_type == RequestType::Out {
+        if self.r#type == RequestType::In || self.r#type == RequestType::Out {
             // If limiter.consume() fails it means there is no more TokenType::Bytes
             // budget and rate limiting is in effect.
             if !rate_limiter.consume(u64::from(self.data_len), TokenType::Bytes) {
@@ -271,7 +271,7 @@ impl Request {
         disk: &mut DiskProperties,
         mem: &GuestMemoryMmap,
     ) -> result::Result<u32, ErrStatus> {
-        match self.request_type {
+        match self.r#type {
             RequestType::In => {
                 self.execute_seek(disk)?;
                 mem.read_exact_from(self.data_addr, disk.file_mut(), self.data_len as usize)
@@ -520,10 +520,7 @@ mod tests {
             let mut q = self.vq.create_queue();
             let request =
                 Request::parse(&q.pop(self.mem).unwrap(), self.mem, NUM_DISK_SECTORS).unwrap();
-            assert_eq!(
-                request.request_type,
-                RequestType::from(self.hdr().request_type)
-            );
+            assert_eq!(request.r#type, RequestType::from(self.hdr().request_type));
             assert_eq!(request.sector, self.hdr().sector);
 
             if check_data {
@@ -848,7 +845,7 @@ mod tests {
         let sectors_len = u64::from(valid_data_len) / SECTOR_SIZE;
         // Craft a random request with the randomized parameters.
         let mut request = Request {
-            request_type,
+            r#type: request_type,
             data_len: valid_data_len,
             status_addr,
             sector: sector & (NUM_DISK_SECTORS - sectors_len),
@@ -863,7 +860,7 @@ mod tests {
             request_header,
         );
         // Flush requests have no data desc.
-        if request.request_type == RequestType::Flush {
+        if request.r#type == RequestType::Flush {
             request.data_addr = GuestAddress(0);
             request.data_len = 0;
             rq.mut_hdr_desc()
@@ -873,7 +870,7 @@ mod tests {
             rq.set_data_desc(
                 request.data_addr.0,
                 request.data_len,
-                request_type_flags(request.request_type),
+                request_type_flags(request.r#type),
             )
         }
         rq.set_status_desc(request.status_addr.0, 1, VIRTQ_DESC_F_WRITE);
@@ -894,7 +891,7 @@ mod tests {
 
         // Flip coin - corrupt data desc next flag.
         // Exception: flush requests do not have data desc.
-        if *coins.next().unwrap() && request.request_type != RequestType::Flush {
+        if *coins.next().unwrap() && request.r#type != RequestType::Flush {
             data_desc_flags.set(data_desc_flags.get() & !VIRTQ_DESC_F_NEXT);
             return (Err(Error::DescriptorChainTooShort), mem, q);
         }
@@ -908,7 +905,7 @@ mod tests {
 
         // Corrupt data desc accessibility
         if *coins.next().unwrap() {
-            match request.request_type {
+            match request.r#type {
                 // Readonly buffer is writable.
                 RequestType::Out => {
                     data_desc_flags.set(data_desc_flags.get() | VIRTQ_DESC_F_WRITE);
@@ -925,7 +922,7 @@ mod tests {
 
         // Flip coin - Corrupt data_len
         if *coins.next().unwrap() {
-            match request.request_type {
+            match request.r#type {
                 RequestType::In | RequestType::Out => {
                     // data_len is not a multiple of 512
                     rq.mut_data_desc()
@@ -946,7 +943,7 @@ mod tests {
 
         // Flip coin - Corrupt sector
         if *coins.next().unwrap() {
-            match request.request_type {
+            match request.r#type {
                 RequestType::In | RequestType::Out => {
                     rq.mut_hdr().sector = (sector | NUM_DISK_SECTORS) + 1;
                     return (Err(Error::InvalidOffset), mem, q);
