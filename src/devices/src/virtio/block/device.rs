@@ -274,6 +274,24 @@ impl Block {
         }
     }
 
+    fn add_used_descriptor(
+        queue: &mut Queue,
+        index: u16,
+        len: u32,
+        mem: &GuestMemoryMmap,
+        irq_trigger: &IrqTrigger,
+    ) {
+        queue
+            .add_used(mem, index, len)
+            .unwrap_or_else(|e| error!("Failed to add available descriptor head {}: {}", index, e));
+
+        if queue.prepare_kick(mem) {
+            irq_trigger.trigger_irq(IrqType::Vring).unwrap_or_else(|_| {
+                METRICS.block.event_fails.inc();
+            });
+        }
+    }
+
     pub fn process_queue(&mut self, queue_index: usize) {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -315,20 +333,7 @@ impl Block {
                 }
             };
 
-            queue.add_used(mem, head.index, len).unwrap_or_else(|e| {
-                error!(
-                    "Failed to add available descriptor head {}: {}",
-                    head.index, e
-                )
-            });
-
-            if queue.prepare_kick(mem) {
-                self.irq_trigger
-                    .trigger_irq(IrqType::Vring)
-                    .unwrap_or_else(|_| {
-                        METRICS.block.event_fails.inc();
-                    });
-            }
+            Self::add_used_descriptor(queue, head.index, len, mem, &self.irq_trigger);
 
             used_any = true;
         }
