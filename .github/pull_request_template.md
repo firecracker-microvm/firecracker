@@ -1,6 +1,9 @@
 # Reason for This PR
 
-`[Author TODO: add issue # or explain reasoning.]`
+`[Author TODO: add issue #.]`
+`[Open the PR after the related issue has a clear conclusion.]`
+`[If there is no issue which states the need for this PR, create one first.]`
+Fixes #
 
 ## Description of Changes
 
@@ -19,7 +22,8 @@ the terms of the Apache 2.0 license.
 `[Reviewer TODO: Verify that these criteria are met. Request changes if not]`
 
 - [ ] All commits in this PR are signed (`git commit -s`).
-- [ ] The reason for this PR is clearly provided (issue no. or explanation).
+- [ ] The issue which led to this PR has a clear conclusion.
+- [ ] This PR follows the solution outlined in the related issue.
 - [ ] The description of changes is clear and encompassing.
 - [ ] Any required documentation changes (code and docs) are included in this PR.
 - [ ] Any newly added `unsafe` code is properly documented.
