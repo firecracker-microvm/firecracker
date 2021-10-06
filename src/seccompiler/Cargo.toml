@@ -12,9 +12,9 @@ name = "seccompiler-bin"
 path = "src/seccompiler_bin.rs"
 
 [dependencies]
-utils = { path = "../utils" }
+bincode = "1.2.1"
 libc = ">=0.2.39"
 serde = { version = ">=1.0.27", features = ["derive"] }
 serde_json = ">=1.0.9"
-bincode = "1.2.1"
 
+utils = { path = "../utils" }
