@@ -10,7 +10,6 @@ libc = ">=0.2.39"
 timerfd = ">=1.0"
 versionize = ">=0.1.6"
 versionize_derive = ">=0.1.3"
-vm-memory = { path = "../vm-memory" }
 vm-superio = ">=0.4.0"
 
 dumbo = { path = "../dumbo" }
@@ -22,6 +21,7 @@ serde = { version = ">=1.0.27", features = ["derive"] }
 snapshot = { path = "../snapshot" }
 utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
+vm-memory = { path = "../vm-memory" }
 
 [dev-dependencies]
 proptest = ">=1.0.0"
