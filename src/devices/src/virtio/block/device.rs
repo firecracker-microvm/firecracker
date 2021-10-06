@@ -19,7 +19,7 @@ use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
-use vm_memory::{Bytes, GuestMemoryMmap};
+use vm_memory::GuestMemoryMmap;
 
 use super::{
     super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK},
@@ -309,22 +309,9 @@ impl Block {
                         break;
                     }
 
-                    let status = Status::from_result(request.execute(&mut self.disk, mem));
-                    let virtio_blk_status = status.virtio_blk_status();
-                    let num_used_bytes = status.num_used_bytes();
-                    if let Status::Err(err_status) = status {
-                        METRICS.block.invalid_reqs_count.inc();
-                        error!(
-                            "Failed to execute {:?} virtio block request: {:?}",
-                            request.r#type, err_status
-                        );
-                    }
-
-                    if let Err(e) = mem.write_obj(virtio_blk_status, request.status_addr) {
-                        error!("Failed to write virtio block status: {:?}", e)
-                    }
-
-                    num_used_bytes
+                    request
+                        .execute(&mut self.disk, head.index, mem)
+                        .num_bytes_to_mem
                 }
                 Err(e) => {
                     error!("Failed to parse available descriptor chain: {:?}", e);
@@ -496,7 +483,7 @@ pub(crate) mod tests {
     use crate::virtio::queue::tests::*;
     use rate_limiter::TokenType;
     use utils::tempfile::TempFile;
-    use vm_memory::GuestAddress;
+    use vm_memory::{Bytes, GuestAddress};
 
     use crate::check_metric_after_block;
     use crate::virtio::block::test_utils::{
