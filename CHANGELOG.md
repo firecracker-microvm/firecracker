@@ -30,6 +30,8 @@
   Accepted values are either `V1` or `V2`.
 - Added `GET` request on `/mmds/version` that provides the MMDS version.
   Default value is `V2`.
+- Support and validation for host and guest kernel 5.10.
+- A [kernel support policy](docs/kernel-policy.md).
 
 ### Changed
 

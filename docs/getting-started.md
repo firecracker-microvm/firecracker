@@ -12,7 +12,7 @@
 
 ## Prerequisites
 
-If you need an opinionated way of running Firecracker, create an `i3.metal`
+If you need an opinionated way of running Firecracker, launch an `i3.metal`
 instance using Ubuntu 18.04 on EC2. Firecracker uses
 [KVM](https://www.linux-kvm.org) and needs read/write access that can be
 granted as shown below:
@@ -23,11 +23,10 @@ sudo setfacl -m u:${USER}:rw /dev/kvm
 
 The generic requirements are explained below:
 
-- **Linux 4.14+**
+- **Linux**
 
   Firecracker currently supports physical Linux **x86_64** and **aarch64**
-  hosts, running kernel version 4.14 or later. However, the **aarch64** support
-  is not feature complete (alpha stage).
+  hosts. The currently supported kernel versions can be found [here](kernel-policy.md).
 
 - **KVM**
 

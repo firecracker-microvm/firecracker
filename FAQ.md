@@ -70,10 +70,10 @@ and guest.
 
 ### What operating systems are supported by Firecracker?
 
-Firecracker supports Linux host and guest operating systems with kernel versions
-4.14 and above, as well as
+Firecracker supports Linux host and guest operating systems as well as
 [OSv](http://blog.osv.io/blog/2019/04/19/making-OSv-run-on-firecraker/) guests.
-The long-term support plan is still under discussion.
+Currently supported host/guest kernel versions can be found in the
+[kernel support policy](docs/kernel-policy.md).
 
 ### What is the open source license for Firecracker?
 

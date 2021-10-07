@@ -50,6 +50,9 @@ security issues when they are found, for:
 * any Firecracker `vMAJOR.MINOR` release for at least 6 months from release date;
 * for each `vMAJOR`, the latest `MINOR` for 1 year since release date;
 
+Starting with release v1.0, for each major and minor release, we will
+also be specifying the supported kernel versions.
+
 ### Examples
 
 1. Considering an example where the last Firecracker releases are:

@@ -46,9 +46,11 @@ The following diagram depicts an example host running Firecracker microVMs.
 images/firecracker_host_integration.png?raw=true
 "Firecracker Host Integration")
 
-Firecracker runs on Linux hosts with 4.14 or newer kernels and with Linux
-guest OSs (from this point on, referred to as guests). In production
-environments, Firecracker should be started only via the `jailer` binary.
+Firecracker runs on Linux hosts and with Linux guest OSs (from this point on,
+referred to as guests). For a complete list of currently supported kernel
+versions, check out the [kernel support policy](kernel-policy.md).
+
+In production environments, Firecracker should be started only via the `jailer` binary.
 See [Sandboxing](#Sandboxing) for more details.
 
 After launching the process, users interact with the Firecracker API to

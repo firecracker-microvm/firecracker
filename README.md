@@ -141,6 +141,11 @@ Firecracker currently only supports little-endian platforms. Firecracker will
 not compile for big-endian architectures, and will not work correctly with
 big-endian configured guests.
 
+## Supported kernels
+
+For a list of supported host/guest kernels and future kernel related
+plans, check out our [kernel support policy](docs/kernel-policy.md).
+
 ## Known issues and Limitations
 
 - The [SendCtrlAltDel](docs/api_requests/actions.md#sendctrlaltdel) API request
