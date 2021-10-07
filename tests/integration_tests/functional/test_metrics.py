@@ -37,6 +37,7 @@ def test_flush_metrics(test_microvm_with_api):
         'api_server',
         'balloon',
         'block',
+        'deprecated_api',
         'get_api_requests',
         'i8042',
         'latencies_us',
