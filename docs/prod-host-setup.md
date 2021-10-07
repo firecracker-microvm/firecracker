@@ -373,7 +373,7 @@ spec_store_bypass_disable=seccomp
 which will apply SSB if seccomp is enabled by Firecracker.
 
 On aarch64 systems, it is enabled by Firecracker
-[using the `prctl` interface][3]. However, this is only availabe on host
+[using the `prctl` interface][3]. However, this is only available on host
 kernels Linux >=4.17 and also Amazon Linux 4.14. Alternatively, a global
 mitigation can be enabled by adding the following Linux kernel boot parameter:
 
