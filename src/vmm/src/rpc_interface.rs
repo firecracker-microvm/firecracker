@@ -67,6 +67,8 @@ pub enum VmmAction {
     GetVmMachineConfig,
     /// Get microVM instance information.
     GetVmInstanceInfo,
+    /// Get microVM version.
+    GetVmmVersion,
     /// Flush the metrics. This action can only be called after the logger has been configured.
     FlushMetrics,
     /// Add a new block device or update one that already exists using the `BlockDeviceConfig` as
@@ -210,6 +212,8 @@ pub enum VmmData {
     MachineConfiguration(VmConfig),
     /// The microVM instance information.
     InstanceInformation(InstanceInfo),
+    /// The microVM version.
+    VmmVersion(String),
 }
 
 /// Shorthand result type for external VMM commands.
@@ -319,6 +323,7 @@ impl<'a> PrebootApiController<'a> {
                 self.vm_resources.vm_config().clone(),
             )),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(self.instance_info.clone())),
+            GetVmmVersion => Ok(VmmData::VmmVersion(self.instance_info.vmm_version.clone())),
             InsertBlockDevice(config) => self.insert_block_device(config),
             InsertNetworkDevice(config) => self.insert_net_device(config),
             LoadSnapshot(config) => self.load_snapshot(&config),
@@ -504,6 +509,9 @@ impl RuntimeApiController {
             )),
             GetVmInstanceInfo => Ok(VmmData::InstanceInformation(
                 self.vmm.lock().expect("Poisoned lock").instance_info(),
+            )),
+            GetVmmVersion => Ok(VmmData::VmmVersion(
+                self.vmm.lock().expect("Poisoned lock").version(),
             )),
             Pause => self.pause(),
             Resume => self.resume(),
@@ -957,6 +965,10 @@ mod tests {
 
         pub fn instance_info(&self) -> InstanceInfo {
             InstanceInfo::default()
+        }
+
+        pub fn version(&self) -> String {
+            String::default()
         }
     }
 
