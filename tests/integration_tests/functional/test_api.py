@@ -9,6 +9,7 @@ import itertools
 import os
 import platform
 import resource
+import subprocess
 import time
 
 import pytest
@@ -905,6 +906,38 @@ def _drive_patch(test_microvm):
             }
         }
     }]
+
+
+def test_api_version(test_microvm_with_api):
+    """
+    Test the permanent VM version endpoint.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+    test_microvm.basic_config()
+
+    # Getting the VM version should be available pre-boot.
+    preboot_response = test_microvm.version.get()
+    assert test_microvm.api_session.is_status_ok(preboot_response.status_code)
+    # Check that the response contains the version.
+    assert 'firecracker_version' in preboot_response.json()
+
+    # Start the microvm.
+    test_microvm.start()
+
+    # Getting the VM version should be available post-boot.
+    postboot_response = test_microvm.version.get()
+    assert test_microvm.api_session.is_status_ok(postboot_response.status_code)
+    # Check that the response contains the version.
+    assert 'firecracker_version' in postboot_response.json()
+    # Validate VM version post-boot is the same as pre-boot.
+    assert preboot_response.json() == postboot_response.json()
+    # Check that the version is the same as `git describe --dirty`.
+    out = subprocess.check_output(['git', 'describe', '--dirty']).decode()
+    # Skip the "v" at the start and the newline at the end.
+    assert out.strip()[1:] == preboot_response.json()['firecracker_version']
 
 
 def test_api_vsock(test_microvm_with_api):
