@@ -358,6 +358,8 @@ pub struct GetRequestsMetrics {
     pub machine_cfg_count: SharedIncMetric,
     /// Number of GETs for getting mmds.
     pub mmds_count: SharedIncMetric,
+    /// Number of GETs for getting the VMM version.
+    pub vmm_version_count: SharedIncMetric,
 }
 
 /// Metrics specific to PUT API Requests for counting user triggered actions and/or failures.

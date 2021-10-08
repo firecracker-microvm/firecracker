@@ -9,6 +9,8 @@
 - Limit MMDS data store size to `--http_api_max_payload_size`.
 - Cleanup all environment variables in Jailer.
 - Added metrics for accesses to deprecated HTTP and command line API endpoints.
+- Added permanent HTTP endpoint for `GET` on `/version` for getting the
+  Firecracker version.
 
 ## [0.25.0]
 

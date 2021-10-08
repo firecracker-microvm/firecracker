@@ -253,6 +253,11 @@ pub struct Vmm {
 }
 
 impl Vmm {
+    /// Gets Vmm version.
+    pub fn version(&self) -> String {
+        self.instance_info.vmm_version.clone()
+    }
+
     /// Gets Vmm instance info.
     pub fn instance_info(&self) -> InstanceInfo {
         self.instance_info.clone()
