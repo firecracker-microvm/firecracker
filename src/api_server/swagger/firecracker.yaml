@@ -561,6 +561,20 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /version:
+    get:
+      summary: Gets the Firecracker version.
+      operationId: getFirecrackerVersion
+      responses:
+        200:
+          description: OK
+          schema:
+            $ref: "#/definitions/FirecrackerVersion"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /vm:
     patch:
       summary: Updates the microVM state.
@@ -1106,6 +1120,17 @@ definitions:
         enum:
           - Paused
           - Resumed
+
+  FirecrackerVersion:
+    type: object
+    description:
+      Describes the Firecracker version.
+    required:
+      - firecracker_version
+    properties:
+      firecracker_version:
+        description: Firecracker build version.
+        type: string
 
   Vsock:
     type: object
