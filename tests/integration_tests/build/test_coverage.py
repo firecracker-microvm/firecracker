@@ -68,6 +68,7 @@ def test_coverage(test_fc_session_root_path, test_session_tmp_path):
         'elf.rs,'
         'mpspec.rs,'
         'msr_index.rs,'
+        'bindings.rs,'
         '_gen'
     )
     exclude_region = '\'mod tests {\''
