@@ -686,6 +686,9 @@ cmd_help() {
     echo "        Builds a kernel image custom-tailored for our CI."
     echo "        -c, --config  Path to the config file."
     echo "        -n, --nproc  Number of cores to use for building kernel."
+
+    help_build_release_archive
+
     echo "    build_rootfs -s|--size [--partuuid]"
     echo "        Builds a rootfs image custom-tailored for use in our CI."
     echo "        -s, --size      Size of the rootfs image. Defaults to 300M."
@@ -792,6 +795,17 @@ help_upload_assets() {
     echo "        -t, --token               A GitHub Access token with "repo" permissions"
     echo "        -r, --repo                The name of the repository where the draft release exists."
     echo "        -a, --asset               Path to asset to be uploaded."
+}
+
+help_build_release_archive() {
+    echo "    build_release_archive -v <val>"
+    echo "        Building the release archive involves the following steps:"
+    echo "            1. Running integration tests."
+    echo "            2. Building release binaries and stripping them of debug symbols."
+    echo "            3. Verifying artifacts' version against release version targeted."
+    echo "            4. Packing all artifacts into \`release-v{X.Y.Z}\` directory."
+    echo "            5. Creating firecracker-v{X.Y.Z}-{arch} release archive."
+    echo "        -v, --version             The targeted release version."
 }
 
 # `$0 build` - build Firecracker
@@ -952,6 +966,9 @@ cmd_distclean() {
     fi
 }
 
+# Suppress "referencing arguments but none are ever passed" error, because
+# strip command accepts only --help argument.
+# shellcheck disable=SC2120
 cmd_strip() {
     profile="release"
     target="$TARGET_PREFIX""musl"
@@ -992,6 +1009,135 @@ cmd_strip() {
     }
 
     return $ret
+}
+
+cmd_build_release_archive() {
+    target="$TARGET_PREFIX""musl"
+    profile="release"
+    seccomp_json="resources/seccomp/$target.json"
+
+    # Parse any command line args.
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            "-h"|"--help")      { help_build_release_archive; exit 1; } ;;
+            "-v"|"--version")   { version="$2"; shift 2;              } ;;
+            *)
+                die "Unknown argument: $1. Please use --help for help."
+        esac
+    done
+
+    validate_version "$version"
+    say "Will start preparing release archive for v$version ..."
+    get_user_confirmation || die "Aborted."
+
+    # Run tests, build release binaries and strip them from debug symbols.
+    ( cmd_test && cmd_build --release && cmd_strip ) || die "Aborted."
+
+    release_suffix="v$version-$(uname -m)"
+    release_dir="release-$release_suffix"
+    # Create release directory or overwrite if it already exists.
+    rm -rf "$release_dir" && mkdir "$release_dir"
+
+    # Copy release artifacts to release directory.
+    say "Populating release artifacts directory..."
+    bin_paths=( "$(build_fc_bin_path "$target" "$profile")"
+                "$(build_jailer_bin_path "$target" "$profile")"
+                "$(build_seccomp_bin_path "$target" "$profile")" )
+    for bin_path in "${bin_paths[@]}"; do
+        add_bin_artifact "$release_dir" "$bin_path" "$release_suffix"
+    done
+
+    add_swagger_artifact "$release_dir"
+    add_folder_artifact "$release_dir" "test_results" "$release_suffix"
+    add_file_artifact "$release_dir" "$seccomp_json" "seccomp-filter-$release_suffix.json"
+    for file in "LICENSE" "NOTICE" "THIRD-PARTY"; do
+        add_file_artifact "$release_dir" "$file"
+    done
+
+    # Create release archive.
+    archive_name="firecracker-$release_suffix.tgz"
+    say "Creating release archive..."
+    tar -czf "$archive_name" "$release_dir"
+    say "Done. Archive $archive_name successfully created."
+}
+
+check_file_existence() {
+    artifact="$1"
+    if [ ! -f "$artifact" ]; then
+        die "Artifact $artifact does not exist!"
+    fi
+}
+
+add_swagger_artifact() {
+    local release_dir="$1"
+    local swagger_path="src/api_server/swagger/firecracker.yaml"
+
+    check_file_existence "$swagger_path"
+
+    # Validate swagger version against target version.
+    swagger_ver=$(get_swagger_version "$swagger_path")
+    if [ ! "$swagger_ver" == "$version" ]; then
+        die "Swagger version: $swagger_ver does not match release version: $version."
+    fi
+
+    copy_release_artifact "$swagger_path" "$release_dir/firecracker_spec-v$version.yaml"
+}
+
+add_file_artifact() {
+    local release_dir="$1"
+    local path="$2"
+    local name="${3:-"$path"}"
+
+    check_file_existence "$path"
+    copy_release_artifact "$path" "$release_dir/$name"
+}
+
+add_bin_artifact() {
+    local release_dir="$1"
+    local path="$2"
+    local release_suffix="$3"
+
+    check_file_existence "$path"
+
+    # Validate binary version against target version.
+    output=$("$path" --version)
+    bin_version=$( echo "$output" | head -1 | grep -oP ' v\K.*')
+    if [[ ! "$bin_version" == "$version" ]]; then
+        die "Artifact $path's version: $bin_version does not match release version $version."
+    fi
+
+    formatted_name="$(basename "$path")-$release_suffix"
+    copy_release_artifact "$path" "$release_dir/$formatted_name"
+}
+
+add_folder_artifact() {
+    local release_dir="$1"
+    local path="$2"
+    local release_suffix="$3"
+
+    # Ensure the directory exists.
+    if [ ! -d "$path" ]; then
+        die "Artifact $path does not exist!"
+    fi
+    formatted_name="$(basename "$path")-$release_suffix"
+    copy_release_artifact "$path" "$release_dir/$formatted_name"
+}
+
+copy_release_artifact() {
+    local from_path="$1"
+    local to_path="$2"
+
+    say "Copying release artifact from $from_path to $to_path."
+    if [[ -f "$from_path" ]]; then
+        cp "$from_path" "$to_path"
+    elif [[ -d "$from_path" ]]; then
+        cp -r "$from_path" "$to_path"
+    fi
+}
+
+get_swagger_version() {
+    local file="$1"
+    grep -oP 'version: \K.*' "$file"
 }
 
 mount_ramdisk() {
@@ -1232,7 +1378,7 @@ cmd_prepare_release() {
 
     # Get current version from the swagger spec.
     swagger="$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
-    curr_ver=$(grep "version: " "$swagger" | awk -F : '{print $2}' | tr -d ' ')
+    curr_ver=get_swagger_version "$swagger"
 
     say "Updating from $curr_ver to $version ..."
     get_user_confirmation || die "Aborted."
@@ -1426,15 +1572,15 @@ cmd_upload_assets() {
                 shift
                 local token="$1"
                 ;;
-             "-o"|"--owner")
+            "-o"|"--owner")
                 shift
                 owner="$1"
                 ;;
-              "-r"|"--repo")
+            "-r"|"--repo")
                 shift
                 repo="$1"
                 ;;
-              "-a"|"--asset")
+            "-a"|"--asset")
                 shift
                 assets+=( "$1" )
                 ;;
