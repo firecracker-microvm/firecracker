@@ -286,17 +286,32 @@ ensure_build_dir() {
     done
 }
 
-# Makes sure that Firecracker release binaries were built.
-# This is relevant in the context of stripping the already built release binaries.
+build_fc_bin_path() {
+    target="$1"
+    profile="$2"
+    echo "$CARGO_TARGET_DIR/$target/$profile/firecracker"
+}
+
+build_jailer_bin_path() {
+    target="$1"
+    profile="$2"
+    echo "$CARGO_TARGET_DIR/$target/$profile/jailer"
+}
+
+build_seccomp_bin_path() {
+    target="$1"
+    profile="$2"
+    echo "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin"
+}
+
 ensure_release_binaries_exist() {
     target=$1
     profile=$2
-    firecracker_bin_path="$CARGO_TARGET_DIR/$target/$profile/firecracker"
-    jailer_bin_path="$CARGO_TARGET_DIR/$target/$profile/jailer"
-    seccompiler_bin_path="$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin"
+    firecracker_bin_path=$( build_fc_bin_path "$target" "$profile")
+    jailer_bin_path=$( build_jailer_bin_path "$target" "$profile")
+    seccompiler_bin_path=$( build_seccomp_bin_path "$target" "$profile")
 
-    # Both binaries must exist for the stripping to be successful.
-    [ -f "$firecracker_bin_path" ] && [ -f "$jailer_bin_path" ] && [ -f "$seccompiler_bin_path" ] || \
+    { [ -f "$firecracker_bin_path" ] && [ -f "$jailer_bin_path" ] && [ -f "$seccompiler_bin_path" ]; } || \
     die "Missing release binaries. Needed files:\n" \
     "* $firecracker_bin_path\n" \
     "* $jailer_bin_path\n" \
@@ -1774,13 +1789,13 @@ cmd_install() {
     ensure_release_binaries_exist $target $profile
 
     say "Installing firecracker in $install_path"
-    install -m 755 "$CARGO_TARGET_DIR/$target/$profile/firecracker" "$install_path"
+    install -m 755 "$( build_fc_bin_path "$target" "$profile")" "$install_path"
 
     say "Installing jailer in $install_path"
-    install -m 755 "$CARGO_TARGET_DIR/$target/$profile/jailer" "$install_path"
+    install -m 755 "$( build_jailer_bin_path "$target" "$profile")" "$install_path"
 
     say "Installing seccomp in $install_path"
-    install -m 755 "$CARGO_SECCOMPILER_TARGET_DIR/$target/$profile/seccompiler-bin" "$install_path"
+    install -m 755 "$( build_seccomp_bin_path "$target" "$profile")" "$install_path"
 }
 
 # Build a Firecracker CI compatible kernel image.
