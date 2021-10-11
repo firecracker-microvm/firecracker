@@ -40,16 +40,19 @@ def test_ensure_mod_tests():
         '--recursive '
         '--exclude-dir=src/*_gen/* '
         '\'\\#\\[test\\]\' ../src/*/src)" '
+        '| grep -v "../src/io_uring/src/bindings.rs"'
     )
 
     # The outer grep returns 0 even if it finds files without the match, so we
     # ignore the return code.
     result = utils.run_cmd(cmd, no_shell=False, ignore_return_code=True)
 
+    stdout = result.stdout.strip()
+
     error_msg = (
         'Tests found in files without a "tests" module:\n {}'
         'To ensure code coverage is reported correctly, please check that '
-        'your tests are in a module named "tests".'.format(result.stdout)
+        'your tests are in a module named "tests".'.format(stdout)
     )
 
-    assert not result.stdout, error_msg
+    assert not stdout, error_msg
