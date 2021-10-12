@@ -3,19 +3,25 @@
 
 mod bindings;
 pub mod operation;
+mod probe;
 mod queue;
 
 pub use queue::submission::Error as SQueueError;
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Error as IOError;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 
 use bindings::io_uring_params;
-use operation::{Cqe, Operation};
+use operation::{Cqe, OpCode, Operation};
+use probe::{ProbeWrapper, PROBE_LEN};
 use queue::completion::{CompletionQueue, Error as CQueueError};
 use queue::submission::SubmissionQueue;
 use utils::syscall::SyscallReturnCode;
+
+// IO_uring operations that we require to be supported by the host kernel.
+const REQUIRED_OPS: [OpCode; 2] = [OpCode::Read, OpCode::Write];
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -28,6 +34,11 @@ pub enum Error {
     SQueue(SQueueError),
     InvalidFixedFd(i32),
     NoRegisteredFds,
+    Probe(IOError),
+    /// A FamStructWrapper operation has failed.
+    FamError(utils::fam::Error),
+    UnsupportedFeature(&'static str),
+    UnsupportedOperation(&'static str),
 }
 
 pub struct IoUring {
@@ -54,15 +65,21 @@ impl IoUring {
         // Safe because the fd is valid and because this struct owns the fd.
         let file = unsafe { File::from_raw_fd(fd) };
 
+        Self::check_features(params)?;
+
         let squeue = SubmissionQueue::new(fd, &params).map_err(Error::SQueue)?;
         let cqueue = CompletionQueue::new(fd, &params).map_err(Error::CQueue)?;
 
-        Ok(Self {
+        let instance = Self {
             fd: file,
             squeue,
             cqueue,
             registered_fds_count: 0,
-        })
+        };
+
+        instance.check_operations()?;
+
+        Ok(instance)
     }
 
     pub fn push<T>(&mut self, op: Operation<T>) -> std::result::Result<(), (Error, T)> {
@@ -128,6 +145,52 @@ impl IoUring {
         })
         .into_empty_result()
         .map_err(Error::RegisterEventfd)?;
+
+        Ok(())
+    }
+
+    fn check_features(params: io_uring_params) -> Result<()> {
+        // We require that the host kernel will never drop completed entries due to an (unlikely)
+        // overflow in the completion queue.
+        // This feature is supported for kernels greater than 5.7.
+        // An alternative fix would be to keep an internal counter that tracks the number of
+        // submitted entries that haven't been completed and makes sure it doesn't exceed
+        // (2 * num_entries).
+        if (params.features & bindings::IORING_FEAT_NODROP) == 0 {
+            return Err(Error::UnsupportedFeature("IORING_FEAT_NODROP"));
+        }
+
+        Ok(())
+    }
+
+    fn check_operations(&self) -> Result<()> {
+        let mut probes = ProbeWrapper::new(PROBE_LEN).map_err(Error::FamError)?;
+
+        // Safe because values are valid and we check the return value.
+        SyscallReturnCode(unsafe {
+            libc::syscall(
+                libc::SYS_io_uring_register,
+                self.fd.as_raw_fd(),
+                bindings::IORING_REGISTER_PROBE,
+                probes.as_mut_fam_struct_ptr(),
+                PROBE_LEN,
+            )
+        } as libc::c_int)
+        .into_empty_result()
+        .map_err(Error::Probe)?;
+
+        let supported_opcodes: HashSet<u8> = probes
+            .as_slice()
+            .iter()
+            .filter(|op| ((op.flags as u32) & bindings::IO_URING_OP_SUPPORTED) != 0)
+            .map(|op| op.op)
+            .collect();
+
+        for opcode in REQUIRED_OPS.iter() {
+            if !supported_opcodes.contains(&(*opcode as u8)) {
+                return Err(Error::UnsupportedOperation((*opcode).into()));
+            }
+        }
 
         Ok(())
     }
