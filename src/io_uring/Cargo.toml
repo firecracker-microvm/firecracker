@@ -6,4 +6,5 @@ edition = "2018"
 license = "Apache-2.0"
 
 [dependencies]
+libc = ">=0.2.103"
 vm-memory = { version = "0.7.0", features = ["backend-mmap"] }
