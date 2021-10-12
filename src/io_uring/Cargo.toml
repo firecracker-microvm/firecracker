@@ -5,3 +5,4 @@ authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
 
 [dependencies]
+vm-memory = { version = "0.7.0", features = ["backend-mmap"] }
