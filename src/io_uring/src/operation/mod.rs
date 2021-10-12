@@ -7,15 +7,29 @@ mod sqe;
 pub use cqe::Cqe;
 pub use sqe::Sqe;
 
+use std::convert::From;
+
 use crate::bindings::{self, io_uring_sqe, IOSQE_FIXED_FILE_BIT};
 
 pub type FixedFd = u32;
 
 #[repr(u8)]
+#[derive(Clone, Copy)]
 pub enum OpCode {
     Read = bindings::IORING_OP_READ as u8,
     Write = bindings::IORING_OP_WRITE as u8,
     Fsync = bindings::IORING_OP_FSYNC as u8,
+}
+
+// Useful for outputting errors.
+impl From<OpCode> for &'static str {
+    fn from(opcode: OpCode) -> Self {
+        match opcode {
+            OpCode::Read => "read",
+            OpCode::Write => "write",
+            OpCode::Fsync => "fsync",
+        }
+    }
 }
 
 pub struct Operation<T> {

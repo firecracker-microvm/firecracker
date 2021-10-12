@@ -7,4 +7,5 @@ license = "Apache-2.0"
 
 [dependencies]
 libc = ">=0.2.103"
+utils = { path = "../utils" }
 vm-memory = { version = "0.7.0", features = ["backend-mmap"] }
