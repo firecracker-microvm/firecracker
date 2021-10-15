@@ -391,18 +391,20 @@ get_user_confirmation() {
 }
 
 # Validate the user supplied version number.
-# It must be composed of 3 groups of integers separated by dot.
-#
+# It must start with 3 groups of integers separated by dot and
+# must not contain `wip` or `dirty`.
 validate_version() {
-    declare version_regex="^([0-9]+.){2}[0-9]+$"
+    declare version_regex="^([0-9]+\.){2}[0-9]+"
     version="$1"
 
     if [ -z "$version" ]; then
         die "Version cannot be empty."
     elif [[ ! "$version" =~ $version_regex ]]; then
-        die "Invalid version number: $version (expected: \$Major.\$Minor.\$Build)."
+        die "Invalid version number: $version. Version should start with \$Major.\$Minor.\$Build, see
+        https://github.com/firecracker-microvm/firecracker/blob/main/docs/RELEASE_POLICY.md for more information."
+    elif [[ "$version" == *"wip"* ]] || [[ "$version" == *"dirty"* ]]; then
+        die "Invalid version number: $version. Version should not contain \`wip\` or \`dirty\`."
     fi
-
 }
 
 # Validate that the repo targetted for a release exists.
@@ -483,7 +485,7 @@ compose_release_text() {
 
 get_prev_release() {
     declare version=$1
-    declare pat_release="^## \[([0-9]+\.){2}[0-9]+\]"
+    declare pat_release="^## \[([0-9]+\.){2}[0-9]+.*\]$"
     declare changelog="$FC_ROOT_DIR/CHANGELOG.md"
 
     grep -q "\[$version\]" "$changelog"
@@ -1070,7 +1072,7 @@ check_file_existence() {
 
 add_swagger_artifact() {
     local release_dir="$1"
-    local swagger_path="src/api_server/swagger/firecracker.yaml"
+    local swagger_path="$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
 
     check_file_existence "$swagger_path"
 
@@ -1378,7 +1380,7 @@ cmd_prepare_release() {
 
     # Get current version from the swagger spec.
     swagger="$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
-    curr_ver=get_swagger_version "$swagger"
+    curr_ver=$(get_swagger_version "$swagger")
 
     say "Updating from $curr_ver to $version ..."
     get_user_confirmation || die "Aborted."
