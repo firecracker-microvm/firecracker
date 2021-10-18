@@ -11,7 +11,7 @@ use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct UserDataOk<T> {
-    pub user_data: Box<T>,
+    pub user_data: T,
     pub count: u32,
 }
 
@@ -29,7 +29,7 @@ pub enum Error {
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct UserDataError<T, E> {
-    pub user_data: Box<T>,
+    pub user_data: T,
     pub error: E,
 }
 
@@ -40,8 +40,15 @@ pub enum FileEngine<T> {
 }
 
 impl<T> FileEngine<T> {
-    pub fn from_file(file: File) -> std::io::Result<FileEngine<T>> {
+    pub fn from_file_sync(file: File) -> Result<FileEngine<T>, Error> {
         Ok(FileEngine::Sync(SyncFileEngine::from_file(file)))
+    }
+
+    #[allow(unused)]
+    pub fn from_file_async(file: File) -> Result<FileEngine<T>, Error> {
+        Ok(FileEngine::Async(
+            AsyncFileEngine::from_file(file).map_err(Error::Async)?,
+        ))
     }
 
     pub fn file(&self) -> &File {
@@ -57,7 +64,7 @@ impl<T> FileEngine<T> {
         mem: &GuestMemoryMmap,
         addr: GuestAddress,
         count: u32,
-        user_data: Box<T>,
+        user_data: T,
     ) -> Result<FileEngineOk<T>, UserDataError<T, Error>> {
         match self {
             FileEngine::Async(engine) => {
@@ -85,7 +92,7 @@ impl<T> FileEngine<T> {
         mem: &GuestMemoryMmap,
         addr: GuestAddress,
         count: u32,
-        user_data: Box<T>,
+        user_data: T,
     ) -> Result<FileEngineOk<T>, UserDataError<T, Error>> {
         match self {
             FileEngine::Async(engine) => {
@@ -107,7 +114,7 @@ impl<T> FileEngine<T> {
         }
     }
 
-    pub fn flush(&mut self, user_data: Box<T>) -> Result<FileEngineOk<T>, UserDataError<T, Error>> {
+    pub fn flush(&mut self, user_data: T) -> Result<FileEngineOk<T>, UserDataError<T, Error>> {
         match self {
             FileEngine::Async(engine) => match engine.push_flush(user_data) {
                 Ok(_) => Ok(FileEngineOk::Submitted),
@@ -145,9 +152,10 @@ impl<T> FileEngine<T> {
 #[cfg(test)]
 pub mod tests {
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::FromRawFd;
 
     use super::*;
-    use std::os::unix::io::FromRawFd;
+    use utils::kernel_version::KernelVersion;
     use utils::tempfile::TempFile;
     use vm_memory::{Bytes, GuestMemory, GuestMemoryRegion, MemoryRegionAddress};
 
@@ -169,7 +177,7 @@ pub mod tests {
         };
     }
 
-    macro_rules! assert_executed {
+    macro_rules! assert_sync_execution {
         ($expression:expr, $count:expr) => {
             if let Ok(FileEngineOk::Executed(UserDataOk {
                 user_data: _,
@@ -180,6 +188,21 @@ pub mod tests {
             } else {
                 println!("expected Ok, received Err");
                 assert!(false);
+            }
+        };
+    }
+
+    macro_rules! assert_queued {
+        ($expression:expr) => {
+            assert!(matches!($expression, Ok(FileEngineOk::Submitted)))
+        };
+    }
+
+    macro_rules! assert_async_execution {
+        ($engine:expr, $count:expr) => {
+            if let FileEngine::Async(ref mut engine) = $engine {
+                engine.kick_submission_queue_and_wait(1).unwrap();
+                assert_eq!(engine.pop().unwrap().unwrap().result().unwrap(), $count);
             }
         };
     }
@@ -202,17 +225,17 @@ pub mod tests {
 
         // Check invalid file
         let file = unsafe { File::from_raw_fd(-2) };
-        let mut engine = FileEngine::from_file(file).unwrap();
-        let res = engine.read(0, &mem, GuestAddress(0), 0, Box::new(()));
+        let mut engine = FileEngine::from_file_sync(file).unwrap();
+        let res = engine.read(0, &mem, GuestAddress(0), 0, ());
         assert_err!(res, Error::Sync(sync_io::Error::Seek(_e)));
-        let res = engine.write(0, &mem, GuestAddress(0), 0, Box::new(()));
+        let res = engine.write(0, &mem, GuestAddress(0), 0, ());
         assert_err!(res, Error::Sync(sync_io::Error::Seek(_e)));
-        let res = engine.flush(Box::new(()));
+        let res = engine.flush(());
         assert_err!(res, Error::Sync(sync_io::Error::SyncAll(_e)));
 
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::from_file(file).unwrap();
+        let mut engine = FileEngine::from_file_sync(file).unwrap();
 
         let data = utils::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
@@ -222,16 +245,13 @@ pub mod tests {
         let partial_len = 50;
         let addr = GuestAddress(MEM_LEN as u64 - partial_len);
         mem.write(&data, addr).unwrap();
-        assert_executed!(
-            engine.write(0, &mem, addr, FILE_LEN, Box::new(())),
+        assert_sync_execution!(
+            engine.write(0, &mem, addr, FILE_LEN, ()),
             partial_len as u32
         );
         // Partial read
         clear_mem(&mem);
-        assert_executed!(
-            engine.read(0, &mem, addr, FILE_LEN, Box::new(())),
-            partial_len as u32
-        );
+        assert_sync_execution!(engine.read(0, &mem, addr, FILE_LEN, ()), partial_len as u32);
         // Check data
         let mut buf = vec![0u8; partial_len as usize];
         mem.read_slice(&mut buf, addr).unwrap();
@@ -242,14 +262,14 @@ pub mod tests {
         let partial_len = 50;
         let addr = GuestAddress(0);
         mem.write(&data, addr).unwrap();
-        assert_executed!(
-            engine.write(offset, &mem, addr, partial_len, Box::new(())),
+        assert_sync_execution!(
+            engine.write(offset, &mem, addr, partial_len, ()),
             partial_len as u32
         );
         // Offset read
         clear_mem(&mem);
-        assert_executed!(
-            engine.read(offset, &mem, addr, partial_len, Box::new(())),
+        assert_sync_execution!(
+            engine.read(offset, &mem, addr, partial_len, ()),
             partial_len as u32
         );
         // Check data
@@ -259,14 +279,14 @@ pub mod tests {
 
         // Full write
         mem.write(&data, GuestAddress(0)).unwrap();
-        assert_executed!(
-            engine.write(0, &mem, GuestAddress(0), FILE_LEN, Box::new(())),
+        assert_sync_execution!(
+            engine.write(0, &mem, GuestAddress(0), FILE_LEN, ()),
             FILE_LEN
         );
         // Full read
         clear_mem(&mem);
-        assert_executed!(
-            engine.read(0, &mem, GuestAddress(0), FILE_LEN, Box::new(())),
+        assert_sync_execution!(
+            engine.read(0, &mem, GuestAddress(0), FILE_LEN, ()),
             FILE_LEN
         );
         // Check data
@@ -275,36 +295,71 @@ pub mod tests {
         assert_eq!(buf, data.as_slice());
 
         // Check other ops
-        assert!(engine.flush(Box::new(())).is_ok());
+        assert!(engine.flush(()).is_ok());
         assert!(engine.drain(true).is_ok());
         assert!(engine.drain(false).is_ok());
     }
 
     #[test]
     fn test_async() {
+        if KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0) {
+            return;
+        }
+
         // Create guest memory
         let mem =
             vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), MEM_LEN)], false)
                 .unwrap();
+        // Check invalid file
+        let file = unsafe { File::from_raw_fd(-2) };
+        assert!(FileEngine::<()>::from_file_async(file).is_err());
 
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::Async(AsyncFileEngine::from_file(file).unwrap());
+        let mut engine = FileEngine::<()>::from_file_async(file).unwrap();
 
-        // All ops should return an Error
+        let data = utils::rand::rand_alphanumerics(FILE_LEN as usize)
+            .as_bytes()
+            .to_vec();
+
+        // Partial reads and writes cannot really be tested because io_uring will return an error
+        // code for trying to write to unmapped memory.
+
+        // Offset write
+        let offset = 100;
+        let partial_len = 50;
         let addr = GuestAddress(0);
-        let res = engine.write(0, &mem, addr, FILE_LEN, Box::new(()));
-        assert_err!(res, Error::Async(async_io::Error::OpNotImplemented));
-        let res = engine.read(0, &mem, addr, FILE_LEN, Box::new(()));
-        assert_err!(res, Error::Async(async_io::Error::OpNotImplemented));
-        let res = engine.flush(Box::new(()));
-        assert_err!(res, Error::Async(async_io::Error::OpNotImplemented));
-        assert!(engine.drain(true).is_err());
-        assert!(engine.drain(false).is_err());
+        mem.write(&data, addr).unwrap();
+        assert_queued!(engine.write(offset, &mem, addr, partial_len, ()));
+        assert_async_execution!(engine, partial_len as u32);
+        // Offset read
+        clear_mem(&mem);
+        assert_queued!(engine.read(offset, &mem, addr, partial_len, ()));
+        assert_async_execution!(engine, partial_len as u32);
+        // Check data
+        let mut buf = vec![0u8; partial_len as usize];
+        mem.read_slice(&mut buf, addr).unwrap();
+        assert_eq!(buf, data[..partial_len as usize]);
 
-        if let FileEngine::Async(mut engine) = engine {
-            assert!(engine.kick_submission_queue().is_err());
-            assert!(engine.pop().is_none());
-        }
+        // Full write
+        mem.write(&data, GuestAddress(0)).unwrap();
+        assert_queued!(engine.write(0, &mem, addr, FILE_LEN, ()));
+        assert_async_execution!(engine, FILE_LEN as u32);
+
+        // Full read
+        clear_mem(&mem);
+        assert_queued!(engine.read(0, &mem, addr, FILE_LEN, ()));
+        assert_async_execution!(engine, FILE_LEN as u32);
+        // Check data
+        let mut buf = vec![0u8; FILE_LEN as usize];
+        mem.read_slice(&mut buf, GuestAddress(0)).unwrap();
+        assert_eq!(buf, data.as_slice());
+
+        // Check other ops
+        assert_queued!(engine.flush(()));
+        assert_async_execution!(engine, 0);
+
+        assert!(engine.drain(true).is_ok());
+        assert!(engine.drain(false).is_ok());
     }
 }
