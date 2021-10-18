@@ -525,7 +525,7 @@ def assert_seccomp_level(pid, seccomp_level):
     threads_out_lines = process.stdout.splitlines()
     for tid in threads_out_lines:
         # Verify each thread's Seccomp status
-        cmd = 'cat /proc/{}/status | grep Seccomp'.format(tid)
+        cmd = 'cat /proc/{}/status | grep Seccomp:'.format(tid)
         process = run_cmd(cmd)
         seccomp_line = ''.join(process.stdout.split())
         assert seccomp_line == "Seccomp:" + seccomp_level
