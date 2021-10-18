@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use super::RateLimiterConfig;
 use crate::Error as VmmError;
+use devices::virtio::block::Error as BlockError;
 use devices::virtio::Block;
 
 pub use devices::virtio::CacheType;
@@ -27,7 +28,7 @@ pub enum DriveError {
     BlockDeviceUpdateFailed(io::Error),
     /// Unable to seek the block device backing file due to invalid permissions or
     /// the file was corrupted.
-    CreateBlockDevice(io::Error),
+    CreateBlockDevice(BlockError),
     /// Failed to create a `RateLimiter` object.
     CreateRateLimiter(io::Error),
     /// Error during drive update (patch).
@@ -44,12 +45,7 @@ impl Display for DriveError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::DriveError::*;
         match self {
-            CreateBlockDevice(e) => write!(
-                f,
-                "Unable to seek the block device backing file due to invalid permissions or \
-                 the file was corrupted. Error number: {}",
-                e
-            ),
+            CreateBlockDevice(e) => write!(f, "Unable to create the block device {:?}", e),
             BlockDeviceUpdateFailed(e) => write!(f, "The update operation failed: {}", e),
             CreateRateLimiter(e) => write!(f, "Cannot create RateLimiter: {}", e),
             DeviceUpdate(e) => write!(f, "Error during drive update (patch): {}", e),
