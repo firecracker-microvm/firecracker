@@ -22,6 +22,7 @@ snapshot = { path = "../snapshot" }
 utils = { path = "../utils" }
 virtio_gen = { path = "../virtio_gen" }
 vm-memory = { path = "../vm-memory" }
+io_uring = { path = "../io_uring" }
 
 [dev-dependencies]
 proptest = ">=1.0.0"
