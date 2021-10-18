@@ -520,7 +520,7 @@ impl Vmm {
             .with_virtio_device_with_id(TYPE_BLOCK, drive_id, |block: &mut Block| {
                 block
                     .update_disk_image(path_on_host)
-                    .map_err(|e| e.to_string())
+                    .map_err(|e| format!("{:?}", e))
             })
             .map_err(Error::DeviceManager)
     }

@@ -563,7 +563,8 @@ def test_negative_snapshot_permissions(bin_cloner_path):
         _, _ = vm_builder.build_from_snapshot(snapshot, True, True)
     except AssertionError as error:
         # Check if proper error is returned.
-        assert "Block(Os { code: 13, kind: PermissionDenied" in str(error)
+        assert "Block(BackingFile(Os { code: 13, kind: PermissionDenied" \
+            in str(error)
     else:
         assert False, "Negative test failed"
 
