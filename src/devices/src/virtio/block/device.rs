@@ -8,7 +8,7 @@
 use std::cmp;
 use std::convert::From;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
 use std::result;
@@ -22,6 +22,7 @@ use virtio_gen::virtio_blk::*;
 use vm_memory::GuestMemoryMmap;
 
 use super::io as block_io;
+use super::io::async_io;
 use super::{
     super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK},
     request::*,
@@ -64,12 +65,15 @@ impl DiskProperties {
         disk_image_path: String,
         is_disk_read_only: bool,
         cache_type: CacheType,
-    ) -> io::Result<Self> {
+    ) -> result::Result<Self, Error> {
         let mut disk_image = OpenOptions::new()
             .read(true)
             .write(!is_disk_read_only)
-            .open(PathBuf::from(&disk_image_path))?;
-        let disk_size = disk_image.seek(SeekFrom::End(0))? as u64;
+            .open(PathBuf::from(&disk_image_path))
+            .map_err(Error::BackingFile)?;
+        let disk_size = disk_image
+            .seek(SeekFrom::End(0))
+            .map_err(Error::BackingFile)? as u64;
 
         // We only support disk size, which uses the first two words of the configuration space.
         // If the image is not a multiple of the sector size, the tail bits are not exposed.
@@ -86,8 +90,12 @@ impl DiskProperties {
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id: Self::build_disk_image_id(&disk_image),
             file_path: disk_image_path,
-            file_engine: FileEngine::from_file(disk_image)?,
+            file_engine: FileEngine::from_file_sync(disk_image).map_err(Error::FileEngine)?,
         })
+    }
+
+    pub fn file_engine(&self) -> &FileEngine<PendingRequest> {
+        &self.file_engine
     }
 
     pub fn file_engine_mut(&mut self) -> &mut FileEngine<PendingRequest> {
@@ -193,7 +201,7 @@ impl Block {
         is_disk_read_only: bool,
         is_disk_root: bool,
         rate_limiter: RateLimiter,
-    ) -> io::Result<Block> {
+    ) -> result::Result<Block, Error> {
         let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only, cache_type)?;
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
@@ -206,7 +214,7 @@ impl Block {
             avail_features |= 1u64 << VIRTIO_BLK_F_RO;
         };
 
-        let queue_evts = [EventFd::new(libc::EFD_NONBLOCK)?];
+        let queue_evts = [EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?];
 
         let queues = QUEUE_SIZES.iter().map(|&s| Queue::new(s)).collect();
 
@@ -222,8 +230,8 @@ impl Block {
             queue_evts,
             queues,
             device_state: DeviceState::Inactive,
-            irq_trigger: IrqTrigger::new()?,
-            activate_evt: EventFd::new(libc::EFD_NONBLOCK)?,
+            irq_trigger: IrqTrigger::new().map_err(Error::IrqTrigger)?,
+            activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
         })
     }
 
@@ -305,13 +313,71 @@ impl Block {
             }
         }
 
+        if let FileEngine::Async(engine) = self.disk.file_engine_mut() {
+            if let Err(e) = engine.kick_submission_queue() {
+                error!("Error submitting pending block requests: {:?}", e);
+            }
+        }
+
         if !used_any {
             METRICS.block.no_avail_buffer.inc();
         }
     }
 
+    pub fn process_async_completion_event(&mut self) {
+        let engine = match self.disk.file_engine_mut() {
+            FileEngine::Async(engine) => engine,
+            FileEngine::Sync(_) => {
+                error!("The block device doesn't use an async IO engine");
+                return;
+            }
+        };
+
+        if let Err(e) = engine.completion_evt().read() {
+            error!("Failed to get completion event: {:?}", e);
+            return;
+        }
+
+        // This is safe since we checked in the event handler that the device is activated.
+        let mem = self.device_state.mem().unwrap();
+        let queue = &mut self.queues[0];
+
+        loop {
+            match engine.pop() {
+                Err(error) => {
+                    error!("Failed to read completed io_uring entry: {:?}", error);
+                    break;
+                }
+                Ok(None) => break,
+                Ok(Some(cqe)) => {
+                    let res = cqe.result();
+                    let user_data = cqe.user_data();
+
+                    let (pending, res) = match res {
+                        Ok(count) => (user_data, Ok(count)),
+                        Err(error) => (
+                            user_data,
+                            Err(IoErr::FileEngine(block_io::Error::Async(
+                                async_io::Error::IO(error),
+                            ))),
+                        ),
+                    };
+                    let finished = pending.finish(mem, res);
+
+                    Self::add_used_descriptor(
+                        queue,
+                        finished.desc_idx,
+                        finished.num_bytes_to_mem,
+                        mem,
+                        &self.irq_trigger,
+                    );
+                }
+            }
+        }
+    }
+
     /// Update the backing file and the config space of the block device.
-    pub fn update_disk_image(&mut self, disk_image_path: String) -> io::Result<()> {
+    pub fn update_disk_image(&mut self, disk_image_path: String) -> result::Result<(), Error> {
         let disk_properties =
             DiskProperties::new(disk_image_path, self.is_read_only(), self.cache_type())?;
         self.disk = disk_properties;

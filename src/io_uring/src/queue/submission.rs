@@ -160,7 +160,8 @@ impl SubmissionQueue {
             sqe_ring_size,
             io_uring_fd,
             bindings::IORING_OFF_SQ_RING.into(),
-        ).map_err(Error::Mmap)?;
+        )
+        .map_err(Error::Mmap)?;
 
         // map the SQEs.
         let sqes_array_size =
@@ -170,7 +171,8 @@ impl SubmissionQueue {
             sqes_array_size,
             io_uring_fd,
             bindings::IORING_OFF_SQES.into(),
-        ).map_err(Error::Mmap)?;
+        )
+        .map_err(Error::Mmap)?;
 
         Ok((sqe_ring, sqes))
     }

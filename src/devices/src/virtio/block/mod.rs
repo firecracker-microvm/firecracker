@@ -39,4 +39,16 @@ pub enum Error {
     UnexpectedReadOnlyDescriptor,
     /// Guest gave us a write only descriptor that protocol says to read from.
     UnexpectedWriteOnlyDescriptor,
+    // Error coming from the IO engine.
+    FileEngine(io::Error),
+    // Error manipulating the backing file.
+    BackingFile(std::io::Error),
+    // Error opening eventfd.
+    EventFd(std::io::Error),
+    // Error creating an irqfd.
+    IrqTrigger(std::io::Error),
+    // Error coming from the rate limiter.
+    RateLimiter(std::io::Error),
+    // Persistence error.
+    Persist(crate::virtio::persist::Error),
 }

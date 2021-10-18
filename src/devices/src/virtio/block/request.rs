@@ -339,7 +339,7 @@ impl Request {
         desc_idx: u16,
         mem: &GuestMemoryMmap,
     ) -> Option<FinishedRequest> {
-        let pending = Box::new(self.to_pending_request(desc_idx));
+        let pending = self.to_pending_request(desc_idx);
         let res = match self.r#type {
             RequestType::In => disk.file_engine_mut().read(
                 self.offset(),

@@ -813,8 +813,9 @@ def _drive_patch(test_microvm):
         path_on_host='foo.bar'
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert "drive update (patch): device error: No such file or directory" \
-           in response.text
+    assert "drive update (patch): device error: BackingFile(Os { code: 2, " \
+        "kind: NotFound, message: \\\"No such file or directory\\\" })" \
+        in response.text
 
     fs = drive_tools.FilesystemFile(
         os.path.join(test_microvm.fsfiles, 'scratch_new')

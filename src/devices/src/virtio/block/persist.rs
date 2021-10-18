@@ -3,7 +3,7 @@
 
 //! Defines the structures needed for saving/restoring block devices.
 
-use std::io::{self, Write};
+use std::io::Write;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
@@ -86,7 +86,7 @@ pub struct BlockConstructorArgs {
 impl Persist<'_> for Block {
     type State = BlockState;
     type ConstructorArgs = BlockConstructorArgs;
-    type Error = io::Error;
+    type Error = Error;
 
     fn save(&self) -> Self::State {
         if let Err(e) = self.disk.file().flush() {
@@ -113,7 +113,8 @@ impl Persist<'_> for Block {
         state: &Self::State,
     ) -> Result<Self, Self::Error> {
         let is_disk_read_only = state.virtio_state.avail_features & (1u64 << VIRTIO_BLK_F_RO) != 0;
-        let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)?;
+        let rate_limiter =
+            RateLimiter::restore((), &state.rate_limiter_state).map_err(Error::RateLimiter)?;
 
         let mut block = Block::new(
             state.id.clone(),
@@ -128,7 +129,7 @@ impl Persist<'_> for Block {
         block.queues = state
             .virtio_state
             .build_queues_checked(&constructor_args.mem, TYPE_BLOCK, NUM_QUEUES, QUEUE_SIZE)
-            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+            .map_err(Error::Persist)?;
         block.irq_trigger.irq_status =
             Arc::new(AtomicUsize::new(state.virtio_state.interrupt_status));
         block.avail_features = state.virtio_state.avail_features;
