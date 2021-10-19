@@ -84,6 +84,7 @@ RUN mkdir "$TMP_BUILD_DIR" \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
             && cargo +"stable" install cargo-audit \
+            && cargo install --locked cargo-deny \
             && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
