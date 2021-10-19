@@ -11,7 +11,8 @@ from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.utils import CpuMap, get_firecracker_version_from_toml
+from framework.utils import CpuMap, get_firecracker_version_from_toml, \
+    compare_versions
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
 
@@ -52,16 +53,35 @@ CREATE_LATENCY_BASELINES = {
 # this is tracked here:
 # https://github.com/firecracker-microvm/firecracker/issues/2027
 # TODO: Update the table after fix. Target is < 5ms.
-LOAD_LATENCY_BASELINES = {
-    'x86_64': {
-        '2vcpu_256mb.json': 9,
-        '2vcpu_512mb.json': 9,
-    },
-    'aarch64': {
-        '2vcpu_256mb.json': 3,
-        '2vcpu_512mb.json': 3,
+# Host kernels >= 5.4 add an up to ~35ms latency.
+# See: https://github.com/firecracker-microvm/firecracker/issues/2129
+linux_version = platform.release()
+for idx, char in enumerate(linux_version):
+    if not char.isdigit() and char != '.':
+        linux_version = linux_version[0:idx]
+        break
+if compare_versions(linux_version, "5.4.0") < 0:
+    LOAD_LATENCY_BASELINES = {
+        'x86_64': {
+            '2vcpu_256mb.json': 9,
+            '2vcpu_512mb.json': 9,
+        },
+        'aarch64': {
+            '2vcpu_256mb.json': 3,
+            '2vcpu_512mb.json': 3,
+        }
     }
-}
+else:
+    LOAD_LATENCY_BASELINES = {
+        'x86_64': {
+            '2vcpu_256mb.json': 44,
+            '2vcpu_512mb.json': 44,
+        },
+        'aarch64': {
+            '2vcpu_256mb.json': 38,
+            '2vcpu_512mb.json': 38,
+        }
+    }
 
 
 def _test_snapshot_create_latency(context):
