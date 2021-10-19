@@ -1036,7 +1036,7 @@ check_file_existence() {
 
 add_swagger_artifact() {
     local release_dir="$1"
-    local swagger_path="src/api_server/swagger/firecracker.yaml"
+    local swagger_path="$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
 
     check_file_existence "$swagger_path"
 
@@ -1344,7 +1344,7 @@ cmd_prepare_release() {
 
     # Get current version from the swagger spec.
     swagger="$FC_ROOT_DIR/src/api_server/swagger/firecracker.yaml"
-    curr_ver=get_swagger_version "$swagger"
+    curr_ver=$(get_swagger_version "$swagger")
 
     say "Updating from $curr_ver to $version ..."
     get_user_confirmation || die "Aborted."
