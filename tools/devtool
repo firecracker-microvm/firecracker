@@ -526,11 +526,10 @@ generate_release_post_data() {
   cat <<EOF
 {
   "tag_name": "v$1",
-  "target_commitish": "$2",
   "name": "Firecracker v$1",
-  "body": "$4",
+  "body": "$3",
   "draft": $draft,
-  "prerelease": $3
+  "prerelease": $2
 }
 EOF
 }
@@ -538,12 +537,11 @@ EOF
 # Call into GitHub's API to draft a release.
 post_release() {
     version="$1"
-    branch="$2"
-    user="$3"
-    repo="$4"
-    token="$5"
-    prerelease="$6"
-    release_text="$7"
+    user="$2"
+    repo="$3"
+    token="$4"
+    prerelease="$5"
+    release_text="$6"
     # Will always create a draft release.
     draft="true"
 
@@ -551,8 +549,8 @@ post_release() {
     # literal newlines (i.e \n).
     # Second pass: escape quotation marks.
     json_changelog_content=$(echo "$release_text" | awk '{printf "%s\\n", $0}' | sed 's/\"/\\"/g')
-    API_JSON="$(generate_release_post_data $version $branch $prerelease "$json_changelog_content")"
-    API_RESPONSE_STATUS=$(curl -H "Authorization: token $token" --data "$API_JSON" -s -i https://api.github.com/repos/$3/$4/releases)
+    API_JSON="$(generate_release_post_data $version $prerelease "$json_changelog_content")"
+    API_RESPONSE_STATUS=$(curl -H "Authorization: token $token" --data "$API_JSON" -s -i https://api.github.com/repos/"$user"/"$repo"/releases)
 
     if [[ ! "$API_RESPONSE_STATUS" == *"HTTP/2 201"* ]]; then
         die "Could not post release: $API_RESPONSE_STATUS"
@@ -779,6 +777,7 @@ help_release() {
     echo "        -v, --version             The targeted release version."
     echo "        -o, --owner               The GitHub owner of the targeted repo."
     echo "        -t, --token               A GitHub Access token with "repo" permissions"
+    echo "        -b, --branch              Branch or commit hash to create the tag to."
     echo "        -r, --repo                The name of the repository where the release will be posted."
     echo "        -m, --remote              The name of the remote where the release tag will be pushed."
     echo "        -p, --prerelease          Marks the release as a pre-release."
@@ -1442,19 +1441,23 @@ cmd_release() {
                 shift
                 local token="$1"
                 ;;
-             "-o"|"--owner")
+            "-b"|"--branch")
+                shift
+                local branch="$1"
+                ;;
+            "-o"|"--owner")
                 shift
                 local owner="$1"
                 ;;
-              "-r"|"--repo")
+            "-r"|"--repo")
                 shift
                 repo="$1"
                 ;;
-              "-m"|"--remote")
+            "-m"|"--remote")
                 shift
                 remote="$1"
                 ;;
-              "-p"|"--prerelease")
+            "-p"|"--prerelease")
                 shift
                 prerelease="true"
                 ;;
@@ -1468,8 +1471,10 @@ cmd_release() {
     validate_version "$version"
     validate_repo "$owner" "$repo"
 
-    # Obtain the current branch.
-    branch=$(get_branch)
+    # If branch was not provided, obtain the current branch.
+    if [[ -z "$branch" ]]; then
+      branch=$(get_branch)
+    fi
     say "Will start creating a draft release for branch $branch ..."
     get_user_confirmation || die "Aborted."
 
@@ -1477,6 +1482,8 @@ cmd_release() {
     # does not already exist. If the tag exists, we will not try to
     # post a release on GitHub.
     check_release_tag "$version" || skip_github_release=true
+
+    git checkout "$branch" || die "Could not checkout branch $branch."
 
     if [[ -z "$skip_github_release" ]]; then
         if [[ -z "$token" ]]; then
@@ -1486,7 +1493,7 @@ cmd_release() {
 
             # Start by creating a local tag and associate to it a description.
             say "Creating local tag..."
-            create_local_tag "$version" "$prev_ver" || die "Could not create local tag v$version."
+            create_local_tag "$version" "$prev_ver" "$branch" || die "Could not create local tag v$version."
 
             # From now on, any function that will fail will also need to revert creation of local tag.
             say "Continue with remote tag push?"
@@ -1497,7 +1504,7 @@ cmd_release() {
             get_user_confirmation || delete_remote_tag "$version" "$remote" "Could not post release to GitHub."
 
             release_text=$(compose_release_text "$version" "$prev_ver")
-            post_release "$version" "$branch" "$owner" "$repo" "$token" "$prerelease" "$release_text" ||
+            post_release "$version" "$owner" "$repo" "$token" "$prerelease" "$release_text" ||
             delete_remote_tag "$version" "$remote" "Could not post release to GitHub."
             say "Draft release created successful. Go to https://github.com/$owner/$repo/releases to check it out!"
     fi
@@ -1510,6 +1517,7 @@ fi
 create_local_tag() {
     version="$1"
     prev_ver="$2"
+    branch="$3"
 
     # Create tag.
     say "Obtaining tag description for local tag v$version..."
@@ -1519,7 +1527,7 @@ create_local_tag() {
     say "Continue with tag creation?"
     get_user_confirmation || die "Local v$version not created."
 
-    git tag -a v"$version" -m "$tag_text"
+    git tag -a v"$version" "$branch" -m "$tag_text"
     ok_or_die "Local tag v$version not created."
     say "Local tag v$version created."
 }
