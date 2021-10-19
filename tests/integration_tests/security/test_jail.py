@@ -325,7 +325,6 @@ def test_new_pid_ns_resource_limits(test_microvm_with_ssh):
     """Test that Firecracker process inherits jailer resource limits."""
     test_microvm = test_microvm_with_ssh
 
-    test_microvm.jailer.daemonize = False
     test_microvm.jailer.new_pid_ns = True
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS
 
@@ -341,7 +340,6 @@ def test_new_pid_namespace(test_microvm_with_ssh):
     """Test that Firecracker is spawned in a new PID namespace if requested."""
     test_microvm = test_microvm_with_ssh
 
-    test_microvm.jailer.daemonize = False
     test_microvm.jailer.new_pid_ns = True
 
     test_microvm.spawn()
