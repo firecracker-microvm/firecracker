@@ -9,6 +9,12 @@
 - Limit MMDS data store size to `--http_api_max_payload_size`.
 - Cleanup all environment variables in Jailer.
 
+### Fixed
+
+- Fixed incorrect propagation of init parameters in kernel commandline.
+  Related to:
+  [#2709](https://github.com/firecracker-microvm/firecracker/issues/2709).
+
 ## [0.25.0]
 
 ### Added
