@@ -282,6 +282,28 @@ class FullConfig():
         )
 
 
+# Too few public methods (1/2) (too-few-public-methods)
+# pylint: disable=R0903
+class InstanceVersion():
+    """Facility for getting the microVM version."""
+
+    VERSION_CFG_RESOURCE = 'version'
+
+    def __init__(self, api_usocket_full_name, api_session):
+        """Specify the information needed for sending API requests."""
+        url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
+        api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
+
+        self._version_cfg_url = api_url + self.VERSION_CFG_RESOURCE
+        self._api_session = api_session
+
+    def get(self):
+        """Get the version of the current microvm."""
+        return self._api_session.get(
+            self._version_cfg_url
+        )
+
+
 class Logger():
     """Facility for setting up the logging system and sending API requests."""
 

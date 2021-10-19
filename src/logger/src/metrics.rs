@@ -358,6 +358,8 @@ pub struct GetRequestsMetrics {
     pub machine_cfg_count: SharedIncMetric,
     /// Number of GETs for getting mmds.
     pub mmds_count: SharedIncMetric,
+    /// Number of GETs for getting the VMM version.
+    pub vmm_version_count: SharedIncMetric,
 }
 
 /// Metrics specific to PUT API Requests for counting user triggered actions and/or failures.
@@ -416,6 +418,15 @@ pub struct PatchRequestsMetrics {
     pub mmds_count: SharedIncMetric,
     /// Number of failures in PATCHing an mmds.
     pub mmds_fails: SharedIncMetric,
+}
+
+/// Metrics related to deprecated user-facing API calls.
+#[derive(Default, Serialize)]
+pub struct DeprecatedApiMetrics {
+    /// Total number of calls to deprecated HTTP endpoints.
+    pub deprecated_http_api_calls: SharedIncMetric,
+    /// Total number of calls to deprecated CMD line parameters.
+    pub deprecated_cmd_line_api_calls: SharedIncMetric,
 }
 
 /// Balloon Device associated metrics.
@@ -783,6 +794,8 @@ pub struct FirecrackerMetrics {
     pub balloon: BalloonDeviceMetrics,
     /// A block device's related metrics.
     pub block: BlockDeviceMetrics,
+    /// Metrics related to deprecated API calls.
+    pub deprecated_api: DeprecatedApiMetrics,
     /// Metrics related to API GET requests.
     pub get_api_requests: GetRequestsMetrics,
     /// Metrics related to the i8042 device.

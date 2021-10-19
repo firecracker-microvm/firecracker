@@ -19,6 +19,7 @@ use crate::request::mmds::{parse_get_mmds, parse_patch_mmds, parse_put_mmds};
 use crate::request::net::{parse_patch_net, parse_put_net};
 use crate::request::snapshot::parse_patch_vm_state;
 use crate::request::snapshot::parse_put_snapshot;
+use crate::request::version::parse_get_version;
 use crate::request::vsock::parse_put_vsock;
 use crate::ApiServer;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
@@ -59,6 +60,7 @@ impl ParsedRequest {
         match (request.method(), path, request.body.as_ref()) {
             (Method::Get, "", None) => parse_get_instance_info(),
             (Method::Get, "balloon", None) => parse_get_balloon(path_tokens.get(1)),
+            (Method::Get, "version", None) => parse_get_version(),
             (Method::Get, "vm", None) if path_tokens.get(1) == Some(&"config") => {
                 Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
             }
@@ -122,6 +124,9 @@ impl ParsedRequest {
                 }
                 VmmData::BalloonStats(stats) => Self::success_response_with_data(stats),
                 VmmData::InstanceInformation(info) => Self::success_response_with_data(info),
+                VmmData::VmmVersion(version) => Self::success_response_with_data(
+                    &serde_json::json!({ "firecracker_version": version.as_str() }),
+                ),
                 VmmData::FullVmConfig(config) => Self::success_response_with_data(config),
             },
             Err(vmm_action_error) => {
@@ -514,6 +519,10 @@ pub(crate) mod tests {
                 VmmData::InstanceInformation(info) => {
                     http_response(&serde_json::to_string(info).unwrap(), 200)
                 }
+                VmmData::VmmVersion(version) => http_response(
+                    &serde_json::json!({ "firecracker_version": version.as_str() }).to_string(),
+                    200,
+                ),
             };
             let response = ParsedRequest::convert_to_response(&data);
             assert!(response.write_all(&mut buf).is_ok());
@@ -530,6 +539,7 @@ pub(crate) mod tests {
         verify_ok_response_with(VmmData::FullVmConfig(VmmConfig::default()));
         verify_ok_response_with(VmmData::MachineConfiguration(VmConfig::default()));
         verify_ok_response_with(VmmData::InstanceInformation(InstanceInfo::default()));
+        verify_ok_response_with(VmmData::VmmVersion(String::default()));
 
         // Error.
         let error = VmmActionError::StartMicrovm(StartMicrovmError::MissingKernelConfig);
@@ -596,6 +606,18 @@ pub(crate) mod tests {
         let mut connection = HttpConnection::new(receiver);
         sender
             .write_all(http_request("GET", "/mmds", None).as_bytes())
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_try_from_get_version() {
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        let mut connection = HttpConnection::new(receiver);
+        sender
+            .write_all(http_request("GET", "/version", None).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();

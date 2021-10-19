@@ -33,8 +33,8 @@ from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH, \
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import Actions, Balloon, BootSource, Drive, \
-    DescribeInstance, FullConfig, Logger, MMDS, MachineConfigure, \
-    Metrics, Network, Vm, Vsock, SnapshotHelper
+    DescribeInstance, FullConfig, InstanceVersion, Logger, MMDS, \
+    MachineConfigure, Metrics, Network, Vm, Vsock, SnapshotHelper
 
 LOG = logging.getLogger("microvm")
 
@@ -115,6 +115,7 @@ class Microvm:
         self.mmds = None
         self.network = None
         self.machine_cfg = None
+        self.version = None
         self.vm = None
         self.vsock = None
         self.snapshot = None
@@ -488,6 +489,7 @@ class Microvm:
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
         self.snapshot = SnapshotHelper(self._api_socket, self._api_session)
+        self.version = InstanceVersion(self._api_socket, self._api_session)
         self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
 
