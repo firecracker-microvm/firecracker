@@ -19,12 +19,19 @@ import framework.utils as utils
 import host_tools.cargo_build as host  # pylint: disable=import-error
 import host_tools.proc as proc
 
+# We have different coverages based on the host kernel version. This is
+# caused by io_uring, which is only supported by FC for kernels newer
+# than 5.10.
+
 # AMD has a slightly different coverage due to
 # the appearance of the brand string. On Intel,
 # this contains the frequency while on AMD it does not.
 # Checkout the cpuid crate. In the future other
 # differences may appear.
-COVERAGE_DICT = {"Intel": 84.71, "AMD": 84.15, "ARM": 82.91}
+if utils.compare_versions(utils.get_kernel_version(), "5.4.0") > 0:
+    COVERAGE_DICT = {"Intel": 84.29, "AMD": 84.17, "ARM": 82.55}
+else:
+    COVERAGE_DICT = {"Intel": 82.20, "AMD": 81.67, "ARM": 80.41}
 
 PROC_MODEL = proc.proc_type()
 
