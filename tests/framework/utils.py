@@ -11,6 +11,7 @@ import subprocess
 import threading
 import typing
 import time
+import platform
 
 from collections import namedtuple, defaultdict
 import psutil
@@ -603,3 +604,14 @@ def compare_versions(first, second):
             return diff
 
     return 0
+
+
+def get_kernel_version():
+    """Return the current kernel version in format `major.minor.patch`."""
+    linux_version = platform.release()
+    for idx, char in enumerate(linux_version):
+        if not char.isdigit() and char != '.':
+            linux_version = linux_version[0:idx]
+            break
+
+    return linux_version
