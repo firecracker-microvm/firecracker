@@ -12,7 +12,7 @@ from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import eager_map, CpuMap, \
-    get_firecracker_version_from_toml
+    get_firecracker_version_from_toml, compare_versions
 from framework.stats import core, consumer, producer, types, criteria,\
     function
 from integration_tests.performance.utils import handle_failure, \
@@ -114,16 +114,23 @@ def snapshot_create_measurements(vm_type, snapshot_type):
 
 def snapshot_resume_measurements(vm_type):
     """Define measurements for snapshot resume tests."""
+    load_latency = LOAD_LATENCY_BASELINES[platform.machine()][vm_type]
+    # Host kernels >= 5.4 add an up to ~30ms latency.
+    # See: https://github.com/firecracker-microvm/firecracker/issues/2129
+    linux_version = platform.release()
+    for idx, char in enumerate(linux_version):
+        if not char.isdigit() and char != '.':
+            linux_version = linux_version[0:idx]
+            break
+    if compare_versions(linux_version, "5.4.0") > 0:
+        load_latency["target"] += 30
+
     latency = types.MeasurementDef.create_measurement(
         "latency",
         "ms",
         [function.Max("max")],
         {
-            "max": criteria.LowerThan(
-                LOAD_LATENCY_BASELINES
-                [platform.machine()]
-                [vm_type]
-            )
+            "max": criteria.LowerThan(load_latency)
         })
 
     return [latency]
