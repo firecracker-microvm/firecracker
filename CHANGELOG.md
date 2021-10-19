@@ -12,6 +12,12 @@
 - Added permanent HTTP endpoint for `GET` on `/version` for getting the
   Firecracker version.
 
+### Fixed
+
+- Fixed incorrect propagation of init parameters in kernel commandline.
+  Related to:
+  [#2709](https://github.com/firecracker-microvm/firecracker/issues/2709).
+
 ## [0.25.0]
 
 ### Added
