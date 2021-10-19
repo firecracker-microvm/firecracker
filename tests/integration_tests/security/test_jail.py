@@ -521,7 +521,6 @@ def test_new_pid_ns_resource_limits(test_microvm_with_ssh):
     """
     test_microvm = test_microvm_with_ssh
 
-    test_microvm.jailer.daemonize = False
     test_microvm.jailer.new_pid_ns = True
     test_microvm.jailer.resource_limits = RESOURCE_LIMITS
 
@@ -541,7 +540,6 @@ def test_new_pid_namespace(test_microvm_with_api):
     """
     test_microvm = test_microvm_with_api
 
-    test_microvm.jailer.daemonize = False
     test_microvm.jailer.new_pid_ns = True
 
     test_microvm.spawn()
