@@ -27,7 +27,7 @@ BASELINES = {
                 "delta": 0.025  # milliseconds
             },
             "crc": {
-                "target": 0.213,  # milliseconds
+                "target": 0.205,  # milliseconds
                 "delta": 0.025  # milliseconds
             }
         },
