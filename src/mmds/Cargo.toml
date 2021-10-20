@@ -12,7 +12,7 @@ versionize_derive = ">=0.1.3"
 
 dumbo = { path = "../dumbo" }
 logger = { path = "../logger" }
-micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "36e59a0" }
+micro_http = { git = "https://github.com/firecracker-microvm/micro-http", rev = "0a58eb1" }
 utils = { path = "../utils" }
 snapshot = { path = "../snapshot" }
 
