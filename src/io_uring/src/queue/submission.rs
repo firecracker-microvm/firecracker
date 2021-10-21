@@ -9,8 +9,9 @@ use std::result::Result;
 use std::sync::atomic::Ordering;
 
 use utils::syscall::SyscallReturnCode;
-use vm_memory::{mmap::MmapRegionError, Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
+use vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
+use super::mmap::{mmap, Error as MmapError};
 use crate::bindings;
 use crate::operation::Sqe;
 
@@ -18,8 +19,7 @@ use crate::operation::Sqe;
 pub enum Error {
     EmptyQueue,
     FullQueue,
-    Mmap(IOError),
-    BuildMmapRegion(MmapRegionError),
+    Mmap(MmapError),
     VolatileMemory(VolatileMemoryError),
     Submit(IOError),
     WaitTooLong,
@@ -154,58 +154,27 @@ impl SubmissionQueue {
         io_uring_fd: RawFd,
         params: &bindings::io_uring_params,
     ) -> Result<(MmapRegion, MmapRegion), Error> {
-        let prot = libc::PROT_READ | libc::PROT_WRITE;
-        let flags = libc::MAP_SHARED | libc::MAP_POPULATE;
+        // map the SQ_ring
         let sqe_ring_size =
             (params.sq_off.array as usize) + (params.sq_entries as usize) * mem::size_of::<u32>();
+
+        let sqe_ring = mmap(
+            sqe_ring_size,
+            io_uring_fd,
+            bindings::IORING_OFF_SQ_RING.into(),
+        )
+        .map_err(Error::Mmap)?;
+
+        // map the SQEs
         let sqes_array_size =
             (params.sq_entries as usize) * mem::size_of::<bindings::io_uring_sqe>();
 
-        // map the SQ_ring
-        // Safe because values are valid and we check the return value.
-        let ring_ptr = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                sqe_ring_size,
-                prot,
-                flags,
-                io_uring_fd,
-                bindings::IORING_OFF_SQ_RING.into(),
-            )
-        };
-
-        if (ring_ptr as isize) < 0 {
-            return Err(Error::Mmap(IOError::last_os_error()));
-        }
-
-        // Safe because values are valid and we check the return value.
-        let sqe_ring = unsafe {
-            MmapRegion::build_raw(ring_ptr as *mut u8, sqe_ring_size, prot, flags)
-                .map_err(Error::BuildMmapRegion)?
-        };
-
-        // map the SQEs
-        // Safe because values are valid and we check the return value.
-        let sqes_ptr = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                sqes_array_size,
-                prot,
-                flags,
-                // it's actually u32
-                io_uring_fd,
-                bindings::IORING_OFF_SQES.into(),
-            )
-        };
-
-        if (sqes_ptr as isize) < 0 {
-            return Err(Error::Mmap(IOError::last_os_error()));
-        }
-        // Safe because values are valid and we check the return value.
-        let sqes = unsafe {
-            MmapRegion::build_raw(sqes_ptr as *mut u8, sqes_array_size, prot, flags)
-                .map_err(Error::BuildMmapRegion)?
-        };
+        let sqes = mmap(
+            sqes_array_size,
+            io_uring_fd,
+            bindings::IORING_OFF_SQES.into(),
+        )
+        .map_err(Error::Mmap)?;
 
         Ok((sqe_ring, sqes))
     }

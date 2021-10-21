@@ -1,22 +1,21 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::Error as IOError;
 use std::num::Wrapping;
 use std::os::unix::io::RawFd;
 use std::result::Result;
 use std::sync::atomic::Ordering;
-use vm_memory::{mmap::MmapRegionError, Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
+use vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
+use super::mmap::{mmap, Error as MmapError};
 use crate::bindings;
 use crate::operation::Cqe;
 
 #[derive(Debug)]
 pub enum Error {
     EmptyQueue,
-    Mmap(IOError),
     VolatileMemory(VolatileMemoryError),
-    BuildMmapRegion(MmapRegionError),
+    Mmap(MmapError),
 }
 
 pub struct CompletionQueue {
@@ -38,7 +37,11 @@ impl CompletionQueue {
         let offsets = params.cq_off;
 
         // Map the CQ_ring
-        let cqes = Self::mmap(io_uring_fd, params)?;
+        let ring_size = (params.cq_off.cqes as usize)
+            + (params.cq_entries as usize) * std::mem::size_of::<bindings::io_uring_cqe>();
+        let cqes = mmap(ring_size, io_uring_fd, bindings::IORING_OFF_CQ_RING.into())
+            .map_err(Error::Mmap)?;
+
         let ring = cqes.as_volatile_slice();
         let ring_mask = ring
             .read_obj(offsets.ring_mask as usize)
@@ -83,32 +86,6 @@ impl CompletionQueue {
             Ok(Some(unsafe { Cqe::new(cqe) }))
         } else {
             Ok(None)
-        }
-    }
-
-    fn mmap(io_uring_fd: RawFd, params: &bindings::io_uring_params) -> Result<MmapRegion, Error> {
-        let prot = libc::PROT_READ | libc::PROT_WRITE;
-        let flags = libc::MAP_SHARED | libc::MAP_POPULATE;
-        let ring_size = (params.cq_off.cqes as usize)
-            + (params.cq_entries as usize) * std::mem::size_of::<bindings::io_uring_cqe>();
-        // Safe because values are valid and we check the return value.
-        let ring_ptr = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                ring_size,
-                prot,
-                flags,
-                io_uring_fd,
-                bindings::IORING_OFF_CQ_RING.into(),
-            )
-        };
-        if (ring_ptr as isize) < 0 {
-            return Err(Error::Mmap(IOError::last_os_error()));
-        }
-        // Safe because the mmap did not return error.
-        unsafe {
-            MmapRegion::build_raw(ring_ptr as *mut u8, ring_size, prot, flags)
-                .map_err(Error::BuildMmapRegion)
         }
     }
 }
