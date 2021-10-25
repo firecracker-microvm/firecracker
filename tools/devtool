@@ -397,22 +397,23 @@ get_user_confirmation() {
 }
 
 # Validate the user supplied version number.
-# It must be composed of 3 groups of integers separated by dot and can
-# be followed by a `-` and alpha characters.
-#
+# It must start with 3 groups of integers separated by dot and
+# must not contain `wip` or `dirty`.
 validate_version() {
-    declare version_regex="^([0-9]+.){2}[0-9]+(-[a-z]+)?$"
+    declare version_regex="^([0-9]+\.){2}[0-9]+"
     version="$1"
 
     if [ -z "$version" ]; then
         die "Version cannot be empty."
     elif [[ ! "$version" =~ $version_regex ]]; then
-        die "Invalid version number: $version (expected: \$Major.\$Minor.\$Build or \$Major.\$Minor.\$Build-[a-z])."
+        die "Invalid version number: $version. Version should start with \$Major.\$Minor.\$Build, see
+        https://github.com/firecracker-microvm/firecracker/blob/main/docs/RELEASE_POLICY.md for more information."
+    elif [[ "$version" == *"wip"* ]] || [[ "$version" == *"dirty"* ]]; then
+        die "Invalid version number: $version. Version should not contain \`wip\` or \`dirty\`."
     fi
-
 }
 
-# Validate that the repo targeted for a release exists.
+# Validate that the repo targetted for a release exists.
 #
 validate_repo() {
     user="$1"
@@ -490,7 +491,7 @@ compose_release_text() {
 
 get_prev_release() {
     declare version=$1
-    declare pat_release="^## \[([0-9]+\.){2}[0-9]+\]"
+    declare pat_release="^## \[([0-9]+\.){2}[0-9]+.*\]$"
     declare changelog="$FC_ROOT_DIR/CHANGELOG.md"
 
     grep -q "\[$version\]" "$changelog"
