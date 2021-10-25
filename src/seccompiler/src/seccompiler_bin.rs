@@ -51,7 +51,7 @@ use compiler::{Compiler, Error as FilterFormatError, JsonFile};
 use serde_json::error::Error as JSONError;
 use utils::arg_parser::{ArgParser, Argument, Arguments as ArgumentsBag};
 
-const SECCOMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const SECCOMPILER_VERSION: &str = env!("FIRECRACKER_VERSION");
 const DEFAULT_OUTPUT_FILENAME: &str = "seccomp_binary_filter.out";
 const EXIT_CODE_ERROR: i32 = 1;
 
