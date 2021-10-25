@@ -27,6 +27,8 @@
 
 - Deprecated `vsock_id` body field in `PUT`s on `/vsock`.
 - Removed the deprecated the `--seccomp-level parameter`.
+- Added `block.io_engine_throttled_events` metric for measuring the number of
+  virtio events throttled because of the IO engine.
 
 ### Fixed
 
