@@ -187,6 +187,7 @@ pub struct Block {
     pub(crate) partuuid: Option<String>,
     pub(crate) root_device: bool,
     pub(crate) rate_limiter: RateLimiter,
+    is_io_engine_throttled: bool,
 }
 
 macro_rules! unwrap_async_file_engine_or_return {
@@ -244,6 +245,7 @@ impl Block {
             device_state: DeviceState::Inactive,
             irq_trigger: IrqTrigger::new().map_err(Error::IrqTrigger)?,
             activate_evt: EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?,
+            is_io_engine_throttled: false,
         })
     }
 
@@ -254,6 +256,8 @@ impl Block {
             METRICS.block.event_fails.inc();
         } else if self.rate_limiter.is_blocked() {
             METRICS.block.rate_limiter_throttled_events.inc();
+        } else if self.is_io_engine_throttled {
+            METRICS.block.io_engine_throttled_events.inc();
         } else {
             self.process_virtio_queues();
         }
@@ -324,6 +328,11 @@ impl Block {
 
             match processing_result {
                 ProcessingResult::Submitted => {}
+                ProcessingResult::Throttled => {
+                    queue.undo_pop();
+                    self.is_io_engine_throttled = true;
+                    break;
+                }
                 ProcessingResult::Executed(finished) => {
                     Self::add_used_descriptor(
                         queue,
@@ -397,6 +406,11 @@ impl Block {
         }
 
         self.process_async_completion_queue();
+
+        if self.is_io_engine_throttled {
+            self.is_io_engine_throttled = false;
+            self.process_queue(0);
+        }
     }
 
     /// Update the backing file and the config space of the block device.
@@ -560,11 +574,12 @@ pub(crate) mod tests {
     use std::time::Duration;
     use std::u32;
 
+    use super::super::io::tests::is_kernel_lt_5_10;
     use super::*;
     use crate::virtio::queue::tests::*;
     use rate_limiter::TokenType;
     use utils::tempfile::TempFile;
-    use vm_memory::{Bytes, GuestAddress};
+    use vm_memory::{Address, Bytes, GuestAddress};
 
     use crate::check_metric_after_block;
     use crate::virtio::block::test_utils::{
@@ -572,6 +587,7 @@ pub(crate) mod tests {
         simulate_queue_and_async_completion_events, simulate_queue_event,
     };
     use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
+    use crate::virtio::IO_URING_NUM_ENTRIES;
 
     #[test]
     fn test_disk_backing_file_helper() {
@@ -1170,6 +1186,102 @@ pub(crate) mod tests {
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 0);
         }
+    }
+
+    fn add_flush_requests_batch(
+        block: &mut Block,
+        mem: &GuestMemoryMmap,
+        vq: &VirtQueue,
+        count: u16,
+    ) {
+        vq.avail.idx.set(0);
+        vq.used.idx.set(0);
+        set_queue(block, 0, vq.create_queue());
+
+        let hdr_addr = vq
+            .end()
+            .checked_align_up(std::mem::align_of::<RequestHeader>() as u64)
+            .unwrap();
+        // Write request header. All requests will use the same header.
+        mem.write_obj(RequestHeader::new(VIRTIO_BLK_T_FLUSH, 0), hdr_addr)
+            .unwrap();
+
+        let mut status_addr = hdr_addr
+            .checked_add(std::mem::size_of::<RequestHeader>() as u64)
+            .unwrap()
+            .checked_align_up(4)
+            .unwrap();
+
+        for i in 0..count {
+            let idx = i * 2;
+
+            let hdr_desc = &vq.dtable[idx as usize];
+            hdr_desc.addr.set(hdr_addr.0);
+            hdr_desc.flags.set(VIRTQ_DESC_F_NEXT);
+            hdr_desc.next.set(idx + 1);
+
+            let status_desc = &vq.dtable[idx as usize + 1];
+            status_desc.addr.set(status_addr.0);
+            status_desc.flags.set(VIRTQ_DESC_F_WRITE);
+            status_desc.len.set(4);
+            status_addr = status_addr.checked_add(4).unwrap();
+
+            vq.avail.ring[i as usize].set(idx);
+            vq.avail.idx.set(i + 1);
+        }
+    }
+
+    fn check_flush_requests_batch(count: u16, mem: &GuestMemoryMmap, vq: &VirtQueue) {
+        let used_idx = vq.used.idx.get();
+        assert_eq!(used_idx, count);
+
+        for i in 0..count {
+            let used = vq.used.ring[i as usize].get();
+            let status_addr = vq.dtable[used.id as usize + 1].addr.get();
+            assert_eq!(used.len, 1);
+            assert_eq!(
+                mem.read_obj::<u8>(GuestAddress(status_addr)).unwrap(),
+                VIRTIO_BLK_S_OK as u8
+            );
+        }
+    }
+
+    #[test]
+    fn test_io_engine_throttling() {
+        // skip this test if kernel < 5.10 since in this case the sync engine will be used.
+        if is_kernel_lt_5_10() {
+            return;
+        }
+
+        let mut block = default_block();
+
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
+        block.activate(mem.clone()).unwrap();
+
+        // Run scenario that doesn't trigger FullSq Error: Add sq_size flush requests.
+        add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
+        simulate_queue_event(&mut block, Some(false));
+        assert_eq!(block.is_io_engine_throttled, false);
+        simulate_async_completion_event(&mut block, true);
+        check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
+
+        // Run scenario that triggers FullSqError : Add sq_size + 10 flush requests.
+        add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES + 10);
+        simulate_queue_event(&mut block, Some(false));
+        assert_eq!(block.is_io_engine_throttled, true);
+        // When the async_completion_event is triggered:
+        // 1. sq_size requests should be processed processed.
+        // 2. is_io_engine_throttled should be set back to false.
+        // 3. process_queue() should be called again.
+        simulate_async_completion_event(&mut block, true);
+        assert_eq!(block.is_io_engine_throttled, false);
+        check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
+        // check that process_queue() was called again resulting in the processing of the
+        // remaining 10 ops.
+        simulate_async_completion_event(&mut block, true);
+        assert_eq!(block.is_io_engine_throttled, false);
+        check_flush_requests_batch(IO_URING_NUM_ENTRIES + 10, &mem, &vq);
     }
 
     #[test]

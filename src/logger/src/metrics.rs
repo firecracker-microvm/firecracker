@@ -485,6 +485,9 @@ pub struct BlockDeviceMetrics {
     pub write_count: SharedIncMetric,
     /// Number of rate limiter throttling events.
     pub rate_limiter_throttled_events: SharedIncMetric,
+    /// Number of virtio events throttled because of the IO engine.
+    /// This happens when the io_uring submission queue is full.
+    pub io_engine_throttled_events: SharedIncMetric,
 }
 
 /// Metrics specific to the i8042 device.
