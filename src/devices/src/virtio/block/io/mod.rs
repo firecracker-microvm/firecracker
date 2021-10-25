@@ -27,6 +27,15 @@ pub enum Error {
     Async(async_io::Error),
 }
 
+impl Error {
+    pub fn is_full_sq(&self) -> bool {
+        if let Error::Async(async_io::Error::IoUring(e)) = self {
+            return e.is_full_sq();
+        }
+        false
+    }
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct UserDataError<T, E> {
     pub user_data: T,
