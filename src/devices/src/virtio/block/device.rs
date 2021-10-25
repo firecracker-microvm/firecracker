@@ -189,6 +189,18 @@ pub struct Block {
     pub(crate) rate_limiter: RateLimiter,
 }
 
+macro_rules! unwrap_async_file_engine_or_return {
+    ($file_engine: expr) => {
+        match $file_engine {
+            FileEngine::Async(engine) => engine,
+            FileEngine::Sync(_) => {
+                error!("The block device doesn't use an async IO engine");
+                return;
+            }
+        };
+    };
+}
+
 impl Block {
     /// Create a new virtio block device that operates on the given file.
     ///
@@ -332,19 +344,8 @@ impl Block {
         }
     }
 
-    pub fn process_async_completion_event(&mut self) {
-        let engine = match self.disk.file_engine_mut() {
-            FileEngine::Async(engine) => engine,
-            FileEngine::Sync(_) => {
-                error!("The block device doesn't use an async IO engine");
-                return;
-            }
-        };
-
-        if let Err(e) = engine.completion_evt().read() {
-            error!("Failed to get completion event: {:?}", e);
-            return;
-        }
+    fn process_async_completion_queue(&mut self) {
+        let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
 
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -382,6 +383,17 @@ impl Block {
                 }
             }
         }
+    }
+
+    pub fn process_async_completion_event(&mut self) {
+        let engine = unwrap_async_file_engine_or_return!(&mut self.disk.file_engine);
+
+        if let Err(e) = engine.completion_evt().read() {
+            error!("Failed to get async completion event: {:?}", e);
+            return;
+        }
+
+        self.process_async_completion_queue();
     }
 
     /// Update the backing file and the config space of the block device.
