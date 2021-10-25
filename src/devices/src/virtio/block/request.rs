@@ -46,6 +46,11 @@ impl From<u32> for RequestType {
     }
 }
 
+pub enum ProcessingResult {
+    Submitted,
+    Executed(FinishedRequest),
+}
+
 pub struct FinishedRequest {
     pub num_bytes_to_mem: u32,
     pub desc_idx: u16,
@@ -333,12 +338,12 @@ impl Request {
         }
     }
 
-    pub(crate) fn execute(
+    pub(crate) fn process(
         self,
         disk: &mut DiskProperties,
         desc_idx: u16,
         mem: &GuestMemoryMmap,
-    ) -> Option<FinishedRequest> {
+    ) -> ProcessingResult {
         let pending = self.to_pending_request(desc_idx);
         let res = match self.r#type {
             RequestType::In => disk.file_engine_mut().read(
@@ -361,19 +366,21 @@ impl Request {
                     .write_slice(disk.image_id(), self.data_addr)
                     .map(|_| VIRTIO_BLK_ID_BYTES)
                     .map_err(IoErr::GetId);
-                return Some(pending.finish(mem, res));
+                return ProcessingResult::Executed(pending.finish(mem, res));
             }
             RequestType::Unsupported(_) => {
-                return Some(pending.finish(mem, Ok(0)));
+                return ProcessingResult::Executed(pending.finish(mem, Ok(0)));
             }
         };
 
         match res {
-            Ok(block_io::FileEngineOk::Submitted) => None,
+            Ok(block_io::FileEngineOk::Submitted) => ProcessingResult::Submitted,
             Ok(block_io::FileEngineOk::Executed(res)) => {
-                Some(res.user_data.finish(mem, Ok(res.count)))
+                ProcessingResult::Executed(res.user_data.finish(mem, Ok(res.count)))
             }
-            Err(e) => Some(e.user_data.finish(mem, Err(IoErr::FileEngine(e.error)))),
+            Err(e) => {
+                ProcessingResult::Executed(e.user_data.finish(mem, Err(IoErr::FileEngine(e.error))))
+            }
         }
     }
 }
