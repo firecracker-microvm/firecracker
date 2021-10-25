@@ -41,6 +41,15 @@ pub enum Error {
     UnsupportedOperation(&'static str),
 }
 
+impl Error {
+    pub fn is_full_sq(&self) -> bool {
+        if let Error::SQueue(SQueueError::FullQueue) = self {
+            return true;
+        }
+        false
+    }
+}
+
 pub struct IoUring {
     fd: File,
     registered_fds_count: u32,
