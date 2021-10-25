@@ -299,7 +299,7 @@ impl Block {
         let mut used_any = false;
 
         while let Some(head) = queue.pop_or_enable_notification(mem) {
-            let maybe_finished = match Request::parse(&head, mem, self.disk.nsectors()) {
+            let processing_result = match Request::parse(&head, mem, self.disk.nsectors()) {
                 Ok(request) => {
                     if request.rate_limit(&mut self.rate_limiter) {
                         // Stop processing the queue and return this descriptor chain to the
@@ -310,26 +310,29 @@ impl Block {
                     }
 
                     used_any = true;
-                    request.execute(&mut self.disk, head.index, mem)
+                    request.process(&mut self.disk, head.index, mem)
                 }
                 Err(e) => {
                     error!("Failed to parse available descriptor chain: {:?}", e);
                     METRICS.block.execute_fails.inc();
-                    Some(FinishedRequest {
+                    ProcessingResult::Executed(FinishedRequest {
                         num_bytes_to_mem: 0,
                         desc_idx: head.index,
                     })
                 }
             };
 
-            if let Some(finished) = maybe_finished {
-                Self::add_used_descriptor(
-                    queue,
-                    head.index,
-                    finished.num_bytes_to_mem,
-                    mem,
-                    &self.irq_trigger,
-                );
+            match processing_result {
+                ProcessingResult::Submitted => {}
+                ProcessingResult::Executed(finished) => {
+                    Self::add_used_descriptor(
+                        queue,
+                        head.index,
+                        finished.num_bytes_to_mem,
+                        mem,
+                        &self.irq_trigger,
+                    );
+                }
             }
         }
 
