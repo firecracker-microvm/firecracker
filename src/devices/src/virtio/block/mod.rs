@@ -20,6 +20,9 @@ pub const SECTOR_SIZE: u64 = (0x01_u64) << SECTOR_SHIFT;
 pub const QUEUE_SIZE: u16 = 256;
 pub const NUM_QUEUES: usize = 1;
 pub const QUEUE_SIZES: &[u16] = &[QUEUE_SIZE];
+// The virtio queue can hold up to 256 descriptors, but 1 request spreads across 2-3 descriptors.
+// So we can use 128 IO_URING entries without ever triggering a FullSq Error.
+pub const IO_URING_NUM_ENTRIES: u16 = 128;
 
 #[derive(Debug)]
 pub enum Error {

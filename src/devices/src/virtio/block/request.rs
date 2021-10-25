@@ -48,6 +48,7 @@ impl From<u32> for RequestType {
 
 pub enum ProcessingResult {
     Submitted,
+    Throttled,
     Executed(FinishedRequest),
 }
 
@@ -379,7 +380,13 @@ impl Request {
                 ProcessingResult::Executed(res.user_data.finish(mem, Ok(res.count)))
             }
             Err(e) => {
-                ProcessingResult::Executed(e.user_data.finish(mem, Err(IoErr::FileEngine(e.error))))
+                if e.error.is_full_sq() {
+                    ProcessingResult::Throttled
+                } else {
+                    ProcessingResult::Executed(
+                        e.user_data.finish(mem, Err(IoErr::FileEngine(e.error))),
+                    )
+                }
             }
         }
     }

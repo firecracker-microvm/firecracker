@@ -177,7 +177,7 @@ pub mod tests {
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
     const MEM_LEN: usize = 8192;
 
-    fn is_kernel_lt_5_10() -> bool {
+    pub fn is_kernel_lt_5_10() -> bool {
         KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0)
     }
 
