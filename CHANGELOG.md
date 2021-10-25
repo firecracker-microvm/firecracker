@@ -11,6 +11,8 @@
 - Added metrics for accesses to deprecated HTTP and command line API endpoints.
 - Added permanent HTTP endpoint for `GET` on `/version` for getting the
   Firecracker version.
+- Added `block.io_engine_throttled_events` metric for measuring the number of
+  virtio events throttled because of the IO engine.
 
 ### Fixed
 
