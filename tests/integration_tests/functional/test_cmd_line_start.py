@@ -5,6 +5,7 @@
 import json
 import os
 import re
+import shutil
 
 from retry.api import retry_call
 
@@ -38,6 +39,20 @@ def _configure_vm_from_json(test_microvm, vm_config_file):
     test_microvm.create_jailed_resource(vm_config_path, create_jail=True)
     test_microvm.jailer.extra_args = {'config-file': os.path.basename(
         vm_config_file)}
+
+
+def _add_metadata_file(test_microvm, metadata_file):
+    """Configure the microvm using a metadata file.
+
+    Given a test metadata file this creates a copy of the file and
+    uses the copy to configure the microvm.
+    """
+    vm_metadata_path = os.path.join(
+        test_microvm.path,
+        os.path.basename(metadata_file)
+    )
+    shutil.copyfile(metadata_file, vm_metadata_path)
+    test_microvm.metadata_file = vm_metadata_path
 
 
 @pytest.mark.parametrize(
@@ -189,3 +204,102 @@ def test_config_with_default_limit(test_microvm_with_api, vm_config_file):
     response_err += "All previous unanswered requests will be dropped.\" }"
     _, stdout, _stderr = utils.run_cmd(cmd_err)
     assert stdout.encode("utf-8") == response_err.encode("utf-8")
+
+
+def test_start_with_metadata(test_microvm_with_api):
+    """
+    Test if metadata from file is available via MMDS.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+    metadata_file = "../resources/tests/metadata.json"
+
+    _add_metadata_file(test_microvm, metadata_file)
+
+    test_microvm.spawn()
+
+    test_microvm.check_log_message(
+        "Successfully added metadata to mmds from file"
+    )
+
+    response = test_microvm.machine_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert test_microvm.state == "Not started"
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+
+    with open(metadata_file) as json_file:
+        assert response.json() == json.load(json_file)
+
+
+def test_start_with_missing_metadata(test_microvm_with_api):
+    """
+    Test if a microvm is configured with a missing metadata file.
+
+    @type: negative
+    """
+    test_microvm = test_microvm_with_api
+    metadata_file = "../resources/tests/metadata_nonexisting.json"
+
+    vm_metadata_path = os.path.join(
+        test_microvm.path,
+        os.path.basename(metadata_file)
+    )
+    test_microvm.metadata_file = vm_metadata_path
+
+    # This will be a FileNotFound on the firecracker socket
+    # and not the metadata file
+    with pytest.raises(FileNotFoundError):
+        test_microvm.spawn()
+
+    test_microvm.check_log_message(
+        "Unable to open or read from the mmds content file"
+    )
+    test_microvm.check_log_message("No such file or directory")
+
+
+def test_start_with_invalid_metadata(test_microvm_with_api):
+    """
+    Test if a microvm is configured with a invalid metadata file.
+
+    @type: negative
+    """
+    test_microvm = test_microvm_with_api
+    metadata_file = "../resources/tests/metadata_invalid.json"
+
+    vm_metadata_path = os.path.join(
+        test_microvm.path,
+        os.path.basename(metadata_file)
+    )
+    shutil.copy(metadata_file, vm_metadata_path)
+    test_microvm.metadata_file = vm_metadata_path
+
+    with pytest.raises(FileNotFoundError):
+        test_microvm.spawn()
+
+    test_microvm.check_log_message(
+        "MMDS error: metadata provided not valid json"
+    )
+    test_microvm.check_log_message(
+        "EOF while parsing an object"
+    )
+
+
+def test_with_config_and_metadata_no_api(test_microvm_with_api):
+    """
+    Test microvm start when config/mmds and API server thread is disable.
+
+    @type: functional
+    """
+    vm_config_file = "framework/vm_config.json"
+    metadata_file = "../resources/tests/metadata.json"
+
+    test_microvm = test_microvm_with_api
+
+    _configure_vm_from_json(test_microvm, vm_config_file)
+    _add_metadata_file(test_microvm, metadata_file)
+    test_microvm.jailer.extra_args.update({'no-api': None})
+
+    test_microvm.spawn()
