@@ -133,6 +133,15 @@ pub fn create_guest_memory(
     GuestMemoryMmap::from_regions(mmap_regions)
 }
 
+pub fn mark_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: usize) {
+    let _ = mem.try_access(len, addr, |_total, count, caddr, region| {
+        if let Some(bitmap) = region.bitmap() {
+            bitmap.mark_dirty(caddr.0 as usize, count);
+        }
+        Ok(count)
+    });
+}
+
 pub mod test_utils {
     use super::*;
 
@@ -380,6 +389,57 @@ mod tests {
             guest_memory.iter().for_each(|region| {
                 assert!(region.bitmap().is_some());
             });
+        }
+    }
+
+    #[test]
+    fn test_mark_dirty_mem() {
+        let page_size = utils::get_page_size().unwrap();
+        let region_size = page_size * 3;
+
+        let regions = vec![
+            (None, GuestAddress(0), region_size), // pages 0-2
+            (None, GuestAddress(region_size as u64), region_size), // pages 3-5
+            (None, GuestAddress(region_size as u64 * 2), region_size), // pages 6-8
+        ];
+        let guest_memory = create_guest_memory(&regions, true).unwrap();
+
+        let dirty_map = [
+            // page 0: not dirty
+            (0, page_size, false),
+            // pages 1-2: dirty range in one region
+            (page_size, page_size * 2, true),
+            // page 3: not dirty
+            (page_size * 3, page_size, false),
+            // pages 4-7: dirty range across 2 regions,
+            (page_size * 4, page_size * 4, true),
+            // page 8: not dirty
+            (page_size * 8, page_size, false),
+        ];
+
+        // Mark dirty memory
+        for (addr, len, dirty) in &dirty_map {
+            if *dirty {
+                mark_dirty_mem(&guest_memory, GuestAddress(*addr as u64), *len);
+            }
+        }
+
+        // Check that the dirty memory was set correctly
+        for (addr, len, dirty) in &dirty_map {
+            guest_memory
+                .try_access(
+                    *len,
+                    GuestAddress(*addr as u64),
+                    |_total, count, caddr, region| {
+                        let offset = caddr.0 as usize;
+                        let bitmap = region.bitmap().as_ref().unwrap();
+                        for i in offset..offset + count {
+                            assert_eq!(bitmap.dirty_at(i), *dirty);
+                        }
+                        Ok(count)
+                    },
+                )
+                .unwrap();
         }
     }
 }
