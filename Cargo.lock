@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "firecracker"
-version = "0.26.0"
+version = "1.0.0"
 dependencies = [
  "api_server",
  "event-manager",
@@ -352,7 +352,7 @@ checksum = "b71991ff56294aa922b450139ee08b3bfc70982c6b2c7562771375cf73542dd4"
 
 [[package]]
 name = "jailer"
-version = "0.26.0"
+version = "1.0.0"
 dependencies = [
  "libc",
  "regex",
@@ -705,7 +705,7 @@ checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 
 [[package]]
 name = "seccompiler"
-version = "0.25.0"
+version = "1.0.0"
 dependencies = [
  "bincode",
  "libc",
