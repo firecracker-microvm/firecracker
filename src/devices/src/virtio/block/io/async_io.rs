@@ -11,7 +11,7 @@ use io_uring::{
 };
 
 use utils::eventfd::EventFd;
-use vm_memory::{GuestAddress, GuestMemory, GuestMemoryMmap};
+use vm_memory::{mark_dirty_mem, GuestAddress, GuestMemory, GuestMemoryMmap};
 
 use crate::virtio::block::io::UserDataError;
 use crate::virtio::block::QUEUE_SIZE;
@@ -31,6 +31,35 @@ pub struct AsyncFileEngine<T> {
     ring: IoUring,
     completion_evt: EventFd,
     phantom: PhantomData<T>,
+}
+
+pub struct WrappedUserData<T> {
+    addr: Option<GuestAddress>,
+    user_data: T,
+}
+
+impl<T> WrappedUserData<T> {
+    fn new(user_data: T) -> Self {
+        WrappedUserData {
+            addr: None,
+            user_data,
+        }
+    }
+
+    fn new_with_dirty_tracking(addr: GuestAddress, user_data: T) -> Self {
+        WrappedUserData {
+            addr: Some(addr),
+            user_data,
+        }
+    }
+
+    fn mark_dirty_mem_and_unwrap(self, mem: &GuestMemoryMmap, count: u32) -> T {
+        if let Some(addr) = self.addr {
+            mark_dirty_mem(mem, addr, count as usize)
+        }
+
+        self.user_data
+    }
 }
 
 impl<T> AsyncFileEngine<T> {
@@ -77,10 +106,18 @@ impl<T> AsyncFileEngine<T> {
             }
         };
 
+        let wrapped_user_data = WrappedUserData::new_with_dirty_tracking(addr, user_data);
+
         self.ring
-            .push(Operation::read(0, buf as usize, count, offset, user_data))
+            .push(Operation::read(
+                0,
+                buf as usize,
+                count,
+                offset,
+                wrapped_user_data,
+            ))
             .map_err(|err_tuple| UserDataError {
-                user_data: err_tuple.1,
+                user_data: err_tuple.1.user_data,
                 error: Error::IoUring(err_tuple.0),
             })
     }
@@ -103,19 +140,29 @@ impl<T> AsyncFileEngine<T> {
             }
         };
 
+        let wrapped_user_data = WrappedUserData::new(user_data);
+
         self.ring
-            .push(Operation::write(0, buf as usize, count, offset, user_data))
+            .push(Operation::write(
+                0,
+                buf as usize,
+                count,
+                offset,
+                wrapped_user_data,
+            ))
             .map_err(|err_tuple| UserDataError {
-                user_data: err_tuple.1,
+                user_data: err_tuple.1.user_data,
                 error: Error::IoUring(err_tuple.0),
             })
     }
 
     pub fn push_flush(&mut self, user_data: T) -> Result<(), UserDataError<T, Error>> {
+        let wrapped_user_data = WrappedUserData::new(user_data);
+
         self.ring
-            .push(Operation::fsync(0, user_data))
+            .push(Operation::fsync(0, wrapped_user_data))
             .map_err(|err_tuple| UserDataError {
-                user_data: err_tuple.1,
+                user_data: err_tuple.1.user_data,
                 error: Error::IoUring(err_tuple.0),
             })
     }
@@ -137,7 +184,7 @@ impl<T> AsyncFileEngine<T> {
         self.drain_submission_queue()?;
 
         // Drain the completion queue so that we may deallocate the user_data fields.
-        while self.pop()?.is_some() {}
+        while self.do_pop()?.is_some() {}
 
         if flush {
             // Sync data out to physical media on host.
@@ -165,7 +212,20 @@ impl<T> AsyncFileEngine<T> {
         Ok(())
     }
 
-    pub fn pop(&mut self) -> Result<Option<Cqe<T>>, Error> {
-        self.ring.pop().map_err(Error::IoUring)
+    fn do_pop(&mut self) -> Result<Option<Cqe<WrappedUserData<T>>>, Error> {
+        self.ring
+            .pop::<WrappedUserData<T>>()
+            .map_err(Error::IoUring)
+    }
+
+    pub fn pop(&mut self, mem: &GuestMemoryMmap) -> Result<Option<Cqe<T>>, Error> {
+        let cqe = self.do_pop()?.map(|cqe| {
+            let count = cqe.count();
+            cqe.map_user_data(|wrapped_user_data| {
+                wrapped_user_data.mark_dirty_mem_and_unwrap(mem, count)
+            })
+        });
+
+        Ok(cqe)
     }
 }

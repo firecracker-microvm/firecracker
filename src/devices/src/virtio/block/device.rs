@@ -351,7 +351,7 @@ impl Block {
         let queue = &mut self.queues[0];
 
         loop {
-            match engine.pop() {
+            match engine.pop(mem) {
                 Err(error) => {
                     error!("Failed to read completed io_uring entry: {:?}", error);
                     break;
