@@ -157,10 +157,11 @@ pub mod tests {
     use super::*;
     use utils::kernel_version::KernelVersion;
     use utils::tempfile::TempFile;
-    use vm_memory::Bytes;
+    use vm_memory::{Bitmap, Bytes, GuestMemory};
 
     const FILE_LEN: u32 = 1024;
-    const MEM_LEN: usize = 4096;
+    // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
+    const MEM_LEN: usize = 8192;
 
     macro_rules! assert_err {
         ($expression:expr, $($pattern:tt)+) => {
@@ -198,16 +199,30 @@ pub mod tests {
         };
     }
 
-    fn assert_async_execution(engine: &mut FileEngine<()>, count: u32) {
+    fn assert_async_execution(mem: &GuestMemoryMmap, engine: &mut FileEngine<()>, count: u32) {
         if let FileEngine::Async(ref mut engine) = engine {
             engine.kick_submission_queue_and_wait(1).unwrap();
-            assert_eq!(engine.pop().unwrap().unwrap().result().unwrap(), count);
+            assert_eq!(engine.pop(mem).unwrap().unwrap().result().unwrap(), count);
         }
     }
 
     fn create_mem() -> GuestMemoryMmap {
         vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), MEM_LEN)], true)
             .unwrap()
+    }
+
+    fn check_dirty_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
+        let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
+        for offset in addr.0..addr.0 + len as u64 {
+            assert!(bitmap.dirty_at(offset as usize));
+        }
+    }
+
+    fn check_clean_mem(mem: &GuestMemoryMmap, addr: GuestAddress, len: u32) {
+        let bitmap = mem.find_region(addr).unwrap().bitmap().as_ref().unwrap();
+        for offset in addr.0..addr.0 + len as u64 {
+            assert!(!bitmap.dirty_at(offset as usize));
+        }
     }
 
     #[test]
@@ -318,33 +333,39 @@ pub mod tests {
         let addr = GuestAddress(0);
         mem.write(&data, addr).unwrap();
         assert_queued!(engine.write(offset, &mem, addr, partial_len, ()));
-        assert_async_execution(&mut engine, partial_len as u32);
+        assert_async_execution(&mem, &mut engine, partial_len as u32);
         // Offset read
         let mem = create_mem();
         assert_queued!(engine.read(offset, &mem, addr, partial_len, ()));
-        assert_async_execution(&mut engine, partial_len as u32);
+        assert_async_execution(&mem, &mut engine, partial_len as u32);
         // Check data
         let mut buf = vec![0u8; partial_len as usize];
         mem.read_slice(&mut buf, addr).unwrap();
         assert_eq!(buf, data[..partial_len as usize]);
+        // check dirty mem
+        check_dirty_mem(&mem, addr, partial_len);
+        check_clean_mem(&mem, GuestAddress(4096), 4096);
 
         // Full write
         mem.write(&data, GuestAddress(0)).unwrap();
         assert_queued!(engine.write(0, &mem, addr, FILE_LEN, ()));
-        assert_async_execution(&mut engine, FILE_LEN as u32);
+        assert_async_execution(&mem, &mut engine, FILE_LEN as u32);
 
         // Full read
         let mem = create_mem();
         assert_queued!(engine.read(0, &mem, addr, FILE_LEN, ()));
-        assert_async_execution(&mut engine, FILE_LEN as u32);
+        assert_async_execution(&mem, &mut engine, FILE_LEN as u32);
         // Check data
         let mut buf = vec![0u8; FILE_LEN as usize];
         mem.read_slice(&mut buf, GuestAddress(0)).unwrap();
         assert_eq!(buf, data.as_slice());
+        // check dirty mem
+        check_dirty_mem(&mem, addr, FILE_LEN);
+        check_clean_mem(&mem, GuestAddress(4096), 4096);
 
         // Check other ops
         assert_queued!(engine.flush(()));
-        assert_async_execution(&mut engine, 0);
+        assert_async_execution(&mem, &mut engine, 0);
 
         assert!(engine.drain(true).is_ok());
         assert!(engine.drain(false).is_ok());

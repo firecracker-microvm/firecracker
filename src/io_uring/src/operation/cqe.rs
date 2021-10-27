@@ -8,7 +8,7 @@ use vm_memory::ByteValued;
 unsafe impl ByteValued for io_uring_cqe {}
 
 pub struct Cqe<T> {
-    inner: io_uring_cqe,
+    res: i32,
     user_data: Box<T>,
 }
 
@@ -19,18 +19,29 @@ impl<T> Cqe<T> {
     /// and that ownership of that address is passed to this function.
     pub unsafe fn new(inner: io_uring_cqe) -> Self {
         Self {
-            inner,
+            res: inner.res,
             user_data: Box::from_raw(inner.user_data as *mut T),
         }
     }
 
+    pub fn count(&self) -> u32 {
+        i32::max(self.res, 0) as u32
+    }
+
     pub fn result(&self) -> Result<u32, std::io::Error> {
-        let res = self.inner.res;
+        let res = self.res;
 
         if res < 0 {
             Err(std::io::Error::from_raw_os_error(res))
         } else {
             Ok(res as u32)
+        }
+    }
+
+    pub fn map_user_data<U, F: FnOnce(T) -> U>(self, op: F) -> Cqe<U> {
+        Cqe {
+            res: self.res,
+            user_data: Box::new(op(self.user_data())),
         }
     }
 
