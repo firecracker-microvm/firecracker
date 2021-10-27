@@ -151,6 +151,9 @@ class Microvm:
         # Flag checked in destructor to see abnormal signal-induced crashes.
         self.expect_kill_by_signal = False
 
+        # MMDS content from file
+        self._metadata_file = None
+
     def kill(self):
         """All clean up associated with this microVM should go here."""
         # pylint: disable=subprocess-run-check
@@ -276,6 +279,16 @@ class Microvm:
     def ssh_config(self, key, value):
         """Set the dict values inside this configuration."""
         self._ssh_config.__setattr__(key, value)
+
+    @property
+    def metadata_file(self):
+        """Return the path to a file used for populating MMDS."""
+        return self._metadata_file
+
+    @metadata_file.setter
+    def metadata_file(self, path):
+        """Set the path to a file to use for populating MMDS."""
+        self._metadata_file = path
 
     @property
     def memory_monitor(self):
@@ -503,6 +516,15 @@ class Microvm:
             self.jailer.extra_args.update({'log-path': log_file,
                                            'level': log_level})
             self.start_console_logger(log_fifo)
+
+        if self.metadata_file:
+            if os.path.exists(self.metadata_file):
+                LOG.debug("metadata file exists, adding as a jailed resource")
+                self.create_jailed_resource(self.metadata_file,
+                                            create_jail=True)
+            self.jailer.extra_args.update(
+                {'metadata': os.path.basename(self.metadata_file)}
+            )
 
         jailer_param_list = self._jailer.construct_param_list()
 

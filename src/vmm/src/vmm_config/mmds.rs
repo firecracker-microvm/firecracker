@@ -1,8 +1,8 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde::{export::Formatter, Deserialize, Serialize};
-use std::fmt::{Display, Result};
+use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter, Result};
 use std::net::Ipv4Addr;
 
 /// Keeps the MMDS configuration.
