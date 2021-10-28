@@ -804,8 +804,8 @@ help_build_release_archive() {
     echo "            1. Running integration tests."
     echo "            2. Building release binaries and stripping them of debug symbols."
     echo "            3. Verifying artifacts' version against release version targeted."
-    echo "            4. Packing all artifacts into \`release-v{X.Y.Z}\` directory."
-    echo "            5. Creating firecracker-v{X.Y.Z}-{arch} release archive."
+    echo "            4. Packing all artifacts into \`release-v{version}-{arch}\` directory."
+    echo "            5. Creating firecracker-v{version}-{arch} release archive."
     echo "        -v, --version             The targeted release version."
 }
 
@@ -1032,7 +1032,7 @@ cmd_build_release_archive() {
     get_user_confirmation || die "Aborted."
 
     # Run tests, build release binaries and strip them from debug symbols.
-    ( cmd_test && cmd_build --release && cmd_strip ) || die "Aborted."
+    ( cmd_build --release && cmd_strip && cmd_test ) || die "Aborted."
 
     release_suffix="v$version-$(uname -m)"
     release_dir="release-$release_suffix"
