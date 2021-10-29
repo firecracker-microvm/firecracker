@@ -33,7 +33,7 @@ pub enum DriveError {
     /// Error during drive update (patch).
     DeviceUpdate(VmmError),
     /// The block device path is invalid.
-    InvalidBlockDevicePath,
+    InvalidBlockDevicePath(String),
     /// Cannot open block device due to invalid permissions or path.
     OpenBlockDevice(io::Error),
     /// A root block device was already added.
@@ -53,7 +53,7 @@ impl Display for DriveError {
             BlockDeviceUpdateFailed(e) => write!(f, "The update operation failed: {}", e),
             CreateRateLimiter(e) => write!(f, "Cannot create RateLimiter: {}", e),
             DeviceUpdate(e) => write!(f, "Error during drive update (patch): {}", e),
-            InvalidBlockDevicePath => write!(f, "Invalid block device path!"),
+            InvalidBlockDevicePath(path) => write!(f, "Invalid block device path: {}", path),
             OpenBlockDevice(e) => write!(
                 f,
                 "Cannot open block device. Invalid permission/path: {}",
@@ -198,7 +198,10 @@ impl BlockBuilder {
         // check if the path exists
         let path_on_host = PathBuf::from(&block_device_config.path_on_host);
         if !path_on_host.exists() {
-            return Err(DriveError::InvalidBlockDevicePath);
+            return Err(DriveError::InvalidBlockDevicePath(format!(
+                "{}",
+                path_on_host.display()
+            )));
         }
 
         let rate_limiter = block_device_config
@@ -539,12 +542,11 @@ mod tests {
         assert!(block_devs.list[index].lock().unwrap().is_read_only());
 
         // Update with invalid path.
-        let dummy_filename_3 = String::from("test_update_3");
-        let dummy_path_3 = dummy_filename_3;
-        dummy_block_device_2.path_on_host = dummy_path_3;
+        let dummy_path_3 = String::from("test_update_3");
+        dummy_block_device_2.path_on_host = dummy_path_3.clone();
         assert_eq!(
             block_devs.insert(dummy_block_device_2.clone()),
-            Err(DriveError::InvalidBlockDevicePath)
+            Err(DriveError::InvalidBlockDevicePath(dummy_path_3))
         );
 
         // Update with 2 root block devices.
