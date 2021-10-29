@@ -1,8 +1,6 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![deny(warnings)]
-
 use crate::vmm_config::balloon::*;
 use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, BootSourceConfigError};
 use crate::vmm_config::drive::*;
@@ -45,6 +43,23 @@ pub enum Error {
     VmConfig(VmConfigError),
     /// Vsock device configuration error.
     VsockDevice(VsockConfigError),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::BalloonDevice(e) => write!(f, "Balloon device error: {}", e),
+            Error::BlockDevice(e) => write!(f, "Block device error: {}", e),
+            Error::BootSource(e) => write!(f, "Boot source error: {}", e),
+            Error::InvalidJson(e) => write!(f, "Invalid JSON: {}", e),
+            Error::Logger(e) => write!(f, "Logger error: {}", e),
+            Error::Metrics(e) => write!(f, "Metrics error: {}", e),
+            Error::MmdsConfig(e) => write!(f, "MMDS config error: {}", e),
+            Error::NetDevice(e) => write!(f, "Network device error: {}", e),
+            Error::VmConfig(e) => write!(f, "VM config error: {}", e),
+            Error::VsockDevice(e) => write!(f, "Vsock device error: {}", e),
+        }
+    }
 }
 
 /// Used for configuring a vmm from one single json passed to the Firecracker process.
@@ -360,7 +375,7 @@ mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
     use crate::vstate::vcpu::VcpuConfig;
-    use devices::virtio::vsock::VSOCK_DEV_ID;
+    use devices::virtio::vsock::{VsockError, VSOCK_DEV_ID};
     use logger::{LevelFilter, LOGGER};
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
@@ -527,7 +542,7 @@ mod tests {
         );
 
         match VmResources::from_json(json.as_str(), &default_instance_info) {
-            Err(Error::BlockDevice(DriveError::InvalidBlockDevicePath)) => (),
+            Err(Error::BlockDevice(DriveError::InvalidBlockDevicePath(_))) => (),
             _ => unreachable!(),
         }
 
@@ -980,5 +995,107 @@ mod tests {
 
         vm_resources.build_net_device(new_net_device_cfg).unwrap();
         assert_eq!(vm_resources.net_builder.len(), 2);
+    }
+
+    #[test]
+    fn test_error_display() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::BalloonDevice(BalloonConfigError::DeviceNotActive)
+            ),
+            format!(
+                "Balloon device error: {}",
+                BalloonConfigError::DeviceNotActive
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::BlockDevice(DriveError::InvalidBlockDevicePath(String::from("path")))
+            ),
+            format!(
+                "Block device error: {}",
+                DriveError::InvalidBlockDevicePath(String::from("path"))
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::BootSource(BootSourceConfigError::InvalidKernelPath(
+                    std::io::Error::from_raw_os_error(21)
+                ))
+            ),
+            format!(
+                "Boot source error: {}",
+                BootSourceConfigError::InvalidKernelPath(std::io::Error::from_raw_os_error(21))
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::InvalidJson(serde_json::Error::io(std::io::Error::from_raw_os_error(21)))
+            ),
+            format!(
+                "Invalid JSON: {}",
+                serde_json::Error::io(std::io::Error::from_raw_os_error(21))
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::Logger(LoggerConfigError::InitializationFailure(
+                    "error message".to_string()
+                ))
+            ),
+            format!(
+                "Logger error: {}",
+                LoggerConfigError::InitializationFailure("error message".to_string())
+            )
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::Metrics(MetricsConfigError::InitializationFailure(
+                    "error message".to_string()
+                ))
+            ),
+            format!(
+                "Metrics error: {}",
+                MetricsConfigError::InitializationFailure("error message".to_string())
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::MmdsConfig(MmdsConfigError::InvalidIpv4Addr)),
+            format!("MMDS config error: {}", MmdsConfigError::InvalidIpv4Addr)
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::NetDevice(NetworkInterfaceError::GuestMacAddressInUse(
+                    "MAC".to_string()
+                ))
+            ),
+            format!(
+                "Network device error: {}",
+                NetworkInterfaceError::GuestMacAddressInUse("MAC".to_string())
+            )
+        );
+        assert_eq!(
+            format!("{}", Error::VmConfig(VmConfigError::InvalidMemorySize)),
+            format!("VM config error: {}", VmConfigError::InvalidMemorySize)
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Error::VsockDevice(VsockConfigError::CreateVsockDevice(
+                    VsockError::BufDescTooSmall
+                ))
+            ),
+            format!(
+                "Vsock device error: {}",
+                VsockConfigError::CreateVsockDevice(VsockError::BufDescTooSmall)
+            )
+        );
     }
 }

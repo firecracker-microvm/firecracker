@@ -464,10 +464,7 @@ fn build_microvm_from_json(
     boot_timer_enabled: bool,
 ) -> std::result::Result<(VmResources, Arc<Mutex<vmm::Vmm>>), ExitCode> {
     let mut vm_resources = VmResources::from_json(&config_json, &instance_info).map_err(|err| {
-        error!(
-            "Configuration for VMM from one single json failed: {:?}",
-            err
-        );
+        error!("Configuration for VMM from one single json failed: {}", err);
         vmm::FC_EXIT_CODE_BAD_CONFIGURATION
     })?;
     vm_resources.boot_timer = boot_timer_enabled;
