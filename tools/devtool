@@ -1026,8 +1026,8 @@ cmd_build_release_archive() {
     archive_checksum="$archive_name.sha256.txt"
     release_dir="release-$release_suffix"
 
-    # Run tests, build release binaries and strip them from debug symbols.
-    ( cmd_build --release && cmd_strip && cmd_test ) || die "Aborted."
+    # Build release binaries and strip them from debug symbols.
+    ( cmd_build --release && cmd_strip ) || die "Aborted."
 
     # Create release directory or overwrite if it already exists.
     rm -rf "$release_dir" && mkdir "$release_dir"
@@ -1042,11 +1042,14 @@ cmd_build_release_archive() {
     done
 
     add_swagger_artifact "$release_dir"
-    add_folder_artifact "$release_dir" "test_results" "$release_suffix"
     add_file_artifact "$release_dir" "$seccomp_json" "seccomp-filter-$release_suffix.json"
     for file in "LICENSE" "NOTICE" "THIRD-PARTY"; do
         add_file_artifact "$release_dir" "$file"
     done
+
+    # Run tests to obtain test reports dir.
+    cmd_test || cleanup_release_dir "$release_dir" "Tests failed."
+    add_folder_artifact "$release_dir" "test_results" "$release_suffix"
 
     # Create release archive.
     say "Creating release archive..."
@@ -1055,6 +1058,14 @@ cmd_build_release_archive() {
     say "Calculating checksum for release archive..."
     sha256sum "$archive_name"  | awk '{print $1}' > "$archive_checksum"
     say "Done. Saved checksum in $archive_checksum."
+}
+
+cleanup_release_dir() {
+    release_dir="$1"
+    error_msg="$2"
+
+    rm -rf "$release_dir"
+    die "$error_msg"
 }
 
 check_file_existence() {
