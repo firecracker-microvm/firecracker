@@ -18,6 +18,10 @@ import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 
+from conftest import _test_images_s3_bucket
+from framework.artifacts import ArtifactCollection
+from framework.builder import MicrovmBuilder
+
 MEM_LIMIT = 1000000000
 
 
@@ -940,52 +944,81 @@ def test_api_version(test_microvm_with_api):
     assert out.strip()[1:] == preboot_response.json()['firecracker_version']
 
 
-def test_api_vsock(test_microvm_with_api):
+def test_api_vsock(bin_cloner_path):
     """
     Test vsock related API commands.
 
     @type: functional
     """
-    test_microvm = test_microvm_with_api
-    test_microvm.spawn()
-    test_microvm.basic_config()
+    builder = MicrovmBuilder(bin_cloner_path)
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
 
-    response = test_microvm.vsock.put(
+    # Test with the current build.
+    vm_instance = builder.build_vm_nano()
+    _test_vsock(vm_instance.vm)
+
+    # Fetch 1.0.0 and older firecracker binaries.
+    # Create a vsock device with each FC binary
+    # artifact.
+    firecracker_artifacts = artifacts.firecrackers(
+        # v1.0.0 deprecated `vsock_id`.
+        min_version="1.0.0")
+
+    for firecracker in firecracker_artifacts:
+        firecracker.download()
+        jailer = firecracker.jailer()
+        jailer.download()
+
+        vm_instance = builder.build_vm_nano(
+                                        fc_binary=firecracker.local_path(),
+                                        jailer_binary=jailer.local_path())
+
+        _test_vsock(vm_instance.vm)
+
+
+def _test_vsock(vm):
+    # Create a vsock device.
+    response = vm.vsock.put(
+        guest_cid=15,
+        uds_path='vsock.sock'
+    )
+    assert vm.api_session.is_status_no_content(response.status_code)
+
+    # Updating an existing vsock is currently fine.
+    response = vm.vsock.put(
+        guest_cid=166,
+        uds_path='vsock.sock'
+    )
+    assert vm.api_session.is_status_no_content(response.status_code)
+
+    # Check PUT request. Although vsock_id is deprecated, it must still work.
+    response = vm.vsock.put(
         vsock_id='vsock1',
         guest_cid=15,
         uds_path='vsock.sock'
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert vm.api_session.is_status_no_content(response.status_code)
+    assert response.headers['deprecation']
 
-    # Updating an existing vsock is currently fine.
-    response = test_microvm.vsock.put(
+    # Updating an existing vsock is currently fine even with deprecated
+    # `vsock_id`.
+    response = vm.vsock.put(
         vsock_id='vsock1',
         guest_cid=166,
         uds_path='vsock.sock'
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert vm.api_session.is_status_no_content(response.status_code)
+    assert response.headers['deprecation']
 
     # No other vsock action is allowed after booting the VM.
-    test_microvm.start()
+    vm.start()
 
     # Updating an existing vsock should not be fine at this point.
-    response = test_microvm.vsock.put(
-        vsock_id='vsock1',
+    response = vm.vsock.put(
         guest_cid=17,
         uds_path='vsock.sock'
     )
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-
-    # Attaching a new vsock device should not be fine at this point.
-    response = test_microvm.vsock.put(
-        vsock_id='vsock3',
-        guest_cid=18,
-        uds_path='vsock.sock'
-    )
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-
-    response = test_microvm.vm.patch(state='Paused')
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert vm.api_session.is_status_bad_request(response.status_code)
 
 
 def test_api_balloon(test_microvm_with_api):
@@ -1127,13 +1160,11 @@ def test_get_full_config(test_microvm_with_api):
 
     # Add a vsock device.
     response = test_microvm.vsock.put(
-        vsock_id='vsock',
         guest_cid=15,
         uds_path='vsock.sock'
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     expected_cfg['vsock'] = {
-        'vsock_id': 'vsock',
         'guest_cid': 15,
         'uds_path': 'vsock.sock'
     }
