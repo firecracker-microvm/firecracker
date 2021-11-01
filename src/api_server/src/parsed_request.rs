@@ -27,7 +27,7 @@ use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 use logger::{error, info};
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
-pub(crate) enum ParsedRequest {
+pub(crate) enum RequestAction {
     GetMMDS,
     PatchMMDS(Value),
     PutMMDS(Value),
@@ -35,7 +35,46 @@ pub(crate) enum ParsedRequest {
     ShutdownInternal, // !!! not an API, used by shutdown to thread::join the API thread
 }
 
+#[derive(Default)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(crate) struct ParsingInfo {
+    deprecation_message: Option<String>,
+}
+
+impl ParsingInfo {
+    pub fn append_deprecation_message(&mut self, message: &str) {
+        match self.deprecation_message.as_mut() {
+            None => self.deprecation_message = Some(message.to_owned()),
+            Some(s) => (*s).push_str(message),
+        }
+    }
+
+    pub fn take_deprecation_message(&mut self) -> Option<String> {
+        self.deprecation_message.take()
+    }
+}
+
+pub(crate) struct ParsedRequest {
+    action: RequestAction,
+    parsing_info: ParsingInfo,
+}
+
 impl ParsedRequest {
+    pub(crate) fn new(action: RequestAction) -> Self {
+        Self {
+            action,
+            parsing_info: Default::default(),
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> (RequestAction, ParsingInfo) {
+        (self.action, self.parsing_info)
+    }
+
+    pub(crate) fn parsing_info(&mut self) -> &mut ParsingInfo {
+        &mut self.parsing_info
+    }
+
     pub(crate) fn try_from_request(request: &Request) -> Result<ParsedRequest, Error> {
         let request_uri = request.uri().get_abs_path().to_string();
         log_received_api_request(describe(
@@ -78,7 +117,9 @@ impl ParsedRequest {
             (Method::Put, "network-interfaces", Some(body)) => {
                 parse_put_net(body, path_tokens.get(1))
             }
-            (Method::Put, "shutdown-internal", None) => Ok(ParsedRequest::ShutdownInternal),
+            (Method::Put, "shutdown-internal", None) => {
+                Ok(ParsedRequest::new(RequestAction::ShutdownInternal))
+            }
             (Method::Put, "snapshot", Some(body)) => parse_put_snapshot(body, path_tokens.get(1)),
             (Method::Put, "vsock", Some(body)) => parse_put_vsock(body),
             (Method::Put, _, None) => method_to_error(Method::Put),
@@ -145,7 +186,7 @@ impl ParsedRequest {
 
     /// Helper function to avoid boiler-plate code.
     pub(crate) fn new_sync(vmm_action: VmmAction) -> ParsedRequest {
-        ParsedRequest::Sync(Box::new(vmm_action))
+        ParsedRequest::new(RequestAction::Sync(Box::new(vmm_action)))
     }
 }
 
@@ -281,15 +322,19 @@ pub(crate) mod tests {
 
     impl PartialEq for ParsedRequest {
         fn eq(&self, other: &ParsedRequest) -> bool {
-            match (self, other) {
-                (&ParsedRequest::Sync(ref sync_req), &ParsedRequest::Sync(ref other_sync_req)) => {
+            if self.parsing_info.deprecation_message != other.parsing_info.deprecation_message {
+                return false;
+            }
+
+            match (&self.action, &other.action) {
+                (RequestAction::Sync(ref sync_req), RequestAction::Sync(ref other_sync_req)) => {
                     sync_req == other_sync_req
                 }
-                (&ParsedRequest::GetMMDS, &ParsedRequest::GetMMDS) => true,
-                (&ParsedRequest::PutMMDS(ref val), &ParsedRequest::PutMMDS(ref other_val)) => {
+                (RequestAction::GetMMDS, RequestAction::GetMMDS) => true,
+                (RequestAction::PutMMDS(ref val), RequestAction::PutMMDS(ref other_val)) => {
                     val == other_val
                 }
-                (&ParsedRequest::PatchMMDS(ref val), &ParsedRequest::PatchMMDS(ref other_val)) => {
+                (RequestAction::PatchMMDS(ref val), RequestAction::PatchMMDS(ref other_val)) => {
                     val == other_val
                 }
                 _ => false,
@@ -298,8 +343,21 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn vmm_action_from_request(req: ParsedRequest) -> VmmAction {
-        match req {
-            ParsedRequest::Sync(vmm_action) => *vmm_action,
+        match req.action {
+            RequestAction::Sync(vmm_action) => *vmm_action,
+            _ => panic!("Invalid request"),
+        }
+    }
+
+    pub(crate) fn depr_action_from_req(req: ParsedRequest, msg: Option<String>) -> VmmAction {
+        let (action_req, mut parsing_info) = req.into_parts();
+        match action_req {
+            RequestAction::Sync(vmm_action) => {
+                let req_msg = parsing_info.take_deprecation_message();
+                assert!(req_msg.is_some());
+                assert_eq!(req_msg, msg);
+                *vmm_action
+            }
             _ => panic!("Invalid request"),
         }
     }
@@ -853,8 +911,8 @@ pub(crate) mod tests {
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
-        match ParsedRequest::try_from_request(&req).unwrap() {
-            ParsedRequest::ShutdownInternal => (),
+        match ParsedRequest::try_from_request(&req).unwrap().into_parts() {
+            (RequestAction::ShutdownInternal, _) => (),
             _ => panic!("wrong parsed request"),
         };
     }
