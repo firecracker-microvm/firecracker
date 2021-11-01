@@ -13,11 +13,12 @@ pub(crate) fn parse_get_instance_info() -> Result<ParsedRequest, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::RequestAction;
 
     #[test]
     fn test_parse_get_instance_info_request() {
-        match parse_get_instance_info() {
-            Ok(ParsedRequest::Sync(action)) if *action == VmmAction::GetVmInstanceInfo => {}
+        match parse_get_instance_info().unwrap().into_parts() {
+            (RequestAction::Sync(action), _) if *action == VmmAction::GetVmInstanceInfo => {}
             _ => panic!("Test failed."),
         }
     }

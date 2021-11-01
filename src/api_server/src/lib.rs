@@ -14,8 +14,10 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 use std::{fmt, io};
 
-use crate::parsed_request::ParsedRequest;
-use logger::{debug, error, info, update_metric_with_elapsed_time, ProcessTimeReporter, METRICS};
+use crate::parsed_request::{ParsedRequest, RequestAction};
+use logger::{
+    debug, error, info, update_metric_with_elapsed_time, warn, ProcessTimeReporter, METRICS,
+};
 pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
@@ -244,16 +246,25 @@ impl ApiServer {
         request: &Request,
         request_processing_start_us: u64,
     ) -> Response {
-        match ParsedRequest::try_from_request(request) {
-            Ok(ParsedRequest::Sync(vmm_action)) => {
-                self.serve_vmm_action_request(vmm_action, request_processing_start_us)
-            }
-            Ok(ParsedRequest::GetMMDS) => self.get_mmds(),
-            Ok(ParsedRequest::PatchMMDS(value)) => self.patch_mmds(value),
-            Ok(ParsedRequest::PutMMDS(value)) => self.put_mmds(value),
-            Ok(ParsedRequest::ShutdownInternal) => {
-                self.shutdown_flag = true;
-                Response::new(Version::Http11, StatusCode::NoContent)
+        match ParsedRequest::try_from_request(request).map(|r| r.into_parts()) {
+            Ok((req_action, mut parsing_info)) => {
+                let mut response = match req_action {
+                    RequestAction::Sync(vmm_action) => {
+                        self.serve_vmm_action_request(vmm_action, request_processing_start_us)
+                    }
+                    RequestAction::GetMMDS => self.get_mmds(),
+                    RequestAction::PatchMMDS(value) => self.patch_mmds(value),
+                    RequestAction::PutMMDS(value) => self.put_mmds(value),
+                    RequestAction::ShutdownInternal => {
+                        self.shutdown_flag = true;
+                        Response::new(Version::Http11, StatusCode::NoContent)
+                    }
+                };
+                if let Some(message) = parsing_info.take_deprecation_message() {
+                    warn!("{}", message);
+                    response.set_deprecation();
+                }
+                response
             }
             Err(e) => {
                 error!("{}", e);
