@@ -979,6 +979,7 @@ pub mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use arch::DeviceType;
+    use devices::virtio::vsock::VSOCK_DEV_ID;
     use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
     use linux_loader::cmdline::Cmdline;
     use utils::tempfile::TempFile;
@@ -1127,7 +1128,7 @@ pub mod tests {
         event_manager: &mut EventManager,
         vsock_config: VsockDeviceConfig,
     ) {
-        let vsock_dev_id = vsock_config.vsock_id.clone();
+        let vsock_dev_id = VSOCK_DEV_ID.to_owned();
         let vsock = VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
 

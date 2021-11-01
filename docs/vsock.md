@@ -88,7 +88,7 @@ images/vsock-connections.png?raw=true
 
 ## Setting up the virtio-vsock device
 
-The virtio-vsock device will require an ID, a CID, and the path to a backing
+The virtio-vsock device will require a CID, and the path to a backing
 AF_UNIX socket:
 
 ```bash
@@ -97,7 +97,6 @@ curl --unix-socket /tmp/firecracker.socket -i \
   -H 'Accept: application/json' \
   -H 'Content-Type: application/json' \
   -d '{
-      "vsock_id": "1",
       "guest_cid": 3,
       "uds_path": "./v.sock"
   }'
