@@ -584,7 +584,7 @@ mod tests {
             // Add a vsock device.
             let vsock_dev_id = "vsock";
             let vsock_config = VsockDeviceConfig {
-                vsock_id: vsock_dev_id.to_string(),
+                vsock_id: Some(vsock_dev_id.to_string()),
                 guest_cid: 3,
                 uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
             };

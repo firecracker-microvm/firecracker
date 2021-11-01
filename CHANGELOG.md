@@ -12,6 +12,10 @@
 - Added permanent HTTP endpoint for `GET` on `/version` for getting the
   Firecracker version.
 
+### Changed
+
+- Deprecated `vsock_id` body field in `PUT`s on `/vsock`.
+
 ### Fixed
 
 - Fixed incorrect propagation of init parameters in kernel commandline.

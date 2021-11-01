@@ -360,6 +360,7 @@ mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::RateLimiterConfig;
     use crate::vstate::vcpu::VcpuConfig;
+    use devices::virtio::vsock::VSOCK_DEV_ID;
     use logger::{LevelFilter, LOGGER};
     use utils::net::mac::MacAddr;
     use utils::tempfile::TempFile;
@@ -961,14 +962,9 @@ mod tests {
         tmp_sock_file.remove().unwrap();
         let new_vsock_cfg = default_config(&tmp_sock_file);
         assert!(vm_resources.vsock.get().is_none());
-        vm_resources
-            .set_vsock_device(new_vsock_cfg.clone())
-            .unwrap();
+        vm_resources.set_vsock_device(new_vsock_cfg).unwrap();
         let actual_vsock_cfg = vm_resources.vsock.get().unwrap();
-        assert_eq!(
-            actual_vsock_cfg.lock().unwrap().id(),
-            &new_vsock_cfg.vsock_id
-        );
+        assert_eq!(actual_vsock_cfg.lock().unwrap().id(), VSOCK_DEV_ID);
     }
 
     #[test]

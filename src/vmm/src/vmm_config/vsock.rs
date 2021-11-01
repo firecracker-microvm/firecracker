@@ -39,8 +39,10 @@ type Result<T> = std::result::Result<T, VsockConfigError>;
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VsockDeviceConfig {
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     /// ID of the vsock device.
-    pub vsock_id: String,
+    pub vsock_id: Option<String>,
     /// A 32-bit Context Identifier (CID) used to identify the guest.
     pub guest_cid: u32,
     /// Path to local unix socket.
@@ -56,7 +58,7 @@ impl From<&VsockAndUnixPath> for VsockDeviceConfig {
     fn from(vsock: &VsockAndUnixPath) -> Self {
         let vsock_lock = vsock.vsock.lock().unwrap();
         VsockDeviceConfig {
-            vsock_id: vsock_lock.id().to_string(),
+            vsock_id: None,
             guest_cid: u32::try_from(vsock_lock.cid()).unwrap(),
             uds_path: vsock.uds_path.clone(),
         }
@@ -113,11 +115,12 @@ impl VsockBuilder {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use devices::virtio::vsock::VSOCK_DEV_ID;
     use utils::tempfile::TempFile;
 
     pub(crate) fn default_config(tmp_sock_file: &TempFile) -> VsockDeviceConfig {
         VsockDeviceConfig {
-            vsock_id: "vsock".to_string(),
+            vsock_id: None,
             guest_cid: 3,
             uds_path: tmp_sock_file.as_path().to_str().unwrap().to_string(),
         }
@@ -140,7 +143,7 @@ pub(crate) mod tests {
 
         store.insert(vsock_config.clone()).unwrap();
         let vsock = store.get().unwrap();
-        assert_eq!(vsock.lock().unwrap().id(), &vsock_config.vsock_id);
+        assert_eq!(vsock.lock().unwrap().id(), VSOCK_DEV_ID);
 
         let new_cid = vsock_config.guest_cid + 1;
         vsock_config.guest_cid = new_cid;
