@@ -4,6 +4,13 @@
 #![doc(hidden)]
 
 #[cfg(test)]
+use std::thread;
+#[cfg(test)]
+use std::time::Duration;
+
+#[cfg(test)]
+use crate::virtio::block::io::FileEngine;
+#[cfg(test)]
 use crate::virtio::IrqType;
 use crate::virtio::{Block, CacheType, Queue};
 use rate_limiter::RateLimiter;
@@ -58,5 +65,33 @@ pub fn simulate_queue_event(b: &mut Block, maybe_expected_irq: Option<bool>) {
     // Validate the queue operation finished successfully.
     if let Some(expected_irq) = maybe_expected_irq {
         assert_eq!(b.irq_trigger.has_pending_irq(IrqType::Vring), expected_irq);
+    }
+}
+
+#[cfg(test)]
+pub fn simulate_async_completion_event(b: &mut Block, expected_irq: bool) {
+    if let FileEngine::Async(engine) = b.disk.file_engine_mut() {
+        // Wait for all the async operations to complete.
+        engine.drain_submission_queue().unwrap();
+        // Wait for the async completion event to be sent.
+        thread::sleep(Duration::from_millis(150));
+        // Handle event.
+        b.process_async_completion_event();
+    }
+
+    // Validate if there are pending IRQs.
+    assert_eq!(b.irq_trigger.has_pending_irq(IrqType::Vring), expected_irq);
+}
+
+#[cfg(test)]
+pub fn simulate_queue_and_async_completion_events(b: &mut Block, expected_irq: bool) {
+    match b.disk.file_engine_mut() {
+        FileEngine::Async(_) => {
+            simulate_queue_event(b, None);
+            simulate_async_completion_event(b, expected_irq);
+        }
+        FileEngine::Sync(_) => {
+            simulate_queue_event(b, Some(expected_irq));
+        }
     }
 }

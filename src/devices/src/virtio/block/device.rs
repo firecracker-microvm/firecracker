@@ -553,7 +553,8 @@ pub(crate) mod tests {
 
     use crate::check_metric_after_block;
     use crate::virtio::block::test_utils::{
-        default_block, set_queue, set_rate_limiter, simulate_queue_event,
+        default_block, set_queue, set_rate_limiter, simulate_async_completion_event,
+        simulate_queue_and_async_completion_events, simulate_queue_event,
     };
     use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
 
@@ -818,7 +819,7 @@ pub(crate) mod tests {
         check_metric_after_block!(
             &METRICS.block.read_count,
             1,
-            simulate_queue_event(&mut block, Some(true))
+            simulate_queue_and_async_completion_events(&mut block, true)
         );
 
         assert_eq!(vq.used.idx.get(), 1);
@@ -853,7 +854,7 @@ pub(crate) mod tests {
             vq.dtable[1].len.set(511);
             mem.write_slice(&rand_data[..511], data_addr).unwrap();
 
-            simulate_queue_event(&mut block, Some(true));
+            simulate_queue_and_async_completion_events(&mut block, true);
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
@@ -881,7 +882,7 @@ pub(crate) mod tests {
             check_metric_after_block!(
                 &METRICS.block.write_count,
                 1,
-                simulate_queue_event(&mut block, Some(true))
+                simulate_queue_and_async_completion_events(&mut block, true)
             );
 
             assert_eq!(vq.used.idx.get(), 1);
@@ -903,7 +904,7 @@ pub(crate) mod tests {
             vq.dtable[1].len.set(511);
             mem.write_slice(empty_data.as_slice(), data_addr).unwrap();
 
-            simulate_queue_event(&mut block, Some(true));
+            simulate_queue_and_async_completion_events(&mut block, true);
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
@@ -932,7 +933,7 @@ pub(crate) mod tests {
             check_metric_after_block!(
                 &METRICS.block.read_count,
                 1,
-                simulate_queue_event(&mut block, Some(true))
+                simulate_queue_and_async_completion_events(&mut block, true)
             );
 
             assert_eq!(vq.used.idx.get(), 1);
@@ -964,7 +965,7 @@ pub(crate) mod tests {
             mem.write_obj(10, GuestAddress(request_type_addr.0 + 8))
                 .unwrap();
 
-            simulate_queue_event(&mut block, Some(true));
+            simulate_queue_and_async_completion_events(&mut block, true);
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
@@ -995,7 +996,7 @@ pub(crate) mod tests {
                 .unwrap();
 
             // This will attempt to read past end of file.
-            simulate_queue_event(&mut block, Some(true));
+            simulate_queue_and_async_completion_events(&mut block, true);
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
@@ -1030,7 +1031,7 @@ pub(crate) mod tests {
             block.disk.file().seek(SeekFrom::Start(512)).unwrap();
             block.disk.file().write_all(&rand_data[512..]).unwrap();
 
-            simulate_queue_event(&mut block, Some(true));
+            simulate_queue_and_async_completion_events(&mut block, true);
 
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
@@ -1069,7 +1070,7 @@ pub(crate) mod tests {
             mem.write_obj::<u32>(VIRTIO_BLK_T_FLUSH, request_type_addr)
                 .unwrap();
 
-            simulate_queue_event(&mut block, Some(true));
+            simulate_queue_and_async_completion_events(&mut block, true);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             assert_eq!(vq.used.ring[0].get().len, 1);
@@ -1085,7 +1086,7 @@ pub(crate) mod tests {
             mem.write_obj::<u32>(VIRTIO_BLK_T_FLUSH, request_type_addr)
                 .unwrap();
 
-            simulate_queue_event(&mut block, Some(true));
+            simulate_queue_and_async_completion_events(&mut block, true);
             assert_eq!(vq.used.idx.get(), 1);
             assert_eq!(vq.used.ring[0].get().id, 0);
             // status byte length.
@@ -1211,9 +1212,8 @@ pub(crate) mod tests {
             );
             // Validate the rate_limiter is no longer blocked.
             assert!(!block.rate_limiter.is_blocked());
-
-            // Make sure the virtio queue operation completed this time.
-            assert!(block.irq_trigger.has_pending_irq(IrqType::Vring));
+            // Complete async IO ops if needed
+            simulate_async_completion_event(&mut block, true);
 
             // Make sure the data queue advanced.
             assert_eq!(vq.used.idx.get(), 1);
@@ -1293,8 +1293,8 @@ pub(crate) mod tests {
             );
             // Validate the rate_limiter is no longer blocked.
             assert!(!block.rate_limiter.is_blocked());
-            // Make sure the virtio queue operation completed this time.
-            assert!(block.irq_trigger.has_pending_irq(IrqType::Vring));
+            // Complete async IO ops if needed
+            simulate_async_completion_event(&mut block, true);
 
             // Make sure the data queue advanced.
             assert_eq!(vq.used.idx.get(), 1);

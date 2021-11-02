@@ -103,10 +103,11 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::virtio::block::test_utils::{default_block, set_queue};
+    use crate::virtio::block::test_utils::{
+        default_block, set_queue, simulate_async_completion_event,
+    };
     use crate::virtio::queue::tests::*;
     use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
-    use crate::virtio::IrqType;
     use event_manager::{EventManager, SubscriberOps};
     use virtio_gen::virtio_blk::*;
     use vm_memory::{Bytes, GuestAddress};
@@ -155,12 +156,8 @@ pub mod tests {
         event_manager
             .run_with_timeout(100)
             .expect("Metrics event timeout or error.");
-        // Validate the queue operation finished successfully.
-        assert!(block
-            .lock()
-            .unwrap()
-            .irq_trigger
-            .has_pending_irq(IrqType::Vring));
+        // Complete async IO ops if needed
+        simulate_async_completion_event(&mut block.lock().unwrap(), true);
 
         assert_eq!(vq.used.idx.get(), 1);
         assert_eq!(vq.used.ring[0].get().id, 0);
