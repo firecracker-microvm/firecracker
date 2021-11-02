@@ -61,7 +61,7 @@ pub fn drive_submission_and_completion(
                 Ok(()) => {}
                 Err(err_tuple) if matches!(err_tuple.0, Error::SQueue(SQueueError::FullQueue)) => {
                     // Stop and wait.
-                    ring.submit_and_wait(ring.pending_sqes().unwrap()).unwrap();
+                    ring.submit_and_wait_all().unwrap();
                     drain_cqueue(ring);
 
                     // Decrement the left_at because we need to retry this op.
@@ -77,7 +77,7 @@ pub fn drive_submission_and_completion(
         }
     }
 
-    ring.submit_and_wait(ring.pending_sqes().unwrap()).unwrap();
+    ring.submit_and_wait_all().unwrap();
     drain_cqueue(ring);
     assert_eq!(ring.pending_sqes().unwrap(), 0);
 }

@@ -42,7 +42,7 @@ pub struct SubmissionQueue {
     // Mmap-ed sqes.
     sqes: MmapRegion,
 
-    // Number of values yet to be submitted.
+    // Number of ops yet to be submitted.
     to_submit: u32,
 }
 
@@ -80,6 +80,10 @@ impl SubmissionQueue {
         })
     }
 
+    pub(crate) fn to_submit(&self) -> u32 {
+        self.to_submit
+    }
+
     pub fn push<T>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
         let ring_slice = self.ring.as_volatile_slice();
 
@@ -111,12 +115,13 @@ impl SubmissionQueue {
             return Err((Error::VolatileMemory(err), unsafe { sqe.user_data() }));
         }
 
+        // This is safe since we already checked if there is enough space in the queue;
         self.to_submit += 1;
 
         Ok(())
     }
 
-    pub fn submit(&mut self, min_complete: u32) -> Result<u32, Error> {
+    pub(crate) fn submit(&mut self, min_complete: u32) -> Result<u32, Error> {
         if self.to_submit == 0 && min_complete == 0 {
             // Nothing to submit and nothing to wait for.
             return Ok(0);
@@ -128,7 +133,7 @@ impl SubmissionQueue {
             flags |= bindings::IORING_ENTER_GETEVENTS;
         }
         // Safe because values are valid and we check the return value.
-        SyscallReturnCode(unsafe {
+        let submitted = SyscallReturnCode(unsafe {
             libc::syscall(
                 libc::SYS_io_uring_enter,
                 self.io_uring_fd,
@@ -138,11 +143,14 @@ impl SubmissionQueue {
                 std::ptr::null() as *const libc::sigset_t,
             )
         } as libc::c_int)
-        .into_empty_result()
-        .map_err(Error::Submit)?;
+        .into_result()
+        .map_err(Error::Submit)?
+        // It's safe to convert to u32 since the syscall didn't return an error.
+        as u32;
 
-        let submitted = self.to_submit;
-        self.to_submit = 0;
+        // This is safe since submitted <= self.to_submit. However we use a saturating_sub
+        // for extra safety.
+        self.to_submit = self.to_submit.saturating_sub(submitted);
 
         Ok(submitted)
     }
