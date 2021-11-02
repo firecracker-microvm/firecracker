@@ -50,11 +50,13 @@ pub fn rate_limiter(blk: &mut Block) -> &RateLimiter {
 }
 
 #[cfg(test)]
-pub fn invoke_handler_for_queue_event(b: &mut Block) {
+pub fn simulate_queue_event(b: &mut Block, maybe_expected_irq: Option<bool>) {
     // Trigger the queue event.
     b.queue_evts[0].write(1).unwrap();
     // Handle event.
     b.process_queue_event();
     // Validate the queue operation finished successfully.
-    assert!(b.irq_trigger.has_pending_irq(IrqType::Vring));
+    if let Some(expected_irq) = maybe_expected_irq {
+        assert_eq!(b.irq_trigger.has_pending_irq(IrqType::Vring), expected_irq);
+    }
 }
