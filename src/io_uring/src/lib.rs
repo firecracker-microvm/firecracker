@@ -46,6 +46,10 @@ pub struct IoUring {
     registered_fds_count: u32,
     squeue: SubmissionQueue,
     cqueue: CompletionQueue,
+
+    // Number of ops yet to be pop-ed from the CQ. These ops either haven't been pop-ed yet,
+    // or they haven't even been completed.
+    to_pop: u32,
 }
 
 impl IoUring {
@@ -75,6 +79,7 @@ impl IoUring {
             squeue,
             cqueue,
             registered_fds_count: 0,
+            to_pop: 0,
         };
 
         instance.check_operations()?;
@@ -99,15 +104,40 @@ impl IoUring {
     }
 
     pub fn pop<T>(&mut self) -> Result<Option<Cqe<T>>> {
-        self.cqueue.pop().map_err(Error::CQueue)
+        self.cqueue
+            .pop()
+            .map(|maybe_cqe| {
+                maybe_cqe.map(|cqe| {
+                    // This is safe since the pop-ed CQEs have been previously submitted. However
+                    // we use a saturating_sub for extra safety.
+                    self.to_pop = self.to_pop.saturating_sub(1);
+                    cqe
+                })
+            })
+            .map_err(Error::CQueue)
+    }
+
+    fn do_submit(&mut self, min_complete: u32) -> Result<u32> {
+        self.squeue
+            .submit(min_complete)
+            .map(|submitted| {
+                // This is safe since submitted < IORING_MAX_ENTRIES (32768)
+                // and self.to_pop < IORING_MAX_CQ_ENTRIES (65536)
+                self.to_pop += submitted;
+                submitted
+            })
+            .map_err(Error::SQueue)
     }
 
     pub fn submit(&mut self) -> Result<u32> {
-        self.squeue.submit(0).map_err(Error::SQueue)
+        self.do_submit(0)
     }
 
-    pub fn submit_and_wait(&mut self, min_complete: u32) -> Result<u32> {
-        self.squeue.submit(min_complete).map_err(Error::SQueue)
+    pub fn submit_and_wait_all(&mut self) -> Result<u32> {
+        // This is safe since to_submit < IORING_MAX_ENTRIES (32768)
+        // and self.to_pop < IORING_MAX_CQ_ENTRIES (65536)
+        let total_num_ops = self.squeue.to_submit() + self.to_pop;
+        self.do_submit(total_num_ops)
     }
 
     pub fn pending_sqes(&self) -> Result<u32> {
