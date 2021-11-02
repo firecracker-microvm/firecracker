@@ -2,8 +2,12 @@
 
 ## Disclaimer
 
-The jailer is designed to work only with statically linked binaries (with
-the default musl toolchain) and will not work with experimental gnu builds.
+The jailer is a program designed to isolate the Firecracker process in
+order to enhance Firecracker's security posture. It is meant to address the
+security needs of Firecracker only and is not intended to work with other
+binaries. Additionally, each jailer binary should be used with a statically
+linked Firecracker binary (with the default musl toolchain) of the same
+version. Experimental gnu builds are not supported.
 
 ## Jailer Usage
 
