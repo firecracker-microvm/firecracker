@@ -156,7 +156,7 @@ fn test_ring_submit() {
 }
 
 #[test]
-fn test_submit_and_wait() {
+fn test_submit_and_wait_all() {
     skip_if_kernel_lt_5_10!();
 
     let file = TempFile::new().unwrap().into_file();
@@ -167,7 +167,7 @@ fn test_submit_and_wait() {
     ring.register_file(&file).unwrap();
 
     // Return 0 if we didn't push any sqes.
-    assert_eq!(ring.submit_and_wait(0).unwrap(), 0);
+    assert_eq!(ring.submit_and_wait_all().unwrap(), 0);
 
     // Now push an sqe.
     ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
@@ -175,7 +175,7 @@ fn test_submit_and_wait() {
     assert_eq!(ring.pending_sqes().unwrap(), 1);
 
     // A correct waiting period yields the completed entries.
-    assert_eq!(ring.submit_and_wait(1).unwrap(), 1);
+    assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
     assert_eq!(ring.pop::<u8>().unwrap().unwrap().user_data(), user_data);
     assert_eq!(ring.pending_sqes().unwrap(), 0);
 
@@ -189,7 +189,7 @@ fn test_submit_and_wait() {
     ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 75))
         .unwrap();
     assert_eq!(ring.pending_sqes().unwrap(), 4);
-    assert_eq!(ring.submit_and_wait(4).unwrap(), 4);
+    assert_eq!(ring.submit_and_wait_all().unwrap(), 4);
     assert_eq!(ring.pending_sqes().unwrap(), 0);
 
     assert!(ring.pop::<u8>().unwrap().is_some());
