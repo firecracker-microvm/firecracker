@@ -171,15 +171,6 @@ impl<T> AsyncFileEngine<T> {
         self.ring.submit().map(|_| ()).map_err(Error::IoUring)
     }
 
-    #[cfg(test)]
-    // Useful when testing, to skip the eventfd polling and waiting.
-    pub fn kick_submission_queue_and_wait(&mut self, min_complete: u32) -> Result<(), Error> {
-        self.ring
-            .submit_and_wait(min_complete)
-            .map(|_| ())
-            .map_err(Error::IoUring)
-    }
-
     pub fn drain(&mut self, flush: bool) -> Result<(), Error> {
         self.drain_submission_queue()?;
 
@@ -196,20 +187,11 @@ impl<T> AsyncFileEngine<T> {
         }
     }
 
-    fn drain_submission_queue(&mut self) -> Result<(), Error> {
-        // Drain the submission queue.
-        loop {
-            // In order for this loop to ever end, we must guarantee that there isn't another thread
-            // submitting ops on the io_uring fd.
-            let sq_len = self.ring.pending_sqes().map_err(Error::IoUring)?;
-            if sq_len == 0 {
-                break;
-            }
-
-            self.ring.submit_and_wait(sq_len).map_err(Error::IoUring)?;
-        }
-
-        Ok(())
+    pub fn drain_submission_queue(&mut self) -> Result<(), Error> {
+        self.ring
+            .submit_and_wait_all()
+            .map(|_| ())
+            .map_err(Error::IoUring)
     }
 
     fn do_pop(&mut self) -> Result<Option<Cqe<WrappedUserData<T>>>, Error> {
