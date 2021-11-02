@@ -43,7 +43,7 @@ pub struct SubmissionQueue {
     sqes: MmapRegion,
 
     // Number of values yet to be submitted.
-    to_submit: u64,
+    to_submit: u32,
 }
 
 impl SubmissionQueue {
@@ -116,7 +116,7 @@ impl SubmissionQueue {
         Ok(())
     }
 
-    pub fn submit(&mut self, min_complete: u32) -> Result<u64, Error> {
+    pub fn submit(&mut self, min_complete: u32) -> Result<u32, Error> {
         if self.to_submit == 0 && min_complete == 0 {
             // Nothing to submit and nothing to wait for.
             return Ok(0);

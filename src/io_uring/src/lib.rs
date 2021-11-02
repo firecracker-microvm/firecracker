@@ -102,11 +102,11 @@ impl IoUring {
         self.cqueue.pop().map_err(Error::CQueue)
     }
 
-    pub fn submit(&mut self) -> Result<u64> {
+    pub fn submit(&mut self) -> Result<u32> {
         self.squeue.submit(0).map_err(Error::SQueue)
     }
 
-    pub fn submit_and_wait(&mut self, min_complete: u32) -> Result<u64> {
+    pub fn submit_and_wait(&mut self, min_complete: u32) -> Result<u32> {
         self.squeue.submit(min_complete).map_err(Error::SQueue)
     }
 
