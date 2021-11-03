@@ -9,7 +9,7 @@ Fixes #
 
 `[Author TODO: add description of changes.]`
 
-- [ ] This functionality can be added in [`rust-vmm`](https://github.com/rust-vmm).
+- [ ] This functionality can be added in [`rust-vmm`][1].
 
 ## License Acceptance
 
@@ -27,6 +27,9 @@ the terms of the Apache 2.0 license.
 - [ ] The description of changes is clear and encompassing.
 - [ ] Any required documentation changes (code and docs) are included in this PR.
 - [ ] Any newly added `unsafe` code is properly documented.
-- [ ] Any API changes are reflected in `firecracker/swagger.yaml`.
+- [ ] Any API changes follow the [Runbook for Firecracker API changes][2].
 - [ ] Any user-facing changes are mentioned in `CHANGELOG.md`.
 - [ ] All added/changed functionality is tested.
+
+[1]: https://github.com/rust-vmm
+[2]: ../docs/api-change-runbook.md
