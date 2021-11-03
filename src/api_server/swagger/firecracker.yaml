@@ -1147,7 +1147,6 @@ definitions:
     required:
       - guest_cid
       - uds_path
-      - vsock_id
     properties:
       guest_cid:
         type: integer
@@ -1158,3 +1157,4 @@ definitions:
         description: Path to UNIX domain socket, used to proxy vsock connections.
       vsock_id:
         type: string
+        description: This parameter has been deprecated since v1.0.0.

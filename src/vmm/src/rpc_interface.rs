@@ -1178,7 +1178,7 @@ mod tests {
     #[test]
     fn test_preboot_set_vsock_dev() {
         let req = VmmAction::SetVsockDevice(VsockDeviceConfig {
-            vsock_id: String::new(),
+            vsock_id: Some(String::new()),
             guest_cid: 0,
             uds_path: String::new(),
         });
@@ -1188,7 +1188,7 @@ mod tests {
         });
 
         let req = VmmAction::SetVsockDevice(VsockDeviceConfig {
-            vsock_id: String::new(),
+            vsock_id: Some(String::new()),
             guest_cid: 0,
             uds_path: String::new(),
         });
@@ -1584,7 +1584,7 @@ mod tests {
         );
         check_runtime_request_err(
             VmmAction::SetVsockDevice(VsockDeviceConfig {
-                vsock_id: String::new(),
+                vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
             }),
@@ -1596,7 +1596,7 @@ mod tests {
         );
         check_runtime_request_err(
             VmmAction::SetVsockDevice(VsockDeviceConfig {
-                vsock_id: String::new(),
+                vsock_id: Some(String::new()),
                 guest_cid: 0,
                 uds_path: String::new(),
             }),
@@ -1676,7 +1676,7 @@ mod tests {
         verify_load_snap_disallowed_after_boot_resources(req, "SetBalloonDevice");
 
         let req = VmmAction::SetVsockDevice(VsockDeviceConfig {
-            vsock_id: String::new(),
+            vsock_id: Some(String::new()),
             guest_cid: 0,
             uds_path: String::new(),
         });
