@@ -202,7 +202,7 @@ fn main_exitable() -> ExitCode {
                 .help("Print the data format version of the provided snapshot state file.")
         )
         .arg(
-            Argument::new("http_api_max_payload_size")
+            Argument::new("http-api-max-payload-size")
                 .takes_value(true)
                 .help("Http API request payload max size.")
         );
@@ -309,10 +309,10 @@ fn main_exitable() -> ExitCode {
             .expect("Missing argument: api-sock");
         let payload_limit = arg_parser
             .arguments()
-            .single_value("http_api_max_payload_size")
+            .single_value("http-api-max-payload-size")
             .map(|lim| {
                 lim.parse::<usize>()
-                    .expect("'http_api_max_payload_size' parameter expected to be of 'usize' type.")
+                    .expect("'http-api-max-payload-size' parameter expected to be of 'usize' type.")
             });
 
         let start_time_us = arguments.single_value("start-time-us").map(|s| {
