@@ -90,7 +90,7 @@ impl DiskProperties {
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id: Self::build_disk_image_id(&disk_image),
             file_path: disk_image_path,
-            file_engine: FileEngine::from_file_sync(disk_image).map_err(Error::FileEngine)?,
+            file_engine: FileEngine::from_file(disk_image).map_err(Error::FileEngine)?,
         })
     }
 
