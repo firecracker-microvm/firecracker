@@ -58,6 +58,10 @@ the MMDS contents. It leverages the recursive
 store supports at the moment storing and retrieving JSON values. Data store
 contents can be retrieved using the Firecracker API server from host and using
 the embedded MMDS HTTP/TCP/IPv4 network stack from guest.
+MMDS data store is upper bounded by a default maximum size of 51200 bytes. This
+limit can be modified using `--http_api_max_payload_size` command line parameter.
+All PUT and PATCH requests with Content-Length bigger than the imposed limit will
+receive HTTP 413 Payload Too Large response status code.
 
 ## Dumbo
 

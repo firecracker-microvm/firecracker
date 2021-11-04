@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added `--http_api_max_payload_size` parameter to configure the maximum payload
+  size for PUT and PATCH requests.
+- Limit MMDS data store size to `--http_api_max_payload_size`.
+- Cleanup all environment variables in Jailer.
+
 ## [0.25.0]
 
 ### Added

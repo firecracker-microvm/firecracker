@@ -434,6 +434,10 @@
                 "comment": "Used to retrieve data from the socket"
             },
             {
+                "syscall": "recvmsg",
+                "comment": "Needed by micro-http to read from the byte stream."
+            },
+            {
                 "syscall": "rt_sigprocmask",
                 "comment": "rt_sigprocmask is used by Rust stdlib to remove custom signal handler during thread teardown."
             },

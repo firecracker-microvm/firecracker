@@ -1,7 +1,8 @@
 // Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use serde_json::Value;
+use crate::MAX_DATA_STORE_SIZE;
+use serde_json::{to_vec, Value};
 use std::fmt;
 
 /// The Mmds is the Microvm Metadata Service represented as an untyped json.
@@ -9,6 +10,7 @@ use std::fmt;
 pub struct Mmds {
     data_store: Value,
     is_initialized: bool,
+    data_store_limit: usize,
 }
 
 /// MMDS possible outputs.
@@ -22,6 +24,7 @@ pub enum Error {
     NotFound,
     NotInitialized,
     UnsupportedValueType,
+    DataStoreLimitExceeded,
 }
 
 impl fmt::Display for Error {
@@ -33,6 +36,7 @@ impl fmt::Display for Error {
                 f,
                 "Cannot retrieve value. The value has an unsupported type."
             ),
+            Error::DataStoreLimitExceeded => write!(f, "The MMDS patch request doesn't fit."),
         }
     }
 }
@@ -42,6 +46,7 @@ impl Default for Mmds {
         Mmds {
             data_store: Value::default(),
             is_initialized: false,
+            data_store_limit: MAX_DATA_STORE_SIZE,
         }
     }
 }
@@ -58,6 +63,13 @@ impl Mmds {
         }
     }
 
+    pub fn set_data_store_limit(&mut self, data_store_limit: usize) {
+        self.data_store_limit = data_store_limit;
+    }
+
+    // We do not check data_store size here because a request with a body
+    // bigger than the imposed limit will be stoped by micro_http before
+    // reaching here.
     pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
         self.data_store = data;
         self.is_initialized = true;
@@ -66,10 +78,21 @@ impl Mmds {
 
     pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
         self.check_data_store_initialized()?;
-        super::json_patch(&mut self.data_store, &patch_data);
+        let mut data_store_clone = self.data_store.clone();
+
+        super::json_patch(&mut data_store_clone, &patch_data);
+        // It is safe to unwrap because our data store keys are all strings and
+        // we are using default serializer which does not return error.
+        if to_vec(&data_store_clone).unwrap().len() > self.data_store_limit {
+            return Err(Error::DataStoreLimitExceeded);
+        }
+        self.data_store = data_store_clone;
         Ok(())
     }
 
+    // We do not check size of data_store before returning a result because due
+    // to limit from put/patch the data_store can not be bigger than the limit
+    // imposed by the server.
     pub fn get_data_str(&self) -> String {
         if self.data_store.is_null() {
             return String::from("{}");
@@ -346,6 +369,7 @@ mod tests {
     #[test]
     fn test_update_data_store() {
         let mut mmds = Mmds::default();
+        mmds.set_data_store_limit(MAX_DATA_STORE_SIZE);
 
         let data = r#"{
             "name": {
@@ -386,5 +410,31 @@ mod tests {
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
         assert!(mmds.patch_data(data_store).is_ok());
+
+        let filling = (0..51151).map(|_| "X").collect::<String>();
+        let data = "{\"new_key\": \"".to_string() + &filling + "\"}";
+
+        let data_store: Value = serde_json::from_str(&data).unwrap();
+        assert!(mmds.patch_data(data_store).is_ok());
+
+        let data = "{\"new_key2\" : \"smth\"}";
+        let data_store: Value = serde_json::from_str(&data).unwrap();
+        assert_eq!(
+            mmds.patch_data(data_store).unwrap_err(),
+            Error::DataStoreLimitExceeded
+        );
+        assert!(!mmds.get_data_str().contains("smth"));
+
+        let data = "{\"new_key\" : \"smth\"}";
+        let data_store: Value = serde_json::from_str(&data).unwrap();
+        assert!(mmds.patch_data(data_store).is_ok());
+        assert!(mmds.get_data_str().contains("smth"));
+        assert_eq!(mmds.get_data_str().len(), 53);
+
+        let data = "{\"new_key2\" : \"smth2\"}";
+        let data_store: Value = serde_json::from_str(&data).unwrap();
+        assert!(mmds.patch_data(data_store).is_ok());
+        assert!(mmds.get_data_str().contains("smth2"));
+        assert_eq!(mmds.get_data_str().len(), 72);
     }
 }
