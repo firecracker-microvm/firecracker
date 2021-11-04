@@ -40,6 +40,11 @@ pub enum FileEngine<T> {
 }
 
 impl<T> FileEngine<T> {
+    #[cfg(not(test))]
+    pub fn from_file(file: File) -> Result<FileEngine<T>, Error> {
+        Self::from_file_sync(file)
+    }
+
     pub fn from_file_sync(file: File) -> Result<FileEngine<T>, Error> {
         Ok(FileEngine::Sync(SyncFileEngine::from_file(file)))
     }
@@ -162,6 +167,20 @@ pub mod tests {
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
     const MEM_LEN: usize = 8192;
+
+    fn is_kernel_lt_5_10() -> bool {
+        KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0)
+    }
+
+    impl<T> FileEngine<T> {
+        pub fn from_file(file: File) -> Result<FileEngine<T>, Error> {
+            if is_kernel_lt_5_10() {
+                return Self::from_file_sync(file);
+            }
+
+            Self::from_file_async(file)
+        }
+    }
 
     macro_rules! assert_err {
         ($expression:expr, $($pattern:tt)+) => {
@@ -307,7 +326,7 @@ pub mod tests {
 
     #[test]
     fn test_async() {
-        if KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0) {
+        if is_kernel_lt_5_10() {
             return;
         }
 
