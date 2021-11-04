@@ -119,7 +119,7 @@ def test_config_start_with_limit(test_microvm_with_api, vm_config_file):
     test_microvm = test_microvm_with_api
 
     _configure_vm_from_json(test_microvm, vm_config_file)
-    test_microvm.jailer.extra_args.update({'http_api_max_payload_size': "250"})
+    test_microvm.jailer.extra_args.update({'http-api-max-payload-size': "250"})
     test_microvm.spawn()
 
     response = test_microvm.machine_cfg.get()
