@@ -29,9 +29,9 @@ import host_tools.proc as proc
 # Checkout the cpuid crate. In the future other
 # differences may appear.
 if utils.compare_versions(utils.get_kernel_version(), "5.4.0") > 0:
-    COVERAGE_DICT = {"Intel": 84.29, "AMD": 84.17, "ARM": 82.37}
+    COVERAGE_DICT = {"Intel": 84.69, "AMD": 84.17, "ARM": 82.85}
 else:
-    COVERAGE_DICT = {"Intel": 82.01, "AMD": 81.45, "ARM": 80.05}
+    COVERAGE_DICT = {"Intel": 81.94, "AMD": 81.38, "ARM": 80.10}
 
 PROC_MODEL = proc.proc_type()
 
