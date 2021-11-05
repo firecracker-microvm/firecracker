@@ -1518,8 +1518,72 @@ cmd_release() {
             post_release "$version" "$owner" "$repo" "$token" "$prerelease" "$release_text" ||
             delete_remote_tag "$version" "$remote" "Could not post release to GitHub."
             say "Draft release created successful. Go to https://github.com/$owner/$repo/releases to check it out!"
+
+            say "Updating tag for the release with the greatest version..."
+            update_latest_tag "$version" "$remote" "$owner" "$repo" "$token" ||
+            die "Failed to update tag for the release with the greatest version."
     fi
 fi
+}
+
+# GitHub tags releases based on the creation date of their associated tag.
+# When we publish a patch release of an older release, GitHub marks that
+# release with the `latest` label. GitHub's definition of `latest` is
+# `most recent`. However, we want to have `latest` tag on the greatest
+# released Firecracker version, for better visibility for our customers.
+# We need to recreate the tag of the greatest release version, after
+# creating the tag associated with the patch release we want to publish.
+# This way, the tag for the release with the greatest version is also the
+# most recent tag created and GitHub will assign it the `latest` label.
+update_latest_tag() {
+    version="$1"
+    remote="$2"
+    owner="$3"
+    repo="$4"
+    token="$5"
+
+    # List all tags, and fetch the one with the greatest version.
+    greatest_release=$(git tag | grep -E '^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+' | sort -V | tail -1)
+
+    # If this release is the one with the greatest version, GitHub will
+    # automatically assign it the `latest` label. If this is a patch release
+    # of an older version, then we need to recreate the tag of the greatest
+    # version.
+    if [[ ! "$greatest_release" == "v$version" ]]; then
+        say "Recreating tag for the release with the greatest version, so that GitHub labels it as \`latest\`..."
+
+        # Fetch message of the greatest tag.
+        latest_tag_msg=$(git tag -l "$greatest_release" --format='%(contents)')
+        # Fetch commit that the greatest tag version points to.
+        commit_sha=$(git rev-list -n 1 "$greatest_release")
+
+        say "Recreating $greatest_release tag..."
+        git tag -d "$greatest_release"
+        git push --delete "$remote" "$greatest_release" ||
+        die "Could not delete remote $greatest_release tag."
+
+        # Recreate tag with the greatest version.
+        git tag -a "$greatest_release" "$commit_sha" -m "$latest_tag_msg"
+        git push "$remote" "$greatest_release"
+
+        # After deleting the tag with the greatest version, the associated
+        # GitHub release was converted to draft.
+        # Pushing the tag again does not automatically publish the release,
+        # we need to make use of GitHub's API to do this.
+        # Get URL for the draft release that was associated with the greatest
+        # tag version.
+        draft_release_url=$(get_draft_release_url "$token" "$owner" "$repo" "$greatest_release")
+        API_JSON="{\"tag_name\":\"$greatest_release\",\"draft\": false}"
+        API_RESPONSE=$(curl -X PATCH -H "Authorization: token $token" -d "$API_JSON" -s -i "$draft_release_url")
+        if [[ ! "$API_RESPONSE_STATUS" == *"HTTP/2 201"* ]]; then
+            die "Could not publish $greatest_release draft release: $API_RESPONSE_STATUS"
+        fi
+
+        say "Successfully updated release with the greatest version."
+        echo "Go to https://github.com/$owner/$repo/releases to check it out!"
+    else
+        say "Current release has the greatest version. No need to update the tag."
+    fi
 }
 
 # Create a tag for the specified release.
@@ -1620,14 +1684,18 @@ cmd_upload_assets() {
 
     # Get URL for the draft release.
     say "Getting upload URL for the draft release..."
-    url=$(get_upload_url "$token" "$owner" "$repo" "$version")
+    draft_release_url=$(get_draft_release_url "$token" "$owner" "$repo" "v$version")
     if [[ ! $? == 0 ]]; then
-      die "Abort."
+        die "Abort."
     fi
+
+    # Compute upload URL by substituting
+    # `api.github.com` host with `uploads.github.com`.
+    url=$(echo "$draft_release_url" | sed -r 's/api/uploads/g')
 
     say "Uploading assets to draft release..."
     for asset in "${assets[@]}"; do
-      upload_asset "$token" "$asset" "$url"
+        upload_asset "$token" "$asset" "$url"
     done
     say "Assets successfully uploaded to draft release. Go to https://github.com/$owner/$repo/releases to check them out!"
 }
@@ -1651,39 +1719,49 @@ upload_asset() {
   say "Asset $(basename $asset) uploaded to draft release."
 }
 
-# Call into GitHub's API to fetch upload URL.
-get_upload_url() {
+# Call into GitHub's API to fetch latest draft release.
+get_draft_release_url() {
   token="$1"
   owner="$2"
   repo="$3"
-  version="$4"
+  tag="$4"
+
+  url_prefix="https://api.github.com/repos/$owner/$repo/releases"
 
   # Fetch all releases for repo.
-  API_RESPONSE=$(curl -X GET -H "Authorization: token $token" -s -i https://api.github.com/repos/$owner/$repo/releases)
+  API_RESPONSE=$(curl -X GET -H "Authorization: token $token" -s -i "$url_prefix")
   if [[ ! "$API_RESPONSE" == *"HTTP/2 200"* ]]; then
     die "Could not fetch release list: $API_RESPONSE"
   fi
 
-  # Get URL for the latest draft release created.
-  draft_release_url=$(echo "${API_RESPONSE}" | grep releases | grep -m 1 -o -P '(?<=\"url\": \").*(?=\",)')
+  # Get URL list for all releases in the repo.
+  release_urls=$(echo "${API_RESPONSE}" | grep -o -P "$url_prefix/[0-9]*\\\"" | sed 's/\"$//')
 
-  # Fetch release metadata for the previously computed URL.
-  API_RESPONSE=$(curl -X GET -H "Authorization: token $token" -s -i "$draft_release_url")
-  if [[ ! "$API_RESPONSE" == *"HTTP/2 200"* ]]; then
-    die "Could not fetch release from URL: $draft_release_url"
-  fi
-  # Verify that the release is indeed draft, fail otherwise.
-  if [[ ! "$API_RESPONSE" == *"\"draft\": true"* ]]; then
-    die "Could not find draft release."
-  fi
-  # Check associated release tag.
-  if [[ ! "$API_RESPONSE" == *"\"tag_name\": \"v$version\""* ]]; then
-    die "Tag name associated to the release does not match version: v$version."
-  fi
+  # Iterate through all draft releases until we find the release with the
+  # associated tag given.
+  while IFS= read -r release_url; do
+    # Fetch release metadata for the release.
+    API_RESPONSE=$(curl -X GET -H "Authorization: token $token" -s -i "$release_url")
+    if [[ ! "$API_RESPONSE" == *"HTTP/2 200"* ]]; then
+      die "Could not fetch release from URL: $release_url"
+    fi
 
-  # All checks have passed, now return upload URL by substituting
-  # `api.github.com` host with `uploads.github.com`.
-  echo "$draft_release_url" | sed -r 's/api/uploads/g'
+    # We are only interested in draft releases.
+    if [[ ! "$API_RESPONSE" == *"\"draft\": true"* ]]; then
+      continue
+    fi
+
+    # Check release name matches the tag provided.
+    if [[ "$API_RESPONSE" == *"\"name\": \"Firecracker $tag\""* ]]; then
+      echo "$release_url"
+      exit
+    else
+      continue
+    fi
+  done <<< "$release_urls"
+
+  # If no release has been found, throw error.
+  die "Could not find draft release for the tag provided."
 }
 
 # Check if able to run firecracker.
