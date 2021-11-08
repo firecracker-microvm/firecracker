@@ -181,7 +181,11 @@ pub(crate) mod tests {
 
     impl IrqTrigger {
         pub fn has_pending_irq(&self, irq_type: IrqType) -> bool {
-            if let Ok(1) = self.irq_evt.read() {
+            if let Ok(num_irqs) = self.irq_evt.read() {
+                if num_irqs == 0 {
+                    return false;
+                }
+
                 let irq_status = self.irq_status.load(Ordering::SeqCst) as u32;
                 return matches!(
                     (irq_status, irq_type),
