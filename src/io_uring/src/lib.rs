@@ -234,3 +234,233 @@ impl IoUring {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// -------------------------------------
+    /// BEGIN PROPERTY BASED TESTING
+    use super::*;
+    use proptest::prelude::*;
+    use proptest::strategy::Strategy;
+    use proptest::test_runner::{Config, TestRunner};
+    use std::os::unix::fs::FileExt;
+    use utils::kernel_version::KernelVersion;
+    use utils::syscall::SyscallReturnCode;
+    use utils::tempfile::TempFile;
+    use vm_memory::{Bytes, MmapRegion, VolatileMemory};
+
+    fn drain_cqueue(ring: &mut IoUring) {
+        while let Some(entry) = ring.pop::<usize>().unwrap() {
+            assert!(entry.result().is_ok());
+
+            // Assert that there were no partial writes.
+            let count = entry.result().unwrap();
+            let user_data = entry.user_data() as u32;
+            assert_eq!(count, user_data);
+        }
+    }
+
+    fn setup_mem_region(len: usize) -> MmapRegion {
+        const PROT: i32 = libc::PROT_READ | libc::PROT_WRITE;
+        const FLAGS: i32 = libc::MAP_ANONYMOUS | libc::MAP_PRIVATE;
+
+        let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, PROT, FLAGS, -1, 0) };
+
+        if (ptr as isize) < 0 {
+            panic!("Mmap failed with {}", std::io::Error::last_os_error());
+        }
+
+        unsafe {
+            // Use the raw version because we want to unmap memory ourselves.
+            MmapRegion::build_raw(ptr as *mut u8, len, PROT, FLAGS).unwrap()
+        }
+    }
+
+    fn free_mem_region(region: MmapRegion) {
+        unsafe { libc::munmap(region.as_ptr() as *mut libc::c_void, region.len()) };
+    }
+
+    fn read_entire_mem_region(region: &MmapRegion) -> Vec<u8> {
+        let mut result = vec![0u8; region.len()];
+        let count = region.as_volatile_slice().read(&mut result[..], 0).unwrap();
+        assert_eq!(count, region.len());
+        result
+    }
+
+    fn arbitrary_rw_operation(file_len: u32) -> impl Strategy<Value = Operation<u32>> {
+        (
+            // OpCode: 0 -> Write, 1 -> Read.
+            0..2,
+            // Length of the operation.
+            0u32..file_len,
+        )
+            .prop_flat_map(move |(op, len)| {
+                (
+                    // op
+                    Just(op),
+                    // len
+                    Just(len),
+                    // offset
+                    (0u32..(file_len - len)),
+                    // mem region offset
+                    (0u32..(file_len - len)),
+                )
+            })
+            .prop_map(move |(op, len, off, mem_off)| {
+                // We actually use an offset instead of an address, because we later need to modify
+                // the memory region on which the operation is performed, based on the opcode.
+                let mut operation = match op {
+                    0 => Operation::write(0, mem_off as usize, len, off.into(), len),
+                    _ => Operation::read(0, mem_off as usize, len, off.into(), len),
+                };
+
+                // Make sure the operations are executed in-order, so that they are equivalent to
+                // their sync counterparts.
+                operation.set_linked();
+                operation
+            })
+    }
+
+    #[test]
+    fn proptest_read_write_correctness() {
+        if KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0) {
+            return;
+        }
+        // Performs a sequence of random read and write operations on two files, with sync and
+        // async IO, respectively.
+        // Verifies that the files are identical afterwards and that the read operations returned
+        // the same values.
+
+        const FILE_LEN: usize = 1024;
+        // The number of arbitrary operations in a testrun.
+        const OPS_COUNT: usize = 2000;
+        const RING_SIZE: u32 = 128;
+
+        // Allocate and init memory for holding the data that will be written into the file.
+        let write_mem_region = setup_mem_region(FILE_LEN);
+
+        let sync_read_mem_region = setup_mem_region(FILE_LEN);
+
+        let async_read_mem_region = setup_mem_region(FILE_LEN);
+
+        // Init the write buffers with 0,1,2,...
+        for i in 0..FILE_LEN {
+            write_mem_region
+                .as_volatile_slice()
+                .write_obj((i % (u8::MAX as usize)) as u8, i)
+                .unwrap();
+        }
+
+        // Create two files and init their contents to zeros.
+        let init_contents = [0u8; FILE_LEN];
+        let file_async = TempFile::new().unwrap().into_file();
+        file_async.write_all_at(&init_contents, 0).unwrap();
+
+        let file_sync = TempFile::new().unwrap().into_file();
+        file_sync.write_all_at(&init_contents, 0).unwrap();
+
+        // Create a custom test runner since we had to add some state buildup to the test.
+        // (Referring to the the above initializations).
+        let mut runner = TestRunner::new(Config {
+            cases: 1000, // Should run for about a minute.
+
+            ..Config::default()
+        });
+
+        runner
+            .run(
+                &proptest::collection::vec(arbitrary_rw_operation(FILE_LEN as u32), OPS_COUNT),
+                |set| {
+                    let mut ring = IoUring::new(RING_SIZE).unwrap();
+                    ring.register_file(&file_async).unwrap();
+
+                    for mut operation in set {
+                        // Perform the sync op.
+                        let count = match operation.opcode {
+                            OpCode::Write => SyscallReturnCode(unsafe {
+                                libc::pwrite(
+                                    file_sync.as_raw_fd(),
+                                    write_mem_region.as_ptr().add(operation.addr.unwrap())
+                                        as *const libc::c_void,
+                                    operation.len.unwrap() as usize,
+                                    operation.offset.unwrap() as i64,
+                                ) as libc::c_int
+                            })
+                            .into_result()
+                            .unwrap() as u32,
+                            OpCode::Read => SyscallReturnCode(unsafe {
+                                libc::pread(
+                                    file_sync.as_raw_fd(),
+                                    sync_read_mem_region.as_ptr().add(operation.addr.unwrap())
+                                        as *mut libc::c_void,
+                                    operation.len.unwrap() as usize,
+                                    operation.offset.unwrap() as i64,
+                                ) as libc::c_int
+                            })
+                            .into_result()
+                            .unwrap() as u32,
+                            _ => unreachable!(),
+                        };
+
+                        if count < operation.len.unwrap() {
+                            panic!("Synchronous partial operation: {:?}", operation);
+                        }
+
+                        // Perform the async op.
+
+                        // Modify the operation address based on the opcode.
+                        match operation.opcode {
+                            OpCode::Write => {
+                                operation.addr = Some(unsafe {
+                                    write_mem_region.as_ptr().add(operation.addr.unwrap()) as usize
+                                })
+                            }
+                            OpCode::Read => {
+                                operation.addr = Some(unsafe {
+                                    async_read_mem_region.as_ptr().add(operation.addr.unwrap())
+                                        as usize
+                                })
+                            }
+                            _ => unreachable!(),
+                        };
+
+                        // If the ring is full, submit and wait.
+                        if ring.pending_sqes().unwrap() == RING_SIZE {
+                            ring.submit_and_wait_all().unwrap();
+                            drain_cqueue(&mut ring);
+                        }
+                        ring.push(operation).unwrap();
+                    }
+
+                    // Submit any left async ops and wait.
+                    ring.submit_and_wait_all().unwrap();
+                    drain_cqueue(&mut ring);
+
+                    // Get the write result for async IO.
+                    let mut async_result = [0u8; FILE_LEN];
+                    file_async.read_exact_at(&mut async_result, 0).unwrap();
+
+                    // Get the write result for sync IO.
+                    let mut sync_result = [0u8; FILE_LEN];
+                    file_sync.read_exact_at(&mut sync_result, 0).unwrap();
+
+                    // Now compare the write results.
+                    assert_eq!(sync_result, async_result);
+
+                    // Now compare the read results for sync and async IO.
+                    assert_eq!(
+                        read_entire_mem_region(&sync_read_mem_region),
+                        read_entire_mem_region(&async_read_mem_region)
+                    );
+
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+        // Clean up the memory.
+        free_mem_region(write_mem_region);
+        free_mem_region(sync_read_mem_region);
+        free_mem_region(async_read_mem_region);
+    }
+}
