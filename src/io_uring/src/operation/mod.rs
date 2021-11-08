@@ -7,6 +7,8 @@ mod sqe;
 pub use cqe::Cqe;
 pub use sqe::Sqe;
 
+#[cfg(test)]
+use core::fmt::{self, Debug, Formatter};
 use std::convert::From;
 
 use crate::bindings::{self, io_uring_sqe, IOSQE_FIXED_FILE_BIT};
@@ -15,6 +17,7 @@ pub type FixedFd = u32;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug))]
 pub enum OpCode {
     Read = bindings::IORING_OP_READ as u8,
     Write = bindings::IORING_OP_WRITE as u8,
@@ -34,11 +37,31 @@ impl From<OpCode> for &'static str {
 
 pub struct Operation<T> {
     fd: FixedFd,
-    opcode: OpCode,
-    addr: Option<usize>,
-    len: Option<u32>,
-    offset: Option<u64>,
+    pub(crate) opcode: OpCode,
+    pub(crate) addr: Option<usize>,
+    pub(crate) len: Option<u32>,
+    flags: u8,
+    pub(crate) offset: Option<u64>,
     user_data: Box<T>,
+}
+
+// Needed for proptesting.
+#[cfg(test)]
+impl<T> Debug for Operation<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(
+            f,
+            "
+            Operation {{
+                opcode: {:?},
+                addr: {:?},
+                len: {:?},
+                offset: {:?},
+            }}
+        ",
+            self.opcode, self.addr, self.len, self.offset
+        )
+    }
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -49,6 +72,7 @@ impl<T> Operation<T> {
             opcode: OpCode::Read,
             addr: Some(addr),
             len: Some(len),
+            flags: 0,
             offset: Some(offset),
             user_data: Box::new(user_data),
         }
@@ -60,6 +84,7 @@ impl<T> Operation<T> {
             opcode: OpCode::Write,
             addr: Some(addr),
             len: Some(len),
+            flags: 0,
             offset: Some(offset),
             user_data: Box::new(user_data),
         }
@@ -71,6 +96,7 @@ impl<T> Operation<T> {
             opcode: OpCode::Fsync,
             addr: None,
             len: None,
+            flags: 0,
             offset: None,
             user_data: Box::new(user_data),
         }
@@ -84,12 +110,10 @@ impl<T> Operation<T> {
         *self.user_data
     }
 
-    pub fn addr(&self) -> Option<usize> {
-        self.addr
-    }
-
-    pub fn len(&self) -> Option<u32> {
-        self.len
+    // Needed for proptesting.
+    #[cfg(test)]
+    pub fn set_linked(&mut self) {
+        self.flags |= 1 << bindings::IOSQE_IO_LINK_BIT;
     }
 
     /// # Safety
@@ -102,7 +126,7 @@ impl<T> Operation<T> {
         inner.opcode = self.opcode as u8;
         inner.fd = self.fd as i32;
         // Simplifying assumption that we only used pre-registered FDs.
-        inner.flags = (1 << IOSQE_FIXED_FILE_BIT) as u8;
+        inner.flags = self.flags | (1 << IOSQE_FIXED_FILE_BIT);
 
         if let Some(addr) = self.addr {
             inner.__bindgen_anon_2.addr = addr as u64;

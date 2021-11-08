@@ -344,6 +344,7 @@ name = "io_uring"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "proptest",
  "utils",
  "vm-memory 0.7.0",
 ]

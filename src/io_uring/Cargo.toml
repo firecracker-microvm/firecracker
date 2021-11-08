@@ -9,3 +9,6 @@ license = "Apache-2.0"
 libc = ">=0.2.103"
 utils = { path = "../utils" }
 vm-memory = { version = "0.7.0", features = ["backend-mmap"] }
+
+[dev-dependencies]
+proptest = { version = ">=1.0.0", default-features = false, features = ["std"] }
