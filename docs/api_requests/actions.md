@@ -16,11 +16,7 @@ does not have a payload. It can only be successfully called once.
 ```bash
 curl --unix-socket ${socket} -i \
      -X PUT "http://localhost/actions" \
-     -H "accept: application/json" \
-     -H "Content-Type: application/json" \
-     -d "{
-            \"action_type\": \"InstanceStart\"
-         }"
+     -d '{ "action_type": "InstanceStart" }'
 ```
 
 ## FlushMetrics
@@ -32,11 +28,7 @@ The `FlushMetrics` action flushes the metrics on user demand.
 ```bash
 curl --unix-socket /tmp/firecracker.socket -i \
     -X PUT "http://localhost/actions" \
-    -H  "accept: application/json" \
-    -H  "Content-Type: application/json" \
-    -d "{
-             \"action_type\": \"FlushMetrics\"
-    }"
+    -d '{ "action_type": "FlushMetrics" }'
 ```
 
 ## [Intel and AMD only] SendCtrlAltDel
@@ -67,9 +59,5 @@ i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd
 ```bash
 curl --unix-socket /tmp/firecracker.socket -i \
     -X PUT "http://localhost/actions" \
-    -H  "accept: application/json" \
-    -H  "Content-Type: application/json" \
-    -d "{
-             \"action_type\": \"SendCtrlAltDel\"
-    }"
+    -d '{ "action_type": "SendCtrlAltDel" }'
 ```
