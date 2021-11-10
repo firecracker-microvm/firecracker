@@ -22,22 +22,36 @@ use utils::syscall::SyscallReturnCode;
 
 // IO_uring operations that we require to be supported by the host kernel.
 const REQUIRED_OPS: [OpCode; 2] = [OpCode::Read, OpCode::Write];
+// Taken from linux/fs/io_uring.c
+const IORING_MAX_FIXED_FILES: usize = 1 << 15;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
+    /// Error originating in the completion queue.
     CQueue(CQueueError),
-    RegisterEventfd(IOError),
-    RegisterFile(IOError),
-    Setup(IOError),
-    SQueue(SQueueError),
-    InvalidFixedFd(i32),
-    NoRegisteredFds,
-    Probe(IOError),
     /// A FamStructWrapper operation has failed.
     FamError(utils::fam::Error),
+    /// Fd was not registered.
+    InvalidFixedFd(i32),
+    /// There are no registered fds.
+    NoRegisteredFds,
+    /// Error probing the io_uring subsystem.
+    Probe(IOError),
+    /// Could not register eventfd.
+    RegisterEventfd(IOError),
+    /// Could not register file.
+    RegisterFile(IOError),
+    /// Attempted to register too many files.
+    RegisterFileLimitExceeded,
+    /// Error calling io_uring_setup.
+    Setup(IOError),
+    /// Error originating in the submission queue.
+    SQueue(SQueueError),
+    /// Required feature is not supported on the host kernel.
     UnsupportedFeature(&'static str),
+    /// Required operation is not supported on the host kernel.
     UnsupportedOperation(&'static str),
 }
 
@@ -62,7 +76,7 @@ pub struct IoUring {
 }
 
 impl IoUring {
-    pub fn new(num_entries: u32) -> Result<Self> {
+    pub fn new(num_entries: u32, files: Vec<&File>, eventfd: Option<RawFd>) -> Result<Self> {
         let mut params: io_uring_params = Default::default();
         // Safe because values are valid and we check the return value.
         let fd = SyscallReturnCode(unsafe {
@@ -83,7 +97,7 @@ impl IoUring {
         let squeue = SubmissionQueue::new(fd, &params).map_err(Error::SQueue)?;
         let cqueue = CompletionQueue::new(fd, &params).map_err(Error::CQueue)?;
 
-        let instance = Self {
+        let mut instance = Self {
             fd: file,
             squeue,
             cqueue,
@@ -92,6 +106,12 @@ impl IoUring {
         };
 
         instance.check_operations()?;
+
+        if let Some(eventfd) = eventfd {
+            instance.register_eventfd(eventfd)?;
+        }
+
+        instance.register_files(files)?;
 
         Ok(instance)
     }
@@ -153,25 +173,41 @@ impl IoUring {
         self.squeue.pending().map_err(Error::SQueue)
     }
 
-    pub fn register_file(&mut self, file: &File) -> Result<()> {
+    fn register_files(&mut self, files: Vec<&File>) -> Result<()> {
+        if files.len() < 1 {
+            // No-op.
+            return Ok(());
+        }
+
+        if (self.registered_fds_count as usize).saturating_add(files.len()) > IORING_MAX_FIXED_FILES
+        {
+            return Err(Error::RegisterFileLimitExceeded);
+        }
+
         // Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
                 libc::SYS_io_uring_register,
                 self.fd.as_raw_fd(),
                 bindings::IORING_REGISTER_FILES,
-                (&[file.as_raw_fd()]).as_ptr() as *const _,
-                1,
+                files
+                    .iter()
+                    .map(|f| f.as_raw_fd())
+                    .collect::<Vec<_>>()
+                    .as_mut_slice()
+                    .as_mut_ptr() as *const _,
+                files.len(),
             ) as libc::c_int
         })
         .into_empty_result()
         .map_err(Error::RegisterFile)?;
 
-        self.registered_fds_count += 1;
+        // Safe to truncate since files.len() < IORING_MAX_FIXED_FILES
+        self.registered_fds_count += files.len() as u32;
         Ok(())
     }
 
-    pub fn register_eventfd(&self, fd: RawFd) -> Result<()> {
+    fn register_eventfd(&self, fd: RawFd) -> Result<()> {
         // Safe because values are valid and we check the return value.
         SyscallReturnCode(unsafe {
             libc::syscall(
@@ -183,9 +219,7 @@ impl IoUring {
             ) as libc::c_int
         })
         .into_empty_result()
-        .map_err(Error::RegisterEventfd)?;
-
-        Ok(())
+        .map_err(Error::RegisterEventfd)
     }
 
     fn check_features(params: io_uring_params) -> Result<()> {
@@ -370,8 +404,7 @@ mod tests {
             .run(
                 &proptest::collection::vec(arbitrary_rw_operation(FILE_LEN as u32), OPS_COUNT),
                 |set| {
-                    let mut ring = IoUring::new(RING_SIZE).unwrap();
-                    ring.register_file(&file_async).unwrap();
+                    let mut ring = IoUring::new(RING_SIZE, vec![&file_async], None).unwrap();
 
                     for mut operation in set {
                         // Perform the sync op.
