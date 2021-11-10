@@ -6,7 +6,8 @@ use std::marker::PhantomData;
 use std::os::unix::io::AsRawFd;
 
 use io_uring::{
-    operation::{Cqe, Operation},
+    operation::{Cqe, OpCode, Operation},
+    restriction::Restriction,
     Error as IoUringError, IoUring,
 };
 
@@ -69,6 +70,14 @@ impl<T> AsyncFileEngine<T> {
         let mut ring = IoUring::new(
             IO_URING_NUM_ENTRIES as u32,
             vec![&file],
+            vec![
+                // Make sure we only allow operations on pre-registered fds.
+                Restriction::RequireFixedFds,
+                // Allowlist of opcodes.
+                Restriction::AllowOpCode(OpCode::Read),
+                Restriction::AllowOpCode(OpCode::Write),
+                Restriction::AllowOpCode(OpCode::Fsync),
+            ],
             Some(completion_evt.as_raw_fd()),
         )
         .map_err(Error::IoUring)?;
