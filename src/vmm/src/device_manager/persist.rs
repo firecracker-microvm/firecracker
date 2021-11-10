@@ -203,14 +203,11 @@ impl<'a> Persist<'a> for MMIODeviceManager {
                     });
                 }
                 TYPE_BLOCK => {
-                    let block_state = locked_device
-                        .as_any()
-                        .downcast_ref::<Block>()
-                        .unwrap()
-                        .save();
+                    let block = locked_device.as_mut_any().downcast_mut::<Block>().unwrap();
+                    block.prepare_save();
                     states.block_devices.push(ConnectedBlockState {
                         device_id: devid.clone(),
-                        device_state: block_state,
+                        device_state: block.save(),
                         transport_state,
                         mmio_slot: devinfo.clone(),
                     });

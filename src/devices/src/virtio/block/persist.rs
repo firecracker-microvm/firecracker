@@ -3,11 +3,10 @@
 
 //! Defines the structures needed for saving/restoring block devices.
 
-use std::io::Write;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-use logger::{error, warn};
+use logger::warn;
 use rate_limiter::{persist::RateLimiterState, RateLimiter};
 use snapshot::Persist;
 use utils::kernel_version::min_kernel_version_for_io_uring;
@@ -129,13 +128,6 @@ impl Persist<'_> for Block {
     type Error = Error;
 
     fn save(&self) -> Self::State {
-        if let Err(e) = self.disk.file().flush() {
-            error!("Failed to flush block data on serialization. Error: {}", e);
-        }
-        // Sync data out to backing file on host.
-        if let Err(e) = self.disk.file().sync_all() {
-            error!("Failed to sync block data on serialization. Error: {}", e);
-        }
         // Save device state.
         BlockState {
             id: self.id.clone(),
