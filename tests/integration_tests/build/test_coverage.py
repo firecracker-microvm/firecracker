@@ -31,7 +31,7 @@ import host_tools.proc as proc
 if utils.compare_versions(utils.get_kernel_version(), "5.4.0") > 0:
     COVERAGE_DICT = {"Intel": 84.75, "AMD": 84.17, "ARM": 82.90}
 else:
-    COVERAGE_DICT = {"Intel": 81.80, "AMD": 81.25, "ARM": 79.95}
+    COVERAGE_DICT = {"Intel": 81.53, "AMD": 80.98, "ARM": 79.73}
 
 PROC_MODEL = proc.proc_type()
 
