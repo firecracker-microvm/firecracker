@@ -23,137 +23,129 @@ fn test_ring_new() {
 
     // Invalid entries count: 0.
     assert!(matches!(
-        IoUring::new(0),
+        IoUring::new(0, vec![], None),
         Err(Error::Setup(e)) if e.kind() == std::io::ErrorKind::InvalidInput
     ));
 
-    // Valid entries count.
-    assert!(IoUring::new(NUM_ENTRIES).is_ok());
+    // Try to register too many files.
+    let dummy_file = TempFile::new().unwrap().into_file();
+    assert!(matches!(
+        IoUring::new(10, vec![&dummy_file; 40000usize], None), // Max is 32768.
+        Err(Error::RegisterFileLimitExceeded)
+    ));
 }
 
 #[test]
 fn test_eventfd() {
     skip_if_kernel_lt_5_10!();
-    // Test registration.
-    {
-        // Ok.
-        let ring = IoUring::new(NUM_ENTRIES).unwrap();
-        assert!(ring
-            .register_eventfd(EventFd::new(0).unwrap().as_raw_fd())
-            .is_ok());
-
-        // Cannot register multiple eventfds.
-        assert!(matches!(
-            ring.register_eventfd(EventFd::new(0).unwrap().as_raw_fd()),
-            Err(Error::RegisterEventfd(e)) if e.kind() == std::io::ErrorKind::Other
-        ));
-    }
     // Test that events get delivered.
-    {
-        let file = TempFile::new().unwrap().into_file();
-        let mut ring = IoUring::new(NUM_ENTRIES).unwrap();
-        let user_data: u8 = 71;
-        let buf = [0; 4];
+    let eventfd = EventFd::new(0).unwrap();
 
-        let eventfd = EventFd::new(0).unwrap();
-        let epoll = Epoll::new().unwrap();
-        epoll
-            .ctl(
-                ControlOperation::Add,
-                eventfd.as_raw_fd(),
-                EpollEvent::new(EventSet::IN, 0),
-            )
-            .unwrap();
-        let mut ready_events = vec![EpollEvent::default(); 1];
-        ring.register_file(&file).unwrap();
-        ring.register_eventfd(eventfd.as_raw_fd()).unwrap();
+    let file = TempFile::new().unwrap().into_file();
+    let mut ring = IoUring::new(NUM_ENTRIES, vec![&file], Some(eventfd.as_raw_fd())).unwrap();
+    let user_data: u8 = 71;
+    let buf = [0; 4];
+    let epoll = Epoll::new().unwrap();
+    let mut ready_events = vec![EpollEvent::default(); 1];
 
-        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-            .unwrap();
-        ring.submit().unwrap();
+    epoll
+        .ctl(
+            ControlOperation::Add,
+            eventfd.as_raw_fd(),
+            EpollEvent::new(EventSet::IN, 0),
+        )
+        .unwrap();
 
-        assert_eq!(epoll.wait(500, &mut ready_events[..]).unwrap(), 1);
-        assert_eq!(ready_events[0].event_set(), EventSet::IN);
-    }
+    ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+        .unwrap();
+    ring.submit().unwrap();
+
+    assert_eq!(epoll.wait(500, &mut ready_events[..]).unwrap(), 1);
+    assert_eq!(ready_events[0].event_set(), EventSet::IN);
 }
 
 #[test]
 fn test_ring_push() {
     skip_if_kernel_lt_5_10!();
 
-    let file = TempFile::new().unwrap().into_file();
-    let mut ring = IoUring::new(NUM_ENTRIES).unwrap();
-    let user_data: u8 = 71;
-    let buf = [0; 4];
-
     // Forgot to register file.
-    assert!(matches!(
-        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 71)),
-        Err((Error::NoRegisteredFds, 71))
-    ));
-    assert_eq!(ring.pending_sqes().unwrap(), 0);
+    {
+        let buf = [0; 4];
+        let mut ring = IoUring::new(NUM_ENTRIES, vec![], None).unwrap();
+
+        assert!(matches!(
+            ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 71)),
+            Err((Error::NoRegisteredFds, 71))
+        ));
+        assert_eq!(ring.pending_sqes().unwrap(), 0);
+    }
 
     // Now register file.
-    ring.register_file(&file).unwrap();
+    {
+        let file = TempFile::new().unwrap().into_file();
+        let mut ring = IoUring::new(NUM_ENTRIES, vec![&file], None).unwrap();
+        let user_data: u8 = 71;
+        let buf = [0; 4];
 
-    // Invalid fd.
-    assert!(matches!(
-        ring.push(Operation::read(1, buf.as_ptr() as usize, 4, 0, user_data)),
-        Err((Error::InvalidFixedFd(1), 71))
-    ));
-    assert_eq!(ring.pending_sqes().unwrap(), 0);
+        // Invalid fd.
+        assert!(matches!(
+            ring.push(Operation::read(1, buf.as_ptr() as usize, 4, 0, user_data)),
+            Err((Error::InvalidFixedFd(1), 71))
+        ));
+        assert_eq!(ring.pending_sqes().unwrap(), 0);
 
-    // Valid fd.
-    assert!(ring
-        .push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-        .is_ok());
-
-    assert_eq!(ring.pending_sqes().unwrap(), 1);
-
-    // Full Queue.
-    for _ in 1..(NUM_ENTRIES) {
+        // Valid fd.
         assert!(ring
             .push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
             .is_ok());
+
+        assert_eq!(ring.pending_sqes().unwrap(), 1);
+
+        // Full Queue.
+        for _ in 1..(NUM_ENTRIES) {
+            assert!(ring
+                .push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+                .is_ok());
+        }
+
+        assert_eq!(ring.pending_sqes().unwrap(), NUM_ENTRIES);
+
+        assert!(matches!(
+            ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)),
+            Err((Error::SQueue(SQueueError::FullQueue), 71))
+        ));
+
+        assert_eq!(ring.pending_sqes().unwrap(), NUM_ENTRIES);
+
+        // We didn't get to submit so pop() should return None.
+        assert!(ring.pop::<u8>().unwrap().is_none());
     }
-
-    assert_eq!(ring.pending_sqes().unwrap(), NUM_ENTRIES);
-
-    assert!(matches!(
-        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)),
-        Err((Error::SQueue(SQueueError::FullQueue), 71))
-    ));
-
-    assert_eq!(ring.pending_sqes().unwrap(), NUM_ENTRIES);
-
-    // We didn't get to submit so pop() should return None.
-    assert!(ring.pop::<u8>().unwrap().is_none());
 }
 
 #[test]
 fn test_ring_submit() {
     skip_if_kernel_lt_5_10!();
 
-    let file = TempFile::new().unwrap().into_file();
-    let mut ring = IoUring::new(NUM_ENTRIES).unwrap();
-    let user_data: u8 = 71;
-    let buf = [0; 4];
+    {
+        let file = TempFile::new().unwrap().into_file();
+        let mut ring = IoUring::new(NUM_ENTRIES, vec![&file], None).unwrap();
+        let user_data: u8 = 71;
+        let buf = [0; 4];
 
-    ring.register_file(&file).unwrap();
+        // Return 0 if we didn't push any sqes.
+        assert_eq!(ring.submit().unwrap(), 0);
 
-    // Return 0 if we didn't push any sqes.
-    assert_eq!(ring.submit().unwrap(), 0);
-
-    // Now push an sqe.
-    ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-        .unwrap();
-    assert_eq!(ring.submit().unwrap(), 1);
-    // Now push & submit some more.
-    ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-        .unwrap();
-    ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-        .unwrap();
-    assert_eq!(ring.submit().unwrap(), 2);
+        // Now push an sqe.
+        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+            .unwrap();
+        assert_eq!(ring.submit().unwrap(), 1);
+        // Now push & submit some more.
+        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+            .unwrap();
+        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+            .unwrap();
+        assert_eq!(ring.submit().unwrap(), 2);
+    }
 }
 
 #[test]
@@ -161,11 +153,9 @@ fn test_submit_and_wait_all() {
     skip_if_kernel_lt_5_10!();
 
     let file = TempFile::new().unwrap().into_file();
-    let mut ring = IoUring::new(NUM_ENTRIES).unwrap();
+    let mut ring = IoUring::new(NUM_ENTRIES, vec![&file], None).unwrap();
     let user_data: u8 = 71;
     let buf = [0; 4];
-
-    ring.register_file(&file).unwrap();
 
     // Return 0 if we didn't push any sqes.
     assert_eq!(ring.submit_and_wait_all().unwrap(), 0);
@@ -209,8 +199,7 @@ fn test_write() {
     const NUM_BYTES: usize = 100;
     // Setup.
     let file = TempFile::new().unwrap().into_file();
-    let mut ring = IoUring::new(10).unwrap();
-    ring.register_file(&file).unwrap();
+    let mut ring = IoUring::new(NUM_ENTRIES, vec![&file], None).unwrap();
 
     // Create & init a memory mapping for storing the write buffers.
     let mem_region: MmapRegion = MmapRegion::build(
@@ -251,8 +240,7 @@ fn test_read() {
     const NUM_BYTES: usize = 100;
     // Setup.
     let file = TempFile::new().unwrap().into_file();
-    let mut ring = IoUring::new(10).unwrap();
-    ring.register_file(&file).unwrap();
+    let mut ring = IoUring::new(NUM_ENTRIES, vec![&file], None).unwrap();
 
     // Create & init a memory mapping for storing the read buffers.
     let mem_region: MmapRegion = MmapRegion::build(
