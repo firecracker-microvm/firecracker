@@ -510,6 +510,23 @@ impl Block {
             FileEngine::Async(_) => FileEngineType::Async,
         }
     }
+
+    fn drain_and_flush(&mut self, discard: bool) {
+        if let Err(e) = self.disk.file_engine_mut().drain_and_flush(discard) {
+            error!("Failed to drain ops and flush block data: {:?}", e);
+        }
+    }
+
+    pub fn prepare_save(&mut self) {
+        if !self.is_activated() {
+            return;
+        }
+
+        self.drain_and_flush(false);
+        if let FileEngine::Async(_engine) = self.disk.file_engine_mut() {
+            self.process_async_completion_queue();
+        }
+    }
 }
 
 impl VirtioDevice for Block {
@@ -606,9 +623,7 @@ impl Drop for Block {
                 }
             }
             CacheType::Writeback => {
-                if let Err(e) = self.disk.file_engine_mut().drain_and_flush(true) {
-                    error!("Failed to drain ops and flush disk data on drop: {:?}", e);
-                }
+                self.drain_and_flush(true);
             }
         };
     }
@@ -1335,6 +1350,23 @@ pub(crate) mod tests {
         simulate_async_completion_event(&mut block, true);
         assert_eq!(block.is_io_engine_throttled, false);
         check_flush_requests_batch(IO_URING_NUM_ENTRIES + 10, &mem, &vq);
+    }
+
+    #[test]
+    fn test_prepare_save() {
+        let mut block = default_block(default_engine_type_for_kv());
+
+        let mem = default_mem();
+        let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+        block.activate(mem.clone()).unwrap();
+
+        // Add a batch of flush requests.
+        add_flush_requests_batch(&mut block, &mem, &vq, 5);
+        simulate_queue_event(&mut block, None);
+        block.prepare_save();
+
+        // Check that all the pending flush requests were processed during `prepare_save()`.
+        check_flush_requests_batch(5, &mem, &vq);
     }
 
     #[test]
