@@ -7,6 +7,7 @@ use vm_memory::{Bytes, MmapRegion, VolatileMemory};
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use utils::eventfd::EventFd;
 use utils::kernel_version::KernelVersion;
+use utils::skip_if_kernel_lt_5_10;
 use utils::tempfile::TempFile;
 
 mod test_utils;
