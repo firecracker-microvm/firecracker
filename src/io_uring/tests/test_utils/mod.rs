@@ -10,16 +10,6 @@ fn drain_cqueue(ring: &mut IoUring) {
     }
 }
 
-// Firecracker only supports io_uring on kernel versions greater than 5.10.
-#[macro_export]
-macro_rules! skip_if_kernel_lt_5_10 {
-    () => {
-        if KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0) {
-            return;
-        }
-    };
-}
-
 pub fn drive_submission_and_completion(
     ring: &mut IoUring,
     mem_region: &MmapRegion,

@@ -245,6 +245,7 @@ mod tests {
     use proptest::test_runner::{Config, TestRunner};
     use std::os::unix::fs::FileExt;
     use utils::kernel_version::KernelVersion;
+    use utils::skip_if_kernel_lt_5_10;
     use utils::syscall::SyscallReturnCode;
     use utils::tempfile::TempFile;
     use vm_memory::{Bytes, MmapRegion, VolatileMemory};
@@ -323,9 +324,7 @@ mod tests {
 
     #[test]
     fn proptest_read_write_correctness() {
-        if KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0) {
-            return;
-        }
+        skip_if_kernel_lt_5_10!();
         // Performs a sequence of random read and write operations on two files, with sync and
         // async IO, respectively.
         // Verifies that the files are identical afterwards and that the read operations returned
