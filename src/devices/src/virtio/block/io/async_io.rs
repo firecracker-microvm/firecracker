@@ -66,11 +66,12 @@ impl<T> AsyncFileEngine<T> {
     #[allow(unused)]
     pub fn from_file(file: File) -> Result<AsyncFileEngine<T>, Error> {
         let completion_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-        let mut ring = IoUring::new(IO_URING_NUM_ENTRIES as u32).map_err(Error::IoUring)?;
-        ring.register_eventfd(completion_evt.as_raw_fd())
-            .map_err(Error::IoUring)?;
-
-        ring.register_file(&file).map_err(Error::IoUring)?;
+        let mut ring = IoUring::new(
+            IO_URING_NUM_ENTRIES as u32,
+            vec![&file],
+            Some(completion_evt.as_raw_fd()),
+        )
+        .map_err(Error::IoUring)?;
 
         Ok(AsyncFileEngine {
             file,
