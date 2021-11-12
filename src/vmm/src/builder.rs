@@ -974,7 +974,7 @@ pub mod tests {
     use super::*;
     use crate::vmm_config::balloon::{BalloonBuilder, BalloonDeviceConfig, BALLOON_DEV_ID};
     use crate::vmm_config::boot_source::DEFAULT_KERNEL_CMDLINE;
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType};
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, CacheType, FileEngineType};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
@@ -1101,6 +1101,7 @@ pub mod tests {
                 is_read_only: custom_block_cfg.is_read_only,
                 cache_type: custom_block_cfg.cache_type,
                 rate_limiter: None,
+                file_engine_type: FileEngineType::default(),
             };
             block_dev_configs.insert(block_device_config).unwrap();
         }

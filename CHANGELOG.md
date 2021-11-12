@@ -27,6 +27,10 @@
 
 - Deprecated `vsock_id` body field in `PUT`s on `/vsock`.
 - Removed the deprecated the `--seccomp-level parameter`.
+- Added `io_engine` to the pre-boot block device configuration.
+  Possible values: `Sync` (the default option) or `Async` (only available for
+  kernels newer than 5.10.0). The `Async` variant introduces a block device
+  engine that uses io_uring for executing requests asynchronously.
 - Added `block.io_engine_throttled_events` metric for measuring the number of
   virtio events throttled because of the IO engine.
 
