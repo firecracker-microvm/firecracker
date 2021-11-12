@@ -12,6 +12,7 @@
       "partuuid": null,
       "is_read_only": false,
       "cache_type": "Unsafe",
+      "io_engine": "Sync",
       "rate_limiter": null
     }
   ],
