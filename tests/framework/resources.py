@@ -226,6 +226,19 @@ class Drive():
             json=datax
         )
 
+    def put_with_default_io_engine(self, **args):
+        """
+        Attach a block device or update the details of a previous one, using...
+
+        ...the Firecracker default for the io_engine.
+        """
+        datax = self.create_json(**args)
+
+        return self._api_session.put(
+            "{}/{}".format(self._drive_cfg_url, args['drive_id']),
+            json=datax
+        )
+
     def patch(self, **args):
         """Attach a block device or update the details of a previous one."""
         datax = self.create_json(**args)
