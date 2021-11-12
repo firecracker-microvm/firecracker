@@ -95,7 +95,10 @@ def test_sigxfsz_handler(test_microvm_with_api):
     # We don't need to monitor the memory for this test.
     microvm.memory_monitor = None
 
-    microvm.basic_config()
+    # We need to use the Sync file engine type. If we use io_uring we will not
+    # get a SIGXFSZ. We'll instead get an errno 27 File too large as the
+    # completed entry status code.
+    microvm.basic_config(rootfs_io_engine="Sync")
 
     # Configure metrics based on a file.
     metrics_path = os.path.join(microvm.path, 'metrics_fifo')
