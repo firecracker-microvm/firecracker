@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
 use logger::{error, info, warn, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
+use mmds::MMDS;
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use utils::arg_parser::{ArgParser, Argument, Arguments};
@@ -30,6 +31,7 @@ use vmm::{resources::VmResources, EventManager, ExitCode};
 const DEFAULT_API_SOCK_PATH: &str = "/run/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 const FIRECRACKER_VERSION: &str = env!("FIRECRACKER_VERSION");
+const MMDS_CONTENT_ARG: &str = "metadata";
 
 #[cfg(target_arch = "aarch64")]
 /// Enable SSBD mitigation through `prctl`.
@@ -155,6 +157,11 @@ fn main_exitable() -> ExitCode {
             Argument::new("config-file")
                 .takes_value(true)
                 .help("Path to a file that contains the microVM configuration in JSON format."),
+        )
+        .arg(
+            Argument::new(MMDS_CONTENT_ARG)
+                .takes_value(true)
+                .help("Path to a file that contains metadata in JSON format to add to the mmds.")
         )
         .arg(
             Argument::new("no-api")
@@ -298,6 +305,22 @@ fn main_exitable() -> ExitCode {
         .single_value("config-file")
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
+
+    let metadata_json = arguments
+        .single_value(MMDS_CONTENT_ARG)
+        .map(fs::read_to_string)
+        .map(|x| x.expect("Unable to open or read from the mmds content file"));
+
+    if let Some(data) = metadata_json {
+        MMDS.lock()
+            .expect("Failed to acquire lock on MMDS")
+            .put_data(
+                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
+            )
+            .expect("MMDS content load from file failed.");
+
+        info!("Successfully added metadata to mmds from file");
+    }
 
     let boot_timer_enabled = arguments.flag_present("boot-timer");
     let api_enabled = !arguments.flag_present("no-api");

@@ -11,6 +11,8 @@
 - Added metrics for accesses to deprecated HTTP and command line API endpoints.
 - Added permanent HTTP endpoint for `GET` on `/version` for getting the
   Firecracker version.
+- Added `--metadata` paramater to enable MMDS content to be supplied from a file
+  allowing the MMDS to be used when using `--no-api` to disable the API server.
 
 ### Changed
 

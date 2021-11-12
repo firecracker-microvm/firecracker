@@ -11,6 +11,7 @@ license = "Apache-2.0"
 [dependencies]
 event-manager = ">=0.2.1"
 libc = ">=0.2.39"
+serde_json = ">=1.0.68"
 timerfd = ">=1.0"
 
 api_server = { path = "../api_server" }
