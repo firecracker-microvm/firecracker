@@ -15,6 +15,7 @@ import pytest
 import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
+from framework.utils import compare_versions, get_kernel_version
 
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection
@@ -37,6 +38,66 @@ def test_api_happy_start(test_microvm_with_api):
     test_microvm.basic_config()
 
     test_microvm.start()
+
+
+def test_drive_io_engine(test_microvm_with_api, network_config):
+    """
+    Test io_engine configuration.
+
+    Test that the io_engine can be configured via the API on kernels that
+    support the given type and that FC returns an error otherwise.
+
+    @type: functional
+    """
+    test_microvm = test_microvm_with_api
+    test_microvm.spawn()
+
+    test_microvm.basic_config(add_root_device=False)
+    test_microvm.ssh_network_config(network_config, '1')
+
+    response = test_microvm.drive.put(
+        drive_id='rootfs',
+        path_on_host=test_microvm.create_jailed_resource(
+            test_microvm.rootfs_file),
+        is_root_device=True,
+        is_read_only=False,
+        # Set the opposite of the default backend type.
+        io_engine="Sync" if compare_versions(
+            get_kernel_version(), "5.10.0") > 0 else "Async"
+    )
+
+    if compare_versions(get_kernel_version(), "5.10.0") < 0:
+        # The Async engine is not supported for older kernels.
+        assert test_microvm.api_session.is_status_bad_request(
+            response.status_code)
+
+        assert "Received Error. Status code: 400 Bad Request. Message: Unable"\
+            " to create the block device FileEngine(UnsupportedEngine(Async))"\
+            in test_microvm.log_data
+
+        # Now configure the default engine type and check that it works.
+        response = test_microvm.drive.put_with_default_io_engine(
+            drive_id='rootfs',
+            path_on_host=test_microvm.create_jailed_resource(
+                test_microvm.rootfs_file),
+            is_root_device=True,
+            is_read_only=False,
+        )
+
+    assert test_microvm.api_session.is_status_no_content(
+        response.status_code)
+
+    test_microvm.start()
+
+    ssh_conn = net_tools.SSHConnection(test_microvm.ssh_config)
+
+    # Execute a simple command to check that the guest booted successfully.
+    rc, _, stderr = ssh_conn.execute_command("sync")
+    assert rc == 0
+    assert stderr.read() == ''
+
+    assert test_microvm.full_cfg.get().json(
+    )['drives'][0]['io_engine'] == "Sync"
 
 
 def test_api_put_update_pre_boot(test_microvm_with_api):
@@ -717,7 +778,8 @@ def test_drive_patch(test_microvm_with_api):
         path_on_host=test_microvm.create_jailed_resource(fs.path),
         is_root_device=False,
         is_read_only=False,
-        io_engine="Sync"
+        io_engine="Async" if compare_versions(
+            get_kernel_version(), "5.10.0") >= 0 else "Sync"
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -798,6 +860,15 @@ def _drive_patch(test_microvm):
     )
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert "unknown field `is_read_only`" in response.text
+
+    # Cannot patch io_engine post boot.
+    response = test_microvm.drive.patch(
+        drive_id='scratch',
+        path_on_host='foo.bar',
+        io_engine='Sync'
+    )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "unknown field `io_engine`" in response.text
 
     # Updates to `is_root_device` with a valid value are not allowed.
     response = test_microvm.drive.patch(
@@ -898,7 +969,8 @@ def _drive_patch(test_microvm):
         'partuuid': None,
         'is_read_only': False,
         'cache_type': 'Unsafe',
-        'io_engine': 'Sync',
+        'io_engine': 'Async' if compare_versions(
+            get_kernel_version(), "5.10.0") >= 0 else 'Sync',
         'rate_limiter': {
             'bandwidth': {
                 'size': 5000,
