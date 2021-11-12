@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import platform
+import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
@@ -115,9 +116,14 @@ def snapshot_create_measurements(vm_type, snapshot_type):
 def snapshot_resume_measurements(vm_type):
     """Define measurements for snapshot resume tests."""
     load_latency = LOAD_LATENCY_BASELINES[platform.machine()][vm_type]
-    # Host kernels >= 5.4 add an up to ~30ms latency.
-    # See: https://github.com/firecracker-microvm/firecracker/issues/2129
+
+    if compare_versions(get_kernel_version(), "5.10.0") > 0:
+        # There is added latency caused by the io_uring syscalls used by the
+        # block device.
+        load_latency["target"] += 110
     if compare_versions(get_kernel_version(), "5.4.0") > 0:
+        # Host kernels >= 5.4 add an up to ~30ms latency.
+        # See: https://github.com/firecracker-microvm/firecracker/issues/2129
         load_latency["target"] += 30
 
     latency = types.MeasurementDef.create_measurement(
@@ -582,6 +588,10 @@ def test_snapshot_resume_latency(network_config,
     test_matrix.run_test(_test_snapshot_resume_latency)
 
 
+@pytest.mark.skip(
+    reason="Need to upload new binaries in S3 for v.1.0, but we first need to"
+    "finalise io_uring snapshotting support"
+)
 def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper):
     """
     Test scenario: Older snapshot load performance measurement.
