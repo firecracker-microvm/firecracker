@@ -215,6 +215,7 @@ mod tests {
     use crate::virtio::mmio::tests::DummyDevice;
     use crate::virtio::{net, Block, Net, Vsock, VsockUnixBackend};
 
+    use crate::virtio::block::device::FileEngineType;
     use crate::virtio::block::test_utils::default_block_with_path;
     use crate::virtio::test_utils::default_mem;
     use utils::tempfile::TempFile;
@@ -389,7 +390,10 @@ mod tests {
         // Create backing file.
         let f = TempFile::new().unwrap();
         f.as_file().set_len(0x1000).unwrap();
-        let block = default_block_with_path(f.as_path().to_str().unwrap().to_string());
+        let block = default_block_with_path(
+            f.as_path().to_str().unwrap().to_string(),
+            FileEngineType::default(),
+        );
         let block = Arc::new(Mutex::new(block));
         let mmio_transport = MmioTransport::new(mem.clone(), block.clone());
 

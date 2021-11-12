@@ -741,6 +741,7 @@ pub(crate) mod tests {
             \"partuuid\": \"string\", \
             \"is_read_only\": true, \
             \"cache_type\": \"Unsafe\", \
+            \"io_engine\": \"Sync\", \
             \"rate_limiter\": { \
                 \"bandwidth\": { \
                     \"size\": 0, \

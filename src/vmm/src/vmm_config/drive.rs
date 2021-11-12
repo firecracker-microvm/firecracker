@@ -14,6 +14,7 @@ use crate::Error as VmmError;
 use devices::virtio::block::Error as BlockError;
 use devices::virtio::Block;
 
+pub use devices::virtio::block::device::FileEngineType;
 pub use devices::virtio::CacheType;
 
 use serde::{Deserialize, Serialize};
@@ -80,10 +81,14 @@ pub struct BlockDeviceConfig {
     pub is_read_only: bool,
     /// If set to true, the drive will ignore flush requests coming from
     /// the guest driver.
-    #[serde(default = "CacheType::default")]
+    #[serde(default)]
     pub cache_type: CacheType,
     /// Rate Limiter for I/O operations.
     pub rate_limiter: Option<RateLimiterConfig>,
+    /// The type of IO engine used by the device.
+    #[serde(default)]
+    #[serde(rename = "io_engine")]
+    pub file_engine_type: FileEngineType,
 }
 
 impl From<&Block> for BlockDeviceConfig {
@@ -97,6 +102,7 @@ impl From<&Block> for BlockDeviceConfig {
             is_read_only: block.is_read_only(),
             cache_type: block.cache_type(),
             rate_limiter: rl.into_option(),
+            file_engine_type: block.file_engine_type(),
         }
     }
 }
@@ -215,6 +221,7 @@ impl BlockBuilder {
             block_device_config.is_read_only,
             block_device_config.is_root_device,
             rate_limiter.unwrap_or_default(),
+            block_device_config.file_engine_type,
         )
         .map_err(DriveError::CreateBlockDevice)
     }
@@ -253,6 +260,7 @@ mod tests {
                 is_read_only: self.is_read_only,
                 drive_id: self.drive_id.clone(),
                 rate_limiter: None,
+                file_engine_type: FileEngineType::default(),
             }
         }
     }
@@ -276,6 +284,7 @@ mod tests {
             is_read_only: false,
             drive_id: dummy_id.clone(),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -306,6 +315,7 @@ mod tests {
             is_read_only: true,
             drive_id: String::from("1"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -333,6 +343,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -345,6 +356,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -368,6 +380,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -380,6 +393,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let dummy_file_3 = TempFile::new().unwrap();
@@ -392,6 +406,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("3"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -429,6 +444,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -441,6 +457,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let dummy_file_3 = TempFile::new().unwrap();
@@ -453,6 +470,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("3"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -491,6 +509,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let dummy_file_2 = TempFile::new().unwrap();
@@ -503,6 +522,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let mut block_devs = BlockBuilder::new();
@@ -561,6 +581,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("1"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
         // Switch roots and add a PARTUUID for the new one.
         let mut root_block_device_old = root_block_device;
@@ -573,6 +594,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::from("2"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
         assert!(block_devs.insert(root_block_device_old).is_ok());
         let root_block_id = root_block_device_new.drive_id.clone();
@@ -594,6 +616,7 @@ mod tests {
             is_read_only: true,
             drive_id: String::from("1"),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         };
 
         let mut block_devs = BlockBuilder::new();
