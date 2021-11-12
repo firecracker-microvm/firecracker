@@ -196,6 +196,11 @@ class Microvm:
             self._cpu_load_monitor.check_samples()
 
     @property
+    def firecracker_version(self):
+        """Return the version of the Firecracker executable."""
+        return self.version.get()
+
+    @property
     def api_session(self):
         """Return the api session associated with this microVM."""
         return self._api_session
@@ -478,7 +483,6 @@ class Microvm:
         self.balloon = Balloon(self._api_socket, self._api_session)
         self.boot = BootSource(self._api_socket, self._api_session)
         self.desc_inst = DescribeInstance(self._api_socket, self._api_session)
-        self.drive = Drive(self._api_socket, self._api_session)
         self.full_cfg = FullConfig(self._api_socket, self._api_session)
         self.logger = Logger(self._api_socket, self._api_session)
         self.machine_cfg = MachineConfigure(
@@ -489,7 +493,10 @@ class Microvm:
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
         self.snapshot = SnapshotHelper(self._api_socket, self._api_session)
-        self.version = InstanceVersion(self._api_socket, self._api_session)
+        self.version = InstanceVersion(
+            self._api_socket, self._fc_binary_path, self._api_session)
+        self.drive = Drive(self._api_socket, self._api_session,
+                           self.firecracker_version)
         self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
 
@@ -594,7 +601,8 @@ class Microvm:
         add_root_device: bool = True,
         boot_args: str = None,
         use_initrd: bool = False,
-        track_dirty_pages: bool = False
+        track_dirty_pages: bool = False,
+        rootfs_io_engine=None
     ):
         """Shortcut for quickly configuring a microVM.
 
@@ -640,7 +648,8 @@ class Microvm:
                 drive_id='rootfs',
                 path_on_host=self.create_jailed_resource(self.rootfs_file),
                 is_root_device=True,
-                is_read_only=False
+                is_read_only=False,
+                io_engine=rootfs_io_engine
             )
             assert self._api_session \
                        .is_status_no_content(response.status_code), \
@@ -685,6 +694,7 @@ class Microvm:
             is_read_only=False,
             partuuid=None,
             cache_type=None,
+            io_engine=None,
             use_ramdisk=False,
     ):
         """Add a block device."""
@@ -697,7 +707,8 @@ class Microvm:
             is_root_device=root_device,
             is_read_only=is_read_only,
             partuuid=partuuid,
-            cache_type=cache_type
+            cache_type=cache_type,
+            io_engine=io_engine
         )
         assert self.api_session.is_status_no_content(response.status_code)
 
