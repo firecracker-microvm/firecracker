@@ -64,10 +64,9 @@ impl<T> WrappedUserData<T> {
 }
 
 impl<T> AsyncFileEngine<T> {
-    #[allow(unused)]
     pub fn from_file(file: File) -> Result<AsyncFileEngine<T>, Error> {
         let completion_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-        let mut ring = IoUring::new(
+        let ring = IoUring::new(
             IO_URING_NUM_ENTRIES as u32,
             vec![&file],
             vec![

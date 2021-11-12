@@ -4,9 +4,12 @@
 pub mod async_io;
 pub mod sync_io;
 
+use std::fs::File;
+
 pub use self::async_io::AsyncFileEngine;
 pub use self::sync_io::SyncFileEngine;
-use std::fs::File;
+use crate::virtio::block::device::FileEngineType;
+
 use vm_memory::{GuestAddress, GuestMemoryMmap};
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -25,6 +28,8 @@ pub enum FileEngineOk<T> {
 pub enum Error {
     Sync(sync_io::Error),
     Async(async_io::Error),
+    UnsupportedEngine(FileEngineType),
+    GetKernelVersion(utils::kernel_version::Error),
 }
 
 impl Error {
@@ -49,20 +54,19 @@ pub enum FileEngine<T> {
 }
 
 impl<T> FileEngine<T> {
-    #[cfg(not(test))]
-    pub fn from_file(file: File) -> Result<FileEngine<T>, Error> {
-        Self::from_file_sync(file)
-    }
-
-    pub fn from_file_sync(file: File) -> Result<FileEngine<T>, Error> {
-        Ok(FileEngine::Sync(SyncFileEngine::from_file(file)))
-    }
-
-    #[allow(unused)]
-    pub fn from_file_async(file: File) -> Result<FileEngine<T>, Error> {
-        Ok(FileEngine::Async(
-            AsyncFileEngine::from_file(file).map_err(Error::Async)?,
-        ))
+    pub fn from_file(file: File, engine_type: FileEngineType) -> Result<FileEngine<T>, Error> {
+        if !engine_type
+            .is_supported()
+            .map_err(Error::GetKernelVersion)?
+        {
+            return Err(Error::UnsupportedEngine(engine_type));
+        }
+        match engine_type {
+            FileEngineType::Async => Ok(FileEngine::Async(
+                AsyncFileEngine::from_file(file).map_err(Error::Async)?,
+            )),
+            FileEngineType::Sync => Ok(FileEngine::Sync(SyncFileEngine::from_file(file))),
+        }
     }
 
     pub fn file(&self) -> &File {
@@ -169,27 +173,16 @@ pub mod tests {
     use std::os::unix::io::FromRawFd;
 
     use super::*;
+    use crate::virtio::block::device::FileEngineType;
+    use crate::virtio::block::request::PendingRequest;
     use utils::kernel_version::KernelVersion;
     use utils::tempfile::TempFile;
+    use utils::{skip_if_kernel_ge_5_10, skip_if_kernel_lt_5_10};
     use vm_memory::{Bitmap, Bytes, GuestMemory};
 
     const FILE_LEN: u32 = 1024;
     // 2 pages of memory should be enough to test read/write ops and also dirty tracking.
     const MEM_LEN: usize = 8192;
-
-    pub fn is_kernel_lt_5_10() -> bool {
-        KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0)
-    }
-
-    impl<T> FileEngine<T> {
-        pub fn from_file(file: File) -> Result<FileEngine<T>, Error> {
-            if is_kernel_lt_5_10() {
-                return Self::from_file_sync(file);
-            }
-
-            Self::from_file_async(file)
-        }
-    }
 
     macro_rules! assert_err {
         ($expression:expr, $($pattern:tt)+) => {
@@ -254,11 +247,24 @@ pub mod tests {
     }
 
     #[test]
+    fn test_unsupported_engine_type() {
+        skip_if_kernel_ge_5_10!();
+
+        assert!(matches!(
+            FileEngine::<PendingRequest>::from_file(
+                TempFile::new().unwrap().into_file(),
+                FileEngineType::Async
+            ),
+            Err(Error::UnsupportedEngine(FileEngineType::Async))
+        ));
+    }
+
+    #[test]
     fn test_sync() {
         // Check invalid file
         let mem = create_mem();
         let file = unsafe { File::from_raw_fd(-2) };
-        let mut engine = FileEngine::from_file_sync(file).unwrap();
+        let mut engine = FileEngine::from_file(file, FileEngineType::Sync).unwrap();
         let res = engine.read(0, &mem, GuestAddress(0), 0, ());
         assert_err!(res, Error::Sync(sync_io::Error::Seek(_e)));
         let res = engine.write(0, &mem, GuestAddress(0), 0, ());
@@ -268,7 +274,7 @@ pub mod tests {
 
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::from_file_sync(file).unwrap();
+        let mut engine = FileEngine::from_file(file, FileEngineType::Sync).unwrap();
 
         let data = utils::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
@@ -335,17 +341,15 @@ pub mod tests {
 
     #[test]
     fn test_async() {
-        if is_kernel_lt_5_10() {
-            return;
-        }
+        skip_if_kernel_lt_5_10!();
 
         // Check invalid file
         let file = unsafe { File::from_raw_fd(-2) };
-        assert!(FileEngine::<()>::from_file_async(file).is_err());
+        assert!(FileEngine::<()>::from_file(file, FileEngineType::Async).is_err());
 
         // Create backing file.
         let file = TempFile::new().unwrap().into_file();
-        let mut engine = FileEngine::<()>::from_file_async(file).unwrap();
+        let mut engine = FileEngine::<()>::from_file(file, FileEngineType::Async).unwrap();
 
         let data = utils::rand::rand_alphanumerics(FILE_LEN as usize)
             .as_bytes()
