@@ -81,6 +81,15 @@ macro_rules! skip_if_kernel_lt_5_10 {
     };
 }
 
+#[macro_export]
+macro_rules! skip_if_kernel_ge_5_10 {
+    () => {
+        if KernelVersion::get().unwrap() >= KernelVersion::new(5, 10, 0) {
+            return;
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
