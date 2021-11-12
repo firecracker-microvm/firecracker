@@ -10,6 +10,7 @@ use std::sync::Arc;
 use logger::{error, warn};
 use rate_limiter::{persist::RateLimiterState, RateLimiter};
 use snapshot::Persist;
+use utils::kernel_version::min_kernel_version_for_io_uring;
 use versionize::{VersionMap, Versionize, VersionizeError, VersionizeResult};
 use versionize_derive::Versionize;
 use virtio_gen::virtio_blk::VIRTIO_BLK_F_RO;
@@ -46,6 +47,39 @@ impl From<CacheTypeState> for CacheType {
     }
 }
 
+#[derive(Clone, Copy, Debug, Versionize, PartialEq)]
+// NOTICE: Any changes to this structure require a snapshot version bump.
+pub enum FileEngineTypeState {
+    Sync,
+    Async,
+}
+
+impl From<FileEngineType> for FileEngineTypeState {
+    fn from(file_engine_type: FileEngineType) -> Self {
+        match file_engine_type {
+            FileEngineType::Sync => FileEngineTypeState::Sync,
+            FileEngineType::Async => FileEngineTypeState::Async,
+        }
+    }
+}
+
+impl From<FileEngineTypeState> for FileEngineType {
+    fn from(file_engine_type_state: FileEngineTypeState) -> Self {
+        match file_engine_type_state {
+            FileEngineTypeState::Sync => FileEngineType::Sync,
+            FileEngineTypeState::Async => FileEngineType::Async,
+        }
+    }
+}
+
+impl Default for FileEngineTypeState {
+    fn default() -> Self {
+        // If the snap version does not contain the `FileEngineType`, it must have been snapshotted
+        // on a VM using the Sync backend.
+        FileEngineTypeState::Sync
+    }
+}
+
 #[derive(Clone, Versionize)]
 // NOTICE: Any changes to this structure require a snapshot version bump.
 pub struct BlockState {
@@ -61,6 +95,11 @@ pub struct BlockState {
     disk_path: String,
     virtio_state: VirtioDeviceState,
     rate_limiter_state: RateLimiterState,
+    #[version(start = 3)]
+    // We don't need to specify a `ser_fn` for the `file_engine_type` since snapshots created in
+    // v1.0 are incompatible with older FC versions (due to incompatible notification suppression
+    // feature).
+    file_engine_type: FileEngineTypeState,
 }
 
 impl BlockState {
@@ -106,6 +145,7 @@ impl Persist<'_> for Block {
             disk_path: self.disk.file_path().clone(),
             virtio_state: VirtioDeviceState::from_device(self),
             rate_limiter_state: self.rate_limiter.save(),
+            file_engine_type: FileEngineTypeState::from(self.file_engine_type()),
         }
     }
 
@@ -125,8 +165,32 @@ impl Persist<'_> for Block {
             is_disk_read_only,
             state.root_device,
             rate_limiter,
-            FileEngineType::default(),
-        )?;
+            state.file_engine_type.into(),
+        )
+        .or_else(|err| match err {
+            Error::FileEngine(io::Error::UnsupportedEngine(FileEngineType::Async)) => {
+                // If the kernel does not support `Async`, fallback to `Sync`.
+                warn!(
+                    "The \"Async\" io_engine is supported for kernels starting with {}. \
+                    Defaulting to \"Sync\" mode.",
+                    min_kernel_version_for_io_uring()
+                );
+
+                let rate_limiter = RateLimiter::restore((), &state.rate_limiter_state)
+                    .map_err(Error::RateLimiter)?;
+                Block::new(
+                    state.id.clone(),
+                    state.partuuid.clone(),
+                    state.cache_type.into(),
+                    state.disk_path.clone(),
+                    is_disk_read_only,
+                    state.root_device,
+                    rate_limiter,
+                    FileEngineType::Sync,
+                )
+            }
+            other_err => Err(other_err),
+        })?;
 
         block.queues = state
             .virtio_state
@@ -214,6 +278,71 @@ mod tests {
         assert!(<Block as Persist>::save(&block)
             .serialize(&mut mem.as_mut_slice(), &version_map, 3)
             .is_ok());
+    }
+
+    #[test]
+    fn test_file_engine_type() {
+        // Test conversions between FileEngineType and FileEngineTypeState.
+        assert_eq!(
+            FileEngineTypeState::Async,
+            FileEngineTypeState::from(FileEngineType::Async)
+        );
+        assert_eq!(
+            FileEngineTypeState::Sync,
+            FileEngineTypeState::from(FileEngineType::Sync)
+        );
+        assert_eq!(FileEngineType::Async, FileEngineTypeState::Async.into());
+        assert_eq!(FileEngineType::Sync, FileEngineTypeState::Sync.into());
+        // Test default impl.
+        assert_eq!(FileEngineTypeState::default(), FileEngineTypeState::Sync);
+
+        let f = TempFile::new().unwrap();
+        f.as_file().set_len(0x1000).unwrap();
+        let mut version_map = VersionMap::new();
+        version_map
+            .new_version()
+            .set_type_version(BlockState::type_id(), 3);
+
+        if !FileEngineType::Async.is_supported().unwrap() {
+            // Test what happens when restoring an Async engine on a kernel that does not support
+            // it.
+
+            let block = Block::new(
+                "test".to_string(),
+                None,
+                CacheType::Unsafe,
+                f.as_path().to_str().unwrap().to_string(),
+                false,
+                false,
+                RateLimiter::default(),
+                // Need to use Sync because it will otherwise return an error.
+                // We'll overwrite the state instead.
+                FileEngineType::Sync,
+            )
+            .unwrap();
+
+            // Save the block device.
+            let mut mem = vec![0; 4096];
+
+            let mut block_state = <Block as Persist>::save(&block);
+            // Overwrite the engine type state with Async.
+            block_state.file_engine_type = FileEngineTypeState::Async;
+
+            block_state
+                .serialize(&mut mem.as_mut_slice(), &version_map, 2)
+                .unwrap();
+
+            // Restore the block device.
+            let restored_block = Block::restore(
+                BlockConstructorArgs { mem: default_mem() },
+                &BlockState::deserialize(&mut mem.as_slice(), &version_map, 2).unwrap(),
+            )
+            .unwrap();
+
+            // On kernels that don't support io_uring, the restore() function will catch the
+            // `UnsupportedEngine` error and default to Sync.
+            assert_eq!(restored_block.file_engine_type(), FileEngineType::Sync);
+        }
     }
 
     #[test]

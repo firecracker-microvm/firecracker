@@ -72,6 +72,16 @@ impl KernelVersion {
     }
 }
 
+impl std::fmt::Display for KernelVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+pub fn min_kernel_version_for_io_uring() -> KernelVersion {
+    KernelVersion::new(5, 10, 0)
+}
+
 #[macro_export]
 macro_rules! skip_if_kernel_lt_5_10 {
     () => {
@@ -143,5 +153,10 @@ mod tests {
         assert!(KernelVersion::new(5, 0, 20) == KernelVersion::new(5, 0, 20));
         assert!(KernelVersion::new(5, 0, 20) >= KernelVersion::new(5, 0, 20));
         assert!(KernelVersion::new(5, 0, 20) <= KernelVersion::new(5, 0, 20));
+    }
+
+    #[test]
+    fn test_display() {
+        assert_eq!(format!("{}", KernelVersion::new(5, 8, 80)), "5.8.80");
     }
 }
