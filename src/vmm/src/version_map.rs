@@ -42,6 +42,7 @@ lazy_static! {
 
         // v1.0 state change mappings
         version_map.new_version().set_type_version(QueueState::type_id(), 2);
+        version_map.set_type_version(BlockState::type_id(), 3);
 
         version_map
     };
