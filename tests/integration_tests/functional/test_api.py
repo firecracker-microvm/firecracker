@@ -706,7 +706,7 @@ def test_drive_patch(test_microvm_with_api):
 
     # Sets up the microVM with 2 vCPUs, 256 MiB of RAM and
     # a root file system with the rw permission.
-    test_microvm.basic_config()
+    test_microvm.basic_config(rootfs_io_engine="Sync")
 
     # The drive to be patched.
     fs = drive_tools.FilesystemFile(
@@ -716,7 +716,8 @@ def test_drive_patch(test_microvm_with_api):
         drive_id='scratch',
         path_on_host=test_microvm.create_jailed_resource(fs.path),
         is_root_device=False,
-        is_read_only=False
+        is_read_only=False,
+        io_engine="Sync"
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -888,6 +889,7 @@ def _drive_patch(test_microvm):
         'partuuid': None,
         'is_read_only': False,
         'cache_type': 'Unsafe',
+        'io_engine': 'Sync',
         'rate_limiter': None
     }, {
         'drive_id': 'scratch',
@@ -896,6 +898,7 @@ def _drive_patch(test_microvm):
         'partuuid': None,
         'is_read_only': False,
         'cache_type': 'Unsafe',
+        'io_engine': 'Sync',
         'rate_limiter': {
             'bandwidth': {
                 'size': 5000,
@@ -922,7 +925,7 @@ def test_api_version(test_microvm_with_api):
     test_microvm.basic_config()
 
     # Getting the VM version should be available pre-boot.
-    preboot_response = test_microvm.version.get()
+    preboot_response = test_microvm.version.get_from_api()
     assert test_microvm.api_session.is_status_ok(preboot_response.status_code)
     # Check that the response contains the version.
     assert 'firecracker_version' in preboot_response.json()
@@ -931,7 +934,7 @@ def test_api_version(test_microvm_with_api):
     test_microvm.start()
 
     # Getting the VM version should be available post-boot.
-    postboot_response = test_microvm.version.get()
+    postboot_response = test_microvm.version.get_from_api()
     assert test_microvm.api_session.is_status_ok(postboot_response.status_code)
     # Check that the response contains the version.
     assert 'firecracker_version' in postboot_response.json()
@@ -1127,7 +1130,7 @@ def test_get_full_config(test_microvm_with_api):
 
     test_microvm.spawn()
     # Basic config also implies a root block device.
-    test_microvm.basic_config()
+    test_microvm.basic_config(rootfs_io_engine="Sync")
     expected_cfg['machine-config'] = {
         'vcpu_count': 2,
         'mem_size_mib': 256,
@@ -1145,7 +1148,8 @@ def test_get_full_config(test_microvm_with_api):
         'partuuid': None,
         'is_read_only': False,
         'cache_type': 'Unsafe',
-        'rate_limiter': None
+        'rate_limiter': None,
+        'io_engine': 'Sync'
     }]
 
     # Add a memory balloon device.

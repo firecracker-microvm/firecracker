@@ -3,7 +3,9 @@
 """Defines classes for all the resources a microvm could need attaching."""
 
 import urllib
+import re
 
+from framework.utils import compare_versions, get_kernel_version, run_cmd
 from framework.defs import API_USOCKET_URL_PREFIX
 
 
@@ -192,16 +194,31 @@ class Drive():
 
     DRIVE_CFG_RESOURCE = 'drives'
 
-    def __init__(self, api_usocket_full_name, api_session):
+    def __init__(
+        self,
+        api_usocket_full_name,
+        api_session,
+        firecracker_version
+    ):
         """Specify the information needed for sending API requests."""
         url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
         api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
 
         self._drive_cfg_url = api_url + self.DRIVE_CFG_RESOURCE
         self._api_session = api_session
+        self._firecracker_version = firecracker_version
 
     def put(self, **args):
         """Attach a block device or update the details of a previous one."""
+        # Default the io engine to Async on kernels > 5.10 so that we
+        # make sure to exercise both Sync and Async behaviour in the CI.
+        # Also check the FC version to make sure that it has support for
+        # configurable io_engine.
+        if compare_versions(get_kernel_version(), "5.10.0") > 0 and \
+            compare_versions(self._firecracker_version, "0.25.0") > 0 and \
+                ('io_engine' not in args or args['io_engine'] is None):
+            args['io_engine'] = 'Async'
+
         datax = self.create_json(**args)
 
         return self._api_session.put(
@@ -232,7 +249,8 @@ class Drive():
             partuuid=None,
             is_read_only=None,
             rate_limiter=None,
-            cache_type=None):
+            cache_type=None,
+            io_engine=None):
         """Compose the json associated to this type of API request."""
         datax = {}
 
@@ -256,6 +274,9 @@ class Drive():
 
         if rate_limiter is not None:
             datax['rate_limiter'] = rate_limiter
+
+        if io_engine is not None:
+            datax['io_engine'] = io_engine
 
         return datax
 
@@ -289,16 +310,26 @@ class InstanceVersion():
 
     VERSION_CFG_RESOURCE = 'version'
 
-    def __init__(self, api_usocket_full_name, api_session):
+    def __init__(self, api_usocket_full_name, fc_binary_path, api_session):
         """Specify the information needed for sending API requests."""
         url_encoded_path = urllib.parse.quote_plus(api_usocket_full_name)
         api_url = API_USOCKET_URL_PREFIX + url_encoded_path + '/'
 
         self._version_cfg_url = api_url + self.VERSION_CFG_RESOURCE
+        self._fc_binary_path = fc_binary_path
         self._api_session = api_session
 
     def get(self):
-        """Get the version of the current microvm."""
+        """Get the version of the current microvm, from the cmdline."""
+        _, stdout, _ = run_cmd(
+            "{} --version".format(self._fc_binary_path))
+
+        return re.match(
+            r"^Firecracker v([0-9]+\.[0-9]+(\.[0-9]+)?)",
+            stdout.partition('\n')[0]).group(1)
+
+    def get_from_api(self):
+        """Get the version of the current microvm, from the API."""
         return self._api_session.get(
             self._version_cfg_url
         )
