@@ -354,7 +354,7 @@ mod tests {
     use super::*;
     use crate::resources::VmResources;
     use crate::vmm_config::boot_source::{BootConfig, BootSourceConfig, DEFAULT_KERNEL_CMDLINE};
-    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig};
+    use crate::vmm_config::drive::{BlockBuilder, BlockDeviceConfig, FileEngineType};
     use crate::vmm_config::machine_config::{CpuFeaturesTemplate, VmConfig, VmConfigError};
     use crate::vmm_config::net::{NetBuilder, NetworkInterfaceConfig};
     use crate::vmm_config::vsock::tests::default_config;
@@ -399,6 +399,7 @@ mod tests {
                 cache_type: CacheType::Unsafe,
                 is_read_only: false,
                 rate_limiter: Some(RateLimiterConfig::default()),
+                file_engine_type: FileEngineType::default(),
             },
             tmp_file,
         )

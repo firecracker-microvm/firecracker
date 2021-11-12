@@ -17,6 +17,7 @@ use vm_memory::GuestMemoryMmap;
 
 use super::*;
 
+use crate::virtio::block::device::FileEngineType;
 use crate::virtio::persist::VirtioDeviceState;
 use crate::virtio::{DeviceState, TYPE_BLOCK};
 
@@ -124,6 +125,7 @@ impl Persist<'_> for Block {
             is_disk_read_only,
             state.root_device,
             rate_limiter,
+            FileEngineType::default(),
         )?;
 
         block.queues = state
@@ -197,6 +199,7 @@ mod tests {
             false,
             false,
             RateLimiter::default(),
+            FileEngineType::default(),
         )
         .unwrap();
 
@@ -228,6 +231,7 @@ mod tests {
             false,
             false,
             RateLimiter::default(),
+            FileEngineType::default(),
         )
         .unwrap();
         let guest_mem = default_mem();

@@ -18,6 +18,7 @@ use std::sync::Arc;
 use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter};
 use utils::eventfd::EventFd;
+use utils::kernel_version::KernelVersion;
 use virtio_gen::virtio_blk::*;
 use vm_memory::GuestMemoryMmap;
 
@@ -51,6 +52,29 @@ impl Default for CacheType {
     }
 }
 
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub enum FileEngineType {
+    /// Use an Async engine, based on io_uring.
+    Async,
+    /// Use a Sync engine, based on blocking system calls.
+    Sync,
+}
+
+impl Default for FileEngineType {
+    fn default() -> Self {
+        Self::Sync
+    }
+}
+
+impl FileEngineType {
+    pub fn is_supported(&self) -> result::Result<bool, utils::kernel_version::Error> {
+        match self {
+            Self::Async if KernelVersion::get()? < KernelVersion::new(5, 10, 0) => Ok(false),
+            _ => Ok(true),
+        }
+    }
+}
+
 /// Helper object for setting up all `Block` fields derived from its backing file.
 pub(crate) struct DiskProperties {
     cache_type: CacheType,
@@ -65,6 +89,7 @@ impl DiskProperties {
         disk_image_path: String,
         is_disk_read_only: bool,
         cache_type: CacheType,
+        file_engine_type: FileEngineType,
     ) -> result::Result<Self, Error> {
         let mut disk_image = OpenOptions::new()
             .read(true)
@@ -90,7 +115,8 @@ impl DiskProperties {
             nsectors: disk_size >> SECTOR_SHIFT,
             image_id: Self::build_disk_image_id(&disk_image),
             file_path: disk_image_path,
-            file_engine: FileEngine::from_file(disk_image).map_err(Error::FileEngine)?,
+            file_engine: FileEngine::from_file(disk_image, file_engine_type)
+                .map_err(Error::FileEngine)?,
         })
     }
 
@@ -206,6 +232,7 @@ impl Block {
     /// Create a new virtio block device that operates on the given file.
     ///
     /// The given file must be seekable and sizable.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
         partuuid: Option<String>,
@@ -214,8 +241,14 @@ impl Block {
         is_disk_read_only: bool,
         is_disk_root: bool,
         rate_limiter: RateLimiter,
+        file_engine_type: FileEngineType,
     ) -> result::Result<Block, Error> {
-        let disk_properties = DiskProperties::new(disk_image_path, is_disk_read_only, cache_type)?;
+        let disk_properties = DiskProperties::new(
+            disk_image_path,
+            is_disk_read_only,
+            cache_type,
+            file_engine_type,
+        )?;
 
         let mut avail_features = (1u64 << VIRTIO_F_VERSION_1) | (1u64 << VIRTIO_RING_F_EVENT_IDX);
 
@@ -415,8 +448,12 @@ impl Block {
 
     /// Update the backing file and the config space of the block device.
     pub fn update_disk_image(&mut self, disk_image_path: String) -> result::Result<(), Error> {
-        let disk_properties =
-            DiskProperties::new(disk_image_path, self.is_read_only(), self.cache_type())?;
+        let disk_properties = DiskProperties::new(
+            disk_image_path,
+            self.is_read_only(),
+            self.cache_type(),
+            self.file_engine_type(),
+        )?;
         self.disk = disk_properties;
         self.config_space = self.disk.virtio_block_config_space();
 
@@ -465,6 +502,13 @@ impl Block {
     /// Provides non-mutable reference to this device's rate limiter.
     pub fn rate_limiter(&self) -> &RateLimiter {
         &self.rate_limiter
+    }
+
+    pub fn file_engine_type(&self) -> FileEngineType {
+        match self.disk.file_engine() {
+            FileEngine::Sync(_) => FileEngineType::Sync,
+            FileEngine::Async(_) => FileEngineType::Async,
+        }
     }
 }
 
@@ -574,17 +618,18 @@ pub(crate) mod tests {
     use std::time::Duration;
     use std::u32;
 
-    use super::super::io::tests::is_kernel_lt_5_10;
     use super::*;
     use crate::virtio::queue::tests::*;
     use rate_limiter::TokenType;
+    use utils::skip_if_kernel_lt_5_10;
     use utils::tempfile::TempFile;
     use vm_memory::{Address, Bytes, GuestAddress};
 
     use crate::check_metric_after_block;
     use crate::virtio::block::test_utils::{
-        default_block, set_queue, set_rate_limiter, simulate_async_completion_event,
-        simulate_queue_and_async_completion_events, simulate_queue_event,
+        default_block, default_engine_type_for_kv, set_queue, set_rate_limiter,
+        simulate_async_completion_event, simulate_queue_and_async_completion_events,
+        simulate_queue_event,
     };
     use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
     use crate::virtio::IO_URING_NUM_ENTRIES;
@@ -600,6 +645,7 @@ pub(crate) mod tests {
             String::from(f.as_path().to_str().unwrap()),
             true,
             CacheType::Unsafe,
+            default_engine_type_for_kv(),
         )
         .unwrap();
 
@@ -613,14 +659,18 @@ pub(crate) mod tests {
         // Testing `backing_file.virtio_block_disk_image_id()` implies
         // duplicating that logic in tests, so skipping it.
 
-        assert!(
-            DiskProperties::new("invalid-disk-path".to_string(), true, CacheType::Unsafe).is_err()
-        );
+        assert!(DiskProperties::new(
+            "invalid-disk-path".to_string(),
+            true,
+            CacheType::Unsafe,
+            default_engine_type_for_kv(),
+        )
+        .is_err());
     }
 
     #[test]
     fn test_virtio_features() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
 
         assert_eq!(block.device_type(), TYPE_BLOCK);
 
@@ -641,7 +691,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_virtio_read_config() {
-        let block = default_block();
+        let block = default_block(default_engine_type_for_kv());
 
         let mut actual_config_space = [0u8; CONFIG_SPACE_SIZE];
         block.read_config(0, &mut actual_config_space);
@@ -664,7 +714,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_virtio_write_config() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
 
         let expected_config_space: [u8; CONFIG_SPACE_SIZE] =
             [0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
@@ -692,7 +742,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_invalid_request() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
@@ -717,7 +767,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_addr_out_of_bounds() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         // Default mem size is 0x10000
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
@@ -750,7 +800,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_request_parse_failures() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
@@ -799,7 +849,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_unsupported_request_type() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
@@ -828,7 +878,7 @@ pub(crate) mod tests {
     }
     #[test]
     fn test_end_of_region() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
@@ -862,7 +912,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_read_write() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
@@ -1084,7 +1134,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_flush() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
@@ -1128,7 +1178,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_get_device_id() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
@@ -1249,11 +1299,9 @@ pub(crate) mod tests {
     #[test]
     fn test_io_engine_throttling() {
         // skip this test if kernel < 5.10 since in this case the sync engine will be used.
-        if is_kernel_lt_5_10() {
-            return;
-        }
+        skip_if_kernel_lt_5_10!();
 
-        let mut block = default_block();
+        let mut block = default_block(FileEngineType::Async);
 
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
@@ -1286,7 +1334,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_bandwidth_rate_limiter() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
@@ -1352,7 +1400,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_ops_rate_limiter() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
@@ -1433,7 +1481,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_update_disk_image() {
-        let mut block = default_block();
+        let mut block = default_block(default_engine_type_for_kv());
         let f = TempFile::new().unwrap();
         let path = f.as_path();
         let mdata = metadata(&path).unwrap();

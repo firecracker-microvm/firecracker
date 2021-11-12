@@ -103,6 +103,7 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+    use crate::virtio::block::device::FileEngineType;
     use crate::virtio::block::test_utils::{
         default_block, set_queue, simulate_async_completion_event,
     };
@@ -115,7 +116,7 @@ pub mod tests {
     #[test]
     fn test_event_handler() {
         let mut event_manager = EventManager::new().unwrap();
-        let mut block = default_block();
+        let mut block = default_block(FileEngineType::default());
         let mem = default_mem();
         let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
         set_queue(&mut block, 0, vq.create_queue());
