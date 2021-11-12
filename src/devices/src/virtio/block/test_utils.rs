@@ -8,25 +8,36 @@ use std::thread;
 #[cfg(test)]
 use std::time::Duration;
 
+use crate::virtio::block::device::FileEngineType;
 #[cfg(test)]
 use crate::virtio::block::io::FileEngine;
 #[cfg(test)]
 use crate::virtio::IrqType;
 use crate::virtio::{Block, CacheType, Queue};
 use rate_limiter::RateLimiter;
+use utils::kernel_version::KernelVersion;
 use utils::tempfile::TempFile;
 
 /// Create a default Block instance to be used in tests.
-pub fn default_block() -> Block {
+pub fn default_block(file_engine_type: FileEngineType) -> Block {
     // Create backing file.
     let f = TempFile::new().unwrap();
     f.as_file().set_len(0x1000).unwrap();
 
-    default_block_with_path(f.as_path().to_str().unwrap().to_string())
+    default_block_with_path(f.as_path().to_str().unwrap().to_string(), file_engine_type)
+}
+
+/// Return the Async FileEngineType if supported by the host, otherwise default to Sync.
+pub fn default_engine_type_for_kv() -> FileEngineType {
+    if KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0) {
+        FileEngineType::Async
+    } else {
+        FileEngineType::Sync
+    }
 }
 
 /// Create a default Block instance using file at the specified path to be used in tests.
-pub fn default_block_with_path(path: String) -> Block {
+pub fn default_block_with_path(path: String, file_engine_type: FileEngineType) -> Block {
     // Rate limiting is enabled but with a high operation rate (10 million ops/s).
     let rate_limiter = RateLimiter::new(0, 0, 0, 100_000, 0, 10).unwrap();
 
@@ -40,6 +51,7 @@ pub fn default_block_with_path(path: String) -> Block {
         false,
         false,
         rate_limiter,
+        file_engine_type,
     )
     .unwrap()
 }

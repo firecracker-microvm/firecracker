@@ -700,7 +700,7 @@ impl RuntimeApiController {
 mod tests {
     use super::*;
     use crate::vmm_config::balloon::BalloonBuilder;
-    use crate::vmm_config::drive::CacheType;
+    use crate::vmm_config::drive::{CacheType, FileEngineType};
     use crate::vmm_config::logger::LoggerLevel;
     use crate::vmm_config::vsock::VsockBuilder;
     use devices::virtio::balloon::{BalloonConfig, Error as BalloonError};
@@ -1123,6 +1123,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::new(),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         });
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
@@ -1137,6 +1138,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::new(),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         });
         check_preboot_request_err(
             req,
@@ -1568,6 +1570,7 @@ mod tests {
                 is_read_only: false,
                 drive_id: String::new(),
                 rate_limiter: None,
+                file_engine_type: FileEngineType::default(),
             }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
@@ -1659,6 +1662,7 @@ mod tests {
             is_read_only: false,
             drive_id: String::new(),
             rate_limiter: None,
+            file_engine_type: FileEngineType::default(),
         });
         verify_load_snap_disallowed_after_boot_resources(req, "InsertBlockDevice");
 

@@ -11,6 +11,10 @@
 - Added metrics for accesses to deprecated HTTP and command line API endpoints.
 - Added permanent HTTP endpoint for `GET` on `/version` for getting the
   Firecracker version.
+- Added `io_engine` to the pre-boot block device configuration.
+  Possible values: `Sync` (the default option) or `Async` (only available for
+  kernels newer than 5.10.0). The `Async` variant introduces a block device
+  engine that uses io_uring for executing requests asynchronously.
 - Added `block.io_engine_throttled_events` metric for measuring the number of
   virtio events throttled because of the IO engine.
 
