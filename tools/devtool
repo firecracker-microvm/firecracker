@@ -1835,12 +1835,15 @@ generate_syscall_table_aarch64() {
         --user "$(id -u):$(id -g)" \
         --workdir "$CTR_KERNEL_DIR" \
         -- \
-            gcc -E -dM -D__ARCH_WANT_RENAMEAT -D__BITS_PER_LONG=64\
-                linux/arch/arm64/include/uapi/asm/unistd.h | grep "#define __NR_" |\
-                grep -v "__NR_syscalls" | grep -v "__NR_arch_specific_syscall" |\
-                awk -F '__NR_' '{print $2}' | sed $replace |\
+            gcc -Ilinux/include/uapi -E -dM -D__ARCH_WANT_RENAMEAT\
+                -D__BITS_PER_LONG=64\
+                linux/arch/arm64/include/uapi/asm/unistd.h |\
+                grep "#define __NR_" | grep -v "__NR_syscalls" |\
+                grep -v "__NR_arch_specific_syscall" |\
+                awk -F '__NR_' '{print $2}' |\
+                sed $replace |\
                 awk '{ print "    map.insert(\""$1"\".to_string(), "$2");" }' |\
-                sort >> $path_to_rust_file
+                sort -d >> $path_to_rust_file
     ret=$?
 
     [ $ret -ne 0 ] && return $ret
