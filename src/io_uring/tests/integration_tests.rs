@@ -6,8 +6,8 @@ use vm_memory::{Bytes, MmapRegion, VolatileMemory};
 
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
 use utils::eventfd::EventFd;
-use utils::kernel_version::KernelVersion;
-use utils::skip_if_kernel_lt_5_10;
+use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
+use utils::skip_if_io_uring_unsupported;
 use utils::tempfile::TempFile;
 
 mod test_utils;
@@ -21,7 +21,7 @@ const NUM_ENTRIES: u32 = 128;
 
 #[test]
 fn test_ring_new() {
-    skip_if_kernel_lt_5_10!();
+    skip_if_io_uring_unsupported!();
 
     // Invalid entries count: 0.
     assert!(matches!(
@@ -38,7 +38,7 @@ fn test_ring_new() {
 
 #[test]
 fn test_eventfd() {
-    skip_if_kernel_lt_5_10!();
+    skip_if_io_uring_unsupported!();
     // Test that events get delivered.
     let eventfd = EventFd::new(0).unwrap();
 
@@ -68,7 +68,7 @@ fn test_eventfd() {
 
 #[test]
 fn test_restrictions() {
-    skip_if_kernel_lt_5_10!();
+    skip_if_io_uring_unsupported!();
 
     // Check that only the allowlisted opcodes are permitted.
     {
@@ -102,7 +102,7 @@ fn test_restrictions() {
 
 #[test]
 fn test_ring_push() {
-    skip_if_kernel_lt_5_10!();
+    skip_if_io_uring_unsupported!();
 
     // Forgot to register file.
     {
@@ -160,7 +160,7 @@ fn test_ring_push() {
 
 #[test]
 fn test_ring_submit() {
-    skip_if_kernel_lt_5_10!();
+    skip_if_io_uring_unsupported!();
 
     {
         let file = TempFile::new().unwrap().into_file();
@@ -186,7 +186,7 @@ fn test_ring_submit() {
 
 #[test]
 fn test_submit_and_wait_all() {
-    skip_if_kernel_lt_5_10!();
+    skip_if_io_uring_unsupported!();
 
     let file = TempFile::new().unwrap().into_file();
     let mut ring = IoUring::new(NUM_ENTRIES, vec![&file], vec![], None).unwrap();
@@ -228,7 +228,7 @@ fn test_submit_and_wait_all() {
 
 #[test]
 fn test_write() {
-    skip_if_kernel_lt_5_10!();
+    skip_if_io_uring_unsupported!();
 
     // Test that writing the sorted values 1-100 into a file works correctly.
 
@@ -269,7 +269,7 @@ fn test_write() {
 
 #[test]
 fn test_read() {
-    skip_if_kernel_lt_5_10!();
+    skip_if_io_uring_unsupported!();
 
     // Test that reading the sorted values 1-100 from a file works correctly.
 

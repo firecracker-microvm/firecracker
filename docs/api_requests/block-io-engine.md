@@ -13,6 +13,7 @@ typically supports queue depths greater than 1.
 
 The block IO engine is configured via the PUT /drives API call (pre-boot only),
 with the `io_engine` field taking two possible values:
+
 - `Sync` (default)
 - `Async`
 
@@ -37,8 +38,8 @@ curl --unix-socket ${socket} -i \
 
 ## Host requirements
 
-Firecracker requires a minimum host kernel version of 5.10.0 for the `Async` IO
-engine.
+Firecracker requires a minimum host kernel version of 5.10.51 for the `Async`
+IO engine.
 
 This requirement is based on the availability of the `io_uring` subsystem, as
 well as a couple of features and bugfixes that were added in newer kernel

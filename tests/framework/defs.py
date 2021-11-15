@@ -52,3 +52,7 @@ TEST_RESULTS_DIR = FC_WORKSPACE_DIR / "test_results"
 # Name of the file that stores firecracker's PID when launched by jailer with
 #  `--new-pid-ns`.
 FC_PID_FILE_NAME = "firecracker.pid"
+
+# The minimum required host kernel version for which io_uring is supported in
+# Firecracker.
+MIN_KERNEL_VERSION_FOR_IO_URING = "5.10.51"

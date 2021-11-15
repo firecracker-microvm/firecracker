@@ -18,7 +18,7 @@ use std::sync::Arc;
 use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter};
 use utils::eventfd::EventFd;
-use utils::kernel_version::KernelVersion;
+use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use virtio_gen::virtio_blk::*;
 use vm_memory::GuestMemoryMmap;
 
@@ -69,7 +69,7 @@ impl Default for FileEngineType {
 impl FileEngineType {
     pub fn is_supported(&self) -> result::Result<bool, utils::kernel_version::Error> {
         match self {
-            Self::Async if KernelVersion::get()? < KernelVersion::new(5, 10, 0) => Ok(false),
+            Self::Async if KernelVersion::get()? < min_kernel_version_for_io_uring() => Ok(false),
             _ => Ok(true),
         }
     }
@@ -621,7 +621,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::virtio::queue::tests::*;
     use rate_limiter::TokenType;
-    use utils::skip_if_kernel_lt_5_10;
+    use utils::skip_if_io_uring_unsupported;
     use utils::tempfile::TempFile;
     use vm_memory::{Address, Bytes, GuestAddress};
 
@@ -1299,7 +1299,7 @@ pub(crate) mod tests {
     #[test]
     fn test_io_engine_throttling() {
         // skip this test if kernel < 5.10 since in this case the sync engine will be used.
-        skip_if_kernel_lt_5_10!();
+        skip_if_io_uring_unsupported!();
 
         let mut block = default_block(FileEngineType::Async);
 

@@ -79,22 +79,22 @@ impl std::fmt::Display for KernelVersion {
 }
 
 pub fn min_kernel_version_for_io_uring() -> KernelVersion {
-    KernelVersion::new(5, 10, 0)
+    KernelVersion::new(5, 10, 51)
 }
 
 #[macro_export]
-macro_rules! skip_if_kernel_lt_5_10 {
+macro_rules! skip_if_io_uring_unsupported {
     () => {
-        if KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0) {
+        if KernelVersion::get().unwrap() < min_kernel_version_for_io_uring() {
             return;
         }
     };
 }
 
 #[macro_export]
-macro_rules! skip_if_kernel_ge_5_10 {
+macro_rules! skip_if_io_uring_supported {
     () => {
-        if KernelVersion::get().unwrap() >= KernelVersion::new(5, 10, 0) {
+        if KernelVersion::get().unwrap() >= min_kernel_version_for_io_uring() {
             return;
         }
     };
