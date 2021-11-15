@@ -29,7 +29,7 @@
 - Removed the deprecated the `--seccomp-level parameter`.
 - Added `io_engine` to the pre-boot block device configuration.
   Possible values: `Sync` (the default option) or `Async` (only available for
-  kernels newer than 5.10.0). The `Async` variant introduces a block device
+  kernels newer than 5.10.51). The `Async` variant introduces a block device
   engine that uses io_uring for executing requests asynchronously.
   See `docs/api_requests/block-io-engine.md`.
 - Added `block.io_engine_throttled_events` metric for measuring the number of

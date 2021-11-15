@@ -175,9 +175,9 @@ pub mod tests {
     use super::*;
     use crate::virtio::block::device::FileEngineType;
     use crate::virtio::block::request::PendingRequest;
-    use utils::kernel_version::KernelVersion;
+    use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
     use utils::tempfile::TempFile;
-    use utils::{skip_if_kernel_ge_5_10, skip_if_kernel_lt_5_10};
+    use utils::{skip_if_io_uring_supported, skip_if_io_uring_unsupported};
     use vm_memory::{Bitmap, Bytes, GuestMemory};
 
     const FILE_LEN: u32 = 1024;
@@ -248,7 +248,7 @@ pub mod tests {
 
     #[test]
     fn test_unsupported_engine_type() {
-        skip_if_kernel_ge_5_10!();
+        skip_if_io_uring_supported!();
 
         assert!(matches!(
             FileEngine::<PendingRequest>::from_file(
@@ -341,7 +341,7 @@ pub mod tests {
 
     #[test]
     fn test_async() {
-        skip_if_kernel_lt_5_10!();
+        skip_if_io_uring_unsupported!();
 
         // Check invalid file
         let file = unsafe { File::from_raw_fd(-2) };
