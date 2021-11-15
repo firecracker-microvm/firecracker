@@ -6,7 +6,8 @@ import urllib
 import re
 
 from framework.utils import compare_versions, get_kernel_version, run_cmd
-from framework.defs import API_USOCKET_URL_PREFIX
+from framework.defs import API_USOCKET_URL_PREFIX, \
+    MIN_KERNEL_VERSION_FOR_IO_URING
 
 
 class Actions():
@@ -214,8 +215,12 @@ class Drive():
         # make sure to exercise both Sync and Async behaviour in the CI.
         # Also check the FC version to make sure that it has support for
         # configurable io_engine.
-        if compare_versions(get_kernel_version(), "5.10.0") > 0 and \
-            compare_versions(self._firecracker_version, "0.25.0") > 0 and \
+        if compare_versions(
+                get_kernel_version(),
+                MIN_KERNEL_VERSION_FOR_IO_URING
+            ) >= 0 and \
+            compare_versions(self._firecracker_version, "0.25.0") > 0 \
+            and \
                 ('io_engine' not in args or args['io_engine'] is None):
             args['io_engine'] = 'Async'
 

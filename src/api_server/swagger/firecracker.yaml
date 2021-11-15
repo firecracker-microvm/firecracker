@@ -808,7 +808,7 @@ definitions:
         type: string
         description:
           Type of the IO engine used by the device. "Async" is supported on
-          host kernels newer than 5.10.0.
+          host kernels newer than 5.10.51.
         enum: ["Sync", "Async"]
         default: "Sync"
 

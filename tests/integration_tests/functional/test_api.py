@@ -16,6 +16,7 @@ import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
 from framework.utils import compare_versions, get_kernel_version
+from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection
@@ -55,6 +56,9 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
     test_microvm.basic_config(add_root_device=False)
     test_microvm.ssh_network_config(network_config, '1')
 
+    supports_io_uring = compare_versions(
+        get_kernel_version(), MIN_KERNEL_VERSION_FOR_IO_URING) >= 0
+
     response = test_microvm.drive.put(
         drive_id='rootfs',
         path_on_host=test_microvm.create_jailed_resource(
@@ -62,11 +66,10 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
         is_root_device=True,
         is_read_only=False,
         # Set the opposite of the default backend type.
-        io_engine="Sync" if compare_versions(
-            get_kernel_version(), "5.10.0") > 0 else "Async"
+        io_engine="Sync" if supports_io_uring else "Async"
     )
 
-    if compare_versions(get_kernel_version(), "5.10.0") < 0:
+    if not supports_io_uring:
         # The Async engine is not supported for older kernels.
         assert test_microvm.api_session.is_status_bad_request(
             response.status_code)
@@ -779,7 +782,9 @@ def test_drive_patch(test_microvm_with_api):
         is_root_device=False,
         is_read_only=False,
         io_engine="Async" if compare_versions(
-            get_kernel_version(), "5.10.0") >= 0 else "Sync"
+            get_kernel_version(),
+            MIN_KERNEL_VERSION_FOR_IO_URING
+        ) >= 0 else "Sync"
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -970,7 +975,8 @@ def _drive_patch(test_microvm):
         'is_read_only': False,
         'cache_type': 'Unsafe',
         'io_engine': 'Async' if compare_versions(
-            get_kernel_version(), "5.10.0") >= 0 else 'Sync',
+            get_kernel_version(), MIN_KERNEL_VERSION_FOR_IO_URING
+        ) >= 0 else 'Sync',
         'rate_limiter': {
             'bandwidth': {
                 'size': 5000,

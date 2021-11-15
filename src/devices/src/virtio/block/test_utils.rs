@@ -15,7 +15,7 @@ use crate::virtio::block::io::FileEngine;
 use crate::virtio::IrqType;
 use crate::virtio::{Block, CacheType, Queue};
 use rate_limiter::RateLimiter;
-use utils::kernel_version::KernelVersion;
+use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
 use utils::tempfile::TempFile;
 
 /// Create a default Block instance to be used in tests.
@@ -29,7 +29,7 @@ pub fn default_block(file_engine_type: FileEngineType) -> Block {
 
 /// Return the Async FileEngineType if supported by the host, otherwise default to Sync.
 pub fn default_engine_type_for_kv() -> FileEngineType {
-    if KernelVersion::get().unwrap() < KernelVersion::new(5, 10, 0) {
+    if KernelVersion::get().unwrap() >= min_kernel_version_for_io_uring() {
         FileEngineType::Async
     } else {
         FileEngineType::Sync
