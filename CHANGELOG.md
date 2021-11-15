@@ -31,6 +31,7 @@
   Possible values: `Sync` (the default option) or `Async` (only available for
   kernels newer than 5.10.0). The `Async` variant introduces a block device
   engine that uses io_uring for executing requests asynchronously.
+  See `docs/api_requests/block-io-engine.md`.
 - Added `block.io_engine_throttled_events` metric for measuring the number of
   virtio events throttled because of the IO engine.
 
