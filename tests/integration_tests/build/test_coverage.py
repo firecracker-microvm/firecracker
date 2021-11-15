@@ -16,6 +16,7 @@ import shutil
 import pytest
 
 import framework.utils as utils
+from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
 import host_tools.cargo_build as host  # pylint: disable=import-error
 import host_tools.proc as proc
 
@@ -28,7 +29,9 @@ import host_tools.proc as proc
 # this contains the frequency while on AMD it does not.
 # Checkout the cpuid crate. In the future other
 # differences may appear.
-if utils.compare_versions(utils.get_kernel_version(), "5.4.0") > 0:
+if utils.compare_versions(
+        utils.get_kernel_version(),
+        MIN_KERNEL_VERSION_FOR_IO_URING) >= 0:
     COVERAGE_DICT = {"Intel": 84.75, "AMD": 84.17, "ARM": 82.90}
 else:
     COVERAGE_DICT = {"Intel": 81.53, "AMD": 80.98, "ARM": 79.73}
