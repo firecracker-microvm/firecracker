@@ -787,6 +787,7 @@ definitions:
         type: string
         description:
           Represents the caching strategy for the block device.
+        enum: ["Unsafe", "Writeback"]
         default: "Unsafe"
       is_read_only:
         type: boolean
