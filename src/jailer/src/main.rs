@@ -31,6 +31,7 @@ pub enum Error {
     CgroupHierarchyMissing(String),
     CgroupControllerUnavailable(String),
     CgroupInvalidVersion(String),
+    CgroupInvalidParentPath(),
     ChangeFileOwner(PathBuf, io::Error),
     ChdirNewRoot(io::Error),
     Chmod(PathBuf, io::Error),
@@ -117,6 +118,12 @@ impl fmt::Display for Error {
             CgroupControllerUnavailable(ref arg) => write!(f, "Controller {} is unavailable", arg,),
             CgroupInvalidVersion(ref arg) => {
                 write!(f, "{} is an invalid cgroup version specifier", arg,)
+            }
+            CgroupInvalidParentPath() => {
+                write!(
+                    f,
+                    "Parent cgroup path is invalid. Path should not be absolute or contain '..' or '.'",
+                )
             }
             ChangeFileOwner(ref path, ref err) => {
                 write!(f, "Failed to change owner for {:?}: {}", path, err)
@@ -311,6 +318,11 @@ pub fn build_arg_parser() -> ArgParser<'static> {
                 .takes_value(true)
                 .default_value("1")
                 .help("Select the cgroup version used by the jailer."),
+        )
+        .arg(
+            Argument::new("parent-cgroup")
+                .takes_value(true)
+                .help("Parent cgroup in which the cgroup of this microvm will be placed."),
         )
         .arg(
             Argument::new("version")

@@ -19,6 +19,7 @@ jailer --id <id> \
        --exec-file <exec_file> \
        --uid <uid> \
        --gid <gid>
+       [--parent-cgroup <relative_path>]
        [--cgroup-version <cgroup-version>]
        [--cgroup <cgroup>]
        [--chroot-base-dir <chroot_base>]
@@ -38,6 +39,16 @@ jailer --id <id> \
   the jailer is mostly Firecracker specific.
 - `uid` and `gid` are the uid and gid the jailer switches to as it execs the
   target binary.
+- `parent-cgroup` is used to allow the placement of microvm cgroups in custom
+  nested hierarchies. By specifying this parameter, the jailer will create a
+  new cgroup named `id` for the microvm in the `<cgroup_base>/<parent_cgroup>`
+  subfolder. `cgroup_base` is the cgroup controller root for `cgroup v1` (e.g.
+  `/sys/fs/cgroup/cpu`) or the unified controller hierarchy for `cgroup v2` (
+  e.g. `/sys/fs/cgroup/unified`. `<parent_cgroup>` is a relative path within that
+  hierarchy. For example, if `--parent-cgroup all_uvms/external_uvms` is specified,
+  the jailer will write all cgroup parameters specified through `--cgroup` in
+  `/sys/fs/cgroup/<controller_name>/all_uvms/external_uvms/<id>`. By default, the
+  parent cgroup is `exec-file`.
 - `cgroup-version` is used to select which type of cgroup hierarchy to use for
   the creation of cgroups. The default value is "1" which means that cgroups
   specified with the `cgroup` argument will be created within a v1 hierarchy.
@@ -105,14 +116,14 @@ After starting, the Jailer goes through the following operations:
   `--resource-limit` argument, by calling `setrlimit()` system call with the
   specific resource argument. If no limits are provided, the jailer bounds
   `no-file` to a maximum default value of 2048.
-- Create the `cgroup` sub-folders. At the moment, the jailer uses `cgroup v1`.
-  On most systems, this is mounted by default in `/sys/fs/cgroup`
+- Create the `cgroup` sub-folders. The jailer can use either `cgroup v1`
+  or `cgroup v2`. On most systems, this is mounted by default in `/sys/fs/cgroup`
   (should be mounted by the user otherwise). The jailer will parse
   `/proc/mounts` to detect where each of the controllers required in `--cgroup`
   can be found (multiple controllers may share the same path). For each identified
   location (referred to as `<cgroup_base>`), the jailer creates the
-  `<cgroup_base>/<exec_file_name>/<id>` subfolder, and writes the current pid
-  to `<cgroup_base>/<exec_file_name>/<id>/tasks`. Also, the value passed for each
+  `<cgroup_base>/<parent_cgroup>/<id>` subfolder, and writes the current pid
+  to `<cgroup_base>/<parent_cgroup>/<id>/tasks`. Also, the value passed for each
   `<cgroup_file>` is written to the file. If `--node` is used the corresponding
   values are written to the appropriate `cpuset.mems` and `cpuset.cpus` files.
 - Call `unshare()` into a new mount namespace, use `pivot_root()` to switch
