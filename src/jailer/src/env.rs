@@ -6,7 +6,7 @@ use std::fs::{self, canonicalize, File, OpenOptions, Permissions};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::IntoRawFd;
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::cgroup::{Cgroup, CgroupBuilder};
@@ -159,6 +159,17 @@ impl Env {
 
         // Optional arguments.
         let mut cgroups: Vec<Box<dyn Cgroup>> = Vec::new();
+        let parent_cgroup = match arguments.single_value("parent-cgroup") {
+            Some(parent_cg) => Path::new(parent_cg),
+            None => Path::new(exec_file_name),
+        };
+        if parent_cgroup
+            .components()
+            .any(|c| c == Component::CurDir || c == Component::ParentDir || c == Component::RootDir)
+        {
+            return Err(Error::CgroupInvalidParentPath());
+        }
+
         let cgroup_ver = arguments
             .single_value("cgroup-version")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("cgroup-version".to_string())))?;
@@ -176,8 +187,7 @@ impl Env {
 
             let builder = cgroup_builder.get_or_insert(CgroupBuilder::new(cgroup_ver)?);
 
-            let mut numa_cgroups =
-                builder.cgroups_from_numa_node(numa_node, id, &exec_file_name)?;
+            let mut numa_cgroups = builder.cgroups_from_numa_node(numa_node, id, parent_cgroup)?;
             cgroups.append(&mut numa_cgroups);
         }
 
@@ -194,7 +204,7 @@ impl Env {
                     aux[0].to_string(), // cgroup file
                     aux[1].to_string(), // cgroup value
                     id,
-                    &exec_file_name,
+                    parent_cgroup,
                 )?;
                 cgroups.push(cgroup);
             }
@@ -607,6 +617,7 @@ mod tests {
         pub new_pid_ns: bool,
         pub cgroups: Vec<&'a str>,
         pub resource_limits: Vec<&'a str>,
+        pub parent_cgroup: Option<&'a str>,
     }
 
     impl ArgVals<'_> {
@@ -623,6 +634,7 @@ mod tests {
                 new_pid_ns: true,
                 cgroups: vec!["cpu.shares=2", "cpuset.mems=0"],
                 resource_limits: vec!["no-file=1024", "fsize=1048575"],
+                parent_cgroup: None,
             }
         }
     }
@@ -670,6 +682,11 @@ mod tests {
 
         if arg_vals.new_pid_ns {
             arg_vec.push("--new-pid-ns".to_string());
+        }
+
+        if let Some(parent_cg) = arg_vals.parent_cgroup {
+            arg_vec.push("--parent-cgroup".to_string());
+            arg_vec.push(parent_cg.to_string());
         }
 
         arg_vec
@@ -806,6 +823,16 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_gid_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        let invalid_parent_cg_vals = ArgVals {
+            parent_cgroup: Some("/root"),
+            ..base_invalid_arg_vals.clone()
+        };
+
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
+        args.parse(&make_args(&invalid_parent_cg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
@@ -956,6 +983,7 @@ mod tests {
             new_pid_ns: false,
             cgroups: Vec::new(),
             resource_limits: Vec::new(),
+            parent_cgroup: None,
         };
         fs::write(some_file_path, "some_content").unwrap();
         args.parse(&make_args(&some_arg_vals)).unwrap();

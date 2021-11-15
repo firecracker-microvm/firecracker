@@ -3,7 +3,6 @@
 
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -108,14 +107,14 @@ impl CgroupBuilder {
         file: String,
         value: String,
         id: &str,
-        exec_file_name: &OsStr,
+        parent_cg: &Path,
     ) -> Result<Box<dyn Cgroup>> {
         match self.version {
             1 => {
                 let controller = get_controller_from_filename(&file)?;
                 let path = self.get_v1_hierarchy_path(&controller)?;
 
-                let cgroup = CgroupV1::new(file, value, id, &exec_file_name, &path)?;
+                let cgroup = CgroupV1::new(file, value, id, &parent_cg, &path)?;
                 Ok(Box::new(cgroup))
             }
             2 => {
@@ -126,7 +125,7 @@ impl CgroupBuilder {
                     .get("unified")
                     .ok_or_else(|| Error::CgroupHierarchyMissing("unified".to_string()))?;
 
-                let cgroup = CgroupV2::new(file, value, id, &exec_file_name, &path)?;
+                let cgroup = CgroupV2::new(file, value, id, &parent_cg, &path)?;
                 Ok(Box::new(cgroup))
             }
             _ => Err(Error::CgroupInvalidVersion(self.version.to_string())),
@@ -168,7 +167,7 @@ impl CgroupBuilder {
         &mut self,
         numa_node: u32,
         microvm_id: &str,
-        exec_file_name: &OsStr,
+        parent_cg: &Path,
     ) -> Result<Vec<Box<dyn Cgroup>>> {
         // Retrieve the CPUs which belongs to the specific node.
         // Similar to how numactl library does, we are copying the contents of
@@ -181,14 +180,14 @@ impl CgroupBuilder {
 
         // Isolate the process in the specified numa_node CPUs.
         let cpuset_cpus =
-            self.new_cgroup("cpuset.cpus".to_string(), cpus, microvm_id, exec_file_name)?;
+            self.new_cgroup("cpuset.cpus".to_string(), cpus, microvm_id, parent_cg)?;
 
         // Isolate the process in the specified numa_node memory.
         let cpuset_mems = self.new_cgroup(
             "cpuset.mems".to_string(),
             numa_node.to_string(),
             microvm_id,
-            exec_file_name,
+            parent_cg,
         )?;
 
         Ok(vec![cpuset_cpus, cpuset_mems])
@@ -201,7 +200,10 @@ struct CgroupBase {
     location: PathBuf, // microVM cgroup location for the specific controller.
 }
 
-pub struct CgroupV1(CgroupBase);
+pub struct CgroupV1 {
+    base: CgroupBase,
+    cg_parent_depth: u16, // depth of the nested cgroup hierarchy
+}
 pub struct CgroupV2(CgroupBase);
 
 pub trait Cgroup {
@@ -222,37 +224,33 @@ pub trait Cgroup {
 // 5) Otherwise, return an error.
 
 // How is this helpful? When creating cgroup folders for the jailer Firecracker instance, the jailer
-// will create a hierarchy that looks like <cgroup_base>/firecracker/<id>. Depending on each
+// will create a hierarchy that looks like <cgroup_base>/<parent_cgroup>/<id>. Depending on each
 // particular cgroup controller, <cgroup_base> contains a number of configuration files. These are
 // not actually present on a disk; they are special files exposed by the controller, and they
-// usually contain a single line with some configuration value(s). When the "firecracker" and <id>
+// usually contain a single line with some configuration value(s). When the "parent_cgroup" and <id>
 // subfolders are created, configuration files with the same name appear automatically in the new
 // folders, but their contents are not always automatically populated. Moreover,
-// if <cgroup_base>/firecracker/some_file is empty, then we cannot have a non-empty file with
-// at <cgroup_base>/firecracker/<id>/some_file. The inherit_from_parent function (which is based
+// if <cgroup_base>/<parent_cgroup>/some_file is empty, then we cannot have a non-empty file with
+// at <cgroup_base>/<parent_cgroup>/<id>/some_file. The inherit_from_parent function (which is based
 // on the following helper function) helps with propagating the values.
 
 // There is also a potential race condition mentioned below. Here is what it refers to: let's say we
 // start multiple jailer processes, and one of them calls
-// inherit_from_parent_aux(/A/firecracker/id1, file, true), and hits case number 3) from the list
-// above, thus recursively calling inherit_from_parent_aux(/A/firecracker, file, false). It's
+// inherit_from_parent_aux(/A/<parent_cgroup>/id1, file, true), and hits case number 3) from the list
+// above, thus recursively calling inherit_from_parent_aux(/A/<parent_cgroup>, file, false). It's
 // entirely possible there was another process in the exact same situations, and that process
-// gets to write something to /A/firecracker/file first. In this case, the recursive call made by
-// the first process to inherit_from_parent_aux(/A/firecracker, file, false) may fail when writing
-// to /A/firecracker/file, but we can still continue, because step 4) only cares about the file
+// gets to write something to /A/<parent_cgroup>/file first. In this case, the recursive call made by
+// the first process to inherit_from_parent_aux(/A/<parent_cgroup>, file, false) may fail when writing
+// to /A/<parent_cgroup>/file, but we can still continue, because step 4) only cares about the file
 // no longer being empty, regardless of who actually got to populated its contents.
 
-fn inherit_from_parent_aux(
-    path: &mut PathBuf,
-    file_name: &str,
-    retry_one_level_up: bool,
-) -> Result<()> {
+fn inherit_from_parent_aux(path: &mut PathBuf, file_name: &str, retry_depth: u16) -> Result<()> {
     // The function with_file_name() replaces the last component of a path with the given name.
     let parent_file = path.with_file_name(file_name);
 
     let mut line = readln_special(&parent_file)?;
     if line.is_empty() {
-        if retry_one_level_up {
+        if retry_depth > 0 {
             // We have to borrow "parent" from "parent_file" as opposed to "path", because then
             // we wouldn't be able to mutably borrow path at the end of this function (at least not
             // according to how the Rust borrow checker operates right now :-s)
@@ -262,7 +260,7 @@ fn inherit_from_parent_aux(
 
             // Trying to avoid the race condition described above. We don't care about the result,
             // because we check once more if line.is_empty() after the end of this block.
-            let _ = inherit_from_parent_aux(&mut parent.to_path_buf(), file_name, false);
+            let _ = inherit_from_parent_aux(&mut parent.to_path_buf(), file_name, retry_depth - 1);
             line = readln_special(&parent_file)?;
         }
 
@@ -283,8 +281,8 @@ fn inherit_from_parent_aux(
 
 // The path reference is &mut here because we do a push to get the destination file name. However,
 // a pop follows shortly after (see fn inherit_from_parent_aux), reverting to the original value.
-fn inherit_from_parent(path: &mut PathBuf, file_name: &str) -> Result<()> {
-    inherit_from_parent_aux(path, file_name, true)
+fn inherit_from_parent(path: &mut PathBuf, file_name: &str, depth: u16) -> Result<()> {
+    inherit_from_parent_aux(path, file_name, depth)
 }
 
 // Extract the controller name from the cgroup file. The cgroup file must follow
@@ -306,41 +304,48 @@ impl CgroupV1 {
         file: String,
         value: String,
         id: &str,
-        exec_file_name: &OsStr,
+        parent_cg: &Path,
         controller_path: &Path,
     ) -> Result<Self> {
         let mut path = controller_path.to_path_buf();
-        path.push(exec_file_name);
+        path.push(parent_cg);
         path.push(id);
+        let mut depth = 0;
+        for _ in parent_cg.components() {
+            depth += 1;
+        }
 
-        Ok(CgroupV1(CgroupBase {
-            file,
-            value,
-            location: path,
-        }))
+        Ok(CgroupV1 {
+            base: CgroupBase {
+                file,
+                value,
+                location: path,
+            },
+            cg_parent_depth: depth,
+        })
     }
 }
 
 impl Cgroup for CgroupV1 {
     fn write_value(&self) -> Result<()> {
-        let location = &mut self.0.location.clone();
+        let location = &mut self.base.location.clone();
 
         // Create the cgroup directory for the controller.
-        fs::create_dir_all(&self.0.location)
-            .map_err(|e| Error::CreateDir(self.0.location.clone(), e))?;
+        fs::create_dir_all(&self.base.location)
+            .map_err(|e| Error::CreateDir(self.base.location.clone(), e))?;
 
         // Write the corresponding cgroup value. inherit_from_parent is used to
         // correctly propagate the value if not defined.
-        inherit_from_parent(location, &self.0.file)?;
-        location.push(&self.0.file);
-        writeln_special(location, &self.0.value)?;
+        inherit_from_parent(location, &self.base.file, self.cg_parent_depth)?;
+        location.push(&self.base.file);
+        writeln_special(location, &self.base.value)?;
 
         Ok(())
     }
 
     fn attach_pid(&self) -> Result<()> {
         let pid = process::id();
-        let location = &self.0.location.join("tasks");
+        let location = &self.base.location.join("tasks");
 
         writeln_special(location, pid)?;
 
@@ -399,13 +404,14 @@ impl CgroupV2 {
         file: String,
         value: String,
         id: &str,
-        exec_file_name: &OsStr,
+        parent_cg: &Path,
         unified_path: &Path,
     ) -> Result<Self> {
         let controller = get_controller_from_filename(&file)?;
         let mut path = unified_path.to_path_buf();
+
         if CgroupV2::controller_available(controller, unified_path) {
-            path.push(exec_file_name);
+            path.push(parent_cg);
             path.push(id);
             Ok(CgroupV2(CgroupBase {
                 file,
@@ -622,7 +628,7 @@ mod tests {
                 "cpuset.mems".to_string(),
                 "1".to_string(),
                 "101",
-                OsStr::new("fc_test_cg"),
+                Path::new("fc_test_cg"),
             );
             assert!(!cg.is_err());
         }
@@ -640,7 +646,7 @@ mod tests {
                 "invalid.cg".to_string(),
                 "1".to_string(),
                 "101",
-                OsStr::new("fc_test_cg"),
+                Path::new("fc_test_cg"),
             );
             assert!(cg.is_err());
         }
@@ -658,7 +664,7 @@ mod tests {
             "cpuset.mems".to_string(),
             "1".to_string(),
             "101",
-            OsStr::new("fc_test_cgv2"),
+            Path::new("fc_test_cgv2"),
         );
         assert!(!cg.is_err());
         let cg = cg.unwrap();
@@ -713,15 +719,18 @@ mod tests {
         // This is /A/B/C .
         let dir2 = TempDir::new_in(dir.as_path()).expect("Cannot create temporary directory.");
         let mut path2 = PathBuf::from(dir2.as_path());
-        let result = inherit_from_parent(&mut PathBuf::from(&path2), "inexistent");
+        let result = inherit_from_parent(&mut PathBuf::from(&path2), "inexistent", 1);
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("ReadToString"));
 
         // 2. If parent file exists and is empty, will go one level up, and return error because
         // the grandparent file does not exist.
         let named_file = TempFile::new_in(dir.as_path()).expect("Cannot create named file.");
-        let result =
-            inherit_from_parent(&mut path2.clone(), named_file.as_path().to_str().unwrap());
+        let result = inherit_from_parent(
+            &mut path2.clone(),
+            named_file.as_path().to_str().unwrap(),
+            1,
+        );
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("CgroupInheritFromParent"));
 
@@ -731,7 +740,7 @@ mod tests {
         // contents.
         let some_line = "Parent line";
         writeln!(named_file.as_file(), "{}", some_line).expect("Cannot write to file.");
-        let result = inherit_from_parent(&mut path2, named_file.as_path().to_str().unwrap());
+        let result = inherit_from_parent(&mut path2, named_file.as_path().to_str().unwrap(), 1);
         assert!(result.is_ok());
         let res = readln_special(&child_file).expect("Cannot read from file.");
         assert!(res == some_line);
