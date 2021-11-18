@@ -15,8 +15,7 @@ import pytest
 import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
-from framework.utils import compare_versions, get_kernel_version
-from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
+from framework.utils import is_io_uring_supported
 
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection
@@ -56,8 +55,7 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
     test_microvm.basic_config(add_root_device=False)
     test_microvm.ssh_network_config(network_config, '1')
 
-    supports_io_uring = compare_versions(
-        get_kernel_version(), MIN_KERNEL_VERSION_FOR_IO_URING) >= 0
+    supports_io_uring = is_io_uring_supported()
 
     response = test_microvm.drive.put(
         drive_id='rootfs',
@@ -781,10 +779,7 @@ def test_drive_patch(test_microvm_with_api):
         path_on_host=test_microvm.create_jailed_resource(fs.path),
         is_root_device=False,
         is_read_only=False,
-        io_engine="Async" if compare_versions(
-            get_kernel_version(),
-            MIN_KERNEL_VERSION_FOR_IO_URING
-        ) >= 0 else "Sync"
+        io_engine="Async" if is_io_uring_supported() else "Sync"
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
@@ -974,9 +969,7 @@ def _drive_patch(test_microvm):
         'partuuid': None,
         'is_read_only': False,
         'cache_type': 'Unsafe',
-        'io_engine': 'Async' if compare_versions(
-            get_kernel_version(), MIN_KERNEL_VERSION_FOR_IO_URING
-        ) >= 0 else 'Sync',
+        'io_engine': 'Async' if is_io_uring_supported() else 'Sync',
         'rate_limiter': {
             'bandwidth': {
                 'size': 5000,
