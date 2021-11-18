@@ -9,12 +9,12 @@ import platform
 import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
-from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET,\
-    MIN_KERNEL_VERSION_FOR_IO_URING
+from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
 from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
 from framework.utils import eager_map, CpuMap, \
-    get_firecracker_version_from_toml, compare_versions, get_kernel_version
+    get_firecracker_version_from_toml, compare_versions, get_kernel_version, \
+    is_io_uring_supported
 from framework.stats import core, consumer, producer, types, criteria,\
     function
 from integration_tests.performance.utils import handle_failure, \
@@ -118,10 +118,7 @@ def snapshot_resume_measurements(vm_type):
     """Define measurements for snapshot resume tests."""
     load_latency = LOAD_LATENCY_BASELINES[platform.machine()][vm_type]
 
-    if compare_versions(
-        get_kernel_version(),
-        MIN_KERNEL_VERSION_FOR_IO_URING
-    ) > 0:
+    if is_io_uring_supported():
         # There is added latency caused by the io_uring syscalls used by the
         # block device.
         load_latency["target"] += 110
