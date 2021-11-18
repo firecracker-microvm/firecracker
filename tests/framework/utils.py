@@ -17,6 +17,8 @@ from collections import namedtuple, defaultdict
 import psutil
 from retry import retry
 
+from framework.defs import MIN_KERNEL_VERSION_FOR_IO_URING
+
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 CMDLOG = logging.getLogger("commands")
 GET_CPU_LOAD = "top -bn1 -H -p {} | tail -n+8"
@@ -615,3 +617,14 @@ def get_kernel_version():
             break
 
     return linux_version
+
+
+def is_io_uring_supported():
+    """
+    Return whether Firecracker supports io_uring for the running kernel ...
+
+    ...version.
+    """
+    return compare_versions(
+        get_kernel_version(), MIN_KERNEL_VERSION_FOR_IO_URING
+    ) >= 0
