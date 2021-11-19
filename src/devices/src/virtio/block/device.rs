@@ -128,6 +128,7 @@ impl DiskProperties {
         &mut self.file_engine
     }
 
+    #[cfg(test)]
     pub fn file(&self) -> &File {
         &self.file_engine.file()
     }
