@@ -89,6 +89,7 @@ impl<T> AsyncFileEngine<T> {
         })
     }
 
+    #[cfg(test)]
     pub fn file(&self) -> &File {
         &self.file
     }
