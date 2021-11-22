@@ -72,7 +72,7 @@ class Core:
                     pipe.consumer.ingest(iteration, raw_data)
             try:
                 stats, custom = pipe.consumer.process(fail_fast)
-            except ProcessingException as err:
+            except (ProcessingException, AssertionError) as err:
                 self._failure_aggregator.add_row(f"Failed on '{tag}':")
                 self._failure_aggregator.add_row(err)
                 stats = err.stats

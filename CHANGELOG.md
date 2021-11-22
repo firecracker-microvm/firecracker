@@ -4,6 +4,14 @@
 
 ### Added
 
+- Added jailer option `--parent-cgroup <relative_path>` to allow the placement
+  of microvm cgroups in custom cgroup nested hierarchies. The default value is
+  `<exec-file>` which is backwards compatible to the behavior before this
+  change.
+- Added jailer option `--cgroup-version <1|2>` to support running the jailer
+  on systems that have cgroup-v2. Default value is `1` which means that if
+  `--cgroup-version` is not specified, the jailer will try to create cgroups
+  on cgroup-v1 hierarchies only.
 - Added `--http-api-max-payload-size` parameter to configure the maximum payload
   size for PUT and PATCH requests.
 - Limit MMDS data store size to `--http-api-max-payload-size`.
@@ -28,10 +36,6 @@
 
 ### Added
 
-- Added jailer option `--cgroup-version <1|2>` to support running the jailer
-  on systems that have cgroup-v2. Default value is `1` which means that if
-  `--cgroup-version` is not specified, the jailer will try to create cgroups
-  on cgroup-v1 hierarchies only.
 - Added devtool build `--ssh-keys` flag to support fetching from private
   git repositories.
 - Added option to configure block device flush.

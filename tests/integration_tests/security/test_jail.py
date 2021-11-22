@@ -198,14 +198,15 @@ def sys_setup_cgroups():
     yield cgroup_version
 
 
-def check_cgroups_v1(cgroups, cgroup_location, jailer_id):
+def check_cgroups_v1(cgroups, cgroup_location,
+                     jailer_id, parent_cgroup=FC_BINARY_NAME):
     """Assert that every cgroupv1 in cgroups is correctly set."""
     for cgroup in cgroups:
         controller = cgroup.split('.')[0]
         file_name, value = cgroup.split('=')
         location = cgroup_location + '/{}/{}/{}/'.format(
             controller,
-            FC_BINARY_NAME,
+            parent_cgroup,
             jailer_id
         )
         tasks_file = location + 'tasks'
@@ -215,12 +216,13 @@ def check_cgroups_v1(cgroups, cgroup_location, jailer_id):
         assert open(tasks_file, 'r').readline().strip().isdigit()
 
 
-def check_cgroups_v2(cgroups, cgroup_location, jailer_id):
+def check_cgroups_v2(cgroups, cgroup_location,
+                     jailer_id, parent_cgroup=FC_BINARY_NAME):
     """Assert that every cgroupv2 in cgroups is correctly set."""
     cg_locations = {
         'root': f'{cgroup_location}',
-        'fc': f'{cgroup_location}/{FC_BINARY_NAME}',
-        'jail': f'{cgroup_location}/{FC_BINARY_NAME}/{jailer_id}',
+        'fc': f'{cgroup_location}/{parent_cgroup}',
+        'jail': f'{cgroup_location}/{parent_cgroup}/{jailer_id}',
     }
     for cgroup in cgroups:
         controller = cgroup.split('.')[0]
@@ -307,6 +309,57 @@ def test_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
         check_cgroups_v1(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
     else:
         check_cgroups_v2(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+
+
+def test_cgroups_custom_parent(test_microvm_with_initrd, sys_setup_cgroups):
+    """
+    Test cgroups when a custom parent cgroup is used.
+
+    @type: security
+    """
+    # pylint: disable=redefined-outer-name
+    test_microvm = test_microvm_with_initrd
+    test_microvm.jailer.numa_node = 0
+    test_microvm.jailer.cgroup_ver = sys_setup_cgroups
+    test_microvm.jailer.parent_cgroup = "custom_cgroup/group2"
+    if test_microvm.jailer.cgroup_ver == 2:
+        test_microvm.jailer.cgroups = ['cpu.weight=2']
+    else:
+        test_microvm.jailer.cgroups = [
+            'cpu.shares=2',
+            'cpu.cfs_period_us=200000'
+        ]
+
+    test_microvm.spawn()
+
+    # Retrieve CPUs from NUMA node 0.
+    node_cpus = get_cpus(test_microvm.jailer.numa_node)
+
+    # Apending the cgroups that should be creating by --node option
+    # This must be changed once --node options is removed
+    cgroups = test_microvm.jailer.cgroups + [
+        'cpuset.mems=0',
+        'cpuset.cpus={}'.format(node_cpus)
+    ]
+
+    # We assume sysfs cgroups are mounted here.
+    sys_cgroup = '/sys/fs/cgroup'
+    assert os.path.isdir(sys_cgroup)
+
+    if test_microvm.jailer.cgroup_ver == 1:
+        check_cgroups_v1(
+            cgroups,
+            sys_cgroup,
+            test_microvm.jailer.jailer_id,
+            test_microvm.jailer.parent_cgroup
+        )
+    else:
+        check_cgroups_v2(
+            cgroups,
+            sys_cgroup,
+            test_microvm.jailer.jailer_id,
+            test_microvm.jailer.parent_cgroup
+        )
 
 
 def test_node_cgroups(test_microvm_with_initrd, sys_setup_cgroups):

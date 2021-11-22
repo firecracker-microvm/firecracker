@@ -38,6 +38,7 @@ class JailerContext:
     cgroups = None
     resource_limits = None
     cgroup_ver = None
+    parent_cgroup = None
 
     def __init__(
             self,
@@ -53,6 +54,7 @@ class JailerContext:
             cgroups=None,
             resource_limits=None,
             cgroup_ver=None,
+            parent_cgroup=None,
             **extra_args
     ):
         """Set up jailer fields.
@@ -75,6 +77,7 @@ class JailerContext:
         self.cgroups = cgroups
         self.resource_limits = resource_limits
         self.cgroup_ver = cgroup_ver
+        self.parent_cgroup = parent_cgroup
         self.ramfs_subdir_name = 'ramfs'
         self._ramfs_path = None
 
@@ -116,6 +119,10 @@ class JailerContext:
             jailer_param_list.append('--daemonize')
         if self.new_pid_ns:
             jailer_param_list.append('--new-pid-ns')
+        if self.parent_cgroup:
+            jailer_param_list.extend(
+                ['--parent-cgroup', str(self.parent_cgroup)]
+            )
         if self.cgroup_ver:
             jailer_param_list.extend(
                 ['--cgroup-version', str(self.cgroup_ver)]
