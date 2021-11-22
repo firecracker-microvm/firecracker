@@ -599,13 +599,18 @@ impl VirtioDevice for Block {
 
 impl Drop for Block {
     fn drop(&mut self) {
-        let flush = match self.disk.cache_type {
-            CacheType::Unsafe => false,
-            CacheType::Writeback => true,
+        match self.disk.cache_type {
+            CacheType::Unsafe => {
+                if let Err(e) = self.disk.file_engine_mut().drain(true) {
+                    error!("Failed to drain ops on drop: {:?}", e);
+                }
+            }
+            CacheType::Writeback => {
+                if let Err(e) = self.disk.file_engine_mut().drain_and_flush(true) {
+                    error!("Failed to drain ops and flush disk data on drop: {:?}", e);
+                }
+            }
         };
-        if let Err(e) = self.disk.file_engine_mut().drain(flush) {
-            error!("Failed to drain ops and flush block data on drop: {:?}", e);
-        }
     }
 }
 
