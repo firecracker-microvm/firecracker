@@ -154,15 +154,17 @@ impl<T> FileEngine<T> {
         }
     }
 
-    pub fn drain(&mut self, flush: bool) -> Result<(), Error> {
+    pub fn drain(&mut self, discard: bool) -> Result<(), Error> {
         match self {
-            FileEngine::Async(engine) => engine.drain(flush).map_err(Error::Async),
-            FileEngine::Sync(engine) => {
-                if !flush {
-                    return Ok(());
-                }
-                engine.flush().map_err(Error::Sync)
-            }
+            FileEngine::Async(engine) => engine.drain(discard).map_err(Error::Async),
+            FileEngine::Sync(_engine) => Ok(()),
+        }
+    }
+
+    pub fn drain_and_flush(&mut self, discard: bool) -> Result<(), Error> {
+        match self {
+            FileEngine::Async(engine) => engine.drain_and_flush(discard).map_err(Error::Async),
+            FileEngine::Sync(engine) => engine.flush().map_err(Error::Sync),
         }
     }
 }
@@ -222,7 +224,7 @@ pub mod tests {
 
     fn assert_async_execution(mem: &GuestMemoryMmap, engine: &mut FileEngine<()>, count: u32) {
         if let FileEngine::Async(ref mut engine) = engine {
-            engine.drain_submission_queue().unwrap();
+            engine.drain(false).unwrap();
             assert_eq!(engine.pop(mem).unwrap().unwrap().result().unwrap(), count);
         }
     }
@@ -336,7 +338,7 @@ pub mod tests {
         // Check other ops
         assert!(engine.flush(()).is_ok());
         assert!(engine.drain(true).is_ok());
-        assert!(engine.drain(false).is_ok());
+        assert!(engine.drain_and_flush(true).is_ok());
     }
 
     #[test]
@@ -400,6 +402,6 @@ pub mod tests {
         assert_async_execution(&mem, &mut engine, 0);
 
         assert!(engine.drain(true).is_ok());
-        assert!(engine.drain(false).is_ok());
+        assert!(engine.drain_and_flush(true).is_ok());
     }
 }

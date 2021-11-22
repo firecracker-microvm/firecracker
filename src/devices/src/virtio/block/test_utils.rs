@@ -84,7 +84,7 @@ pub fn simulate_queue_event(b: &mut Block, maybe_expected_irq: Option<bool>) {
 pub fn simulate_async_completion_event(b: &mut Block, expected_irq: bool) {
     if let FileEngine::Async(engine) = b.disk.file_engine_mut() {
         // Wait for all the async operations to complete.
-        engine.drain_submission_queue().unwrap();
+        engine.drain(false).unwrap();
         // Wait for the async completion event to be sent.
         thread::sleep(Duration::from_millis(150));
         // Handle event.
