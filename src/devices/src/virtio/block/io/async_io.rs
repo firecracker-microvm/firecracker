@@ -180,27 +180,29 @@ impl<T> AsyncFileEngine<T> {
         self.ring.submit().map(|_| ()).map_err(Error::IoUring)
     }
 
-    pub fn drain(&mut self, flush: bool) -> Result<(), Error> {
-        self.drain_submission_queue()?;
-
-        // Drain the completion queue so that we may deallocate the user_data fields.
-        while self.do_pop()?.is_some() {}
-
-        if flush {
-            // Sync data out to physical media on host.
-            // We don't need to call flush first since all the ops are performed through io_uring
-            // and Rust shouldn't manage any data in its internal buffers.
-            self.file.sync_all().map_err(Error::SyncAll)
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn drain_submission_queue(&mut self) -> Result<(), Error> {
+    pub fn drain(&mut self, discard_cqes: bool) -> Result<(), Error> {
         self.ring
             .submit_and_wait_all()
             .map(|_| ())
-            .map_err(Error::IoUring)
+            .map_err(Error::IoUring)?;
+
+        if discard_cqes {
+            // Drain the completion queue so that we may deallocate the user_data fields.
+            while self.do_pop()?.is_some() {}
+        }
+
+        Ok(())
+    }
+
+    pub fn drain_and_flush(&mut self, discard_cqes: bool) -> Result<(), Error> {
+        self.drain(discard_cqes)?;
+
+        // Sync data out to physical media on host.
+        // We don't need to call flush first since all the ops are performed through io_uring
+        // and Rust shouldn't manage any data in its internal buffers.
+        self.file.sync_all().map_err(Error::SyncAll)?;
+
+        Ok(())
     }
 
     fn do_pop(&mut self) -> Result<Option<Cqe<WrappedUserData<T>>>, Error> {
