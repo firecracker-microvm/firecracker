@@ -31,6 +31,7 @@ fn update_feature_info_entry(entry: &mut kvm_cpuid_entry2, _vm_spec: &VmSpec) ->
         .write_bit(ecx::DTES64_BITINDEX, false)
         .write_bit(ecx::MONITOR_BITINDEX, false)
         .write_bit(ecx::DS_CPL_SHIFT, false)
+        .write_bit(ecx::VMX_BITINDEX, false)
         .write_bit(ecx::TM2_BITINDEX, false)
         .write_bit(ecx::CNXT_ID_BITINDEX, false)
         .write_bit(ecx::SDBG_BITINDEX, false)
@@ -90,8 +91,10 @@ fn update_structured_extended_entry(
         entry
             .ecx
             .write_bit(ecx::AVX512_VBMI_BITINDEX, false)
+            .write_bit(ecx::UMIP_BITINDEX, false)
             .write_bit(ecx::PKU_BITINDEX, false)
             .write_bit(ecx::OSPKE_BITINDEX, false)
+            .write_bit(ecx::AVX512_VNNI_BITINDEX, false)
             .write_bit(ecx::AVX512_VPOPCNTDQ_BITINDEX, false)
             .write_bit(ecx::RDPID_BITINDEX, false)
             .write_bit(ecx::SGX_LC_BITINDEX, false);
