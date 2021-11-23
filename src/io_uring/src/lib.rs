@@ -38,6 +38,8 @@ pub enum Error {
     Enable(IOError),
     /// A FamStructWrapper operation has failed.
     FamError(utils::fam::Error),
+    /// The number of ops in the ring is >= CQ::count
+    FullCQueue,
     /// Fd was not registered.
     InvalidFixedFd(i32),
     /// There are no registered fds.
@@ -63,11 +65,11 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn is_full_sq(&self) -> bool {
-        if let Error::SQueue(SQueueError::FullQueue) = self {
-            return true;
-        }
-        false
+    pub fn is_throttling_err(&self) -> bool {
+        matches!(
+            self,
+            Error::FullCQueue | Error::SQueue(SQueueError::FullQueue)
+        )
     }
 }
 
@@ -151,6 +153,9 @@ impl IoUring {
                 Err((Error::InvalidFixedFd(fd), op.user_data()))
             }
             _ => {
+                if self.num_ops >= self.cqueue.count() {
+                    return Err((Error::FullCQueue, op.user_data()));
+                }
                 self.squeue
                     .push(unsafe { op.into_sqe() })
                     .map(|res| {
