@@ -81,9 +81,9 @@ pub struct IoUring {
     // We don't need to manually drop the fields in order,since Rust has a well defined drop order.
     fd: File,
 
-    // Number of ops yet to be pop-ed from the CQ. These ops either haven't been pop-ed yet,
-    // or they haven't even been completed.
-    to_pop: u32,
+    // The total number of ops. These includes the ops on the submission queue, the in-flight ops
+    // and the ops that are in the CQ, but haven't been popped yet.
+    num_ops: u32,
 }
 
 impl IoUring {
@@ -124,7 +124,7 @@ impl IoUring {
             cqueue,
             fd: file,
             registered_fds_count: 0,
-            to_pop: 0,
+            num_ops: 0,
         };
 
         instance.check_operations()?;
@@ -150,11 +150,18 @@ impl IoUring {
             len if fd < 0 || (len as i32 - 1) < fd => {
                 Err((Error::InvalidFixedFd(fd), op.user_data()))
             }
-            _ => self.squeue.push(unsafe { op.into_sqe() }).map_err(
-                |err_tuple: (SQueueError, T)| -> (Error, T) {
-                    (Error::SQueue(err_tuple.0), err_tuple.1)
-                },
-            ),
+            _ => {
+                self.squeue
+                    .push(unsafe { op.into_sqe() })
+                    .map(|res| {
+                        // This is safe since self.num_ops < IORING_MAX_CQ_ENTRIES (65536)
+                        self.num_ops += 1;
+                        res
+                    })
+                    .map_err(|err_tuple: (SQueueError, T)| -> (Error, T) {
+                        (Error::SQueue(err_tuple.0), err_tuple.1)
+                    })
+            }
         }
     }
 
@@ -163,9 +170,9 @@ impl IoUring {
             .pop()
             .map(|maybe_cqe| {
                 maybe_cqe.map(|cqe| {
-                    // This is safe since the pop-ed CQEs have been previously submitted. However
+                    // This is safe since the pop-ed CQEs have been previously pushed. However
                     // we use a saturating_sub for extra safety.
-                    self.to_pop = self.to_pop.saturating_sub(1);
+                    self.num_ops = self.num_ops.saturating_sub(1);
                     cqe
                 })
             })
@@ -173,15 +180,7 @@ impl IoUring {
     }
 
     fn do_submit(&mut self, min_complete: u32) -> Result<u32> {
-        self.squeue
-            .submit(min_complete)
-            .map(|submitted| {
-                // This is safe since submitted < IORING_MAX_ENTRIES (32768)
-                // and self.to_pop < IORING_MAX_CQ_ENTRIES (65536)
-                self.to_pop += submitted;
-                submitted
-            })
-            .map_err(Error::SQueue)
+        self.squeue.submit(min_complete).map_err(Error::SQueue)
     }
 
     pub fn submit(&mut self) -> Result<u32> {
@@ -189,10 +188,7 @@ impl IoUring {
     }
 
     pub fn submit_and_wait_all(&mut self) -> Result<u32> {
-        // This is safe since to_submit < IORING_MAX_ENTRIES (32768)
-        // and self.to_pop < IORING_MAX_CQ_ENTRIES (65536)
-        let total_num_ops = self.squeue.to_submit() + self.to_pop;
-        self.do_submit(total_num_ops)
+        self.do_submit(self.num_ops)
     }
 
     pub fn pending_sqes(&self) -> Result<u32> {
@@ -331,6 +327,10 @@ impl IoUring {
         }
 
         Ok(())
+    }
+
+    pub fn num_ops(&self) -> u32 {
+        self.num_ops
     }
 }
 
