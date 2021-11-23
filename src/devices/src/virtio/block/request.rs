@@ -380,7 +380,7 @@ impl Request {
                 ProcessingResult::Executed(res.user_data.finish(mem, Ok(res.count)))
             }
             Err(e) => {
-                if e.error.is_full_sq() {
+                if e.error.is_throttling_err() {
                     ProcessingResult::Throttled
                 } else {
                     ProcessingResult::Executed(
