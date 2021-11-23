@@ -80,10 +80,6 @@ impl SubmissionQueue {
         })
     }
 
-    pub(crate) fn to_submit(&self) -> u32 {
-        self.to_submit
-    }
-
     pub fn push<T>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
         let ring_slice = self.ring.as_volatile_slice();
 
