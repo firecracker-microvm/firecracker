@@ -34,7 +34,8 @@ pub mod leaf_0x1 {
         pub const MONITOR_BITINDEX: u32 = 3;
         // CPL Qualified Debug Store
         pub const DS_CPL_SHIFT: u32 = 4;
-        // 5 = VMX (Virtual Machine Extensions)
+        // Virtual Machine Extensions
+        pub const VMX_BITINDEX: u32 = 5;
         // 6 = SMX (Safer Mode Extensions)
         // 7 = EIST (Enhanced Intel SpeedStep® technology)
         // TM2 = Thermal Monitor 2
@@ -165,15 +166,22 @@ pub mod leaf_0x7 {
             // 0 = PREFETCHWT1 (move data closer to the processor in anticipation of future use)
             // AVX512_VBMI = AVX-512 Vector Byte Manipulation Instructions
             pub const AVX512_VBMI_BITINDEX: u32 = 1;
-            // 2 = UMIP (User Mode Instruction Prevention)
+            // UMIP (User Mode Instruction Prevention)
+            pub const UMIP_BITINDEX: u32 = 2;
             // PKU = Protection Keys for user-mode pages
             pub const PKU_BITINDEX: u32 = 3;
             // OSPKE = If 1, OS has set CR4.PKE to enable protection keys
             pub const OSPKE_BITINDEX: u32 = 4;
             // 5 = WAITPKG
-            // 7-6 reserved
+            // 6 = AVX512_VBMI2
+            // 7 reserved
             // 8 = GFNI
-            // 13-09 reserved
+            // 9 = VAES
+            // 10 = VPCLMULQDQ
+            // AVX512_VNNI = Vector Neural Network Instructions
+            pub const AVX512_VNNI_BITINDEX: u32 = 11;
+            // 12 = AVX512_BITALG
+            // 13 = TME
             // AVX512_VPOPCNTDQ = Vector population count instruction (Intel® Xeon Phi™ only.)
             pub const AVX512_VPOPCNTDQ_BITINDEX: u32 = 14;
             // 21 - 17 = The value of MAWAU used by the BNDLDX and BNDSTX instructions in 64-bit mode.
