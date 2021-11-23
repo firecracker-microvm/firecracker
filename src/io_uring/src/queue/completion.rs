@@ -27,6 +27,7 @@ pub struct CompletionQueue {
 
     // Cached values.
     unmasked_head: Wrapping<u32>,
+    count: u32,
     ring_mask: u32,
 
     // Mmap-ed cqes ring.
@@ -58,9 +59,14 @@ impl CompletionQueue {
             cqes_off: offsets.cqes as usize,
             // We can init this to 0 and cache it because we are the only ones modifying it.
             unmasked_head: Wrapping(0),
+            count: params.cq_entries,
             ring_mask,
             cqes,
         })
+    }
+
+    pub(crate) fn count(&self) -> u32 {
+        self.count
     }
 
     pub fn pop<T>(&mut self) -> Result<Option<Cqe<T>>, Error> {

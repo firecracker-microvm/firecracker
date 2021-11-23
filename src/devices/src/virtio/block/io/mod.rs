@@ -33,9 +33,9 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn is_full_sq(&self) -> bool {
+    pub fn is_throttling_err(&self) -> bool {
         if let Error::Async(async_io::Error::IoUring(e)) = self {
-            return e.is_full_sq();
+            return e.is_throttling_err();
         }
         false
     }

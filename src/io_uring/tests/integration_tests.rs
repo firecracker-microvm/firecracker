@@ -176,6 +176,11 @@ fn test_ring_push() {
         // Wait for the io_uring ops to reach the CQ
         thread::sleep(Duration::from_millis(150));
         assert_eq!(ring.num_ops(), NUM_ENTRIES * 2);
+        // The CQ should be full now
+        assert!(matches!(
+            ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)),
+            Err((Error::FullCQueue, 71))
+        ));
 
         // Check if there are NUM_ENTRIES * 2 cqes
         let mut num_cqes = 0;
