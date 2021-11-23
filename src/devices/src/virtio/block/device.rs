@@ -1322,35 +1322,67 @@ pub(crate) mod tests {
         // skip this test if kernel < 5.10 since in this case the sync engine will be used.
         skip_if_io_uring_unsupported!();
 
-        let mut block = default_block(FileEngineType::Async);
+        // FullSQueue Error
+        {
+            let mut block = default_block(FileEngineType::Async);
 
-        let mem = default_mem();
-        let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
-        block.activate(mem.clone()).unwrap();
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
+            block.activate(mem.clone()).unwrap();
 
-        // Run scenario that doesn't trigger FullSq Error: Add sq_size flush requests.
-        add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
-        simulate_queue_event(&mut block, Some(false));
-        assert_eq!(block.is_io_engine_throttled, false);
-        simulate_async_completion_event(&mut block, true);
-        check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
+            // Run scenario that doesn't trigger FullSq Error: Add sq_size flush requests.
+            add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
+            simulate_queue_event(&mut block, Some(false));
+            assert_eq!(block.is_io_engine_throttled, false);
+            simulate_async_completion_event(&mut block, true);
+            check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
 
-        // Run scenario that triggers FullSqError : Add sq_size + 10 flush requests.
-        add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES + 10);
-        simulate_queue_event(&mut block, Some(false));
-        assert_eq!(block.is_io_engine_throttled, true);
-        // When the async_completion_event is triggered:
-        // 1. sq_size requests should be processed processed.
-        // 2. is_io_engine_throttled should be set back to false.
-        // 3. process_queue() should be called again.
-        simulate_async_completion_event(&mut block, true);
-        assert_eq!(block.is_io_engine_throttled, false);
-        check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
-        // check that process_queue() was called again resulting in the processing of the
-        // remaining 10 ops.
-        simulate_async_completion_event(&mut block, true);
-        assert_eq!(block.is_io_engine_throttled, false);
-        check_flush_requests_batch(IO_URING_NUM_ENTRIES + 10, &mem, &vq);
+            // Run scenario that triggers FullSqError : Add sq_size + 10 flush requests.
+            add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES + 10);
+            simulate_queue_event(&mut block, Some(false));
+            assert_eq!(block.is_io_engine_throttled, true);
+            // When the async_completion_event is triggered:
+            // 1. sq_size requests should be processed processed.
+            // 2. is_io_engine_throttled should be set back to false.
+            // 3. process_queue() should be called again.
+            simulate_async_completion_event(&mut block, true);
+            assert_eq!(block.is_io_engine_throttled, false);
+            check_flush_requests_batch(IO_URING_NUM_ENTRIES, &mem, &vq);
+            // check that process_queue() was called again resulting in the processing of the
+            // remaining 10 ops.
+            simulate_async_completion_event(&mut block, true);
+            assert_eq!(block.is_io_engine_throttled, false);
+            check_flush_requests_batch(IO_URING_NUM_ENTRIES + 10, &mem, &vq);
+        }
+
+        // FullCQueue Error
+        {
+            let mut block = default_block(FileEngineType::Async);
+
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, IO_URING_NUM_ENTRIES * 4);
+            block.activate(mem.clone()).unwrap();
+
+            // Run scenario that triggers FullCqError. Push 2 * IO_URING_NUM_ENTRIES and wait for
+            // completion. Then try to push another entry.
+            add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
+            simulate_queue_event(&mut block, Some(false));
+            assert_eq!(block.is_io_engine_throttled, false);
+            thread::sleep(Duration::from_millis(150));
+            add_flush_requests_batch(&mut block, &mem, &vq, IO_URING_NUM_ENTRIES);
+            simulate_queue_event(&mut block, Some(false));
+            assert_eq!(block.is_io_engine_throttled, false);
+            thread::sleep(Duration::from_millis(150));
+
+            add_flush_requests_batch(&mut block, &mem, &vq, 1);
+            simulate_queue_event(&mut block, Some(false));
+            assert_eq!(block.is_io_engine_throttled, true);
+            assert_eq!(block.queues[0].len(&mem), 1);
+
+            simulate_async_completion_event(&mut block, true);
+            assert_eq!(block.is_io_engine_throttled, false);
+            check_flush_requests_batch(IO_URING_NUM_ENTRIES * 2, &mem, &vq);
+        }
     }
 
     #[test]
