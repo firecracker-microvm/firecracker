@@ -31,6 +31,9 @@
 - Fixed incorrect propagation of init parameters in kernel commandline.
   Related to:
   [#2709](https://github.com/firecracker-microvm/firecracker/issues/2709).
+- Adapt T2 and C3 CPU templates for kernel 5.10. Firecracker was not previously
+  masking some CPU features of the host or emulated by KVM, introduced in more
+  recent kernels: `umip`, `vmx`, `avx512_vnni`.
 
 ## [0.25.0]
 
