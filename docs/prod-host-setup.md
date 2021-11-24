@@ -157,6 +157,36 @@ Additional details of Jailer features can be found in the
 
 ## Host Security Configuration
 
+### Constrain CPU overhead caused by kvm-pit kernel threads
+
+The current implementation results in host CPU usage increase on x86 CPUs when
+a guest injects timer interrupts with the help of kvm-pit kernel thread.
+kvm-pit kthread is by default part of the root cgroup.
+
+To mitigate the CPU overhead we recommend two system level configurations.
+
+1.
+    Use an external agent to move the `kvm-pit/<pid of firecracker>` kernel
+    thread in the microVM’s cgroup (e.g., created by the Jailer).
+    This cannot be done by Firecracker since the thread is created by the Linux
+    kernel after guest start, at which point Firecracker is de-privileged.
+1.
+    Configure the kvm limit to a lower value. This is a system-wide
+    configuration available to users without Firecracker or Jailer changes.
+    However, the same limit applies to APIC timer events, and users will need
+    to test their workloads in order to apply this mitigation.
+
+To modify the kvm limit for interrupts that can be injected in a second.
+
+1. `sudo modprobe -r (kvm_intel|kvm_amd) kvm`
+1. `sudo modprobe kvm min_timer_period_us={new_value}`
+1. `sudo modprobe (kvm_intel|kvm_amd)`
+
+To have this change persistent across boots we can append the option to
+`/etc/modprobe.d/kvm.conf`:
+
+`echo "options kvm min_timer_period_us=" >> /etc/modprobe.d/kvm.conf`
+
 ### Mitigating Network flooding issues
 
 Network can be flooded by creating connections and sending/receiving a
