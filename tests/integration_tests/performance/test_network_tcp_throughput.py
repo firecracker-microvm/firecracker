@@ -406,7 +406,4 @@ def iperf_workload(context):
     except core.CoreException as err:
         handle_failure(file_dumper, err)
 
-    # This will dump the things we told them to dump
-    # in the pytest provided parameters.
-    if file_dumper:
-        file_dumper.dump(result)
+    file_dumper.dump(result)
