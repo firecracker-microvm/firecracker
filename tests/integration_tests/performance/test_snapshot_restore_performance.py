@@ -168,9 +168,9 @@ def get_snap_restore_latency(
         [rw_disk.local_path()] + extra_disk_paths,
         ssh_key,
         SnapshotType.FULL,
-        net_ifaces=ifaces
+        net_ifaces=ifaces,
+        use_ramdisk=True
     )
-
     basevm.kill()
     values = []
     for _ in range(iterations):
@@ -196,8 +196,12 @@ def get_snap_restore_latency(
                 break
         values.append(value)
         microvm.kill()
+        microvm.jailer.cleanup()
 
     full_snapshot.cleanup()
+    basevm.jailer.cleanup()
+    # The destructor is not called for the disk copy artifact.
+    rw_disk.cleanup()
     result = {}
     result[RESTORE_LATENCY] = values
     return result
