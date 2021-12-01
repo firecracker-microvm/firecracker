@@ -13,7 +13,7 @@ from framework.matrix import TestMatrix, TestContext
 from framework.builder import MicrovmBuilder
 from framework.stats import core, consumer, producer, types, criteria,\
     function
-from framework.utils import eager_map, CpuMap
+from framework.utils import eager_map, get_kernel_version, CpuMap
 from framework.artifacts import DEFAULT_HOST_IP
 from framework.utils_cpuid import get_cpu_model_name
 from integration_tests.performance.utils import handle_failure
@@ -21,8 +21,24 @@ from integration_tests.performance.utils import handle_failure
 PING = "ping -c {} -i {} {}"
 LATENCY_AVG_BASELINES = {
     "x86_64": {
-        "target": 0.250,  # milliseconds
-        "delta": 0.020  # milliseconds
+        "4.14": {
+            "target": 0.250,  # milliseconds
+            "delta": 0.020  # milliseconds
+        },
+        "5.10": {
+            "target": 0.250,  # milliseconds
+            "delta": 0.020  # milliseconds
+        }
+    },
+    "aarch64": {
+        "4.14": {
+            "target": 0.039,  # milliseconds
+            "delta": 0.020  # milliseconds
+        },
+        "5.10": {
+            "target": 0.034,  # milliseconds
+            "delta": 0.020  # milliseconds
+        }
     }
 }
 
@@ -33,8 +49,10 @@ LATENCY = "latency"
 
 def pass_criteria():
     """Define pass criteria for the statistics."""
+    arch = platform.machine()
+    host_kernel = get_kernel_version(include_patch=False)
     return {
-        "Avg": criteria.EqualWith(LATENCY_AVG_BASELINES[platform.machine()])
+        "Avg": criteria.EqualWith(LATENCY_AVG_BASELINES[arch][host_kernel])
     }
 
 
@@ -85,7 +103,7 @@ def consume_ping_output(cons, raw_data, requests):
 
     # E.g: round-trip min/avg/max/stddev = 17.478/17.705/17.808/0.210 ms
     stat_values = output[-1]
-    pattern_stats = "round-trip min/avg/max/stddev = (.+)/(.+)/(.+)/(.+) ms"
+    pattern_stats = "min/avg/max/[a-z]+dev = (.+)/(.+)/(.+)/(.+) ms"
     stat_values = re.findall(pattern_stats, stat_values)[0]
     assert len(stat_values) == 4
 
@@ -126,9 +144,6 @@ def consume_ping_output(cons, raw_data, requests):
 
 
 @pytest.mark.nonci
-@pytest.mark.skipif(platform.machine() != "x86_64",
-                    reason="This test was observed only on x86_64. Further "
-                           "support need to be added for aarch64 and amd64.")
 @pytest.mark.timeout(3600)
 def test_network_latency(bin_cloner_path, results_file_dumper):
     """
