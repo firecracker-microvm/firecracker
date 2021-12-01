@@ -2,11 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Helper functions for testing CPU identification functionality."""
 
+import platform
 import subprocess
 from enum import Enum, auto
 
 from framework.utils import run_cmd
 import host_tools.network as net_tools
+
+ARM_CPU_DICT = {"0xd0c": "ARM_NEOVERSE_N1"}
 
 
 class CpuVendor(Enum):
@@ -26,10 +29,23 @@ def get_cpu_vendor():
 
 def get_cpu_model_name():
     """Return the CPU model name."""
-    _, stdout, _ = run_cmd("cat /proc/cpuinfo | grep 'model name' | uniq")
+    if platform.machine() == "aarch64":
+        _, stdout, _ = run_cmd("cat /proc/cpuinfo | grep 'CPU part' | uniq")
+    else:
+        _, stdout, _ = run_cmd("cat /proc/cpuinfo | grep 'model name' | uniq")
     info = stdout.strip().split(sep=":")
     assert len(info) == 2
-    return info[1].strip()
+    raw_cpu_model = info[1].strip()
+    if platform.machine() == "x86_64":
+        return raw_cpu_model
+    return ARM_CPU_DICT[raw_cpu_model]
+
+
+def get_instance_type():
+    """Get the instance type through IMDS."""
+    imds_cmd = "curl http://169.254.169.254/latest/meta-data/instance-type"
+    _, stdout, _ = run_cmd(imds_cmd)
+    return stdout
 
 
 def check_guest_cpuid_output(vm, guest_cmd, expected_header,
