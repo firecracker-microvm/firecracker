@@ -62,8 +62,14 @@ class SnapRestoreBaselinesProvider(BaselineProvider):
 
     def __init__(self, env_id):
         """Snapshot baseline provider initialization."""
-        baselines = CONFIG["hosts"]["instances"]["m5d.metal"]
-        super().__init__(DictQuery(baselines))
+        cpu_model_name = get_cpu_model_name()
+        baselines = list(filter(
+            lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
+            CONFIG["hosts"]["instances"]["m5d.metal"]["cpus"]))
+
+        super().__init__(DictQuery({}))
+        if len(baselines) > 0:
+            super().__init__(DictQuery(baselines[0]))
         self._tag = "baselines/{}/" + env_id + "/{}"
 
     def get(self, ms_name: str, st_name: str) -> dict:
