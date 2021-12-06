@@ -8,6 +8,7 @@ from select import select
 from socket import socket, AF_UNIX, SOCK_STREAM
 from threading import Thread, Event
 import re
+from framework import utils
 
 from host_tools.network import SSHConnection
 
@@ -30,6 +31,7 @@ class HostEchoServer(Thread):
         """."""
         super().__init__()
         self.vm = vm
+        self.path = path
         self.sock = socket(AF_UNIX, SOCK_STREAM)
         self.sock.bind(path)
         self.sock.listen(SERVER_ACCEPT_BACKLOG)
@@ -83,6 +85,8 @@ class HostEchoServer(Thread):
         This method can be called from any thread. Upon returning, the
         echo server will have shut down.
         """
+        self.sock.close()
+        utils.run_cmd("rm -f {}".format(self.path))
         self.exit_evt.set()
         self.join()
 
