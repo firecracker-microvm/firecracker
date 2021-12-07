@@ -26,10 +26,9 @@ ECHO_SERVER_PORT = 5252
 def _guest_run_fio_iteration(ssh_connection, iteration):
     fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
         --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
-        --group_reporting --name=iops-test-job --eta-newline=1 --readonly"""
-    ssh_cmd = "screen -L -Logfile /tmp/fio{} -dmS test{} {}"
-    ssh_cmd = ssh_cmd.format(iteration, iteration, fio)
-    exit_code, _, _ = ssh_connection.execute_command(ssh_cmd)
+        --group_reporting --name=iops-test-job --eta-newline=1 --readonly \
+        --output /tmp/fio{} > /dev/null &""".format(iteration)
+    exit_code, _, _ = ssh_connection.execute_command(fio)
     assert exit_code == 0
 
 
@@ -282,7 +281,7 @@ def test_5_full_snapshots(network_config,
     # - Rootfs: Ubuntu 18.04
     # - Microvm: 2vCPU with 512 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
-    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_256mb"))
+    microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
     kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
@@ -324,7 +323,7 @@ def test_5_inc_snapshots(network_config,
     # Testing matrix:
     # - Guest kernel: Linux 4.9/4.14
     # - Rootfs: Ubuntu 18.04
-    # - Microvm: 2vCPU with 512 MB RAM
+    # - Microvm: 2vCPU with 4096 MB RAM
     # TODO: Multiple microvm sizes must be tested in the async pipeline.
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_4096mb"))
     kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="vmlinux-4.14"))
