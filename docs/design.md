@@ -49,10 +49,10 @@ images/firecracker_host_integration.png?raw=true
 Firecracker runs on Linux hosts with 4.14 or newer kernels and with Linux
 guest OSs (from this point on, referred to as guests). In production
 environments, Firecracker should be started only via the `jailer` binary.
-The `firecracker` binary can also be executed directly, but this will no longer
-be possible in the future. After launching the process, users interact with
-the Firecracker API to configure the microVM, before issuing the
-`InstanceStart` command.
+See [Sandboxing](#Sandboxing) for more details.
+
+After launching the process, users interact with the Firecracker API to
+configure the microVM, before issuing the `InstanceStart` command.
 
 ### Host Networking Integration
 
@@ -147,11 +147,21 @@ service is fully configured by users.
 
 #### __Firecracker process__
 
+Firecracker is designed to assure secure isolation using multiple layers.
+The first layer of isolation is provided by the Linux KVM and the Firecracker
+virtualization boundary. To assure defense in depth, Firecracker should only
+run constrained at the process level. This is achieved by the following:
+seccomp filters for disallowing unwanted system calls, cgroups and namespaces
+for resource isolation, and dropping privileges by jailing the process. Seccomp
+filters are automatically installed by Firecracker, while for the latter, we
+recommend starting Firecracker with the `jailer` binary that's part of each
+Firecracker release.
+
 ##### Seccomp
 
 Seccomp filters are used by default to limit the host system calls Firecracker
-can use. The default filters only allow the bare minimum set of system calls and
-parameters that Firecracker needs in order to function correctly.
+can use. The default filters only allow the bare minimum set of system calls
+and parameters that Firecracker needs in order to function correctly.
 
 The filters are loaded in the Firecracker process, on a per-thread basis,
 before executing any guest code.
