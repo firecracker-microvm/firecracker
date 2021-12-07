@@ -1,5 +1,10 @@
 # Production Host Setup Recommendations
 
+Firecracker relies on KVM and on the processor virtualization features
+for workload isolation. Security guarantees and defense in depth can only be
+upheld, if the following list of recommendations are implemented in
+production.
+
 ## Firecracker Configuration
 
 ### Seccomp
@@ -77,8 +82,12 @@ for Firecracker processes that are unresponsive, and kills them, by SIGKILL.
 
 ## Jailer Configuration
 
-Using Jailer in a production Firecracker deployment is highly recommended,
-as it provides additional security boundaries for the microVM.
+For assuring secure isolation in production deployments, Firecracker should
+must be started using the `jailer` binary that's part of each Firecracker
+release, or executed under process constraints equal or more restrictive than
+those in the jailer. For more about Firecracker sandboxing please see
+[Firecracker design](design.md)
+
 The Jailer process applies
 [cgroup](https://www.kernel.org/doc/Documentation/cgroup-v1/cgroups.txt),
 namespace isolation and drops privileges of the Firecracker process.
