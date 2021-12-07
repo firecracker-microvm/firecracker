@@ -18,7 +18,7 @@ from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import CpuMap, CmdBuilder, run_cmd, get_cpu_percent, \
     get_kernel_version, DictQuery
-from framework.utils_cpuid import get_cpu_model_name
+from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 import host_tools.network as net_tools
 from integration_tests.performance.configs import defs
 from integration_tests.performance.utils import handle_failure
@@ -57,7 +57,7 @@ class VsockThroughputBaselineProvider(BaselineProvider):
         cpu_model_name = get_cpu_model_name()
         baselines = list(filter(
             lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
-            CONFIG_DICT["hosts"]["instances"]["m5d.metal"]["cpus"]))
+            CONFIG_DICT["hosts"]["instances"][get_instance_type()]["cpus"]))
         super().__init__(DictQuery({}))
         if len(baselines) > 0:
             super().__init__(DictQuery(baselines[0]))
@@ -129,9 +129,9 @@ def produce_iperf_output(basevm,
 
         pinned_cmd = f"taskset --cpu-list {client_idx % basevm.vcpus_count}" \
             f" {cmd}"
-        rc, stdout, _ = conn.execute_command(pinned_cmd)
+        rc, stdout, stderr = conn.execute_command(pinned_cmd)
 
-        assert rc == 0
+        assert rc == 0, stderr.read()
 
         return stdout.read()
 
