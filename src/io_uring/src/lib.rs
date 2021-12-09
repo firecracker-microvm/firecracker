@@ -350,7 +350,7 @@ mod tests {
     use vm_memory::{Bytes, MmapRegion, VolatileMemory};
 
     fn drain_cqueue(ring: &mut IoUring) {
-        while let Some(entry) = ring.pop::<usize>().unwrap() {
+        while let Some(entry) = ring.pop::<u32>().unwrap() {
             assert!(entry.result().is_ok());
 
             // Assert that there were no partial writes.
