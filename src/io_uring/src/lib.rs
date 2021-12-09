@@ -72,10 +72,14 @@ impl Error {
 }
 
 pub struct IoUring {
-    fd: File,
     registered_fds_count: u32,
     squeue: SubmissionQueue,
     cqueue: CompletionQueue,
+    // Make sure the fd is declared after the queues, so that it isn't dropped before them.
+    // If we drop the queues after the File, the associated kernel mem will never be freed.
+    // The correct cleanup order is munmap(rings) -> close(fd).
+    // We don't need to manually drop the fields in order,since Rust has a well defined drop order.
+    fd: File,
 
     // Number of ops yet to be pop-ed from the CQ. These ops either haven't been pop-ed yet,
     // or they haven't even been completed.
@@ -116,9 +120,9 @@ impl IoUring {
         let cqueue = CompletionQueue::new(fd, &params).map_err(Error::CQueue)?;
 
         let mut instance = Self {
-            fd: file,
             squeue,
             cqueue,
+            fd: file,
             registered_fds_count: 0,
             to_pop: 0,
         };
