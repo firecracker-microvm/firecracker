@@ -32,7 +32,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
-    /// Error originating in the completion queue.
+    /// Error originating in the completion queues.
     CQueue(CQueueError),
     /// Could not enable the ring.
     Enable(IOError),
