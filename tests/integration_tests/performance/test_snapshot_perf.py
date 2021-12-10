@@ -115,7 +115,7 @@ def snapshot_create_measurements(vm_type, snapshot_type):
 def snapshot_resume_measurements(vm_type):
     """Define measurements for snapshot resume tests."""
     load_latency = LOAD_LATENCY_BASELINES[platform.machine()][vm_type]
-    # Host kernels >= 5.4 add an up to ~30ms latency.
+    # Host kernels >= 5.4 add an up to ~30ms latencys.
     # See: https://github.com/firecracker-microvm/firecracker/issues/2129
     linux_version = platform.release()
     for idx, char in enumerate(linux_version):
