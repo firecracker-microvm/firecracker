@@ -67,13 +67,12 @@ impl CompletionQueue {
         let ring = self.cqes.as_volatile_slice();
         // get the head & tail
         let head = self.unmasked_head.0 & self.ring_mask;
-        let tail = ring
+        let unmasked_tail = ring
             .load::<u32>(self.tail_off, Ordering::Acquire)
-            .map_err(Error::VolatileMemory)?
-            & self.ring_mask;
+            .map_err(Error::VolatileMemory)?;
 
         // validate that we have smth to fetch
-        if head != tail {
+        if Wrapping(unmasked_tail) - self.unmasked_head > Wrapping(0) {
             let cqe: bindings::io_uring_cqe = ring
                 .read_obj(
                     self.cqes_off + (head as usize) * std::mem::size_of::<bindings::io_uring_cqe>(),
