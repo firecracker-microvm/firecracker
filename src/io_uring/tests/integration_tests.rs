@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::os::unix::{fs::FileExt, io::AsRawFd};
+use std::thread;
+use std::time::Duration;
 use vm_memory::{Bytes, MmapRegion, VolatileMemory};
 
 use utils::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
@@ -155,6 +157,26 @@ fn test_ring_push() {
 
         // We didn't get to submit so pop() should return None.
         assert!(ring.pop::<u8>().unwrap().is_none());
+
+        // Full Ring.
+        assert!(ring.submit().is_ok());
+        // Wait for the io_uring ops to reach the CQ
+        thread::sleep(Duration::from_millis(150));
+        for _ in 0..NUM_ENTRIES {
+            assert!(ring
+                .push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+                .is_ok());
+        }
+        assert!(ring.submit().is_ok());
+        // Wait for the io_uring ops to reach the CQ
+        thread::sleep(Duration::from_millis(150));
+
+        // Check if there are NUM_ENTRIES * 2 cqes
+        let mut num_cqes = 0;
+        while let Ok(Some(_entry)) = ring.pop::<u8>() {
+            num_cqes += 1;
+        }
+        assert_eq!(num_cqes, NUM_ENTRIES * 2);
     }
 }
 
