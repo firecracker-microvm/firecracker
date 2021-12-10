@@ -16,7 +16,7 @@ from framework.stats import core
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import get_kernel_version, DictQuery
-from framework.utils_cpuid import get_cpu_model_name
+from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 import framework.stats as st
@@ -69,11 +69,12 @@ class SnapRestoreBaselinesProvider(BaselineProvider):
         cpu_model_name = get_cpu_model_name()
         baselines = list(filter(
             lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
-            CONFIG_DICT["hosts"]["instances"]["m5d.metal"]["cpus"]))
+            CONFIG_DICT["hosts"]["instances"][get_instance_type()]["cpus"]))
 
         super().__init__(DictQuery({}))
         if len(baselines) > 0:
             super().__init__(DictQuery(baselines[0]))
+
         self._tag = "baselines/{}/" + env_id + "/{}"
 
     def get(self, ms_name: str, st_name: str) -> dict:
