@@ -4,8 +4,6 @@
 
 # Disable pylint C0302: Too many lines in module
 # pylint: disable=C0302
-import array
-import itertools
 import os
 import platform
 import resource
@@ -1227,6 +1225,8 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
     @type: regression
     """
     test_microvm = test_microvm_with_ssh
+    test_microvm.jailer.extra_args.update(
+        {'http-api-max-payload-size': str(1024 * 1024 * 2)})
     test_microvm.spawn()
     test_microvm.api_session.untime()
 
@@ -1237,13 +1237,10 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
     data_store = {
         'latest': {
             'meta-data': {
+                'ami-id': 'b' * (1024 * 1024)
             }
         }
     }
 
-    slice_1mb = array.array('u', itertools.repeat('b', 1024 * 1024))
-    chars = array.array('u')
-    chars = [chars.extend(slice_1mb) for _ in range(190)]
-    data_store["latest"]["meta-data"]["ami-id"] = chars
     response = test_microvm.mmds.put(json=data_store)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
