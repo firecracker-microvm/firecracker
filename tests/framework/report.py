@@ -101,7 +101,8 @@ class Report(mpsing.MultiprocessSingleton):
         # What kind of test we're running. We only accept a predefined list
         # of tests.
         "type": ReportItem("", True, ["build", "functional", "performance",
-                                      "security", "style", "negative"], True),
+                                      "security", "style", "negative",
+                                      "regression"], True),
 
         # What we take into account to pass a test
         "criteria": ReportItem("", False, None, False),

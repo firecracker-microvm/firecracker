@@ -1224,7 +1224,7 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
     call mmap with MAP_PRIVATE|MAP_ANONYMOUS. This would result in vmm being
     killed by the seccomp filter before this PR.
 
-    @type: functional
+    @type: regression
     """
     test_microvm = test_microvm_with_ssh
     test_microvm.spawn()
