@@ -1087,7 +1087,7 @@ mod tests {
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
-        // Cases that should success
+        // Cases that should succeed
 
         // Check value with special characters (',', '.', '-')
         let mut args = arg_parser.arguments().clone();

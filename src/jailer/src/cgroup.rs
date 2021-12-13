@@ -83,7 +83,7 @@ impl CgroupBuilder {
                 } else if ver == 1 && capture["ver"].is_empty() {
                     // Found a cgroupv1 mountpoint; with cgroupsv1 we can have multiple hierarchies.
                     // Since we don't know which one will be used, we cache the mountpoints now,
-                    // and will create the hierachies on demand when a cgroup is built.
+                    // and will create the hierarchies on demand when a cgroup is built.
                     b.mount_points.push(CgroupMountPoint {
                         dir: String::from(&capture["dir"]),
                         options: String::from(&capture["options"]),
@@ -136,7 +136,7 @@ impl CgroupBuilder {
     // Cgroups for a controller are arranged in a hierarchy; multiple controllers
     // may share the same hierarchy
     fn get_v1_hierarchy_path(&mut self, controller: &str) -> Result<&PathBuf> {
-        // First try and see if the path is alrady discovered
+        // First try and see if the path is already discovered.
         match self.hierarchies.entry(controller.to_string()) {
             Occupied(e) => Ok(e.into_mut()),
             Vacant(e) => {
@@ -357,7 +357,7 @@ impl CgroupV2 {
     // Enables the specified controller along the cgroup nested path.
     // To be able to use a leaf controller within a nested cgroup hierarchy,
     // the controller needs to be enabled by writing to the cgroup.subtree_control
-    // of it's parent. This rule applies recursivelly.
+    // of it's parent. This rule applies recursively.
     fn write_all_subtree_control<P>(path: P, controller: &str) -> Result<()>
     where
         P: AsRef<Path>,
@@ -467,7 +467,7 @@ pub mod test_util {
     }
 
     // Helper object that simulates the layout of the cgroup file system
-    // This can be used for testing regardless of the availablity of a particular
+    // This can be used for testing regardless of the availability of a particular
     // version of cgroups on the system
     impl MockCgroupFs {
         const MOCK_PROCDIR: &'static str = "/tmp/firecracker/test/jailer/proc";

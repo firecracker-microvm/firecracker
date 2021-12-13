@@ -163,7 +163,7 @@ def sys_setup_cgroups():
         # non-root cgroups can distribute domain resources to their children
         # only when they don’t have any processes of their own.
         # When a Docker container is created, the processes running inside
-        # the container are added to the a cgroup which the container sees
+        # the container are added to a cgroup which the container sees
         # as the root cgroup. This prevents creation of using domain cgroups.
         cgroup_root = None
 
@@ -184,7 +184,7 @@ def sys_setup_cgroups():
             with open(f'{cgroup_root}/cgroup.procs') as procs:
                 root_procs = [x.strip() for x in procs.readlines()]
 
-            # now create a new domain cgroup and migrate the procesesses
+            # now create a new domain cgroup and migrate the processes
             # to that cgroup
             os.makedirs(f'{cgroup_root}/system', exist_ok=True)
             for pid in root_procs:
@@ -294,7 +294,7 @@ def test_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
     # Retrieve CPUs from NUMA node 0.
     node_cpus = get_cpus(test_microvm.jailer.numa_node)
 
-    # Apending the cgroups that should be creating by --node option
+    # Appending the cgroups that should be creating by --node option
     # This must be changed once --node options is removed
     cgroups = test_microvm.jailer.cgroups + [
         'cpuset.mems=0',
@@ -335,7 +335,7 @@ def test_cgroups_custom_parent(test_microvm_with_initrd, sys_setup_cgroups):
     # Retrieve CPUs from NUMA node 0.
     node_cpus = get_cpus(test_microvm.jailer.numa_node)
 
-    # Apending the cgroups that should be creating by --node option
+    # Appending the cgroups that should be creating by --node option
     # This must be changed once --node options is removed
     cgroups = test_microvm.jailer.cgroups + [
         'cpuset.mems=0',
@@ -379,7 +379,7 @@ def test_node_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
     # Retrieve CPUs from NUMA node 0.
     node_cpus = get_cpus(test_microvm.jailer.numa_node)
 
-    # Apending the cgroups that should be creating by --node option
+    # Appending the cgroups that should be creating by --node option
     # This must be changed once --node options is removed
     cgroups = [
         'cpuset.mems=0',
