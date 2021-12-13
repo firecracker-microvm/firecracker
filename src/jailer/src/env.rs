@@ -1051,15 +1051,6 @@ mod tests {
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
-        // Check string with multiple "."
-        let mut args = arg_parser.arguments().clone();
-        let invalid_cgroup_arg_vals = ArgVals {
-            cgroups: vec!["cpu.set.cpus=2"],
-            ..good_arg_vals.clone()
-        };
-        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
-        assert!(Env::new(&args, 0, 0).is_err());
-
         // Check empty string
         let mut args = arg_parser.arguments().clone();
         let invalid_cgroup_arg_vals = ArgVals {
@@ -1102,6 +1093,15 @@ mod tests {
         let mut args = arg_parser.arguments().clone();
         let invalid_cgroup_arg_vals = ArgVals {
             cgroups: vec!["cpuset.cpus=2"],
+            ..good_arg_vals.clone()
+        };
+        args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_ok());
+
+        // Check file with multiple "."
+        let mut args = arg_parser.arguments().clone();
+        let invalid_cgroup_arg_vals = ArgVals {
+            cgroups: vec!["memory.swap.high=2"],
             ..good_arg_vals.clone()
         };
         args.parse(&make_args(&invalid_cgroup_arg_vals)).unwrap();

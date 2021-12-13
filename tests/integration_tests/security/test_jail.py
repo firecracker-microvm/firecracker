@@ -282,7 +282,7 @@ def test_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
     test_microvm.jailer.numa_node = 0
     test_microvm.jailer.cgroup_ver = sys_setup_cgroups
     if test_microvm.jailer.cgroup_ver == 2:
-        test_microvm.jailer.cgroups = ['cpu.weight=2']
+        test_microvm.jailer.cgroups = ['cpu.weight.nice=10']
     else:
         test_microvm.jailer.cgroups = [
             'cpu.shares=2',

@@ -291,7 +291,7 @@ fn get_controller_from_filename(file: &str) -> Result<&str> {
     let v: Vec<&str> = file.split('.').collect();
 
     // Check format <cgroup_controller>.<cgroup_property>
-    if v.len() != 2 {
+    if v.len() < 2 {
         return Err(Error::CgroupInvalidFile(file.to_string()));
     }
 
@@ -755,14 +755,14 @@ mod tests {
         assert!(result.is_ok());
         assert!(matches!(result, Ok(ctrl) if ctrl == "cpuset"));
 
-        // Check invalid file
-        file = "cpusetcpu";
+        // Check valid file with multiple '.'.
+        file = "memory.swap.high";
         result = get_controller_from_filename(file);
-        assert!(result.is_err());
-        assert!(format!("{:?}", result).contains("CgroupInvalidFile"));
+        assert!(result.is_ok());
+        assert!(matches!(result, Ok(ctrl) if ctrl == "memory"));
 
         // Check invalid file
-        file = "cpu.set.cpu";
+        file = "cpusetcpu";
         result = get_controller_from_filename(file);
         assert!(result.is_err());
         assert!(format!("{:?}", result).contains("CgroupInvalidFile"));
