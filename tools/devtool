@@ -1223,6 +1223,7 @@ cmd_test() {
         --security-opt seccomp=unconfined \
         --ulimit core=0 \
         --ulimit nofile=4096:4096 \
+        --ulimit memlock=-1:-1 \
         --workdir "$CTR_FC_ROOT_DIR/tests" \
         --cpuset-cpus="$cpuset_cpus" \
         --cpuset-mems="$cpuset_mems" \
@@ -1289,6 +1290,7 @@ cmd_shell() {
         run_devctr \
             --privileged \
             --ulimit nofile=4096:4096 \
+            --ulimit memlock=-1:-1 \
             --security-opt seccomp=unconfined \
             --workdir "$CTR_FC_ROOT_DIR" \
             ${ramdisk_args} \
@@ -1314,6 +1316,7 @@ cmd_shell() {
         run_devctr \
             --user "$(id -u):$(id -g)" \
             --ulimit nofile=4096:4096 \
+            --ulimit memlock=-1:-1 \
             --device=/dev/kvm:/dev/kvm \
             --workdir "$CTR_FC_ROOT_DIR" \
             --env PS1="$(whoami)@\h:\w\$ " \
