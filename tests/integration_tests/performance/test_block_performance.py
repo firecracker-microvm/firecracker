@@ -1,6 +1,7 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Performance benchmark for block device emulation."""
+
 import concurrent
 import json
 import logging
@@ -16,26 +17,29 @@ from framework.matrix import TestContext, TestMatrix
 from framework.stats import core
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
-from framework.utils import get_cpu_percent, CmdBuilder, DictQuery, run_cmd
+from framework.utils import get_cpu_percent, get_kernel_version, \
+    CmdBuilder, DictQuery, run_cmd
 from framework.utils_cpuid import get_cpu_model_name
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 import framework.stats as st
 from integration_tests.performance.configs import defs
-from integration_tests.performance.utils import handle_failure, \
-    dump_test_result
+from integration_tests.performance.utils import handle_failure
+
+TEST_ID = "test_block_performance"
+kernel_version = get_kernel_version(include_patch=False)
+CONFIG_NAME_REL = "{}_config_{}.json".format(TEST_ID,
+                                             kernel_version)
+CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
+CONFIG = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
 
 DEBUG = False
-TEST_ID = "block_device_performance"
 FIO = "fio"
 
 # Measurements tags.
 CPU_UTILIZATION_VMM = "cpu_utilization_vmm"
 CPU_UTILIZATION_VMM_SAMPLES_TAG = "cpu_utilization_vmm_samples"
 CPU_UTILIZATION_VCPUS_TOTAL = "cpu_utilization_vcpus_total"
-CONFIG = json.load(open(defs.CFG_LOCATION /
-                        "block_performance_test_config.json",
-                        encoding='utf-8'))
 
 
 # pylint: disable=R0903
@@ -247,6 +251,11 @@ def consume_fio_output(cons, result, numjobs, mode, bs, env_id, logs_path):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(CONFIG["time"] * 1000)  # 1.40 hours
+@pytest.mark.parametrize(
+    'results_file_dumper',
+    [CONFIG_NAME_ABS],
+    indirect=True
+)
 def test_block_performance(bin_cloner_path, results_file_dumper):
     """
     Test block performance for multiple vm configurations.
@@ -353,4 +362,4 @@ def fio_workload(context):
     except core.CoreException as err:
         handle_failure(file_dumper, err)
 
-    dump_test_result(file_dumper, result)
+    file_dumper.dump(result)
