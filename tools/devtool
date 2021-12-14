@@ -1955,7 +1955,7 @@ cmd_install() {
 }
 
 # Build a Firecracker CI compatible kernel image.
-# Example: `./tools/devtool build_kernel -c resources/microvm-kernel-arm64.config`
+# Example: `./tools/devtool build_kernel -c resources/guest_configs/microvm-kernel-arm64-4.14.config`
 #
 cmd_build_kernel() {
     nprocs=$(getconf _NPROCESSORS_ONLN)

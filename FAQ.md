@@ -162,7 +162,7 @@ CONFIG_PTP_1588_CLOCK=y
 CONFIG_PTP_1588_CLOCK_KVM=y
 ```
 
-Our [recommended guest kernel config](resources/microvm-kernel-x86_64.config)
+Our [recommended x86_64 guest kernel config](resources/guest_configs)
 already has these included.
 
 Now `/dev/ptp0` should be available in the guest. Next you need to configure
