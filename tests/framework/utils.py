@@ -611,14 +611,16 @@ def compare_versions(first, second):
     return 0
 
 
-def get_kernel_version():
+def get_kernel_version(level=2):
     """Return the current kernel version in format `major.minor.patch`."""
     linux_version = platform.release()
+    actual_level = 0
     for idx, char in enumerate(linux_version):
-        if not char.isdigit() and char != '.':
+        if char == '.':
+            actual_level += 1
+        if actual_level > level or (not char.isdigit() and char != '.'):
             linux_version = linux_version[0:idx]
             break
-
     return linux_version
 
 

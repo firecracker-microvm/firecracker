@@ -61,7 +61,7 @@ class Core:
     def run_exercise(self, fail_fast=False) -> Result:
         """Drive the statistics producers until completion."""
         iterations = self._result['iterations']
-        # This is used for identation purposes.
+
         for tag, pipe in self._pipes.items():
             for iteration in range(iterations):
                 raw_data = pipe.producer.produce()
