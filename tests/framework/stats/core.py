@@ -85,6 +85,7 @@ class Core:
             # Custom information extracted from all the iterations.
             if len(custom) > 0:
                 self._result['custom'][tag] = custom
+                print("Processor {}".format(custom))
 
         if self._failure_aggregator.has_any():
             self._failure_aggregator.result = self._result

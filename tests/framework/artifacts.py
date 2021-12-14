@@ -16,7 +16,7 @@ from framework.utils import compare_versions
 from host_tools.snapshot_helper import merge_memory_bitmaps
 
 
-ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts"
+ARTIFACTS_LOCAL_ROOT = f"{DEFAULT_TEST_SESSION_ROOT_PATH}/ci-artifacts-dev"
 
 
 class ArtifactType(Enum):
@@ -299,7 +299,7 @@ class ArtifactCollection:
     PLATFORM = platform.machine()
 
     # S3 bucket structure.
-    ARTIFACTS_ROOT = 'ci-artifacts'
+    ARTIFACTS_ROOT = 'ci-artifacts-dev'
     ARTIFACTS_DISKS = '/disks/' + PLATFORM + "/"
     ARTIFACTS_KERNELS = '/kernels/' + PLATFORM + "/"
     ARTIFACTS_MICROVMS = '/microvms/'
