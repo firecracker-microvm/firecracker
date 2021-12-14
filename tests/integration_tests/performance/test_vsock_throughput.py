@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests the VSOCK throughput of Firecracker uVMs."""
 
-
 import os
 import json
 import logging
@@ -18,16 +17,18 @@ from framework.stats import core, consumer, producer
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import CpuMap, CmdBuilder, run_cmd, get_cpu_percent, \
-    DictQuery
+    get_kernel_version, DictQuery
 from framework.utils_cpuid import get_cpu_model_name
 import host_tools.network as net_tools
 from integration_tests.performance.configs import defs
-from integration_tests.performance.utils import handle_failure, \
-    dump_test_result
+from integration_tests.performance.utils import handle_failure
 
-CONFIG = json.load(open(defs.CFG_LOCATION /
-                        "vsock_throughput_test_config.json", encoding='utf-8'))
-SERVER_STARTUP_TIME = CONFIG["server_startup_time"]
+CONFIG_NAME_REL = "test_vsock_throughput_config_{}.json".format(
+    get_kernel_version(include_patch=False))
+CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
+CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
+
+SERVER_STARTUP_TIME = CONFIG_DICT["server_startup_time"]
 VSOCK_UDS_PATH = "v.sock"
 IPERF3 = "iperf3-vsock"
 THROUGHPUT = "throughput"
@@ -56,7 +57,7 @@ class VsockThroughputBaselineProvider(BaselineProvider):
         cpu_model_name = get_cpu_model_name()
         baselines = list(filter(
             lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
-            CONFIG["hosts"]["instances"]["m5d.metal"]["cpus"]))
+            CONFIG_DICT["hosts"]["instances"]["m5d.metal"]["cpus"]))
         super().__init__(DictQuery({}))
         if len(baselines) > 0:
             super().__init__(DictQuery(baselines[0]))
@@ -209,21 +210,21 @@ def consume_iperf_output(cons, result):
 
 def pipes(basevm, current_avail_cpu, env_id):
     """Producer/Consumer pipes generator."""
-    for mode in CONFIG["modes"]:
+    for mode in CONFIG_DICT["modes"]:
         # We run bi-directional tests only on uVM with more than 2 vCPus
         # because we need to pin one iperf3/direction per vCPU, and since we
         # have two directions, we need at least two vCPUs.
         if mode == "bd" and basevm.vcpus_count < 2:
             continue
 
-        for protocol in CONFIG["protocols"]:
+        for protocol in CONFIG_DICT["protocols"]:
             for payload_length in protocol["payload_length"]:
                 iperf_guest_cmd_builder = CmdBuilder(IPERF3) \
                     .with_arg("--vsock") \
                     .with_arg("-c", 2)       \
                     .with_arg("--json") \
                     .with_arg("--omit", protocol["omit"]) \
-                    .with_arg("--time", CONFIG["time"])
+                    .with_arg("--time", CONFIG_DICT["time"])
 
                 if payload_length != "DEFAULT":
                     iperf_guest_cmd_builder = iperf_guest_cmd_builder \
@@ -233,7 +234,7 @@ def pipes(basevm, current_avail_cpu, env_id):
 
                 cons = consumer.LambdaConsumer(
                     metadata_provider=DictMetadataProvider(
-                        CONFIG["measurements"],
+                        CONFIG_DICT["measurements"],
                         VsockThroughputBaselineProvider(env_id, iperf3_id)),
                     func=consume_iperf_output
                 )
@@ -242,10 +243,10 @@ def pipes(basevm, current_avail_cpu, env_id):
                     "guest_cmd_builder": iperf_guest_cmd_builder,
                     "basevm": basevm,
                     "current_avail_cpu": current_avail_cpu,
-                    "runtime": CONFIG["time"],
+                    "runtime": CONFIG_DICT["time"],
                     "omit": protocol["omit"],
-                    "load_factor": CONFIG["load_factor"],
-                    "modes": CONFIG["modes"][mode],
+                    "load_factor": CONFIG_DICT["load_factor"],
+                    "modes": CONFIG_DICT["modes"][mode],
                 }
                 prod = producer.LambdaProducer(produce_iperf_output,
                                                prod_kwargs)
@@ -254,6 +255,11 @@ def pipes(basevm, current_avail_cpu, env_id):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(600)
+@pytest.mark.parametrize(
+    'results_file_dumper',
+    [CONFIG_NAME_ABS],
+    indirect=True
+)
 def test_vsock_throughput(bin_cloner_path, results_file_dumper):
     """
     Test vsock throughput for multiple vm configurations.
@@ -350,7 +356,7 @@ def iperf_workload(context):
     except core.CoreException as err:
         handle_failure(file_dumper, err)
 
-    dump_test_result(file_dumper, result)
+    file_dumper.dump(result)
 
 
 def _make_host_port_path(uds_path, port):
