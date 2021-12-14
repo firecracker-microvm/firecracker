@@ -562,7 +562,7 @@ def test_snapshot_resume_latency(network_config,
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="2vcpu_512mb"))
     microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_256mb"))
 
-    kernel_artifacts = ArtifactSet(artifacts.kernels(keyword="4.14"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
     # Create a test context and add builder, logger, network.

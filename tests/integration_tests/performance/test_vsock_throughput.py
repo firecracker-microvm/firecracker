@@ -254,7 +254,7 @@ def pipes(basevm, current_avail_cpu, env_id):
 
 
 @pytest.mark.nonci
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(1200)
 @pytest.mark.parametrize(
     'results_file_dumper',
     [CONFIG_NAME_ABS],
@@ -270,8 +270,7 @@ def test_vsock_throughput(bin_cloner_path, results_file_dumper):
     artifacts = ArtifactCollection(_test_images_s3_bucket())
     microvm_artifacts = ArtifactSet(artifacts.microvms(keyword="1vcpu_1024mb"))
     microvm_artifacts.insert(artifacts.microvms(keyword="2vcpu_1024mb"))
-    kernel_artifacts = ArtifactSet(
-        artifacts.kernels(keyword="vmlinux-4.14.bin"))
+    kernel_artifacts = ArtifactSet(artifacts.kernels())
     disk_artifacts = ArtifactSet(artifacts.disks(keyword="ubuntu"))
 
     # Create a test context and add builder, logger, network.
