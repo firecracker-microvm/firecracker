@@ -16,8 +16,7 @@ from framework.utils import eager_map, CpuMap, \
     is_io_uring_supported
 from framework.stats import core, consumer, producer, types, criteria,\
     function
-from integration_tests.performance.utils import handle_failure, \
-    dump_test_result
+from integration_tests.performance.utils import handle_failure
 
 import host_tools.network as net_tools  # pylint: disable=import-error
 import host_tools.logging as log_tools
@@ -304,7 +303,7 @@ def _test_snapshot_create_latency(context):
     except core.CoreException as err:
         handle_failure(file_dumper, err)
 
-    dump_test_result(file_dumper, result)
+    file_dumper.dump(result)
 
 
 def _test_snapshot_resume_latency(context):
@@ -383,7 +382,7 @@ def _test_snapshot_resume_latency(context):
     except core.CoreException as err:
         handle_failure(file_dumper, err)
 
-    dump_test_result(file_dumper, result)
+    file_dumper.dump(result)
 
 
 def _test_older_snapshot_resume_latency(context):
@@ -457,7 +456,7 @@ def _test_older_snapshot_resume_latency(context):
     except core.CoreException as err:
         handle_failure(file_dumper, err)
 
-    dump_test_result(file_dumper, result)
+    file_dumper.dump(result)
 
 
 def test_snapshot_create_full_latency(network_config,

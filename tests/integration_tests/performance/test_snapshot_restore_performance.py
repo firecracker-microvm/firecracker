@@ -1,11 +1,13 @@
 # Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Performance benchmark for snapshot restore."""
+
+import os
 import json
 import logging
 import tempfile
-import pytest
 
+import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet, NetIfaceConfig
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
@@ -13,17 +15,21 @@ from framework.matrix import TestContext, TestMatrix
 from framework.stats import core
 from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
-from framework.utils import DictQuery
+from framework.utils import get_kernel_version, DictQuery
 from framework.utils_cpuid import get_cpu_model_name
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
 import framework.stats as st
 from integration_tests.performance.configs import defs
-from integration_tests.performance.utils import handle_failure, \
-    dump_test_result
+from integration_tests.performance.utils import handle_failure
+
+TEST_ID = "snap_restore_performance"
+CONFIG_NAME_REL = "test_{}_config_{}.json".format(
+    TEST_ID, get_kernel_version(include_patch=False))
+CONFIG_NAME_ABS = os.path.join(defs.CFG_LOCATION, CONFIG_NAME_REL)
+CONFIG_DICT = json.load(open(CONFIG_NAME_ABS, encoding='utf-8'))
 
 DEBUG = False
-TEST_ID = "snapshot_restore_performance"
 BASE_VCPU_COUNT = 1
 BASE_MEM_SIZE_MIB = 128
 BASE_NET_COUNT = 1
@@ -32,8 +38,6 @@ USEC_IN_MSEC = 1000
 
 # Measurements tags.
 RESTORE_LATENCY = "restore_latency"
-CONFIG = json.load(open(defs.CFG_LOCATION /
-                        "snap_restore_test_config.json", encoding='utf-8'))
 
 # Define 4 net device configurations.
 net_ifaces = [NetIfaceConfig(),
@@ -65,7 +69,7 @@ class SnapRestoreBaselinesProvider(BaselineProvider):
         cpu_model_name = get_cpu_model_name()
         baselines = list(filter(
             lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
-            CONFIG["hosts"]["instances"]["m5d.metal"]["cpus"]))
+            CONFIG_DICT["hosts"]["instances"]["m5d.metal"]["cpus"]))
 
         super().__init__(DictQuery({}))
         if len(baselines) > 0:
@@ -100,7 +104,7 @@ def default_lambda_consumer(env_id):
     """Create a default lambda consumer for the snapshot restore test."""
     return st.consumer.LambdaConsumer(
         metadata_provider=DictMetadataProvider(
-            CONFIG["measurements"],
+            CONFIG_DICT["measurements"],
             SnapRestoreBaselinesProvider(env_id)
         ),
         func=consume_output,
@@ -166,8 +170,6 @@ def get_snap_restore_latency(
 
     basevm.start()
 
-    ssh_connection = net_tools.SSHConnection(basevm.ssh_config)
-
     # Create a snapshot builder from a microvm.
     snapshot_builder = SnapshotBuilder(basevm)
     full_snapshot = snapshot_builder.create(
@@ -222,6 +224,11 @@ def consume_output(cons, result):
 
 @pytest.mark.nonci
 @pytest.mark.timeout(300 * 1000)  # 1.40 hours
+@pytest.mark.parametrize(
+    'results_file_dumper',
+    [CONFIG_NAME_ABS],
+    indirect=True
+)
 def test_snap_restore_performance(bin_cloner_path, results_file_dumper):
     """
     Test the performance of snapshot restore.
@@ -370,4 +377,4 @@ def snapshot_workload(context):
     except core.CoreException as err:
         handle_failure(file_dumper, err)
 
-    dump_test_result(file_dumper, result)
+    file_dumper.dump(result)
