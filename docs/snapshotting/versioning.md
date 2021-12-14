@@ -176,7 +176,7 @@ To successfully restore a microVM one should check that:
 
 ### CPU model
 
-Firecracker micromVMs snapshot functionality is available for Intel/AMD/ARM64
+Firecracker microVMs snapshot functionality is available for Intel/AMD/ARM64
 CPU models that support the hardware virtualizations extensions, more details
 are available [here](../../README.md#supported-platforms). Snapshots are not
 compatible across CPU architectures and even across CPU models of the same
