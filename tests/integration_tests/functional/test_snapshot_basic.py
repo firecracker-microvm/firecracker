@@ -601,3 +601,32 @@ def test_negative_snapshot_create(bin_cloner_path):
     assert not os.path.exists('memfile')
 
     vm.kill()
+
+
+def test_create_large_diff_snapshot(test_microvm_with_api):
+    """
+    Create large diff snapshot seccomp regression test.
+
+    When creating a diff snapshot of a microVM with a large memory size, an
+    mmap(MAP_PRIVATE|MAP_ANONYMOUS) is issued. Test that the default seccomp
+    filter allows it.
+
+    @type: regression
+    @issue: https://github.com/firecracker-microvm/firecracker/discussions/2811
+    """
+    vm = test_microvm_with_api
+    vm.spawn()
+    vm.basic_config(mem_size_mib=16*1024, track_dirty_pages=True)
+
+    vm.start()
+
+    response = vm.vm.patch(state='Paused')
+    assert vm.api_session.is_status_no_content(response.status_code)
+
+    response = vm.snapshot.create(mem_file_path='memfile',
+                                  snapshot_path='statefile',
+                                  diff=True)
+
+    # If the regression was not fixed, this would have failed. The Firecracker
+    # process would have been taken down.
+    assert vm.api_session.is_status_no_content(response.status_code)
