@@ -34,6 +34,8 @@
 - Adapt T2 and C3 CPU templates for kernel 5.10. Firecracker was not previously
   masking some CPU features of the host or emulated by KVM, introduced in more
   recent kernels: `umip`, `vmx`, `avx512_vnni`.
+- Fix jailer's cgroup implementation to accept properties that contain multiple
+  dots.
 
 ## [0.25.0]
 
