@@ -5,7 +5,7 @@ mod cqe;
 mod sqe;
 
 pub use cqe::Cqe;
-pub use sqe::Sqe;
+pub(crate) use sqe::Sqe;
 
 #[cfg(test)]
 use core::fmt::{self, Debug, Formatter};
@@ -102,7 +102,7 @@ impl<T> Operation<T> {
         }
     }
 
-    pub fn fd(&self) -> FixedFd {
+    pub(crate) fn fd(&self) -> FixedFd {
         self.fd
     }
 
@@ -112,14 +112,14 @@ impl<T> Operation<T> {
 
     // Needed for proptesting.
     #[cfg(test)]
-    pub fn set_linked(&mut self) {
+    pub(crate) fn set_linked(&mut self) {
         self.flags |= 1 << bindings::IOSQE_IO_LINK_BIT;
     }
 
     /// # Safety
     /// Unsafe because we turn the Boxed user_data into a raw pointer contained in the sqe.
     /// It's up to the caller to make sure that this value is freed (not leaked).
-    pub unsafe fn into_sqe(self) -> Sqe {
+    pub(crate) unsafe fn into_sqe(self) -> Sqe {
         // Safe because all-zero value is valid. The sqe is made up of integers and raw pointers.
         let mut inner: io_uring_sqe = std::mem::zeroed();
 

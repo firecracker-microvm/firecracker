@@ -23,7 +23,7 @@ pub enum Error {
     Submit(IOError),
 }
 
-pub struct SubmissionQueue {
+pub(crate) struct SubmissionQueue {
     io_uring_fd: RawFd,
 
     // Offsets.
@@ -45,7 +45,10 @@ pub struct SubmissionQueue {
 }
 
 impl SubmissionQueue {
-    pub fn new(io_uring_fd: RawFd, params: &bindings::io_uring_params) -> Result<Self, Error> {
+    pub(crate) fn new(
+        io_uring_fd: RawFd,
+        params: &bindings::io_uring_params,
+    ) -> Result<Self, Error> {
         let (ring, sqes) = Self::mmap(io_uring_fd, params)?;
         let ring_slice = ring.as_volatile_slice();
 
@@ -78,7 +81,7 @@ impl SubmissionQueue {
         })
     }
 
-    pub fn push<T>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
+    pub(crate) fn push<T>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
         let ring_slice = self.ring.as_volatile_slice();
 
         // get the sqe tail
@@ -179,7 +182,7 @@ impl SubmissionQueue {
         Ok((sqe_ring, sqes))
     }
 
-    pub fn pending(&self) -> Result<u32, Error> {
+    pub(crate) fn pending(&self) -> Result<u32, Error> {
         let ring_slice = self.ring.as_volatile_slice();
         // get the sqe head
         let unmasked_head = ring_slice
