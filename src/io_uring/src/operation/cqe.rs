@@ -7,12 +7,15 @@ use vm_memory::ByteValued;
 
 unsafe impl ByteValued for io_uring_cqe {}
 
+/// Wrapper over a completed operation.
 pub struct Cqe<T> {
     res: i32,
     user_data: Box<T>,
 }
 
 impl<T> Cqe<T> {
+    /// Construct a Cqe object from a raw `io_uring_cqe`.
+    ///
     /// # Safety
     /// Unsafe because we assume full ownership of the inner.user_data address.
     /// We assume that it points to a valid address created with a Box<T>, with the correct type T,
@@ -24,10 +27,12 @@ impl<T> Cqe<T> {
         }
     }
 
+    /// Return the number of bytes successfully transferred by this operation.
     pub fn count(&self) -> u32 {
         i32::max(self.res, 0) as u32
     }
 
+    /// Return the result associated to the IO operation.
     pub fn result(&self) -> Result<u32, std::io::Error> {
         let res = self.res;
 
@@ -38,6 +43,7 @@ impl<T> Cqe<T> {
         }
     }
 
+    /// Create a new Cqe, applying the passed function to the user_data.
     pub fn map_user_data<U, F: FnOnce(T) -> U>(self, op: F) -> Cqe<U> {
         Cqe {
             res: self.res,
@@ -45,6 +51,7 @@ impl<T> Cqe<T> {
         }
     }
 
+    /// Consume the object and return the user_data.
     pub fn user_data(self) -> T {
         *self.user_data
     }
