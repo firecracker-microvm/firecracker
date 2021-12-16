@@ -60,8 +60,10 @@ fn test_eventfd() {
         )
         .unwrap();
 
-    ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-        .unwrap();
+    unsafe {
+        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+            .unwrap()
+    };
     ring.submit().unwrap();
 
     assert_eq!(epoll.wait(500, &mut ready_events[..]).unwrap(), 1);
@@ -88,17 +90,23 @@ fn test_restrictions() {
         let buf = [0; 4];
 
         // Read operations are allowed.
-        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 71))
-            .unwrap();
+        unsafe {
+            ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 71))
+                .unwrap()
+        };
         assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
-        assert!(ring.pop::<u8>().unwrap().unwrap().result().is_ok());
+        assert!(unsafe { ring.pop::<u8>().unwrap().unwrap().result().is_ok() });
 
         // Other operations are not allowed.
-        ring.push(Operation::write(0, buf.as_ptr() as usize, 4, 0, 71))
-            .unwrap();
+        unsafe {
+            ring.push(Operation::write(0, buf.as_ptr() as usize, 4, 0, 71))
+                .unwrap()
+        };
         assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
-        assert!(matches!(ring.pop::<u8>().unwrap().unwrap().result(),
-            Err(e) if e.kind() == std::io::ErrorKind::Other));
+        assert!(
+            matches!(unsafe{ring.pop::<u8>().unwrap().unwrap().result()},
+            Err(e) if e.kind() == std::io::ErrorKind::Other)
+        );
     }
 }
 
@@ -112,7 +120,7 @@ fn test_ring_push() {
         let mut ring = IoUring::new(NUM_ENTRIES, vec![], vec![], None).unwrap();
 
         assert!(matches!(
-            ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 71)),
+            unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 71)) },
             Err((Error::NoRegisteredFds, 71))
         ));
         assert_eq!(ring.pending_sqes().unwrap(), 0);
@@ -127,32 +135,34 @@ fn test_ring_push() {
 
         // Invalid fd.
         assert!(matches!(
-            ring.push(Operation::read(1, buf.as_ptr() as usize, 4, 0, user_data)),
+            unsafe { ring.push(Operation::read(1, buf.as_ptr() as usize, 4, 0, user_data)) },
             Err((Error::InvalidFixedFd(1), 71))
         ));
         assert_eq!(ring.pending_sqes().unwrap(), 0);
         assert_eq!(ring.num_ops(), 0);
 
         // Valid fd.
-        assert!(ring
-            .push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-            .is_ok());
+        assert!(
+            unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)) }
+                .is_ok()
+        );
 
         assert_eq!(ring.pending_sqes().unwrap(), 1);
         assert_eq!(ring.num_ops(), 1);
 
         // Full Queue.
         for _ in 1..(NUM_ENTRIES) {
-            assert!(ring
-                .push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-                .is_ok());
+            assert!(unsafe {
+                ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+            }
+            .is_ok());
         }
 
         assert_eq!(ring.pending_sqes().unwrap(), NUM_ENTRIES);
         assert_eq!(ring.num_ops(), NUM_ENTRIES);
 
         assert!(matches!(
-            ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)),
+            unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)) },
             Err((Error::SQueue(SQueueError::FullQueue), 71))
         ));
 
@@ -160,7 +170,7 @@ fn test_ring_push() {
         assert_eq!(ring.num_ops(), NUM_ENTRIES);
 
         // We didn't get to submit so pop() should return None.
-        assert!(ring.pop::<u8>().unwrap().is_none());
+        assert!(unsafe { ring.pop::<u8>().unwrap().is_none() });
         assert_eq!(ring.num_ops(), NUM_ENTRIES);
 
         // Full Ring.
@@ -168,9 +178,10 @@ fn test_ring_push() {
         // Wait for the io_uring ops to reach the CQ
         thread::sleep(Duration::from_millis(150));
         for _ in 0..NUM_ENTRIES {
-            assert!(ring
-                .push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-                .is_ok());
+            assert!(unsafe {
+                ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+            }
+            .is_ok());
         }
         assert!(ring.submit().is_ok());
         // Wait for the io_uring ops to reach the CQ
@@ -178,13 +189,13 @@ fn test_ring_push() {
         assert_eq!(ring.num_ops(), NUM_ENTRIES * 2);
         // The CQ should be full now
         assert!(matches!(
-            ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)),
+            unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)) },
             Err((Error::FullCQueue, 71))
         ));
 
         // Check if there are NUM_ENTRIES * 2 cqes
         let mut num_cqes = 0;
-        while let Ok(Some(_entry)) = ring.pop::<u8>() {
+        while let Ok(Some(_entry)) = unsafe { ring.pop::<u8>() } {
             num_cqes += 1;
         }
         assert_eq!(num_cqes, NUM_ENTRIES * 2);
@@ -207,15 +218,19 @@ fn test_ring_submit() {
         assert_eq!(ring.num_ops(), 0);
 
         // Now push an sqe.
-        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-            .unwrap();
+        unsafe {
+            ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+                .unwrap();
+        }
         assert_eq!(ring.num_ops(), 1);
         assert_eq!(ring.submit().unwrap(), 1);
         // Now push & submit some more.
-        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-            .unwrap();
-        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-            .unwrap();
+        unsafe {
+            ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+                .unwrap();
+            ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
+                .unwrap();
+        }
         assert_eq!(ring.num_ops(), 3);
         assert_eq!(ring.submit().unwrap(), 2);
     }
@@ -234,37 +249,43 @@ fn test_submit_and_wait_all() {
     assert_eq!(ring.submit_and_wait_all().unwrap(), 0);
 
     // Now push an sqe.
-    ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data))
-        .unwrap();
+    unsafe { ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, user_data)) }.unwrap();
     assert_eq!(ring.pending_sqes().unwrap(), 1);
     assert_eq!(ring.num_ops(), 1);
 
     // A correct waiting period yields the completed entries.
     assert_eq!(ring.submit_and_wait_all().unwrap(), 1);
-    assert_eq!(ring.pop::<u8>().unwrap().unwrap().user_data(), user_data);
+    assert_eq!(
+        unsafe { ring.pop::<u8>().unwrap().unwrap().user_data() },
+        user_data
+    );
     assert_eq!(ring.pending_sqes().unwrap(), 0);
     assert_eq!(ring.num_ops(), 0);
 
     // Now push, submit & wait for some more entries.
-    ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 72))
-        .unwrap();
-    ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 73))
-        .unwrap();
-    ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 74))
-        .unwrap();
-    ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 75))
-        .unwrap();
+    unsafe {
+        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 72))
+            .unwrap();
+        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 73))
+            .unwrap();
+        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 74))
+            .unwrap();
+        ring.push(Operation::read(0, buf.as_ptr() as usize, 4, 0, 75))
+            .unwrap();
+    }
     assert_eq!(ring.pending_sqes().unwrap(), 4);
     assert_eq!(ring.num_ops(), 4);
     assert_eq!(ring.submit_and_wait_all().unwrap(), 4);
     assert_eq!(ring.pending_sqes().unwrap(), 0);
     assert_eq!(ring.num_ops(), 4);
 
-    assert!(ring.pop::<u8>().unwrap().is_some());
-    assert!(ring.pop::<u8>().unwrap().is_some());
-    assert!(ring.pop::<u8>().unwrap().is_some());
-    assert!(ring.pop::<u8>().unwrap().is_some());
-    assert!(ring.pop::<u8>().unwrap().is_none());
+    unsafe {
+        assert!(ring.pop::<u8>().unwrap().is_some());
+        assert!(ring.pop::<u8>().unwrap().is_some());
+        assert!(ring.pop::<u8>().unwrap().is_some());
+        assert!(ring.pop::<u8>().unwrap().is_some());
+        assert!(ring.pop::<u8>().unwrap().is_none());
+    }
     assert_eq!(ring.num_ops(), 0);
 }
 
