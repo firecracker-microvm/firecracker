@@ -21,7 +21,7 @@ from framework.stats.baseline import Provider as BaselineProvider
 from framework.stats.metadata import DictProvider as DictMetadataProvider
 from framework.utils import get_cpu_percent, get_kernel_version,\
     run_cmd, CpuMap, CmdBuilder, DictQuery
-from framework.utils_cpuid import get_cpu_model_name
+from framework.utils_cpuid import get_cpu_model_name, get_instance_type
 import host_tools.network as net_tools
 
 TEST_ID = "test_network_tcp_throughput"
@@ -60,7 +60,7 @@ class NetTCPThroughputBaselineProvider(BaselineProvider):
         cpu_model_name = get_cpu_model_name()
         baselines = list(filter(
             lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
-            CONFIG_DICT["hosts"]["instances"]["m5d.metal"]["cpus"]))
+            CONFIG_DICT["hosts"]["instances"][get_instance_type()]["cpus"]))
 
         super().__init__(DictQuery({}))
         if len(baselines) > 0:
