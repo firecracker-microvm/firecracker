@@ -7,17 +7,17 @@ use crate::bindings::io_uring_sqe;
 
 unsafe impl ByteValued for io_uring_sqe {}
 
-pub struct Sqe(pub(crate) io_uring_sqe);
+pub(crate) struct Sqe(pub(crate) io_uring_sqe);
 
 impl Sqe {
-    pub fn new(inner: io_uring_sqe) -> Self {
+    pub(crate) fn new(inner: io_uring_sqe) -> Self {
         Self(inner)
     }
 
     /// # Safety
     /// Safe only if you guarantee that this is a valid pointer to some memory where there is a
     /// value of type T created from a Box<T>.
-    pub unsafe fn user_data<T>(self) -> T {
+    pub(crate) unsafe fn user_data<T>(self) -> T {
         *Box::from_raw(self.0.user_data as *mut T)
     }
 }

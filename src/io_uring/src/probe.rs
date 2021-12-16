@@ -8,7 +8,7 @@ use crate::bindings::{io_uring_probe, io_uring_probe_op};
 
 // There is no max for the number of operations returned by probing. So we fallback to using the
 // number of values representable in a u8;
-pub const PROBE_LEN: usize = u8::MAX as usize + 1;
+pub(crate) const PROBE_LEN: usize = u8::MAX as usize + 1;
 
 generate_fam_struct_impl!(
     io_uring_probe,
@@ -19,4 +19,4 @@ generate_fam_struct_impl!(
     PROBE_LEN
 );
 
-pub type ProbeWrapper = FamStructWrapper<io_uring_probe>;
+pub(crate) type ProbeWrapper = FamStructWrapper<io_uring_probe>;
