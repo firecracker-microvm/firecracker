@@ -9,7 +9,7 @@ use std::result::Result;
 use std::sync::atomic::Ordering;
 
 use utils::syscall::SyscallReturnCode;
-use vm_memory::{mmap::MmapRegionError, Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
+use vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
 use super::mmap::{mmap, Error as MmapError};
 use crate::bindings;
@@ -17,10 +17,8 @@ use crate::operation::Sqe;
 
 #[derive(Debug)]
 pub enum Error {
-    EmptyQueue,
     FullQueue,
     Mmap(MmapError),
-    BuildMmapRegion(MmapRegionError),
     VolatileMemory(VolatileMemoryError),
     Submit(IOError),
 }
