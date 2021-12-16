@@ -17,7 +17,7 @@ pub enum Error {
     VolatileMemory(VolatileMemoryError),
 }
 
-pub struct CompletionQueue {
+pub(crate) struct CompletionQueue {
     // Offsets.
     head_off: usize,
     tail_off: usize,
@@ -33,7 +33,10 @@ pub struct CompletionQueue {
 }
 
 impl CompletionQueue {
-    pub fn new(io_uring_fd: RawFd, params: &bindings::io_uring_params) -> Result<Self, Error> {
+    pub(crate) fn new(
+        io_uring_fd: RawFd,
+        params: &bindings::io_uring_params,
+    ) -> Result<Self, Error> {
         let offsets = params.cq_off;
 
         // Map the CQ_ring. The actual size of the ring is `num_entries * size_of(entry_type)`.
@@ -67,7 +70,7 @@ impl CompletionQueue {
         self.count
     }
 
-    pub fn pop<T>(&mut self) -> Result<Option<Cqe<T>>, Error> {
+    pub(crate) fn pop<T>(&mut self) -> Result<Option<Cqe<T>>, Error> {
         let ring = self.cqes.as_volatile_slice();
         // get the head & tail
         let head = self.unmasked_head.0 & self.ring_mask;

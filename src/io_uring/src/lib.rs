@@ -7,6 +7,7 @@ mod probe;
 mod queue;
 pub mod restriction;
 
+pub use queue::completion::Error as CQueueError;
 pub use queue::submission::Error as SQueueError;
 
 use std::collections::HashSet;
@@ -19,7 +20,7 @@ use utils::syscall::SyscallReturnCode;
 use bindings::io_uring_params;
 use operation::{Cqe, OpCode, Operation};
 use probe::{ProbeWrapper, PROBE_LEN};
-use queue::completion::{CompletionQueue, Error as CQueueError};
+use queue::completion::CompletionQueue;
 use queue::submission::SubmissionQueue;
 use restriction::Restriction;
 
@@ -28,7 +29,7 @@ const REQUIRED_OPS: [OpCode; 2] = [OpCode::Read, OpCode::Write];
 // Taken from linux/fs/io_uring.c
 const IORING_MAX_FIXED_FILES: usize = 1 << 15;
 
-pub type Result<T> = std::result::Result<T, Error>;
+type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
