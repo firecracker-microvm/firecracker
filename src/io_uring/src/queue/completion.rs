@@ -5,7 +5,7 @@ use std::num::Wrapping;
 use std::os::unix::io::RawFd;
 use std::result::Result;
 use std::sync::atomic::Ordering;
-use vm_memory::{mmap::MmapRegionError, Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
+use vm_memory::{Bytes, MmapRegion, VolatileMemory, VolatileMemoryError};
 
 use super::mmap::{mmap, Error as MmapError};
 use crate::bindings;
@@ -13,10 +13,8 @@ use crate::operation::Cqe;
 
 #[derive(Debug)]
 pub enum Error {
-    EmptyQueue,
     Mmap(MmapError),
     VolatileMemory(VolatileMemoryError),
-    BuildMmapRegion(MmapRegionError),
 }
 
 pub struct CompletionQueue {
