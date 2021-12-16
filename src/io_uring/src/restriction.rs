@@ -1,12 +1,21 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Seccomp-like restrictions for the allowed operations on an IoUring instance.
+//!
+//! One can configure the restrictions to only allow certain operations and/or allow only ops on
+//! registered files.
+//! If passed to the [`IoUring`] constructor, they take effect immediately and can never be
+//! deactivated.
+//!
+//! [`IoUring`]: ../struct.IoUring.html
+
 use std::convert::From;
 
 use crate::bindings;
 use crate::operation::OpCode;
 
-/// Adds support for restricting the operations allowed by io_uring, in a similar way to seccomp.
+/// Adds support for restricting the operations allowed by io_uring.
 pub enum Restriction {
     /// Allow an operation.
     AllowOpCode(OpCode),

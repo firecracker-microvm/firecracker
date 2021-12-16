@@ -16,10 +16,15 @@ use crate::bindings;
 use crate::operation::Sqe;
 
 #[derive(Debug)]
+/// SQueue Error.
 pub enum Error {
+    /// The queue is full.
     FullQueue,
+    /// Error mapping the ring.
     Mmap(MmapError),
+    /// Error reading/writing volatile memory.
     VolatileMemory(VolatileMemoryError),
+    /// Error returned by `io_uring_enter`.
     Submit(IOError),
 }
 

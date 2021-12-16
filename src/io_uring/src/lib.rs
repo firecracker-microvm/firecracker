@@ -1,6 +1,17 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+#![deny(missing_docs)]
+//! High-level interface over Linux io_uring.
+//!
+//! Aims to provide an easy-to-use interface, while making some Firecracker-specific simplifying
+//! assumptions. The crate does not currently aim at supporting all io_uring features and use
+//! cases. For example, it only works with pre-registered fds and read/write/fsync requests.
+//!
+//! Requires at least kernel version 5.10.51.
+//! For more information on io_uring, refer to the man pages.
+//! [This pdf](https://kernel.dk/io_uring.pdf) is also very useful, though outdated at times.
+
 mod bindings;
 pub mod operation;
 mod probe;
@@ -32,6 +43,7 @@ const IORING_MAX_FIXED_FILES: usize = 1 << 15;
 type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
+/// IoUring Error.
 pub enum Error {
     /// Error originating in the completion queue.
     CQueue(CQueueError),
@@ -66,6 +78,7 @@ pub enum Error {
 }
 
 impl Error {
+    /// Return true if this error is caused by a full submission or completion queue.
     pub fn is_throttling_err(&self) -> bool {
         matches!(
             self,
@@ -74,6 +87,7 @@ impl Error {
     }
 }
 
+/// Main object representing an io_uring instance.
 pub struct IoUring {
     registered_fds_count: u32,
     squeue: SubmissionQueue,
@@ -90,6 +104,15 @@ pub struct IoUring {
 }
 
 impl IoUring {
+    /// Create a new instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_entries` - Requested number of entries in the ring. Will be rounded up to the
+    /// nearest power of two.
+    /// * `files` - Files to be registered for IO.
+    /// * `restrictions` - Vector of [`Restriction`](restriction/enum.Restriction.html)s
+    /// * `eventfd` - Optional eventfd for receiving completion notifications.
     pub fn new(
         num_entries: u32,
         files: Vec<&File>,
@@ -145,6 +168,7 @@ impl IoUring {
         Ok(instance)
     }
 
+    /// Push an [`Operation`](operation/struct.Operation.html) onto the submission queue.
     pub fn push<T>(&mut self, op: Operation<T>) -> std::result::Result<(), (Error, T)> {
         // validate that we actually did register fds
         let fd = op.fd() as i32;
@@ -171,6 +195,8 @@ impl IoUring {
         }
     }
 
+    /// Pop a completed entry off the completion queue. Returns `Ok(None)` if there are no entries.
+    /// The type `T` must be the same as the `user_data` type used for `push`-ing the operation.
     pub fn pop<T>(&mut self) -> Result<Option<Cqe<T>>> {
         self.cqueue
             .pop()
@@ -189,16 +215,25 @@ impl IoUring {
         self.squeue.submit(min_complete).map_err(Error::SQueue)
     }
 
+    /// Submit all operations but don't wait for any completions.
     pub fn submit(&mut self) -> Result<u32> {
         self.do_submit(0)
     }
 
+    /// Submit all operations and wait for their completion.
     pub fn submit_and_wait_all(&mut self) -> Result<u32> {
         self.do_submit(self.num_ops)
     }
 
+    /// Return the number of operations currently on the submission queue.
     pub fn pending_sqes(&self) -> Result<u32> {
         self.squeue.pending().map_err(Error::SQueue)
+    }
+
+    /// A total of the number of ops in the submission and completion queues, as well as the
+    /// in-flight ops.
+    pub fn num_ops(&self) -> u32 {
+        self.num_ops
     }
 
     fn enable(&mut self) -> Result<()> {
@@ -333,10 +368,6 @@ impl IoUring {
         }
 
         Ok(())
-    }
-
-    pub fn num_ops(&self) -> u32 {
-        self.num_ops
     }
 }
 
