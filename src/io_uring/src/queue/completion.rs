@@ -12,8 +12,11 @@ use crate::bindings;
 use crate::operation::Cqe;
 
 #[derive(Debug)]
+/// CQueue Error.
 pub enum Error {
+    /// Error mapping the ring.
     Mmap(MmapError),
+    /// Error reading/writing volatile memory.
     VolatileMemory(VolatileMemoryError),
 }
 

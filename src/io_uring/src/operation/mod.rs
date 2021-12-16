@@ -1,6 +1,8 @@
 // Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Module exposing data structures for working with io_uring operations.
+
 mod cqe;
 mod sqe;
 
@@ -13,14 +15,19 @@ use std::convert::From;
 
 use crate::bindings::{self, io_uring_sqe, IOSQE_FIXED_FILE_BIT};
 
+/// The index of a registered fd.
 pub type FixedFd = u32;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
 #[cfg_attr(test, derive(Debug))]
+/// Supported operation types.
 pub enum OpCode {
+    /// Read operation.
     Read = bindings::IORING_OP_READ as u8,
+    /// Write operation.
     Write = bindings::IORING_OP_WRITE as u8,
+    /// Fsync operation.
     Fsync = bindings::IORING_OP_FSYNC as u8,
 }
 
@@ -35,6 +42,8 @@ impl From<OpCode> for &'static str {
     }
 }
 
+/// Operation type for populating the submission queue, parametrised with the `user_data` type `T`.
+/// The `user_data` is used for identifying the operation once completed.
 pub struct Operation<T> {
     fd: FixedFd,
     pub(crate) opcode: OpCode,
@@ -66,6 +75,7 @@ impl<T> Debug for Operation<T> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<T> Operation<T> {
+    /// Construct a read operation.
     pub fn read(fd: FixedFd, addr: usize, len: u32, offset: u64, user_data: T) -> Self {
         Self {
             fd,
@@ -78,6 +88,7 @@ impl<T> Operation<T> {
         }
     }
 
+    /// Construct a write operation.
     pub fn write(fd: FixedFd, addr: usize, len: u32, offset: u64, user_data: T) -> Self {
         Self {
             fd,
@@ -90,6 +101,7 @@ impl<T> Operation<T> {
         }
     }
 
+    /// Construct a fsync operation.
     pub fn fsync(fd: FixedFd, user_data: T) -> Self {
         Self {
             fd,
@@ -106,6 +118,7 @@ impl<T> Operation<T> {
         self.fd
     }
 
+    /// Consumes the operation and returns the associated `user_data`.
     pub fn user_data(self) -> T {
         *self.user_data
     }
@@ -116,6 +129,8 @@ impl<T> Operation<T> {
         self.flags |= 1 << bindings::IOSQE_IO_LINK_BIT;
     }
 
+    /// Transform the operation into an `Sqe`.
+    ///
     /// # Safety
     /// Unsafe because we turn the Boxed user_data into a raw pointer contained in the sqe.
     /// It's up to the caller to make sure that this value is freed (not leaked).
