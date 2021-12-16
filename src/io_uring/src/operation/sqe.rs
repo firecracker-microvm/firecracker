@@ -7,13 +7,17 @@ use crate::bindings::io_uring_sqe;
 
 unsafe impl ByteValued for io_uring_sqe {}
 
+/// Newtype wrapper over a raw sqe.
 pub(crate) struct Sqe(pub(crate) io_uring_sqe);
 
 impl Sqe {
+    /// Construct a new sqe.
     pub(crate) fn new(inner: io_uring_sqe) -> Self {
         Self(inner)
     }
 
+    /// Consume the sqe and return the `user_data`.
+    ///
     /// # Safety
     /// Safe only if you guarantee that this is a valid pointer to some memory where there is a
     /// value of type T created from a Box<T>.
