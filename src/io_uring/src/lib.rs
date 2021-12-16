@@ -169,7 +169,11 @@ impl IoUring {
     }
 
     /// Push an [`Operation`](operation/struct.Operation.html) onto the submission queue.
-    pub fn push<T>(&mut self, op: Operation<T>) -> std::result::Result<(), (Error, T)> {
+    ///
+    /// # Safety
+    /// Unsafe because we pass a raw user_data pointer to the kernel.
+    /// It's up to the caller to make sure that this value is ever freed (not leaked).
+    pub unsafe fn push<T>(&mut self, op: Operation<T>) -> std::result::Result<(), (Error, T)> {
         // validate that we actually did register fds
         let fd = op.fd() as i32;
         match self.registered_fds_count {
@@ -182,7 +186,7 @@ impl IoUring {
                     return Err((Error::FullCQueue, op.user_data()));
                 }
                 self.squeue
-                    .push(unsafe { op.into_sqe() })
+                    .push(op.into_sqe())
                     .map(|res| {
                         // This is safe since self.num_ops < IORING_MAX_CQ_ENTRIES (65536)
                         self.num_ops += 1;
@@ -197,7 +201,12 @@ impl IoUring {
 
     /// Pop a completed entry off the completion queue. Returns `Ok(None)` if there are no entries.
     /// The type `T` must be the same as the `user_data` type used for `push`-ing the operation.
-    pub fn pop<T>(&mut self) -> Result<Option<Cqe<T>>> {
+    ///
+    /// # Safety
+    /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
+    /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
+    /// the raw pointer is valid and that we have full ownership of that address.
+    pub unsafe fn pop<T>(&mut self) -> Result<Option<Cqe<T>>> {
         self.cqueue
             .pop()
             .map(|maybe_cqe| {
@@ -387,7 +396,7 @@ mod tests {
     use vm_memory::{Bytes, MmapRegion, VolatileMemory};
 
     fn drain_cqueue(ring: &mut IoUring) {
-        while let Some(entry) = ring.pop::<u32>().unwrap() {
+        while let Some(entry) = unsafe { ring.pop::<u32>().unwrap() } {
             assert!(entry.result().is_ok());
 
             // Assert that there were no partial writes.
@@ -564,7 +573,9 @@ mod tests {
                             ring.submit_and_wait_all().unwrap();
                             drain_cqueue(&mut ring);
                         }
-                        ring.push(operation).unwrap();
+                        unsafe {
+                            ring.push(operation).unwrap();
+                        }
                     }
 
                     // Submit any left async ops and wait.

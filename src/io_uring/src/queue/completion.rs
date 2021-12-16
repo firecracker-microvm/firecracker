@@ -73,7 +73,11 @@ impl CompletionQueue {
         self.count
     }
 
-    pub(crate) fn pop<T>(&mut self) -> Result<Option<Cqe<T>>, Error> {
+    /// # Safety
+    /// Unsafe because we reconstruct the `user_data` from a raw pointer passed by the kernel.
+    /// It's up to the caller to make sure that `T` is the correct type of the `user_data`, that
+    /// the raw pointer is valid and that we have full ownership of that address.
+    pub(crate) unsafe fn pop<T>(&mut self) -> Result<Option<Cqe<T>>, Error> {
         let ring = self.cqes.as_volatile_slice();
         // get the head & tail
         let head = self.unmasked_head.0 & self.ring_mask;
@@ -94,7 +98,7 @@ impl CompletionQueue {
             ring.store(self.unmasked_head.0, self.head_off, Ordering::Release)
                 .map_err(Error::VolatileMemory)?;
 
-            Ok(Some(unsafe { Cqe::new(cqe) }))
+            Ok(Some(Cqe::new(cqe)))
         } else {
             Ok(None)
         }
@@ -103,6 +107,7 @@ impl CompletionQueue {
 
 impl Drop for CompletionQueue {
     fn drop(&mut self) {
+        // Safe because parameters are valid.
         unsafe { libc::munmap(self.cqes.as_ptr() as *mut libc::c_void, self.cqes.size()) };
     }
 }
