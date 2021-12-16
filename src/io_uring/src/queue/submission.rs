@@ -86,7 +86,10 @@ impl SubmissionQueue {
         })
     }
 
-    pub(crate) fn push<T>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
+    /// # Safety
+    /// Unsafe because we pass a raw `user_data` pointer to the kernel.
+    /// It's up to the caller to make sure that this value is ever freed (not leaked).
+    pub(crate) unsafe fn push<T>(&mut self, sqe: Sqe) -> Result<(), (Error, T)> {
         let ring_slice = self.ring.as_volatile_slice();
 
         // get the sqe tail
@@ -95,11 +98,11 @@ impl SubmissionQueue {
         // get the pending sqes
         let pending = match self.pending() {
             Ok(n) => n,
-            Err(err) => return Err((err, unsafe { sqe.user_data() })),
+            Err(err) => return Err((err, sqe.user_data())),
         };
 
         if pending >= self.count {
-            return Err((Error::FullQueue, unsafe { sqe.user_data() }));
+            return Err((Error::FullQueue, sqe.user_data()));
         }
 
         // retrieve and populate the sqe
@@ -107,14 +110,14 @@ impl SubmissionQueue {
             sqe.0,
             (tail as usize) * mem::size_of::<bindings::io_uring_sqe>(),
         ) {
-            return Err((Error::VolatileMemory(err), unsafe { sqe.user_data() }));
+            return Err((Error::VolatileMemory(err), sqe.user_data()));
         }
 
         // increment the sqe tail
         self.unmasked_tail += Wrapping(1u32);
 
         if let Err(err) = ring_slice.store(self.unmasked_tail.0, self.tail_off, Ordering::Release) {
-            return Err((Error::VolatileMemory(err), unsafe { sqe.user_data() }));
+            return Err((Error::VolatileMemory(err), sqe.user_data()));
         }
 
         // This is safe since we already checked if there is enough space in the queue;
@@ -200,6 +203,7 @@ impl SubmissionQueue {
 
 impl Drop for SubmissionQueue {
     fn drop(&mut self) {
+        // Safe because parameters are valid.
         unsafe { libc::munmap(self.ring.as_ptr() as *mut libc::c_void, self.ring.size()) };
         unsafe { libc::munmap(self.sqes.as_ptr() as *mut libc::c_void, self.sqes.size()) };
     }

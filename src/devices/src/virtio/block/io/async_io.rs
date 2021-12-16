@@ -118,18 +118,21 @@ impl<T> AsyncFileEngine<T> {
 
         let wrapped_user_data = WrappedUserData::new_with_dirty_tracking(addr, user_data);
 
-        self.ring
-            .push(Operation::read(
+        // Safe because we trust that the host kernel will pass us back a completed entry with this
+        // same `user_data`, so that the value will not be leaked.
+        unsafe {
+            self.ring.push(Operation::read(
                 0,
                 buf as usize,
                 count,
                 offset,
                 wrapped_user_data,
             ))
-            .map_err(|err_tuple| UserDataError {
-                user_data: err_tuple.1.user_data,
-                error: Error::IoUring(err_tuple.0),
-            })
+        }
+        .map_err(|err_tuple| UserDataError {
+            user_data: err_tuple.1.user_data,
+            error: Error::IoUring(err_tuple.0),
+        })
     }
 
     pub fn push_write(
@@ -152,29 +155,34 @@ impl<T> AsyncFileEngine<T> {
 
         let wrapped_user_data = WrappedUserData::new(user_data);
 
-        self.ring
-            .push(Operation::write(
+        // Safe because we trust that the host kernel will pass us back a completed entry with this
+        // same `user_data`, so that the value will not be leaked.
+        unsafe {
+            self.ring.push(Operation::write(
                 0,
                 buf as usize,
                 count,
                 offset,
                 wrapped_user_data,
             ))
-            .map_err(|err_tuple| UserDataError {
-                user_data: err_tuple.1.user_data,
-                error: Error::IoUring(err_tuple.0),
-            })
+        }
+        .map_err(|err_tuple| UserDataError {
+            user_data: err_tuple.1.user_data,
+            error: Error::IoUring(err_tuple.0),
+        })
     }
 
     pub fn push_flush(&mut self, user_data: T) -> Result<(), UserDataError<T, Error>> {
         let wrapped_user_data = WrappedUserData::new(user_data);
 
-        self.ring
-            .push(Operation::fsync(0, wrapped_user_data))
-            .map_err(|err_tuple| UserDataError {
+        // Safe because we trust that the host kernel will pass us back a completed entry with this
+        // same `user_data`, so that the value will not be leaked.
+        unsafe { self.ring.push(Operation::fsync(0, wrapped_user_data)) }.map_err(|err_tuple| {
+            UserDataError {
                 user_data: err_tuple.1.user_data,
                 error: Error::IoUring(err_tuple.0),
-            })
+            }
+        })
     }
 
     pub fn kick_submission_queue(&mut self) -> Result<(), Error> {
@@ -207,9 +215,11 @@ impl<T> AsyncFileEngine<T> {
     }
 
     fn do_pop(&mut self) -> Result<Option<Cqe<WrappedUserData<T>>>, Error> {
-        self.ring
-            .pop::<WrappedUserData<T>>()
-            .map_err(Error::IoUring)
+        // We trust that the host kernel did not touch the operation's `user_data` field.
+        // The `T` type is the same one used for `push`ing and since the kernel made this entry
+        // available in the completion queue, we now have full ownership of it.
+
+        unsafe { self.ring.pop::<WrappedUserData<T>>() }.map_err(Error::IoUring)
     }
 
     pub fn pop(&mut self, mem: &GuestMemoryMmap) -> Result<Option<Cqe<T>>, Error> {

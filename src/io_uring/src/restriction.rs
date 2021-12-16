@@ -27,6 +27,7 @@ impl From<&Restriction> for bindings::io_uring_restriction {
     fn from(restriction: &Restriction) -> Self {
         use Restriction::*;
 
+        // Safe because it only contains integer values.
         let mut instance: Self = unsafe { std::mem::zeroed() };
 
         match restriction {
