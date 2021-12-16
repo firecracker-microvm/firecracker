@@ -5,7 +5,7 @@ use io_uring::{operation::OpCode, operation::Operation, Error, IoUring, SQueueEr
 use vm_memory::{MmapRegion, VolatileMemory};
 
 fn drain_cqueue(ring: &mut IoUring) {
-    while let Some(entry) = ring.pop::<usize>().unwrap() {
+    while let Some(entry) = unsafe { ring.pop::<usize>().unwrap() } {
         assert!(entry.result().is_ok());
     }
 }
@@ -47,7 +47,7 @@ pub fn drive_submission_and_completion(
                 _ => panic!("Only supports read and write."),
             };
 
-            match ring.push(operation) {
+            match unsafe { ring.push(operation) } {
                 Ok(()) => {}
                 Err(err_tuple) if matches!(err_tuple.0, Error::SQueue(SQueueError::FullQueue)) => {
                     // Stop and wait.
