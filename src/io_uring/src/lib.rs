@@ -506,8 +506,11 @@ mod tests {
         // Create a custom test runner since we had to add some state buildup to the test.
         // (Referring to the the above initializations).
         let mut runner = TestRunner::new(Config {
+            #[cfg(target_arch = "x86_64")]
             cases: 1000, // Should run for about a minute.
-
+            // Lower the cases on ARM since they take longer and cause coverage test timeouts.
+            #[cfg(target_arch = "aarch64")]
+            cases: 500,
             ..Config::default()
         });
 
