@@ -795,26 +795,55 @@ pub(crate) mod tests {
         set_queue(&mut block, 0, vq.create_queue());
         block.activate(mem.clone()).unwrap();
         initialize_virtqueue(&vq);
-        vq.dtable[1].set(0xff00, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
-
         let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
 
-        // Mark the next available descriptor.
-        vq.avail.idx.set(1);
-        // Read.
+        // Read at out of bounds address.
         {
             vq.used.idx.set(0);
+            set_queue(&mut block, 0, vq.create_queue());
 
+            // Mark the next available descriptor.
+            vq.avail.idx.set(1);
+
+            vq.dtable[1].set(0x20000, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
             mem.write_obj::<u32>(VIRTIO_BLK_T_IN, request_type_addr)
                 .unwrap();
-            vq.dtable[1]
-                .flags
-                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
-            check_metric_after_block!(
-                &METRICS.block.invalid_reqs_count,
-                1,
-                simulate_queue_event(&mut block, Some(true))
+            simulate_queue_and_async_completion_events(&mut block, true);
+
+            assert_eq!(vq.used.idx.get(), 1);
+
+            let used = vq.used.ring[0].get();
+            let status_addr = GuestAddress(vq.dtable[2].addr.get());
+            assert_eq!(used.len, 1);
+            assert_eq!(
+                mem.read_obj::<u8>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR as u8
+            );
+        }
+
+        // Write at out of bounds address.
+        {
+            vq.used.idx.set(0);
+            set_queue(&mut block, 0, vq.create_queue());
+
+            // Mark the next available descriptor.
+            vq.avail.idx.set(1);
+
+            vq.dtable[1].set(0x20000, 0x1000, VIRTQ_DESC_F_NEXT, 2);
+            mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
+                .unwrap();
+
+            simulate_queue_and_async_completion_events(&mut block, true);
+
+            assert_eq!(vq.used.idx.get(), 1);
+
+            let used = vq.used.ring[0].get();
+            let status_addr = GuestAddress(vq.dtable[2].addr.get());
+            assert_eq!(used.len, 1);
+            assert_eq!(
+                mem.read_obj::<u8>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR as u8
             );
         }
     }
@@ -967,6 +996,42 @@ pub(crate) mod tests {
             block.disk.file().seek(SeekFrom::Start(0)).unwrap();
             block.disk.file().read_exact(&mut buf).unwrap();
             assert_eq!(buf, empty_data.as_slice());
+        }
+
+        // Write from valid address, with an overflowing length.
+        {
+            let mut block = default_block(default_engine_type_for_kv());
+
+            // Default mem size is 0x10000
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone()).unwrap();
+            initialize_virtqueue(&vq);
+            let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
+
+            vq.dtable[1].set(0xff00, 0x1000, VIRTQ_DESC_F_NEXT, 2);
+            mem.write_obj::<u32>(VIRTIO_BLK_T_OUT, request_type_addr)
+                .unwrap();
+
+            // Mark the next available descriptor.
+            vq.avail.idx.set(1);
+            vq.used.idx.set(0);
+
+            check_metric_after_block!(
+                &METRICS.block.invalid_reqs_count,
+                1,
+                simulate_queue_and_async_completion_events(&mut block, true)
+            );
+
+            let used_idx = vq.used.idx.get();
+            assert_eq!(used_idx, 1);
+
+            let status_addr = GuestAddress(vq.dtable[2].addr.get());
+            assert_eq!(
+                mem.read_obj::<u8>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR as u8
+            );
         }
 
         // Write.
@@ -1150,6 +1215,44 @@ pub(crate) mod tests {
             let mut buf = [0u8; 512];
             mem.read_slice(&mut buf, data_addr).unwrap();
             assert_eq!(buf, rand_data[512..]);
+        }
+
+        // Read at valid address, with an overflowing length.
+        {
+            // Default mem size is 0x10000
+            let mem = default_mem();
+            let vq = VirtQueue::new(GuestAddress(0), &mem, 16);
+            set_queue(&mut block, 0, vq.create_queue());
+            block.activate(mem.clone()).unwrap();
+            initialize_virtqueue(&vq);
+            vq.dtable[1].set(0xff00, 0x1000, VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE, 2);
+
+            let request_type_addr = GuestAddress(vq.dtable[0].addr.get());
+
+            // Mark the next available descriptor.
+            vq.avail.idx.set(1);
+            vq.used.idx.set(0);
+
+            mem.write_obj::<u32>(VIRTIO_BLK_T_IN, request_type_addr)
+                .unwrap();
+            vq.dtable[1]
+                .flags
+                .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
+
+            check_metric_after_block!(
+                &METRICS.block.invalid_reqs_count,
+                1,
+                simulate_queue_and_async_completion_events(&mut block, true)
+            );
+
+            let used_idx = vq.used.idx.get();
+            assert_eq!(used_idx, 1);
+
+            let status_addr = GuestAddress(vq.dtable[2].addr.get());
+            assert_eq!(
+                mem.read_obj::<u8>(status_addr).unwrap(),
+                VIRTIO_BLK_S_IOERR as u8
+            );
         }
     }
 
