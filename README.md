@@ -137,9 +137,9 @@ virtualization, but any such platform is currently not supported and not fit
 for production. If you want to run Firecracker on such platforms, please
 [open a feature request](https://github.com/firecracker-microvm/firecracker/issues/new?assignees=&labels=&template=feature_request.md&title=%5BFeature+Request%5D+Title).
 
-Firecracker currently only supports little-endian platforms, which includes x86_64
-and many aarch64 CPUs. Other systems and architectures may not provide a little-endian
-mode, and Firecracker may not work correctly on such systems.
+Firecracker currently only supports little-endian platforms. Firecracker will
+not compile for big-endian architectures, and will not work correctly with
+big-endian configured guests.
 
 ## Known issues and Limitations
 
