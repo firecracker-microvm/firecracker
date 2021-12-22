@@ -102,6 +102,10 @@ impl MutEventSubscriber for Block {
 pub mod tests {
     use std::sync::{Arc, Mutex};
 
+    use event_manager::{EventManager, SubscriberOps};
+    use virtio_gen::virtio_blk::{VIRTIO_BLK_S_OK, VIRTIO_BLK_T_OUT};
+    use vm_memory::{Bytes, GuestAddress};
+
     use super::*;
     use crate::virtio::block::device::FileEngineType;
     use crate::virtio::block::test_utils::{
@@ -109,9 +113,6 @@ pub mod tests {
     };
     use crate::virtio::queue::tests::*;
     use crate::virtio::test_utils::{default_mem, initialize_virtqueue, VirtQueue};
-    use event_manager::{EventManager, SubscriberOps};
-    use virtio_gen::virtio_blk::*;
-    use vm_memory::{Bytes, GuestAddress};
 
     #[test]
     fn test_event_handler() {

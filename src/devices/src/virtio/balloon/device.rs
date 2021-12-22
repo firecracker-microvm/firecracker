@@ -13,7 +13,7 @@ use ::timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 use ::logger::{error, IncMetric, METRICS};
 use ::utils::eventfd::EventFd;
-use ::virtio_gen::virtio_blk::*;
+use ::virtio_gen::virtio_blk::VIRTIO_F_VERSION_1;
 use ::vm_memory::{Address, ByteValued, Bytes, GuestAddress, GuestMemoryMmap};
 
 use super::*;
