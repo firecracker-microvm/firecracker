@@ -3,18 +3,19 @@
 
 //! Defines the structures needed for saving/restoring Virtio primitives.
 
-use super::device::*;
-use super::queue::*;
-use crate::virtio::MmioTransport;
-use snapshot::Persist;
-use versionize::{VersionMap, Versionize, VersionizeResult};
-use versionize_derive::Versionize;
-use vm_memory::{address::Address, GuestAddress, GuestMemoryMmap};
-
 use std::num::Wrapping;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+
+use snapshot::Persist;
+use versionize::{VersionMap, Versionize, VersionizeResult};
+use versionize_derive::Versionize;
 use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
+use vm_memory::{address::Address, GuestAddress, GuestMemoryMmap};
+
+use super::device::*;
+use super::queue::*;
+use crate::virtio::MmioTransport;
 
 #[derive(Debug)]
 pub enum Error {

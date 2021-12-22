@@ -17,9 +17,13 @@ use std::sync::Arc;
 
 use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter};
+use serde::{Deserialize, Serialize};
 use utils::eventfd::EventFd;
 use utils::kernel_version::{min_kernel_version_for_io_uring, KernelVersion};
-use virtio_gen::virtio_blk::*;
+use virtio_gen::virtio_blk::{
+    VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_ID_BYTES, VIRTIO_F_VERSION_1,
+};
+use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 use vm_memory::GuestMemoryMmap;
 
 use super::io as block_io;
@@ -31,8 +35,6 @@ use super::{
 };
 use crate::virtio::{IrqTrigger, IrqType};
 use block_io::FileEngine;
-use serde::{Deserialize, Serialize};
-use virtio_gen::virtio_ring::VIRTIO_RING_F_EVENT_IDX;
 
 /// Configuration options for disk caching.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
