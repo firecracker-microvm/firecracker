@@ -51,12 +51,8 @@ def test_restore_old_snapshot_all_devices(bin_cloner_path):
     # Fetch all firecracker binaries.
     # With each binary create a snapshot and try to restore in current
     # version.
-
-    # TODO: FIXME: Once we upload 1.0.0 binaries in
-    # S3 that include io_uring, replace the
-    # max_version with get_version_from_toml()
     firecracker_artifacts = artifacts.firecrackers(
-        max_version="0.25.0")
+        max_version=get_firecracker_version_from_toml())
 
     for firecracker in firecracker_artifacts:
         firecracker.download()
@@ -93,10 +89,6 @@ def test_restore_old_snapshot_all_devices(bin_cloner_path):
         logger.debug(microvm.log_data)
 
 
-@pytest.mark.skip(
-    reason="Need to upload new binaries in S3 for v.1.0, but we first need to"
-    "finalise io_uring snapshotting support"
-)
 def test_restore_old_version_all_devices(bin_cloner_path):
     """
     Test scenario: restore snapshot in previous versions of Firecracker.
