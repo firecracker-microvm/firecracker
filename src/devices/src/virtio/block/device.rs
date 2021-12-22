@@ -19,7 +19,7 @@ use logger::{error, warn, IncMetric, METRICS};
 use rate_limiter::{BucketUpdate, RateLimiter};
 use utils::eventfd::EventFd;
 use virtio_gen::virtio_blk::*;
-use vm_memory::{Bytes, GuestMemoryMmap};
+use vm_memory::GuestMemoryMmap;
 
 use super::{
     super::{ActivateResult, DeviceState, Queue, VirtioDevice, TYPE_BLOCK},
@@ -274,6 +274,24 @@ impl Block {
         }
     }
 
+    fn add_used_descriptor(
+        queue: &mut Queue,
+        index: u16,
+        len: u32,
+        mem: &GuestMemoryMmap,
+        irq_trigger: &IrqTrigger,
+    ) {
+        queue
+            .add_used(mem, index, len)
+            .unwrap_or_else(|e| error!("Failed to add available descriptor head {}: {}", index, e));
+
+        if queue.prepare_kick(mem) {
+            irq_trigger.trigger_irq(IrqType::Vring).unwrap_or_else(|_| {
+                METRICS.block.event_fails.inc();
+            });
+        }
+    }
+
     pub fn process_queue(&mut self, queue_index: usize) {
         // This is safe since we checked in the event handler that the device is activated.
         let mem = self.device_state.mem().unwrap();
@@ -291,22 +309,9 @@ impl Block {
                         break;
                     }
 
-                    let status = Status::from_result(request.execute(&mut self.disk, mem));
-                    let virtio_blk_status = status.virtio_blk_status();
-                    let num_used_bytes = status.num_used_bytes();
-                    if let Status::Err(err_status) = status {
-                        METRICS.block.invalid_reqs_count.inc();
-                        error!(
-                            "Failed to execute {:?} virtio block request: {:?}",
-                            request.request_type, err_status
-                        );
-                    }
-
-                    if let Err(e) = mem.write_obj(virtio_blk_status, request.status_addr) {
-                        error!("Failed to write virtio block status: {:?}", e)
-                    }
-
-                    num_used_bytes
+                    request
+                        .execute(&mut self.disk, head.index, mem)
+                        .num_bytes_to_mem
                 }
                 Err(e) => {
                     error!("Failed to parse available descriptor chain: {:?}", e);
@@ -315,20 +320,7 @@ impl Block {
                 }
             };
 
-            queue.add_used(mem, head.index, len).unwrap_or_else(|e| {
-                error!(
-                    "Failed to add available descriptor head {}: {}",
-                    head.index, e
-                )
-            });
-
-            if queue.prepare_kick(mem) {
-                self.irq_trigger
-                    .trigger_irq(IrqType::Vring)
-                    .unwrap_or_else(|_| {
-                        METRICS.block.event_fails.inc();
-                    });
-            }
+            Self::add_used_descriptor(queue, head.index, len, mem, &self.irq_trigger);
 
             used_any = true;
         }
@@ -491,7 +483,7 @@ pub(crate) mod tests {
     use crate::virtio::queue::tests::*;
     use rate_limiter::TokenType;
     use utils::tempfile::TempFile;
-    use vm_memory::GuestAddress;
+    use vm_memory::{Bytes, GuestAddress};
 
     use crate::check_metric_after_block;
     use crate::virtio::block::test_utils::{

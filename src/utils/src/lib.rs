@@ -17,3 +17,13 @@ pub mod signal;
 pub mod sm;
 pub mod time;
 pub mod validators;
+
+use std::result::Result;
+
+/// Return the default page size of the platform, in bytes.
+pub fn get_page_size() -> Result<usize, errno::Error> {
+    match unsafe { libc::sysconf(libc::_SC_PAGESIZE) } {
+        -1 => Err(errno::Error::last()),
+        ps => Ok(ps as usize),
+    }
+}

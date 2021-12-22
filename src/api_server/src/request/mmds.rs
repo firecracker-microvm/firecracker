@@ -1,7 +1,7 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::parsed_request::{Error, ParsedRequest};
+use crate::parsed_request::{Error, ParsedRequest, RequestAction};
 use crate::request::Body;
 use logger::{IncMetric, METRICS};
 use micro_http::StatusCode;
@@ -9,7 +9,7 @@ use vmm::rpc_interface::VmmAction::SetMmdsConfiguration;
 
 pub(crate) fn parse_get_mmds() -> Result<ParsedRequest, Error> {
     METRICS.get_api_requests.mmds_count.inc();
-    Ok(ParsedRequest::GetMMDS)
+    Ok(ParsedRequest::new(RequestAction::GetMMDS))
 }
 
 pub(crate) fn parse_put_mmds(
@@ -18,12 +18,12 @@ pub(crate) fn parse_put_mmds(
 ) -> Result<ParsedRequest, Error> {
     METRICS.put_api_requests.mmds_count.inc();
     match path_second_token {
-        None => Ok(ParsedRequest::PutMMDS(
+        None => Ok(ParsedRequest::new(RequestAction::PutMMDS(
             serde_json::from_slice(body.raw()).map_err(|e| {
                 METRICS.put_api_requests.mmds_fails.inc();
                 Error::SerdeJson(e)
             })?,
-        )),
+        ))),
         Some(&"config") => Ok(ParsedRequest::new_sync(SetMmdsConfiguration(
             serde_json::from_slice(body.raw()).map_err(|e| {
                 METRICS.put_api_requests.mmds_fails.inc();
@@ -42,12 +42,12 @@ pub(crate) fn parse_put_mmds(
 
 pub(crate) fn parse_patch_mmds(body: &Body) -> Result<ParsedRequest, Error> {
     METRICS.patch_api_requests.mmds_count.inc();
-    Ok(ParsedRequest::PatchMMDS(
+    Ok(ParsedRequest::new(RequestAction::PatchMMDS(
         serde_json::from_slice(body.raw()).map_err(|e| {
             METRICS.patch_api_requests.mmds_fails.inc();
             Error::SerdeJson(e)
         })?,
-    ))
+    )))
 }
 
 #[cfg(test)]

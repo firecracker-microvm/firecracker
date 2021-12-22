@@ -461,7 +461,8 @@ mod tests {
         let vm = kvm.create_vm().unwrap();
         let vcpu = vm.create_vcpu(0).unwrap();
         let regions = arch_memory_regions(layout::FDT_MAX_SIZE + 0x1000);
-        let mem = GuestMemoryMmap::from_ranges(&regions).expect("Cannot initialize memory");
+        let mem = vm_memory::test_utils::create_anon_guest_memory(&regions, false)
+            .expect("Cannot initialize memory");
 
         let res = setup_boot_regs(&vcpu, 0, 0x0, &mem);
         assert!(res.is_err());

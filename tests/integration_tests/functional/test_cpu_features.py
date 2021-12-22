@@ -192,8 +192,8 @@ def check_masked_features(test_microvm, cpu_template):
                                     "psn", "ds", "acpi", "tm", "ss", "pbe",
                                     "fpdp", "rdt_m", "rdt_a", "mpx", "avx512f",
                                     "intel_pt",
-                                    "avx512_vpopcntdq",
-                                    "3dnowprefetch", "pdpe1gb"]
+                                    "avx512_vpopcntdq", "avx512_vnni",
+                                    "3dnowprefetch", "pdpe1gb", "vmx", "umip"]
 
     common_masked_features_cpuid = {"SGX": "false", "HLE": "false",
                                     "RTM": "false", "RDSEED": "false",
@@ -208,7 +208,8 @@ def check_masked_features(test_microvm, cpu_template):
                                     "AVX512_4VNNIW": "false",
                                     "AVX512_4FMAPS": "false",
                                     "XSAVEC": "false", "XGETBV": "false",
-                                    "XSAVES": "false"}
+                                    "XSAVES": "false", "UMIP": "false",
+                                    "VMX": "false"}
 
     # These are all discoverable by cpuid -1.
     c3_masked_features = {"FMA": "false", "MOVBE": "false", "BMI": "false",

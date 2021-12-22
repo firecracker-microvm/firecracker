@@ -6,9 +6,12 @@ customers effectively plan their Firecracker based operations.
 
 ## Firecracker releases
 
-Firecracker uses [semantic versioning](http://semver.org/) for all releases.
-Semantic versions are comprised of three fields in the form:
-`vMAJOR.MINOR.PATCH`.
+Firecracker uses [semantic versioning 2.0.0](http://semver.org/) for all
+releases. By definition, the API version implemented by a Firecracker binary
+is equivalent to that binary’s version. Semantic versions are comprised of
+three fields in the form: `vMAJOR.MINOR.PATCH`. Additional labels for
+pre-release and build metadata are available as extensions to the
+MAJOR.MINOR.PATCH format.
 
 For example: v0.20.0, v0.22.0-beta5, and v99.123.77+foo.bar.baz.5.
 
@@ -75,6 +78,34 @@ security issues when they are found, for:
   is the last minor of v2 and has less than one year since release while v3.0
   and v3.1 will be patched since were the last two Firecracker releases and
   less than 6 months have passed since release time.
+
+## API support
+
+The Firecracker API follows the semantic versioning standard. For a new
+release, we will increment the:
+
+* MAJOR version when we make breaking changes in our API;
+* MINOR version when we add or change functionality in a backwards compatible
+  manner;
+* PATCH version when we make backwards compatible bug fixes.
+
+Given a Firecracker version X.Y.Z user-generated client, it is guaranteed to
+work as expected with all Firecracker binary versions X.V.W, where V >= Y.
+
+### Deprecation of elements in the API
+
+We will consider a deprecated API endpoint to be an endpoint which still has
+backing functionality and can be used, but will be removed completely along
+with said functionality in an upcoming API version. All deprecated endpoints
+are supported until at least the next MAJOR version release, where they _may
+be removed_.
+
+When elements of the API are deprecated in a MINOR release, they will still
+work for the longest of the following:
+
+* all subsequent Firecracker MINOR releases of the same MAJOR release;
+* any Firecracker MINOR release for at least 6 months from release date;
+* the next 2 Firecracker releases, regardless if they are MAJOR or MINOR.
 
 ## Developer preview features
 

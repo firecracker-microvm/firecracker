@@ -87,7 +87,7 @@ def construct_scratch_drives():
         drive_tools.FilesystemFile(tempfile.mktemp(), size=64)
         for _ in scratchdisks
     ]
-    return zip(scratchdisks, disk_files)
+    return list(zip(scratchdisks, disk_files))
 
 
 def default_lambda_consumer(env_id):
@@ -139,7 +139,7 @@ def get_snap_restore_latency(
 
     extra_disk_paths = []
     if blocks > 1:
-        for (name, diskfile) in list(scratch_drives)[:(blocks - 1)]:
+        for (name, diskfile) in scratch_drives[:(blocks - 1)]:
             basevm.add_drive(name, diskfile.path, use_ramdisk=True)
             extra_disk_paths.append(diskfile.path)
         assert len(extra_disk_paths) > 0

@@ -288,8 +288,6 @@ def test_seccomp_level(test_microvm_with_api, level):
     utils.assert_seccomp_level(
         test_microvm.jailer_clone_pid, KERNEL_LEVEL[level])
 
-    test_microvm.kill()
-
     # For seccomp-level, check that we output the deprecation warnings.
     if level != "default":
         time.sleep(0.5)

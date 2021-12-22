@@ -24,11 +24,10 @@ can boot:
    git checkout v4.20
    ```
 
-1. You will need to configure your Linux build. You can start from
-   our recommended  [x86 config](../resources/microvm-kernel-x86_64.config) (or
-   [aarch64 config](../resources/microvm-kernel-arm64.config)) by
-   copying it to `.config` (under the Linux sources dir). You can make
-   interactive config adjustments using:
+1. You will need to configure your Linux build. You can start from our
+   recommended  [guest kernel configurations](../resources/guest_configs/)
+   by copying the relevant one to `.config` (under the Linux sources dir).
+   You can make interactive config adjustments using:
 
    ```bash
    make menuconfig
@@ -57,13 +56,15 @@ The kernel images used in our CI to test Firecracker's features are obtained by
 using the recipe inside devtool:
 
 ```bash
-./tools/devtool build_kernel -c ./resources/microvm-kernel-x86.config -n 8
+config="resources/guest_configs/microvm-kernel-x86_64-4.14.config"
+./tools/devtool build_kernel -c $config -n 8
 ```
 
 or
 
 ```bash
-./tools/devtool build_kernel -c ./resources/microvm-kernel-arm64.config -n 8
+config="resources/guest_configs/microvm-kernel-arm64-4.14.config"
+./tools/devtool build_kernel -c $config -n 8
 ```
 
 on an aarch64 machine.

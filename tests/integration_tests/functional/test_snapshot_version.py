@@ -179,8 +179,8 @@ def test_create_with_newer_virtio_features(bin_cloner_path):
     response = test_microvm.vm.patch(state='Paused')
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
-    # We try to create a snapshot to a target version < 0.26.0.
-    # This should fail because Fc versions < 0.26.0 don't support
+    # We try to create a snapshot to a target version < 1.0.0.
+    # This should fail because Fc versions < 1.0.0 don't support
     # virtio notification suppression.
     target_fc_versions = ["0.24.0", "0.25.0"]
     if platform.machine() == "x86_64":
@@ -198,11 +198,11 @@ def test_create_with_newer_virtio_features(bin_cloner_path):
                "with older versions of Firecracker: notification suppression" \
                in response.text
 
-        # It should work when we target a version >= 0.26.0
+        # It should work when we target a version >= 1.0.0
         response = test_microvm.snapshot.create(
             mem_file_path="/snapshot/vm.mem",
             snapshot_path="/snapshot/vm.vmstate",
-            version="0.26.0"
+            version="1.0.0"
         )
         assert test_microvm.api_session.is_status_no_content(
             response.status_code

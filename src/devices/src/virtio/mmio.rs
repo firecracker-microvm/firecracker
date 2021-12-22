@@ -432,7 +432,9 @@ pub(crate) mod tests {
 
     #[test]
     fn test_new() {
-        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m =
+            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
+                .unwrap();
         let mut dummy = DummyDevice::new();
         // Validate reset is no-op.
         assert!(dummy.reset().is_none());
@@ -464,7 +466,9 @@ pub(crate) mod tests {
 
     #[test]
     fn test_bus_device_read() {
-        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m =
+            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
+                .unwrap();
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
 
         let mut buf = vec![0xff, 0, 0xfe, 0];
@@ -542,7 +546,9 @@ pub(crate) mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_bus_device_write() {
-        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m =
+            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
+                .unwrap();
         let dummy_dev = Arc::new(Mutex::new(DummyDevice::new()));
         let mut d = MmioTransport::new(m, dummy_dev.clone());
         let mut buf = vec![0; 5];
@@ -700,7 +706,9 @@ pub(crate) mod tests {
 
     #[test]
     fn test_bus_device_activate() {
-        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m =
+            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
+                .unwrap();
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
 
         assert!(!d.are_queues_valid());
@@ -818,7 +826,9 @@ pub(crate) mod tests {
 
     #[test]
     fn test_bus_device_reset() {
-        let m = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x1000)]).unwrap();
+        let m =
+            vm_memory::test_utils::create_anon_guest_memory(&[(GuestAddress(0), 0x1000)], false)
+                .unwrap();
         let mut d = MmioTransport::new(m, Arc::new(Mutex::new(DummyDevice::new())));
         let mut buf = vec![0; 4];
 

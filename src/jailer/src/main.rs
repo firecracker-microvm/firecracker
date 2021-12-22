@@ -4,6 +4,7 @@ mod cgroup;
 mod chroot;
 mod env;
 mod resource_limits;
+use std::env as p_env;
 
 use std::ffi::{CString, NulError, OsString};
 use std::fmt;
@@ -27,6 +28,10 @@ pub enum Error {
     CgroupInvalidFile(String),
     CgroupWrite(String, String, String),
     CgroupFormat(String),
+    CgroupHierarchyMissing(String),
+    CgroupControllerUnavailable(String),
+    CgroupInvalidVersion(String),
+    CgroupInvalidParentPath(),
     ChangeFileOwner(PathBuf, io::Error),
     ChdirNewRoot(io::Error),
     Chmod(PathBuf, io::Error),
@@ -109,6 +114,17 @@ impl fmt::Display for Error {
                 evalue, file, rvalue
             ),
             CgroupFormat(ref arg) => write!(f, "Invalid format for cgroups: {}", arg,),
+            CgroupHierarchyMissing(ref arg) => write!(f, "Hierarchy not found: {}", arg,),
+            CgroupControllerUnavailable(ref arg) => write!(f, "Controller {} is unavailable", arg,),
+            CgroupInvalidVersion(ref arg) => {
+                write!(f, "{} is an invalid cgroup version specifier", arg,)
+            }
+            CgroupInvalidParentPath() => {
+                write!(
+                    f,
+                    "Parent cgroup path is invalid. Path should not be absolute or contain '..' or '.'",
+                )
+            }
             ChangeFileOwner(ref path, ref err) => {
                 write!(f, "Failed to change owner for {:?}: {}", path, err)
             }
@@ -298,6 +314,17 @@ pub fn build_arg_parser() -> ArgParser<'static> {
              that can be opened by this process.",
         ))
         .arg(
+            Argument::new("cgroup-version")
+                .takes_value(true)
+                .default_value("1")
+                .help("Select the cgroup version used by the jailer."),
+        )
+        .arg(
+            Argument::new("parent-cgroup")
+                .takes_value(true)
+                .help("Parent cgroup in which the cgroup of this microvm will be placed."),
+        )
+        .arg(
             Argument::new("version")
                 .takes_value(false)
                 .help("Print the binary version number."),
@@ -343,6 +370,18 @@ fn sanitize_process() {
                 unsafe { libc::close(fd) };
             }
         }
+    }
+
+    // Cleanup environment variables
+    clean_env_vars();
+}
+
+fn clean_env_vars() {
+    // Remove environment variables received from
+    // the parent process so there are no leaks
+    // inside the jailer environment
+    for (key, _) in p_env::vars() {
+        p_env::remove_var(key);
     }
 }
 
@@ -407,6 +446,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
     use std::fs::File;
     use std::os::unix::io::IntoRawFd;
 
@@ -434,6 +474,25 @@ mod tests {
         }
 
         assert!(fs::remove_dir_all(tmp_dir_path).is_ok());
+    }
+
+    #[test]
+    fn test_clean_env_vars() {
+        let env_vars: [&str; 5] = ["VAR1", "VAR2", "VAR3", "VAR4", "VAR5"];
+
+        // Set environment variables
+        for env_var in env_vars.iter() {
+            env::set_var(env_var, "0");
+        }
+
+        // Cleanup the environment
+        clean_env_vars();
+
+        // Assert that the variables set beforehand
+        // do not exist anymore
+        for env_var in env_vars.iter() {
+            assert_eq!(env::var_os(env_var), None);
+        }
     }
 
     #[allow(clippy::cognitive_complexity)]

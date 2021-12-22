@@ -1,0 +1,15 @@
+{
+    "latest": {
+        "meta-data": "Lorem ipsum dolor sit amet, consectetur adipiscing elit",
+        "user-data": "userdata 1 2 3 4"
+    },
+    "2016-09-02": {
+        "meta-data": "Lorem ipsum dolor sit amet"
+    },
+    "2019-08-01": {
+        "some-data": {
+            "field1": "val1",
+            "field2": [1,2,3,4]
+        }
+    }  
+}

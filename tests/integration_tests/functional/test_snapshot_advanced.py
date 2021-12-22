@@ -33,13 +33,9 @@ net_ifaces = [NetIfaceConfig(),
 scratch_drives = ["vdb", "vdc", "vdd", "vde", "vdf"]
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
-def test_restore_old_snapshot_all_devices(bin_cloner_path):
+def test_restore_old_snapshot(bin_cloner_path):
     """
-    Test scenario: restore previous version snapshots in current version.
+    Restore from snapshots obtained with previous versions of Firecracker.
 
     @type: functional
     """
@@ -88,13 +84,9 @@ def test_restore_old_snapshot_all_devices(bin_cloner_path):
         logger.debug(microvm.log_data)
 
 
-@pytest.mark.skipif(
-    platform.machine() != "x86_64",
-    reason="Not supported yet."
-)
-def test_restore_old_version_all_devices(bin_cloner_path):
+def test_restore_old_version(bin_cloner_path):
     """
-    Test scenario: restore snapshot in previous versions of Firecracker.
+    Restore current snapshot with previous versions of Firecracker.
 
     @type: functional
     """
@@ -107,8 +99,8 @@ def test_restore_old_version_all_devices(bin_cloner_path):
     # Create a snapshot with current build and restore with each FC binary
     # artifact.
     firecracker_artifacts = artifacts.firecrackers(
-        # v0.26.0 breaks snapshot compatibility with older versions.
-        min_version="0.26.0",
+        # v1.0.0 breaks snapshot compatibility with older versions.
+        min_version="1.0.0",
         max_version=get_firecracker_version_from_toml())
     for firecracker in firecracker_artifacts:
         firecracker.download()

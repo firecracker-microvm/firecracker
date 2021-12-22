@@ -21,7 +21,7 @@ use crate::memory_snapshot;
 use crate::memory_snapshot::{GuestMemoryState, SnapshotMemory};
 #[cfg(target_arch = "x86_64")]
 use crate::version_map::FC_V0_23_SNAP_VERSION;
-use crate::version_map::{FC_V0_26_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
+use crate::version_map::{FC_V1_0_SNAP_VERSION, FC_VERSION_TO_SNAP_VERSION};
 use crate::{Error as VmmError, EventManager, Vmm};
 #[cfg(target_arch = "x86_64")]
 use cpuid::common::{get_vendor_id_from_cpuid, get_vendor_id_from_host};
@@ -324,7 +324,7 @@ pub fn get_snapshot_data_version(
         validate_devices_number(vmm.mmio_device_manager.used_irqs_count())?;
     }
 
-    if data_version < FC_V0_26_SNAP_VERSION {
+    if data_version < FC_V1_0_SNAP_VERSION {
         vmm.mmio_device_manager
             .for_each_virtio_device(|_virtio_type, _id, _info, dev| {
                 if dev

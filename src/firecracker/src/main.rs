@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
 use logger::{error, info, warn, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
+use mmds::MMDS;
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
 use utils::arg_parser::{ArgParser, Argument, Arguments};
@@ -30,6 +31,7 @@ use vmm::{resources::VmResources, EventManager, ExitCode};
 const DEFAULT_API_SOCK_PATH: &str = "/run/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
 const FIRECRACKER_VERSION: &str = env!("FIRECRACKER_VERSION");
+const MMDS_CONTENT_ARG: &str = "metadata";
 
 #[cfg(target_arch = "aarch64")]
 /// Enable SSBD mitigation through `prctl`.
@@ -157,6 +159,11 @@ fn main_exitable() -> ExitCode {
                 .help("Path to a file that contains the microVM configuration in JSON format."),
         )
         .arg(
+            Argument::new(MMDS_CONTENT_ARG)
+                .takes_value(true)
+                .help("Path to a file that contains metadata in JSON format to add to the mmds.")
+        )
+        .arg(
             Argument::new("no-api")
                 .takes_value(false)
                 .requires("config-file")
@@ -202,7 +209,7 @@ fn main_exitable() -> ExitCode {
                 .help("Print the data format version of the provided snapshot state file.")
         )
         .arg(
-            Argument::new("http_api_max_payload_size")
+            Argument::new("http-api-max-payload-size")
                 .takes_value(true)
                 .help("Http API request payload max size.")
         );
@@ -299,6 +306,22 @@ fn main_exitable() -> ExitCode {
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
+    let metadata_json = arguments
+        .single_value(MMDS_CONTENT_ARG)
+        .map(fs::read_to_string)
+        .map(|x| x.expect("Unable to open or read from the mmds content file"));
+
+    if let Some(data) = metadata_json {
+        MMDS.lock()
+            .expect("Failed to acquire lock on MMDS")
+            .put_data(
+                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
+            )
+            .expect("MMDS content load from file failed.");
+
+        info!("Successfully added metadata to mmds from file");
+    }
+
     let boot_timer_enabled = arguments.flag_present("boot-timer");
     let api_enabled = !arguments.flag_present("no-api");
 
@@ -309,10 +332,10 @@ fn main_exitable() -> ExitCode {
             .expect("Missing argument: api-sock");
         let payload_limit = arg_parser
             .arguments()
-            .single_value("http_api_max_payload_size")
+            .single_value("http-api-max-payload-size")
             .map(|lim| {
                 lim.parse::<usize>()
-                    .expect("'http_api_max_payload_size' parameter expected to be of 'usize' type.")
+                    .expect("'http-api-max-payload-size' parameter expected to be of 'usize' type.")
             });
 
         let start_time_us = arguments.single_value("start-time-us").map(|s| {
@@ -441,10 +464,7 @@ fn build_microvm_from_json(
     boot_timer_enabled: bool,
 ) -> std::result::Result<(VmResources, Arc<Mutex<vmm::Vmm>>), ExitCode> {
     let mut vm_resources = VmResources::from_json(&config_json, &instance_info).map_err(|err| {
-        error!(
-            "Configuration for VMM from one single json failed: {:?}",
-            err
-        );
+        error!("Configuration for VMM from one single json failed: {}", err);
         vmm::FC_EXIT_CODE_BAD_CONFIGURATION
     })?;
     vm_resources.boot_timer = boot_timer_enabled;

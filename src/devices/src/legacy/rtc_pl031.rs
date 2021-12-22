@@ -7,7 +7,7 @@ use logger::{warn, IncMetric, RTCDeviceMetrics, METRICS};
 
 use crate::BusDevice;
 
-pub type RTCDevice = vm_superio::RTC<Arc<RTCDeviceMetrics>>;
+pub type RTCDevice = vm_superio::Rtc<Arc<RTCDeviceMetrics>>;
 
 // Implements Bus functions for AMBA PL031 RTC device
 #[cfg(target_arch = "aarch64")]
@@ -44,7 +44,7 @@ impl BusDevice for RTCDevice {
 #[cfg(test)]
 mod tests {
     use logger::IncMetric;
-    use vm_superio::RTC;
+    use vm_superio::Rtc;
 
     use super::*;
     use std::sync::Arc;
@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn test_rtc_device() {
         let metrics = Arc::new(RTCDeviceMetrics::default());
-        let mut rtc_pl031 = RTC::with_events(metrics.clone());
+        let mut rtc_pl031 = Rtc::with_events(metrics.clone());
         let data = [0; 4];
 
         // Write to the DR register. Since this is a RO register, the write
@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn test_rtc_invalid_buf_len() {
         let metrics = Arc::new(RTCDeviceMetrics::default());
-        let mut rtc_pl031 = RTC::with_events(metrics);
+        let mut rtc_pl031 = Rtc::with_events(metrics);
         let write_data_good = 123u32.to_le_bytes();
         let mut data_bad = [0; 2];
         let mut read_data_good = [0; 4];

@@ -661,9 +661,11 @@ mod tests {
     };
 
     use super::*;
+    use crate::builder::StartMicrovmError;
     use crate::seccomp_filters::{get_filters, SeccompConfig};
     use crate::vstate::vcpu::Error as EmulationError;
     use crate::vstate::vm::{tests::setup_vm, Vm};
+    use linux_loader::loader::KernelLoader;
     use utils::errno;
     use utils::signal::validate_signal_num;
     use vm_memory::{GuestAddress, GuestMemoryMmap};
@@ -866,21 +868,28 @@ mod tests {
     fn load_good_kernel(vm_memory: &GuestMemoryMmap) -> GuestAddress {
         use std::{fs::File, path::PathBuf};
 
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let parent = path.parent().unwrap();
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
         #[cfg(target_arch = "x86_64")]
-        let kernel_path: PathBuf = [parent.to_str().unwrap(), "kernel/src/loader/test_elf.bin"]
-            .iter()
-            .collect();
+        path.push("src/utilities/mock_resources/test_elf.bin");
         #[cfg(target_arch = "aarch64")]
-        let kernel_path: PathBuf = [parent.to_str().unwrap(), "kernel/src/loader/test_pe.bin"]
-            .iter()
-            .collect();
+        path.push("src/utilities/mock_resources/test_pe.bin");
 
-        let mut kernel_file = File::open(kernel_path).expect("Cannot open kernel file");
+        let mut kernel_file = File::open(path).expect("Cannot open kernel file");
 
-        kernel::loader::load_kernel(vm_memory, &mut kernel_file, 0).expect("Failed to load kernel")
+        #[cfg(target_arch = "x86_64")]
+        let entry_addr = linux_loader::loader::elf::Elf::load(
+            vm_memory,
+            Some(GuestAddress(arch::get_kernel_start())),
+            &mut kernel_file,
+            Some(GuestAddress(arch::get_kernel_start())),
+        )
+        .map_err(StartMicrovmError::KernelLoader);
+        #[cfg(target_arch = "aarch64")]
+        let entry_addr =
+            linux_loader::loader::pe::PE::load(vm_memory, None, &mut kernel_file, None)
+                .map_err(StartMicrovmError::KernelLoader);
+        entry_addr.unwrap().kernel_load
     }
 
     fn vcpu_configured_for_boot() -> (VcpuHandle, utils::eventfd::EventFd) {

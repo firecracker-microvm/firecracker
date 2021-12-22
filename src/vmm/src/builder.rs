@@ -3,11 +3,19 @@
 
 //! Enables pre-boot setup, instantiation and booting of a Firecracker VMM.
 
+use devices::legacy::serial::ReadableFd;
+use devices::legacy::EventFdTrigger;
+use devices::legacy::SerialDevice;
+use devices::legacy::SerialEventsWrapper;
+use devices::legacy::SerialWrapper;
+use libc::EFD_NONBLOCK;
+use logger::METRICS;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
+use vm_superio::Serial;
 
 #[cfg(target_arch = "aarch64")]
 use crate::construct_kvm_mpidrs;
@@ -15,6 +23,12 @@ use crate::construct_kvm_mpidrs;
 use crate::device_manager::legacy::PortIODeviceManager;
 use crate::device_manager::mmio::MMIODeviceManager;
 use crate::device_manager::persist::MMIODevManagerConstructorArgs;
+
+#[cfg(target_arch = "x86_64")]
+use linux_loader::loader::elf::Elf as Loader;
+#[cfg(target_arch = "aarch64")]
+use linux_loader::loader::pe::PE as Loader;
+
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::vmm_config::boot_source::BootConfig;
 use crate::vstate::{
@@ -30,21 +44,19 @@ use arch::InitrdConfig;
 use cpuid::common::is_same_model;
 #[cfg(target_arch = "aarch64")]
 use devices::legacy::RTCDevice;
-use devices::legacy::Serial;
 use devices::virtio::{Balloon, Block, MmioTransport, Net, VirtioDevice, Vsock, VsockUnixBackend};
 use event_manager::{MutEventSubscriber, SubscriberOps};
-use kernel::cmdline::Cmdline as KernelCmdline;
-#[cfg(target_arch = "aarch64")]
-use logger::METRICS;
+use linux_loader::cmdline::Cmdline as LoaderKernelCmdline;
+use linux_loader::loader::KernelLoader;
 use logger::{error, warn};
 use seccompiler::BpfThreadMap;
 use snapshot::Persist;
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
-use vm_memory::{GuestAddress, GuestMemoryMmap};
+use vm_memory::{Bytes, GuestAddress, GuestMemoryMmap};
 #[cfg(target_arch = "aarch64")]
-use vm_superio::RTC;
+use vm_superio::Rtc;
 
 /// Errors associated with starting the instance.
 #[derive(Debug)]
@@ -68,9 +80,9 @@ pub enum StartMicrovmError {
     /// The kernel command line is invalid.
     KernelCmdline(String),
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
-    KernelLoader(kernel::loader::Error),
+    KernelLoader(linux_loader::loader::Error),
     /// Cannot load command line string.
-    LoadCommandline(kernel::cmdline::Error),
+    LoadCommandline(linux_loader::loader::Error),
     /// Cannot start the VM because the kernel was not configured.
     MissingKernelConfig,
     /// Cannot start the VM because the size of the guest memory  was not specified.
@@ -87,10 +99,10 @@ pub enum StartMicrovmError {
     RestoreMicrovmState(MicrovmStateError),
 }
 
-/// It's convenient to automatically convert `kernel::cmdline::Error`s
+/// It's convenient to automatically convert `linux_loader::cmdline::Error`s
 /// to `StartMicrovmError`s.
-impl std::convert::From<kernel::cmdline::Error> for StartMicrovmError {
-    fn from(e: kernel::cmdline::Error) -> StartMicrovmError {
+impl std::convert::From<linux_loader::cmdline::Error> for StartMicrovmError {
+    fn from(e: linux_loader::cmdline::Error) -> StartMicrovmError {
         StartMicrovmError::KernelCmdline(e.to_string())
     }
 }
@@ -191,7 +203,7 @@ impl AsRawFd for SerialStdin {
     }
 }
 
-impl devices::legacy::ReadableFd for SerialStdin {}
+impl ReadableFd for SerialStdin {}
 
 impl VmmEventsObserver for SerialStdin {
     fn on_vmm_boot(&mut self) -> std::result::Result<(), utils::errno::Error> {
@@ -324,7 +336,27 @@ pub fn build_microvm_for_boot(
     let initrd = load_initrd_from_config(boot_config, &guest_memory)?;
     // Clone the command-line so that a failed boot doesn't pollute the original.
     #[allow(unused_mut)]
-    let mut boot_cmdline = boot_config.cmdline.clone();
+    let mut boot_cmdline = linux_loader::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
+
+    // We're splitting the boot_args in regular parameters and init arguments.
+    // This is needed because on x86_64 we're altering the boot arguments by
+    // adding the virtio device configuration. We need to make sure that the init
+    // parameters are last, specified after -- as specified in the kernel docs
+    // (https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html).
+    let init_and_regular = boot_config
+        .cmdline
+        .as_str()
+        .split("--")
+        .collect::<Vec<&str>>();
+    if init_and_regular.len() > 2 {
+        return Err(StartMicrovmError::KernelCmdline(
+            "Too many `--` in kernel cmdline.".to_string(),
+        ));
+    }
+    let boot_args = init_and_regular[0];
+    let init_params = init_and_regular.get(1);
+
+    boot_cmdline.insert_str(boot_args)?;
 
     let (mut vmm, mut vcpus) = create_vmm_and_vcpus(
         instance_info,
@@ -359,6 +391,10 @@ pub fn build_microvm_for_boot(
     )?;
     if let Some(unix_vsock) = vm_resources.vsock.get() {
         attach_unixsock_vsock_device(&mut vmm, &mut boot_cmdline, unix_vsock, event_manager)?;
+    }
+
+    if let Some(init) = init_params {
+        boot_cmdline.insert_str(format!("--{}", init))?;
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -531,8 +567,14 @@ pub fn create_guest_memory(
     let mem_size = mem_size_mib << 20;
     let arch_mem_regions = arch::arch_memory_regions(mem_size);
 
-    GuestMemoryMmap::from_ranges_guarded(&arch_mem_regions, track_dirty_pages)
-        .map_err(StartMicrovmError::GuestMemoryMmap)
+    vm_memory::create_guest_memory(
+        &arch_mem_regions
+            .iter()
+            .map(|(addr, size)| (None, *addr, *size))
+            .collect::<Vec<_>>()[..],
+        track_dirty_pages,
+    )
+    .map_err(StartMicrovmError::GuestMemoryMmap)
 }
 
 fn load_kernel(
@@ -544,11 +586,25 @@ fn load_kernel(
         .try_clone()
         .map_err(|e| StartMicrovmError::Internal(Error::KernelFile(e)))?;
 
-    let entry_addr =
-        kernel::loader::load_kernel(guest_memory, &mut kernel_file, arch::get_kernel_start())
-            .map_err(StartMicrovmError::KernelLoader)?;
+    #[cfg(target_arch = "x86_64")]
+    let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
+        guest_memory,
+        None,
+        &mut kernel_file,
+        Some(GuestAddress(arch::get_kernel_start())),
+    )
+    .map_err(StartMicrovmError::KernelLoader)?;
 
-    Ok(entry_addr)
+    #[cfg(target_arch = "aarch64")]
+    let entry_addr = Loader::load::<std::fs::File, GuestMemoryMmap>(
+        guest_memory,
+        Some(GuestAddress(arch::get_kernel_start())),
+        &mut kernel_file,
+        None,
+    )
+    .map_err(StartMicrovmError::KernelLoader)?;
+
+    Ok(entry_addr.kernel_load)
 }
 
 fn load_initrd_from_config(
@@ -647,17 +703,23 @@ pub fn setup_interrupt_controller(
 /// Sets up the serial device.
 pub fn setup_serial_device(
     event_manager: &mut EventManager,
-    input: Box<dyn devices::legacy::ReadableFd + Send>,
+    input: Box<dyn ReadableFd + Send>,
     out: Box<dyn io::Write + Send>,
-) -> super::Result<Arc<Mutex<Serial>>> {
-    let interrupt_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-    let kick_stdin_read_evt = EventFd::new(libc::EFD_NONBLOCK).map_err(Error::EventFd)?;
-    let serial = Arc::new(Mutex::new(Serial::new_in_out(
-        interrupt_evt,
-        input,
-        out,
-        Some(kick_stdin_read_evt),
-    )));
+) -> super::Result<Arc<Mutex<SerialDevice>>> {
+    let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
+    let kick_stdin_read_evt =
+        EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).map_err(Error::EventFd)?);
+    let serial = Arc::new(Mutex::new(SerialWrapper {
+        serial: Serial::with_events(
+            interrupt_evt,
+            SerialEventsWrapper {
+                metrics: METRICS.uart.clone(),
+                buffer_ready_event_fd: Some(kick_stdin_read_evt),
+            },
+            out,
+        ),
+        input: Some(input),
+    }));
     event_manager.add_subscriber(serial.clone());
     Ok(serial)
 }
@@ -665,14 +727,14 @@ pub fn setup_serial_device(
 #[cfg(target_arch = "aarch64")]
 /// Sets up the RTC device.
 pub fn setup_rtc_device() -> Arc<Mutex<RTCDevice>> {
-    let rtc = RTC::with_events(METRICS.rtc.clone());
+    let rtc = Rtc::with_events(METRICS.rtc.clone());
     Arc::new(Mutex::new(rtc))
 }
 
 #[cfg(target_arch = "x86_64")]
 fn create_pio_dev_manager_with_legacy_devices(
     vm: &Vm,
-    serial: Arc<Mutex<devices::legacy::Serial>>,
+    serial: Arc<Mutex<SerialDevice>>,
     i8042_reset_evfd: EventFd,
 ) -> std::result::Result<PortIODeviceManager, super::Error> {
     let mut pio_dev_mgr =
@@ -687,7 +749,7 @@ fn create_pio_dev_manager_with_legacy_devices(
 fn attach_legacy_devices_aarch64(
     event_manager: &mut EventManager,
     vmm: &mut Vmm,
-    cmdline: &mut KernelCmdline,
+    cmdline: &mut LoaderKernelCmdline,
 ) -> super::Result<()> {
     // Serial device setup.
     if cmdline.as_str().contains("console=") {
@@ -734,7 +796,7 @@ pub fn configure_system_for_boot(
     vcpu_config: VcpuConfig,
     entry_addr: GuestAddress,
     initrd: &Option<InitrdConfig>,
-    boot_cmdline: KernelCmdline,
+    boot_cmdline: LoaderKernelCmdline,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
     #[cfg(target_arch = "x86_64")]
@@ -753,16 +815,16 @@ pub fn configure_system_for_boot(
 
         // Write the kernel command line to guest memory. This is x86_64 specific, since on
         // aarch64 the command line will be specified through the FDT.
-        kernel::loader::load_cmdline(
+        linux_loader::loader::load_cmdline::<vm_memory::GuestMemoryMmap>(
             vmm.guest_memory(),
             GuestAddress(arch::x86_64::layout::CMDLINE_START),
-            &boot_cmdline.as_cstring().map_err(LoadCommandline)?,
+            &boot_cmdline,
         )
         .map_err(LoadCommandline)?;
         arch::x86_64::configure_system(
             &vmm.guest_memory,
             vm_memory::GuestAddress(arch::x86_64::layout::CMDLINE_START),
-            boot_cmdline.len() + 1,
+            boot_cmdline.as_str().len() + 1,
             initrd,
             vcpus.len() as u8,
         )
@@ -783,7 +845,7 @@ pub fn configure_system_for_boot(
             .collect();
         arch::aarch64::configure_system(
             &vmm.guest_memory,
-            &boot_cmdline.as_str(),
+            boot_cmdline.as_str(),
             vcpu_mpidr,
             vmm.mmio_device_manager.get_device_info(),
             vmm.vm.get_irqchip(),
@@ -800,7 +862,7 @@ fn attach_virtio_device<T: 'static + VirtioDevice + MutEventSubscriber>(
     vmm: &mut Vmm,
     id: String,
     device: Arc<Mutex<T>>,
-    cmdline: &mut KernelCmdline,
+    cmdline: &mut LoaderKernelCmdline,
 ) -> std::result::Result<(), StartMicrovmError> {
     use self::StartMicrovmError::*;
 
@@ -831,7 +893,7 @@ pub(crate) fn attach_boot_timer_device(
 
 fn attach_block_devices<'a>(
     vmm: &mut Vmm,
-    cmdline: &mut KernelCmdline,
+    cmdline: &mut LoaderKernelCmdline,
     blocks: impl Iterator<Item = &'a Arc<Mutex<Block>>>,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
@@ -859,7 +921,7 @@ fn attach_block_devices<'a>(
 
 fn attach_net_devices<'a>(
     vmm: &mut Vmm,
-    cmdline: &mut KernelCmdline,
+    cmdline: &mut LoaderKernelCmdline,
     net_devices: impl Iterator<Item = &'a Arc<Mutex<Net>>>,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
@@ -873,7 +935,7 @@ fn attach_net_devices<'a>(
 
 fn attach_unixsock_vsock_device(
     vmm: &mut Vmm,
-    cmdline: &mut KernelCmdline,
+    cmdline: &mut LoaderKernelCmdline,
     unix_vsock: &Arc<Mutex<Vsock<VsockUnixBackend>>>,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
@@ -884,7 +946,7 @@ fn attach_unixsock_vsock_device(
 
 fn attach_balloon_device(
     vmm: &mut Vmm,
-    cmdline: &mut KernelCmdline,
+    cmdline: &mut LoaderKernelCmdline,
     balloon: &Arc<Mutex<Balloon>>,
     event_manager: &mut EventManager,
 ) -> std::result::Result<(), StartMicrovmError> {
@@ -917,9 +979,11 @@ pub mod tests {
     use crate::vmm_config::vsock::tests::default_config;
     use crate::vmm_config::vsock::{VsockBuilder, VsockDeviceConfig};
     use arch::DeviceType;
+    use devices::virtio::vsock::VSOCK_DEV_ID;
     use devices::virtio::{TYPE_BALLOON, TYPE_BLOCK, TYPE_VSOCK};
-    use kernel::cmdline::Cmdline;
+    use linux_loader::cmdline::Cmdline;
     use utils::tempfile::TempFile;
+    use vm_memory::GuestMemory;
 
     pub(crate) struct CustomBlockConfig {
         drive_id: String,
@@ -954,18 +1018,26 @@ pub mod tests {
     #[cfg(target_arch = "x86_64")]
     fn default_portio_device_manager() -> PortIODeviceManager {
         PortIODeviceManager::new(
-            Arc::new(Mutex::new(Serial::new_sink(
-                EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-            ))),
+            Arc::new(Mutex::new(SerialWrapper {
+                serial: Serial::with_events(
+                    EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
+                    SerialEventsWrapper {
+                        metrics: METRICS.uart.clone(),
+                        buffer_ready_event_fd: None,
+                    },
+                    Box::new(std::io::sink()),
+                ),
+                input: None,
+            })),
             EventFd::new(libc::EFD_NONBLOCK).unwrap(),
         )
         .unwrap()
     }
 
     pub(crate) fn default_kernel_cmdline() -> Cmdline {
-        let mut kernel_cmdline = kernel::cmdline::Cmdline::new(4096);
-        kernel_cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
-        kernel_cmdline
+        let mut boot_cmdline = linux_loader::cmdline::Cmdline::new(arch::CMDLINE_MAX_SIZE);
+        boot_cmdline.insert_str(DEFAULT_KERNEL_CMDLINE).unwrap();
+        boot_cmdline
     }
 
     pub(crate) fn default_vmm() -> Vmm {
@@ -1056,7 +1128,7 @@ pub mod tests {
         event_manager: &mut EventManager,
         vsock_config: VsockDeviceConfig,
     ) {
-        let vsock_dev_id = vsock_config.vsock_id.clone();
+        let vsock_dev_id = VSOCK_DEV_ID.to_owned();
         let vsock = VsockBuilder::create_unixsock_vsock(vsock_config).unwrap();
         let vsock = Arc::new(Mutex::new(vsock));
 
@@ -1093,11 +1165,15 @@ pub mod tests {
     }
 
     fn create_guest_mem_at(at: GuestAddress, size: usize) -> GuestMemoryMmap {
-        GuestMemoryMmap::from_ranges(&[(at, size)]).unwrap()
+        vm_memory::test_utils::create_guest_memory_unguarded(&[(at, size)], false).unwrap()
     }
 
     pub(crate) fn create_guest_mem_with_size(size: usize) -> GuestMemoryMmap {
         create_guest_mem_at(GuestAddress(0x0), size)
+    }
+
+    fn is_dirty_tracking_enabled(mem: &GuestMemoryMmap) -> bool {
+        mem.iter().all(|r| r.bitmap().is_some())
     }
 
     #[test]
@@ -1159,13 +1235,13 @@ pub mod tests {
         // Case 1: create guest memory without dirty page tracking
         {
             let guest_memory = create_guest_memory(mem_size, false).unwrap();
-            assert!(!guest_memory.is_dirty_tracking_enabled());
+            assert!(!is_dirty_tracking_enabled(&guest_memory));
         }
 
         // Case 2: create guest memory with dirty page tracking
         {
             let guest_memory = create_guest_memory(mem_size, true).unwrap();
-            assert!(guest_memory.is_dirty_tracking_enabled());
+            assert!(is_dirty_tracking_enabled(&guest_memory));
         }
     }
 
@@ -1459,10 +1535,9 @@ pub mod tests {
         let err = KernelCmdline(String::from("dummy --cmdline"));
         let _ = format!("{}{:?}", err, err);
 
-        let err = KernelLoader(kernel::loader::Error::InvalidElfMagicNumber);
+        let err = KernelLoader(linux_loader::loader::Error::InvalidKernelStartAddress);
         let _ = format!("{}{:?}", err, err);
-
-        let err = LoadCommandline(kernel::cmdline::Error::TooLarge);
+        let err = LoadCommandline(linux_loader::loader::Error::CommandLineOverflow);
         let _ = format!("{}{:?}", err, err);
 
         let err = MissingKernelConfig;
@@ -1480,7 +1555,7 @@ pub mod tests {
 
     #[test]
     fn test_kernel_cmdline_err_to_startuvm_err() {
-        let err = StartMicrovmError::from(kernel::cmdline::Error::HasSpace);
+        let err = StartMicrovmError::from(linux_loader::cmdline::Error::HasSpace);
         let _ = format!("{}{:?}", err, err);
     }
 }

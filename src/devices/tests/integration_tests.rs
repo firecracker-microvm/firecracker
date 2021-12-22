@@ -3,16 +3,42 @@
 
 mod serial_utils;
 
+use devices::legacy::EventFdTrigger;
+use devices::legacy::SerialEventsWrapper;
+use devices::legacy::SerialWrapper;
+use devices::BusDevice;
+use event_manager::{EventManager, SubscriberOps};
+use libc::EFD_NONBLOCK;
+use logger::METRICS;
 use std::io;
+use std::io::Stdout;
 use std::os::raw::{c_int, c_void};
 use std::sync::{Arc, Mutex};
+use vm_superio::Serial;
 
-use event_manager::{EventManager, SubscriberOps};
-
-use devices::legacy::Serial;
-use devices::BusDevice;
 use serial_utils::MockSerialInput;
 use utils::eventfd::EventFd;
+
+fn create_serial(
+    pipe: c_int,
+) -> Arc<Mutex<SerialWrapper<EventFdTrigger, SerialEventsWrapper, Box<Stdout>>>> {
+    // Serial input is the reading end of the pipe.
+    let serial_in = MockSerialInput(pipe);
+    let kick_stdin_evt = EventFdTrigger::new(EventFd::new(libc::EFD_NONBLOCK).unwrap());
+    let serial = Arc::new(Mutex::new(SerialWrapper {
+        serial: Serial::with_events(
+            EventFdTrigger::new(EventFd::new(EFD_NONBLOCK).unwrap()),
+            SerialEventsWrapper {
+                metrics: METRICS.uart.clone(),
+                buffer_ready_event_fd: Some(kick_stdin_evt.try_clone().unwrap()),
+            },
+            Box::new(io::stdout()),
+        ),
+        input: Some(Box::new(serial_in)),
+    }));
+
+    serial
+}
 
 #[test]
 fn test_issue_serial_hangup_anon_pipe_while_registered_stdin() {
@@ -21,14 +47,7 @@ fn test_issue_serial_hangup_anon_pipe_while_registered_stdin() {
     assert!(rc == 0);
 
     // Serial input is the reading end of the pipe.
-    let serial_in = MockSerialInput(fds[0]);
-    let kick_stdin_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-    let serial = Arc::new(Mutex::new(Serial::new_in_out(
-        EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        Box::new(serial_in),
-        Box::new(io::stdout()),
-        Some(kick_stdin_evt.try_clone().unwrap()),
-    )));
+    let serial = create_serial(fds[0]);
 
     // Make reading fd non blocking to read just what is inflight.
     let flags = unsafe { libc::fcntl(fds[0], libc::F_GETFL, 0) };
@@ -145,14 +164,7 @@ fn test_issue_hangup() {
     assert!(rc == 0);
 
     // Serial input is the reading end of the pipe.
-    let serial_in = MockSerialInput(fds[0]);
-    let kick_stdin_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-    let serial = Arc::new(Mutex::new(Serial::new_in_out(
-        EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        Box::new(serial_in),
-        Box::new(io::stdout()),
-        Some(kick_stdin_evt.try_clone().unwrap()),
-    )));
+    let serial = create_serial(fds[0]);
 
     // Make reading fd non blocking to read just what is inflight.
     let flags = unsafe { libc::fcntl(fds[0], libc::F_GETFL, 0) };
@@ -183,14 +195,7 @@ fn test_issue_serial_hangup_anon_pipe_while_unregistered_stdin() {
     assert!(rc == 0);
 
     // Serial input is the reading end of the pipe.
-    let serial_in = MockSerialInput(fds[0]);
-    let kick_stdin_evt = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-    let serial = Arc::new(Mutex::new(Serial::new_in_out(
-        EventFd::new(libc::EFD_NONBLOCK).unwrap(),
-        Box::new(serial_in),
-        Box::new(io::stdout()),
-        Some(kick_stdin_evt.try_clone().unwrap()),
-    )));
+    let serial = create_serial(fds[0]);
 
     // Make reading fd non blocking to read just what is inflight.
     let flags = unsafe { libc::fcntl(fds[0], libc::F_GETFL, 0) };

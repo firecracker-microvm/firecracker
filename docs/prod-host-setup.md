@@ -1,5 +1,10 @@
 # Production Host Setup Recommendations
 
+Firecracker relies on KVM and on the processor virtualization features
+for workload isolation. Security guarantees and defense in depth can only be
+upheld, if the following list of recommendations are implemented in
+production.
+
 ## Firecracker Configuration
 
 ### Seccomp
@@ -77,8 +82,12 @@ for Firecracker processes that are unresponsive, and kills them, by SIGKILL.
 
 ## Jailer Configuration
 
-Using Jailer in a production Firecracker deployment is highly recommended,
-as it provides additional security boundaries for the microVM.
+For assuring secure isolation in production deployments, Firecracker should
+must be started using the `jailer` binary that's part of each Firecracker
+release, or executed under process constraints equal or more restrictive than
+those in the jailer. For more about Firecracker sandboxing please see
+[Firecracker design](design.md)
+
 The Jailer process applies
 [cgroup](https://www.kernel.org/doc/Documentation/cgroup-v1/cgroups.txt),
 namespace isolation and drops privileges of the Firecracker process.
@@ -156,6 +165,36 @@ Additional details of Jailer features can be found in the
 [Jailer documentation](jailer.md).
 
 ## Host Security Configuration
+
+### Constrain CPU overhead caused by kvm-pit kernel threads
+
+The current implementation results in host CPU usage increase on x86 CPUs when
+a guest injects timer interrupts with the help of kvm-pit kernel thread.
+kvm-pit kthread is by default part of the root cgroup.
+
+To mitigate the CPU overhead we recommend two system level configurations.
+
+1.
+    Use an external agent to move the `kvm-pit/<pid of firecracker>` kernel
+    thread in the microVM’s cgroup (e.g., created by the Jailer).
+    This cannot be done by Firecracker since the thread is created by the Linux
+    kernel after guest start, at which point Firecracker is de-privileged.
+1.
+    Configure the kvm limit to a lower value. This is a system-wide
+    configuration available to users without Firecracker or Jailer changes.
+    However, the same limit applies to APIC timer events, and users will need
+    to test their workloads in order to apply this mitigation.
+
+To modify the kvm limit for interrupts that can be injected in a second.
+
+1. `sudo modprobe -r (kvm_intel|kvm_amd) kvm`
+1. `sudo modprobe kvm min_timer_period_us={new_value}`
+1. `sudo modprobe (kvm_intel|kvm_amd)`
+
+To have this change persistent across boots we can append the option to
+`/etc/modprobe.d/kvm.conf`:
+
+`echo "options kvm min_timer_period_us=" >> /etc/modprobe.d/kvm.conf`
 
 ### Mitigating Network flooding issues
 

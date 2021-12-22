@@ -2,8 +2,12 @@
 
 ## Disclaimer
 
-The jailer is designed to work only with statically linked binaries (with
-the default musl toolchain) and will not work with experimental gnu builds.
+The jailer is a program designed to isolate the Firecracker process in
+order to enhance Firecracker's security posture. It is meant to address the
+security needs of Firecracker only and is not intended to work with other
+binaries. Additionally, each jailer binary should be used with a statically
+linked Firecracker binary (with the default musl toolchain) of the same
+version. Experimental gnu builds are not supported.
 
 ## Jailer Usage
 
@@ -15,6 +19,8 @@ jailer --id <id> \
        --exec-file <exec_file> \
        --uid <uid> \
        --gid <gid>
+       [--parent-cgroup <relative_path>]
+       [--cgroup-version <cgroup-version>]
        [--cgroup <cgroup>]
        [--chroot-base-dir <chroot_base>]
        [--netns <netns>]
@@ -33,6 +39,20 @@ jailer --id <id> \
   the jailer is mostly Firecracker specific.
 - `uid` and `gid` are the uid and gid the jailer switches to as it execs the
   target binary.
+- `parent-cgroup` is used to allow the placement of microvm cgroups in custom
+  nested hierarchies. By specifying this parameter, the jailer will create a
+  new cgroup named `id` for the microvm in the `<cgroup_base>/<parent_cgroup>`
+  subfolder. `cgroup_base` is the cgroup controller root for `cgroup v1` (e.g.
+  `/sys/fs/cgroup/cpu`) or the unified controller hierarchy for `cgroup v2` (
+  e.g. `/sys/fs/cgroup/unified`. `<parent_cgroup>` is a relative path within that
+  hierarchy. For example, if `--parent-cgroup all_uvms/external_uvms` is specified,
+  the jailer will write all cgroup parameters specified through `--cgroup` in
+  `/sys/fs/cgroup/<controller_name>/all_uvms/external_uvms/<id>`. By default, the
+  parent cgroup is `exec-file`.
+- `cgroup-version` is used to select which type of cgroup hierarchy to use for
+  the creation of cgroups. The default value is "1" which means that cgroups
+  specified with the `cgroup` argument will be created within a v1 hierarchy.
+  Supported options are "1" for cgroup-v1 and "2" for cgroup-v2.
 - `cgroup` cgroups can be passed to the jailer to let it set the values
   when the microVM process is spawned. The `--cgroup` argument must follow this format:
   `<cgroup_file>=<value>` (e.g cpuset.cpus=0). This argument can be used multiple
@@ -84,6 +104,7 @@ After starting, the Jailer goes through the following operations:
 - Validate **all provided paths** and the VM `id`.
 - Close all open file descriptors based on `/proc/<jailer-pid>/fd` except
   input, output and error.
+- Cleanup all environment variables received from the parent process.
 - Create the `<chroot_base>/<exec_file_name>/<id>/root` folder, which will be
   henceforth referred to as `chroot_dir`. `exec_file_name` is the
   last path component of `exec_file` (for example, that would be `firecracker`
@@ -95,14 +116,14 @@ After starting, the Jailer goes through the following operations:
   `--resource-limit` argument, by calling `setrlimit()` system call with the
   specific resource argument. If no limits are provided, the jailer bounds
   `no-file` to a maximum default value of 2048.
-- Create the `cgroup` sub-folders. At the moment, the jailer uses `cgroup v1`.
-  On most systems, this is mounted by default in `/sys/fs/cgroup`
+- Create the `cgroup` sub-folders. The jailer can use either `cgroup v1`
+  or `cgroup v2`. On most systems, this is mounted by default in `/sys/fs/cgroup`
   (should be mounted by the user otherwise). The jailer will parse
   `/proc/mounts` to detect where each of the controllers required in `--cgroup`
   can be found (multiple controllers may share the same path). For each identified
   location (referred to as `<cgroup_base>`), the jailer creates the
-  `<cgroup_base>/<exec_file_name>/<id>` subfolder, and writes the current pid
-  to `<cgroup_base>/<exec_file_name>/<id>/tasks`. Also, the value passed for each
+  `<cgroup_base>/<parent_cgroup>/<id>` subfolder, and writes the current pid
+  to `<cgroup_base>/<parent_cgroup>/<id>/tasks`. Also, the value passed for each
   `<cgroup_file>` is written to the file. If `--node` is used the corresponding
   values are written to the appropriate `cpuset.mems` and `cpuset.cpus` files.
 - Call `unshare()` into a new mount namespace, use `pivot_root()` to switch

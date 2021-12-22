@@ -38,7 +38,7 @@ tar xf "$KERNEL_ARCHIVE"
 cd "$KERNEL"
 
 # Copy base kernel config from Firecracker resources.
-cp "$FC_DIR/resources/microvm-kernel-x86_64.config" .config
+cp "$FC_DIR/resources/guest_configs/microvm-kernel-x86_64-4.14.config" .config
 
 # Prepare initramfs.
 echo "Preparing initramfs..."

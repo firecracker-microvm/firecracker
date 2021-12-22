@@ -561,6 +561,20 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /version:
+    get:
+      summary: Gets the Firecracker version.
+      operationId: getFirecrackerVersion
+      responses:
+        200:
+          description: OK
+          schema:
+            $ref: "#/definitions/FirecrackerVersion"
+        default:
+          description: Internal server error
+          schema:
+            $ref: "#/definitions/Error"
+
   /vm:
     patch:
       summary: Updates the microVM state.
@@ -1107,6 +1121,17 @@ definitions:
           - Paused
           - Resumed
 
+  FirecrackerVersion:
+    type: object
+    description:
+      Describes the Firecracker version.
+    required:
+      - firecracker_version
+    properties:
+      firecracker_version:
+        description: Firecracker build version.
+        type: string
+
   Vsock:
     type: object
     description:
@@ -1122,7 +1147,6 @@ definitions:
     required:
       - guest_cid
       - uds_path
-      - vsock_id
     properties:
       guest_cid:
         type: integer
@@ -1133,3 +1157,4 @@ definitions:
         description: Path to UNIX domain socket, used to proxy vsock connections.
       vsock_id:
         type: string
+        description: This parameter has been deprecated since v1.0.0.

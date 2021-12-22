@@ -3,6 +3,7 @@ name = "rate_limiter"
 version = "0.1.0"
 authors = ["Amazon Firecracker team <firecracker-devel@amazon.com>"]
 edition = "2018"
+license = "Apache-2.0"
 
 [dependencies]
 libc = ">=0.2.39"
@@ -11,6 +12,5 @@ versionize = ">=0.1.6"
 versionize_derive = ">=0.1.3"
 
 logger = { path = "../logger" }
-utils = { path = "../utils" }
 snapshot = { path = "../snapshot" }
-
+utils = { path = "../utils" }

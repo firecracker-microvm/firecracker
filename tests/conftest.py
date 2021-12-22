@@ -107,9 +107,14 @@ if os.geteuid() != 0:
     raise PermissionError("Test session needs to be run as root.")
 
 
-# Style related tests are run only on AMD.
-if "AMD" not in proc.proc_type():
-    collect_ignore = [os.path.join(SCRIPT_FOLDER, "integration_tests/style")]
+# Style related tests and dependency enforcements are run only on Intel.
+if "Intel" not in proc.proc_type():
+    TEST_DIR = "integration_tests"
+    collect_ignore = [
+        os.path.join(SCRIPT_FOLDER, "{}/style".format(TEST_DIR)),
+        os.path.join(SCRIPT_FOLDER,
+                     "{}/build/test_dependencies.py".format(TEST_DIR))
+    ]
 
 
 def _test_images_s3_bucket():

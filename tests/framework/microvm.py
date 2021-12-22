@@ -33,8 +33,8 @@ from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH, \
 from framework.http import Session
 from framework.jailer import JailerContext
 from framework.resources import Actions, Balloon, BootSource, Drive, \
-    DescribeInstance, FullConfig, Logger, MMDS, MachineConfigure, \
-    Metrics, Network, Vm, Vsock, SnapshotHelper
+    DescribeInstance, FullConfig, InstanceVersion, Logger, MMDS, \
+    MachineConfigure, Metrics, Network, Vm, Vsock, SnapshotHelper
 
 LOG = logging.getLogger("microvm")
 
@@ -115,6 +115,7 @@ class Microvm:
         self.mmds = None
         self.network = None
         self.machine_cfg = None
+        self.version = None
         self.vm = None
         self.vsock = None
         self.snapshot = None
@@ -149,6 +150,9 @@ class Microvm:
 
         # Flag checked in destructor to see abnormal signal-induced crashes.
         self.expect_kill_by_signal = False
+
+        # MMDS content from file
+        self._metadata_file = None
 
     def kill(self):
         """All clean up associated with this microVM should go here."""
@@ -275,6 +279,16 @@ class Microvm:
     def ssh_config(self, key, value):
         """Set the dict values inside this configuration."""
         self._ssh_config.__setattr__(key, value)
+
+    @property
+    def metadata_file(self):
+        """Return the path to a file used for populating MMDS."""
+        return self._metadata_file
+
+    @metadata_file.setter
+    def metadata_file(self, path):
+        """Set the path to a file to use for populating MMDS."""
+        self._metadata_file = path
 
     @property
     def memory_monitor(self):
@@ -488,6 +502,7 @@ class Microvm:
         self.mmds = MMDS(self._api_socket, self._api_session)
         self.network = Network(self._api_socket, self._api_session)
         self.snapshot = SnapshotHelper(self._api_socket, self._api_session)
+        self.version = InstanceVersion(self._api_socket, self._api_session)
         self.vm = Vm(self._api_socket, self._api_session)
         self.vsock = Vsock(self._api_socket, self._api_session)
 
@@ -501,6 +516,15 @@ class Microvm:
             self.jailer.extra_args.update({'log-path': log_file,
                                            'level': log_level})
             self.start_console_logger(log_fifo)
+
+        if self.metadata_file:
+            if os.path.exists(self.metadata_file):
+                LOG.debug("metadata file exists, adding as a jailed resource")
+                self.create_jailed_resource(self.metadata_file,
+                                            create_jail=True)
+            self.jailer.extra_args.update(
+                {'metadata': os.path.basename(self.metadata_file)}
+            )
 
         jailer_param_list = self._jailer.construct_param_list()
 
@@ -649,7 +673,7 @@ class Microvm:
             jailer_param_list
     ):
         """Daemonize the jailer."""
-        if self.bin_cloner_path:
+        if self.bin_cloner_path and self.jailer.new_pid_ns is not True:
             cmd = [self.bin_cloner_path] + \
                 [self._jailer_binary_path] + \
                 jailer_param_list
@@ -665,9 +689,8 @@ class Microvm:
                 raise Exception(_p.stderr)
             self.jailer_clone_pid = int(_p.stdout.rstrip())
         else:
-            # This code path is not used at the moment, but I just feel
-            # it's nice to have a fallback mechanism in place, in case
-            # we decide to offload PID namespacing to the jailer.
+            # Fallback mechanism for when we offload PID namespacing
+            # to the jailer.
             _pid = os.fork()
             if _pid == 0:
                 os.execv(

@@ -4,11 +4,10 @@
 
 # Disable pylint C0302: Too many lines in module
 # pylint: disable=C0302
-import array
-import itertools
 import os
 import platform
 import resource
+import subprocess
 import time
 
 import pytest
@@ -16,6 +15,10 @@ import pytest
 import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
+
+from conftest import _test_images_s3_bucket
+from framework.artifacts import ArtifactCollection
+from framework.builder import MicrovmBuilder
 
 MEM_LIMIT = 1000000000
 
@@ -907,9 +910,9 @@ def _drive_patch(test_microvm):
     }]
 
 
-def test_api_vsock(test_microvm_with_api):
+def test_api_version(test_microvm_with_api):
     """
-    Test vsock related API commands.
+    Test the permanent VM version endpoint.
 
     @type: functional
     """
@@ -917,42 +920,103 @@ def test_api_vsock(test_microvm_with_api):
     test_microvm.spawn()
     test_microvm.basic_config()
 
-    response = test_microvm.vsock.put(
+    # Getting the VM version should be available pre-boot.
+    preboot_response = test_microvm.version.get()
+    assert test_microvm.api_session.is_status_ok(preboot_response.status_code)
+    # Check that the response contains the version.
+    assert 'firecracker_version' in preboot_response.json()
+
+    # Start the microvm.
+    test_microvm.start()
+
+    # Getting the VM version should be available post-boot.
+    postboot_response = test_microvm.version.get()
+    assert test_microvm.api_session.is_status_ok(postboot_response.status_code)
+    # Check that the response contains the version.
+    assert 'firecracker_version' in postboot_response.json()
+    # Validate VM version post-boot is the same as pre-boot.
+    assert preboot_response.json() == postboot_response.json()
+    # Check that the version is the same as `git describe --dirty`.
+    out = subprocess.check_output(['git', 'describe', '--dirty']).decode()
+    # Skip the "v" at the start and the newline at the end.
+    assert out.strip()[1:] == preboot_response.json()['firecracker_version']
+
+
+def test_api_vsock(bin_cloner_path):
+    """
+    Test vsock related API commands.
+
+    @type: functional
+    """
+    builder = MicrovmBuilder(bin_cloner_path)
+    artifacts = ArtifactCollection(_test_images_s3_bucket())
+
+    # Test with the current build.
+    vm_instance = builder.build_vm_nano()
+    _test_vsock(vm_instance.vm)
+
+    # Fetch 1.0.0 and older firecracker binaries.
+    # Create a vsock device with each FC binary
+    # artifact.
+    firecracker_artifacts = artifacts.firecrackers(
+        # v1.0.0 deprecated `vsock_id`.
+        min_version="1.0.0")
+
+    for firecracker in firecracker_artifacts:
+        firecracker.download()
+        jailer = firecracker.jailer()
+        jailer.download()
+
+        vm_instance = builder.build_vm_nano(
+                                        fc_binary=firecracker.local_path(),
+                                        jailer_binary=jailer.local_path())
+
+        _test_vsock(vm_instance.vm)
+
+
+def _test_vsock(vm):
+    # Create a vsock device.
+    response = vm.vsock.put(
+        guest_cid=15,
+        uds_path='vsock.sock'
+    )
+    assert vm.api_session.is_status_no_content(response.status_code)
+
+    # Updating an existing vsock is currently fine.
+    response = vm.vsock.put(
+        guest_cid=166,
+        uds_path='vsock.sock'
+    )
+    assert vm.api_session.is_status_no_content(response.status_code)
+
+    # Check PUT request. Although vsock_id is deprecated, it must still work.
+    response = vm.vsock.put(
         vsock_id='vsock1',
         guest_cid=15,
         uds_path='vsock.sock'
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert vm.api_session.is_status_no_content(response.status_code)
+    assert response.headers['deprecation']
 
-    # Updating an existing vsock is currently fine.
-    response = test_microvm.vsock.put(
+    # Updating an existing vsock is currently fine even with deprecated
+    # `vsock_id`.
+    response = vm.vsock.put(
         vsock_id='vsock1',
         guest_cid=166,
         uds_path='vsock.sock'
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert vm.api_session.is_status_no_content(response.status_code)
+    assert response.headers['deprecation']
 
     # No other vsock action is allowed after booting the VM.
-    test_microvm.start()
+    vm.start()
 
     # Updating an existing vsock should not be fine at this point.
-    response = test_microvm.vsock.put(
-        vsock_id='vsock1',
+    response = vm.vsock.put(
         guest_cid=17,
         uds_path='vsock.sock'
     )
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-
-    # Attaching a new vsock device should not be fine at this point.
-    response = test_microvm.vsock.put(
-        vsock_id='vsock3',
-        guest_cid=18,
-        uds_path='vsock.sock'
-    )
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-
-    response = test_microvm.vm.patch(state='Paused')
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert vm.api_session.is_status_bad_request(response.status_code)
 
 
 def test_api_balloon(test_microvm_with_api):
@@ -1094,13 +1158,11 @@ def test_get_full_config(test_microvm_with_api):
 
     # Add a vsock device.
     response = test_microvm.vsock.put(
-        vsock_id='vsock',
         guest_cid=15,
         uds_path='vsock.sock'
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     expected_cfg['vsock'] = {
-        'vsock_id': 'vsock',
         'guest_cid': 15,
         'uds_path': 'vsock.sock'
     }
@@ -1160,9 +1222,11 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
     call mmap with MAP_PRIVATE|MAP_ANONYMOUS. This would result in vmm being
     killed by the seccomp filter before this PR.
 
-    @type: functional
+    @type: regression
     """
     test_microvm = test_microvm_with_ssh
+    test_microvm.jailer.extra_args.update(
+        {'http-api-max-payload-size': str(1024 * 1024 * 2)})
     test_microvm.spawn()
     test_microvm.api_session.untime()
 
@@ -1173,13 +1237,10 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
     data_store = {
         'latest': {
             'meta-data': {
+                'ami-id': 'b' * (1024 * 1024)
             }
         }
     }
 
-    slice_1mb = array.array('u', itertools.repeat('b', 1024 * 1024))
-    chars = array.array('u')
-    chars = [chars.extend(slice_1mb) for _ in range(190)]
-    data_store["latest"]["meta-data"]["ami-id"] = chars
     response = test_microvm.mmds.put(json=data_store)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
