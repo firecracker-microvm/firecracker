@@ -9,7 +9,7 @@ from host_tools.cargo_build import get_firecracker_binaries
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection
 from framework.builder import MicrovmBuilder, SnapshotBuilder, SnapshotType
-from framework.utils import run_cmd
+from framework.utils import run_cmd, get_firecracker_version_from_toml
 
 
 def test_describe_snapshot_all_versions(bin_cloner_path):
@@ -25,11 +25,8 @@ def test_describe_snapshot_all_versions(bin_cloner_path):
     # For each binary create a snapshot and verify the data version
     # of the snapshot state file.
 
-    # TODO: FIXME: Once we upload 1.0.0 binaries in
-    # S3 that include io_uring, replace the
-    # max_version with get_version_from_toml()
     firecracker_artifacts = artifacts.firecrackers(
-        max_version="0.25.0")
+        max_version=get_firecracker_version_from_toml())
 
     for firecracker in firecracker_artifacts:
         firecracker.download()

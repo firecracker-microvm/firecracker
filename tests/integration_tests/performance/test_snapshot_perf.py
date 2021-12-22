@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import platform
-import pytest
 from conftest import _test_images_s3_bucket
 from framework.artifacts import ArtifactCollection, ArtifactSet
 from framework.defs import DEFAULT_TEST_IMAGES_S3_BUCKET
@@ -589,10 +588,6 @@ def test_snapshot_resume_latency(network_config,
     test_matrix.run_test(_test_snapshot_resume_latency)
 
 
-@pytest.mark.skip(
-    reason="Need to upload new binaries in S3 for v.1.0, but we first need to"
-    "finalise io_uring snapshotting support"
-)
 def test_older_snapshot_resume_latency(bin_cloner_path, results_file_dumper):
     """
     Test scenario: Older snapshot load performance measurement.
