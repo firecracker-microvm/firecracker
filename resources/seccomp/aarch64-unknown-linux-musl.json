@@ -493,6 +493,19 @@
                 ]
             },
             {
+                "syscall": "fcntl",
+                "comment": "Used by MMDS version 2 to extract entropy",
+                "args": [
+                    {
+                        "index": 1,
+                        "type": "dword",
+                        "op": "eq",
+                        "val": 2,
+                        "comment": "FCNTL_F_SETFD"
+                    }
+                ]
+            },
+            {
                 "syscall": "futex",
                 "comment": "Used for synchronization (during thread teardown)",
                 "args": [
