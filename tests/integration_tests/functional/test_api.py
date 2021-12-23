@@ -1332,25 +1332,25 @@ def test_api_mmds_version(test_microvm_with_api, network_config):
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
 
-    v1_json = {
-        'version': 'V1'
-    }
-    # Test default MMDS version is V1.
-    response = test_microvm.mmds.get_mmds_version()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == v1_json
-
-    # Configure MMDS to version 2.
     v2_json = {
         'version': 'V2'
     }
-    response = test_microvm.mmds.put_mmds_version(json=v2_json)
+    # Test default MMDS version is V2.
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == v2_json
+
+    # Configure MMDS to version 1.
+    v1_json = {
+        'version': 'V1'
+    }
+    response = test_microvm.mmds.put_mmds_version(json=v1_json)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Test MMDS version has been updated.
     response = test_microvm.mmds.get_mmds_version()
     assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == v2_json
+    assert response.json() == v1_json
 
     test_microvm.basic_config(vcpu_count=1)
     _tap = test_microvm.ssh_network_config(
@@ -1364,15 +1364,6 @@ def test_api_mmds_version(test_microvm_with_api, network_config):
     assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     # Ensure MMDS version has been reset.
-    response = test_microvm.mmds.get_mmds_version()
-    assert test_microvm.api_session.is_status_ok(response.status_code)
-    assert response.json() == v1_json
-
-    # Configure MMDS back to version 2.
-    response = test_microvm.mmds.put_mmds_version(json=v2_json)
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-    # Ensure MMDS version has been updated.
     response = test_microvm.mmds.get_mmds_version()
     assert test_microvm.api_session.is_status_ok(response.status_code)
     assert response.json() == v2_json
