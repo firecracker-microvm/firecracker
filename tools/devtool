@@ -1030,12 +1030,14 @@ cmd_build_release_archive() {
     validate_version "$version"
     say "Will start preparing release archive for v$version ..."
     get_user_confirmation || die "Aborted."
+    release_suffix="v$version-$(uname -m)"
+    archive_name="firecracker-$release_suffix.tgz"
+    archive_checksum="$archive_name.sha256.txt"
+    release_dir="release-$release_suffix"
 
     # Run tests, build release binaries and strip them from debug symbols.
     ( cmd_build --release && cmd_strip && cmd_test ) || die "Aborted."
 
-    release_suffix="v$version-$(uname -m)"
-    release_dir="release-$release_suffix"
     # Create release directory or overwrite if it already exists.
     rm -rf "$release_dir" && mkdir "$release_dir"
 
@@ -1056,10 +1058,12 @@ cmd_build_release_archive() {
     done
 
     # Create release archive.
-    archive_name="firecracker-$release_suffix.tgz"
     say "Creating release archive..."
     tar -czf "$archive_name" "$release_dir"
     say "Done. Archive $archive_name successfully created."
+    say "Calculating checksum for release archive..."
+    sha256sum "$archive_name"  | awk '{print $1}' > "$archive_checksum"
+    say "Done. Saved checksum in $archive_checksum."
 }
 
 check_file_existence() {

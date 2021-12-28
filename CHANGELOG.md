@@ -21,6 +21,7 @@
   Firecracker version.
 - Added `--metadata` paramater to enable MMDS content to be supplied from a file
   allowing the MMDS to be used when using `--no-api` to disable the API server.
+- Checksum file for the release assets.
 
 ### Changed
 
