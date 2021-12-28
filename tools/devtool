@@ -428,7 +428,7 @@ check_release_tag() {
     say "Fetching remote tags..."
     git fetch upstream --tags
 
-    if git rev-parse v$1 >/dev/null 2>&1; then
+    if git tag | grep v$1 >/dev/null 2>&1; then
         say_err "Seems that tag provided is already associated with a release! "
         say "Will skip drafting a new release for now."
         return 1
