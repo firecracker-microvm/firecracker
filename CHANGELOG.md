@@ -26,6 +26,7 @@
 ### Changed
 
 - Deprecated `vsock_id` body field in `PUT`s on `/vsock`.
+- Removed the deprecated the `--seccomp-level parameter`.
 
 ### Fixed
 

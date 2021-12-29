@@ -11,11 +11,11 @@ use std::process;
 use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
-use logger::{error, info, warn, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
+use logger::{error, info, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
 use mmds::MMDS;
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
-use utils::arg_parser::{ArgParser, Argument, Arguments};
+use utils::arg_parser::{ArgParser, Argument};
 use utils::terminal::Terminal;
 use utils::validators::validate_instance_id;
 use vmm::seccomp_filters::{get_filters, SeccompConfig};
@@ -118,15 +118,9 @@ fn main_exitable() -> ExitCode {
                 .help("MicroVM unique identifier."),
         )
         .arg(
-            Argument::new("seccomp-level")
-                .takes_value(true)
-                .help("Deprecated! Level of seccomp filtering (0: no filter | 1: filter by syscall number | 2: filter by syscall \
-                number and argument values.")
-        )
-        .arg(
             Argument::new("seccomp-filter")
                 .takes_value(true)
-                .forbids(vec!["seccomp-level", "no-seccomp"])
+                .forbids(vec!["no-seccomp"])
                 .help(
                     "Optional parameter which allows specifying the path to a custom seccomp filter. For advanced users."
                 ),
@@ -134,7 +128,7 @@ fn main_exitable() -> ExitCode {
         .arg(
             Argument::new("no-seccomp")
                 .takes_value(false)
-                .forbids(vec!["seccomp-level"])
+                .forbids(vec!["seccomp-filter"])
                 .help("Optional parameter which allows starting and using a microVM without seccomp filtering. \
                     Not recommended.")
         )
@@ -246,7 +240,9 @@ fn main_exitable() -> ExitCode {
     };
 
     // Display warnings for any used deprecated parameters.
-    warn_deprecated_parameters(&arguments);
+    // Currently unused since there are no deprecated parameters. Uncomment the line when
+    // deprecating one.
+    // warn_deprecated_parameters(&arguments);
 
     // It's safe to unwrap here because the field's been provided with a default value.
     let instance_id = arguments.single_value("id").unwrap();
@@ -289,7 +285,6 @@ fn main_exitable() -> ExitCode {
     }
 
     let mut seccomp_filters: BpfThreadMap = match SeccompConfig::from_args(
-        arguments.single_value("seccomp-level"),
         arguments.flag_present("no-seccomp"),
         arguments.single_value("seccomp-filter"),
     )
@@ -400,16 +395,8 @@ fn generic_error_exit(msg: &str) -> ExitCode {
 }
 
 // Log a warning for any usage of deprecated parameters.
-fn warn_deprecated_parameters(arguments: &Arguments) {
-    // --seccomp-level is deprecated.
-    if let Some(value) = arguments.single_value("seccomp-level") {
-        warn!(
-            "You are using a deprecated parameter: --seccomp-level {}, that will be removed in a \
-            future version.",
-            value
-        );
-    }
-}
+#[allow(unused)]
+fn warn_deprecated_parameters() {}
 
 // Print supported snapshot data format versions.
 fn print_supported_snapshot_versions() {

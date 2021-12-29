@@ -57,10 +57,7 @@ impl fmt::Display for FilterError {
 pub enum SeccompConfig {
     /// Seccomp filtering disabled.
     None,
-    /// Basic filtering, matching only on syscall numbers.
-    Basic,
     /// Default, advanced filters.
-    /// Checks both syscall numbers and argument values (where applicable).
     Advanced,
     /// Custom, user-provided filters.
     Custom(Box<dyn std::io::Read>),
@@ -69,30 +66,18 @@ pub enum SeccompConfig {
 impl SeccompConfig {
     /// Given the relevant command line args, return the appropriate config type.
     pub fn from_args(
-        seccomp_level: Option<&String>,
         no_seccomp: bool,
         seccomp_filter: Option<&String>,
     ) -> Result<Self, FilterError> {
-        // The argument parser is configured to forbid usages of `--seccomp-filter` or `--no-seccomp`
-        // together with `--seccomp-level`, so we do not have to check for it.
-        match seccomp_level {
-            Some(value) => match &value[..] {
-                "0" => Ok(SeccompConfig::None),
-                "1" => Ok(SeccompConfig::Basic),
-                "2" => Ok(SeccompConfig::Advanced),
-                _ => Err(FilterError::SeccompConfig(
-                    "Invalid value for --seccomp-level.".to_string(),
-                )),
-            },
-            None => match no_seccomp {
-                true => Ok(SeccompConfig::None),
-                false => match seccomp_filter {
-                    Some(path) => Ok(SeccompConfig::Custom(Box::new(
-                        File::open(&path).map_err(FilterError::FileOpen)?,
-                    ))),
-                    None => Ok(SeccompConfig::Advanced),
-                },
-            },
+        if no_seccomp {
+            Ok(SeccompConfig::None)
+        } else {
+            match seccomp_filter {
+                Some(path) => Ok(SeccompConfig::Custom(Box::new(
+                    File::open(&path).map_err(FilterError::FileOpen)?,
+                ))),
+                None => Ok(SeccompConfig::Advanced),
+            }
         }
     }
 }
@@ -101,20 +86,16 @@ impl SeccompConfig {
 pub fn get_filters(config: SeccompConfig) -> Result<BpfThreadMap, FilterError> {
     match config {
         SeccompConfig::None => Ok(get_empty_filters()),
-        SeccompConfig::Basic => get_default_filters(true),
-        SeccompConfig::Advanced => get_default_filters(false),
+        SeccompConfig::Advanced => get_default_filters(),
         SeccompConfig::Custom(reader) => get_custom_filters(reader),
     }
 }
 
 /// Retrieve the default filters containing the syscall rules required by `Firecracker`
 /// to function. The binary file is generated via the `build.rs` script of this crate.
-fn get_default_filters(basic: bool) -> Result<BpfThreadMap, FilterError> {
+fn get_default_filters() -> Result<BpfThreadMap, FilterError> {
     // Retrieve, at compile-time, the serialized binary filter generated with seccompiler.
-    let bytes: &[u8] = match basic {
-        true => include_bytes!(concat!(env!("OUT_DIR"), "/basic_seccomp_filter.bpf")),
-        false => include_bytes!(concat!(env!("OUT_DIR"), "/seccomp_filter.bpf")),
-    };
+    let bytes: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/seccomp_filter.bpf"));
     let map = deserialize_binary(bytes, DESERIALIZATION_BYTES_LIMIT)
         .map_err(FilterError::Deserialization)?;
     filter_thread_categories(map)
@@ -173,12 +154,6 @@ mod tests {
 
     #[test]
     fn test_get_filters() {
-        let mut filters = get_filters(SeccompConfig::Basic).unwrap();
-        assert_eq!(filters.len(), 3);
-        assert!(filters.remove("vmm").is_some());
-        assert!(filters.remove("api").is_some());
-        assert!(filters.remove("vcpu").is_some());
-
         let mut filters = get_filters(SeccompConfig::Advanced).unwrap();
         assert_eq!(filters.len(), 3);
         assert!(filters.remove("vmm").is_some());
@@ -233,46 +208,24 @@ mod tests {
 
     #[test]
     fn test_seccomp_config() {
-        // test deprecated seccomp-level config.
         assert!(matches!(
-            SeccompConfig::from_args(Some(&"0".to_string()), false, None),
+            SeccompConfig::from_args(true, None),
             Ok(SeccompConfig::None)
         ));
 
         assert!(matches!(
-            SeccompConfig::from_args(Some(&"1".to_string()), false, None),
-            Ok(SeccompConfig::Basic)
-        ));
-
-        assert!(matches!(
-            SeccompConfig::from_args(Some(&"2".to_string()), false, None),
-            Ok(SeccompConfig::Advanced)
-        ));
-
-        assert!(matches!(
-            SeccompConfig::from_args(Some(&"3".to_string()), false, None),
-            Err(FilterError::SeccompConfig(_))
-        ));
-
-        // test new seccomp parameters config.
-        assert!(matches!(
-            SeccompConfig::from_args(None, true, None),
-            Ok(SeccompConfig::None)
-        ));
-
-        assert!(matches!(
-            SeccompConfig::from_args(None, false, Some(&"/dev/null".to_string())),
+            SeccompConfig::from_args(false, Some(&"/dev/null".to_string())),
             Ok(SeccompConfig::Custom(_))
         ));
 
         assert!(matches!(
-            SeccompConfig::from_args(None, false, Some(&"invalid_path".to_string())),
+            SeccompConfig::from_args(false, Some(&"invalid_path".to_string())),
             Err(FilterError::FileOpen(_))
         ));
 
         // test the default case, no parametes -> default advanced.
         assert!(matches!(
-            SeccompConfig::from_args(None, false, None),
+            SeccompConfig::from_args(false, None),
             Ok(SeccompConfig::Advanced)
         ));
     }

@@ -6,8 +6,6 @@ import json as json_lib
 import os
 import tempfile
 import platform
-import time
-import pytest
 
 from host_tools.cargo_build import run_seccompiler_bin
 import framework.utils as utils
@@ -252,50 +250,21 @@ def test_no_seccomp(test_microvm_with_api):
     utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "0")
 
 
-# The possible Firecracker --seccomp-level values.
-# "default" stands for no custom parameter.
-SECCOMP_LEVELS = ["default", "0", "1", "2"]
-
-# Map FC seccomp-level to kernel seccomp-level.
-# Note that level 1 also maps to kernel level 2, which stands for
-# any custom BPF filter.
-# The default is 2.
-KERNEL_LEVEL = {"default": "2", "0": "0", "1": "2", "2": "2"}
-
-
-@pytest.mark.parametrize(
-    "level",
-    SECCOMP_LEVELS
-)
-def test_seccomp_level(test_microvm_with_api, level):
+def test_default_seccomp_level(test_microvm_with_api):
     """
-    Compare Firecracker's --seccomp-level with the kernel-reported value.
+    Test that Firecracker installs a seccomp filter by default.
 
     @type: security
     """
     test_microvm = test_microvm_with_api
-    test_microvm.jailer.daemonize = False
-
-    if level != "default":
-        test_microvm.jailer.extra_args.update({"seccomp-level": level})
-
-    test_microvm.spawn(create_logger=False)
+    test_microvm.spawn()
 
     test_microvm.basic_config()
 
     test_microvm.start()
 
     utils.assert_seccomp_level(
-        test_microvm.jailer_clone_pid, KERNEL_LEVEL[level])
-
-    # For seccomp-level, check that we output the deprecation warnings.
-    if level != "default":
-        time.sleep(0.5)
-        with open(test_microvm.screen_log, 'r') as file:
-            log_data = file.read()
-            assert "You are using a deprecated parameter: --seccomp-level " \
-                f"{level}, that will be removed in a future version." \
-                in log_data
+        test_microvm.jailer_clone_pid, "2")
 
 
 def test_seccomp_rust_panic(bin_seccomp_paths):
