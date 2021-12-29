@@ -138,7 +138,7 @@ def test_working_filter(test_microvm_with_api):
 
     test_microvm.start()
 
-    # seccomp-level should be 2, with no additional errors
+    # level should be 2, with no additional errors
     utils.assert_seccomp_level(test_microvm.jailer_clone_pid, "2")
 
 

@@ -513,15 +513,15 @@ mod tests {
                     .help("'id' info."),
             )
             .arg(
-                Argument::new("seccomp-level")
+                Argument::new("seccomp-filter")
                     .takes_value(true)
-                    .default_value("2")
-                    .help("'seccomp-level' info."),
+                    .help("'seccomp-filter' info.")
+                    .forbids(vec!["no-seccomp"]),
             )
             .arg(
                 Argument::new("no-seccomp")
                     .help("'-no-seccomp' info.")
-                    .forbids(vec!["seccomp-level"]),
+                    .forbids(vec!["seccomp-filter"]),
             )
             .arg(
                 Argument::new("config-file")
@@ -628,9 +628,9 @@ mod tests {
         arg_parser = ArgParser::new()
             .arg(Argument::new("id").takes_value(true).help("'id' info."))
             .arg(
-                Argument::new("seccomp-level")
+                Argument::new("seccomp-filter")
                     .takes_value(true)
-                    .help("'seccomp-level' info."),
+                    .help("'seccomp-filter' info."),
             )
             .arg(
                 Argument::new("config-file")
@@ -641,9 +641,9 @@ mod tests {
         assert_eq!(
             arg_parser.formatted_help(),
             "optional arguments:\n  \
-             --config-file <config-file>       'config-file' info.\n  \
-             --id <id>                         'id' info.\n  \
-             --seccomp-level <seccomp-level>   'seccomp-level' info."
+             --config-file <config-file>         'config-file' info.\n  \
+             --id <id>                           'id' info.\n  \
+             --seccomp-filter <seccomp-filter>   'seccomp-filter' info."
         );
     }
 
@@ -856,7 +856,7 @@ mod tests {
             "bar",
             "--id",
             "foobar",
-            "--seccomp-level",
+            "--seccomp-filter",
             "0",
             "--no-seccomp",
         ]
@@ -868,7 +868,33 @@ mod tests {
             arguments.parse(&args),
             Err(Error::ForbiddenArgument(
                 "no-seccomp".to_string(),
-                "seccomp-level".to_string(),
+                "seccomp-filter".to_string(),
+            ))
+        );
+
+        arguments = arg_parser.arguments().clone();
+
+        let args = vec![
+            "binary-name",
+            "--exec-file",
+            "foo",
+            "--api-sock",
+            "bar",
+            "--id",
+            "foobar",
+            "--no-seccomp",
+            "--seccomp-filter",
+            "0",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<String>>();
+
+        assert_eq!(
+            arguments.parse(&args),
+            Err(Error::ForbiddenArgument(
+                "no-seccomp".to_string(),
+                "seccomp-filter".to_string(),
             ))
         );
 
@@ -913,7 +939,7 @@ mod tests {
             "bar",
             "--id",
             "foobar",
-            "--seccomp-level",
+            "--seccomp-filter",
             "0",
             "--",
             "--extra-flag",

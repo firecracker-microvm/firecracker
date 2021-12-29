@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const ADVANCED_BINARY_FILTER_FILE_NAME: &str = "seccomp_filter.bpf";
-const BASIC_BINARY_FILTER_FILE_NAME: &str = "basic_seccomp_filter.bpf";
 
 const JSON_DIR: &str = "../../resources/seccomp";
 const SECCOMPILER_BUILD_DIR: &str = "../../build/seccompiler";
@@ -52,22 +51,11 @@ fn main() {
         &target,
         json_path,
         bpf_out_path.to_str().expect("Invalid bytes."),
-        false,
-    );
-
-    // Run seccompiler-bin with the `--basic` flag, getting the filter for `--seccomp-level 1`.
-    let mut bpf_out_path = PathBuf::from(&out_dir);
-    bpf_out_path.push(BASIC_BINARY_FILTER_FILE_NAME);
-    run_seccompiler_bin(
-        &target,
-        json_path,
-        bpf_out_path.to_str().expect("Invalid bytes."),
-        true,
     );
 }
 
 // Run seccompiler with the given arguments.
-fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str, basic: bool) {
+fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str) {
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("Missing target arch.");
 
     // Command for running seccompiler-bin
@@ -92,10 +80,6 @@ fn run_seccompiler_bin(cargo_target: &str, json_path: &str, out_path: &str, basi
         "--output-file",
         out_path,
     ]);
-
-    if basic {
-        command.arg("--basic");
-    }
 
     match command.output() {
         Err(error) => panic!("\nSeccompiler-bin error: {:?}\n", error),
