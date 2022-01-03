@@ -36,6 +36,12 @@ const DEV_NET_TUN_WITH_NUL: &[u8] = b"/dev/net/tun\0";
 const DEV_NET_TUN_MAJOR: u32 = 10;
 const DEV_NET_TUN_MINOR: u32 = 200;
 
+// Random number generator device minor/major numbers are taken from
+// https://www.kernel.org/doc/Documentation/admin-guide/devices.txt
+const DEV_URANDOM_WITH_NUL: &[u8] = b"/dev/urandom\0";
+const DEV_URANDOM_MAJOR: u32 = 1;
+const DEV_URANDOM_MINOR: u32 = 9;
+
 const DEV_NULL_WITH_NUL: &[u8] = b"/dev/null\0";
 
 // Relevant folders inside the jail that we create or/and for which we change ownership.
@@ -565,6 +571,18 @@ impl Env {
         self.mknod_and_own_dev(DEV_NET_TUN_WITH_NUL, DEV_NET_TUN_MAJOR, DEV_NET_TUN_MINOR)?;
         // Do the same for /dev/kvm with (major, minor) = (10, 232).
         self.mknod_and_own_dev(DEV_KVM_WITH_NUL, DEV_KVM_MAJOR, DEV_KVM_MINOR)?;
+        // And for /dev/urandom with (major, minor) = (1, 9).
+        // If the device is not accessible on the host, output a warning to inform user that MMDS
+        // version 2 will not be available to use.
+        let _ = self
+            .mknod_and_own_dev(DEV_URANDOM_WITH_NUL, DEV_URANDOM_MAJOR, DEV_URANDOM_MINOR)
+            .map_err(|err| {
+                println!(
+                    "Warning! Could not create /dev/urandom device inside jailer: {}.",
+                    err
+                );
+                println!("MMDS version 2 will not be available to use.");
+            });
 
         // Daemonize before exec, if so required (when the dev_null variable != None).
         if let Some(fd) = dev_null {
