@@ -287,19 +287,17 @@ def test_start_with_invalid_metadata(test_microvm_with_api):
     )
 
 
-def test_with_config_and_metadata_no_api(test_microvm_with_api):
+def test_with_config_no_api(test_microvm_with_api):
     """
-    Test microvm start when config/mmds and API server thread is disable.
+    Test microvm start when config and API server thread is disable.
 
     @type: functional
     """
     vm_config_file = "framework/vm_config.json"
-    metadata_file = "../resources/tests/metadata.json"
 
     test_microvm = test_microvm_with_api
 
     _configure_vm_from_json(test_microvm, vm_config_file)
-    _add_metadata_file(test_microvm, metadata_file)
     test_microvm.jailer.extra_args.update({'no-api': None})
 
     test_microvm.spawn()

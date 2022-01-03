@@ -161,11 +161,17 @@ fn main_exitable() -> ExitCode {
         .arg(
             Argument::new(MMDS_CONTENT_ARG)
                 .takes_value(true)
+                // MMDS is not available when using `no-api`, so specifying a metadata
+                // file to add to the MMDS contents forbids enabling this flag.
+                .forbids(vec!["no-api"])
                 .help("Path to a file that contains metadata in JSON format to add to the mmds.")
         )
         .arg(
             Argument::new("no-api")
                 .takes_value(false)
+                // MMDS is not available when the `no-api` flag is enabled, so
+                // specifying a metadata file to add to the MMDS is forbidden.
+                .forbids(vec![MMDS_CONTENT_ARG])
                 .requires("config-file")
                 .help("Optional parameter which allows starting and using a microVM without an active API socket.")
         )
