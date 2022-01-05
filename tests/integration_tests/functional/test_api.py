@@ -15,9 +15,10 @@ import pytest
 import framework.utils_cpuid as utils
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools
-from framework.utils import is_io_uring_supported
 
 from conftest import _test_images_s3_bucket
+
+from framework.utils import is_io_uring_supported
 from framework.artifacts import ArtifactCollection
 from framework.builder import MicrovmBuilder
 
@@ -1043,8 +1044,8 @@ def test_api_vsock(bin_cloner_path):
         jailer.download()
 
         vm_instance = builder.build_vm_nano(
-                                        fc_binary=firecracker.local_path(),
-                                        jailer_binary=jailer.local_path())
+            fc_binary=firecracker.local_path(),
+            jailer_binary=jailer.local_path())
 
         _test_vsock(vm_instance.vm)
 
