@@ -13,9 +13,9 @@ MACHINE = platform.machine()
 
 SIZES_DICT = {
     "x86_64": {
-        "FC_BINARY_SIZE_TARGET": 2258112,
+        "FC_BINARY_SIZE_TARGET": 2281512,
         "JAILER_BINARY_SIZE_TARGET": 797632,
-        "FC_BINARY_SIZE_LIMIT": 2263232,
+        "FC_BINARY_SIZE_LIMIT": 2286632,
         "JAILER_BINARY_SIZE_LIMIT": 869608,
     },
     "aarch64": {
