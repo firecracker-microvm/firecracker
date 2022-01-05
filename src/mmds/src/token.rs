@@ -88,6 +88,8 @@ pub struct TokenAuthority {
     num_encrypted_tokens: u32,
     // Source of entropy.
     entropy_pool: File,
+    // Additional Authentication Data used for encryption and decryption.
+    aad: String,
 }
 
 impl TokenAuthority {
@@ -99,7 +101,14 @@ impl TokenAuthority {
             cipher: TokenAuthority::create_cipher(&mut file)?,
             num_encrypted_tokens: 0,
             entropy_pool: file,
+            aad: "".to_string(),
         })
+    }
+
+    /// Set Additional Authenticated Data to be used for
+    /// encryption and decryption of the session token.
+    pub fn set_aad(&mut self, instance_id: &str) {
+        self.aad = format!("microvmid={}", instance_id);
     }
 
     /// Generate encoded token string using the token time to live provided.
@@ -152,7 +161,7 @@ impl TokenAuthority {
 
         let tag = self
             .cipher
-            .encrypt_in_place_detached(nonce, b"", &mut expiry_as_bytes)
+            .encrypt_in_place_detached(nonce, self.aad.as_bytes(), &mut expiry_as_bytes)
             .map_err(|_| Error::TokenEncryption)?;
 
         // Tag must be of size `TAG_LEN`.
@@ -200,7 +209,12 @@ impl TokenAuthority {
         let nonce = Nonce::from_slice(iv);
         // Decrypt expiry as vector of bytes from ciphertext.
         self.cipher
-            .decrypt_in_place_detached(nonce, b"", payload, aes_gcm::Tag::from_slice(tag))
+            .decrypt_in_place_detached(
+                nonce,
+                self.aad.as_bytes(),
+                payload,
+                aes_gcm::Tag::from_slice(tag),
+            )
             .map_err(|_| Error::ExpiryExtraction)?;
         let expiry_as_bytes = payload[..]
             .try_into()
@@ -325,6 +339,15 @@ mod tests {
     }
 
     #[test]
+    fn test_set_aad() {
+        let mut token_authority = TokenAuthority::new().unwrap();
+        assert_eq!(token_authority.aad, "".to_string());
+
+        token_authority.set_aad("foo");
+        assert_eq!(token_authority.aad, "microvmid=foo".to_string());
+    }
+
+    #[test]
     fn test_create_token() {
         let mut token_authority = TokenAuthority::new().unwrap();
 
@@ -358,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_decrypt() {
-        let token_authority = TokenAuthority::new().unwrap();
+        let mut token_authority = TokenAuthority::new().unwrap();
         let mut file = File::open(Path::new(RANDOMNESS_POOL)).unwrap();
         let mut iv = [0u8; IV_LEN];
         file.read_exact(&mut iv).unwrap();
@@ -371,20 +394,38 @@ mod tests {
             .unwrap();
         assert_eq!(expiry, decrypted_expiry);
 
+        // Test decrypting expiry under a different AAD than it was encrypted with.
+        token_authority.set_aad("foo");
+        assert_eq!(
+            token_authority
+                .decrypt_expiry(&mut payload, &tag, iv.as_mut())
+                .unwrap_err()
+                .to_string(),
+            Error::ExpiryExtraction.to_string()
+        );
+
         // Test ciphertext with corrupted payload.
         payload[0] += 1;
-        assert!(token_authority
-            .decrypt_expiry(&mut payload, &tag, iv.as_mut())
-            .is_err());
+        assert_eq!(
+            token_authority
+                .decrypt_expiry(&mut payload, &tag, iv.as_mut())
+                .unwrap_err()
+                .to_string(),
+            Error::ExpiryExtraction.to_string()
+        );
 
         // Test ciphertext with corrupted tag.
         tag[0] += 1;
         let mut ciphertext = vec![];
         ciphertext.extend_from_slice(&payload);
         ciphertext.extend_from_slice(&tag);
-        assert!(token_authority
-            .decrypt_expiry(&mut payload, &tag, iv.as_mut())
-            .is_err());
+        assert_eq!(
+            token_authority
+                .decrypt_expiry(&mut payload, &tag, iv.as_mut())
+                .unwrap_err()
+                .to_string(),
+            Error::ExpiryExtraction.to_string()
+        );
     }
 
     #[test]

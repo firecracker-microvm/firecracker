@@ -148,6 +148,14 @@ impl Mmds {
         }
     }
 
+    /// Sets the Additional Authenticated Data to be used for encryption and
+    /// decryption of the session token when MMDS version 2 is enabled.
+    pub fn set_aad(&mut self, instance_id: &str) {
+        if let Some(ta) = self.token_authority.as_mut() {
+            ta.set_aad(instance_id);
+        }
+    }
+
     /// Checks if the provided token has not expired.
     pub fn is_valid_token(&self, token: &str) -> Result<bool, TokenError> {
         self.token_authority
