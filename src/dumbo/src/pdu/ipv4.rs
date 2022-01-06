@@ -30,7 +30,7 @@ const OPTIONS_OFFSET: usize = 20;
 /// Indicates version 4 of the IP protocol
 pub const IPV4_VERSION: u8 = 0x04;
 /// Default TTL value
-pub const DEFAULT_TTL: u8 = 200;
+pub const DEFAULT_TTL: u8 = 1;
 
 /// The IP protocol number associated with TCP.
 pub const PROTOCOL_TCP: u8 = 0x06;
