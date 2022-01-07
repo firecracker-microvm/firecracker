@@ -96,6 +96,7 @@ fn update_structured_extended_entry(
             .write_bit(ecx::OSPKE_BITINDEX, false)
             .write_bit(ecx::AVX512_VNNI_BITINDEX, false)
             .write_bit(ecx::AVX512_VPOPCNTDQ_BITINDEX, false)
+            .write_bit(ecx::LA57, false)
             .write_bit(ecx::RDPID_BITINDEX, false)
             .write_bit(ecx::SGX_LC_BITINDEX, false);
 
