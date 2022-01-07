@@ -32,12 +32,6 @@
   Default value is `V2`.
 - Support and validation for host and guest kernel 5.10.
 - A [kernel support policy](docs/kernel-policy.md).
-
-### Changed
-
-- Removed the `--node` jailer parameter.
-- Deprecated `vsock_id` body field in `PUT`s on `/vsock`.
-- Removed the deprecated the `--seccomp-level parameter`.
 - Added `io_engine` to the pre-boot block device configuration.
   Possible values: `Sync` (the default option) or `Async` (only available for
   kernels newer than 5.10.51). The `Async` variant introduces a block device
@@ -45,6 +39,12 @@
   See `docs/api_requests/block-io-engine.md`.
 - Added `block.io_engine_throttled_events` metric for measuring the number of
   virtio events throttled because of the IO engine.
+
+### Changed
+
+- Removed the `--node` jailer parameter.
+- Deprecated `vsock_id` body field in `PUT`s on `/vsock`.
+- Removed the deprecated the `--seccomp-level parameter`.
 - `GET` requests to MMDS require a session token to be provided through
   `X-metadata-token` header when using V2.
 - Allow `PUT` requests to MMDS in order to generate a session token
