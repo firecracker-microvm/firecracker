@@ -184,6 +184,8 @@ pub mod leaf_0x7 {
             // 13 = TME
             // AVX512_VPOPCNTDQ = Vector population count instruction (Intel® Xeon Phi™ only.)
             pub const AVX512_VPOPCNTDQ_BITINDEX: u32 = 14;
+            // LA57 = 5-level page tables.
+            pub const LA57: u32 = 16;
             // 21 - 17 = The value of MAWAU used by the BNDLDX and BNDSTX instructions in 64-bit mode.
             // Read Processor ID
             pub const RDPID_BITINDEX: u32 = 22;
