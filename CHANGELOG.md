@@ -38,7 +38,8 @@
   virtio events throttled because of the IO engine.
 - New optional `version` field to PUT requests towards `/mmds/config` to
   configure MMDS version. Accepted values are `V1` and `V2` and default is
-  `V1`. Known limitation: `V2` does not currently work after snapshot load.
+  `V1`. MMDS `V2` is **developer preview only** (NOT for production use) and
+  it does not currently work after snapshot load.
 - Mandatory `network_interfaces` field to PUT requests towards
   `/mmds/config` which contains a list of network interface IDs capable of
   forwarding packets to MMDS.

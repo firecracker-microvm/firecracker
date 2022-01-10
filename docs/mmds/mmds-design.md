@@ -42,11 +42,12 @@ entirely), or using `PATCH` requests, which feed the JSON body into the JSON Mer
 Patch functionality, based on [RFC 7396](https://tools.ietf.org/html/rfc7396). MMDS
 related API requests come from the host, which is considered a trusted environment,
 so there are no checks beside the kind of validation done by HTTP server and
-`serde-json` (the crate used to de/serialize JSON). There is no maximum limit for
-the stored metadata size, but one might consider that storing and retrieving large
-amount of data may induce bottlenecks for the HTTP REST API processing, which is
-based on `micro-http` crate. MMDS contents can be retrieved using the Firecracker
-API, via a `GET` request to the `/mmds` resource.
+`serde-json` (the crate used to de/serialize JSON). The size limit for the stored
+metadata is configurable and defaults to 51200 bytes. When increasing this limit,
+one must take into consideration that storing and retrieving large amount of data
+may induce bottlenecks for the HTTP REST API processing, which is based on
+`micro-http` crate. MMDS contents can be retrieved using the Firecracker API, via
+a `GET` request to the `/mmds` resource.
 
 ## The data store
 
@@ -76,27 +77,29 @@ Frames sent by the guest are written to the TAP fd, and frames read from the
 TAP fd are handed over to the guest.
 
 The *Dumbo* stack can be instantiated once for every network device, and is
-disabled by default. It can be enabled by setting the value of the
-`allow_mmds_requests` parameter to `true` in the API request body used to
-attach a guest network device. Once enabled, the stack taps into the
-aforementioned data path. Each frame coming from the guest is examined to
-determine whether it should be processed by *Dumbo* instead of being written to
-the TAP fd. Also, every time there is room in the ring buffer to hand over
-frames to the guest, the device model first checks whether *Dumbo* has anything
-to send; if not, it resumes getting frames from the TAP fd (when available).
+disabled by default. It can be enabled through the API request body used to
+configure MMDS by specifying the ID of the network interface inside the
+`network_interfaces` list. In order for the API call to succeed, the network
+device must be attached beforehand, otherwise an error is returned. Once
+enabled, the stack taps into the aforementioned data path. Each frame coming
+from the guest is examined to determine whether it should be processed by
+*Dumbo* instead of being written to the TAP fd. Also, every time there is room
+in the ring buffer to hand over frames to the guest, the device model first
+checks whether *Dumbo* has anything to send; if not, it resumes getting frames
+from the TAP fd (when available).
 
 We chose to implement our own solution, instead of leveraging existing
 libraries/implementations, because responding to guest MMDS queries in the
 context of Firecracker is amenable to a wide swath of simplifications.
-First of all, we only need to handle `GET` requests, which require a bare-bones
-HTTP 1.1 server, without support for most headers and more advanced features
-like chunking. Also, we get to choose what subset of HTTP is used when building
-responses. Moving lower in the stack, we are dealing with TCP connections over
-what is essentially a point-to-point link, that seldom loses packets and does
-not reorder them. This means we can do away with congestion control
-(we only use flow control), complex reception logic, and support for most TCP
-options/features. At this point, the layers below (Ethernet and IPv4) don't
-involve much more than sanity checks of frame/packet contents.
+First of all, we only need to handle `GET` and `PUT` requests, which require
+a bare-bones HTTP 1.1 server, without support for most headers and more advanced
+features like chunking. Also, we get to choose what subset of HTTP is used when
+building responses. Moving lower in the stack, we are dealing with TCP connections
+over what is essentially a point-to-point link, that seldom loses packets and does
+not reorder them. This means we can do away with congestion control (we only use
+flow control), complex reception logic, and support for most TCP options/features.
+At this point, the layers below (Ethernet and IPv4) don't involve much more than
+sanity checks of frame/packet contents.
 
 *Dumbo* is built using both general purpose components (which we plan to offer
 as part of one or more libraries), and Firecracker MMDS specific code. The
@@ -192,7 +195,8 @@ handler):
 
 When the TCP handler asks an MMDS endpoint for any segments to send, the
 transmission logic of the inner connection is invoked, specifying the pending
-response (when present) as the payload source.
+response (when present) as the payload source. All packets coming from MMDS
+have the TTL value set to 1 by default.
 
 ### Connection
 

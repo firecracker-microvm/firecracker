@@ -4,16 +4,25 @@ The Firecracker microVM Metadata Service (MMDS) is a mutable data store which
 can be used for sharing information between host and guests, in a secure and
 easy at hand way.
 
-## Activating the microVM Metadata Service
+## Configuring and activating the microVM Metadata Service
 
 By default, MMDS is not reachable from the guest operating system. At microVM
 runtime, MMDS is tightly coupled with a network interface, which allows MMDS
 requests. When configuring the microVM, if MMDS needs to be activated, a
-network interface has to be configured to allow MMDS requests. Network
-interface configuration API can be found in the
-[firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
+network interface has to be configured to allow MMDS requests. This can be
+achieved in two steps:
 
-### Example
+1. Attach one (or more) network interfaces through an HTTP `PUT` request to
+   `/network-interfaces/${MMDS_NET_IF}`. The full network configuration API
+   can be found in the [firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
+1. Configure MMDS through an HTTP `PUT` request to `/mmds/config` resource and
+   include the IDs of the network interfaces that should allow forwarding requests
+   to MMDS in the `network_interfaces` list. The complete MMDS API is described in
+   the [firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
+
+### Examples
+
+Attaching a network device with ID `MMDS_NET_IF`:
 
 ```bash
 MMDS_NET_IF=eth0
@@ -25,23 +34,11 @@ curl --unix-socket /tmp/firecracker.socket -i                 \
       "iface_id": "${MMDS_NET_IF}",
       "guest_mac": "AA:FC:00:00:00:01",
       "host_dev_name": "tap0"
-      "allow_mmds_requests": true
     }'
 ```
 
-## Configuring the microVM Metadata Service
-
-MMDS can be configured pre-boot only, using the Firecracker API server. This
-can be achieved through an HTTP `PUT` request to `/mmds/config` resource. The
-complete MMDS configuration API is described in the
-[firecracker swagger file](../../src/api_server/swagger/firecracker.yaml).
-
-At the moment, MMDS is configurable with respect to the IPv4 address used by
-guest applications when issuing requests to MMDS. If MMDS configuration is not
-provided before booting up the guest, the MMDS IPv4 address defaults to
-`169.254.169.254`.
-
-The Ipv4 address for issuing requests to the MMDS can be configured like this:
+Configuring MMDS to receive requests through the `MMDS_NET_IF` network
+interface ID:
 
 ```bash
 MMDS_IPV4_ADDR=169.254.170.2
@@ -49,6 +46,26 @@ curl --unix-socket /tmp/firecracker.socket -i \
     -X PUT "http://localhost/mmds/config"     \
     -H "Content-Type: application/json"       \
     -d '{
+             "network_interfaces": ["${MMDS_NET_IF}"]
+    }'
+```
+
+MMDS can be configured pre-boot only, using the Firecracker API server. Enabling
+MMDS without at least a network device attached will return an error.
+
+The IPv4 address used by guest applications when issuing requests to MMDS can
+be customized through the same HTTP `PUT` request to `/mmds/config` resource,
+by specifying the IPv4 address to the `ipv4_address` field. If the IP configuration
+is not provided before booting up the guest, the MMDS IPv4 address defaults to
+`169.254.169.254`.
+
+```bash
+MMDS_IPV4_ADDR=169.254.170.2
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT "http://localhost/mmds/config"     \
+    -H "Content-Type: application/json"       \
+    -d '{
+             "network_interfaces": ["${MMDS_NET_IF}"],
              "ipv4_address": "${MMDS_IPV4_ADDR}"
     }'
 ```
@@ -65,10 +82,31 @@ MMDS_NET_IF=eth0
 ip route add ${MMDS_IPV4_ADDR} dev ${MMDS_NET_IF}
 ```
 
+MMDS supports two methods to access the contents of the metadata store from the
+guest operating system: `V1` and `V2` (in [developer preview](../RELEASE_POLICY.md)).
+More about the particularities of the two mechanisms can be found in the
+[Retrieving metadata in the guest operating system](#retrieving-metadata-in-the-guest-operating-system)
+section. The MMDS version used can be specified when configuring MMDS, through
+the `version` field of the HTTP `PUT` request to `/mmds/config` resource.
+Accepted values are `V1` and `V2` and the default MMDS version used in case the
+`version` field is missing is [Version 1](#version-1).
+
+```bash
+MMDS_IPV4_ADDR=169.254.170.2
+curl --unix-socket /tmp/firecracker.socket -i \
+    -X PUT "http://localhost/mmds/config"     \
+    -H "Content-Type: application/json"       \
+    -d '{
+             "network_interfaces": ["${MMDS_NET_IF}"],
+             "version": "V2",
+             "ipv4_address": "${MMDS_IPV4_ADDR}"
+    }'
+```
+
 ## Inserting and updating metadata
 
 Inserting and updating metadata is possible through the Firecracker API server.
-The metadata inserted in MMDS must be any valid JSON. An user can create or update
+The metadata inserted in MMDS must be any valid JSON. A user can create or update
 the MMDS data store before the microVM is started or during its operation. To
 insert metadata into MMDS, an HTTP `PUT` request to the `/mmds` resource has to be
 issued. This request must have a payload with metadata structured in
@@ -175,11 +213,84 @@ Output:
 
 ### Retrieving metadata in the guest operating system
 
-To retrieve existing MMDS metadata from guest operating system, an HTTP `GET`
+Accessing the contents of the metadata store from the guest operating system
+can be done using one of the following methods:
+
+- `V1`: simple request/response method
+- `V2`: session-oriented method (in [developer preview](../RELEASE_POLICY.md))
+
+#### Version 1
+
+To retrieve existing MMDS metadata using MMDS version 1, an HTTP `GET`
 request must be issued. The requested resource can be referenced by its
 corresponding [JSON Pointer](https://tools.ietf.org/html/rfc6901), which is
 also the path of the MMDS request. The HTTP response content will contain the
 referenced metadata resource.
+
+The only HTTP method supported by MMDS version 1 is `GET`. Requests containing
+any other HTTP method will receive **405 Method Not Allowed** error.
+
+```bash
+MMDS_IPV4_ADDR=169.254.170.2
+RESOURCE_POINTER_OBJ=latest/meta-data
+curl -s "http://${MMDS_IPV4_ADDR}/${RESOURCE_POINTER_OBJ}"
+```
+
+#### Version 2
+
+Similar to [IMDSv2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html),
+MMDS version 2 (`V2`) is a session oriented method, which makes use of a session
+token in order to allow fetching metadata contents.
+
+The session must start with an HTTP `PUT` request that generates the session token.
+In order to be successful, the request must respect the following constraints:
+
+- must be directed towards `/latest/api/token` path
+- must contain a `X-ametadata-token-ttl-seconds` header specifying the token lifetime
+  in seconds. The value cannot be lower than 1 or greater than 21600 (6 hours).
+- must not contain a `X-Forwarded-For` header.
+
+```bash
+MMDS_IPV4_ADDR=169.254.170.2
+TOKEN=`curl -X PUT "http://${MMDS_IPV4_ADDR}/latest/api/token" \
+      -H "X-metadata-token-ttl-seconds: 21600"`
+```
+
+The HTTP response from MMDS is a plaintext containing the session token.
+
+During the duration specified by the token's time to live value, all subsequent
+`GET` requests must specify the session token through the `X-metadata-token`
+header in order to fetch data from MMDS.
+
+```bash
+MMDS_IPV4_ADDR=169.254.170.2
+RESOURCE_POINTER_OBJ=latest/meta-data
+curl -s "http://${MMDS_IPV4_ADDR}/${RESOURCE_POINTER_OBJ}" \
+    -H "X-metadata-token: ${TOKEN}"
+```
+
+After the token expires, it becomes unusable and a new session token must be issued.
+
+##### Developer preview status
+
+View the [release policy](../RELEASE_POLICY.md) for information about developer
+preview terminology.
+
+MMDS `version 2` is not yet suitable for production use. Currently, there is no
+way to configure `V2` after loading a microVM snapshot from file. Even if the
+base microVM snapshotted was customized to use MMDS `V2`, the snapshot clone
+defaults to MMDS `V1`.
+
+It is important to note that the network interfaces configured to allow
+forwarding requests to MMDS and the custom IPv4 address are preserved between
+snapshots.
+
+We plan to make MMDS version 2 production ready once we will fully integrate it
+with snapshotting workflows and we will have a mechanism to preserve MMDS version
+configured between snapshots (the same we do for the IPv4 address or network
+interfaces that allow MMDS requests).
+
+### MMDS formats
 
 The response format can be JSON (experimental) or IMDS. The IMDS documentation
 can be found [here](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html).
@@ -276,6 +387,12 @@ The request was successfully processed and a response was successfully formed.
 
 The request was malformed.
 
+*401* - `Unauthorized`
+
+Only when using MMDS `V2`. The HTTP request either lacks the session token,
+or the token specified is invalid. A token is invalid if it was not
+generated using an HTTP `PUT` request or if it has expired.
+
 *404* - `Not Found`
 
 The requested resource can not be found in the MMDS data store.
@@ -283,7 +400,9 @@ The requested resource can not be found in the MMDS data store.
 *405* - `Method Not Allowed`
 
 The HTTP request uses a not allowed HTTP method and a response with the `Allow`
-header was formed.
+header was formed. When using MMDS `V1`, this is returned for any HTTP method
+other than `GET`. When MMDS `V2` is configured, the only accepted HTTP methods
+are `PUT` and `GET`.
 
 *501* - `Not Implemented`
 
