@@ -7,6 +7,6 @@ license = "Apache-2.0"
 
 [dependencies]
 libc = ">=0.2.80"
-vm-memory-upstream = { package = "vm-memory",  version = "0.6.0", features = ["backend-mmap", "backend-bitmap"] }
+vm-memory-upstream = { package = "vm-memory",  version = ">=0.7.0", features = ["backend-mmap", "backend-bitmap"] }
 
 utils = { path = "../utils" }
