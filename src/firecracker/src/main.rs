@@ -302,23 +302,13 @@ fn main_exitable() -> ExitCode {
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
-    let metadata_json = arguments
+    let metadata_json: Option<serde_json::Value> = arguments
         .single_value(MMDS_CONTENT_ARG)
         .map(fs::read_to_string)
-        .map(|x| x.expect("Unable to open or read from the mmds content file"));
-
-    if let (Some(data), Some(mmds)) = (
-        metadata_json,
-        MMDS.lock()
-            .expect("Failed to acquire lock on MMDS")
-            .as_mut(),
-    ) {
-        mmds.put_data(
-            serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
-        );
-
-        info!("Successfully added metadata to mmds from file");
-    }
+        .map(|x| x.expect("Unable to open or read from the mmds content file"))
+        .map(|data| {
+            serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json")
+        });
 
     let boot_timer_enabled = arguments.flag_present("boot-timer");
     let api_enabled = !arguments.flag_present("no-api");
@@ -360,6 +350,7 @@ fn main_exitable() -> ExitCode {
             instance_info,
             process_time_reporter,
             boot_timer_enabled,
+            metadata_json,
             payload_limit,
         )
     } else {
@@ -372,6 +363,7 @@ fn main_exitable() -> ExitCode {
             vmm_config_json,
             instance_info,
             boot_timer_enabled,
+            metadata_json,
         )
     }
 }
@@ -452,14 +444,17 @@ fn build_microvm_from_json(
     config_json: String,
     instance_info: InstanceInfo,
     boot_timer_enabled: bool,
+    metadata_json: Option<serde_json::Value>,
+    payload_limit: Option<usize>,
 ) -> std::result::Result<(VmResources, Arc<Mutex<vmm::Vmm>>), ExitCode> {
     let mut vm_resources = VmResources::from_json(&config_json, &instance_info).map_err(|err| {
         error!("Configuration for VMM from one single json failed: {}", err);
         vmm::FC_EXIT_CODE_BAD_CONFIGURATION
     })?;
-    vm_resources.boot_timer = boot_timer_enabled;
-    set_mmds_version(vm_resources.mmds_version);
 
+    setup_mmds(vm_resources.mmds_version, payload_limit, metadata_json);
+
+    vm_resources.boot_timer = boot_timer_enabled;
     let vmm = vmm::builder::build_microvm_for_boot(
         &instance_info,
         &vm_resources,
@@ -483,6 +478,7 @@ fn run_without_api(
     config_json: Option<String>,
     instance_info: InstanceInfo,
     bool_timer_enabled: bool,
+    metadata_json: Option<serde_json::Value>,
 ) -> ExitCode {
     let mut event_manager = EventManager::new().expect("Unable to create EventManager");
 
@@ -498,6 +494,8 @@ fn run_without_api(
         config_json.unwrap(),
         instance_info,
         bool_timer_enabled,
+        metadata_json,
+        None,
     ) {
         Ok((res, vmm)) => (res, vmm),
         Err(exit_code) => return exit_code,
@@ -521,22 +519,30 @@ fn run_without_api(
     }
 }
 
-fn set_mmds_version(mmds_version: Option<MmdsVersion>) {
+fn setup_mmds(
+    mmds_version: Option<MmdsVersion>,
+    payload_size: Option<usize>,
+    metadata_json: Option<serde_json::Value>,
+) {
     let mut mmds_lock = MMDS.lock().expect("Failed to acquire lock on MMDS");
-    mmds_version.map(|version| {
-        // Default MMDS version is V2, so we ignore a configuration
-        // request to the version already in use.
-        if version.to_string() == MmdsVersion::V1.to_string() {
-            match mmds_lock.as_mut() {
-                // If the default version (V2) has been successfully
-                // initialized, configure to version 1.
-                // This is safe to unwrap because setting MMDS version
-                // to V1 can't fail.
-                Some(mmds) => mmds.set_version(MmdsVersion::V1).unwrap(),
-                // If the default version (V2) has failed to initialize,
-                // create a new MMDS instance using V1.
-                None => *mmds_lock = Some(Mmds::new_with_v1()),
-            };
-        }
-    });
+
+    // Default MMDS version is V2, so we ignore a configuration
+    // request to the version already in use.
+    if mmds_version == Some(MmdsVersion::V1) {
+        match mmds_lock.as_mut() {
+            // If the default version (V2) has been successfully
+            // initialized, configure to version 1.
+            // This is safe to unwrap because setting MMDS version
+            // to V1 can't fail.
+            Some(mmds) => mmds.set_version(MmdsVersion::V1).unwrap(),
+            // If the default version (V2) has failed to initialize,
+            // create a new MMDS instance using V1.
+            None => *mmds_lock = Some(Mmds::new_with_v1()),
+        };
+    }
+
+    if let Some(mmds) = mmds_lock.as_mut() {
+        mmds.configure(payload_size, metadata_json);
+        info!("Successfully added metadata to mmds from file");
+    }
 }

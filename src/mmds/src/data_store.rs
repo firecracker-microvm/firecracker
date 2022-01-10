@@ -164,7 +164,17 @@ impl Mmds {
             .and_then(|ta| ta.generate_token_secret(ttl_seconds))
     }
 
-    pub fn set_data_store_limit(&mut self, data_store_limit: usize) {
+    /// Configure MMDS with limit for the data store contents, and metadata (if provided).
+    pub fn configure(&mut self, maybe_data_store_limit: Option<usize>, maybe_data: Option<Value>) {
+        self.set_data_store_limit(maybe_data_store_limit.unwrap_or(MAX_DATA_STORE_SIZE));
+
+        if let Some(data) = maybe_data {
+            self.put_data(data);
+        }
+    }
+
+    // Set size limit for the data store contents.
+    fn set_data_store_limit(&mut self, data_store_limit: usize) {
         self.data_store_limit = data_store_limit;
     }
 

@@ -383,7 +383,7 @@ impl ApiServer {
             None => ApiServer::json_response(
                 StatusCode::BadRequest,
                 ApiServer::json_fault_message(MmdsError::NoMmds.to_string()),
-            )
+            ),
         }
     }
 

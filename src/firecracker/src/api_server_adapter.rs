@@ -1,7 +1,6 @@
 // Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use mmds::MAX_DATA_STORE_SIZE;
 use std::io::prelude::*;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
@@ -12,7 +11,7 @@ use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
 use event_manager::{EventOps, Events, MutEventSubscriber, SubscriberOps};
-use logger::{error, warn, ProcessTimeReporter};
+use logger::{error, info, warn, ProcessTimeReporter};
 use mmds::MMDS;
 use seccompiler::BpfThreadMap;
 use utils::{epoll::EventSet, eventfd::EventFd};
@@ -124,6 +123,7 @@ pub(crate) fn run_with_api(
     instance_info: InstanceInfo,
     process_time_reporter: ProcessTimeReporter,
     boot_timer_enabled: bool,
+    metadata_json: Option<serde_json::Value>,
     payload_limit: Option<usize>,
 ) -> ExitCode {
     // FD to notify of API events. This is a blocking eventfd by design.
@@ -133,17 +133,7 @@ pub(crate) fn run_with_api(
     // Channels for both directions between Vmm and Api threads.
     let (to_vmm, from_api) = channel();
     let (to_api, from_vmm) = channel();
-
-    // MMDS only supported with API.
     let mmds_info = MMDS.clone();
-    if let Some(mmds) = mmds_info
-        .lock()
-        .expect("Failed to acquire lock on MMDS info")
-        .as_mut()
-    {
-        mmds.set_data_store_limit(payload_limit.unwrap_or(MAX_DATA_STORE_SIZE));
-    }
-
     let to_vmm_event_fd = api_event_fd
         .try_clone()
         .expect("Failed to clone API event FD");
@@ -151,6 +141,7 @@ pub(crate) fn run_with_api(
     let api_seccomp_filter = seccomp_filters
         .remove("api")
         .expect("Missing seccomp filter for API thread.");
+
     // Start the separate API thread.
     let api_thread = thread::Builder::new()
         .name("fc_api".to_owned())
@@ -192,29 +183,42 @@ pub(crate) fn run_with_api(
             json,
             instance_info,
             boot_timer_enabled,
+            metadata_json,
+            payload_limit,
         ),
-        None => PrebootApiController::build_microvm_from_requests(
-            &seccomp_filters,
-            &mut event_manager,
-            instance_info,
-            || {
-                let req = from_api
-                    .recv()
-                    .expect("The channel's sending half was disconnected. Cannot receive data.");
-                // Also consume the API event along with the message. It is safe to unwrap()
-                // because this event_fd is blocking.
-                api_event_fd
-                    .read()
-                    .expect("VMM: Failed to read the API event_fd");
-                *req
-            },
-            |response| {
-                to_api
-                    .send(Box::new(response))
-                    .expect("one-shot channel closed")
-            },
-            boot_timer_enabled,
-        ),
+        None => {
+            if let Some(mmds) = MMDS
+                .lock()
+                .expect("Failed to acquire lock on MMDS info")
+                .as_mut()
+            {
+                mmds.configure(payload_limit, metadata_json);
+                info!("Successfully added metadata to mmds from file");
+            }
+
+            PrebootApiController::build_microvm_from_requests(
+                &seccomp_filters,
+                &mut event_manager,
+                instance_info,
+                || {
+                    let req = from_api.recv().expect(
+                        "The channel's sending half was disconnected. Cannot receive data.",
+                    );
+                    // Also consume the API event along with the message. It is safe to unwrap()
+                    // because this event_fd is blocking.
+                    api_event_fd
+                        .read()
+                        .expect("VMM: Failed to read the API event_fd");
+                    *req
+                },
+                |response| {
+                    to_api
+                        .send(Box::new(response))
+                        .expect("one-shot channel closed")
+                },
+                boot_timer_enabled,
+            )
+        }
     };
 
     let exit_code = match build_result {
