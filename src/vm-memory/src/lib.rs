@@ -8,7 +8,7 @@
 pub use vm_memory_upstream::{
     address, bitmap::Bitmap, mmap::MmapRegionBuilder, mmap::MmapRegionError, Address, ByteValued,
     Bytes, Error, FileOffset, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryRegion,
-    GuestUsize, MemoryRegionAddress,
+    GuestUsize, MemoryRegionAddress, MmapRegion, VolatileMemory, VolatileMemoryError,
 };
 
 use std::io::Error as IoError;
@@ -16,14 +16,10 @@ use std::os::unix::io::AsRawFd;
 
 use vm_memory_upstream::bitmap::AtomicBitmap;
 use vm_memory_upstream::mmap::{check_file_offset, NewBitmap};
-use vm_memory_upstream::{
-    GuestMemoryMmap as UpstreamGuestMemoryMmap, GuestRegionMmap as UpstreamGuestRegionMmap,
-    MmapRegion as UpstreamMmapRegion,
-};
 
-pub type GuestMemoryMmap = UpstreamGuestMemoryMmap<Option<AtomicBitmap>>;
-pub type GuestRegionMmap = UpstreamGuestRegionMmap<Option<AtomicBitmap>>;
-pub type MmapRegion = UpstreamMmapRegion<Option<AtomicBitmap>>;
+pub type GuestMemoryMmap = vm_memory_upstream::GuestMemoryMmap<Option<AtomicBitmap>>;
+pub type GuestRegionMmap = vm_memory_upstream::GuestRegionMmap<Option<AtomicBitmap>>;
+pub type GuestMmapRegion = vm_memory_upstream::MmapRegion<Option<AtomicBitmap>>;
 
 const GUARD_PAGE_COUNT: usize = 1;
 
@@ -46,7 +42,7 @@ fn build_guarded_region(
     prot: i32,
     flags: i32,
     track_dirty_pages: bool,
-) -> Result<MmapRegion, MmapRegionError> {
+) -> Result<GuestMmapRegion, MmapRegionError> {
     let page_size = utils::get_page_size().expect("Cannot retrieve page size.");
     // Create the guarded range size (received size + X pages),
     // where X is defined as a constant GUARD_PAGE_COUNT.
@@ -241,7 +237,7 @@ mod tests {
         };
     }
 
-    fn validate_guard_region(region: &MmapRegion) {
+    fn validate_guard_region(region: &GuestMmapRegion) {
         let page_size = get_page_size().unwrap();
 
         // Check that the created range allows us to write inside it
@@ -263,7 +259,7 @@ mod tests {
         fork_and_run(&|| AddrOp::Write.apply_on_addr(right_border), true);
     }
 
-    fn loop_guard_region_to_sigsegv(region: &MmapRegion) {
+    fn loop_guard_region_to_sigsegv(region: &GuestMmapRegion) {
         let page_size = get_page_size().unwrap();
         let right_page_guard = region.as_ptr() as usize + region.size();
 
