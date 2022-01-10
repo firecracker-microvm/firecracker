@@ -15,6 +15,7 @@ use crate::vstate::vcpu::VcpuConfig;
 use mmds::ns::MmdsNetworkStack;
 use utils::net::ipv4addr::is_link_local_valid;
 
+use mmds::data_store::MmdsVersion;
 use serde::{Deserialize, Serialize};
 use std::convert::From;
 
@@ -79,6 +80,8 @@ pub struct VmmConfig {
     metrics: Option<MetricsConfig>,
     #[serde(rename = "mmds-config")]
     mmds_config: Option<MmdsConfig>,
+    #[serde(rename = "mmds-version")]
+    mmds_version: Option<MmdsVersion>,
     #[serde(rename = "network-interfaces", default)]
     net_devices: Vec<NetworkInterfaceConfig>,
     #[serde(rename = "vsock")]
@@ -103,6 +106,8 @@ pub struct VmResources {
     pub net_builder: NetBuilder,
     /// The configuration for `MmdsNetworkStack`.
     pub mmds_config: Option<MmdsConfig>,
+    /// The MMDS version,
+    pub mmds_version: Option<MmdsVersion>,
     /// Whether or not to load boot timer device.
     pub boot_timer: bool,
 }
@@ -164,6 +169,8 @@ impl VmResources {
                 .set_mmds_config(mmds_config)
                 .map_err(Error::MmdsConfig)?;
         }
+
+        resources.mmds_version = vmm_config.mmds_version;
 
         Ok(resources)
     }
@@ -355,6 +362,7 @@ impl From<&VmResources> for VmmConfig {
             machine_config: Some(resources.vm_config.clone()),
             metrics: None,
             mmds_config: resources.mmds_config.clone(),
+            mmds_version: resources.mmds_version,
             net_devices: resources.net_builder.configs(),
             vsock_device: resources.vsock.config(),
         }
@@ -449,6 +457,7 @@ mod tests {
             balloon: Default::default(),
             net_builder: default_net_builder(),
             mmds_config: None,
+            mmds_version: Some(MmdsVersion::default()),
             boot_timer: false,
         }
     }
@@ -776,7 +785,8 @@ mod tests {
                         "mem_size_mib": 1024,
                         "ht_enabled": false
                     }},
-                    "mmds-config": {{}}
+                    "mmds-config": {{}},
+                    "mmds-version": "V1"
             }}"#,
             kernel_file.as_path().to_str().unwrap(),
             rootfs_file.as_path().to_str().unwrap(),
@@ -870,6 +880,7 @@ mod tests {
             balloon: BalloonBuilder::new(),
             net_builder: default_net_builder(),
             mmds_config: None,
+            mmds_version: Some(MmdsVersion::default()),
             boot_timer: false,
         };
         let mut new_balloon_cfg = BalloonDeviceConfig {
@@ -901,6 +912,7 @@ mod tests {
             balloon: BalloonBuilder::new(),
             net_builder: default_net_builder(),
             mmds_config: None,
+            mmds_version: Some(MmdsVersion::default()),
             boot_timer: false,
         };
         new_balloon_cfg.amount_mib = 256;

@@ -34,6 +34,7 @@ use crate::vmm_config::{self, RateLimiterUpdate};
 use crate::{builder::StartMicrovmError, EventManager};
 use crate::{ExitCode, FC_EXIT_CODE_BAD_CONFIGURATION};
 use logger::{info, update_metric_with_elapsed_time, METRICS};
+use mmds::MMDS;
 use seccompiler::BpfThreadMap;
 #[cfg(test)]
 use tests::{
@@ -277,6 +278,11 @@ impl<'a> PrebootApiController<'a> {
         #[allow(clippy::field_reassign_with_default)]
         {
             vm_resources.boot_timer = boot_timer_enabled;
+            vm_resources.mmds_version = MMDS
+                .lock()
+                .expect("Failed to acquire lock on MMDS")
+                .as_ref()
+                .map(|mmds| mmds.version());
         }
         let mut preboot_controller = PrebootApiController::new(
             seccomp_filters,
@@ -707,6 +713,7 @@ mod tests {
     use devices::virtio::VsockError;
     use seccompiler::BpfThreadMap;
 
+    use mmds::data_store::MmdsVersion;
     use std::path::PathBuf;
 
     impl PartialEq for VmmActionError {
@@ -747,7 +754,8 @@ mod tests {
         block_set: bool,
         vsock_set: bool,
         net_set: bool,
-        mmds_set: bool,
+        mmds_cfg_set: bool,
+        pub mmds_version: Option<MmdsVersion>,
         pub boot_timer: bool,
         // when `true`, all self methods are forced to fail
         pub force_errors: bool,
@@ -839,7 +847,7 @@ mod tests {
             if self.force_errors {
                 return Err(MmdsConfigError::InvalidIpv4Addr);
             }
-            self.mmds_set = true;
+            self.mmds_cfg_set = true;
             Ok(())
         }
     }
@@ -1207,7 +1215,7 @@ mod tests {
         let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
-            assert!(vm_res.mmds_set)
+            assert!(vm_res.mmds_cfg_set)
         });
 
         let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });

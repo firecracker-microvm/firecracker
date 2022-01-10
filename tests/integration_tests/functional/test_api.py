@@ -1276,6 +1276,7 @@ def test_get_full_config(test_microvm_with_api):
     expected_cfg['logger'] = None
     expected_cfg['metrics'] = None
     expected_cfg['mmds-config'] = None
+    expected_cfg['mmds-version'] = "V2"
 
     # Getting full vm configuration should be available pre-boot.
     response = test_microvm.full_cfg.get()
