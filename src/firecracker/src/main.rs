@@ -314,8 +314,7 @@ fn main_exitable() -> ExitCode {
     ) {
         mmds.put_data(
             serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
-        )
-        .expect("MMDS content load from file failed.");
+        );
 
         info!("Successfully added metadata to mmds from file");
     }

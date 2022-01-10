@@ -383,8 +383,7 @@ mod tests {
             .expect("Poisoned lock")
             .as_mut()
             .unwrap()
-            .put_data(serde_json::from_str(data).unwrap())
-            .unwrap();
+            .put_data(serde_json::from_str(data).unwrap());
 
         mmds
     }

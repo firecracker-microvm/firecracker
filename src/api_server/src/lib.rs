@@ -375,22 +375,15 @@ impl ApiServer {
     }
 
     fn put_mmds(&self, value: serde_json::Value) -> Response {
-        let mmds_response = match self.unlock_mmds().as_mut() {
-            Some(mmds) => mmds.put_data(value),
-            None => {
-                return ApiServer::json_response(
-                    StatusCode::BadRequest,
-                    ApiServer::json_fault_message(MmdsError::NoMmds.to_string()),
-                )
+        match self.unlock_mmds().as_mut() {
+            Some(mmds) => {
+                mmds.put_data(value);
+                Response::new(Version::Http11, StatusCode::NoContent)
             }
-        };
-
-        match mmds_response {
-            Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
-            Err(e) => ApiServer::json_response(
+            None => ApiServer::json_response(
                 StatusCode::BadRequest,
-                ApiServer::json_fault_message(e.to_string()),
-            ),
+                ApiServer::json_fault_message(MmdsError::NoMmds.to_string()),
+            )
         }
     }
 
