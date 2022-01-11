@@ -1,7 +1,6 @@
 // Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#![deny(missing_docs)]
 //! Utility for sending log related messages to a storing destination or simply to stdout/stderr.
 //! The logging destination is specified upon the initialization of the logging system.
 //!
