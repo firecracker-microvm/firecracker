@@ -24,7 +24,7 @@ ECHO_SERVER_PORT = 5252
 
 
 def _guest_run_fio_iteration(ssh_connection, iteration):
-    fio = """fio --filename=/dev/vda --direct=1 --rw=randread --bs=4k \
+    fio = """fio --filename=/dev/vdb --direct=1 --rw=randread --bs=4k \
         --ioengine=libaio --iodepth=16 --runtime=10 --numjobs=4 --time_based \
         --group_reporting --name=iops-test-job --eta-newline=1 --readonly \
         --output /tmp/fio{} > /dev/null &""".format(iteration)
@@ -70,11 +70,13 @@ def _test_seq_snapshots(context):
 
     # Create a rw copy artifact.
     root_disk = context.disk.copy()
+    # Create a scratch 128MB RW non-root block device.
+    scratchdisk = drive_tools.FilesystemFile(tempfile.mktemp(), size=128)
     # Get ssh key from read-only artifact.
     ssh_key = context.disk.ssh_key()
     # Create a fresh microvm from artifacts.
     vm_instance = vm_builder.build(kernel=context.kernel,
-                                   disks=[root_disk],
+                                   disks=[root_disk, scratchdisk.path],
                                    ssh_key=ssh_key,
                                    config=context.microvm,
                                    diff_snapshots=diff_snapshots)
