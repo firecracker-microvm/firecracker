@@ -114,7 +114,10 @@ impl PendingRequest {
 
         let num_bytes_to_mem = mem
             .write_obj(status_code as u8, self.status_addr)
-            .map(|_| num_bytes_to_mem)
+            .map(|_| {
+                // Account for the status byte
+                num_bytes_to_mem + 1
+            })
             .unwrap_or_else(|e| {
                 error!("Failed to write virtio block status: {:?}", e);
                 // If we can't write the status, discard the virtio descriptor
@@ -122,8 +125,7 @@ impl PendingRequest {
             });
 
         FinishedRequest {
-            // Account for the status byte
-            num_bytes_to_mem: num_bytes_to_mem + 1,
+            num_bytes_to_mem,
             desc_idx: self.desc_idx,
         }
     }
