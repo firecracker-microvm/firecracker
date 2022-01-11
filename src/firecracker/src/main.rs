@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use event_manager::SubscriberOps;
 use logger::{error, info, IncMetric, ProcessTimeReporter, LOGGER, METRICS};
+use mmds::data_store::{Mmds, MmdsVersion};
 use mmds::MMDS;
 use seccompiler::BpfThreadMap;
 use snapshot::Snapshot;
@@ -457,6 +458,8 @@ fn build_microvm_from_json(
         vmm::FC_EXIT_CODE_BAD_CONFIGURATION
     })?;
     vm_resources.boot_timer = boot_timer_enabled;
+    set_mmds_version(vm_resources.mmds_version);
+
     let vmm = vmm::builder::build_microvm_for_boot(
         &instance_info,
         &vm_resources,
@@ -516,4 +519,24 @@ fn run_without_api(
             return exit_code;
         }
     }
+}
+
+fn set_mmds_version(mmds_version: Option<MmdsVersion>) {
+    let mut mmds_lock = MMDS.lock().expect("Failed to acquire lock on MMDS");
+    mmds_version.map(|version| {
+        // Default MMDS version is V2, so we ignore a configuration
+        // request to the version already in use.
+        if version.to_string() == MmdsVersion::V1.to_string() {
+            match mmds_lock.as_mut() {
+                // If the default version (V2) has been successfully
+                // initialized, configure to version 1.
+                // This is safe to unwrap because setting MMDS version
+                // to V1 can't fail.
+                Some(mmds) => mmds.set_version(MmdsVersion::V1).unwrap(),
+                // If the default version (V2) has failed to initialize,
+                // create a new MMDS instance using V1.
+                None => *mmds_lock = Some(Mmds::new_with_v1()),
+            };
+        }
+    });
 }

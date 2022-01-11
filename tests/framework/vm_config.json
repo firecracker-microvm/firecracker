@@ -28,5 +28,5 @@
   "logger": null,
   "metrics": null,
   "mmds-config": null,
-  "mmds-version": null
+  "mmds-version": "V1"
 }

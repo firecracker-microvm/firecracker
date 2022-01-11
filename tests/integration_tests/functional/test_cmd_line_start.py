@@ -287,9 +287,47 @@ def test_start_with_invalid_metadata(test_microvm_with_api):
     )
 
 
+def test_with_config_and_metadata(test_microvm_with_api):
+    """
+    Test microvm start from config file and metadata file.
+
+    @type: functional
+    """
+    vm_config_file = "framework/vm_config.json"
+    metadata_file = "../resources/tests/metadata.json"
+    version_json = {
+        'version': 'V1'
+    }
+
+    test_microvm = test_microvm_with_api
+
+    _configure_vm_from_json(test_microvm, vm_config_file)
+    _add_metadata_file(test_microvm, metadata_file)
+
+    test_microvm.spawn()
+
+    test_microvm.check_log_message(
+        "Successfully added metadata to mmds from file"
+    )
+
+    response = test_microvm.machine_cfg.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert test_microvm.state == "Running"
+
+    response = test_microvm.mmds.get_mmds_version()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+    assert response.json() == version_json
+
+    response = test_microvm.mmds.get()
+    assert test_microvm.api_session.is_status_ok(response.status_code)
+
+    with open(metadata_file) as json_file:
+        assert response.json() == json.load(json_file)
+
+
 def test_with_config_and_metadata_no_api(test_microvm_with_api):
     """
-    Test microvm start when config/mmds and API server thread is disable.
+    Test microvm start when config/mmds and API server thread is disabled.
 
     @type: functional
     """
