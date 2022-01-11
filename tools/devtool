@@ -691,7 +691,8 @@ cmd_help() {
 
     echo "    build_rootfs -s|--size [--partuuid]"
     echo "        Builds a rootfs image custom-tailored for use in our CI."
-    echo "        -s, --size      Size of the rootfs image. Defaults to 300M."
+    echo "        -s, --size      Size of the rootfs image. Defaults to 300MB.
+                                  The format is the same as that of 'truncates'."
     echo "        -p, --partuuid  Whether to build a partuuid image."
     echo ""
     echo "    checkenv"
@@ -2032,12 +2033,12 @@ cmd_build_kernel() {
     say "Kernel binary placed in: $kernel_dir_host/linux-$KERNEL_VERSION/$KERNEL_BINARY_NAME"
 }
 
-# `./devtool build_rootfs -s 500`
+# `./devtool build_rootfs -s 500MB`
 # Build a rootfs of custom size.
 #
 cmd_build_rootfs() {
-    # Default size for the resulting rootfs image is 250M.
-    SIZE="300"
+    # Default size for the resulting rootfs image is 300MB.
+    SIZE="300MB"
     FROM_CTR=ubuntu:18.04
     flavour="bionic"
 
@@ -2075,7 +2076,16 @@ cmd_build_rootfs() {
         gcc -o  $rootfs_dir_ctr/readmem $resources_dir_ctr/readmem.c"
 
     img_file="$rootfs_dir_host/$ROOTFS_NAME"
-    dd if=/dev/zero "of=$img_file" bs=1M count=$SIZE
+
+    # Check for pre-existence of rootfs image. See if we are allowed
+    # to delete it. If not, abort.
+    if [ -f "$img_file" ]; then
+        say "Rootfs image $img_file already exists. Do you want us to delete it for you?"
+        get_user_confirmation || die "Aborted."
+        rm -f "$img_file"
+    fi
+
+    truncate -s "$SIZE" "$img_file"
     mkfs.ext4 -F "$img_file"
     docker run --env ROOTFS_NAME=$ROOTFS_NAME --env PARTUUID=$PARTUUID --privileged --rm -i -v "$FC_ROOT_DIR:/firecracker"  "$FROM_CTR" bash -s <<'EOF'
 rootfs_dir=/firecracker/build/rootfs
