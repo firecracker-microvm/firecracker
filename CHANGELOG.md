@@ -35,7 +35,8 @@
 - Added `io_engine` to the pre-boot block device configuration.
   Possible values: `Sync` (the default option) or `Async` (only available for
   kernels newer than 5.10.51). The `Async` variant introduces a block device
-  engine that uses io_uring for executing requests asynchronously.
+  engine that uses io_uring for executing requests asynchronously, which is in
+  **developer preview** (NOT for production use).
   See `docs/api_requests/block-io-engine.md`.
 - Added `block.io_engine_throttled_events` metric for measuring the number of
   virtio events throttled because of the IO engine.
