@@ -19,6 +19,7 @@ import shutil
 import time
 import weakref
 
+from threading import Lock
 from retry import retry
 from retry.api import retry_call
 
@@ -37,6 +38,7 @@ from framework.resources import Actions, Balloon, BootSource, Drive, \
     MachineConfigure, Metrics, Network, Vm, Vsock, SnapshotHelper
 
 LOG = logging.getLogger("microvm")
+data_lock = Lock()
 
 
 # pylint: disable=R0904
@@ -51,6 +53,7 @@ class Microvm:
     """
 
     SCREEN_LOGFILE = "/tmp/screen-{}.log"
+    __log_data = ""
 
     def __init__(
         self,
@@ -122,7 +125,6 @@ class Microvm:
 
         # Initialize the logging subsystem.
         self.logging_thread = None
-        self._log_data = ""
         self._screen_pid = None
 
         # The ssh config dictionary is populated with information about how
@@ -258,7 +260,9 @@ class Microvm:
     @property
     def log_data(self):
         """Return the log data."""
-        return self._log_data
+        with data_lock:
+            log_data = self.__log_data
+        return log_data
 
     @property
     def rootfs_file(self):
@@ -363,7 +367,8 @@ class Microvm:
 
     def append_to_log_data(self, data):
         """Append a message to the log data."""
-        self._log_data += data
+        with data_lock:
+            self.__log_data += data
 
     def enable_cpu_load_monitor(self, threshold):
         """Enable the cpu load monitor."""
@@ -607,7 +612,7 @@ class Microvm:
     @retry(delay=0.1, tries=5)
     def check_log_message(self, message):
         """Wait until `message` appears in logging output."""
-        assert message in self._log_data
+        assert message in self.log_data
 
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
