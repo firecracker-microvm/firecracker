@@ -236,6 +236,8 @@ pub trait StoreMetric {
 #[derive(Default)]
 pub struct SharedIncMetric(AtomicUsize, AtomicUsize);
 
+/// Representation of a metric that is expected to hold a value that can be accessed
+/// from more than one thread, so more synchronization is necessary.
 #[derive(Default)]
 pub struct SharedStoreMetric(AtomicUsize);
 
@@ -297,6 +299,7 @@ pub struct ProcessTimeReporter {
 }
 
 impl ProcessTimeReporter {
+    /// Constructor for the process time-related reporter.
     pub fn new(
         start_time_us: Option<u64>,
         start_time_cpu_us: Option<u64>,
@@ -309,6 +312,7 @@ impl ProcessTimeReporter {
         }
     }
 
+    /// Obtain process start time in microseconds.
     pub fn report_start_time(&self) {
         if let Some(start_time) = self.start_time_us {
             let delta_us = utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_time;
@@ -319,6 +323,7 @@ impl ProcessTimeReporter {
         }
     }
 
+    /// Obtain process CPU start time in microseconds.
     pub fn report_cpu_start_time(&self) {
         if let Some(cpu_start_time) = self.start_time_cpu_us {
             let delta_us = utils::time::get_time_us(utils::time::ClockType::ProcessCpu)
