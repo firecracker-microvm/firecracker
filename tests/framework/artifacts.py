@@ -11,7 +11,7 @@ from stat import S_IREAD, S_IWRITE
 from pathlib import Path
 import boto3
 import botocore.client
-from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH
+from framework.defs import DEFAULT_TEST_SESSION_ROOT_PATH, SUPPORTED_KERNELS
 from framework.utils import compare_versions
 from host_tools.snapshot_helper import merge_memory_bitmaps
 
@@ -420,13 +420,19 @@ class ArtifactCollection:
 
     def kernels(self, keyword=None):
         """Return kernel artifacts for the current arch."""
-        return self._fetch_artifacts(
+        kernels = self._fetch_artifacts(
             ArtifactCollection.ARTIFACTS_KERNELS,
             ArtifactCollection.MICROVM_KERNEL_EXTENSION,
             ArtifactType.KERNEL,
             Artifact,
             keyword=keyword
         )
+
+        valid_kernels = list(filter(
+            lambda kernel: any(s in kernel.key for s in SUPPORTED_KERNELS),
+            kernels
+        ))
+        return valid_kernels
 
     def disks(self, keyword=None):
         """Return disk artifacts for the current arch."""
