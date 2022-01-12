@@ -73,9 +73,9 @@ def test_drive_io_engine(test_microvm_with_api, network_config):
         assert test_microvm.api_session.is_status_bad_request(
             response.status_code)
 
-        assert "Received Error. Status code: 400 Bad Request. Message: Unable"\
-            " to create the block device FileEngine(UnsupportedEngine(Async))"\
-            in test_microvm.log_data
+        test_microvm.check_log_message(
+            "Received Error. Status code: 400 Bad Request. Message: Unable"
+            " to create the block device FileEngine(UnsupportedEngine(Async))")
 
         # Now configure the default engine type and check that it works.
         response = test_microvm.drive.put_with_default_io_engine(

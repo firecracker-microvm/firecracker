@@ -500,9 +500,9 @@ def test_block_default_cache_old_version(test_microvm_with_api):
     # We should find a warning in the logs for this case as this
     # cache type was not supported in 0.24.0 and we should default
     # to "Unsafe" mode.
-    log_data = test_microvm.log_data
-    assert "Target version does not implement the current cache type. "\
-        "Defaulting to \"unsafe\" mode." in log_data
+    test_microvm.check_log_message("Target version does not implement the"
+                                   " current cache type. "
+                                   "Defaulting to \"unsafe\" mode.")
 
 
 def check_iops_limit(ssh_connection, block_size, count, min_time, max_time):

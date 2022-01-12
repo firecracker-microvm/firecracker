@@ -18,32 +18,32 @@ def test_reboot(test_microvm_with_api, network_config):
 
     @type: functional
     """
-    test_microvm = test_microvm_with_api
-    test_microvm.jailer.daemonize = False
-    test_microvm.spawn()
+    vm = test_microvm_with_api
+    vm.jailer.daemonize = False
+    vm.spawn()
 
     # We don't need to monitor the memory for this test because we are
     # just rebooting and the process dies before pmap gets the RSS.
-    test_microvm.memory_monitor = None
+    vm.memory_monitor = None
 
     # Set up the microVM with 4 vCPUs, 256 MiB of RAM, 0 network ifaces, and
     # a root file system with the rw permission. The network interfaces is
     # added after we get a unique MAC and IP.
-    test_microvm.basic_config(vcpu_count=4)
-    _tap, _, _ = test_microvm.ssh_network_config(network_config, '1')
+    vm.basic_config(vcpu_count=4)
+    _tap, _, _ = vm.ssh_network_config(network_config, '1')
 
     # Configure metrics system.
-    metrics_fifo_path = os.path.join(test_microvm.path, 'metrics_fifo')
+    metrics_fifo_path = os.path.join(vm.path, 'metrics_fifo')
     metrics_fifo = log_tools.Fifo(metrics_fifo_path)
-    response = test_microvm.metrics.put(
-        metrics_path=test_microvm.create_jailed_resource(metrics_fifo.path)
+    response = vm.metrics.put(
+        metrics_path=vm.create_jailed_resource(metrics_fifo.path)
     )
-    assert test_microvm.api_session.is_status_no_content(response.status_code)
+    assert vm.api_session.is_status_no_content(response.status_code)
 
-    test_microvm.start()
+    vm.start()
 
     # Get Firecracker PID so we can count the number of threads.
-    firecracker_pid = test_microvm.jailer_clone_pid
+    firecracker_pid = vm.jailer_clone_pid
 
     # Get number of threads in Firecracker
     cmd = 'ps -o nlwp {} | tail -1 | awk \'{{print $1}}\''.format(
@@ -58,7 +58,7 @@ def test_reboot(test_microvm_with_api, network_config):
     assert len(lines) == 1
     # Rebooting Firecracker sends an exit event and should gracefully kill.
     # the instance.
-    ssh_connection = net_tools.SSHConnection(test_microvm.ssh_config)
+    ssh_connection = net_tools.SSHConnection(vm.ssh_config)
 
     ssh_connection.execute_command("reboot")
 
@@ -75,9 +75,8 @@ def test_reboot(test_microvm_with_api, network_config):
     assert len(lines) == 1
 
     if platform.machine() != "x86_64":
-        log_data = test_microvm.log_data
-        assert "Received KVM_SYSTEM_EVENT: type: 2, event: 0" in log_data
-        assert "Vmm is stopping." in log_data
+        vm.check_log_message("Received KVM_SYSTEM_EVENT: type: 2, event: 0")
+        vm.check_log_message("Vmm is stopping.")
 
     # Make sure that the FC process was not killed by a seccomp fault
     assert json.loads(lines[0])["seccomp"]["num_faults"] == 0
