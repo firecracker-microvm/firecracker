@@ -41,7 +41,6 @@ def test_enosys_error_code(test_microvm_with_initrd):
     # Check if FC process is closed
     wait_process_termination(vm.jailer_clone_pid)
 
-    log_data = vm.log_data
-    assert "Received ENOSYS error because KVM failed to emulate " \
-           "an instruction." in log_data
-    assert "Vmm is stopping." in log_data
+    vm.check_log_message("Received ENOSYS error because KVM failed to"
+                         " emulate an instruction.")
+    vm.check_log_message("Vmm is stopping.")

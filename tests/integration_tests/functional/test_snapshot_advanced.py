@@ -216,8 +216,7 @@ def test_save_tsc_old_version(bin_cloner_path):
         version='0.24.0'
     )
 
-    log_data = vm.log_data
-    assert "Saving to older snapshot version, TSC freq" in log_data
+    vm.check_log_message("Saving to older snapshot version, TSC freq")
     vm.kill()
 
 

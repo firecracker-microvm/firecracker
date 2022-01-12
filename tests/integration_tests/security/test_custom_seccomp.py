@@ -195,8 +195,8 @@ def test_failing_filter(test_microvm_with_api):
     test_microvm.expect_kill_by_signal = True
     # Check the logger output
     ioctl_num = 16 if platform.machine() == "x86_64" else 29
-    assert "Shutting down VM after intercepting a bad syscall ({})".format(
-        str(ioctl_num)) in test_microvm.log_data
+    test_microvm.check_log_message("Shutting down VM after intercepting a bad"
+                                   " syscall ({})".format(str(ioctl_num)))
 
     # Check the metrics
     lines = metrics_fifo.sequential_reader(100)

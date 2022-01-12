@@ -3,7 +3,6 @@
 """Tests that ensure the boot time to init process is within spec."""
 
 import re
-import time
 import platform
 
 # The maximum acceptable boot time in us.
@@ -23,8 +22,10 @@ def test_no_boottime(test_microvm_with_api):
 
     @type: functional
     """
-    _ = _configure_and_run_vm(test_microvm_with_api)
-    time.sleep(0.4)
+    vm = test_microvm_with_api
+    _ = _configure_and_run_vm(vm)
+    # microvm.start() ensures that the vm is in Running mode,
+    # so there is no need to sleep and wait for log message.
     timestamps = re.findall(TIMESTAMP_LOG_REGEX,
                             test_microvm_with_api.log_data)
     assert not timestamps
@@ -41,9 +42,7 @@ def test_boottime_no_network(test_microvm_with_api):
         {'boot-timer': None}
     )
     _ = _configure_and_run_vm(vm)
-    time.sleep(0.4)
-    boottime_us = _test_microvm_boottime(
-        vm.log_data)
+    boottime_us = _test_microvm_boottime(vm)
     print("Boot time with no network is: " + str(boottime_us) + " us")
 
     return f"{boottime_us} us", f"< {MAX_BOOT_TIME_US} us"
@@ -65,9 +64,7 @@ def test_boottime_with_network(
     _tap = _configure_and_run_vm(vm, {
         "config": network_config, "iface_id": "1"
     })
-    time.sleep(0.4)
-    boottime_us = _test_microvm_boottime(
-        vm.log_data)
+    boottime_us = _test_microvm_boottime(vm)
     print("Boot time with network configured is: " + str(boottime_us) + " us")
 
     return f"{boottime_us} us", f"< {MAX_BOOT_TIME_US} us"
@@ -85,19 +82,16 @@ def test_initrd_boottime(
         {'boot-timer': None}
     )
     _tap = _configure_and_run_vm(vm, initrd=True)
-    time.sleep(0.8)
-    boottime_us = _test_microvm_boottime(
-        vm.log_data,
-        max_time_us=INITRD_BOOT_TIME_US)
+    boottime_us = _test_microvm_boottime(vm, max_time_us=INITRD_BOOT_TIME_US)
     print("Boot time with initrd is: " + str(boottime_us) + " us")
 
     return f"{boottime_us} us", f"< {INITRD_BOOT_TIME_US} us"
 
 
-def _test_microvm_boottime(log_fifo_data, max_time_us=MAX_BOOT_TIME_US):
+def _test_microvm_boottime(vm, max_time_us=MAX_BOOT_TIME_US):
     """Auxiliary function for asserting the expected boot time."""
     boot_time_us = 0
-    timestamps = re.findall(TIMESTAMP_LOG_REGEX, log_fifo_data)
+    timestamps = vm.find_log_message(TIMESTAMP_LOG_REGEX)
     if timestamps:
         boot_time_us = int(timestamps[0])
 

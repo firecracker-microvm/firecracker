@@ -614,6 +614,13 @@ class Microvm:
         """Wait until `message` appears in logging output."""
         assert message in self.log_data
 
+    @retry(delay=0.1, tries=5)
+    def find_log_message(self, regex):
+        """Wait until `regex` appears in logging output and return it."""
+        reg_res = re.findall(regex, self.log_data)
+        assert reg_res
+        return reg_res
+
     def serial_input(self, input_string):
         """Send a string to the Firecracker serial console via screen."""
         input_cmd = 'screen -S {session} -p 0 -X stuff "{input_string}"'
