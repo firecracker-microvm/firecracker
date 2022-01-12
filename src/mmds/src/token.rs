@@ -405,7 +405,7 @@ mod tests {
         );
 
         // Test ciphertext with corrupted payload.
-        payload[0] += 1;
+        payload[0] = u8::MAX - payload[0];
         assert_eq!(
             token_authority
                 .decrypt_expiry(&mut payload, &tag, iv.as_mut())
@@ -415,7 +415,7 @@ mod tests {
         );
 
         // Test ciphertext with corrupted tag.
-        tag[0] += 1;
+        tag[0] = u8::MAX - tag[0];
         let mut ciphertext = vec![];
         ciphertext.extend_from_slice(&payload);
         ciphertext.extend_from_slice(&tag);
