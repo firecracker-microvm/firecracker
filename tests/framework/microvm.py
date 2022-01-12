@@ -259,7 +259,11 @@ class Microvm:
 
     @property
     def log_data(self):
-        """Return the log data."""
+        """Return the log data.
+
+        !!!!OBS!!!!: Do not use this to check for message existence and
+        rather use self.check_log_message or self.find_log_message.
+        """
         with data_lock:
             log_data = self.__log_data
         return log_data
