@@ -142,6 +142,7 @@ pub(crate) fn run_with_api(
         .as_mut()
     {
         mmds.set_data_store_limit(payload_limit.unwrap_or(MAX_DATA_STORE_SIZE));
+        mmds.set_aad(&instance_info.id);
     }
 
     let to_vmm_event_fd = api_event_fd

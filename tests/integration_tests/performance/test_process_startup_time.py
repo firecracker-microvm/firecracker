@@ -10,7 +10,7 @@ import platform
 import host_tools.logging as log_tools
 from host_tools.cargo_build import run_seccompiler_bin
 
-MAX_STARTUP_TIME_CPU_US = {'x86_64': 5500, 'aarch64': 3100}
+MAX_STARTUP_TIME_CPU_US = {'x86_64': 5500, 'aarch64': 3400}
 """ The maximum acceptable startup time in CPU us. """
 # TODO: Keep a `current` startup time in S3 and validate we don't regress
 
