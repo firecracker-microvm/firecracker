@@ -56,3 +56,5 @@ FC_PID_FILE_NAME = "firecracker.pid"
 # The minimum required host kernel version for which io_uring is supported in
 # Firecracker.
 MIN_KERNEL_VERSION_FOR_IO_URING = "5.10.51"
+
+SUPPORTED_KERNELS = ["4.14", "5.10"]
