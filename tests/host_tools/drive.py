@@ -4,7 +4,7 @@
 
 import os
 
-import framework.utils as utils
+from framework import utils
 
 
 class FilesystemFile:

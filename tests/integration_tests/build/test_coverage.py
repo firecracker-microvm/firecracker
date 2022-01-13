@@ -15,9 +15,9 @@ import re
 import shutil
 import pytest
 
-import framework.utils as utils
+from framework import utils
 import host_tools.cargo_build as host  # pylint: disable=import-error
-import host_tools.proc as proc
+from host_tools import proc
 
 # We have different coverages based on the host kernel version. This is
 # caused by io_uring, which is only supported by FC for kernels newer
@@ -106,7 +106,7 @@ def test_coverage(test_fc_session_root_path, test_session_tmp_path):
     shutil.rmtree(SECCOMPILER_BUILD_DIR)
 
     coverage_file = os.path.join(test_session_tmp_path, KCOV_COVERAGE_FILE)
-    with open(coverage_file) as cov_output:
+    with open(coverage_file, encoding='utf-8') as cov_output:
         contents = cov_output.read()
         covered_lines = int(re.findall(KCOV_COVERED_LINES_REGEX, contents)[0])
         total_lines = int(re.findall(KCOV_TOTAL_LINES_REGEX, contents)[0])

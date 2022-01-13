@@ -24,8 +24,6 @@ def test_net_change_mac_address(test_microvm_with_api, network_config,
 
     @type: functional
     """
-    global PAYLOAD_DATA_SIZE
-
     test_microvm = test_microvm_with_api
     test_microvm.spawn()
     test_microvm.basic_config(boot_args="ipv6.disable=1")
@@ -149,7 +147,6 @@ def _create_server(jailer, host_ip, port, iterations):
     # This server has to run under the network namespace, initialized
     # by the integration test microvm jailer.
     # pylint: disable=global-statement
-    global PAYLOAD_DATA_SIZE
     script =                                                        \
         "import socket\n"                                           \
         "s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"   \
@@ -246,7 +243,7 @@ def _exchange_data(
 
     # Generate random data.
     letters = string.ascii_lowercase
-    data = ''.join(random.choice(letters) for i in range(PAYLOAD_DATA_SIZE))
+    data = ''.join(random.choice(letters) for _ in range(PAYLOAD_DATA_SIZE))
 
     # We need to synchronize host server with guest client. Server thread has
     # to start listening for incoming connections before the client tries to

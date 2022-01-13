@@ -51,7 +51,7 @@ def concatenate_data_files(data_files: List[str]):
     outfile = tempfile.NamedTemporaryFile()
 
     for filename in data_files:
-        with open(filename) as infile:
+        with open(filename, encoding='utf-8') as infile:
             outfile.write(str.encode(infile.read()))
 
     return outfile

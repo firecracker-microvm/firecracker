@@ -106,7 +106,7 @@ def consume_ping_output(cons, raw_data, requests):
 
     # Compute percentiles.
     seqs = output[1:requests + 1]
-    times = list()
+    times = []
     pattern_time = ".+ bytes from .+: icmp_seq=.+ ttl=.+ time=(.+) ms"
     for index, seq in enumerate(seqs):
         time = re.findall(pattern_time, seq)

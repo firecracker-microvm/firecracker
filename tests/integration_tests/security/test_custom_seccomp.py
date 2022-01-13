@@ -10,7 +10,7 @@ import time
 import psutil
 import pytest
 import requests
-import framework.utils as utils
+from framework import utils
 import host_tools.logging as log_tools
 
 from host_tools.cargo_build import run_seccompiler_bin
@@ -38,8 +38,8 @@ def _config_file_setup(test_microvm, vm_config_file):
 
     vm_config_path = os.path.join(test_microvm.path,
                                   os.path.basename(vm_config_file))
-    with open(vm_config_file) as f1:
-        with open(vm_config_path, "w") as f2:
+    with open(vm_config_file, encoding='utf-8') as f1:
+        with open(vm_config_path, "w", encoding='utf-8') as f2:
             for line in f1:
                 f2.write(line)
     test_microvm.create_jailed_resource(vm_config_path, create_jail=True)
@@ -228,7 +228,7 @@ def test_invalid_bpf(test_microvm_with_api, vm_config_file):
     _config_file_setup(test_microvm_with_api, vm_config_file)
 
     bpf_path = os.path.join(test_microvm.path, 'bpf.out')
-    file = open(bpf_path, "w")
+    file = open(bpf_path, "w", encoding='utf-8')
     file.write("Invalid BPF!")
     file.close()
 

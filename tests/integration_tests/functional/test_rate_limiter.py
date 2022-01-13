@@ -3,7 +3,7 @@
 """Tests that fail if network throughput does not obey rate limits."""
 import time
 
-import framework.utils as utils
+from framework import utils
 import host_tools.network as net_tools  # pylint: disable=import-error
 
 # The iperf version to run this tests with

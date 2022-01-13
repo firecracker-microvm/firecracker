@@ -368,9 +368,9 @@ def test_load_snapshot_failure_handling(test_microvm_with_api):
     Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
 
     snapshot_mem = os.path.join(snapshot_dir, "snapshot_mem")
-    open(snapshot_mem, "w+").close()
+    open(snapshot_mem, "w+", encoding='utf-8').close()
     snapshot_vmstate = os.path.join(snapshot_dir, "snapshot_vmstate")
-    open(snapshot_vmstate, "w+").close()
+    open(snapshot_vmstate, "w+", encoding='utf-8').close()
 
     # Hardlink the snapshot files into the microvm jail.
     jailed_mem = vm.create_jailed_resource(snapshot_mem)

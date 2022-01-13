@@ -143,7 +143,7 @@ def test_arbitrary_usocket_location(test_microvm_with_initrd):
 @functools.lru_cache(maxsize=None)
 def cgroup_v1_available():
     """Check if cgroup-v1 is disabled on the system."""
-    with open("/proc/cmdline") as cmdline_file:
+    with open("/proc/cmdline", encoding='utf-8') as cmdline_file:
         cmdline = cmdline_file.readline()
         return bool("cgroup_no_v1=all" not in cmdline)
 
@@ -168,7 +168,7 @@ def sys_setup_cgroups():
         cgroup_root = None
 
         # find the group-v2 mount point
-        with open("/proc/mounts") as proc_mounts:
+        with open("/proc/mounts", encoding='utf-8') as proc_mounts:
             mounts = proc_mounts.readlines()
             for line in mounts:
                 if "cgroup2" in line:
@@ -181,7 +181,8 @@ def sys_setup_cgroups():
         if os.path.exists(f'{cgroup_root}/cgroup.type'):
             root_procs = []
             # get all the processes that were added in the root cgroup
-            with open(f'{cgroup_root}/cgroup.procs') as procs:
+            with open(f'{cgroup_root}/cgroup.procs', encoding='utf-8') \
+                    as procs:
                 root_procs = [x.strip() for x in procs.readlines()]
 
             # now create a new domain cgroup and migrate the processes
@@ -189,7 +190,7 @@ def sys_setup_cgroups():
             os.makedirs(f'{cgroup_root}/system', exist_ok=True)
             for pid in root_procs:
                 with open(
-                    f'{cgroup_root}/system/cgroup.procs', 'a'
+                    f'{cgroup_root}/system/cgroup.procs', 'a', encoding='utf-8'
                 ) as sys_procs:
                     sys_procs.write(str(pid))
             # at this point there should be no processes added to internal
@@ -212,8 +213,9 @@ def check_cgroups_v1(cgroups, cgroup_location,
         tasks_file = location + 'tasks'
         file = location + file_name
 
-        assert open(file, 'r').readline().strip() == value
-        assert open(tasks_file, 'r').readline().strip().isdigit()
+        assert open(file, 'r', encoding='utf-8').readline().strip() == value
+        assert open(tasks_file, 'r',
+                    encoding='utf-8').readline().strip().isdigit()
 
 
 def check_cgroups_v2(cgroups, cgroup_location,
@@ -231,22 +233,27 @@ def check_cgroups_v2(cgroups, cgroup_location,
         file = f'{cg_locations["jail"]}/{file_name}'
 
         assert controller in open(
-            f'{cg_locations["root"]}/cgroup.controllers', 'r'
+            f'{cg_locations["root"]}/cgroup.controllers', 'r',
+            encoding='utf-8'
         ).readline().strip()
         assert controller in open(
-            f'{cg_locations["root"]}/cgroup.subtree_control', 'r'
+            f'{cg_locations["root"]}/cgroup.subtree_control', 'r',
+            encoding='utf-8'
         ).readline().strip()
         assert controller in open(
-            f'{cg_locations["fc"]}/cgroup.controllers', 'r'
+            f'{cg_locations["fc"]}/cgroup.controllers', 'r', encoding='utf-8'
         ).readline().strip()
         assert controller in open(
-            f'{cg_locations["fc"]}/cgroup.subtree_control', 'r'
+            f'{cg_locations["fc"]}/cgroup.subtree_control',
+            'r',
+            encoding='utf-8'
         ).readline().strip()
         assert controller in open(
-            f'{cg_locations["jail"]}/cgroup.controllers', 'r'
+            f'{cg_locations["jail"]}/cgroup.controllers', 'r', encoding='utf-8'
         ).readline().strip()
-        assert open(file, 'r').readline().strip() == value
-        assert open(procs_file, 'r').readline().strip().isdigit()
+        assert open(file, 'r', encoding='utf-8').readline().strip() == value
+        assert open(procs_file, 'r',
+                    encoding='utf-8').readline().strip().isdigit()
 
 
 def get_cpus(node):
@@ -255,7 +262,7 @@ def get_cpus(node):
     assert os.path.isdir(sys_node)
     node_cpus_path = sys_node + '/cpulist'
 
-    return open(node_cpus_path, 'r').readline().strip()
+    return open(node_cpus_path, 'r', encoding='utf-8').readline().strip()
 
 
 def check_limits(pid, no_file, fsize):

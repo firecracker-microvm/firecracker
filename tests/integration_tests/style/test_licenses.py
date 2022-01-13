@@ -3,7 +3,7 @@
 """Tests checking against the existence of licenses in each file."""
 
 import datetime
-import framework.utils as utils
+from framework import utils
 
 AMAZON_COPYRIGHT_YEARS = range(2018, datetime.datetime.now().year + 1)
 AMAZON_COPYRIGHT = (

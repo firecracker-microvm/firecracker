@@ -6,7 +6,7 @@ import time
 import json
 import platform
 
-import framework.utils as utils
+from framework import utils
 
 import host_tools.logging as log_tools
 import host_tools.network as net_tools  # pylint: disable=import-error

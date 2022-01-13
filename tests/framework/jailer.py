@@ -7,8 +7,8 @@ import shutil
 import stat
 from pathlib import Path
 from retry.api import retry_call
-import framework.utils as utils
-import framework.defs as defs
+from framework import utils
+from framework import defs
 from framework.defs import FC_BINARY_NAME
 
 # Default name for the socket used for API calls.

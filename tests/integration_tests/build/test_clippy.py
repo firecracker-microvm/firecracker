@@ -5,7 +5,7 @@
 
 import platform
 import pytest
-import framework.utils as utils
+from framework import utils
 
 SUCCESS_CODE = 0
 MACHINE = platform.machine()

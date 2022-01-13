@@ -52,7 +52,7 @@ import re
 import subprocess
 from collections import namedtuple
 from pathlib import Path
-from . import mpsing   # pylint: disable=relative-beyond-top-level
+from framework import mpsing
 
 # Try to see if we're in a git repo. If yes, set the commit ID
 COMMIT_ID = ""
@@ -168,8 +168,8 @@ class Report(mpsing.MultiprocessSingleton):
 
             # Create a dict with default values
             found_data = {
-                key: Report.doc_items[key].value
-                for key in Report.doc_items}
+                key: value.value
+                for (key, value) in Report.doc_items.items()}
             found_data["name"] = test.nodeid
 
             # Handle None docstrings
@@ -205,7 +205,7 @@ class Report(mpsing.MultiprocessSingleton):
                         f"{crt_doc_item.one_of}, not {item_value}")
 
                 # Check if the item was found twice
-                if crt_item in docstring_items.keys():
+                if crt_item in docstring_items:
                     raise ValueError(f"Item {crt_item} specified twice.")
 
                 docstring_items[crt_item] = item_value
@@ -267,7 +267,8 @@ class Report(mpsing.MultiprocessSingleton):
         self._data_loc.mkdir(exist_ok=True, parents=True)
 
         # Dump the JSON file
-        with open(self._data_loc / Report.FNAME_JSON, "w") as json_file:
+        with open(self._data_loc / Report.FNAME_JSON, "w", encoding='utf-8') \
+                as json_file:
             total_duration = 0
             test_items = []
             for test_name in sorted(self._collected_items):

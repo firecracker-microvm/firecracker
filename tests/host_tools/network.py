@@ -9,8 +9,8 @@ from io import StringIO
 from nsenter import Namespace
 from retry import retry
 
-import framework.mpsing as mpsing
-import framework.utils as utils
+from framework import mpsing
+from framework import utils
 
 
 class SSHConnection:

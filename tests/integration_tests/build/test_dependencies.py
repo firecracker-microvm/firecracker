@@ -5,7 +5,7 @@
 import os
 import ast
 import pytest
-import framework.utils as utils
+from framework import utils
 
 
 def test_licenses():
@@ -50,10 +50,10 @@ def test_num_dependencies(dep_file):
             current_deps.add(line)
 
     # Use the code below to update the expected dependencies.
-    # with open(dep_file, "w") as prev_deps:
+    # with open(dep_file, "w", encoding='utf-8') as prev_deps:
     #     prev_deps.write(str(current_deps))
 
-    with open(dep_file) as prev_deps:
+    with open(dep_file, encoding='utf-8') as prev_deps:
         prev_deps = ast.literal_eval(prev_deps.read())
     if len(current_deps) > len(prev_deps):
         difference = current_deps - set(prev_deps)

@@ -4,7 +4,7 @@
 
 import statistics
 import math
-from collections import Iterator
+from collections.abc import Iterator
 from typing import List
 from providers.types import DataParser
 

@@ -34,7 +34,8 @@ CPU_UTILIZATION_VMM = "cpu_utilization_vmm"
 CPU_UTILIZATION_VMM_SAMPLES_TAG = "cpu_utilization_vmm_samples"
 CPU_UTILIZATION_VCPUS_TOTAL = "cpu_utilization_vcpus_total"
 CONFIG = json.load(open(defs.CFG_LOCATION /
-                        "block_performance_test_config.json"))
+                        "block_performance_test_config.json",
+                        encoding='utf-8'))
 
 
 # pylint: disable=R0903
@@ -48,7 +49,7 @@ class BlockBaselinesProvider(BaselineProvider):
             lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
             CONFIG["hosts"]["instances"]["m5d.metal"]["cpus"]))
 
-        super().__init__(DictQuery(dict()))
+        super().__init__(DictQuery({}))
         if len(baselines) > 0:
             super().__init__(DictQuery(baselines[0]))
 
@@ -132,7 +133,7 @@ def run_fio(env_id, basevm, ssh_conn, mode, bs):
         rc, _, stderr = ssh_conn.execute_command("rm *.log")
         assert rc == 0, stderr.read()
 
-        result = dict()
+        result = {}
         cpu_load = cpu_load_future.result()
         tag = "firecracker"
         assert tag in cpu_load and len(cpu_load[tag]) == 1
@@ -192,12 +193,12 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement, logs_path):
     The log file format documentation can be found here:
     https://fio.readthedocs.io/en/latest/fio_doc.html#log-file-formats
     """
-    values = dict()
+    values = {}
 
     for job_id in range(numjobs):
         file_path = f"{logs_path}/{env_id}/{mode}{bs}/{mode}" \
             f"{bs}_{measurement}.{job_id + 1}.log"
-        file = open(file_path)
+        file = open(file_path, encoding='utf-8')
         lines = file.readlines()
 
         direction_count = 1
@@ -212,19 +213,19 @@ def read_values(cons, numjobs, env_id, mode, bs, measurement, logs_path):
 
                 measurement_id = f"{measurement}_{str(data_dir)}"
                 if measurement_id not in values:
-                    values[measurement_id] = dict()
+                    values[measurement_id] = {}
 
                 if value_idx not in values[measurement_id]:
-                    values[measurement_id][value_idx] = list()
+                    values[measurement_id][value_idx] = []
                 values[measurement_id][value_idx].append(int(data[1].strip()))
 
-    for measurement_id in values:
-        for idx in values[measurement_id]:
+    for (measurement_id, value_indexes) in values.items():
+        for idx in value_indexes:
             # Discard data points which were not measured by all jobs.
-            if len(values[measurement_id][idx]) != numjobs:
+            if len(value_indexes[idx]) != numjobs:
                 continue
 
-            value = sum(values[measurement_id][idx])
+            value = sum(value_indexes[idx])
             if DEBUG:
                 cons.consume_custom(measurement_id, value)
             cons.consume_data(measurement_id, value)

@@ -6,7 +6,7 @@ import os
 import platform
 import pytest
 
-import framework.utils as utils
+from framework import utils
 
 import host_tools.drive as drive_tools
 import host_tools.network as net_tools  # pylint: disable=import-error
