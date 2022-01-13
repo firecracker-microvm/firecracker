@@ -368,13 +368,14 @@ def get_free_mem_ssh(ssh_connection):
     raise Exception('Available memory not found in `/proc/meminfo')
 
 
-def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False):
+def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False, cwd=None):
     """
     Execute a given command.
 
     :param cmd: command to execute
     :param ignore_return_code: whether a non-zero return code should be ignored
     :param noshell: don't run the command in a sub-shell
+    :param cwd: sets the current directory before the child is executed
     :return: return code, stdout, stderr
     """
     if isinstance(cmd, list) or no_shell:
@@ -382,13 +383,15 @@ def run_cmd_sync(cmd, ignore_return_code=False, no_shell=False):
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE)
+            stderr=subprocess.PIPE,
+            cwd=cwd)
     else:
         proc = subprocess.Popen(
             cmd,
             shell=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE)
+            stderr=subprocess.PIPE,
+            cwd=cwd)
 
     # Capture stdout/stderr
     stdout, stderr = proc.communicate()
@@ -498,7 +501,7 @@ def run_cmd_list_async(cmd_list):
     )
 
 
-def run_cmd(cmd, ignore_return_code=False, no_shell=False):
+def run_cmd(cmd, ignore_return_code=False, no_shell=False, cwd=None):
     """
     Run a command using the sync function that logs the output.
 
@@ -509,7 +512,7 @@ def run_cmd(cmd, ignore_return_code=False, no_shell=False):
     """
     return run_cmd_sync(cmd=cmd,
                         ignore_return_code=ignore_return_code,
-                        no_shell=no_shell)
+                        no_shell=no_shell, cwd=cwd)
 
 
 def eager_map(func, iterable):
