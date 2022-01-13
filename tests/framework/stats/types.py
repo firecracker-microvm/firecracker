@@ -41,7 +41,7 @@ class MeasurementDef:
         else:
             pass_criteria = defaultdict(None, pass_criteria)
 
-        stats = list()
+        stats = []
         for func in st_functions:
             stats.append(
                 StatisticDef(

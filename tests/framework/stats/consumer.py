@@ -37,15 +37,15 @@ class Consumer(ABC):
         """Initialize a consumer."""
         self._iteration = 0
         self._results = defaultdict()  # Aggregated results.
-        self._custom = dict() if not custom else custom
+        self._custom = {} if not custom else custom
         self._metadata_provider = metadata_provider
 
-        self._measurements_defs = dict()
+        self._measurements_defs = {}
         if metadata_provider:
             self._measurements_defs = metadata_provider.measurements
 
         # Final statistics.
-        self._statistics = dict()
+        self._statistics = {}
 
         self._failure_aggregator = ProcessingException()
 
@@ -57,24 +57,24 @@ class Consumer(ABC):
         """Aggregate measurement."""
         results = self._results.get(ms_name)
         if not results:
-            self._results[ms_name] = dict()
-            self._results[ms_name][self.DATA_KEY] = list()
+            self._results[ms_name] = {}
+            self._results[ms_name][self.DATA_KEY] = []
         self._results[ms_name][self.DATA_KEY].append(value)
 
     def consume_stat(self, st_name: str, ms_name: str, value: Number):
         """Aggregate statistics."""
         results = self._results.get(ms_name)
         if not results:
-            self._results[ms_name] = dict()
+            self._results[ms_name] = {}
         self._results[ms_name][st_name] = value
 
     def consume_custom(self, name: str, value: Any):
         """Aggregate custom information."""
         if not self._custom.get(self._iteration):
-            self._custom[self._iteration] = dict()
+            self._custom[self._iteration] = {}
 
         if not self._custom[self._iteration].get(name):
-            self._custom[self._iteration][name] = list()
+            self._custom[self._iteration][name] = []
 
         self._custom[self._iteration][name].append(value)
 
@@ -120,7 +120,7 @@ class Consumer(ABC):
                         self._statistics[ms_name][st_def.name] = {
                             "value": st_def.func(self._results[ms_name][
                                                  self.DATA_KEY])
-                        }
+                    }
                 else:
                     self._statistics[ms_name][st_def.name] = {
                         "value": self._results[ms_name][st_def.name]
@@ -131,7 +131,7 @@ class Consumer(ABC):
                     self._statistics[ms_name][st_def.name][
                         "pass_criteria"] = {
                             pass_criteria.name: pass_criteria.baseline
-                        }
+                    }
                     res = self._statistics[ms_name][st_def.name]["value"]
                     try:
                         pass_criteria.check(res)

@@ -13,7 +13,7 @@ from framework.artifacts import (
     ArtifactCollection, Artifact, DiskArtifact, Snapshot,
     SnapshotType, NetIfaceConfig
 )
-import framework.utils as utils
+from framework import utils
 import host_tools.logging as log_tools
 import host_tools.network as net_tools
 
@@ -129,7 +129,8 @@ class MicrovmBuilder:
             )
             assert vm.api_session.is_status_no_content(response.status_code)
 
-        with open(config.local_path()) as microvm_config_file:
+        with open(config.local_path(), encoding='utf-8') as \
+                microvm_config_file:
             microvm_config = json.load(microvm_config_file)
 
         response = vm.basic_config(

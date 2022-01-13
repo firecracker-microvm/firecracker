@@ -12,7 +12,7 @@ import resource as res
 import pytest
 
 import host_tools.network as net_tools
-import framework.utils as utils
+from framework import utils
 
 signum_str = {
     SIGBUS: "sigbus",
@@ -57,7 +57,7 @@ def test_generic_signal_handler(test_microvm_with_api, signum):
     sleep(0.5)
 
     metrics_jail_path = os.path.join(microvm.chroot(), metrics_path)
-    metrics_fd = open(metrics_jail_path)
+    metrics_fd = open(metrics_jail_path, encoding='utf-8')
 
     line_metrics = metrics_fd.readlines()
     assert len(line_metrics) == 1
@@ -112,7 +112,7 @@ def test_sigxfsz_handler(test_microvm_with_api):
 
     metrics_jail_path = os.path.join(microvm.jailer.chroot_path(),
                                      metrics_path)
-    metrics_fd = open(metrics_jail_path)
+    metrics_fd = open(metrics_jail_path, encoding='utf-8')
     line_metrics = metrics_fd.readlines()
     assert len(line_metrics) == 1
 

@@ -128,41 +128,42 @@ class HostEchoWorker(Thread):
         self.sock.close()
 
     def _run(self):
-        blob_file = open(self.blob_path, 'rb')
-        hash_obj = hashlib.md5()
+        with open(self.blob_path, 'rb') as blob_file:
 
-        while True:
+            hash_obj = hashlib.md5()
 
-            buf = blob_file.read(BUF_SIZE)
-            if not buf:
-                break
+            while True:
 
-            sent = self.sock.send(buf)
-            while sent < len(buf):
-                sent += self.sock.send(buf[sent:])
+                buf = blob_file.read(BUF_SIZE)
+                if not buf:
+                    break
 
-            buf = self.sock.recv(sent)
-            while len(buf) < sent:
-                buf += self.sock.recv(sent - len(buf))
+                sent = self.sock.send(buf)
+                while sent < len(buf):
+                    sent += self.sock.send(buf[sent:])
 
-            hash_obj.update(buf)
+                buf = self.sock.recv(sent)
+                while len(buf) < sent:
+                    buf += self.sock.recv(sent - len(buf))
 
-        self.hash = hash_obj.hexdigest()
+                hash_obj.update(buf)
+
+            self.hash = hash_obj.hexdigest()
 
 
 def make_blob(dst_dir):
     """Generate a random data file."""
     blob_path = os.path.join(dst_dir, "vsock-test.blob")
-    blob_file = open(blob_path, 'wb')
-    left = BLOB_SIZE
-    blob_hash = hashlib.md5()
-    while left > 0:
-        count = min(left, 4096)
-        buf = os.urandom(count)
-        blob_hash.update(buf)
-        blob_file.write(buf)
-        left -= count
-    blob_file.close()
+
+    with open(blob_path, 'wb') as blob_file:
+        left = BLOB_SIZE
+        blob_hash = hashlib.md5()
+        while left > 0:
+            count = min(left, 4096)
+            buf = os.urandom(count)
+            blob_hash.update(buf)
+            blob_file.write(buf)
+            left -= count
 
     return blob_path, blob_hash.hexdigest()
 

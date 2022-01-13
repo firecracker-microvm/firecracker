@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for markdown style checks."""
 
-import framework.utils as utils
+from framework import utils
 
 
 def test_markdown_style():

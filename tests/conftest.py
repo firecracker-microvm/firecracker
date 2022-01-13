@@ -86,9 +86,9 @@ import pytest
 
 import host_tools.cargo_build as build_tools
 import host_tools.network as net_tools
-import host_tools.proc as proc
-import framework.utils as utils
-import framework.defs as defs
+from host_tools import proc
+from framework import utils
+from framework import defs
 from framework.artifacts import ArtifactCollection
 from framework.microvm import Microvm
 from framework.s3fetcher import MicrovmImageS3Fetcher
@@ -144,7 +144,7 @@ class ResultsFileDumper:  # pylint: disable=too-few-public-methods
         # Create the root directory, if it doesn't exist.
         self._root_path.mkdir(exist_ok=True)
 
-        self._file = open(self._root_path / test_name, flags)
+        self._file = open(self._root_path / test_name, flags, encoding='utf-8')
 
     def writeln(self, data: str):
         """Write the `data` string to the output file, appending a newline."""

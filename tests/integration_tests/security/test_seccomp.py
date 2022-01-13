@@ -8,7 +8,7 @@ import tempfile
 import platform
 
 from host_tools.cargo_build import run_seccompiler_bin
-import framework.utils as utils
+from framework import utils
 
 
 def _get_basic_syscall_list():
@@ -286,7 +286,7 @@ def test_seccomp_rust_panic(bin_seccomp_paths):
     fc_filters_path = "../resources/seccomp/{}-unknown-linux-musl.json".format(
         platform.machine()
     )
-    with open(fc_filters_path, "r") as fc_filters:
+    with open(fc_filters_path, "r", encoding='utf-8') as fc_filters:
         filter_threads = list(json_lib.loads(fc_filters.read()))
 
     bpf_temp = tempfile.NamedTemporaryFile(delete=False)

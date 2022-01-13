@@ -33,7 +33,7 @@ USEC_IN_MSEC = 1000
 # Measurements tags.
 RESTORE_LATENCY = "restore_latency"
 CONFIG = json.load(open(defs.CFG_LOCATION /
-                        "snap_restore_test_config.json"))
+                        "snap_restore_test_config.json", encoding='utf-8'))
 
 # Define 4 net device configurations.
 net_ifaces = [NetIfaceConfig(),
@@ -199,7 +199,7 @@ def get_snap_restore_latency(
         microvm.kill()
 
     full_snapshot.cleanup()
-    result = dict()
+    result = {}
     result[RESTORE_LATENCY] = values
     return result
 

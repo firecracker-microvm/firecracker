@@ -22,7 +22,7 @@ class FileDataProvider(Iterator):
 
     def __init__(self, file_path: str):
         """Construct the file based data provider."""
-        self._file = open(file_path, "r")
+        self._file = open(file_path, "r", encoding='utf-8')
 
     def __iter__(self) -> 'FileDataProvider':
         """Return the iterator object (self)."""
@@ -49,7 +49,7 @@ class DataParser(ABC):
 
     def _format_baselines(self) -> List[dict]:
         """Return the computed baselines into the right serializable format."""
-        baselines = dict()
+        baselines = {}
 
         for cpu_model in self._data:
             baselines[cpu_model] = {

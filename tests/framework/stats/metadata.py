@@ -113,7 +113,7 @@ class DictProvider(Provider):
         """
         super().__init__(baseline_provider)
 
-        self._measurements = dict()
+        self._measurements = {}
         for ms_name in measurements:
             assert DictProvider.UNIT_KEY in measurements[ms_name], \
                 f"'{DictProvider.UNIT_KEY}' field is required for '" \
@@ -125,7 +125,7 @@ class DictProvider(Provider):
             unit = measurements[ms_name][DictProvider.UNIT_KEY]
             st_defs = measurements[ms_name][DictProvider.STATISTICS_KEY]
 
-            st_list = list()
+            st_list = []
             for st_def in st_defs:
                 # Mandatory.
                 func_cls_name = st_def.get("function")

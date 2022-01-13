@@ -28,7 +28,7 @@ import host_tools.cpu_load as cpu_tools
 import host_tools.memory as mem_tools
 import host_tools.network as net_tools
 
-import framework.utils as utils
+from framework import utils
 from framework.defs import MICROVM_KERNEL_RELPATH, MICROVM_FSFILES_RELPATH, \
     FC_PID_FILE_NAME
 from framework.http import Session
@@ -337,7 +337,7 @@ class Microvm:
         pid_file_path = f"{self.jailer.chroot_path()}/{FC_PID_FILE_NAME}"
         if os.path.exists(pid_file_path):
             # Read the PID stored inside the file.
-            with open(pid_file_path) as file:
+            with open(pid_file_path, encoding='utf-8') as file:
                 fc_pid = int(file.readline())
 
         return fc_pid
@@ -591,8 +591,8 @@ class Microvm:
             self._screen_pid = screen_pid
 
             self.jailer_clone_pid = int(open('/proc/{0}/task/{0}/children'
-                                             .format(screen_pid)
-                                             ).read().strip())
+                                             .format(screen_pid),
+                                             encoding='utf-8').read().strip())
 
             # Configure screen to flush stdout to file.
             flush_cmd = 'screen -S {session} -X colon "logfile flush 0^M"'
@@ -883,7 +883,7 @@ class Microvm:
         """
         def monitor_fd(microvm, path):
             try:
-                fd = open(path, "r")
+                fd = open(path, "r", encoding='utf-8')
                 while True:
                     try:
                         if microvm().logging_thread.stopped():
@@ -936,7 +936,8 @@ class Serial:
             # serial already opened
             return
 
-        screen_log_fd = os.open(self._vm.screen_log, os.O_RDONLY)
+        screen_log_fd = os.open(self._vm.screen_log,
+                                os.O_RDONLY)
         self._poller = select.poll()
         self._poller.register(screen_log_fd,
                               select.POLLIN | select.POLLHUP)

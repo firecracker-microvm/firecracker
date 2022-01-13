@@ -5,7 +5,7 @@
 import os
 import platform
 
-import framework.utils as utils
+from framework import utils
 from framework import defs
 
 from framework.defs import (
