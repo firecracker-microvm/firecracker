@@ -379,15 +379,15 @@ fn create_rtc_node<T: DeviceInfoForFDT + Clone + Debug>(
     fdt: &mut FdtWriter,
     dev_info: &T,
 ) -> Result<()> {
+    // Driver requirements:
+    // https://elixir.bootlin.com/linux/latest/source/Documentation/devicetree/bindings/rtc/arm,pl031.yaml
+    // We do not offer the `interrupt` property because the device
+    // does not implement interrupt support.
     let compatible = b"arm,pl031\0arm,primecell\0";
 
     let rtc = fdt.begin_node(&format!("rtc@{:x}", dev_info.addr()))?;
     fdt.property("compatible", compatible)?;
     fdt.property_array_u64("reg", &[dev_info.addr(), dev_info.length()])?;
-    fdt.property_array_u32(
-        "interrupts",
-        &[GIC_FDT_IRQ_TYPE_SPI, dev_info.irq(), IRQ_TYPE_LEVEL_HI],
-    )?;
     fdt.property_u32("clocks", CLOCK_PHANDLE)?;
     fdt.property_string("clock-names", "apb_pclk")?;
     fdt.end_node(rtc)?;
