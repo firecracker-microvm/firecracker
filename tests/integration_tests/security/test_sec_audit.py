@@ -3,11 +3,11 @@
 """Tests ensuring security vulnerabilities are not present in dependencies."""
 
 
-import os
 import platform
 import pytest
 
 import framework.utils as utils
+import framework.defs as defs
 
 
 @pytest.mark.skipif(
@@ -17,11 +17,6 @@ import framework.utils as utils
 )
 def test_cargo_audit():
     """Fail if there are crates with security vulnerabilities."""
-    cargo_lock_path = os.path.normpath(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            '../../../Cargo.lock')
-    )
-
     # Run command and raise exception if non-zero return code
-    utils.run_cmd('cargo audit -q -f {}'.format(cargo_lock_path))
+    utils.run_cmd(
+        'cargo audit --deny warnings -q', cwd=defs.FC_WORKSPACE_DIR)
