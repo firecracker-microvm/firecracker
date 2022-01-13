@@ -1,0 +1,6 @@
+[advisories]
+# serde_cbor is an unmaintained dependency introduced by criterion.
+# We are using criterion only for benchmarks, so we can ignore
+# this vulnerability until criterion is fixing this.
+# See https://github.com/bheisler/criterion.rs/issues/534.
+ignore = [ "RUSTSEC-2021-0127" ]
