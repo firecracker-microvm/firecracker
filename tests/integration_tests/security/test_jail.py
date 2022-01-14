@@ -279,7 +279,6 @@ def test_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
     """
     # pylint: disable=redefined-outer-name
     test_microvm = test_microvm_with_initrd
-    test_microvm.jailer.numa_node = 0
     test_microvm.jailer.cgroup_ver = sys_setup_cgroups
     if test_microvm.jailer.cgroup_ver == 2:
         test_microvm.jailer.cgroups = ['cpu.weight.nice=10']
@@ -289,26 +288,33 @@ def test_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
             'cpu.cfs_period_us=200000'
         ]
 
-    test_microvm.spawn()
-
     # Retrieve CPUs from NUMA node 0.
-    node_cpus = get_cpus(test_microvm.jailer.numa_node)
+    node_cpus = get_cpus(0)
 
-    # Appending the cgroups that should be creating by --node option
-    # This must be changed once --node options is removed
-    cgroups = test_microvm.jailer.cgroups + [
+    # Appending the cgroups for numa node 0.
+    test_microvm.jailer.cgroups = test_microvm.jailer.cgroups + [
         'cpuset.mems=0',
         'cpuset.cpus={}'.format(node_cpus)
     ]
+
+    test_microvm.spawn()
 
     # We assume sysfs cgroups are mounted here.
     sys_cgroup = '/sys/fs/cgroup'
     assert os.path.isdir(sys_cgroup)
 
     if test_microvm.jailer.cgroup_ver == 1:
-        check_cgroups_v1(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+        check_cgroups_v1(
+            test_microvm.jailer.cgroups,
+            sys_cgroup,
+            test_microvm.jailer.jailer_id
+        )
     else:
-        check_cgroups_v2(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+        check_cgroups_v2(
+            test_microvm.jailer.cgroups,
+            sys_cgroup,
+            test_microvm.jailer.jailer_id
+        )
 
 
 def test_cgroups_custom_parent(test_microvm_with_initrd, sys_setup_cgroups):
@@ -319,7 +325,6 @@ def test_cgroups_custom_parent(test_microvm_with_initrd, sys_setup_cgroups):
     """
     # pylint: disable=redefined-outer-name
     test_microvm = test_microvm_with_initrd
-    test_microvm.jailer.numa_node = 0
     test_microvm.jailer.cgroup_ver = sys_setup_cgroups
     test_microvm.jailer.parent_cgroup = "custom_cgroup/group2"
     if test_microvm.jailer.cgroup_ver == 2:
@@ -330,17 +335,15 @@ def test_cgroups_custom_parent(test_microvm_with_initrd, sys_setup_cgroups):
             'cpu.cfs_period_us=200000'
         ]
 
-    test_microvm.spawn()
-
     # Retrieve CPUs from NUMA node 0.
-    node_cpus = get_cpus(test_microvm.jailer.numa_node)
+    node_cpus = get_cpus(0)
 
-    # Appending the cgroups that should be creating by --node option
-    # This must be changed once --node options is removed
-    cgroups = test_microvm.jailer.cgroups + [
+    test_microvm.jailer.cgroups = test_microvm.jailer.cgroups + [
         'cpuset.mems=0',
         'cpuset.cpus={}'.format(node_cpus)
     ]
+
+    test_microvm.spawn()
 
     # We assume sysfs cgroups are mounted here.
     sys_cgroup = '/sys/fs/cgroup'
@@ -348,14 +351,14 @@ def test_cgroups_custom_parent(test_microvm_with_initrd, sys_setup_cgroups):
 
     if test_microvm.jailer.cgroup_ver == 1:
         check_cgroups_v1(
-            cgroups,
+            test_microvm.jailer.cgroups,
             sys_cgroup,
             test_microvm.jailer.jailer_id,
             test_microvm.jailer.parent_cgroup
         )
     else:
         check_cgroups_v2(
-            cgroups,
+            test_microvm.jailer.cgroups,
             sys_cgroup,
             test_microvm.jailer.jailer_id,
             test_microvm.jailer.parent_cgroup
@@ -364,36 +367,41 @@ def test_cgroups_custom_parent(test_microvm_with_initrd, sys_setup_cgroups):
 
 def test_node_cgroups(test_microvm_with_initrd, sys_setup_cgroups):
     """
-    Test the --node cgroups are correctly set by the jailer.
+    Test the numa node cgroups are correctly set by the jailer.
 
     @type: security
     """
     # pylint: disable=redefined-outer-name
     test_microvm = test_microvm_with_initrd
-    test_microvm.jailer.cgroups = None
-    test_microvm.jailer.numa_node = 0
     test_microvm.jailer.cgroup_ver = sys_setup_cgroups
 
-    test_microvm.spawn()
-
     # Retrieve CPUs from NUMA node 0.
-    node_cpus = get_cpus(test_microvm.jailer.numa_node)
+    node_cpus = get_cpus(0)
 
-    # Appending the cgroups that should be creating by --node option
-    # This must be changed once --node options is removed
-    cgroups = [
+    # Appending the cgroups for numa node 0
+    test_microvm.jailer.cgroups = [
         'cpuset.mems=0',
         'cpuset.cpus={}'.format(node_cpus)
     ]
+
+    test_microvm.spawn()
 
     # We assume sysfs cgroups are mounted here.
     sys_cgroup = '/sys/fs/cgroup'
     assert os.path.isdir(sys_cgroup)
 
     if test_microvm.jailer.cgroup_ver == 1:
-        check_cgroups_v1(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+        check_cgroups_v1(
+            test_microvm.jailer.cgroups,
+            sys_cgroup,
+            test_microvm.jailer.jailer_id
+        )
     else:
-        check_cgroups_v2(cgroups, sys_cgroup, test_microvm.jailer.jailer_id)
+        check_cgroups_v2(
+            test_microvm.jailer.cgroups,
+            sys_cgroup,
+            test_microvm.jailer.jailer_id
+        )
 
 
 def test_cgroups_without_numa(test_microvm_with_initrd, sys_setup_cgroups):

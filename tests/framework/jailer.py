@@ -26,7 +26,6 @@ class JailerContext:
     # Keep in sync with parameters from code base.
     jailer_id = None
     exec_file = None
-    numa_node = None
     uid = None
     gid = None
     chroot_base = None
@@ -44,7 +43,6 @@ class JailerContext:
             self,
             jailer_id,
             exec_file,
-            numa_node=None,
             uid=1234,
             gid=1234,
             chroot_base=DEFAULT_CHROOT_PATH,
@@ -65,7 +63,6 @@ class JailerContext:
         """
         self.jailer_id = jailer_id
         self.exec_file = exec_file
-        self.numa_node = numa_node
         self.uid = uid
         self.gid = gid
         self.chroot_base = chroot_base
@@ -103,8 +100,6 @@ class JailerContext:
             jailer_param_list.extend(['--id', str(self.jailer_id)])
         if self.exec_file is not None:
             jailer_param_list.extend(['--exec-file', str(self.exec_file)])
-        if self.numa_node is not None:
-            jailer_param_list.extend(['--node', str(self.numa_node)])
         if self.uid is not None:
             jailer_param_list.extend(['--uid', str(self.uid)])
         if self.gid is not None:
