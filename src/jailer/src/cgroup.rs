@@ -18,8 +18,6 @@ const PROC_MOUNTS: &str = if cfg!(test) {
     "/proc/mounts"
 };
 
-const NODE_TO_CPULIST: &str = "/sys/devices/system/node/node"; // This constant should be removed once the `--node` argument is removed.
-
 // Holds information on a cgroup mount point discovered on the system
 struct CgroupMountPoint {
     dir: String,
@@ -158,39 +156,6 @@ impl CgroupBuilder {
                 }
             }
         }
-    }
-
-    // This function should be removed once the `--node` argument is removed.
-    // This function generates the corresponding cgroups for isolating the process in the specified
-    // NUMA node.
-    pub fn cgroups_from_numa_node(
-        &mut self,
-        numa_node: u32,
-        microvm_id: &str,
-        parent_cg: &Path,
-    ) -> Result<Vec<Box<dyn Cgroup>>> {
-        // Retrieve the CPUs which belongs to the specific node.
-        // Similar to how numactl library does, we are copying the contents of
-        // /sys/devices/system/node/nodeX/cpulist to the cpuset.cpus file for ensuring
-        // correct numa cpu assignment.
-        let cpus = readln_special(&PathBuf::from(format!(
-            "{}{}/cpulist",
-            NODE_TO_CPULIST, numa_node
-        )))?;
-
-        // Isolate the process in the specified numa_node CPUs.
-        let cpuset_cpus =
-            self.new_cgroup("cpuset.cpus".to_string(), cpus, microvm_id, parent_cg)?;
-
-        // Isolate the process in the specified numa_node memory.
-        let cpuset_mems = self.new_cgroup(
-            "cpuset.mems".to_string(),
-            numa_node.to_string(),
-            microvm_id,
-            parent_cg,
-        )?;
-
-        Ok(vec![cpuset_cpus, cpuset_mems])
     }
 }
 

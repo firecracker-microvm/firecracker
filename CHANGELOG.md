@@ -33,6 +33,7 @@
 
 ### Changed
 
+- Removed the `--node` jailer parameter.
 - Deprecated `vsock_id` body field in `PUT`s on `/vsock`.
 - Removed the deprecated the `--seccomp-level parameter`.
 - Added `io_engine` to the pre-boot block device configuration.
