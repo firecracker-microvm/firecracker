@@ -38,7 +38,8 @@ RUN apt-get update \
         jq \
         libdw-dev \
         libiberty-dev \
-        libssl1.0-dev \
+        libssl-dev \
+        libcurl4-openssl-dev \
         lsof \
         make \
         net-tools \
@@ -53,7 +54,6 @@ RUN apt-get update \
         zlib1g-dev \
         screen \
         tzdata \
-        npm \
         xz-utils \
         bc \
         flex \
@@ -62,9 +62,7 @@ RUN apt-get update \
         setuptools \
         wheel \
     && python3 -m pip install --upgrade pip \ 
-    && npm install -g @apidevtools/swagger-cli \
-    && gem install chef-utils:16.6.14 mdl \
-    && rm -rf /var/lib/apt/lists/*
+    && gem install chef-utils:16.6.14 mdl
 
 RUN python3 -m pip install poetry
 RUN mkdir "$TMP_POETRY_DIR"
@@ -72,6 +70,14 @@ COPY tools/devctr/pyproject.toml $POETRY_LOCK_PATH "$TMP_POETRY_DIR/"
 RUN cd "$TMP_POETRY_DIR" \
     &&  poetry config virtualenvs.create false \
     &&  poetry install --no-dev --no-interaction
+
+# We need to install node and npm from source because of this issue with the
+# ubuntu repository:
+# https://bugs.launchpad.net/ubuntu/+source/nodejs/+bug/1794589
+RUN (curl -sL https://deb.nodesource.com/setup_14.x | bash) \
+    && apt-get install -y nodejs \
+    && npm install -g @apidevtools/swagger-cli \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install the Rust toolchain
 #
@@ -84,7 +90,8 @@ RUN mkdir "$TMP_BUILD_DIR" \
         && cd "$TMP_BUILD_DIR" \
             && cargo install cargo-kcov \
             && cargo +"stable" install cargo-audit \
-            && cargo install --locked cargo-deny \
+            # Fix a version that does not require cargo edition 2021.
+            && cargo install cargo-deny --version '^0.9.1' \
             && cargo kcov --print-install-kcov-sh | sh \
         && rm -rf "$CARGO_HOME/registry" \
         && ln -s "$CARGO_REGISTRY_DIR" "$CARGO_HOME/registry" \
