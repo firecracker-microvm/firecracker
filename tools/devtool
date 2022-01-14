@@ -129,6 +129,10 @@ CTR_CARGO_SECCOMPILER_TARGET_DIR="$CTR_FC_BUILD_DIR/seccompiler"
 # Full path to the microVM images cache dir
 CTR_MICROVM_IMAGES_DIR="$CTR_FC_BUILD_DIR/img"
 
+# Full path to the poetry tmp directory on the container, used for holding
+# the lock and toml files.
+CTR_POETRY_TMP_DIR="/tmp/poetry"
+
 # Full path to the public key mapping on the guest
 PUB_KEY_PATH=/root/.ssh/id_rsa.pub
 
@@ -337,16 +341,14 @@ cmd_fix_perms() {
 cmd_build_devctr() {
     arch=$(uname -m)
     docker_file_name="Dockerfile.$arch"
-    should_update_python_packages=true
-    build_args=""
+    build_args="--build-arg TMP_POETRY_DIR=$CTR_POETRY_TMP_DIR"
 
     while [ $# -gt 0 ]; do
         case "$1" in
             "-h"|"--help")      { cmd_help; exit 1; } ;;
-            "-n"|"--no-python-package-update")
+            "-n"|"--no-python-package-upgrade")
                 shift
-                should_update_python_packages=false
-                build_args="--build-arg POETRY_LOCK_PATH=tools/devctr/poetry.lock"
+                build_args="$build_args --build-arg POETRY_LOCK_PATH=tools/devctr/poetry.lock"
                 ;;
             "--")               { shift; break;     } ;;
             *)
@@ -358,9 +360,9 @@ cmd_build_devctr() {
 
     docker build -t "$DEVCTR_IMAGE_NO_TAG" -f "$FC_DEVCTR_DIR/$docker_file_name" $build_args .
 
-    if [ "$should_update_python_packages" = true ]; then
-        update_python_package_version
-    fi
+    # Copy back the lockfile, since a new dependency or version would have
+    # updated it.
+    copy_poetry_lockfile
 }
 
 # Prompt the user for confirmation before proceeding.
@@ -611,32 +613,20 @@ test_key() {
     [ $ret -ne 0 ] && die "$1 is not a valid key file."
 }
 
-# Tries to update any outdated python packages on the container,
-# locks the new versions and copies back the ```poetry.lock```
-# file to the host.
+# Copies the ```poetry.lock``` file to the host, upgrading the versions if
+# requested.
 #
-update_python_package_version() {
-    say "Updating python packages..."
-
+copy_poetry_lockfile() {
     # defined in Dockerfile
-    poetry_dir_on_container="/tmp/poetry"
     lock_file_location_on_host="$FC_DEVCTR_DIR/poetry.lock"
     image_id=$(docker images -q "$DEVCTR_IMAGE_NO_TAG" | head -n 1)
     dummy_container_name=$(uuidgen)
-    dummy_container_id=$(docker create -ti --name \
-        "$dummy_container_name" \
-        "$image_id" \
-        bash)
+    dummy_container_id=$(docker create --name "$dummy_container_name" "$image_id" bash)
 
-    docker start "$dummy_container_id"
-    cmd="cd "$poetry_dir_on_container"; poetry update"
-    docker exec -ti "$dummy_container_id" /bin/bash -c "${cmd}"
     docker cp \
-        "$dummy_container_id":/tmp/poetry/poetry.lock \
+        "$dummy_container_id":"$CTR_POETRY_TMP_DIR"/poetry.lock \
         "$lock_file_location_on_host"
-    docker commit "$dummy_container_id" "$DEVCTR_IMAGE_NO_TAG"
 
-    docker stop "$dummy_container_id"
     docker rm -f "$dummy_container_name"
 }
 
