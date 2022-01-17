@@ -26,10 +26,6 @@
   `X-metadata-token`, which accepts a string value that provides a session
   token for MMDS requests; and `X-metadata-token-ttl-seconds`, which
   specifies the lifetime of the session token in seconds.
-- Added `PUT` request on `/mmds/version` that configures the MMDS version.
-  Accepted values are either `V1` or `V2`.
-- Added `GET` request on `/mmds/version` that provides the MMDS version.
-  Default value is `V2`.
 - Support and validation for host and guest kernel 5.10.
 - A [kernel support policy](docs/kernel-policy.md).
 - Added `io_engine` to the pre-boot block device configuration.

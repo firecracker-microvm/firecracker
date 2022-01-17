@@ -25,15 +25,12 @@ use crate::ApiServer;
 use micro_http::{Body, Method, Request, Response, StatusCode, Version};
 
 use logger::{error, info};
-use mmds::data_store::MmdsVersion;
 use vmm::rpc_interface::{VmmAction, VmmActionError};
 
 pub(crate) enum RequestAction {
     GetMMDS,
-    GetMMDSVersion,
     PatchMMDS(Value),
     PutMMDS(Value),
-    SetMMDSVersion(MmdsVersion),
     Sync(Box<VmmAction>),
     ShutdownInternal, // !!! not an API, used by shutdown to thread::join the API thread
 }
@@ -107,7 +104,7 @@ impl ParsedRequest {
                 Ok(ParsedRequest::new_sync(VmmAction::GetFullVmConfig))
             }
             (Method::Get, "machine-config", None) => parse_get_machine_config(),
-            (Method::Get, "mmds", None) => parse_get_mmds(path_tokens.get(1)),
+            (Method::Get, "mmds", None) => parse_get_mmds(),
             (Method::Get, _, Some(_)) => method_to_error(Method::Get),
             (Method::Put, "actions", Some(body)) => parse_put_actions(body),
             (Method::Put, "balloon", Some(body)) => parse_put_balloon(body),
@@ -334,17 +331,12 @@ pub(crate) mod tests {
                     sync_req == other_sync_req
                 }
                 (RequestAction::GetMMDS, RequestAction::GetMMDS) => true,
-                (RequestAction::GetMMDSVersion, RequestAction::GetMMDSVersion) => true,
                 (RequestAction::PutMMDS(ref val), RequestAction::PutMMDS(ref other_val)) => {
                     val == other_val
                 }
                 (RequestAction::PatchMMDS(ref val), RequestAction::PatchMMDS(ref other_val)) => {
                     val == other_val
                 }
-                (
-                    &RequestAction::SetMMDSVersion(ref version),
-                    &RequestAction::SetMMDSVersion(ref other_version),
-                ) => version.to_string() == other_version.to_string(),
 
                 _ => false,
             }
@@ -677,13 +669,6 @@ pub(crate) mod tests {
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
         assert!(ParsedRequest::try_from_request(&req).is_ok());
-
-        sender
-            .write_all(http_request("GET", "/mmds/version", None).as_bytes())
-            .unwrap();
-        assert!(connection.try_read().is_ok());
-        let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
     }
 
     #[test]
@@ -854,15 +839,6 @@ pub(crate) mod tests {
         let body = "{\"ipv4_address\":\"169.254.170.2\"}";
         sender
             .write_all(http_request("PUT", "/mmds/config", Some(&body)).as_bytes())
-            .unwrap();
-        assert!(connection.try_read().is_ok());
-        let req = connection.pop_parsed_request().unwrap();
-        assert!(ParsedRequest::try_from_request(&req).is_ok());
-
-        // `/mmds/version`
-        let body = "{\"version\":\"V2\"}";
-        sender
-            .write_all(http_request("PUT", "/mmds/version", Some(&body)).as_bytes())
             .unwrap();
         assert!(connection.try_read().is_ok());
         let req = connection.pop_parsed_request().unwrap();
