@@ -293,9 +293,7 @@ impl MMIODeviceManager {
         dev_info_opt: Option<MMIODeviceInfo>,
     ) -> Result<()> {
         // Create and attach a new RTC device.
-        // We allocate an IRQ even though we do not need it so that
-        // we do not break snapshot compatibility.
-        let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(1)?);
+        let slot = dev_info_opt.unwrap_or(self.allocate_new_slot(0)?);
 
         let identifier = (DeviceType::Rtc, DeviceType::Rtc.to_string());
         self.register_mmio_device(identifier, slot, rtc)
