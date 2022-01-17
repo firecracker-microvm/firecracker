@@ -23,7 +23,7 @@ pub use micro_http::{
     ServerResponse, StatusCode, Version,
 };
 use mmds::data_store;
-use mmds::data_store::{Mmds, MmdsVersion, MmdsVersionType};
+use mmds::data_store::Mmds;
 use seccompiler::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
@@ -253,10 +253,8 @@ impl ApiServer {
                         self.serve_vmm_action_request(vmm_action, request_processing_start_us)
                     }
                     RequestAction::GetMMDS => self.get_mmds(),
-                    RequestAction::GetMMDSVersion => self.mmds_version(),
                     RequestAction::PatchMMDS(value) => self.patch_mmds(value),
                     RequestAction::PutMMDS(value) => self.put_mmds(value),
-                    RequestAction::SetMMDSVersion(value) => self.set_mmds_version(value),
                     RequestAction::ShutdownInternal => {
                         self.shutdown_flag = true;
                         Response::new(Version::Http11, StatusCode::NoContent)
@@ -322,11 +320,6 @@ impl ApiServer {
             .expect("Failed to acquire lock on MMDS info")
     }
 
-    fn mmds_version(&self) -> Response {
-        let version = self.unlock_mmds().version();
-        ParsedRequest::success_response_with_data(&MmdsVersionType::from(version))
-    }
-
     fn get_mmds(&self) -> Response {
         let data = self.unlock_mmds().get_data_str();
         ApiServer::json_response(StatusCode::OK, data)
@@ -365,18 +358,6 @@ impl ApiServer {
         }
     }
 
-    fn set_mmds_version(&mut self, version: MmdsVersion) -> Response {
-        self.unlock_mmds().set_version(version).map_or_else(
-            |e| {
-                ApiServer::json_response(
-                    StatusCode::BadRequest,
-                    ApiServer::json_fault_message(e.to_string()),
-                )
-            },
-            |_| Response::new(Version::Http11, StatusCode::NoContent),
-        )
-    }
-
     /// An HTTP response which also includes a body.
     pub(crate) fn json_response<T: Into<String>>(status: StatusCode, body: T) -> Response {
         let mut response = Response::new(Version::Http11, status);
@@ -400,7 +381,6 @@ mod tests {
     use super::*;
     use logger::StoreMetric;
     use micro_http::HttpConnection;
-    use mmds::data_store::MmdsVersion;
     use mmds::MMDS;
     use utils::tempfile::TempFile;
     use utils::time::ClockType;
@@ -500,24 +480,6 @@ mod tests {
     }
 
     #[test]
-    fn test_mmds_version() {
-        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let (api_request_sender, _from_api) = channel();
-        let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
-
-        let api_server = ApiServer::new(
-            mmds_info,
-            api_request_sender,
-            vmm_response_receiver,
-            to_vmm_fd,
-        );
-
-        let response = api_server.mmds_version();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[test]
     fn test_get_mmds() {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
@@ -549,27 +511,6 @@ mod tests {
             to_vmm_fd,
         );
         let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
-        assert_eq!(response.status(), StatusCode::NoContent);
-    }
-
-    #[test]
-    fn test_set_mmds_version() {
-        let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let (api_request_sender, _from_api) = channel();
-        let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = MMDS.clone();
-
-        let mut api_server = ApiServer::new(
-            mmds_info,
-            api_request_sender,
-            vmm_response_receiver,
-            to_vmm_fd,
-        );
-
-        let response = api_server.set_mmds_version(MmdsVersion::V2);
-        assert_eq!(response.status(), StatusCode::NoContent);
-
-        let response = api_server.set_mmds_version(MmdsVersion::V1);
         assert_eq!(response.status(), StatusCode::NoContent);
     }
 

@@ -450,40 +450,6 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
-  /mmds/version:
-    put:
-      summary: Sets MMDS version.
-      operationId: putMmdsVersion
-      parameters:
-        - name: version
-          in: body
-          required: true
-          schema:
-            $ref: "#/definitions/MmdsVersion"
-      responses:
-        204:
-          description: MMDS version set.
-        400:
-          description: MMDS version cannot be set due to bad input.
-          schema:
-            $ref: "#/definitions/Error"
-        default:
-          description: Internal server error.
-          schema:
-            $ref: "#/definitions/Error"
-    get:
-      summary: Get the MMDS version.
-      operationId: getMmdsVersion
-      responses:
-        200:
-          description: The MMDS version.
-          schema:
-            $ref: "#/definitions/MmdsVersion"
-        default:
-          description: Internal server error
-          schema:
-            $ref: "#/definitions/Error"
-
   /network-interfaces/{iface_id}:
     put:
       summary: Creates a network interface. Pre-boot only.
@@ -1002,21 +968,6 @@ definitions:
         format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"
         default: "169.254.169.254"
         description: A valid IPv4 link-local address.
-
-  MmdsVersion:
-    type: object
-    description:
-      Variant wrapper containing the MMDS version.
-    required:
-      - version
-    properties:
-      version:
-        description: Enumeration indicating the MMDS version configured.
-        type: string
-        enum:
-          - V1
-          - V2
-        default: V2
 
   NetworkInterface:
     type: object
