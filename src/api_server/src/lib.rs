@@ -22,8 +22,8 @@ pub use micro_http::{
     Body, HttpServer, Method, Request, RequestError, Response, ServerError, ServerRequest,
     ServerResponse, StatusCode, Version,
 };
+use mmds::data_store;
 use mmds::data_store::{Mmds, MmdsVersion, MmdsVersionType};
-use mmds::{data_store, Error as MmdsError};
 use seccompiler::BpfProgramRef;
 use utils::eventfd::EventFd;
 use vmm::rpc_interface::{VmmAction, VmmActionError, VmmData};
@@ -65,7 +65,7 @@ type Result<T> = std::result::Result<T, Error>;
 /// Structure associated with the API server implementation.
 pub struct ApiServer {
     /// MMDS info directly accessible from the API thread.
-    mmds_info: Arc<Mutex<Option<Mmds>>>,
+    mmds_info: Arc<Mutex<Mmds>>,
     /// Sender which allows passing messages to the VMM.
     api_request_sender: mpsc::Sender<ApiRequest>,
     /// Receiver which collects messages from the VMM.
@@ -82,7 +82,7 @@ impl ApiServer {
     ///
     /// Returns the newly formed `ApiServer`.
     pub fn new(
-        mmds_info: Arc<Mutex<Option<Mmds>>>,
+        mmds_info: Arc<Mutex<Mmds>>,
         api_request_sender: mpsc::Sender<ApiRequest>,
         vmm_response_receiver: mpsc::Receiver<ApiResponse>,
         to_vmm_fd: EventFd,
@@ -316,45 +316,24 @@ impl ApiServer {
         response
     }
 
-    fn unlock_mmds(&self) -> MutexGuard<'_, Option<Mmds>> {
+    fn unlock_mmds(&self) -> MutexGuard<'_, Mmds> {
         self.mmds_info
             .lock()
             .expect("Failed to acquire lock on MMDS info")
     }
 
     fn mmds_version(&self) -> Response {
-        match self.unlock_mmds().as_ref() {
-            Some(mmds) => {
-                let version = mmds.version();
-                ParsedRequest::success_response_with_data(&MmdsVersionType::from(version))
-            }
-            None => ApiServer::json_response(
-                StatusCode::BadRequest,
-                ApiServer::json_fault_message(MmdsError::NoMmds.to_string()),
-            ),
-        }
+        let version = self.unlock_mmds().version();
+        ParsedRequest::success_response_with_data(&MmdsVersionType::from(version))
     }
 
     fn get_mmds(&self) -> Response {
-        match self.unlock_mmds().as_ref() {
-            Some(mmds) => ApiServer::json_response(StatusCode::OK, mmds.get_data_str()),
-            None => ApiServer::json_response(
-                StatusCode::BadRequest,
-                ApiServer::json_fault_message(MmdsError::NoMmds.to_string()),
-            ),
-        }
+        let data = self.unlock_mmds().get_data_str();
+        ApiServer::json_response(StatusCode::OK, data)
     }
 
     fn patch_mmds(&self, value: serde_json::Value) -> Response {
-        let mmds_response = match self.unlock_mmds().as_mut() {
-            Some(mmds) => mmds.patch_data(value),
-            None => {
-                return ApiServer::json_response(
-                    StatusCode::BadRequest,
-                    ApiServer::json_fault_message(MmdsError::NoMmds.to_string()),
-                )
-            }
-        };
+        let mmds_response = self.unlock_mmds().patch_data(value);
 
         match mmds_response {
             Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
@@ -375,15 +354,7 @@ impl ApiServer {
     }
 
     fn put_mmds(&self, value: serde_json::Value) -> Response {
-        let mmds_response = match self.unlock_mmds().as_mut() {
-            Some(mmds) => mmds.put_data(value),
-            None => {
-                return ApiServer::json_response(
-                    StatusCode::BadRequest,
-                    ApiServer::json_fault_message(MmdsError::NoMmds.to_string()),
-                )
-            }
-        };
+        let mmds_response = self.unlock_mmds().put_data(value);
 
         match mmds_response {
             Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
@@ -395,30 +366,15 @@ impl ApiServer {
     }
 
     fn set_mmds_version(&mut self, version: MmdsVersion) -> Response {
-        let mut mmds_lock = self.unlock_mmds();
-
-        match mmds_lock.as_mut() {
-            Some(mmds) => mmds.set_version(version).map_or_else(
-                |e| {
-                    ApiServer::json_response(
-                        StatusCode::BadRequest,
-                        ApiServer::json_fault_message(e.to_string()),
-                    )
-                },
-                |_| Response::new(Version::Http11, StatusCode::NoContent),
-            ),
-            None => {
-                if version.to_string() == MmdsVersion::V1.to_string() {
-                    *mmds_lock = Some(Mmds::new_with_v1());
-                    Response::new(Version::Http11, StatusCode::NoContent)
-                } else {
-                    ApiServer::json_response(
-                        StatusCode::BadRequest,
-                        ApiServer::json_fault_message(MmdsError::NoMmds.to_string()),
-                    )
-                }
-            }
-        }
+        self.unlock_mmds().set_version(version).map_or_else(
+            |e| {
+                ApiServer::json_response(
+                    StatusCode::BadRequest,
+                    ApiServer::json_fault_message(e.to_string()),
+                )
+            },
+            |_| Response::new(Version::Http11, StatusCode::NoContent),
+        )
     }
 
     /// An HTTP response which also includes a body.
@@ -550,7 +506,7 @@ mod tests {
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
 
-        let mut api_server = ApiServer::new(
+        let api_server = ApiServer::new(
             mmds_info,
             api_request_sender,
             vmm_response_receiver,
@@ -559,14 +515,6 @@ mod tests {
 
         let response = api_server.mmds_version();
         assert_eq!(response.status(), StatusCode::OK);
-
-        api_server.mmds_info = Arc::new(Mutex::new(None));
-        let response = api_server.mmds_version();
-        assert_eq!(response.status(), StatusCode::BadRequest);
-        assert_eq!(
-            response.body().unwrap().body,
-            ApiServer::json_fault_message(MmdsError::NoMmds.to_string()).as_bytes()
-        );
     }
 
     #[test]
@@ -576,7 +524,7 @@ mod tests {
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
 
-        let mut api_server = ApiServer::new(
+        let api_server = ApiServer::new(
             mmds_info,
             api_request_sender,
             vmm_response_receiver,
@@ -585,14 +533,6 @@ mod tests {
 
         let response = api_server.get_mmds();
         assert_eq!(response.status(), StatusCode::OK);
-
-        api_server.mmds_info = Arc::new(Mutex::new(None));
-        let response = api_server.get_mmds();
-        assert_eq!(response.status(), StatusCode::BadRequest);
-        assert_eq!(
-            response.body().unwrap().body,
-            ApiServer::json_fault_message(MmdsError::NoMmds.to_string()).as_bytes()
-        );
     }
 
     #[test]
@@ -602,7 +542,7 @@ mod tests {
         let (_to_api, vmm_response_receiver) = channel();
         let mmds_info = MMDS.clone();
 
-        let mut api_server = ApiServer::new(
+        let api_server = ApiServer::new(
             mmds_info,
             api_request_sender,
             vmm_response_receiver,
@@ -610,14 +550,6 @@ mod tests {
         );
         let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
         assert_eq!(response.status(), StatusCode::NoContent);
-
-        api_server.mmds_info = Arc::new(Mutex::new(None));
-        let response = api_server.put_mmds(serde_json::Value::String("string".to_string()));
-        assert_eq!(response.status(), StatusCode::BadRequest);
-        assert_eq!(
-            response.body().unwrap().body,
-            ApiServer::json_fault_message(MmdsError::NoMmds.to_string()).as_bytes()
-        );
     }
 
     #[test]
@@ -634,28 +566,9 @@ mod tests {
             to_vmm_fd,
         );
 
-        let response = api_server.set_mmds_version(MmdsVersion::V1);
-        assert_eq!(response.status(), StatusCode::NoContent);
-
         let response = api_server.set_mmds_version(MmdsVersion::V2);
         assert_eq!(response.status(), StatusCode::NoContent);
 
-        // Set mmds_info to None to exercise the behavior where default MMDS (v2) could
-        // not be created.
-        let mut mmds_obj = api_server.mmds_info.lock().unwrap();
-        *mmds_obj = None;
-        std::mem::drop(mmds_obj);
-        // Ensure change is persistent to the MMDS object.
-        assert!(api_server.mmds_info.lock().unwrap().is_none());
-        assert!(MMDS.lock().unwrap().is_none());
-
-        // If MMDS obj is none, only configuring MMDS to version 1 is allowed.
-        let response = api_server.set_mmds_version(MmdsVersion::V2);
-        assert_eq!(response.status(), StatusCode::BadRequest);
-        assert_eq!(
-            response.body().unwrap().body,
-            ApiServer::json_fault_message(MmdsError::NoMmds.to_string()).as_bytes()
-        );
         let response = api_server.set_mmds_version(MmdsVersion::V1);
         assert_eq!(response.status(), StatusCode::NoContent);
     }
@@ -665,9 +578,9 @@ mod tests {
         let to_vmm_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let (api_request_sender, _from_api) = channel();
         let (_to_api, vmm_response_receiver) = channel();
-        let mmds_info = Arc::new(Mutex::new(Some(Mmds::new().unwrap())));
+        let mmds_info = Arc::new(Mutex::new(Mmds::default()));
 
-        let mut api_server = ApiServer::new(
+        let api_server = ApiServer::new(
             mmds_info,
             api_request_sender,
             vmm_response_receiver,
@@ -685,14 +598,6 @@ mod tests {
             "{ \"key\" : \"value\" }".to_string(),
         ));
         assert_eq!(response.status(), StatusCode::NoContent);
-
-        api_server.mmds_info = Arc::new(Mutex::new(None));
-        let response = api_server.patch_mmds(serde_json::Value::Bool(true));
-        assert_eq!(response.status(), StatusCode::BadRequest);
-        assert_eq!(
-            response.body().unwrap().body,
-            ApiServer::json_fault_message(MmdsError::NoMmds.to_string()).as_bytes()
-        );
     }
 
     #[test]
