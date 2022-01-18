@@ -18,7 +18,7 @@ pub struct Mmds {
 }
 
 /// MMDS version.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum MmdsVersion {
     V1,
     V2,
@@ -306,15 +306,15 @@ mod tests {
         let mut mmds = Mmds::default();
 
         // Test default MMDS version.
-        assert_eq!(mmds.version().to_string(), MmdsVersion::V1.to_string());
+        assert_eq!(mmds.version(), MmdsVersion::V1);
 
         // Test setting MMDS version to v2.
         mmds.set_version(MmdsVersion::V2).unwrap();
-        assert_eq!(mmds.version().to_string(), MmdsVersion::V2.to_string());
+        assert_eq!(mmds.version(), MmdsVersion::V2);
 
         // Test setting MMDS version back to default.
         mmds.set_version(MmdsVersion::V1).unwrap();
-        assert_eq!(mmds.version().to_string(), MmdsVersion::V1.to_string());
+        assert_eq!(mmds.version(), MmdsVersion::V1);
     }
 
     #[test]
@@ -575,7 +575,7 @@ mod tests {
         let mut mmds = Mmds::default();
         // Set MMDS version to V2.
         mmds.set_version(MmdsVersion::V2).unwrap();
-        assert_eq!(mmds.version().to_string(), MmdsVersion::V2.to_string());
+        assert_eq!(mmds.version(), MmdsVersion::V2);
 
         assert!(!mmds.is_valid_token("aaa").unwrap());
 
@@ -591,7 +591,7 @@ mod tests {
         let mut mmds = Mmds::default();
         // Set MMDS version to V2.
         mmds.set_version(MmdsVersion::V2).unwrap();
-        assert_eq!(mmds.version().to_string(), MmdsVersion::V2.to_string());
+        assert_eq!(mmds.version(), MmdsVersion::V2);
 
         let token = mmds.generate_token(1).unwrap();
         assert!(mmds.is_valid_token(&token).unwrap());

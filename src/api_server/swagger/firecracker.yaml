@@ -430,7 +430,8 @@ paths:
     put:
       summary: Set MMDS configuration. Pre-boot only.
       description:
-        Creates MMDS configuration to be used by the MMDS network stack.
+        Configures MMDS version, IPv4 address used by the MMDS network stack
+        and interfaces that allow MMDS requests.
       parameters:
         - name: body
           in: body
@@ -963,6 +964,13 @@ definitions:
     description:
       Defines the MMDS configuration.
     properties:
+      version:
+        description: Enumeration indicating the MMDS version to be configured.
+        type: string
+        enum:
+          - V1
+          - V2
+        default: V1
       ipv4_address:
         type: string
         format: "169.254.([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4]).([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])"

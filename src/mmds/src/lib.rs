@@ -399,8 +399,8 @@ mod tests {
             .set_version(MmdsVersion::V1)
             .unwrap();
         assert_eq!(
-            mmds.lock().expect("Poisoned lock").version().to_string(),
-            MmdsVersion::V1.to_string()
+            mmds.lock().expect("Poisoned lock").version(),
+            MmdsVersion::V1
         );
 
         // Test resource not found.
@@ -476,8 +476,8 @@ mod tests {
             .set_version(MmdsVersion::V2)
             .unwrap();
         assert_eq!(
-            mmds.lock().expect("Poisoned lock").version().to_string(),
-            MmdsVersion::V2.to_string()
+            mmds.lock().expect("Poisoned lock").version(),
+            MmdsVersion::V2
         );
 
         // Test not allowed PATCH HTTP Method.

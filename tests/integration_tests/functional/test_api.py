@@ -226,6 +226,27 @@ def test_api_put_update_pre_boot(test_microvm_with_api):
     track_dirty_pages = microvm_config_json['track_dirty_pages']
     assert response_json['track_dirty_pages'] == track_dirty_pages
 
+    # Updates to MMDS version with invalid value are not allowed.
+    response = test_microvm.mmds.put_config(json={'version': 'foo'})
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert "An error occurred when deserializing " \
+           "the json body of a request: unknown variant " \
+           "`foo`, expected `V1` or `V2`" in response.text
+
+    # Updates to MMDS config pre-boot are allowed.
+    response = test_microvm.mmds.put_config(json={
+        'version': 'V2',
+        'ipv4_address': '169.254.169.250'
+    })
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
+    # Updates to `ipv4_address` without version are allowed because
+    # default version is V1.
+    response = test_microvm.mmds.put_config(json={
+        'ipv4_address': '169.254.169.250'
+    })
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
+
 
 def test_net_api_put_update_pre_boot(test_microvm_with_api):
     """
@@ -480,6 +501,15 @@ def test_api_put_update_post_boot(test_microvm_with_api):
         is_read_only=False,
         is_root_device=True
     )
+    assert test_microvm.api_session.is_status_bad_request(response.status_code)
+    assert expected_err in response.text
+
+    # MMDS config is not allowed post-boot.
+    mmds_config = {
+        'version': 'V2',
+        'ipv4_address': '169.254.169.250'
+    }
+    response = test_microvm.mmds.put_config(json=mmds_config)
     assert test_microvm.api_session.is_status_bad_request(response.status_code)
     assert expected_err in response.text
 
@@ -1261,7 +1291,8 @@ def test_get_full_config(test_microvm_with_api):
         iface_id=iface_id,
         guest_mac=guest_mac,
         host_dev_name=tap1.name,
-        tx_rate_limiter=tx_rl
+        tx_rate_limiter=tx_rl,
+        allow_mmds_requests=True
     )
     assert test_microvm.api_session.is_status_no_content(response.status_code)
     expected_cfg['network-interfaces'] = [{
@@ -1270,12 +1301,23 @@ def test_get_full_config(test_microvm_with_api):
         'guest_mac': '06:00:00:00:00:01',
         'rx_rate_limiter': None,
         'tx_rate_limiter': tx_rl,
-        'allow_mmds_requests': False
+        'allow_mmds_requests': True
     }]
+
+    # Update MMDS config.
+    mmds_config = {
+        'version': 'V2',
+        'ipv4_address': '169.254.169.250'
+    }
+    response = test_microvm.mmds.put_config(json=mmds_config)
+    assert test_microvm.api_session.is_status_no_content(response.status_code)
 
     expected_cfg['logger'] = None
     expected_cfg['metrics'] = None
-    expected_cfg['mmds-config'] = None
+    expected_cfg['mmds-config'] = {
+        'version': 'V2',
+        'ipv4_address': '169.254.169.250'
+    }
 
     # Getting full vm configuration should be available pre-boot.
     response = test_microvm.full_cfg.get()
@@ -1321,20 +1363,3 @@ def test_map_private_seccomp_regression(test_microvm_with_ssh):
 
     response = test_microvm.mmds.put(json=data_store)
     assert test_microvm.api_session.is_status_no_content(response.status_code)
-
-
-def test_negative_api_mmds_version(test_microvm_with_api):
-    """
-    Test negative scenarios of MMDS version API.
-
-    @type: negative
-    """
-    test_microvm = test_microvm_with_api
-    test_microvm.spawn()
-
-    # Test invalid value for MMDS version.
-    response = test_microvm.mmds.put_mmds_version(json={'version': 'foo'})
-    err_msg = "An error occurred when deserializing the json body of a " \
-              "request: unknown variant `foo`, expected `V1` or `V2`"
-    assert test_microvm.api_session.is_status_bad_request(response.status_code)
-    assert err_msg in response.text
