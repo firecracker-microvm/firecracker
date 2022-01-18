@@ -24,7 +24,6 @@
 //! primitives types (currently we use versionize that uses serde bincode as a backend). The current
 //! implementation does not have any logic dependent on it.
 //!  - **the data version** which refers to the state.
-//!
 mod persist;
 pub use crate::persist::Persist;
 

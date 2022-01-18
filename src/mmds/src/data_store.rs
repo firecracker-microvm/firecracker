@@ -226,7 +226,7 @@ impl Mmds {
     ///     "key2" : "value3"
     ///     "key3" : "value3"
     /// }
-    ///```
+    /// ```
     ///
     /// IMDS formatted JSON object:
     /// ```text

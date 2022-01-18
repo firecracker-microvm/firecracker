@@ -44,8 +44,8 @@ pub trait BitRangeExt<T> {
     /// use cpuid::bit_helper::*;
     ///
     /// let range = BitRange {
-    ///    msb_index: 7,
-    ///    lsb_index: 3,
+    ///     msb_index: 7,
+    ///     lsb_index: 3,
     /// };
     /// println!("binary value: {:b}", range.get_mask());
     /// ```

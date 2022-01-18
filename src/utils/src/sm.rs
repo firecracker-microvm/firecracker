@@ -24,7 +24,6 @@ impl<T> StateMachine<T> {
     /// # Arguments
     ///
     /// `function` - the state handler for this state.
-    ///
     pub fn new(function: Option<StateFn<T>>) -> StateMachine<T> {
         StateMachine { function }
     }
@@ -34,7 +33,6 @@ impl<T> StateMachine<T> {
     /// # Arguments
     ///
     /// `function` - the state handler for this state.
-    ///
     pub fn next(function: StateFn<T>) -> StateMachine<T> {
         StateMachine::new(Some(function))
     }
@@ -45,7 +43,6 @@ impl<T> StateMachine<T> {
     /// # Arguments
     ///
     /// `function` - the state handler for this last state.
-    ///
     pub fn finish() -> StateMachine<T> {
         StateMachine::new(None)
     }
@@ -57,7 +54,6 @@ impl<T> StateMachine<T> {
     /// `machine` - a mutable reference to the object running through the various states.
     /// `starting_state_fn` - a `fn(&mut T) -> StateMachine<T>` that should be the handler for
     ///                       the initial state.
-    ///
     pub fn run(machine: &mut T, starting_state_fn: StateFn<T>) {
         // Start off in the `starting_state` state.
         let mut state_machine = StateMachine::new(Some(starting_state_fn));
