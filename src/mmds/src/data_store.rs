@@ -171,10 +171,9 @@ impl Mmds {
     // We do not check data_store size here because a request with a body
     // bigger than the imposed limit will be stopped by micro_http before
     // reaching here.
-    pub fn put_data(&mut self, data: Value) -> Result<(), Error> {
+    pub fn put_data(&mut self, data: Value) {
         self.data_store = data;
         self.is_initialized = true;
-        Ok(())
     }
 
     pub fn patch_data(&mut self, patch_data: Value) -> Result<(), Error> {
@@ -329,8 +328,7 @@ mod tests {
 
         let mut mmds_json = "{\"meta-data\":{\"iam\":\"dummy\"},\"user-data\":\"1522850095\"}";
 
-        mmds.put_data(serde_json::from_str(mmds_json).unwrap())
-            .unwrap();
+        mmds.put_data(serde_json::from_str(mmds_json).unwrap());
         assert!(mmds.check_data_store_initialized().is_ok());
 
         assert_eq!(mmds.get_data_str(), mmds_json);
@@ -361,7 +359,7 @@ mod tests {
             "balance": -24
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
-        mmds.put_data(data_store).unwrap();
+        mmds.put_data(data_store);
 
         // Test invalid path.
         assert_eq!(
@@ -513,7 +511,7 @@ mod tests {
             "age": "43"
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
-        assert!(mmds.put_data(data_store).is_ok());
+        mmds.put_data(data_store);
 
         let data = r#"{
             "name": {
@@ -533,7 +531,7 @@ mod tests {
             "age": 43
         }"#;
         let data_store: Value = serde_json::from_str(data).unwrap();
-        assert!(mmds.put_data(data_store).is_ok());
+        mmds.put_data(data_store);
 
         let data = r#"{
             "name": {
