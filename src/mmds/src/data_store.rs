@@ -26,7 +26,7 @@ pub enum MmdsVersion {
 
 impl Default for MmdsVersion {
     fn default() -> Self {
-        MmdsVersion::V2
+        MmdsVersion::V1
     }
 }
 
@@ -91,18 +91,8 @@ impl fmt::Display for Error {
     }
 }
 
-impl Mmds {
-    /// Create a new Mmds entity.
-    pub fn new() -> Result<Self, Error> {
-        Ok(Mmds {
-            data_store: Value::default(),
-            token_authority: Some(TokenAuthority::new().map_err(Error::TokenAuthority)?),
-            is_initialized: false,
-            data_store_limit: MAX_DATA_STORE_SIZE,
-        })
-    }
-
-    pub fn new_with_v1() -> Self {
+impl Default for Mmds {
+    fn default() -> Self {
         Mmds {
             data_store: Value::default(),
             token_authority: None,
@@ -110,7 +100,9 @@ impl Mmds {
             data_store_limit: MAX_DATA_STORE_SIZE,
         }
     }
+}
 
+impl Mmds {
     /// This method is needed to check if data store is initialized.
     /// When a PATCH request is made on an uninitialized Mmds structure this method
     /// should return a NotFound error.
@@ -307,27 +299,28 @@ mod tests {
     fn test_display_mmds_version() {
         assert_eq!(MmdsVersion::V1.to_string(), "V1");
         assert_eq!(MmdsVersion::V2.to_string(), "V2");
+        assert_eq!(MmdsVersion::default().to_string(), "V1");
     }
 
     #[test]
     fn test_mmds_version() {
-        let mut mmds = Mmds::new().unwrap();
+        let mut mmds = Mmds::default();
 
         // Test default MMDS version.
-        assert_eq!(mmds.version().to_string(), MmdsVersion::V2.to_string());
-
-        // Test setting MMDS version to v1.
-        mmds.set_version(MmdsVersion::V1).unwrap();
         assert_eq!(mmds.version().to_string(), MmdsVersion::V1.to_string());
 
-        // Test setting MMDS version back to default.
+        // Test setting MMDS version to v2.
         mmds.set_version(MmdsVersion::V2).unwrap();
         assert_eq!(mmds.version().to_string(), MmdsVersion::V2.to_string());
+
+        // Test setting MMDS version back to default.
+        mmds.set_version(MmdsVersion::V1).unwrap();
+        assert_eq!(mmds.version().to_string(), MmdsVersion::V1.to_string());
     }
 
     #[test]
     fn test_mmds() {
-        let mut mmds = Mmds::new().unwrap();
+        let mut mmds = Mmds::default();
 
         assert_eq!(
             mmds.check_data_store_initialized().unwrap_err().to_string(),
@@ -352,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_get_value() {
-        let mut mmds = Mmds::new().unwrap();
+        let mut mmds = Mmds::default();
         let data = r#"{
             "name": {
                 "first": "John",
@@ -509,7 +502,7 @@ mod tests {
 
     #[test]
     fn test_update_data_store() {
-        let mut mmds = Mmds::new().unwrap();
+        let mut mmds = Mmds::default();
         mmds.set_data_store_limit(MAX_DATA_STORE_SIZE);
 
         let data = r#"{
@@ -581,7 +574,11 @@ mod tests {
 
     #[test]
     fn test_is_valid() {
-        let mut mmds = Mmds::new().unwrap();
+        let mut mmds = Mmds::default();
+        // Set MMDS version to V2.
+        mmds.set_version(MmdsVersion::V2).unwrap();
+        assert_eq!(mmds.version().to_string(), MmdsVersion::V2.to_string());
+
         assert!(!mmds.is_valid_token("aaa").unwrap());
 
         mmds.token_authority = None;
@@ -593,7 +590,10 @@ mod tests {
 
     #[test]
     fn test_generate_token() {
-        let mut mmds = Mmds::new().unwrap();
+        let mut mmds = Mmds::default();
+        // Set MMDS version to V2.
+        mmds.set_version(MmdsVersion::V2).unwrap();
+        assert_eq!(mmds.version().to_string(), MmdsVersion::V2.to_string());
 
         let token = mmds.generate_token(1).unwrap();
         assert!(mmds.is_valid_token(&token).unwrap());

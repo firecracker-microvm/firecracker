@@ -16,7 +16,6 @@ use crate::token::PATH_TO_TOKEN;
 
 use crate::token_headers::REJECTED_HEADER;
 use lazy_static::lazy_static;
-use logger::warn;
 use micro_http::{
     Body, HttpHeaderError, MediaType, Method, Request, RequestError, Response, StatusCode, Version,
 };
@@ -28,7 +27,6 @@ pub enum Error {
     InvalidToken,
     InvalidURI,
     MethodNotAllowed,
-    NoMmds,
     NoTokenProvided,
     NoTtlProvided,
     ResourceNotFound(String),
@@ -40,11 +38,6 @@ impl fmt::Display for Error {
             Error::InvalidToken => write!(f, "MMDS token not valid."),
             Error::InvalidURI => write!(f, "Invalid URI."),
             Error::MethodNotAllowed => write!(f, "Not allowed HTTP method."),
-            Error::NoMmds => write!(
-                f,
-                "Default MMDS (version 2) was not successfully created and it is not \
-                currently available for requests."
-            ),
             Error::NoTokenProvided => write!(
                 f,
                 "No MMDS token provided. Use `X-metadata-token` \
@@ -66,13 +59,7 @@ lazy_static! {
     // A static reference to a global Mmds instance. We currently use this for ease of access during
     // prototyping. We'll consider something like passing Arc<Mutex<Mmds>> references to the
     // appropriate threads in the future.
-    pub static ref MMDS: Arc<Mutex<Option<Mmds>>> = Arc::new(Mutex::new(Mmds::new().map_or_else(
-        |_| {
-            warn!("Unable to create MMDS. MicroVM data store will not be available.");
-            None
-        },
-        Some
-    )));
+    pub static ref MMDS: Arc<Mutex<Mmds>> = Arc::new(Mutex::new(Mmds::default()));
 }
 
 impl From<MediaType> for OutputFormat {
@@ -133,15 +120,6 @@ fn sanitize_uri(mut uri: String) -> String {
 }
 
 fn convert_to_response(request: Request) -> Response {
-    // Check that MMDS entity has been successfully created.
-    if MMDS.lock().expect("Poisoned lock").is_none() {
-        return build_response(
-            request.http_version(),
-            StatusCode::BadRequest,
-            Body::new(Error::NoMmds.to_string()),
-        );
-    }
-
     let uri = request.uri().get_abs_path();
     if uri.is_empty() {
         return build_response(
@@ -155,10 +133,7 @@ fn convert_to_response(request: Request) -> Response {
 }
 
 fn respond_to_request(request: Request) -> Response {
-    let mmds_version = match MMDS.lock().expect("Poisoned lock").as_ref() {
-        Some(mmds) => mmds.version(),
-        None => unreachable!(),
-    };
+    let mmds_version = MMDS.lock().expect("Poisoned lock").version();
 
     match mmds_version {
         MmdsVersion::V1 => respond_to_request_mmdsv1(request),
@@ -227,12 +202,7 @@ fn respond_to_get_request_checked(request: Request, token_headers: TokenHeaders)
     };
 
     // Validate MMDS token.
-    let is_valid = match MMDS.lock().expect("Poisoned lock").as_ref() {
-        Some(mmds) => mmds.is_valid_token(token),
-        // This path is unreachable because MMDS entity has been previously
-        // checked.
-        None => unreachable!(),
-    };
+    let is_valid = MMDS.lock().expect("Poisoned lock").is_valid_token(token);
 
     match is_valid {
         Ok(true) => respond_to_get_request_unchecked(request),
@@ -254,12 +224,10 @@ fn respond_to_get_request_unchecked(request: Request) -> Response {
 
     // The lock can be held by one thread only, so it is safe to unwrap.
     // If another thread poisoned the lock, we abort the execution.
-    let response = match MMDS.lock().expect("Poisoned lock").as_ref() {
-        Some(mmds) => mmds.get_value(json_path, request.headers.accept().into()),
-        // This path is unreachable because MMDS entity has been previously
-        // checked.
-        None => unreachable!(),
-    };
+    let response = MMDS
+        .lock()
+        .expect("Poisoned lock")
+        .get_value(json_path, request.headers.accept().into());
 
     match response {
         Ok(response_body) => build_response(
@@ -336,12 +304,10 @@ fn respond_to_put_request(request: Request, token_headers: TokenHeaders) -> Resp
     };
 
     // Generate token.
-    let result = match MMDS.lock().expect("Poisoned lock").as_mut() {
-        Some(mmds) => mmds.generate_token(ttl_seconds),
-        // This path is unreachable because MMDS entity has been previously
-        // checked.
-        None => unreachable!(),
-    };
+    let result = MMDS
+        .lock()
+        .expect("Poisoned lock")
+        .generate_token(ttl_seconds);
     match result {
         Ok(token) => {
             let mut response =
@@ -363,7 +329,7 @@ mod tests {
     use crate::token::{MAX_TOKEN_TTL_SECONDS, MIN_TOKEN_TTL_SECONDS};
     use std::time::Duration;
 
-    fn populate_mmds() -> Arc<Mutex<Option<Mmds>>> {
+    fn populate_mmds() -> Arc<Mutex<Mmds>> {
         let data = r#"{
             "name": {
                 "first": "John",
@@ -381,8 +347,6 @@ mod tests {
         let mmds = MMDS.clone();
         mmds.lock()
             .expect("Poisoned lock")
-            .as_mut()
-            .unwrap()
             .put_data(serde_json::from_str(data).unwrap())
             .unwrap();
 
@@ -433,17 +397,10 @@ mod tests {
         // Set version to V1.
         mmds.lock()
             .expect("Poisoned lock")
-            .as_mut()
-            .unwrap()
             .set_version(MmdsVersion::V1)
             .unwrap();
         assert_eq!(
-            mmds.lock()
-                .expect("Poisoned lock")
-                .as_ref()
-                .unwrap()
-                .version()
-                .to_string(),
+            mmds.lock().expect("Poisoned lock").version().to_string(),
             MmdsVersion::V1.to_string()
         );
 
@@ -517,17 +474,10 @@ mod tests {
         // Set version to V2.
         mmds.lock()
             .expect("Poisoned lock")
-            .as_mut()
-            .unwrap()
             .set_version(MmdsVersion::V2)
             .unwrap();
         assert_eq!(
-            mmds.lock()
-                .expect("Poisoned lock")
-                .as_mut()
-                .unwrap()
-                .version()
-                .to_string(),
+            mmds.lock().expect("Poisoned lock").version().to_string(),
             MmdsVersion::V2.to_string()
         );
 
@@ -767,12 +717,6 @@ mod tests {
         assert_eq!(
             Error::MethodNotAllowed.to_string(),
             "Not allowed HTTP method."
-        );
-
-        assert_eq!(
-            Error::NoMmds.to_string(),
-            "Default MMDS (version 2) was not successfully created and it is not \
-            currently available for requests."
         );
 
         assert_eq!(

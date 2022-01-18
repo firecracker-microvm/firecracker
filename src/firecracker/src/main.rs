@@ -306,16 +306,13 @@ fn main_exitable() -> ExitCode {
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the mmds content file"));
 
-    if let (Some(data), Some(mmds)) = (
-        metadata_json,
+    if let Some(data) = metadata_json {
         MMDS.lock()
             .expect("Failed to acquire lock on MMDS")
-            .as_mut(),
-    ) {
-        mmds.put_data(
-            serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
-        )
-        .expect("MMDS content load from file failed.");
+            .put_data(
+                serde_json::from_str(&data).expect("MMDS error: metadata provided not valid json"),
+            )
+            .expect("MMDS content load from file failed.");
 
         info!("Successfully added metadata to mmds from file");
     }
