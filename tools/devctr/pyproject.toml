@@ -21,7 +21,9 @@ requests = "*"
 requests-unixsocket = "*"
 retry = "*"
 typing-extensions = "*"
-gitlint = "*"
+gitlint = "0.16.0"
+# We need to fix the gitlint version since version 0.17.0 has a problem:
+# https://pythonissues.com/issues/1410824
 
 [tool.poetry.dev-dependencies]
 

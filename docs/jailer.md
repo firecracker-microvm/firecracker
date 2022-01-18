@@ -15,7 +15,6 @@ The jailer is invoked in this manner:
 
 ``` bash
 jailer --id <id> \
-       --node <numa_node>\
        --exec-file <exec_file> \
        --uid <uid> \
        --gid <gid>
@@ -32,8 +31,6 @@ jailer --id <id> \
 
 - `id` is the unique VM identification string, which may contain alphanumeric
   characters and hyphens. The maximum `id` length is currently 64 characters.
-- `numa_node` represents the NUMA node the process gets assigned to. More
-  details are available below.
 - `exec_file` is the path to the Firecracker binary that will be exec-ed by the
   jailer. The user can provide a path to any binary, but the interaction with
   the jailer is mostly Firecracker specific.
@@ -264,8 +261,7 @@ Note: default value for `<api-sock>` is `/run/firecracker.socket`.
   device.
 - By default the VMs are not asigned to any NUMA node or pinned to any CPU.
   The user must manage any fine tuning of resource partitioning via
-  cgroups, by using the `--cgroup` command line argument or by using the
-  `--node` argument.
+  cgroups, by using the `--cgroup` command line argument.
 - It’s up to the user to handle cleanup after running the jailer. One way to do
   this involves registering handlers with the cgroup `notify_on_release`
   mechanism, while being wary about potential race conditions (the instance

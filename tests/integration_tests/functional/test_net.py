@@ -3,7 +3,7 @@
 """Tests for the net device."""
 import time
 
-import framework.utils as utils
+from framework import utils
 import host_tools.network as net_tools
 
 # The iperf version to run this tests with

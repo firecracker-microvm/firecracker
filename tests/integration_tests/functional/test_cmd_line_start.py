@@ -11,7 +11,7 @@ from retry.api import retry_call
 
 import pytest
 
-import framework.utils as utils
+from framework import utils
 
 
 def _configure_vm_from_json(test_microvm, vm_config_file):
@@ -32,8 +32,8 @@ def _configure_vm_from_json(test_microvm, vm_config_file):
     # firecracker after it starts.
     vm_config_path = os.path.join(test_microvm.path,
                                   os.path.basename(vm_config_file))
-    with open(vm_config_file) as f1:
-        with open(vm_config_path, "w") as f2:
+    with open(vm_config_file, encoding='utf-8') as f1:
+        with open(vm_config_path, "w", encoding='utf-8') as f2:
             for line in f1:
                 f2.write(line)
     test_microvm.create_jailed_resource(vm_config_path, create_jail=True)
@@ -77,7 +77,7 @@ def test_config_start_with_api(test_microvm_with_api, vm_config_file):
     # Validate full vm configuration.
     response = test_microvm.full_cfg.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
-    with open(vm_config_file) as json_file:
+    with open(vm_config_file, encoding='utf-8') as json_file:
         assert response.json() == json.load(json_file)
 
 
@@ -230,7 +230,7 @@ def test_start_with_metadata(test_microvm_with_api):
     response = test_microvm.mmds.get()
     assert test_microvm.api_session.is_status_ok(response.status_code)
 
-    with open(metadata_file) as json_file:
+    with open(metadata_file, encoding='utf-8') as json_file:
         assert response.json() == json.load(json_file)
 
 

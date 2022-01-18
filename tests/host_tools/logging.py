@@ -26,7 +26,7 @@ class Fifo:
             fd = os.open(path, os.O_NONBLOCK)
             self.fifo = os.fdopen(fd, "r")
         else:
-            self.fifo = open(path, "r")
+            self.fifo = open(path, "r", encoding='utf-8')
 
         self.path = path
 

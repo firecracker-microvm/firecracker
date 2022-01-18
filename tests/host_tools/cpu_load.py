@@ -3,7 +3,7 @@
 """Utilities for measuring cpu utilisation for a process."""
 import time
 from threading import Thread
-import framework.utils as utils
+from framework import utils
 
 # /proc/<pid>/stat output taken from
 # https://www.man7.org/linux/man-pages/man5/proc.5.html
@@ -18,8 +18,8 @@ class CpuLoadExceededException(Exception):
     def __init__(self, cpu_load_samples, threshold):
         """Compose the error message containing the cpu load details."""
         super().__init__(
-            'Cpu load samples {} exceeded maximum threshold {}.\n'
-            .format(cpu_load_samples, threshold)
+            f'Cpu load samples {cpu_load_samples} exceeded maximum'
+            f'threshold {threshold}.\n'
         )
 
 

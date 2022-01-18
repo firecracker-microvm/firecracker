@@ -55,7 +55,7 @@ class ProcessManager:
     def get_cpu_percent(pid: int) -> float:
         """Return the instant process CPU utilization percent."""
         _, stdout, _ = run_cmd(GET_CPU_LOAD.format(pid))
-        cpu_percentages = dict()
+        cpu_percentages = {}
 
         # Take all except the last line
         lines = stdout.strip().split(sep="\n")
@@ -72,7 +72,7 @@ class ProcessManager:
             # Handles `fc_vcpu 0` case as well.
             thread_name = info[11] + (" " + info[12] if info_len > 12 else "")
             if thread_name not in cpu_percentages:
-                cpu_percentages[thread_name] = dict()
+                cpu_percentages[thread_name] = {}
             cpu_percentages[thread_name][task_id] = cpu_percent
 
         return cpu_percentages
@@ -89,14 +89,14 @@ class CpuMap:
     starting from 0.
     """
 
-    arr = list()
+    arr = []
 
-    def __new__(cls, x):
+    def __new__(cls, cpu):
         """Instantiate the class field."""
-        assert CpuMap.len() > x
+        assert CpuMap.len() > cpu
         if not CpuMap.arr:
             CpuMap.arr = CpuMap._cpus()
-        return CpuMap.arr[x]
+        return CpuMap.arr[cpu]
 
     @staticmethod
     def len():
@@ -193,8 +193,8 @@ class CmdBuilder:
     def build(self):
         """Build the command."""
         cmd = self._bin_path + " "
-        for flag in self._args:
-            cmd += flag + " " + "{}".format(self._args[flag]) + " "
+        for (flag, value) in self._args.items():
+            cmd += f"{flag} {value} "
         return cmd
 
 
@@ -240,9 +240,9 @@ class DictQuery:
     1
     """
 
-    def __init__(self, d: dict):
+    def __init__(self, inner: dict):
         """Initialize the dict query."""
-        self._inner = d
+        self._inner = inner
 
     def get(self, keys_path: str, default=None):
         """Retrieve value corresponding to the key path."""
@@ -270,7 +270,7 @@ class ExceptionAggregator(Exception):
     def __init__(self, add_newline=False):
         """Initialize the exception aggregator."""
         super().__init__()
-        self.failures = list()
+        self.failures = []
 
         # If `add_newline` is True then the failures will start one row below,
         # in the logs. This is useful for having the failures starting on an
@@ -545,19 +545,19 @@ def get_cpu_percent(pid: int, iterations: int, omit: int) -> dict:
     """
     assert iterations > 0
     time.sleep(omit)
-    cpu_percentages = dict()
+    cpu_percentages = {}
     for _ in range(iterations):
         current_cpu_percentages = ProcessManager.get_cpu_percent(pid)
         assert len(current_cpu_percentages) > 0
 
-        for thread_name in current_cpu_percentages:
+        for (thread_name, task_ids) in current_cpu_percentages.items():
             if not cpu_percentages.get(thread_name):
-                cpu_percentages[thread_name] = dict()
-            for task_id in current_cpu_percentages[thread_name]:
+                cpu_percentages[thread_name] = {}
+            for task_id in task_ids:
                 if not cpu_percentages[thread_name].get(task_id):
-                    cpu_percentages[thread_name][task_id] = list()
+                    cpu_percentages[thread_name][task_id] = []
                 cpu_percentages[thread_name][task_id].append(
-                    current_cpu_percentages[thread_name][task_id])
+                    task_ids[task_id])
         time.sleep(1)  # 1 second granularity.
     return cpu_percentages
 

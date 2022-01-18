@@ -6,8 +6,8 @@
 import platform
 import pytest
 
-import framework.utils as utils
-import framework.defs as defs
+from framework import utils
+from framework import defs
 
 
 @pytest.mark.skipif(

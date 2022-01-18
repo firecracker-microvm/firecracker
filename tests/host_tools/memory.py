@@ -5,7 +5,7 @@ from queue import Queue
 import time
 from threading import Thread
 
-import framework.utils as utils
+from framework import utils
 
 
 class MemoryUsageExceededException(Exception):

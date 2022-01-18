@@ -104,7 +104,7 @@ def _check_cache_topology_arm(test_microvm, no_cpus):
 
             for cache_file in cache_files:
                 absolute_cache_file = os.path.join(cache_path, cache_file)
-                with open(absolute_cache_file, 'r') as file:
+                with open(absolute_cache_file, 'r', encoding='utf-8') as file:
                     host_val = file.readline().strip()
                     host_dict[str(absolute_cache_file)] = str(host_val)
     assert guest_dict == host_dict

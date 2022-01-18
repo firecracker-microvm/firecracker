@@ -3,7 +3,7 @@
 """Tests ensuring desired style for commit messages."""
 
 import os
-import framework.utils as utils
+from framework import utils
 
 
 def test_gitlint():

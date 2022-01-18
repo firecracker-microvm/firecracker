@@ -39,8 +39,12 @@ IPERF3_END_RESULTS_TAG = "end"
 DEBUG_CPU_UTILIZATION_VMM_SAMPLES_TAG = "cpu_utilization_vmm_samples"
 DELTA_PERCENTAGE_TAG = "delta_percentage"
 TARGET_TAG = "target"
-CONFIG = json.load(open(defs.CFG_LOCATION /
-                        "network_tcp_throughput_test_config.json"))
+CONFIG = json.load(
+    open(
+        defs.CFG_LOCATION / "network_tcp_throughput_test_config.json",
+        encoding='utf-8'
+    )
+)
 
 
 # pylint: disable=R0903
@@ -57,7 +61,7 @@ class NetTCPThroughputBaselineProvider(BaselineProvider):
             lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
             CONFIG["hosts"]["instances"]["m5d.metal"]["cpus"]))
 
-        super().__init__(DictQuery(dict()))
+        super().__init__(DictQuery({}))
         if len(baselines) > 0:
             super().__init__(DictQuery(baselines[0]))
 
@@ -124,7 +128,7 @@ def produce_iperf_output(basevm,
     cpu_load_runtime = runtime - 2
     assert cpu_load_runtime > 0
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = list()
+        futures = []
         cpu_load_future = executor.submit(get_cpu_percent,
                                           basevm.jailer_clone_pid,
                                           cpu_load_runtime,
@@ -159,7 +163,7 @@ def produce_iperf_output(basevm,
             assert data_len == cpu_load_runtime
             vmm_util = sum(data)/data_len
             cpu_util_perc = res[IPERF3_END_RESULTS_TAG][
-                IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG] = dict()
+                IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG] = {}
             cpu_util_perc[CPU_UTILIZATION_VMM] = vmm_util
             if DEBUG:
                 res[IPERF3_END_RESULTS_TAG][

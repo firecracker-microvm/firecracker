@@ -5,7 +5,7 @@ import re
 import platform
 import pytest
 
-import framework.utils as utils
+from framework import utils
 from host_tools.network import SSHConnection
 
 DMESG_LOG_REGEX = r'rtc-pl031\s+(\d+).rtc: setting system clock to'

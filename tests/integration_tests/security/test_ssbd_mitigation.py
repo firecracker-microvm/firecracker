@@ -25,14 +25,12 @@ def test_ssbd_mitigation(test_microvm_with_initrd):
 
     vm.start()
 
-    cmd = 'ps -T --no-headers -p {} | awk \'{{print $2}}\''.format(
-        vm.jailer_clone_pid
-    )
+    cmd = f'ps -T --no-headers -p {vm.jailer_clone_pid} | awk \'{{print $2}}\''
     process = run_cmd(cmd)
     threads_out_lines = process.stdout.splitlines()
     for tid in threads_out_lines:
         # Verify each thread's status
-        cmd = 'cat /proc/{}/status | grep Speculation_Store_Bypass'.format(tid)
+        cmd = f'cat /proc/{tid}/status | grep Speculation_Store_Bypass'
         _, output, _ = run_cmd(cmd)
         assert "thread force mitigated" in output or \
             "globally mitigated" in output

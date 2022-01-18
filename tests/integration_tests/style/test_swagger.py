@@ -4,12 +4,12 @@
 
 import os
 import yaml
-import framework.utils as utils
+from framework import utils
 
 
 def check_yaml_style(yaml_spec):
     """Check if the swagger definition is correctly formatted."""
-    with open(yaml_spec, 'r') as file_stream:
+    with open(yaml_spec, 'r', encoding='utf-8') as file_stream:
         try:
             yaml.safe_load(file_stream)
         # pylint: disable=broad-except

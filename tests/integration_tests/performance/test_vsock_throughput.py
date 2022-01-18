@@ -26,7 +26,7 @@ from integration_tests.performance.utils import handle_failure, \
     dump_test_result
 
 CONFIG = json.load(open(defs.CFG_LOCATION /
-                        "vsock_throughput_test_config.json"))
+                        "vsock_throughput_test_config.json", encoding='utf-8'))
 SERVER_STARTUP_TIME = CONFIG["server_startup_time"]
 VSOCK_UDS_PATH = "v.sock"
 IPERF3 = "iperf3-vsock"
@@ -57,7 +57,7 @@ class VsockThroughputBaselineProvider(BaselineProvider):
         baselines = list(filter(
             lambda cpu_baseline: cpu_baseline["model"] == cpu_model_name,
             CONFIG["hosts"]["instances"]["m5d.metal"]["cpus"]))
-        super().__init__(DictQuery(dict()))
+        super().__init__(DictQuery({}))
         if len(baselines) > 0:
             super().__init__(DictQuery(baselines[0]))
 
@@ -135,7 +135,7 @@ def produce_iperf_output(basevm,
         return stdout.read()
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = list()
+        futures = []
         cpu_load_future = executor.submit(get_cpu_percent,
                                           basevm.jailer_clone_pid,
                                           runtime - SERVER_STARTUP_TIME,
@@ -168,7 +168,7 @@ def produce_iperf_output(basevm,
         data = cpu_load[tag][thread_id]
         vmm_util = sum(data)/len(data)
         cpu_util_perc = res[IPERF3_END_RESULTS_TAG][
-            IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG] = dict()
+            IPERF3_CPU_UTILIZATION_PERCENT_OUT_TAG] = {}
         cpu_util_perc[CPU_UTILIZATION_VMM] = vmm_util
 
         vcpus_util = 0

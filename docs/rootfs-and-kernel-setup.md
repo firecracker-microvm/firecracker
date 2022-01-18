@@ -171,7 +171,7 @@ The disk images used in our CI to test Firecracker's features are obtained by
 using the recipe inside devtool:
 
 ```bash
-./tools/devtool build_rootfs -s 300
+./tools/devtool build_rootfs -s 300MB
 ```
 
 or

@@ -4,6 +4,9 @@
 
 from gitlint.rules import CommitRule, RuleViolation
 
+# Too few public methods (1/2) (too-few-public-methods)
+# pylint: disable=R0903
+
 
 class SignedOffBy(CommitRule):
     """Make sure that each commit contains a "Signed-off-by" line."""

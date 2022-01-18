@@ -185,18 +185,6 @@ impl Env {
 
         let mut cgroup_builder = None;
 
-        // If `--node` is used, the corresponding cgroups will be created.
-        if let Some(numa_node_str) = arguments.single_value("node") {
-            let numa_node = numa_node_str
-                .parse::<u32>()
-                .map_err(|_| Error::NumaNode(numa_node_str.to_owned()))?;
-
-            let builder = cgroup_builder.get_or_insert(CgroupBuilder::new(cgroup_ver)?);
-
-            let mut numa_cgroups = builder.cgroups_from_numa_node(numa_node, id, parent_cgroup)?;
-            cgroups.append(&mut numa_cgroups);
-        }
-
         // cgroup format: <cgroup_controller>.<cgroup_property>=<value>,...
         if let Some(cgroups_args) = arguments.multiple_values("cgroup") {
             let builder = cgroup_builder.get_or_insert(CgroupBuilder::new(cgroup_ver)?);
@@ -624,7 +612,6 @@ mod tests {
 
     #[derive(Clone)]
     struct ArgVals<'a> {
-        pub node: &'a str,
         pub id: &'a str,
         pub exec_file: &'a str,
         pub uid: &'a str,
@@ -641,7 +628,6 @@ mod tests {
     impl ArgVals<'_> {
         pub fn new() -> ArgVals<'static> {
             ArgVals {
-                node: "0",
                 id: "bd65600d-8669-4903-8a14-af88203add38",
                 exec_file: "/proc/cpuinfo",
                 uid: "1001",
@@ -660,8 +646,6 @@ mod tests {
     fn make_args(arg_vals: &ArgVals) -> Vec<String> {
         let mut arg_vec = vec![
             "--binary-name",
-            "--node",
-            arg_vals.node,
             "--id",
             arg_vals.id,
             "--exec-file",
@@ -771,16 +755,6 @@ mod tests {
             daemonize: true,
             ..another_good_arg_vals.clone()
         };
-
-        let invalid_node_arg_vals = ArgVals {
-            node: "zzz",
-            ..base_invalid_arg_vals.clone()
-        };
-
-        let arg_parser = build_arg_parser();
-        args = arg_parser.arguments().clone();
-        args.parse(&make_args(&invalid_node_arg_vals)).unwrap();
-        assert!(Env::new(&args, 0, 0).is_err());
 
         let invalid_cgroup_arg_vals = ArgVals {
             cgroups: vec!["zzz"],
@@ -990,7 +964,6 @@ mod tests {
         let some_dir_path = some_dir.as_path().to_str().unwrap();
 
         let some_arg_vals = ArgVals {
-            node: "0",
             id: "bd65600d-8669-4903-8a14-af88203add38",
             exec_file: some_file_path,
             uid: "1001",

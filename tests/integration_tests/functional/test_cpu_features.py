@@ -98,7 +98,7 @@ def test_brand_string(test_microvm_with_api, network_config):
 
     @type: functional
     """
-    cif = open('/proc/cpuinfo', 'r')
+    cif = open('/proc/cpuinfo', 'r', encoding='utf-8')
     host_brand_string = None
     while True:
         line = cif.readline()

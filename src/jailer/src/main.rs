@@ -56,7 +56,6 @@ pub enum Error {
     MountPropagationSlave(io::Error),
     NotAFile(PathBuf),
     NotADirectory(PathBuf),
-    NumaNode(String),
     OpenDevNull(io::Error),
     OsStringParsing(PathBuf, OsString),
     PivotRoot(io::Error),
@@ -192,7 +191,6 @@ impl fmt::Display for Error {
                 "{}",
                 format!("{:?} is not a directory", path).replace("\"", "")
             ),
-            NumaNode(ref node) => write!(f, "Invalid numa node: {}", node),
             OpenDevNull(ref err) => write!(f, "Failed to open /dev/null: {}", err),
             OsStringParsing(ref path, _) => write!(
                 f,
@@ -260,12 +258,6 @@ pub fn build_arg_parser() -> ArgParser<'static> {
                 .required(true)
                 .takes_value(true)
                 .help("File path to exec into."),
-        )
-        .arg(
-            Argument::new("node")
-                .required(false)
-                .takes_value(true)
-                .help("NUMA node to assign this microVM to."),
         )
         .arg(
             Argument::new("uid")
@@ -685,10 +677,6 @@ mod tests {
         assert_eq!(
             format!("{}", Error::NotADirectory(file_path.clone())),
             "/foo/bar is not a directory",
-        );
-        assert_eq!(
-            format!("{}", Error::NumaNode(id.to_string())),
-            "Invalid numa node: foobar",
         );
         assert_eq!(
             format!("{}", Error::OpenDevNull(io::Error::from_raw_os_error(42))),

@@ -137,7 +137,7 @@ from framework.utils import DictQuery
 # The baseline provider is a requirement for the `DictProvider`.
 class RandintBaselineProvider(BaselineProvider):
     def __init__(self, exercise_id, env_id):
-        super().__init__(DictQuery(dict()))
+        super().__init__(DictQuery({}))
         if "baselines" in CONFIG:
             super().__init__(DictQuery(CONFIG["baselines"][exercise_id]))
         self._tag = "{}/" + env_id + "/{}"
@@ -184,9 +184,9 @@ def baseline(ms_name: str, st_name: str, exercise_id: str):
     }
 
 def measurements(exercise_id: str):
-    ms_list = list()
+    ms_list  = []
     for ms_name in CONFIG["measurements"][exercise_id]:
-        st_list = list()
+        st_list  = []
         unit = CONFIG["measurements"][exercise_id][ms_name]["unit"]
         st_defs = CONFIG["measurements"][exercise_id][ms_name]["statistics"]
         for st_def in st_defs:

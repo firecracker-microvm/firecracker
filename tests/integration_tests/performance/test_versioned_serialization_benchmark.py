@@ -9,9 +9,9 @@ import json
 import shutil
 
 import pytest
-import framework.utils as utils
-import host_tools.proc as proc
+from framework import utils
 from framework.defs import FC_WORKSPACE_DIR
+from host_tools import proc
 
 BENCHMARK_DIRECTORY = "{}/src/vmm".format(FC_WORKSPACE_DIR)
 
@@ -148,7 +148,7 @@ def test_serialization_benchmark():
         json_file = os.path.join(
             results_dir,
             "{}/{}".format(directory, "base/estimates.json"))
-        with open(json_file, "r") as read_file:
+        with open(json_file, "r", encoding='utf-8') as read_file:
             estimates = json.load(read_file)
 
         # Save the Mean measurement(nanoseconds) and transform it(milliseconds)

@@ -151,6 +151,8 @@ plans, check out our [kernel support policy](docs/kernel-policy.md).
 - The [SendCtrlAltDel](docs/api_requests/actions.md#sendctrlaltdel) API request
   is not supported for aarch64 enabled microVMs.
 - Configuring CPU templates is only supported for Intel enabled microVMs.
+- The `pl031` RTC device on aarch64 does not support interrupts, so guest
+  programs which use an RTC alarm (e.g. `hwclock`) will not work.
 
 ## Performance
 
