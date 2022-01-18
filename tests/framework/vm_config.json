@@ -27,5 +27,8 @@
   "vsock": null,
   "logger": null,
   "metrics": null,
-  "mmds-config": null
+  "mmds-config": {
+    "version": "V2",
+    "ipv4_address": "169.254.169.250"
+  }
 }

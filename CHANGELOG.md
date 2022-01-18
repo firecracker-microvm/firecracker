@@ -36,6 +36,9 @@
   See `docs/api_requests/block-io-engine.md`.
 - Added `block.io_engine_throttled_events` metric for measuring the number of
   virtio events throttled because of the IO engine.
+- New optional `version` field to PUT requests towards `/mmds/config` to
+  configure MMDS version. Accepted values are `V1` and `V2` and default is
+  `V1`. Known limitation: `V2` does not currently work after snapshot load.
 
 ### Changed
 

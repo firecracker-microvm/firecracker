@@ -15,6 +15,8 @@ use crate::vstate::vcpu::VcpuConfig;
 use mmds::ns::MmdsNetworkStack;
 use utils::net::ipv4addr::is_link_local_valid;
 
+use mmds::data_store::MmdsVersion;
+use mmds::MMDS;
 use serde::{Deserialize, Serialize};
 use std::convert::From;
 
@@ -161,7 +163,7 @@ impl VmResources {
 
         if let Some(mmds_config) = vmm_config.mmds_config {
             resources
-                .set_mmds_config(mmds_config)
+                .set_mmds_config(mmds_config, &instance_info.id)
                 .map_err(Error::MmdsConfig)?;
         }
 
@@ -319,7 +321,11 @@ impl VmResources {
     }
 
     /// Setter for mmds config.
-    pub fn set_mmds_config(&mut self, config: MmdsConfig) -> Result<MmdsConfigError> {
+    pub fn set_mmds_config(
+        &mut self,
+        config: MmdsConfig,
+        instance_id: &str,
+    ) -> Result<MmdsConfigError> {
         // Check IPv4 address validity.
         let ipv4_addr = match config.ipv4_addr() {
             Some(ipv4_addr) if is_link_local_valid(ipv4_addr) => Ok(ipv4_addr),
@@ -335,7 +341,29 @@ impl VmResources {
                 .set_mmds_ipv4_addr(ipv4_addr);
         }
 
-        self.mmds_config = Some(config);
+        self.set_mmds_version(config.version, instance_id)?;
+
+        self.mmds_config = Some(MmdsConfig {
+            version: config.version,
+            ipv4_address: config
+                .ipv4_addr()
+                .or_else(|| Some(MmdsNetworkStack::default_ipv4_addr())),
+        });
+
+        Ok(())
+    }
+
+    // Updates MMDS version.
+    fn set_mmds_version(
+        &mut self,
+        version: MmdsVersion,
+        instance_id: &str,
+    ) -> Result<MmdsConfigError> {
+        let mut mmds_lock = MMDS.lock().expect("Failed to acquire lock on MMDS");
+        mmds_lock
+            .set_version(version)
+            .map_err(|e| MmdsConfigError::MmdsVersion(version, e))?;
+        mmds_lock.set_aad(instance_id);
         Ok(())
     }
 }

@@ -390,7 +390,7 @@ impl<'a> PrebootApiController<'a> {
     fn set_mmds_config(&mut self, cfg: MmdsConfig) -> ActionResult {
         self.boot_path = true;
         self.vm_resources
-            .set_mmds_config(cfg)
+            .set_mmds_config(cfg, &self.instance_info.id)
             .map(|()| VmmData::Empty)
             .map_err(VmmActionError::MmdsConfig)
     }
@@ -707,6 +707,7 @@ mod tests {
     use devices::virtio::VsockError;
     use seccompiler::BpfThreadMap;
 
+    use mmds::data_store::MmdsVersion;
     use std::path::PathBuf;
 
     impl PartialEq for VmmActionError {
@@ -835,7 +836,7 @@ mod tests {
             Ok(())
         }
 
-        pub fn set_mmds_config(&mut self, _: MmdsConfig) -> Result<(), MmdsConfigError> {
+        pub fn set_mmds_config(&mut self, _: MmdsConfig, _: &str) -> Result<(), MmdsConfigError> {
             if self.force_errors {
                 return Err(MmdsConfigError::InvalidIpv4Addr);
             }
@@ -1204,13 +1205,19 @@ mod tests {
 
     #[test]
     fn test_preboot_set_mmds_config() {
-        let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });
+        let req = VmmAction::SetMmdsConfiguration(MmdsConfig {
+            ipv4_address: None,
+            version: MmdsVersion::default(),
+        });
         check_preboot_request(req, |result, vm_res| {
             assert_eq!(result, Ok(VmmData::Empty));
             assert!(vm_res.mmds_set)
         });
 
-        let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });
+        let req = VmmAction::SetMmdsConfiguration(MmdsConfig {
+            ipv4_address: None,
+            version: MmdsVersion::default(),
+        });
         check_preboot_request_err(
             req,
             VmmActionError::MmdsConfig(MmdsConfigError::InvalidIpv4Addr),
@@ -1606,7 +1613,10 @@ mod tests {
             VmmActionError::OperationNotSupportedPostBoot,
         );
         check_runtime_request_err(
-            VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None }),
+            VmmAction::SetMmdsConfiguration(MmdsConfig {
+                ipv4_address: None,
+                version: MmdsVersion::default(),
+            }),
             VmmActionError::OperationNotSupportedPostBoot,
         );
         check_runtime_request_err(
@@ -1689,7 +1699,10 @@ mod tests {
         let req = VmmAction::SetVmConfiguration(VmConfig::default());
         verify_load_snap_disallowed_after_boot_resources(req, "SetVmConfiguration");
 
-        let req = VmmAction::SetMmdsConfiguration(MmdsConfig { ipv4_address: None });
+        let req = VmmAction::SetMmdsConfiguration(MmdsConfig {
+            ipv4_address: None,
+            version: MmdsVersion::default(),
+        });
         verify_load_snap_disallowed_after_boot_resources(req, "SetMmdsConfiguration");
     }
 }
