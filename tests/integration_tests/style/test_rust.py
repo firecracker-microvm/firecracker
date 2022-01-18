@@ -13,7 +13,8 @@ def test_rust_style():
     """
     # Check that the output is empty.
     _, stdout, _ = utils.run_cmd(
-        'cargo fmt --all -- --check')
+        'cargo fmt --all -- --check '
+        '--config format_code_in_doc_comments=true')
 
     # rustfmt prepends `"Diff in"` to the reported output.
     assert "Diff in" not in stdout

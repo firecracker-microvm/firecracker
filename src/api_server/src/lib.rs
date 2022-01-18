@@ -109,16 +109,16 @@ impl ApiServer {
     /// # Example
     ///
     /// ```
-    /// use mmds::MAX_DATA_STORE_SIZE;
     /// use api_server::ApiServer;
+    /// use logger::ProcessTimeReporter;
+    /// use mmds::MAX_DATA_STORE_SIZE;
     /// use mmds::MMDS;
+    /// use std::env::consts::ARCH;
     /// use std::{
     ///     convert::TryInto, io::Read, io::Write, os::unix::net::UnixStream, path::PathBuf,
     ///     sync::mpsc::channel, thread, time::Duration,
     /// };
-    /// use std::env::consts::ARCH;
     /// use utils::{eventfd::EventFd, tempfile::TempFile};
-    /// use logger::ProcessTimeReporter;
     /// use vmm::rpc_interface::VmmData;
     /// use vmm::seccomp_filters::{get_filters, SeccompConfig};
     /// use vmm::vmm_config::instance_info::InstanceInfo;

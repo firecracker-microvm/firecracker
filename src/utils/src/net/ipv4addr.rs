@@ -11,7 +11,6 @@ use std::net::Ipv4Addr;
 /// use utils::net::ipv4addr::is_link_local_valid;
 ///
 /// is_link_local_valid(Ipv4Addr::new(169, 254, 1, 1));
-///
 pub fn is_link_local_valid(ipv4_addr: Ipv4Addr) -> bool {
     match ipv4_addr.octets() {
         [169, 254, 0, _] => false,
