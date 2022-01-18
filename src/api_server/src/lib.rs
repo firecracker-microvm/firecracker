@@ -347,15 +347,8 @@ impl ApiServer {
     }
 
     fn put_mmds(&self, value: serde_json::Value) -> Response {
-        let mmds_response = self.unlock_mmds().put_data(value);
-
-        match mmds_response {
-            Ok(_) => Response::new(Version::Http11, StatusCode::NoContent),
-            Err(e) => ApiServer::json_response(
-                StatusCode::BadRequest,
-                ApiServer::json_fault_message(e.to_string()),
-            ),
-        }
+        self.unlock_mmds().put_data(value);
+        Response::new(Version::Http11, StatusCode::NoContent)
     }
 
     /// An HTTP response which also includes a body.

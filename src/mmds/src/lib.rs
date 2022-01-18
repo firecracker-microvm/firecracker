@@ -347,8 +347,7 @@ mod tests {
         let mmds = MMDS.clone();
         mmds.lock()
             .expect("Poisoned lock")
-            .put_data(serde_json::from_str(data).unwrap())
-            .unwrap();
+            .put_data(serde_json::from_str(data).unwrap());
 
         mmds
     }
