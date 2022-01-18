@@ -193,6 +193,12 @@ impl Env {
                 if aux.len() != 2 || aux[1].is_empty() {
                     return Err(Error::CgroupFormat(cg.to_string()));
                 }
+                let file = Path::new(aux[0]);
+                if file.components().any(|c| {
+                    c == Component::CurDir || c == Component::ParentDir || c == Component::RootDir
+                }) {
+                    return Err(Error::CgroupInvalidFile(cg.to_string()));
+                }
 
                 let cgroup = builder.new_cgroup(
                     aux[0].to_string(), // cgroup file
@@ -825,6 +831,24 @@ mod tests {
         let arg_parser = build_arg_parser();
         args = arg_parser.arguments().clone();
         args.parse(&make_args(&invalid_parent_cg_vals)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        let invalid_controller_pt = ArgVals {
+            cgroups: vec!["../file_name=1", "./root=1", "/home=1"],
+            ..another_good_arg_vals.clone()
+        };
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
+        args.parse(&make_args(&invalid_controller_pt)).unwrap();
+        assert!(Env::new(&args, 0, 0).is_err());
+
+        let invalid_format = ArgVals {
+            cgroups: vec!["./root/", "../root"],
+            ..another_good_arg_vals.clone()
+        };
+        let arg_parser = build_arg_parser();
+        args = arg_parser.arguments().clone();
+        args.parse(&make_args(&invalid_format)).unwrap();
         assert!(Env::new(&args, 0, 0).is_err());
 
         // The chroot-base-dir param is not validated by Env::new, but rather in run, when we
